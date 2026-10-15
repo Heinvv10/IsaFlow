@@ -6,6 +6,8 @@
  *  - migration 893: the audit tables' read policy runs the reader once per query (an InitPlan), not once per row,
  *    and shows exactly the rows 891's did.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 
@@ -29,19 +31,19 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
-let o = '', m = '', v = '';
+let o = '', m = '', v = '', b = '';
 const TOOLS = [auditSnapshotsTool, takeAuditSnapshotTool];
 const TAKE = ['read:reports', 'write:journals'];
 const KEY = 'f'.repeat(48);
 
 beforeAll(async () => {
-  [o, m, v] = await members(pool, tokens, 3);
+  [o, m, v, b] = await members(pool, tokens, 4);
   process.env.AUDIT_SNAPSHOT_SIGNING_KEY = KEY;
   process.env.AUDIT_SNAPSHOT_KEY_ID = 'followups-test';
 });
 afterAll(async () => {
   await pool.query('DELETE FROM mcp_tool_calls WHERE company_id = ANY($1)', [companies]);
-  await cleanupAudit(pool, companies, [o, m, v]);
+  await cleanupAudit(pool, companies, [o, m, v, b]);
 });
 
 async function company(roles: [string, string][] = [[o, 'owner'], [m, 'manager'], [v, 'viewer']]) {
@@ -162,5 +164,56 @@ describe('migration 893', { timeout: 120_000 }, () => {
     expect(await seen(o, other)).toEqual(only([other]));
     // A member of c only, pointed at the other company, sees nothing.
     expect(await seen(m, other)).toEqual(only([]));
+  });
+
+  it('a company GUC changed in mid-query cannot pair one company\'s rows with another\'s membership (breaker L3)', async () => {
+    const c = await company();
+    const bOwn = await company([[b, 'owner']]);
+    for (const x of [c, bOwn]) await run(x === c ? o : b, x, 'owner', 'take_audit_snapshot', { cutoff: '2026-06-30' });
+    // b owns bOwn and is no member of c. Row 1 points the GUC at c and fetches nothing; row 2 points it at bOwn and
+    // rescans. A policy that read the GUC twice kept c from the first read and checked membership for bOwn.
+    const probe = async (twoReads: boolean) => {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        if (twoReads) {
+          await client.query('DROP POLICY audit_check_runs_read ON public.audit_check_runs');
+          await client.query(`CREATE POLICY audit_check_runs_read ON public.audit_check_runs FOR SELECT TO app_user USING (
+            company_id = (SELECT app.current_company_id()) AND (SELECT public.audit_snapshot_reader(app.current_company_id())))`);
+        }
+        await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: b, role: 'authenticated' })]);
+        await client.query('SET LOCAL ROLE app_user');
+        await client.query('SET LOCAL enable_seqscan = off');
+        await client.query('SET LOCAL enable_bitmapscan = off');
+        const { rows } = await client.query(`SELECT r.company_id::text AS c
+          FROM (VALUES (1, 'infinity'::timestamptz, $1::text), (2, '-infinity'::timestamptz, $2::text)) v(n, t, g),
+          LATERAL (SELECT set_config('app.current_company_id', v.g, true) AS s OFFSET 0) s,
+          LATERAL (SELECT r.company_id FROM audit_check_runs r WHERE r.taken_at > v.t AND s.s IS NOT NULL OFFSET 0) r`, [c, bOwn]);
+        return rows.map((r) => String(r.c));
+      } finally {
+        await client.query('ROLLBACK');
+        client.release();
+      }
+    };
+    // The probe works: the two-read form shows c's runs to b ...
+    expect(await probe(true)).toContain(c);
+    // ... and 893's one-read form does not.
+    expect(await probe(false)).not.toContain(c);
+  });
+
+  it('its self-check refuses a read policy that is not the once-per-query reader', async () => {
+    const sqlText = readFileSync(path.resolve(__dirname, '../../scripts/migrations/sql/893_audit_snapshot_rls_once_per_query.sql'), 'utf8');
+    const check = sqlText.slice(sqlText.indexOf('DO $$', sqlText.indexOf('-- Every audit table still has')));
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(check);
+      await client.query('DROP POLICY audit_snapshot_lines_read ON public.audit_snapshot_lines');
+      await client.query('CREATE POLICY audit_snapshot_lines_read ON public.audit_snapshot_lines FOR SELECT TO app_user USING (true)');
+      await expect(client.query(check)).rejects.toThrow(/migration 893/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
   });
 });

@@ -9,9 +9,11 @@
 --   app.current_company_id()), so for every row
 --     audit_snapshot_reader(company_id)
 --       = company_id = app.current_company_id() AND audit_snapshot_reader(app.current_company_id())
---   and the right-hand side is the same rows. Written with both calls as uncorrelated sub-selects they become
---   InitPlans: evaluated once per query, and the company_id comparison can use an index. No row is visible that was
---   not before, and none is hidden that was visible (a NULL company GUC still shows nothing).
+--   and the right-hand side is the same rows. Written as ONE uncorrelated sub-select it becomes an InitPlan: the
+--   company GUC is read once and the reader runs once on that same value, per query, and the company_id comparison
+--   can use an index. (Two sub-selects, one per call, would read the GUC twice: a query that changed it in between
+--   could match rows of one company against the other's membership — breaker, 2026-10-15.) No row is visible that
+--   was not before, and none is hidden that was visible (a NULL or empty company GUC still shows nothing).
 --
 --   Same policy names, same role (app_user), same command (SELECT); the tables stay append-only by grant (891 §5).
 --
@@ -20,27 +22,27 @@
 
 DROP POLICY IF EXISTS audit_check_runs_read ON public.audit_check_runs;
 CREATE POLICY audit_check_runs_read ON public.audit_check_runs FOR SELECT TO app_user
-  USING (company_id = (SELECT app.current_company_id()) AND (SELECT public.audit_snapshot_reader(app.current_company_id())));
+  USING (company_id = (SELECT s.c FROM (SELECT app.current_company_id() AS c) s WHERE public.audit_snapshot_reader(s.c)));
 
 DROP POLICY IF EXISTS audit_check_results_read ON public.audit_check_results;
 CREATE POLICY audit_check_results_read ON public.audit_check_results FOR SELECT TO app_user
-  USING (company_id = (SELECT app.current_company_id()) AND (SELECT public.audit_snapshot_reader(app.current_company_id())));
+  USING (company_id = (SELECT s.c FROM (SELECT app.current_company_id() AS c) s WHERE public.audit_snapshot_reader(s.c)));
 
 DROP POLICY IF EXISTS audit_snapshots_read ON public.audit_snapshots;
 CREATE POLICY audit_snapshots_read ON public.audit_snapshots FOR SELECT TO app_user
-  USING (company_id = (SELECT app.current_company_id()) AND (SELECT public.audit_snapshot_reader(app.current_company_id())));
+  USING (company_id = (SELECT s.c FROM (SELECT app.current_company_id() AS c) s WHERE public.audit_snapshot_reader(s.c)));
 
 DROP POLICY IF EXISTS audit_snapshot_tb_read ON public.audit_snapshot_tb;
 CREATE POLICY audit_snapshot_tb_read ON public.audit_snapshot_tb FOR SELECT TO app_user
-  USING (company_id = (SELECT app.current_company_id()) AND (SELECT public.audit_snapshot_reader(app.current_company_id())));
+  USING (company_id = (SELECT s.c FROM (SELECT app.current_company_id() AS c) s WHERE public.audit_snapshot_reader(s.c)));
 
 DROP POLICY IF EXISTS audit_snapshot_journals_read ON public.audit_snapshot_journals;
 CREATE POLICY audit_snapshot_journals_read ON public.audit_snapshot_journals FOR SELECT TO app_user
-  USING (company_id = (SELECT app.current_company_id()) AND (SELECT public.audit_snapshot_reader(app.current_company_id())));
+  USING (company_id = (SELECT s.c FROM (SELECT app.current_company_id() AS c) s WHERE public.audit_snapshot_reader(s.c)));
 
 DROP POLICY IF EXISTS audit_snapshot_lines_read ON public.audit_snapshot_lines;
 CREATE POLICY audit_snapshot_lines_read ON public.audit_snapshot_lines FOR SELECT TO app_user
-  USING (company_id = (SELECT app.current_company_id()) AND (SELECT public.audit_snapshot_reader(app.current_company_id())));
+  USING (company_id = (SELECT s.c FROM (SELECT app.current_company_id() AS c) s WHERE public.audit_snapshot_reader(s.c)));
 
 -- Every audit table still has exactly its one read policy, in the once-per-query form.
 DO $$
@@ -55,7 +57,10 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policies p
                     WHERE p.schemaname = 'public' AND p.tablename = t.name AND p.policyname = t.name || '_read'
                       AND p.cmd = 'SELECT' AND p.roles = ARRAY['app_user']::pg_catalog.name[]
-                      AND p.qual NOT LIKE '%audit_snapshot_reader(company_id)%');
+                      AND p.qual NOT LIKE '%audit_snapshot_reader(company_id)%'
+                      AND p.qual LIKE '%SELECT app.current_company_id() AS c%'
+                      AND p.qual LIKE '%WHERE audit_snapshot_reader(s.c)%'
+                      AND p.with_check IS NULL);
   IF v_bad <> 0 THEN
     RAISE EXCEPTION 'migration 893: % audit table(s) do not carry exactly the once-per-query read policy', v_bad;
   END IF;

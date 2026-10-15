@@ -13,13 +13,8 @@ import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { roleFenceRefusal } from './roleFence';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
-import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllocationLineError';
-import { BankLineDirectionError, bankLineDirectionErrorText } from './bankLineDirectionError';
-import {
-  MissingSystemAccountError,
-  missingSystemAccountText,
-} from '@/modules/accounting/services/gl/systemAccountKeys';
 import { insufficientScopeMessage } from './scopeRemediation';
+import { thrownToolErrorText } from './thrownToolErrorText';
 
 /**
  * The SAVEPOINT name a write tool runs under.
@@ -33,8 +28,6 @@ import { insufficientScopeMessage } from './scopeRemediation';
  * another's savepoint.
  */
 import { COMPANY_ASSERT_PROPERTY, assertCompanyMatches } from './companyAssert';
-import { isRefusalCoded } from './tools/toolHelpers';
-import { lockWaitErrorText } from './lockWaitError';
 import { hasNul, NUL_MESSAGE } from '@/lib/validation';
 
 export function savepointNameFor(toolName: string): string {
@@ -44,8 +37,6 @@ export function savepointNameFor(toolName: string): string {
 function errorResult(text: string): McpToolResult {
   return { content: [{ type: 'text', text }], isError: true };
 }
-
-const GENERIC_FAILURE = 'The operation failed. Please try again or contact support.';
 
 export class McpRegistry {
   private tools = new Map<string, McpTool>();
@@ -115,9 +106,14 @@ export class McpRegistry {
     const roleRefusal = roleFenceRefusal(tool, ctx);
     if (roleRefusal) return reject(roleRefusal, null);
 
-    // A NUL byte reaches Postgres as 22021 and aborts the request transaction (reads have no
-    // savepoint), so the registry/audit writes after it fail. Refuse before any handler.
+    // A NUL byte reaches Postgres as 22021 and aborts the transaction; refuse it before any
+    // handler rather than leave it to the tool's savepoint.
     if (hasNul(args)) return reject(`invalid arguments: ${NUL_MESSAGE}`, null);
+    // dry_run is true, false or absent. Handlers test `=== true`, so "true", 1 or null would run the LIVE call — on
+    // take_audit_snapshot an append-only snapshot (breaker, 2026-10-15). Refused before the key is looked at.
+    if (args.dry_run !== undefined && typeof args.dry_run !== 'boolean') {
+      return reject('invalid arguments: dry_run must be true or false', null);
+    }
 
     // Assert-only company guard. Runs before the idempotency-key check so a
     // mismatch never burns a key, and before any handler so nothing is
@@ -270,50 +266,7 @@ export class McpRegistry {
         ctx, tool: name, argsHash, idempotencyKey: null,
         status: 'error', result: null, durationMs: Date.now() - started,
       });
-      // A BATCH tool that failed on one identifiable line is the one case where
-      // GENERIC_FAILURE is the wrong answer. "The operation failed" tells an
-      // agent holding 124 lines nothing it can act on — the pilot bisected such
-      // a batch by hand. The line index and its transaction id are the agent's
-      // OWN input, so naming them leaks nothing, and the message the tool built
-      // is already free of SQL and stack. Everything else about this path is
-      // unchanged: rolled back by the savepoint, refunded, audited 'error' with
-      // a NULL key so the retry is not burned.
-      if (err instanceof BulkAllocationLineError) {
-        return errorResult(bulkAllocationLineErrorText(name, err));
-      }
-      // A chart that does not hold a required system account role is the other
-      // case GENERIC_FAILURE answers badly. "The operation failed. Please try
-      // again" invites a retry that cannot possibly succeed — the chart is the
-      // same on the second call — and names nothing to fix. Production on
-      // 2026-09-04 was missing `disposal_profit_loss` on all 13 companies, so
-      // every asset disposal on every tenant returned exactly that.
-      //
-      // Handled HERE rather than in each tool because ~40 services resolve
-      // system accounts and any of their tools can raise it; a per-tool catch
-      // would cover whichever ones someone remembered. Nothing leaks: the role
-      // name and the account codes are the company's own chart, and the message
-      // carries no SQL and no stack. Still a throw, so the savepoint has
-      // already unwound and the call is refunded and audited like any failure.
-      if (err instanceof MissingSystemAccountError) {
-        return errorResult(missingSystemAccountText(name, err));
-      }
-      // A line whose sign contradicts the invoice it names is the third. The
-      // refusal has to say WHICH way to go — drop invoice_id and it posts as a
-      // refund — because "the operation failed" on a payload the agent believes
-      // is a routine settlement invites the retry that keeps failing. Nothing
-      // in the message but the caller's own transaction id.
-      if (err instanceof BankLineDirectionError) {
-        return errorResult(bankLineDirectionErrorText(name, err));
-      }
-      // Any THROWN typed refusal (a code on REFUSAL_CODES) keeps its own message
-      // — e.g. RECONCILED_CASH from bank reverse, reached by void_payment and
-      // every reverse tool, which do not catch so the savepoint sees the throw.
-      // The savepoint has rolled back; the text is caller-facing, no SQL. An
-      // unclassified Error or a pg error still falls through to GENERIC_FAILURE.
-      if (isRefusalCoded(err)) return errorResult(err.message);
-      const lockWait = lockWaitErrorText(name, err); // a raw 55P03 — see lockWaitError.ts
-      if (lockWait) return errorResult(lockWait);
-      return errorResult(GENERIC_FAILURE);
+      return errorResult(thrownToolErrorText(name, err));
     }
   }
 }
