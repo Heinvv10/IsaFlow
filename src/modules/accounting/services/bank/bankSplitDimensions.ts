@@ -14,8 +14,7 @@ import type { DbRow } from '@/lib/neon';
 import { cosProjectWarnings } from '../gl/dimensions/dimensionPolicy';
 import type { DimensionIds } from '../gl/dimensions/dimensionTypes';
 import { isControlSubtype, planAllocationDimensions } from './bankAllocationDimensions';
-import { canonicalSubtype, type CanonicalSubtype } from '../gl/accountSubtypes';
-import { BankAllocationRefusal } from './bankAllocationRefusal';
+import { contactControlRefusal } from './contactControlGuard';
 
 export interface SplitDimensionLine extends DimensionIds {
   contraAccountId: string;
@@ -27,12 +26,6 @@ export interface SplitDimensionPlan {
   /** COS lines with no project, when the company does not block them. */
   warnings: string[];
 }
-
-/** The control accounts a contact line settles through: a GL split line may not post to them directly. */
-const CONTACT_CONTROLS: Partial<Record<CanonicalSubtype, { name: string; who: 'supplier' | 'customer' }>> = {
-  payable: { name: 'accounts payable', who: 'supplier' },
-  receivable: { name: 'accounts receivable', who: 'customer' },
-};
 
 export async function planSplitDimensions(
   companyId: string,
@@ -58,12 +51,8 @@ export async function planSplitDimensions(
   // A GL line straight onto AP/AR control moves the control with no document, so the subledger drifts from it by
   // that amount — and beside a contact line's document it hides behind that document's gate. Name the contact.
   for (const line of lines) {
-    const canonical = canonicalSubtype(byId.get(line.contraAccountId.toLowerCase())?.account_subtype as string | null | undefined);
-    const control = canonical ? CONTACT_CONTROLS[canonical] : undefined;
-    if (control) {
-      throw new BankAllocationRefusal(`A split line posts to the ${control.name} control account: name the ${control.who} `
-        + `instead (contactType '${control.who}' / ${control.who}_id), so the line gets its document`);
-    }
+    const refusal = contactControlRefusal(byId.get(line.contraAccountId.toLowerCase())?.account_subtype, 'A split line');
+    if (refusal) throw refusal;
   }
   const dims = lines.map((line) => {
     const account = byId.get(line.contraAccountId.toLowerCase());
