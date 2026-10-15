@@ -31,6 +31,15 @@ export function sh(script: string): string {
 /** A shell fragment that records its own pid and start time for cleanup. */
 export const record = (): string => `echo $BASHPID $(cut -d" " -f22 /proc/$BASHPID/stat) >> ${spawned()}`;
 
+/**
+ * A loop that ignores TERM and forks a named child every 0.3 s (the children inherit the ignored TERM: it survives
+ * exec). Bounded, so a run killed before its cleanup cannot leak it for good: it stops forking after 60 s and its
+ * children end after 120 s. Unbounded, leaked loops from killed runs once filled this machine with 21k sleeps, and
+ * every ps the gate's cleanup takes slowed until these very tests timed out and leaked more (2026-10-15).
+ */
+export const FORKER_LOOP = (name: string): string =>
+  `until=$(( SECONDS + 60 )); while [ $SECONDS -lt $until ]; do (${record()}; exec -a ${name} sleep 120) & sleep 0.3; done`;
+
 /** Take over cleanup of a process started by a script under test ("pid start"). */
 export function adopt(line: string): void {
   appendFileSync(spawned(), `${line.trim()}\n`);
@@ -53,6 +62,17 @@ export function detached(cmd: string): ChildProcess {
 export const alive = (pid: number): boolean =>
   existsSync(`/proc/${pid}`) && !readFileSync(`/proc/${pid}/stat`, 'utf8').includes(') Z ');
 export const start = (pid: number): string => sh(`proc_start ${pid}`);
+/** proc_start without a shell: field 22 of /proc/<pid>/stat, '' when gone or a zombie (the cleanup reads hundreds). */
+function procStart(pid: number): string {
+  let stat: string;
+  try {
+    stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  } catch {
+    return ''; // no such process
+  }
+  const fields = stat.slice(stat.lastIndexOf(') ') + 2).split(' ');
+  return fields[0] === 'Z' ? '' : fields[19] ?? '';
+}
 export const settle = (pid: number): void => {
   for (let i = 0; i < 50 && start(pid) === ''; i++) execFileSync('sleep', ['0.05']);
 };
@@ -69,14 +89,19 @@ export function useScratch(): void {
       const lines = existsSync(spawned()) ? readFileSync(spawned(), 'utf8').split('\n') : [];
       for (const line of lines) {
         const [pid, at] = line.trim().split(' ');
-        if (pid && at && alive(Number(pid)) && start(Number(pid)) === at) {
+        if (pid && at && procStart(Number(pid)) === at) {
           found = true;
-          process.kill(Number(pid), 'SIGKILL');
+          try {
+            process.kill(Number(pid), 'SIGKILL');
+          } catch (err) {
+            // Gone between the read and the kill: fine. Anything else must not end the cleanup silently.
+            if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err;
+          }
         }
       }
       quiet = found ? 0 : quiet + 1;
       execFileSync('sleep', ['0.2']);
     }
     rmSync(scratch, { recursive: true, force: true });
-  });
+  }, 60_000); // a forker leaks for good if this hook is cut short; it reads /proc directly, so it is fast anyway
 }

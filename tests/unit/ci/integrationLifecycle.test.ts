@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SHARD, alive, detached, record, scratchDir, settle, sh, start, useScratch, victim } from './integrationLifecycle.helpers';
+import { FORKER_LOOP, SHARD, alive, detached, record, scratchDir, settle, sh, start, useScratch, victim } from './integrationLifecycle.helpers';
 
 useScratch();
 
@@ -118,7 +118,7 @@ ${stubborn.pid} ${start(stubborn.pid!)}"`);
 
   it('shard.sh also ends children forked after its first round, even ones that ignore TERM', () => {
     const name = `lifecycle-forker-${process.pid}-${Date.now()}`;
-    shardWith(`(trap "" TERM; ${record()}; while :; do (${record()}; exec -a ${name} sleep 600) & sleep 0.3; done)`);
+    shardWith(`(trap "" TERM; ${record()}; ${FORKER_LOOP(name)})`);
     expect(running(name)).toBe('');
   }, 30_000);
 });
