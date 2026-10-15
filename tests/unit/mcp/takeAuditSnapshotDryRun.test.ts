@@ -52,6 +52,21 @@ describe('take_audit_snapshot dry_run', () => {
     expect(h.preview).not.toHaveBeenCalled();
   });
 
+  it('the registry refuses dry_run: true on a tool that has no dry run, before the handler', async () => {
+    // A write tool without dry_run ran the LIVE call when asked for a preview: the caller believed nothing was written.
+    const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"posted"' }] }));
+    const registry = new McpRegistry();
+    registry.register({ name: 'no_preview', description: 'x', scope: 'read:reports', write: true, handler,
+      inputSchema: { type: 'object', properties: { idempotency_key: { type: 'string' } }, additionalProperties: false } });
+    const r = await registry.call('no_preview', { dry_run: true, idempotency_key: 'k' }, ctx);
+    expect([r.isError, r.content[0]!.text]).toEqual([true,
+      'invalid arguments: no_preview has no dry run — this call would write. Call it without dry_run to run it for real.']);
+    expect(handler).not.toHaveBeenCalled();
+    // dry_run: false on such a tool is the live call it always was.
+    expect((await registry.call('no_preview', { dry_run: false, idempotency_key: 'k2' }, ctx)).isError).toBeFalsy();
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('the registry refuses a dry_run that is not a boolean, before the handler', async () => {
     const registry = new McpRegistry();
     registry.register(takeAuditSnapshotTool);
