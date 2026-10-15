@@ -132,7 +132,7 @@ ${stubborn.pid} ${start(stubborn.pid!)}"`);
       snapshot() { sleep 1; orig_snapshot "$@"; }
       (trap "" TERM; ${record()}; ${SPIN}) &
       sleep 0.3; t0=$SECONDS; end_own_session; echo $(( SECONDS - t0 ))' < /dev/null 2> /dev/null`);
-    expect(Number(out)).toBeLessThan(20);
+    expect(Number(out)).toBeLessThan(25); // ~13 s by the clock even with a 2 s ps; the 20-round loop takes 33 s
   }, 60_000);
 
   it('shard.sh TERMs its leftovers before it KILLs them, so one that handles TERM gets to', () => {

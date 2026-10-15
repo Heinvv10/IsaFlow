@@ -186,7 +186,11 @@ describe('admin dashboard', () => {
 describe('company settings save', () => {
   const base = (display: Route = on('GET', 'accounting-settings', () => ok({ key: 'document_display_fields', value: null }))): Route[] => [
     on('GET', '/companies?id=', () => ok({ id: 'co1', name: 'D2 Company (Pty) Ltd' })),
-    on('GET', 'type=document-numbers', () => ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])),
+    // Answers after the company has loaded (Save enabled), as on a slow line: a save that does not wait for the
+    // numbers writes none of them, which the PUT counts and the payload check below catch.
+    (u: string, m: string) => (m === 'GET' && u.includes('type=document-numbers')
+      ? new Promise<Response>((r) => setTimeout(() => r(ok([{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }])), 300))
+      : undefined),
     display,
   ];
   // Save is enabled once the company has loaded; the document numbers load beside it, and save() writes them only once
@@ -251,5 +255,10 @@ describe('company settings save', () => {
     await save();
     expect(await screen.findByText('Changes saved successfully')).toBeDefined();
     expect(writeCalls('PUT', 'accounting-settings')).toBe(1);
+    // The document numbers that loaded are the ones written back.
+    const put = vi.mocked(apiFetch).mock.calls.find(([u, i]) =>
+      String(u).includes('type=document-numbers') && (i as RequestInit | undefined)?.method === 'PUT');
+    expect(JSON.parse(String((put?.[1] as RequestInit | undefined)?.body ?? '{}'))).toEqual(
+      { updates: [{ documentType: 'invoice', prefix: 'D2PFX', nextNumber: 1 }] });
   });
 });
