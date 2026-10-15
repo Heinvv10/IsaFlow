@@ -14,6 +14,7 @@ export interface ApplyResultParts {
   autoPostSkippedNoPeriod?: number;
   autoPostSkippedVatLocked?: number;
   autoPostSkippedHeaderAccount?: number;
+  autoPostSkippedControlAccount?: number;
   autoPostSkippedRaced?: number;
   autoPostSkippedLocked?: number;
   autoPostTruncatedRules?: number;
@@ -39,6 +40,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   const skippedNoPeriod = parts.autoPostSkippedNoPeriod ?? 0;
   const skippedVatLocked = parts.autoPostSkippedVatLocked ?? 0;
   const skippedHeader = parts.autoPostSkippedHeaderAccount ?? 0;
+  const skippedControl = parts.autoPostSkippedControlAccount ?? 0;
   const noBankGl = parts.autoPostRulesSkippedNoBankGl ?? 0;
   const raced = parts.autoPostSkippedRaced ?? 0;
   const locked = parts.autoPostSkippedLocked ?? 0;
@@ -48,6 +50,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   if (skippedNoPeriod > 0) bits.push(`${skippedNoPeriod} skipped (no fiscal period)`);
   if (skippedVatLocked > 0) bits.push(`${skippedVatLocked} skipped (locked VAT period)`);
   if (skippedHeader > 0) bits.push(`${skippedHeader} skipped (the rule's account is a header with sub-accounts — point the rule at one of them)`);
+  if (skippedControl > 0) bits.push(`${skippedControl} skipped (the rule's account is AP/AR control — set the rule's supplier or customer instead)`);
   if (noBankGl > 0) bits.push(`${noBankGl} auto-post rule${noBankGl > 1 ? 's' : ''} skipped (bank not GL-linked)`);
   if (raced > 0) bits.push(`${raced} skipped — allocated by another request`);
   if (locked > 0) bits.push(`${locked} skipped — locked by another request, retry`);
@@ -58,10 +61,11 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   // raced) is misleading without a louder cue. `no_period` is treated like
   // `closed_period` here — both are actionable but non-blocking, as is a race,
   // which simply means someone else got to the transaction first.
-  const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || skippedVatLocked > 0 || skippedHeader > 0 || noBankGl > 0
+  const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || skippedVatLocked > 0 || skippedHeader > 0 || skippedControl > 0
+    || noBankGl > 0
     || raced > 0 || locked > 0 || truncated > 0;
-  // A header skip recurs on every run until the rule is repointed, so it is never a quiet success.
-  const kind = noBankGl > 0 || skippedHeader > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
+  // A header or control-account skip recurs on every run until the rule is repointed, so it is never a quiet success.
+  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
   return { kind, message };
 }
 
@@ -99,6 +103,7 @@ export function reportCreated(headline: string, data: Record<string, unknown> | 
     autoPostRulesSkippedNoBankGl: n('autoPostRulesSkippedNoBankGl'), autoPostSkippedRaced: n('autoPostSkippedRaced'),
     autoPostSkippedLocked: n('autoPostSkippedLocked'), autoPostTruncatedRules: n('autoPostTruncatedRules'),
     autoPostSkippedHeaderAccount: n('autoPostSkippedHeaderAccount'),
+    autoPostSkippedControlAccount: n('autoPostSkippedControlAccount'),
   };
   const anythingToReport = Object.values(parts).reduce((sum, v) => sum + v, 0);
   if (anythingToReport > 0) emitApplyToast(headline, parts);
