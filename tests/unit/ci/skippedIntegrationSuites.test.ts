@@ -7,6 +7,10 @@
  * tenants) cannot run; without this, a green run would not say their proofs
  * were missing from it.
  */
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { skipNotice, skippedSuites } from '../../../scripts/ci/skippedIntegrationSuites';
 
@@ -76,6 +80,25 @@ describe('skipNotice', () => {
     expect(mixed.map((m) => [m.skipped, m.total])).toEqual([[3, 5]]);
   });
 
+  it('reads a result line that a suite\'s own output ran into (no newline before the mark)', () => {
+    const glued = skippedSuites('noise noise nois↓ tests/integration/silent.int.test.ts (16 tests | 16 skipped) 3ms', read);
+    expect(glued.map((m) => [m.file, m.skipped])).toEqual([['tests/integration/silent.int.test.ts', 16]]);
+  });
+
+  it('takes the path from the LAST mark on a line whose glued-in output carries an earlier ✓ or × (review round 8)', () => {
+    const seed = skippedSuites('[seed] ✓ migrated 3 rows↓ tests/integration/silent.int.test.ts (16 tests | 16 skipped) 3ms', read);
+    expect(seed.map((m) => [m.file, m.skipped])).toEqual([['tests/integration/silent.int.test.ts', 16]]);
+    const stdout = skippedSuites('stdout | ✓ ok ✓ tests/integration/gotrue.int.test.ts (2 tests | 2 skipped)', read);
+    expect(stdout.map((m) => m.file)).toEqual(['tests/integration/gotrue.int.test.ts']);
+    const cross = skippedSuites('× boom ↓ tests/integration/partly.int.test.ts (10 tests | 3 skipped) 9ms', read);
+    expect(cross.map((m) => m.file)).toEqual(['tests/integration/partly.int.test.ts']);
+  });
+
+  it('does not read a result line quoted mid-line (a stack trace or a message), only one that ends the line', () => {
+    const quoted = skippedSuites('    at check ("↓ tests/integration/silent.int.test.ts (16 tests | 16 skipped) 3ms") x.ts:3', read);
+    expect(quoted).toEqual([]);
+  });
+
   it('reads a path with a space in it', () => {
     const spaced = skippedSuites(' ↓ tests/integration/zz spaced.int.test.ts (1 test | 1 skipped)', () => undefined);
     expect(spaced.map((m) => m.file)).toEqual(['tests/integration/zz spaced.int.test.ts']);
@@ -94,6 +117,83 @@ describe('skipNotice', () => {
 
   it('has nothing to say about a run where nothing skipped', () => {
     expect(skipNotice(skippedSuites(' ✓ tests/integration/ran.int.test.ts (5 tests) 1ms', read)))
-      .toEqual({ lines: [], unexplained: [] });
+      .toEqual({ lines: [], unexplained: [], unreadable: [] });
+  });
+});
+
+describe('skipNotice: a suite whose result line cannot be read fails the report, by name', () => {
+  it('cannot tell whether such a suite skipped, so it fails rather than dropping it', () => {
+    const { lines, unexplained, unreadable } = skipNotice([], ['tests/integration/odd.int.test.ts']);
+    expect(unexplained).toEqual([]);
+    expect(unreadable).toEqual(['tests/integration/odd.int.test.ts']);
+    expect(lines).toContain('[skip] FAIL: 1 suite(s) started but left no readable result line, so whether they skipped is '
+      + 'unknown:');
+    expect(lines).toContain('[skip]   tests/integration/odd.int.test.ts');
+  });
+
+  it('says nothing extra when every started suite was read', () => {
+    expect(skipNotice([], [])).toEqual({ lines: [], unexplained: [], unreadable: [] });
+  });
+});
+
+describe('report-skipped-integration.ts reads each log\'s sibling .started list', () => {
+  it('exits 1 and names a started suite with no readable result line', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      writeFileSync(join(dir, 'isaflow_test.log'), ' ✓ tests/integration/a.int.test.ts (3 tests) 1m 2s\n');
+      writeFileSync(join(dir, 'isaflow_test.started'), `${join(process.cwd(), 'tests/integration/a.int.test.ts')}\n`);
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', join(dir, 'isaflow_test.log')], { encoding: 'utf8' });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain('[skip]   tests/integration/a.int.test.ts');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('fails loud, by name, for a log whose .started list cannot be found (not *.log, or no sibling list)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      writeFileSync(join(dir, 'odd.txt'), ' ✓ tests/integration/a.int.test.ts (3 tests) 1ms\n');
+      writeFileSync(join(dir, 'lone.log'), ' ✓ tests/integration/a.int.test.ts (3 tests) 1ms\n');
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', join(dir, 'odd.txt'), join(dir, 'lone.log')],
+        { encoding: 'utf8' });
+      expect(r.status).toBe(1);
+      expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${join(dir, 'odd.txt')} (expected a sibling <name>.started)`);
+      expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${join(dir, 'lone.log')} (expected ${join(dir, 'lone.started')})`);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('says once, without a second failure, that a shard timed out before any suite started (shard.sh already failed it)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      const log = join(dir, 'isaflow_test.log');
+      writeFileSync(log, '[integration] shard 3/6 isaflow_test: TIMED OUT before it started (limit 1800s)\n');
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', log], { encoding: 'utf8' });
+      expect(r.stdout).toContain(`[skip] ${log}: the shard timed out before any suite started; no suite to check`);
+      expect(r.stdout).not.toContain('[skip] FAIL');
+      expect(r.status).toBe(0);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('fails an EMPTY log with no list by name: an empty log is not a pre-start timeout', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      const log = join(dir, 'isaflow_test.log');
+      writeFileSync(log, '');
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', log], { encoding: 'utf8' });
+      expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${log}`);
+      expect(r.stdout).not.toContain('timed out before any suite started');
+      expect(r.status).toBe(1);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('still fails a log with no list that holds anything besides that timeout line', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'skip-report-'));
+    try {
+      const log = join(dir, 'isaflow_test.log');
+      writeFileSync(log, '[integration] shard 3/6 isaflow_test: TIMED OUT before it started (limit 1800s)\n'
+        + ' ↓ tests/integration/a.int.test.ts (1 test | 1 skipped)\n');
+      const r = spawnSync('bun', ['scripts/ci/report-skipped-integration.ts', log], { encoding: 'utf8' });
+      expect(r.stdout).toContain(`[skip] FAIL: no started-file list for ${log}`);
+      expect(r.status).toBe(1);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 });
