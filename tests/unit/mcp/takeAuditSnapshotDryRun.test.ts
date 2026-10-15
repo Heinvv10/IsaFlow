@@ -16,6 +16,12 @@ vi.mock('@/lib/neon', () => {
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth/autoRateLimit', () => ({ chargeAuditJob: vi.fn(async () => true) }));
+vi.mock('@/lib/mcp/flowMetering', () => ({
+  debitForTool: vi.fn(async () => ({ ok: true, handle: null })), refundForTool: vi.fn(async () => undefined),
+}));
+vi.mock('@/lib/mcp/audit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/mcp/audit')>()), recordToolCall: vi.fn(async () => undefined),
+}));
 vi.mock('@/modules/accounting/services/audit/snapshotService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/audit/snapshotService')>()), takeSnapshot: h.take,
 }));
@@ -28,11 +34,13 @@ vi.mock('@/modules/accounting/services/audit/auditTx', async (importOriginal) =>
 import { takeAuditSnapshotTool } from '@/lib/mcp/tools/auditSnapshots';
 import { McpRegistry } from '@/lib/mcp/registry';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { debitForTool } from '@/lib/mcp/flowMetering';
+import { recordToolCall } from '@/lib/mcp/audit';
 
 const ctx = { userId: 'u', companyId: '22222222-2222-2222-2222-222222222222', scopes: ['read:reports', 'write:journals'],
   tokenJti: 'pat', oauthAppId: null, companyRole: 'owner' } as McpToolContext;
 
-beforeEach(() => { h.take.mockClear(); h.preview.mockClear(); });
+beforeEach(() => { vi.clearAllMocks(); });
 
 describe('take_audit_snapshot dry_run', () => {
   it('previews, never takes, and marks the result wroteNothing', async () => {
@@ -62,6 +70,15 @@ describe('take_audit_snapshot dry_run', () => {
     expect([r.isError, r.content[0]!.text]).toEqual([true,
       'invalid arguments: no_preview has no dry run — this call would write. Call it without dry_run to run it for real.']);
     expect(handler).not.toHaveBeenCalled();
+    // Refused before the debit, and audited 'rejected' WITHOUT the key, so the real call can still use it.
+    expect(debitForTool).not.toHaveBeenCalled();
+    expect(vi.mocked(recordToolCall).mock.calls.map(([row]) => [row.status, row.idempotencyKey])).toEqual([['rejected', null]]);
+    // A read tool ignores the flag (it writes nothing either way).
+    const read = vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"rows"' }] }));
+    registry.register({ name: 'a_read', description: 'x', scope: 'read:reports', write: false, handler: read,
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false } });
+    expect((await registry.call('a_read', { dry_run: true }, ctx)).isError).toBeFalsy();
+    expect(read).toHaveBeenCalledTimes(1);
     // dry_run: false on such a tool is the live call it always was.
     expect((await registry.call('no_preview', { dry_run: false, idempotency_key: 'k2' }, ctx)).isError).toBeFalsy();
     expect(handler).toHaveBeenCalledTimes(1);

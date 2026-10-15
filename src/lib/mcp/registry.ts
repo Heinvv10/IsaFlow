@@ -114,8 +114,9 @@ export class McpRegistry {
     if (args.dry_run !== undefined && typeof args.dry_run !== 'boolean') {
       return reject('invalid arguments: dry_run must be true or false', null);
     }
-    // A preview asked of a tool that has none would run the LIVE call (its handler never reads dry_run).
-    if (args.dry_run === true && !('dry_run' in ((tool.inputSchema.properties ?? {}) as Record<string, unknown>))) {
+    // A preview asked of a write tool that has none would run the LIVE call (its handler never reads dry_run).
+    // A read ignores the flag harmlessly: it writes nothing either way.
+    if (tool.write && args.dry_run === true && !('dry_run' in ((tool.inputSchema.properties ?? {}) as Record<string, unknown>))) {
       return reject(`invalid arguments: ${name} has no dry run — this call would write. Call it without dry_run to run it for real.`, null);
     }
 
