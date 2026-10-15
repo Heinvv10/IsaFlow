@@ -15,6 +15,7 @@ import { runAfterCommit } from '@/lib/afterCommit';
 import type {
   LinkedDocument,
   AccountingDocumentType,
+  AccountingEntityType,
 } from '@/types/procurement/document.types';
 
 export const VALID_ENTITY_TYPES = [
@@ -93,6 +94,67 @@ export async function verifyEntityOwnership(entityId: string, companyId: string)
   return !!owner;
 }
 
+/**
+ * Ownership check that also proves the entity IS the declared type.
+ * verifyEntityOwnership answers "some row with this id is ours" across all
+ * five parents, so a supplier_invoice id filed as a credit_note would pass it
+ * and the document would hang off a parent its entity_type does not name.
+ */
+export async function verifyEntityOwnershipTyped(
+  entityType: AccountingEntityType,
+  entityId: string,
+  companyId: string,
+): Promise<boolean> {
+  let rows: unknown[];
+  switch (entityType) {
+    case 'supplier_invoice':
+      rows = await sql`SELECT 1 FROM supplier_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    case 'customer_invoice':
+      rows = await sql`SELECT 1 FROM customer_invoices WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    case 'supplier_payment':
+      rows = await sql`SELECT 1 FROM supplier_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    case 'customer_payment':
+      rows = await sql`SELECT 1 FROM customer_payments WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    case 'credit_note':
+      rows = await sql`SELECT 1 FROM credit_notes WHERE id = ${entityId}::uuid AND company_id = ${companyId}`;
+      break;
+    default:
+      return false;
+  }
+  return rows.length > 0;
+}
+
+/**
+ * An active document already filed on this entity under the same stored name
+ * and size. Lets a bulk back-fill be re-run under fresh idempotency keys
+ * without storing every file twice. Caller must have verified ownership.
+ */
+export async function findActiveDuplicate(
+  entityType: string,
+  entityId: string,
+  originalFilename: string,
+  size: number,
+): Promise<LinkedDocument | null> {
+  const [row] = await sql`
+    SELECT * FROM procurement_documents
+    WHERE entity_type = ${entityType} AND entity_id = ${entityId}::uuid
+      AND document_name = ${storedFileName(originalFilename)} AND file_size = ${size}
+      AND is_active = true
+    ORDER BY uploaded_at
+    LIMIT 1
+  `;
+  return row ? mapRow(row as Record<string, unknown>, 'direct') : null;
+}
+
+function storedFileName(originalFilename: string): string {
+  const rawName = originalFilename || `document_${Date.now()}`;
+  return path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
 export interface UploadDocumentInput {
   /** Owning tenant. Threaded through so the background extraction can fence itself. */
   companyId: string;
@@ -110,16 +172,34 @@ export interface UploadDocumentInput {
 
 /** Upload file to VF Storage, insert DB record, and fire background VLM extraction */
 export async function uploadDocument(input: UploadDocumentInput): Promise<LinkedDocument> {
+  const { filePath: tempFilePath, ...rest } = input;
+  const buffer = await fs.promises.readFile(tempFilePath);
+  return storeDocumentBytes({ ...rest, buffer });
+}
+
+export interface StoreDocumentBytesInput extends Omit<UploadDocumentInput, 'filePath'> {
+  buffer: Buffer;
+  /**
+   * Run the background VLM extraction (default true). A bulk back-fill of
+   * thousands of historical scans passes false: the bill is already captured,
+   * and one paid model call per file buys nothing.
+   */
+  extract?: boolean;
+}
+
+/**
+ * Same as uploadDocument for callers that hold the bytes rather than a temp
+ * file (the MCP tool decodes base64). Caller has verified ownership, size and
+ * magic bytes.
+ */
+export async function storeDocumentBytes(input: StoreDocumentBytesInput): Promise<LinkedDocument> {
   const {
     companyId, entityType, entityId, documentType, notes,
-    filePath: tempFilePath, mimeType, size, originalFilename,
-    uploadedBy, uploadedByName,
+    buffer, mimeType, size, originalFilename,
+    uploadedBy, uploadedByName, extract = true,
   } = input;
 
-  const buffer = await fs.promises.readFile(tempFilePath);
-
-  const rawName = originalFilename || `document_${Date.now()}`;
-  const fileName = path.basename(rawName).replace(/[^a-zA-Z0-9._-]/g, '_');
+  const fileName = storedFileName(originalFilename);
   const storageName = `${entityId}_${fileName}`;
   const result = await vfStorage.uploadFile(buffer, 'accounting', entityType, storageName);
 
@@ -142,7 +222,7 @@ export async function uploadDocument(input: UploadDocumentInput): Promise<Linked
     await autoLinkSupplierInvoice(docId, entityId, companyId);
   }
 
-  if (isVlmAvailable()) {
+  if (extract && isVlmAvailable()) {
     runAfterCommit('procurement document extraction', () => extractAndStoreDocMetadata(buffer, mimeType, docId, companyId).catch(err =>
       log.warn('Background VLM extraction failed', {
         error: err instanceof Error ? err.message : String(err),
