@@ -7,10 +7,11 @@
  * Reading is read:reports, as every report tool.
  */
 import type { McpTool } from '../types';
-import { MUTATION_ARG_SCHEMA } from '../contracts';
+import { DRY_RUN_WROTE_NOTHING, MUTATION_ARG_SCHEMA, type DryRunResult } from '../contracts';
 import { auditRefusal, mayReadAudit, mayTakeAudit } from '@/modules/accounting/services/audit/auditAccess';
 import { principalFromRequest } from '@/modules/accounting/services/audit/auditTx';
 import { takeSnapshot } from '@/modules/accounting/services/audit/snapshotService';
+import { previewSnapshot } from '@/modules/accounting/services/audit/snapshotPreview';
 import { getCheckRun, getSnapshot, listSnapshots } from '@/modules/accounting/services/audit/snapshotRead';
 import { verifyChain, verifySnapshot } from '@/modules/accounting/services/audit/snapshotVerify';
 import { compareSnapshotToLive, compareSnapshots } from '@/modules/accounting/services/audit/comparisonService';
@@ -120,7 +121,10 @@ export const takeAuditSnapshotTool: McpTool = {
   description:
     'TAKE A SEALED AUDIT SNAPSHOT NOW at an accounting-date cutoff: the trial balance, every posted journal and line dated '
     + 'on or before it (each hashed), AR / AP ageing and control totals, and a check run, sealed with an HMAC. Append-only: '
-    + 'it cannot be changed or deleted afterwards. Refused over the size cap (choose an earlier cutoff). Owner or admin '
+    + 'it cannot be changed or deleted afterwards. Refused over the size cap (choose an earlier cutoff). dry_run: true '
+    + 'runs the take\'s refusals (role, rate limit, signing key, busy, size cap) and returns how many posted lines it would '
+    + 'freeze (snapshot.lines, against snapshot.maxLines), writing nothing; it cannot foresee the take running past its '
+    + 'time budget (SNAPSHOT_TOO_SLOW). Owner or admin '
     + `only; needs write:journals. Closing a period, locking a VAT period or closing a year takes one automatically. ${CAVEAT}`,
   scope: 'read:reports',
   requiresScope: 'write:journals',
@@ -142,6 +146,14 @@ export const takeAuditSnapshotTool: McpTool = {
     if (!cutoff) return toolError('cutoff is required (YYYY-MM-DD)');
     try {
       if (!(await chargeAuditJob(ctx.companyId, ctx.userId))) return toolError(RATE_LIMITED);
+      if (args.dry_run === true) {
+        // The take's refusals and the size (snapshotPreview); no journal posts, so the preview's lists are empty.
+        const preview: DryRunResult & { snapshot: Awaited<ReturnType<typeof previewSnapshot>> } = {
+          dryRun: true, journals: [], skipped: [], effects: [], journalsTotal: 0, truncated: false,
+          snapshot: await previewSnapshot(principalFromRequest(), cutoff),
+        };
+        return { ...ok(preview), wroteNothing: DRY_RUN_WROTE_NOTHING };
+      }
       return ok({ snapshot: await takeSnapshot(principalFromRequest(), { cutoff, trigger: 'manual' }), caveat: CAVEAT });
     } catch (err) {
       return refused(err);

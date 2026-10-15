@@ -27,6 +27,8 @@ vi.mock('@/lib/neon', () => {
   return {
     sql: sqlFn,
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+    // The registry runs every tool inside a savepoint; here it just runs the callback.
+    withSavepoint: vi.fn((_name: string, cb: () => unknown) => cb()),
   };
 });
 
