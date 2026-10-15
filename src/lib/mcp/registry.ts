@@ -229,9 +229,11 @@ export class McpRegistry {
       // partial write the service made before throwing. The savepoint rolls
       // that partial write back — matching the REST route's rollback-on-throw
       // (the audit 'error' below runs OUTSIDE it, on the surviving request tx).
-      const result = tool.write
-        ? await withSavepoint(savepointNameFor(name), runAndAudit)
-        : await runAndAudit();
+      // Read tools too: they write nothing, but a statement that fails (a
+      // timeout, a cast) aborts the request tx, and without the rollback to
+      // the savepoint the 'error' audit below could not be written (prod,
+      // 2026-10-15: a verify that timed out left no audit row).
+      const result = await withSavepoint(savepointNameFor(name), runAndAudit);
 
       // Refund when the call cost the company nothing worth billing: an error,
       // or a success that did no billable work (`billable: false` — e.g. a

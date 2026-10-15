@@ -19,7 +19,8 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), { transaction: vi.fn() });
-  return { sql: sqlFn, withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)) };
+  return { sql: sqlFn, withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+    withSavepoint: vi.fn((_name: string, cb: () => unknown) => cb()) };
 });
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
