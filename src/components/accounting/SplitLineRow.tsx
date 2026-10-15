@@ -43,6 +43,8 @@ interface Props {
   onPickerSearch: (q: string) => void;
   onPick: (o: SelectOption) => void;
   onChange: (patch: Partial<SplitLineState>) => void;
+  /** A new type clears the line's pick and closes its picker (the search belonged to the old list). */
+  onTargetChange: (target: SplitTarget) => void;
   onRemove: () => void;
 }
 
@@ -50,7 +52,7 @@ const FIELD = 'text-xs px-2 py-1.5 rounded bg-[var(--ff-bg-secondary)] border bo
 
 export function SplitLineRow({
   line, index, canRemove, options, pickerOpen, pickerSearch, cc2Options, buOptions,
-  onTogglePicker, onPickerSearch, onPick, onChange, onRemove,
+  onTogglePicker, onPickerSearch, onPick, onChange, onTargetChange, onRemove,
 }: Props) {
   const isAccount = line.target === 'account';
   return (
@@ -58,7 +60,7 @@ export function SplitLineRow({
       <div className="flex items-center gap-2 mb-2">
         <span className="text-xs font-medium text-[var(--ff-text-tertiary)] w-12 shrink-0">Line {index + 1}</span>
         <select value={line.target} aria-label={`Line ${index + 1} type`}
-          onChange={e => onChange({ target: e.target.value as SplitTarget, targetId: '', targetLabel: '' })}
+          onChange={e => onTargetChange(e.target.value as SplitTarget)}
           className={`${FIELD} px-1`}>
           <option value="account">Account</option>
           <option value="supplier">Supplier</option>
@@ -74,7 +76,7 @@ export function SplitLineRow({
 
       <div className={`grid gap-2 ${isAccount ? 'grid-cols-2 sm:grid-cols-[1fr_100px_110px]' : 'grid-cols-[1fr_100px]'}`}>
         <div className={`relative ${isAccount ? 'col-span-2 sm:col-span-1' : ''}`}>
-          <button onClick={onTogglePicker}
+          <button onClick={onTogglePicker} aria-expanded={pickerOpen} aria-haspopup="listbox"
             className={`w-full text-left text-xs px-2 py-1.5 rounded border truncate ${
               line.targetId
                 ? 'bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)] text-[var(--ff-text-primary)]'
@@ -87,6 +89,7 @@ export function SplitLineRow({
               <div className="p-2 relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />
                 <input type="text" placeholder={`Search ${line.target === 'account' ? 'accounts' : `${line.target}s`}...`}
+                  aria-label={`Line ${index + 1} search ${line.target === 'account' ? 'accounts' : `${line.target}s`}`}
                   value={pickerSearch} onChange={e => onPickerSearch(e.target.value)}
                   className={`w-full pl-7 ${FIELD}`} autoFocus />
               </div>
