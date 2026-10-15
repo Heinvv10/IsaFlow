@@ -86,6 +86,8 @@ describeIfDb('a whole-line account allocation may not post to AP/AR control', ()
     await inTx(fx, () => toggleRule(fx.companyId, String(legacy!.id), false, fx.userId));
     await expect(inTx(fx, () => toggleRule(fx.companyId, String(legacy!.id), true, fx.userId)))
       .rejects.toThrow(/^Rule "legacy AP rule" posts to the accounts payable control account/);
+    await expect(inTx(fx, () => updateRule(fx.companyId, String(legacy!.id), { isActive: true }, fx.userId)))
+      .rejects.toThrow(/^Rule "legacy AP rule" posts to the accounts payable control account/);
     await sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID`;
   }, 60000);
 

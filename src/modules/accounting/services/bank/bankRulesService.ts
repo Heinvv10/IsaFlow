@@ -93,7 +93,8 @@ export async function updateRule(
   // (not null/undefined) move — the COALESCE semantics this always had.
   await assertCustomerInCompany(companyId, input.clientId);
   await assertSupplierInCompany(companyId, input.supplierId);
-  if (input.glAccountId) await assertRuleAccountNotContactControl(companyId, id, input);
+  // Repointing it at AP/AR control, or re-enabling one already there, is refused (as toggleRule refuses the latter).
+  if (input.glAccountId || input.isActive === true) await assertRuleAccountNotContactControl(companyId, id, input);
   return outcome(await writeRuleChange(companyId, id, {
     rule_name: input.ruleName ?? undefined, match_field: input.matchField ?? undefined,
     match_type: input.matchType ?? undefined, match_pattern: input.matchPattern ?? undefined,
