@@ -54,7 +54,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     for (const companyId of company_ids) {
       try {
-        await suspendCompany(companyId, reason);
+        // A deleted company is skipped, never suspended (that would undelete it).
+        if (!(await suspendCompany(companyId, reason))) {
+          errors.push(`${companyId}: not found or deleted`);
+          continue;
+        }
         await logAdminAction(req.user.id, 'company.suspend', 'company', companyId, { reason, bulk: true }, ip);
         processed++;
       } catch (err) {
