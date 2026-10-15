@@ -1,33 +1,25 @@
 /**
- * Split Transaction Modal — allocate a single bank transaction
- * across multiple GL accounts (Sage-style split entry).
- * Each line has its own GL account, amount, and VAT treatment.
+ * Split Transaction Modal — allocate a single bank transaction across several
+ * lines (Sage-style split entry). Each line is a GL account (its own VAT and
+ * project / BU) or a supplier / customer, which the server settles with its
+ * own payment, receipt or refund document (SplitLineRow).
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { X, Plus, Trash2, Search, Scissors } from 'lucide-react';
+import { X, Plus, Scissors } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
-import type { BankTx, SelectOption, VatCode } from './BankTxTable';
-import { VAT_OPTIONS } from './BankTxTable';
+import type { BankTx, SelectOption } from './BankTxTable';
+import { SplitLineRow, type SplitLineState } from './SplitLineRow';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
-
-interface SplitLineState {
-  id: string; // local key for React rendering
-  contraAccountId: string;
-  accountLabel: string;
-  amount: string; // string to allow free-form input
-  vatCode: VatCode;
-  description: string;
-  /** Project (CC2) and business unit; the FNO is derived from the project server-side. */
-  cc2Id: string;
-  buId: string;
-}
 
 interface Props {
   transaction: BankTx;
   glAccounts: SelectOption[];
-  /** When given, each line offers a project (CC2) and BU picker for its cost line. */
+  /** A line may settle a supplier or customer instead of posting to an account. */
+  suppliers?: SelectOption[];
+  customers?: SelectOption[];
+  /** When given, each account line offers a project (CC2) and BU picker for its cost line. */
   cc2Options?: SelectOption[];
   buOptions?: SelectOption[];
   onClose: () => void;
@@ -40,18 +32,26 @@ function fmtCurrency(n: number): string {
 
 function newLine(amount = ''): SplitLineState {
   return {
-    id: crypto.randomUUID(),
-    contraAccountId: '',
-    accountLabel: '',
-    amount,
-    vatCode: 'none',
-    description: '',
-    cc2Id: '',
-    buId: '',
+    id: crypto.randomUUID(), target: 'account', targetId: '', targetLabel: '', amount,
+    vatCode: 'none', description: '', cc2Id: '', buId: '', leaveOnAccount: false,
   };
 }
 
-export function SplitTransactionModal({ transaction, glAccounts, cc2Options = [], buOptions = [], onClose, onSplit }: Props) {
+/** A typed amount as rand and cents: the server takes whole cents only. */
+const cents = (raw: string) => Math.round((parseFloat(raw) || 0) * 100) / 100;
+
+/** What the route takes for one line: an account line, or a supplier / customer line. */
+function linePayload(l: SplitLineState) {
+  const common = { amount: cents(l.amount), description: l.description || undefined };
+  if (l.target !== 'account') {
+    return { ...common, contactType: l.target, contactId: l.targetId, ...(l.leaveOnAccount ? { autoApply: 'none' } : {}) };
+  }
+  return { ...common, contraAccountId: l.targetId, vatCode: l.vatCode, cc2Id: l.cc2Id || undefined, buId: l.buId || undefined };
+}
+
+export function SplitTransactionModal({
+  transaction, glAccounts, suppliers = [], customers = [], cc2Options = [], buOptions = [], onClose, onSplit,
+}: Props) {
   const total = Math.abs(transaction.amount);
   const [lines, setLines] = useState<SplitLineState[]>([newLine(total.toFixed(2))]);
   const [submitting, setSubmitting] = useState(false);
@@ -70,13 +70,12 @@ export function SplitTransactionModal({ transaction, glAccounts, cc2Options = []
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const filteredAccounts = useCallback((): SelectOption[] => {
-    if (!pickerSearch) return glAccounts.slice(0, 30);
+  const optionsFor = useCallback((line: SplitLineState): SelectOption[] => {
+    const all = line.target === 'supplier' ? suppliers : line.target === 'customer' ? customers : glAccounts;
+    if (!pickerSearch) return all.slice(0, 30);
     const q = pickerSearch.toLowerCase();
-    return glAccounts
-      .filter(a => (a.code || '').toLowerCase().includes(q) || a.name.toLowerCase().includes(q))
-      .slice(0, 30);
-  }, [glAccounts, pickerSearch]);
+    return all.filter(a => (a.code || '').toLowerCase().includes(q) || a.name.toLowerCase().includes(q)).slice(0, 30);
+  }, [glAccounts, suppliers, customers, pickerSearch]);
 
   const updateLine = (id: string, patch: Partial<SplitLineState>) => {
     setLines(prev => prev.map(l => (l.id === id ? { ...l, ...patch } : l)));
@@ -89,9 +88,9 @@ export function SplitTransactionModal({ transaction, glAccounts, cc2Options = []
     setLines(prev => prev.filter(l => l.id !== id));
   };
 
-  const allocated = lines.reduce((sum, l) => sum + (parseFloat(l.amount) || 0), 0);
+  const allocated = lines.reduce((sum, l) => sum + cents(l.amount), 0);
   const remaining = Math.round((total - allocated) * 100) / 100;
-  const canSubmit = Math.abs(remaining) <= 0.01 && lines.every(l => l.contraAccountId && parseFloat(l.amount) > 0);
+  const canSubmit = Math.abs(remaining) <= 0.01 && lines.every(l => l.targetId && cents(l.amount) > 0);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -100,14 +99,7 @@ export function SplitTransactionModal({ transaction, glAccounts, cc2Options = []
       const payload = {
         action: 'split_allocate',
         bankTransactionId: transaction.id,
-        lines: lines.map(l => ({
-          contraAccountId: l.contraAccountId,
-          amount: parseFloat(l.amount),
-          vatCode: l.vatCode,
-          description: l.description || undefined,
-          cc2Id: l.cc2Id || undefined,
-          buId: l.buId || undefined,
-        })),
+        lines: lines.map(linePayload),
       };
       const res = await apiFetch('/api/accounting/bank-transactions-action', {
         method: 'POST',
@@ -155,109 +147,14 @@ export function SplitTransactionModal({ transaction, glAccounts, cc2Options = []
         {/* Split lines */}
         <div className="overflow-y-auto flex-1 p-4 space-y-2" ref={pickerRef}>
           {lines.map((line, idx) => (
-            <div key={line.id} className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-3">
-              <div className="flex items-center gap-1 mb-2">
-                <span className="text-xs font-medium text-[var(--ff-text-tertiary)] w-16 shrink-0">Line {idx + 1}</span>
-                {lines.length > 1 && (
-                  <button onClick={() => removeLine(line.id)}
-                    className="ml-auto p-1 rounded hover:bg-red-500/10 text-red-400">
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-[1fr_100px_110px] gap-2">
-                {/* GL Account picker */}
-                <div className="relative">
-                  <button
-                    onClick={() => { setOpenPicker(openPicker === line.id ? null : line.id); setPickerSearch(''); }}
-                    className={`w-full text-left text-xs px-2 py-1.5 rounded border truncate ${
-                      line.contraAccountId
-                        ? 'bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)] text-[var(--ff-text-primary)]'
-                        : 'bg-amber-500/5 border-amber-500/30 text-amber-400 font-medium'
-                    }`}
-                  >
-                    {line.accountLabel || 'Select GL Account'}
-                  </button>
-                  {openPicker === line.id && (
-                    <div className="absolute z-50 top-full left-0 mt-1 w-80 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl">
-                      <div className="p-2">
-                        <div className="relative">
-                          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-[var(--ff-text-tertiary)]" />
-                          <input type="text" placeholder="Search accounts..." value={pickerSearch}
-                            onChange={e => setPickerSearch(e.target.value)}
-                            className="w-full pl-7 pr-2 py-1.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
-                            autoFocus />
-                        </div>
-                      </div>
-                      <div className="max-h-44 overflow-y-auto">
-                        {filteredAccounts().map(o => (
-                          <button key={o.id}
-                            onClick={() => {
-                              updateLine(line.id, {
-                                contraAccountId: o.id,
-                                accountLabel: o.code ? `${o.code} ${o.name}` : o.name,
-                              });
-                              setOpenPicker(null);
-                            }}
-                            className="w-full text-left px-3 py-1.5 hover:bg-[var(--ff-bg-primary)] text-xs flex items-center gap-2"
-                          >
-                            {o.code && <span className="font-mono text-[var(--ff-text-tertiary)] w-10 shrink-0">{o.code}</span>}
-                            <span className="text-[var(--ff-text-primary)] truncate">{o.name}</span>
-                          </button>
-                        ))}
-                        {filteredAccounts().length === 0 && (
-                          <div className="px-3 py-2 text-xs text-[var(--ff-text-tertiary)]">No results</div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Amount */}
-                <input type="number" min="0.01" step="0.01" placeholder="0.00"
-                  value={line.amount}
-                  onChange={e => updateLine(line.id, { amount: e.target.value })}
-                  className="text-xs px-2 py-1.5 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-right font-mono focus:outline-none focus:border-blue-500"
-                />
-
-                {/* VAT */}
-                <select value={line.vatCode}
-                  onChange={e => updateLine(line.id, { vatCode: e.target.value as VatCode })}
-                  className={`text-xs px-1 py-1.5 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] focus:outline-none ${
-                    line.vatCode === 'standard' ? 'text-cyan-400' : 'text-[var(--ff-text-primary)]'
-                  }`}
-                >
-                  {VAT_OPTIONS.map(v => (
-                    <option key={v.value} value={v.value}>{v.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Description (optional) */}
-              <input type="text" placeholder="Description (optional)"
-                value={line.description}
-                onChange={e => updateLine(line.id, { description: e.target.value })}
-                className="mt-2 w-full text-xs px-2 py-1.5 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] focus:outline-none focus:border-blue-500"
-              />
-
-              {(cc2Options.length > 0 || buOptions.length > 0) && (
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                  <select value={line.cc2Id} aria-label={`Line ${idx + 1} project`}
-                    onChange={e => updateLine(line.id, { cc2Id: e.target.value })}
-                    className="text-xs px-1 py-1.5 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] focus:outline-none">
-                    <option value="">Project (none)</option>
-                    {cc2Options.map(o => <option key={o.id} value={o.id}>{o.code ? `${o.code} ${o.name}` : o.name}</option>)}
-                  </select>
-                  <select value={line.buId} aria-label={`Line ${idx + 1} business unit`}
-                    onChange={e => updateLine(line.id, { buId: e.target.value })}
-                    className="text-xs px-1 py-1.5 rounded bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] focus:outline-none">
-                    <option value="">Business unit (none)</option>
-                    {buOptions.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                  </select>
-                </div>
-              )}
-            </div>
+            <SplitLineRow key={line.id} line={line} index={idx} canRemove={lines.length > 1}
+              options={optionsFor(line)} pickerOpen={openPicker === line.id} pickerSearch={pickerSearch}
+              cc2Options={cc2Options} buOptions={buOptions}
+              onTogglePicker={() => { setOpenPicker(openPicker === line.id ? null : line.id); setPickerSearch(''); }}
+              onPickerSearch={setPickerSearch}
+              onPick={o => { updateLine(line.id, { targetId: o.id, targetLabel: o.code ? `${o.code} ${o.name}` : o.name }); setOpenPicker(null); }}
+              onChange={patch => updateLine(line.id, patch)}
+              onRemove={() => removeLine(line.id)} />
           ))}
 
           <button onClick={addLine}
@@ -268,8 +165,8 @@ export function SplitTransactionModal({ transaction, glAccounts, cc2Options = []
 
         {/* Summary footer */}
         <div className="border-t border-[var(--ff-border-light)] px-5 py-3">
-          <div className="flex items-center justify-between mb-3 text-xs">
-            <div className="flex items-center gap-6 text-[var(--ff-text-secondary)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3 text-xs">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[var(--ff-text-secondary)]">
               <span>Total: <span className="font-mono font-medium text-[var(--ff-text-primary)]">{fmtCurrency(total)}</span></span>
               <span>Allocated: <span className="font-mono font-medium text-[var(--ff-text-primary)]">{fmtCurrency(allocated)}</span></span>
               <span>Remaining:
