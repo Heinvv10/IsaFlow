@@ -170,7 +170,9 @@ describe('across releases', { timeout: 120_000 }, () => {
 
   it('waiting for the slot or the lock is not budget time: an automatic snapshot queued behind its person still seals (breaker r3 B1)', async () => {
     const { c } = await books();
-    Object.assign(knobs, { budgetMs: 15_000, waitMs: 60_000 });
+    // The budget is wide enough for the work itself on a loaded CI shard (15 s was not: master run 38621724095);
+    // the waits below still outlast it, which is the point.
+    Object.assign(knobs, { budgetMs: 40_000, waitMs: 60_000 });
     // The company's snapshot lock held elsewhere for longer than the whole budget, then released.
     const other = await pool.connect();
     await other.query("SELECT pg_advisory_lock(hashtext('audit_snapshot_chain:' || $1))", [c]);
@@ -179,13 +181,13 @@ describe('across releases', { timeout: 120_000 }, () => {
     let free = () => {};
     // Held as the person's own (manual) job: only the per-person cap, not the automatic one, makes the snapshot wait.
     const held = withSnapshotSlot(crypto.randomUUID(), false, () => new Promise<void>((r) => { free = r; }), o);
-    const freeLater = setTimeout(() => free(), 17_000);
+    const freeLater = setTimeout(() => free(), 42_000);
     try {
       const started = Date.now();
       const s = await takeAutoSnapshot(principal(c), { cutoff: '2026-06-30', trigger: 'period_close' });
       expect(s.status).toBe('sealed');
       // It queued behind its person's other job (the per-person cap applies to automatic snapshots too) ...
-      expect(Date.now() - started).toBeGreaterThanOrEqual(16_000);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(41_000);
     } finally {
       clearTimeout(release);
       clearTimeout(freeLater);
