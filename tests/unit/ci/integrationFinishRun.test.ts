@@ -154,14 +154,20 @@ describe('finish_run (report.sh): the gate\'s last stage', () => {
     expect(failing.stderr).toMatch(/FAILED=1\n$/);
   });
 
-  it('gives the caller back its shell options: errexit, nounset and pipefail on stay on, off stay off', () => {
-    const opts = (set: string) => spawnSync('bash', ['-c', `${set}; source "$1"; FAILED=0
+  it('gives the caller back its shell options, even when something it calls flips nounset and pipefail', () => {
+    // finish_run itself only turns errexit off, so print_report (the last thing it calls) is stubbed to flip nounset
+    // and pipefail the other way: only a full restore gives the caller its own state back.
+    const opts = (set: string, flip: string) => spawnSync('bash', ['-c', `${set}; source "$1"; FAILED=0
+      print_report() { ${flip}; echo stub-ran >&2; }
       finish_run "$2" 2 "" 0 "$2/local-logs" > /dev/null
       for o in errexit nounset pipefail; do [[ -o $o ]] && echo "$o=on" || echo "$o=off"; done`, 'bash', REPORT, runDir()],
     { encoding: 'utf8' });
-    const on = opts('set -euo pipefail');
+    const on = opts('set -euo pipefail', 'set +u +o pipefail');
+    expect(on.stderr).toContain('stub-ran');
     expect(on.stdout, on.stderr).toBe('errexit=on\nnounset=on\npipefail=on\n');
-    expect(opts('set +e +u +o pipefail').stdout).toBe('errexit=off\nnounset=off\npipefail=off\n');
+    const off = opts('set +e +u +o pipefail', 'set -u -o pipefail');
+    expect(off.stderr).toContain('stub-ran');
+    expect(off.stdout, off.stderr).toBe('errexit=off\nnounset=off\npipefail=off\n');
   });
 
   it('an empty database log with no .started is a FAIL by name, not a "timed out before any suite started"', () => {
