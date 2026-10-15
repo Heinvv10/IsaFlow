@@ -54,7 +54,7 @@ export async function listCompanies(
     FROM companies c
     LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
     LEFT JOIN plans p ON p.id = s.plan_id
-    WHERE c.status IS DISTINCT FROM 'deleted'
+    WHERE (c.status IS DISTINCT FROM 'deleted' OR ${filters.status ?? null}::text = 'deleted')
       AND (${searchPattern}::text IS NULL
            OR c.name ILIKE ${searchPattern}
            OR c.registration_number ILIKE ${searchPattern})
@@ -84,7 +84,7 @@ export async function listCompanies(
     FROM companies c
     LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
     LEFT JOIN plans p ON p.id = s.plan_id
-    WHERE c.status IS DISTINCT FROM 'deleted'
+    WHERE (c.status IS DISTINCT FROM 'deleted' OR ${filters.status ?? null}::text = 'deleted')
       AND (${searchPattern}::text IS NULL
            OR c.name ILIKE ${searchPattern}
            OR c.registration_number ILIKE ${searchPattern})
@@ -230,31 +230,42 @@ export async function updateCompany(
   log.info('updateCompany', { companyId }, 'AdminCompanyService');
 }
 
+/** Suspend. A deleted company is refused (false): suspending would undelete it. */
 export async function suspendCompany(
   companyId: string,
   reason: string
-): Promise<void> {
-  await sql`
+): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
     UPDATE companies
     SET status           = 'suspended',
         suspended_reason = ${reason},
         suspended_at     = NOW(),
         updated_at       = NOW()
     WHERE id = ${companyId}
+      AND status IS DISTINCT FROM 'deleted'
+    RETURNING id
   `;
-  log.info('suspendCompany', { companyId, reason }, 'AdminCompanyService');
+  log.info('suspendCompany', { companyId, reason, suspended: rows.length > 0 }, 'AdminCompanyService');
+  return rows.length > 0;
 }
 
-export async function activateCompany(companyId: string): Promise<void> {
-  await sql`
+/**
+ * Lift a suspension. A deleted company is refused (false): it comes back only
+ * through companyLifecycleService.restoreCompany, which also restarts billing.
+ */
+export async function activateCompany(companyId: string): Promise<boolean> {
+  const rows = await sql<{ id: string }>`
     UPDATE companies
     SET status           = 'active',
         suspended_reason = NULL,
         suspended_at     = NULL,
         updated_at       = NOW()
     WHERE id = ${companyId}
+      AND status IS DISTINCT FROM 'deleted'
+    RETURNING id
   `;
-  log.info('activateCompany', { companyId }, 'AdminCompanyService');
+  log.info('activateCompany', { companyId, activated: rows.length > 0 }, 'AdminCompanyService');
+  return rows.length > 0;
 }
 
 export async function createCompany(input: {
@@ -295,17 +306,6 @@ export async function createCompany(input: {
 
   log.info('createCompany (admin)', { id: created.id, name: created.name, plan_id: input.plan_id ?? null }, 'AdminCompanyService');
   return created;
-}
-
-/** Soft delete — sets status='deleted', preserves data for audit trail. */
-export async function deleteCompany(companyId: string): Promise<void> {
-  await sql`
-    UPDATE companies
-    SET status     = 'deleted',
-        updated_at = NOW()
-    WHERE id = ${companyId}
-  `;
-  log.info('deleteCompany (soft)', { companyId }, 'AdminCompanyService');
 }
 
 export async function getCompanyUsers(
