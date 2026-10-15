@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FORKER_LOOP, SHARD, alive, detached, record, scratchDir, settle, sh, start, useScratch, victim } from './integrationLifecycle.helpers';
+import { FORKER_LOOP, SHARD, SPIN, alive, detached, record, scratchDir, settle, sh, start, useScratch, victim } from './integrationLifecycle.helpers';
 
 useScratch();
 
@@ -91,7 +91,7 @@ describe('remove_run', () => {
 describe('end_snapshot and a shard\'s own exit', () => {
   it('signals a listed process only while it still has the listed start time, and KILLs one that ignores TERM', () => {
     const stale = victim(); settle(stale);
-    const stubborn = detached('trap "" TERM; while :; do sleep 0.2; done');
+    const stubborn = detached(`trap "" TERM; ${SPIN}`);
     settle(stubborn.pid!);
     sh(`end_snapshot "${stale} 1
 ${stubborn.pid} ${start(stubborn.pid!)}"`);
@@ -120,6 +120,19 @@ ${stubborn.pid} ${start(stubborn.pid!)}"`);
     const name = `lifecycle-forker-${process.pid}-${Date.now()}`;
     shardWith(`(trap "" TERM; ${record()}; ${FORKER_LOOP(name)})`);
     expect(running(name)).toBe('');
+  }, 30_000);
+
+  it('shard.sh TERMs its leftovers before it KILLs them, so one that handles TERM gets to', () => {
+    const termed = join(scratchDir(), 'termed');
+    shardWith(`(trap "echo termed >> ${termed}; exit 0" TERM; ${record()}; ${SPIN})`);
+    expect(existsSync(termed) ? readFileSync(termed, 'utf8').trim() : 'KILLed without a TERM').toBe('termed');
+  }, 30_000);
+
+  it('record() stores the recording shell\'s own start time (what proc_start reads), not its substitution\'s', () => {
+    const lines = sh(`for k in $(seq 1 50); do (q=$BASHPID; ${record()}; echo "$q $(proc_start $q)"; sleep 0.2) & done; wait`)
+      .split('\n').map((l) => l.trim()).sort();
+    const recorded = readFileSync(join(scratchDir(), 'spawned'), 'utf8').trim().split('\n').map((l) => l.trim()).sort();
+    expect(recorded).toEqual(lines);
   }, 30_000);
 });
 

@@ -28,8 +28,15 @@ export function sh(script: string): string {
   }).trim();
 }
 
-/** A shell fragment that records its own pid and start time for cleanup. */
-export const record = (): string => `echo $BASHPID $(cut -d" " -f22 /proc/$BASHPID/stat) >> ${spawned()}`;
+/**
+ * A shell fragment that records its own pid and start time for cleanup. The pid is read BEFORE the command
+ * substitution: inside $(…) $BASHPID is that substitution's own child, whose start time is a tick later under load,
+ * so the record never matched and the cleanup skipped the very process it was for (blind review, 2026-10-15).
+ */
+export const record = (): string => `p=$BASHPID; echo $p $(cut -d" " -f22 /proc/$p/stat) >> ${spawned()}`;
+
+/** Spins without end for the tests' purposes, but stops by itself after 60 s should no cleanup ever reach it. */
+export const SPIN = 'until=$(( SECONDS + 60 )); while [ $SECONDS -lt $until ]; do sleep 0.1; done';
 
 /**
  * A loop that ignores TERM and forks a named child every 0.3 s (the children inherit the ignored TERM: it survives
@@ -80,7 +87,16 @@ export const settle = (pid: number): void => {
 export function useScratch(): void {
   beforeEach(() => { scratch = mkdtempSync(join(tmpdir(), 'lifecycle-')); });
   afterEach(() => {
-    for (const c of children.splice(0)) if (c.pid && alive(c.pid)) process.kill(c.pid, 'SIGKILL');
+    let failure: unknown = null;
+    const kill = (pid: number): void => {
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch (err) {
+        // Gone between the read and the kill: fine. Anything else is reported once the sweep has finished.
+        if ((err as NodeJS.ErrnoException).code !== 'ESRCH') failure ??= err;
+      }
+    };
+    for (const c of children.splice(0)) if (c.pid && procStart(c.pid) !== '') kill(c.pid);
     // A recorded forker can fork one more child while it is being killed, and
     // that child records itself a moment later: re-read and repeat until two
     // passes in a row, 0.2 s apart, find nothing of ours still running.
@@ -91,17 +107,13 @@ export function useScratch(): void {
         const [pid, at] = line.trim().split(' ');
         if (pid && at && procStart(Number(pid)) === at) {
           found = true;
-          try {
-            process.kill(Number(pid), 'SIGKILL');
-          } catch (err) {
-            // Gone between the read and the kill: fine. Anything else must not end the cleanup silently.
-            if ((err as NodeJS.ErrnoException).code !== 'ESRCH') throw err;
-          }
+          kill(Number(pid));
         }
       }
       quiet = found ? 0 : quiet + 1;
       execFileSync('sleep', ['0.2']);
     }
     rmSync(scratch, { recursive: true, force: true });
+    if (failure) throw failure;
   }, 60_000); // a forker leaks for good if this hook is cut short; it reads /proc directly, so it is fast anyway
 }

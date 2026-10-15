@@ -9,7 +9,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FORKER_LOOP, LIB, SHARD, adopt, alive, detached, record, scratchDir, sh, start, useScratch } from './integrationLifecycle.helpers';
+import { FORKER_LOOP, LIB, SHARD, SPIN, adopt, alive, detached, record, scratchDir, sh, start, useScratch } from './integrationLifecycle.helpers';
 
 useScratch();
 
@@ -59,8 +59,8 @@ describe('remove_run order', () => {
     // KILLed (10 s in), and then takes 12 s (end_own_session: about 11 s). One
     // more member logs its TERM.
     const leader = detached(`${record()}; trap 'echo leader-term >> ${log}; sleep 12; echo leader-done >> ${log}; exit 0' TERM
-      (trap "echo member-term >> ${log}; exit 0" TERM; ${record()}; while :; do sleep 0.1; done) &
-      (trap "" TERM; ${record()}; while :; do sleep 0.1; done)
+      (trap "echo member-term >> ${log}; exit 0" TERM; ${record()}; ${SPIN}) &
+      (trap "" TERM; ${record()}; ${SPIN})
       exit 0`); // not the last command, or bash would exec into the child
     for (let i = 0; i < 50 && sh(`proc_sid ${leader.pid}`) !== String(leader.pid); i++) execFileSync('sleep', ['0.05']);
     execFileSync('sleep', ['0.5']);
