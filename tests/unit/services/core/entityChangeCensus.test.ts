@@ -81,7 +81,8 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/accounting/company-logo.ts', 'pages/api/admin/billing/payg/[companyId]/eligibility.ts',
     'pages/api/admin/companies/bulk-action.ts', 'scripts/large-scale-seed.ts', 'scripts/provision-isademo2.ts',
     'scripts/qa-cleanup-run.ts', 'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,
-    'src/modules/admin/services/adminCompanyService.ts', 'src/modules/admin/services/trialService.ts',
+    'src/modules/admin/services/adminCompanyService.ts', 'src/modules/admin/services/companyLifecycleService.ts',
+    'src/modules/admin/services/trialService.ts',
     'src/modules/onboarding/services/tenantProvisioningService.ts',
   ],
   // Written only through 881/885's SECURITY DEFINER functions (approvalRuleWriteCensus pins their one caller).

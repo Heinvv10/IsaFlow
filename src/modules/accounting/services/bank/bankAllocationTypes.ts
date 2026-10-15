@@ -22,7 +22,17 @@ export interface AllocationApplicationResult {
 }
 
 export interface SplitLine {
-  contraAccountId: string;
+  /** The GL account this part posts to. Required unless the line names a contact. */
+  contraAccountId?: string;
+  /**
+   * A line that SETTLES a supplier or customer instead of posting to an account:
+   * it posts to the AP/AR control account and gets its own payment / receipt /
+   * refund document (bankSplitContacts.ts). Carries no VAT and no dimensions.
+   */
+  contactType?: 'supplier' | 'customer';
+  contactId?: string;
+  /** A contact line's application of its document — 'fifo' (default) or 'none'. */
+  autoApply?: AutoApplyMode;
   amount: number;
   description?: string;
   vatCode?: string;

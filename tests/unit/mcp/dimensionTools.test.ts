@@ -10,9 +10,16 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(), reverseReconciledTransaction: vi.fn(), splitAllocateTransaction: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn(async () => true) }));
-vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/core/contactDirectoryService')>()),
   customersBelongToCompany: vi.fn(async () => true), suppliersBelongToCompany: vi.fn(async () => true),
+  assertSupplierInCompany: vi.fn(async () => undefined), assertCustomerInCompany: vi.fn(async () => undefined),
 }));
+vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
+  lockBankTransactionForUpdate: vi.fn(async () => ({ id: 'tx-row', amount: -115, transaction_date: '2026-10-07' })),
+}));
+vi.mock('@/modules/accounting/services/bank/bankSplitContacts', () => ({ planSplitContacts: vi.fn(async () => []) }));
+vi.mock('@/modules/accounting/services/bank/bankLineJournalGate', () => ({ assertBankLineMayPostToAccounts: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(), findBankTransactionsByReferences: vi.fn(async () => new Map()),
   getBankTransactionStatus: vi.fn(async () => 'imported'),
@@ -65,6 +72,11 @@ import { syncBankDimensionsTool } from '@/lib/mcp/tools/writeBankDimensionSync';
 import { applyBankSyncBatch, previewBankSync } from '@/modules/accounting/services/gl/dimensions/dimensionBankSync';
 import { setGlAccountReportingAttributesTool } from '@/lib/mcp/tools/dimensionDefaultsTools';
 import { DimensionRefusal } from '@/modules/accounting/services/gl/dimensions/dimensionTypes';
+import { SupplierNotInCompanyError, assertSupplierInCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
+import { planSplitContacts } from '@/modules/accounting/services/bank/bankSplitContacts';
+import { assertBankLineMayPostToAccounts } from '@/modules/accounting/services/bank/bankLineJournalGate';
+import { NOT_FOUND } from '@/lib/mcp/tools/toolHelpers';
 
 const ctx = { companyId: 'company-1', userId: 'user-1', tokenJti: 'jti', oauthAppId: null, scopes: [] } as never;
 const TX = '045ef594-d81d-4f21-84d6-1151ed71260d';
@@ -162,6 +174,106 @@ describe('split_allocate_bank_transaction', () => {
       expect.objectContaining({ contraAccountId: TOLLS, amount: 46, buId: 'id-maint' }),
     ]);
     expect(opts).toMatchObject({ postingAgent: 'mcp:split_allocate_bank_transaction:v1' });
+  });
+
+  describe('supplier / customer lines', () => {
+    const FRIK = '72f81766-7be5-424d-9bb0-88286cd53169';
+    const SOUTHERN = '7896dcc0-2275-4703-b2fe-1fd2d28f5ef7';
+
+    it('refuses a line naming both a GL account and a supplier, before any lookup', async () => {
+      const r = await splitAllocateBankTransactionTool.handler({
+        transaction_id: TX, lines: [{ contra_account_id: FUEL, supplier_id: FRIK, amount: 69 }, lines[1]], ...KEY,
+      }, ctx);
+      expect(text(r)).toMatch(/exactly one of contra_account_id, supplier_id, customer_id/);
+      expect(splitAllocateTransaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses a VAT code on a supplier line — the bill already carried the VAT', async () => {
+      const r = await splitAllocateBankTransactionTool.handler({
+        transaction_id: TX, lines: [{ supplier_id: FRIK, amount: 69, vat_code: 'standard' }, lines[1]], ...KEY,
+      }, ctx);
+      expect(text(r)).toMatch(/settles a supplier — omit vat_code/);
+      expect(splitAllocateTransaction).not.toHaveBeenCalled();
+    });
+
+    it('posts two supplier lines as contact lines and reports each document', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [], warnings: [] });
+      vi.mocked(splitAllocateTransaction).mockResolvedValueOnce({
+        journalEntryId: 'je-7', bankTransaction: { id: TX },
+        contactDocuments: [
+          { index: 0, kind: 'supplier', contactId: FRIK, document: 'payment', paymentId: 'p1', applications: [{ documentId: 'b1', documentNumber: 'SIV0005059', amount: 69 }], onAccount: 0 },
+          { index: 1, kind: 'supplier', contactId: SOUTHERN, document: 'payment', paymentId: 'p2', applications: [], onAccount: 46 },
+        ],
+      } as never);
+      const r = await splitAllocateBankTransactionTool.handler({
+        transaction_id: TX,
+        lines: [{ supplier_id: FRIK, amount: 69 }, { supplier_id: SOUTHERN, amount: 46, auto_apply: 'none' }],
+        ...KEY,
+      }, ctx);
+      const [, , splitLines] = vi.mocked(splitAllocateTransaction).mock.calls[0]!;
+      expect(splitLines).toEqual([
+        expect.objectContaining({ contactType: 'supplier', contactId: FRIK, amount: 69 }),
+        expect.objectContaining({ contactType: 'supplier', contactId: SOUTHERN, amount: 46, autoApply: 'none' }),
+      ]);
+      expect((splitLines as { contraAccountId?: string }[])[0]!.contraAccountId).toBeUndefined();
+      const body = JSON.parse(text(r));
+      expect(body.contact_documents).toEqual([
+        expect.objectContaining({ line: 0, supplier_id: FRIK, document: 'payment', payment_id: 'p1', on_account: 0 }),
+        expect.objectContaining({ line: 1, supplier_id: SOUTHERN, payment_id: 'p2', on_account: 46 }),
+      ]);
+    });
+
+    const contactLines = [{ supplier_id: FRIK, amount: 69 }, { customer_id: SOUTHERN, amount: 46 }];
+
+    it('dry_run runs the contact lines\' own refusals against the locked row, as the live call does', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [], warnings: [] });
+      const r = await splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, dry_run: true, ...KEY }, ctx);
+      expect(r.wroteNothing).toBe(true);
+      expect(lockBankTransactionForUpdate).toHaveBeenCalledWith(ctx.companyId, TX);
+      const [company, row, planned, user] = vi.mocked(planSplitContacts).mock.calls[0]!;
+      expect([company, row, user]).toEqual([ctx.companyId, expect.objectContaining({ id: 'tx-row' }), ctx.userId]);
+      expect(planned).toEqual([
+        expect.objectContaining({ contactType: 'supplier', contactId: FRIK, amount: 69 }),
+        expect.objectContaining({ contactType: 'customer', contactId: SOUTHERN, amount: 46 }),
+      ]);
+    });
+
+    it('dry_run refuses what the live call refuses — the refusal is not swallowed into a preview', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [], warnings: [] });
+      vi.mocked(planSplitContacts).mockRejectedValueOnce(new Error('A supplier payment of R69.00 needs admin approval'));
+      await expect(splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, dry_run: true, ...KEY }, ctx))
+        .rejects.toThrow(/needs admin approval/);
+    });
+
+    it('dry_run asks the hand-keyed manual-journal gate at the WHOLE line when any line is a GL account', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [{}], warnings: [] });
+      vi.mocked(assertBankLineMayPostToAccounts).mockRejectedValueOnce(new Error('needs approval as a manual journal'));
+      await expect(splitAllocateBankTransactionTool.handler({
+        transaction_id: TX, lines: [{ contra_account_id: FUEL, amount: 69 }, { supplier_id: FRIK, amount: 46 }], dry_run: true, ...KEY,
+      }, ctx)).rejects.toThrow(/needs approval as a manual journal/);
+      expect(vi.mocked(assertBankLineMayPostToAccounts).mock.calls[0]).toEqual([ctx.companyId, expect.objectContaining({ id: 'tx-row' }), 115]);
+    });
+
+    it('dry_run of a contact-only split asks no journal gate (the live call asks none)', async () => {
+      vi.mocked(resolveDimensionRefs).mockResolvedValueOnce([undefined, undefined] as never);
+      vi.mocked(planSplitDimensionsForTransaction).mockResolvedValueOnce({ dims: [], warnings: [] });
+      await splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, dry_run: true, ...KEY }, ctx);
+      expect(assertBankLineMayPostToAccounts).not.toHaveBeenCalled();
+    });
+
+    it('answers a foreign or missing contact NOT_FOUND, but lets a database fault propagate', async () => {
+      vi.mocked(assertSupplierInCompany).mockRejectedValueOnce(new SupplierNotInCompanyError(FRIK));
+      const r = await splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, ...KEY }, ctx);
+      expect(text(r)).toBe(NOT_FOUND);
+      vi.mocked(assertSupplierInCompany).mockRejectedValueOnce(Object.assign(new Error('lock timeout'), { code: '55P03' }));
+      await expect(splitAllocateBankTransactionTool.handler({ transaction_id: TX, lines: contactLines, ...KEY }, ctx))
+        .rejects.toThrow(/lock timeout/);
+      expect(splitAllocateTransaction).not.toHaveBeenCalled();
+    });
   });
 });
 
