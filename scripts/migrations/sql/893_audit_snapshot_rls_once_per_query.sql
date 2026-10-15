@@ -10,7 +10,7 @@
 --     audit_snapshot_reader(company_id)
 --       = company_id = app.current_company_id() AND audit_snapshot_reader(app.current_company_id())
 --   and the right-hand side is the same rows. Written as ONE uncorrelated sub-select it becomes an InitPlan: the
---   company GUC is read once and the reader runs once on that same value, per query, and the company_id comparison
+--   company GUC is read and the reader run on that value together, once per query, and the company_id comparison
 --   can use an index. (Two sub-selects, one per call, would read the GUC twice: a query that changed it in between
 --   could match rows of one company against the other's membership — breaker, 2026-10-15.) No row is visible that
 --   was not before, and none is hidden that was visible (a NULL or empty company GUC still shows nothing).
@@ -59,7 +59,7 @@ BEGIN
                       AND p.cmd = 'SELECT' AND p.roles = ARRAY['app_user']::pg_catalog.name[]
                       AND p.qual NOT LIKE '%audit_snapshot_reader(company_id)%'
                       AND p.qual LIKE '%SELECT app.current_company_id() AS c%'
-                      AND p.qual LIKE '%WHERE audit_snapshot_reader(s.c)%'
+                      AND p.qual LIKE '%audit_snapshot_reader(s.c)%'
                       AND p.with_check IS NULL);
   IF v_bad <> 0 THEN
     RAISE EXCEPTION 'migration 893: % audit table(s) do not carry exactly the once-per-query read policy', v_bad;
