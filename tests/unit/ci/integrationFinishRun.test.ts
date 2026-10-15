@@ -54,6 +54,49 @@ function finish(work: string, failedShards = '') {
   return { ...r, logDir, failed: /FAILED=(\d)\n$/.exec(r.stdout)?.[1] };
 }
 
+const WAIT = 'wait_shards "${PIDS[@]}"';
+/** Anything that would start PostgreSQL or a shard: a tail holding one is refused, never run. */
+const STARTS_CLUSTERS = /\bpg_ctl\b|\binitdb\b|pg_cluster_(?:init|start)|launch_session|shard\.sh|apply-migrations/;
+
+/**
+ * run.sh's lines after its one `wait_shards "${PIDS[@]}"` line. Fails closed: it throws, so nothing is run, when that
+ * line is not there exactly once (reformatted, or with anything appended such as `; FAILED=0`), or when the tail holds
+ * anything that starts a cluster or a shard (cutting at the wrong place would run the whole gate from vitest).
+ */
+function runShTail(text: string): string {
+  const lines = text.split('\n');
+  const hits = lines.flatMap((l, i) => (l.trim() === WAIT ? [i] : []));
+  if (hits.length !== 1) throw new Error(`run.sh: expected exactly one line \`${WAIT}\`, found ${hits.length}`);
+  const tail = lines.slice(hits[0]! + 1).join('\n');
+  const bad = STARTS_CLUSTERS.exec(tail);
+  if (bad) throw new Error(`run.sh's tail after \`${WAIT}\` starts clusters or shards (${bad[0]}); refusing to run it`);
+  return tail;
+}
+
+describe('runShTail: cutting run.sh fails closed, before anything runs', () => {
+  it('throws for a missing anchor, including one with `; FAILED=0` appended', () => {
+    expect(() => runShTail('pg_cluster_start x\nfinish_run a\n')).toThrow(/found 0/);
+    expect(() => runShTail(`${WAIT}; FAILED=0\nfinish_run a\n`)).toThrow(/found 0/);
+  });
+
+  it('throws for a duplicate anchor', () => {
+    expect(() => runShTail(`${WAIT}\n${WAIT}\nfinish_run a\n`)).toThrow(/found 2/);
+  });
+
+  it('refuses a tail that would start a cluster or a shard', () => {
+    for (const cmd of ['pg_ctl -D x start', 'initdb -D x', 'pg_cluster_start "$d"', 'launch_session s bash x', 'bash scripts/ci/integration/shard.sh 1']) {
+      expect(() => runShTail(`${WAIT}\n${cmd}\n`)).toThrow(/refusing to run it/);
+    }
+  });
+
+  it('cuts run.sh itself: one anchor, and its tail is the hand-over to finish_run and the exit', () => {
+    const tail = runShTail(readFileSync(RUN, 'utf8'));
+    expect(tail).toMatch(/^finish_run "\$WORK" "\$SHARDS" "\$FAILED_SHARDS" "\$START" .*$/m);
+    expect(tail).toMatch(/^exit "\$FAILED"$/m);
+    expect(tail).not.toMatch(/FAILED=0/);
+  });
+});
+
 describe('finish_run (report.sh): the gate\'s last stage', () => {
   it('copies exactly the databases\' logs, named shard<i>-<db>.log, and passes a healthy run', () => {
     const r = finish(runDir());
@@ -78,6 +121,25 @@ describe('finish_run (report.sh): the gate\'s last stage', () => {
     expect(finish(runDir(), ' 1').failed).toBe('1');
   });
 
+  it('a print failure (stdout closed) never changes the verdict: 0 stays 0, 1 stays 1', () => {
+    const verdict = (work: string) => spawnSync('bash', ['-c', `source "$1"; FAILED=0
+      finish_run "$2" 2 "" 0 "$2/local-logs" >&-; echo "FAILED=$FAILED" >&2`, 'bash', REPORT, work], { encoding: 'utf8' });
+    const healthy = verdict(runDir());
+    expect(healthy.stderr).toContain('could not print the whole report');
+    expect(healthy.stderr).toMatch(/FAILED=0\n$/);
+    const failing = verdict(runDir({ 'c2/isaflow_test.log': ` ↓ ${SILENT} (2 tests | 2 skipped)\n`,
+      'c2/isaflow_test.started': `${join(process.cwd(), SILENT)}\n` }));
+    expect(failing.stderr).toMatch(/FAILED=1\n$/);
+  });
+
+  it('gives the caller back its errexit: on stays on, off stays off', () => {
+    const errexit = (set: string) => spawnSync('bash', ['-c', `${set}; source "$1"; FAILED=0
+      finish_run "$2" 2 "" 0 "$2/local-logs" > /dev/null; [[ $- == *e* ]] && echo on || echo off`, 'bash', REPORT, runDir()],
+    { encoding: 'utf8' }).stdout.trim();
+    expect(errexit('set -e')).toBe('on');
+    expect(errexit('set +e')).toBe('off');
+  });
+
   it('an empty database log with no .started is a FAIL by name, not a "timed out before any suite started"', () => {
     const work = runDir({ 'c2/isaflow_test.log': '' });
     spawnSync('rm', [join(work, 'c2/isaflow_test.started')]);
@@ -90,10 +152,9 @@ describe('finish_run (report.sh): the gate\'s last stage', () => {
 
 describe('run.sh\'s tail: after the shards are waited for, it hands over to finish_run and exits with its verdict', () => {
   // Every line of run.sh after `wait_shards "${PIDS[@]}"`, run as written, with wait_shards' result stubbed and PWD
-  // pointed at a scratch dir (run.sh keeps its local logs in $PWD/.ci-integration-logs).
-  const lines = readFileSync(RUN, 'utf8').split('\n');
-  const at = lines.findIndex((l) => l.trim() === 'wait_shards "${PIDS[@]}"');
-  const tail = lines.slice(at + 1).join('\n');
+  // pointed at a scratch dir (run.sh keeps its local logs in $PWD/.ci-integration-logs). runShTail throws at collect
+  // time, before anything runs, unless it can cut exactly that tail (see its tests below).
+  const tail = runShTail(readFileSync(RUN, 'utf8'));
   const runTail = (work: string, failedShards: string) => {
     const here = mkdtempSync(join(tmpdir(), 'isaflow-run-tail-'));
     const r = spawnSync('bash', ['-c', `source "$1"; WORK="$2"; SHARDS=2; START=0; FAILED=\${3:+1}; FAILED=\${FAILED:-0}
@@ -101,10 +162,6 @@ describe('run.sh\'s tail: after the shards are waited for, it hands over to fini
 ${tail}`, 'bash', REPORT, work, failedShards, here], { encoding: 'utf8' });
     return { ...r, logDir: join(here, '.ci-integration-logs') };
   };
-
-  it('finds the wait in run.sh', () => {
-    expect(at).toBeGreaterThan(0);
-  });
 
   it('copies the logs and exits 0 on a clean run', () => {
     const r = runTail(runDir(), '');
