@@ -54,7 +54,7 @@ export async function listCompanies(
     FROM companies c
     LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
     LEFT JOIN plans p ON p.id = s.plan_id
-    WHERE c.status IS DISTINCT FROM 'deleted'
+    WHERE (c.status IS DISTINCT FROM 'deleted' OR ${filters.status ?? null}::text = 'deleted')
       AND (${searchPattern}::text IS NULL
            OR c.name ILIKE ${searchPattern}
            OR c.registration_number ILIKE ${searchPattern})
@@ -84,7 +84,7 @@ export async function listCompanies(
     FROM companies c
     LEFT JOIN subscriptions s ON s.company_id = c.id AND s.status IN ('active','trial')
     LEFT JOIN plans p ON p.id = s.plan_id
-    WHERE c.status IS DISTINCT FROM 'deleted'
+    WHERE (c.status IS DISTINCT FROM 'deleted' OR ${filters.status ?? null}::text = 'deleted')
       AND (${searchPattern}::text IS NULL
            OR c.name ILIKE ${searchPattern}
            OR c.registration_number ILIKE ${searchPattern})
@@ -297,7 +297,7 @@ export async function createCompany(input: {
   return created;
 }
 
-/** Soft delete — sets status='deleted', preserves data for audit trail. */
+/** Soft delete — sets status='deleted', preserves data; activateCompany restores it. */
 export async function deleteCompany(companyId: string): Promise<void> {
   await sql`
     UPDATE companies
