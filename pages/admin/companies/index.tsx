@@ -21,7 +21,7 @@ interface Company {
   trading_name: string | null;
   plan_name: string;
   plan_code: string;
-  status: 'trial' | 'active' | 'suspended' | 'cancelled';
+  status: 'trial' | 'active' | 'suspended' | 'cancelled' | 'deleted';
   user_count: number;
   mrr_cents: number;
   created_at: string;
@@ -40,6 +40,7 @@ const STATUS_BADGE: Record<string, string> = {
   trial:     'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   suspended: 'bg-red-500/10 text-red-500',
   cancelled: 'bg-gray-500/10 text-gray-500',
+  deleted:   'bg-gray-500/10 text-gray-500',
 };
 
 type SortField = 'name' | 'plan_name' | 'status' | 'user_count' | 'mrr_cents' | 'created_at' | 'last_active';
@@ -288,6 +289,7 @@ export default function AdminCompaniesPage() {
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
           <option value="cancelled">Cancelled</option>
+          <option value="deleted">Deleted</option>
         </select>
         <span className="text-sm text-gray-500 dark:text-gray-400 self-center">{total} total</span>
         <a
@@ -409,7 +411,7 @@ export default function AdminCompaniesPage() {
                       >
                         <UserCog className="w-4 h-4" />
                       </button>
-                      {c.status !== 'suspended'
+                      {c.status !== 'suspended' && c.status !== 'deleted'
                         ? <button
                             title="Suspend"
                             onClick={e => void handleSuspend(e, c.id)}
@@ -422,7 +424,7 @@ export default function AdminCompaniesPage() {
                             }
                           </button>
                         : <button
-                            title="Activate"
+                            title={c.status === 'deleted' ? 'Restore' : 'Activate'}
                             onClick={e => void handleActivate(e, c.id)}
                             disabled={actionLoading !== null}
                             className="p-1.5 rounded text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition-colors disabled:opacity-50"

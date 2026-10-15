@@ -1,6 +1,6 @@
 /**
  * Admin Company Activate API
- * POST /api/admin/companies/[id]/activate — Reinstate a suspended company
+ * POST /api/admin/companies/[id]/activate — Reinstate a suspended or deleted company
  */
 
 import type { NextApiResponse } from 'next';

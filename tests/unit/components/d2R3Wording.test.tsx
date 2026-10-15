@@ -120,14 +120,14 @@ describe('admin company detail', () => {
     script((p, m) => p === '/api/admin/companies/x-1' && m === 'DELETE', empty500, get('active'));
     render(<CompanyDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /delete permanently/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^delete company$/i }));
     expect(await screen.findByText('Could not delete the company - try again')).toBeTruthy(); noRaw();
   });
   it('delete success: the Delete button stays disabled while the page navigates away (no second delete)', async () => {
     script((p, m) => p === '/api/admin/companies/x-1' && m === 'DELETE', () => ok({}), get('active'));
     render(<CompanyDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^delete$/i }));
-    fireEvent.click(screen.getByRole('button', { name: /delete permanently/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^delete company$/i }));
     await waitFor(() => expect(vi.mocked(apiFetch).mock.calls.some(([u, i]) => String(u) === '/api/admin/companies/x-1' && i?.method === 'DELETE')).toBe(true));
     await new Promise(r => setTimeout(r, 50));
     expect((screen.getByRole('button', { name: /^delete$/i }) as HTMLButtonElement).disabled).toBe(true);

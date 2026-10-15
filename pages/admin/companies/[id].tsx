@@ -89,6 +89,7 @@ const STATUS_BADGE: Record<string, string> = {
   trial:     'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   suspended: 'bg-red-500/10 text-red-500',
   cancelled: 'bg-gray-500/10 text-gray-500',
+  deleted:   'bg-gray-500/10 text-gray-500',
 };
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -348,14 +349,14 @@ export default function AdminCompanyDetailPage() {
                 className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors disabled:opacity-50">
                 <UserCog className="w-4 h-4" /> Impersonate
               </button>
-              {company.status !== 'suspended'
+              {company.status !== 'suspended' && company.status !== 'deleted'
                 ? <button onClick={() => setSuspendOpen(true)} disabled={actionLoading}
                     className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-yellow-400 text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-500/10 transition-colors disabled:opacity-50">
                     <ShieldOff className="w-4 h-4" /> Suspend
                   </button>
                 : <button onClick={() => void handleActivate()} disabled={actionLoading}
                     className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-teal-400 text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-500/10 transition-colors disabled:opacity-50">
-                    <ShieldCheck className="w-4 h-4" /> Activate
+                    <ShieldCheck className="w-4 h-4" /> {company.status === 'deleted' ? 'Restore' : 'Activate'}
                   </button>
               }
               <button onClick={() => setDeleteOpen(true)} disabled={actionLoading}
@@ -588,8 +589,8 @@ export default function AdminCompanyDetailPage() {
       <ConfirmModal
         open={deleteOpen}
         title="Delete Company"
-        message={<>This action is <strong>permanent</strong>. All data for <strong>{company?.name}</strong> will be deleted and cannot be recovered.</>}
-        confirmLabel="Delete Permanently"
+        message={<>Users lose access to <strong>{company?.name}</strong> and it stops being billed. Its data is kept, and you can restore it from Companies → Deleted.</>}
+        confirmLabel="Delete Company"
         loading={actionLoading}
         onConfirm={() => void handleDelete()}
         onCancel={() => setDeleteOpen(false)}
