@@ -116,7 +116,7 @@ ${stubborn.pid} ${start(stubborn.pid!)}"`);
     expect(running(name)).toBe('');
   });
 
-  it('shard.sh also ends children forked after its first round, even ones that ignore TERM', () => {
+  it('shard.sh also ends children forked after its first round, by a forker that ignores TERM', () => {
     const name = `lifecycle-forker-${process.pid}-${Date.now()}`;
     shardWith(`(trap "" TERM; ${record()}; ${FORKER_LOOP(name)})`);
     expect(running(name)).toBe('');
