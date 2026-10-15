@@ -139,7 +139,7 @@ export function SplitTransactionModal({
             </p>
             <p className="text-xs text-[var(--ff-text-tertiary)]">{transaction.amount < 0 ? 'Spent' : 'Received'}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
+          <button onClick={onClose} aria-label="Close split" className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)]">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -154,6 +154,11 @@ export function SplitTransactionModal({
               onPickerSearch={setPickerSearch}
               onPick={o => { updateLine(line.id, { targetId: o.id, targetLabel: o.code ? `${o.code} ${o.name}` : o.name }); setOpenPicker(null); }}
               onChange={patch => updateLine(line.id, patch)}
+              onTargetChange={target => {
+                updateLine(line.id, { target, targetId: '', targetLabel: '' });
+                if (openPicker === line.id) setOpenPicker(null);
+                setPickerSearch('');
+              }}
               onRemove={() => removeLine(line.id)} />
           ))}
 

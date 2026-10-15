@@ -98,3 +98,20 @@ it('changing a line\'s type clears what it had picked, so Split stays disabled u
   expect(screen.getByRole('button', { name: 'Select supplier' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Split & Allocate' })).toBeDisabled();
 });
+
+it('an account line with VAT and a project, switched to a supplier, posts none of them', async () => {
+  const onSplit = renderModal();
+  fireEvent.change(screen.getByLabelText('Line 1 amount'), { target: { value: '1959.48' } });
+  pick('Select GL Account', /Fuel/);
+  fireEvent.change(screen.getByLabelText('Line 1 VAT'), { target: { value: 'standard' } });
+  fireEvent.change(screen.getByLabelText('Line 1 project'), { target: { value: 'cc2-1' } });
+  fireEvent.click(screen.getByRole('button', { name: /6100 Fuel/ }));
+  expect(screen.getByLabelText('Line 1 search accounts')).toBeInTheDocument(); // picker open
+  fireEvent.change(screen.getByLabelText('Line 1 type'), { target: { value: 'supplier' } });
+  expect(screen.queryByLabelText(/Line 1 search/)).toBeNull(); // the change closed it
+  pick('Select supplier', 'Southern Elements');
+  fireEvent.click(screen.getByRole('button', { name: 'Split & Allocate' }));
+  await waitFor(() => expect(onSplit).toHaveBeenCalled());
+  expect((posts[0] as { lines: unknown[] }).lines).toEqual([{ amount: 1959.48, contactType: 'supplier', contactId: 'sup-se' }]);
+});
+
