@@ -147,6 +147,11 @@ describe('the row cap (blind LOW)', () => {
       await db.query('ROLLBACK');
       throw err;
     } finally { db.release(); }
+    // Plan against the rows just planted, not whatever an earlier suite left: an ANALYZE (autovacuum's, or a
+    // suite's) of these tables while they were nearly empty but many pages long records about zero rows per page,
+    // the planner then takes these 2001 rows for one or two, and probes each bank row's journal through the
+    // company index, 2001 x 2001 (20 s in the integration gate; red on a second run of this file alone).
+    await pool.query('ANALYZE gl_journal_entries, gl_journal_lines, bank_transactions');
   }
 
   it('the dry run reports the total and the cap; the live call refuses and writes nothing', async () => {
