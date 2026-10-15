@@ -11,10 +11,12 @@ import { apiResponse } from '@/lib/apiResponse';
 import { activateCompany } from '@/modules/admin/services/adminCompanyService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { isUuidParam } from '@/lib/validation';
 
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id as string;
+  const companyId = req.query.id;
+  if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
 
   if (req.method === 'POST') {
     // Not caught: a 4xx would COMMIT an activation whose audit row failed;

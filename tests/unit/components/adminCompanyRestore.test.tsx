@@ -43,6 +43,7 @@ describe('admin company detail', () => {
     render(<CompanyDetailPage />);
     fireEvent.click(await screen.findByRole('button', { name: /^restore$/i }));
     expect(screen.queryByRole('button', { name: /^suspend$/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^delete$/i })).toBeNull();
     await waitFor(() => expect(posted('/api/admin/companies/x-1/restore')).toBe(true));
     expect(posted('/api/admin/companies/x-1/activate')).toBe(false);
   });

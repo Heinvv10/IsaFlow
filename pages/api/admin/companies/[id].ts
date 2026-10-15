@@ -19,6 +19,7 @@ import {
 import { deleteCompany } from '@/modules/admin/services/companyLifecycleService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { isUuidParam } from '@/lib/validation';
 import { Email } from '@/lib/schemas/common';
 
 const PatchBody = z.object({
@@ -36,7 +37,8 @@ const PatchBody = z.object({
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  const companyId = req.query.id as string;
+  const companyId = req.query.id;
+  if (!isUuidParam(companyId)) return apiResponse.badRequest(res, 'Invalid company id');
 
   if (req.method === 'GET') {
     try {
