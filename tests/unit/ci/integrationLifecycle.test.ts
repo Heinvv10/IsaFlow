@@ -128,8 +128,10 @@ ${stubborn.pid} ${start(stubborn.pid!)}"`);
     expect(existsSync(termed) ? readFileSync(termed, 'utf8').trim() : 'KILLed without a TERM').toBe('termed');
   }, 30_000);
 
+  // The sleep puts at least 5 clock ticks between the subshell's start and record()'s substitution, so the old
+  // `echo $BASHPID $(cut … /proc/$BASHPID/stat)` fails this on an idle machine too.
   it('record() stores the recording shell\'s own start time (what proc_start reads), not its substitution\'s', () => {
-    const lines = sh(`for k in $(seq 1 50); do (q=$BASHPID; ${record()}; echo "$q $(proc_start $q)"; sleep 0.2) & done; wait`)
+    const lines = sh(`for k in $(seq 1 50); do (q=$BASHPID; sleep 0.05; ${record()}; echo "$q $(proc_start $q)"; sleep 0.2) & done; wait`)
       .split('\n').map((l) => l.trim()).sort();
     const recorded = readFileSync(join(scratchDir(), 'spawned'), 'utf8').trim().split('\n').map((l) => l.trim()).sort();
     expect(recorded).toEqual(lines);
