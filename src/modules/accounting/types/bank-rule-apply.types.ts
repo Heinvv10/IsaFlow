@@ -52,6 +52,12 @@ export interface RuleApplyResult {
    */
   autoPostSkippedControlAccount?: number;
   /**
+   * RULES (not lines) skipped because the rule's supplier or customer is not
+   * this company's — a row written before the R-067/R-068 fences. Its document
+   * would name another tenant's contact. Remedy: set the rule's contact again.
+   */
+  autoPostRulesSkippedForeignContact?: number;
+  /**
    * R-035 PR5 (D2): supplier-rule auto-posts skipped because the line was keyed
    * by hand and an enforced supplier_payment rule governs the amount — a payment
    * instruction, recorded through a supplier payment and its approval instead.

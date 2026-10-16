@@ -114,12 +114,27 @@ describeIfDb('a customer bank rule records the receipt or refund behind the AR i
                 VALUES (${fx.companyId}::UUID, 'foreign customer rule', 'description', 'contains', 'CRULEFOREIGN', ${other.customerId}::UUID, true, ${fx.userId}::UUID)`;
       const tx = await seedBankTx(fx, { date: '2026-10-05', amount: 120, description: 'CRULEFOREIGN deposit' });
       const [journals, receipts] = [await count('gl_journal_entries'), await count('customer_payments')];
-      await apply();
+      expect(await apply()).toMatchObject({ autoPostRulesSkippedForeignContact: 1 });
       expect(await lineStatus(tx)).toBe('imported');
       expect([await count('gl_journal_entries'), await count('customer_payments')]).toEqual([journals, receipts]);
     } finally {
       await clearRules();
       await dropFixture(other);
     }
+  }, 60000);
+
+  it('a customer with an EMPTY name still posts, labelled by id (only a missing row is skipped)', async () => {
+    await sql`UPDATE customers SET name = '' WHERE id = ${fx.customerId}::UUID AND company_id = ${fx.companyId}::UUID`;
+    await rule('CRULEBLANK', 'none');
+    const tx = await seedBankTx(fx, { date: '2026-10-06', amount: 70, description: 'CRULEBLANK deposit' });
+    expect(await apply()).toMatchObject({ autoPostRulesSkippedForeignContact: 0 });
+    const [je] = (await sql`
+      SELECT je.description FROM bank_transactions bt
+      JOIN gl_journal_lines bl ON bl.id = bt.matched_journal_line_id
+      JOIN gl_journal_entries je ON je.id = bl.journal_entry_id
+      WHERE bt.id = ${tx}::UUID AND bt.company_id = ${fx.companyId}::UUID`) as { description: string }[];
+    expect(je?.description).toContain(`Receipt from Customer #${fx.customerId}`);
+    expect(await receiptsFor(tx)).toHaveLength(1);
+    await clearRules();
   }, 60000);
 });
