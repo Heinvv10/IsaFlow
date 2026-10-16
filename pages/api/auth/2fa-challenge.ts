@@ -17,8 +17,8 @@ import { respondToAuthOutage } from '@/lib/auth/authUpstream';
 import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
 import { chargeRateLimit, refundRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
-import { sql } from '@/lib/neon';
 import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
+import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -85,13 +85,10 @@ const handler: NextApiHandler = async (req, res) => {
     const challengeId = await challengeFactor(factor_id, pending_token);
     const aal2 = await verifyFactor(factor_id, challengeId, code, pending_token);
 
-    const memberships = await sql<{ company_id: string }>`
-      SELECT company_id
-      FROM company_users
-      WHERE user_id = ${userId}
-      ORDER BY is_default DESC, created_at ASC
-      LIMIT 1
-    `;
+    // Same rule as login.ts: only a company withAuth will still admit may be
+    // named by the cookie — a soft-deleted default is skipped for the next
+    // live membership (src/lib/auth/liveCompanies.ts).
+    const activeCompanyId = await pickInitialCompanyId(userId);
 
     // PRD-10: honour the rememberMe choice that login set on the companion cookie.
     // Default true if cookie is absent (covers older clients).
@@ -103,7 +100,7 @@ const handler: NextApiHandler = async (req, res) => {
       expiresIn: aal2.expires_in,
       persistent,
     });
-    if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
+    if (activeCompanyId) setActiveCompanyCookie(res, activeCompanyId);
     clearPendingMfaCookie(res);
     clearPendingRememberCookie(res);
     if (email) await clearLockout(email, ip);
@@ -112,7 +109,7 @@ const handler: NextApiHandler = async (req, res) => {
       success: true,
       data: {
         user: { id: userId, email },
-        activeCompanyId: memberships[0]?.company_id ?? null,
+        activeCompanyId,
       },
     });
   } catch (err) {

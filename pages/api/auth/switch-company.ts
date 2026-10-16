@@ -4,6 +4,7 @@ import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withTransaction } from '@/lib/neon';
 import { setActiveCompanyCookie } from '@/lib/auth/cookies';
+import { isLiveCompanyForUser } from '@/lib/auth/liveCompanies';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
@@ -40,6 +41,17 @@ const handler: NextApiHandler = async (req, res) => {
 
   if (!memberFound) {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of that company' } });
+  }
+
+  // Membership alone is not enough: withAuth also refuses a soft-deleted or
+  // suspended company, so pointing the cookie at one would replace a working
+  // session with a 403 on every later request (incident 2026-10-16). One
+  // predicate for both, in src/lib/auth/liveCompanies.ts.
+  if (!(await isLiveCompanyForUser(user.id, companyId))) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'COMPANY_UNAVAILABLE', message: 'That company is no longer available' },
+    });
   }
 
   setActiveCompanyCookie(res, companyId);

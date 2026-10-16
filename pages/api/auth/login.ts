@@ -8,6 +8,7 @@ import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLoc
 import { chargeRateLimit, refundRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from '@/lib/auth/userAccountStatus';
+import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -116,13 +117,12 @@ const handler: NextApiHandler = async (req, res) => {
 
   // No MFA — set cookies and sign in directly.
   await clearLockout(cleanEmail, ip);
-  const memberships = await sql<{ company_id: string; is_default: boolean; created_at: Date }>`
-    SELECT company_id, is_default, created_at
-    FROM company_users
-    WHERE user_id = ${token.user.id}
-    ORDER BY is_default DESC, created_at ASC
-    LIMIT 1
-  `;
+  // The cookie may only name a company withAuth will still admit: a default
+  // company an admin soft-deleted used to be chosen here and 403'd every later
+  // request (incident 2026-10-16). pickInitialCompanyId falls back to the next
+  // live membership (default first, then oldest) and returns null when the
+  // user has none, in which case no active-company cookie is set at all.
+  const activeCompanyId = await pickInitialCompanyId(token.user.id);
 
   setAuthCookies(res, {
     accessToken: token.access_token,
@@ -130,14 +130,16 @@ const handler: NextApiHandler = async (req, res) => {
     expiresIn: token.expires_in,
     persistent,
   });
-  if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
-  if (memberships.length > 0) setOnboardingDoneCookie(res);
+  if (activeCompanyId) {
+    setActiveCompanyCookie(res, activeCompanyId);
+    setOnboardingDoneCookie(res);
+  }
 
   return res.status(200).json({
     success: true,
     data: {
       user: { id: token.user.id, email: token.user.email },
-      activeCompanyId: memberships[0]?.company_id ?? null,
+      activeCompanyId,
     },
   });
 };
