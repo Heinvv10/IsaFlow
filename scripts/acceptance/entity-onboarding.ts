@@ -2,7 +2,6 @@
 import { chromium, type Page, type BrowserContext } from 'playwright';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
-
 const WIZ = process.cwd(); // run from the repo root
 // Directory holding sign.ts (signs a GoTrue-shaped HS256 session with JWT_SECRET) and scratch files.
 const SCRATCH = process.env.ACCEPT_SCRATCH ?? '/tmp/isaflow-accept';
