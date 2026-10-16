@@ -166,14 +166,14 @@ export async function applyRules(
           SELECT name FROM suppliers
           WHERE id = ${ruleSupplierId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
-        supplierName = supRows.length > 0 ? String(supRows[0]!.name ?? '') || `Supplier #${ruleSupplierId}` : null;
+        supplierName = supRows.length > 0 ? String(supRows[0]!.name ?? '').trim() || `Supplier #${ruleSupplierId}` : null;
       } else if (allocType === 'customer' && ruleClientId) {
         arAccountId = await getSystemAccountId('receivable', companyId);
         const custRows = (await sql`
           SELECT name FROM customers
           WHERE id = ${ruleClientId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
-        customerName = custRows.length > 0 ? String(custRows[0]!.name ?? '') || `Customer #${ruleClientId}` : null;
+        customerName = custRows.length > 0 ? String(custRows[0]!.name ?? '').trim() || `Customer #${ruleClientId}` : null;
       }
 
       // A rule whose contact is not this company's (a row written before the R-067/R-068 fences) posts nothing: its

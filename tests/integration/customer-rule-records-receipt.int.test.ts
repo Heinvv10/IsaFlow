@@ -123,9 +123,9 @@ describeIfDb('a customer bank rule records the receipt or refund behind the AR i
     }
   }, 60000);
 
-  it('a customer with an EMPTY name still posts, labelled by id (only a missing row is skipped)', async () => {
+  it('a customer with an EMPTY (or blank) name still posts, labelled by id (only a missing row is skipped)', async () => {
     const [{ name }] = (await sql`SELECT name FROM customers WHERE id = ${fx.customerId}::UUID AND company_id = ${fx.companyId}::UUID`) as { name: string }[];
-    await sql`UPDATE customers SET name = '' WHERE id = ${fx.customerId}::UUID AND company_id = ${fx.companyId}::UUID`;
+    await sql`UPDATE customers SET name = '   ' WHERE id = ${fx.customerId}::UUID AND company_id = ${fx.companyId}::UUID`;
     try {
       await rule('CRULEBLANK', 'none');
       const tx = await seedBankTx(fx, { date: '2026-10-06', amount: 70, description: 'CRULEBLANK deposit' });
