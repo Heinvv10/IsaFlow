@@ -14,6 +14,7 @@ import { chargeRateLimit, refundRateLimit, withRateLimit } from '@/lib/rateLimit
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
+import { isLiveCompanyForUser, pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 
 // Memoised, like every other pool in the repo (src/lib/neon/pool.ts,
 // src/lib/auth/withInviteToken.ts). Building one per request cost a TCP + TLS
@@ -287,9 +288,17 @@ const handler: NextApiHandler = async (req, res) => {
     refreshToken: tok.refresh_token,
     expiresIn: tok.expires_in,
   });
-  setActiveCompanyCookie(res, inv.company_id);
+  // The invited company is normally the right landing spot, but an invitation
+  // can outlive its company (admin soft delete writes companies.status =
+  // 'deleted'). Pointing the cookie at one would 403 every later request, so
+  // fall back to the accepter's next live membership and, failing that, set no
+  // active-company cookie at all (incident 2026-10-16).
+  const landingCompanyId = (await isLiveCompanyForUser(tok.user.id, inv.company_id))
+    ? inv.company_id
+    : await pickInitialCompanyId(tok.user.id);
+  if (landingCompanyId) setActiveCompanyCookie(res, landingCompanyId);
 
-  return res.status(200).json({ success: true, data: { userId: tok.user.id, companyId: inv.company_id } });
+  return res.status(200).json({ success: true, data: { userId: tok.user.id, companyId: landingCompanyId } });
 };
 
 // withErrorHandler OUTSIDE withInviteToken -- see the note on
