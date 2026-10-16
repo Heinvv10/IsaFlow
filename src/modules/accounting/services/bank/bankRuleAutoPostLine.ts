@@ -11,6 +11,8 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { recordRuleSupplierDocument } from './bankRuleSupplierDocument';
 import { recordRuleCustomerDocument } from './bankRuleCustomerDocument';
+import { planSupplierRefund } from '../ap/supplierRefundDocument';
+import { planCustomerRefund } from '../ar/customerRefundDocument';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -136,6 +138,11 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   const ruleContact = allocType === 'supplier' ? supplierId : allocType === 'customer' && rule.client_id ? String(rule.client_id) : null;
   const importerArm = importerArmOf(allocType, ruleContact, Number(tx.amount)); // the one mapping (bankLineImporterGate)
   if (importerArm && await importerAllocationRefusal(companyId, locked, userId, importerArm)) return { kind: 'approval_required' };
+  // A refund past the contact's credit: refused before the journal (a counted skip), not after it posted and rolled back.
+  if (ruleContact && (allocType === 'supplier') === isDeposit) {
+    if (allocType === 'supplier') await planSupplierRefund(companyId, ruleContact, totalAmount, entryDate);
+    else await planCustomerRefund(companyId, ruleContact, totalAmount, entryDate);
+  }
   const entryDesc = rule.description_template
     ? String(rule.description_template)
         .replace('{description}', String(tx.description || ''))

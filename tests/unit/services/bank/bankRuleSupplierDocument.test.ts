@@ -46,6 +46,10 @@ vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
     paymentId: 'refund-1', amount: 0, onAccountCredit: 1e9,
   })),
 }));
+vi.mock('@/modules/accounting/services/ar/customerRefundDocument', () => ({
+  planCustomerRefund: vi.fn(async () => ({ amount: 0, onAccountCredit: 1e9, customerName: 'Beta' })),
+  recordCustomerRefund: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
   recordSupplierBankPayment: vi.fn(async () => ({
     paymentId: 'sp-1', appliedLines: [], unappliedRemainder: 0, strategy: 'off',
@@ -54,7 +58,9 @@ vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
 
 import { sql } from '@/lib/neon';
 import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
-import { recordSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
+import { planSupplierRefund, recordSupplierRefund } from '@/modules/accounting/services/ap/supplierRefundDocument';
+import { planCustomerRefund } from '@/modules/accounting/services/ar/customerRefundDocument';
+import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { autoPostRuleLine } from '@/modules/accounting/services/bank/bankRuleAutoPostLine';
 import { lockBankTransactionForUpdate } from '@/modules/accounting/services/bank/bankTxLock';
 
@@ -179,3 +185,28 @@ describe('autoPostRuleLine — feed-state guard', () => {
     expect(texts.some((t) => /\bINSERT\b|(?<!FOR )\bUPDATE\b/i.test(t))).toBe(false);
   });
 });
+
+/** The refund ceiling's refusal, as the sweep classifies it (isSupplierRefundRefusal reads the code). */
+const ceiling = (msg: string) => Object.assign(new Error(msg), { code: 'SUPPLIER_REFUND_REFUSED' });
+
+describe('a rule refund past the contact\'s credit is refused BEFORE the journal', () => {
+  it('supplier refund (money in): planSupplierRefund refuses, no journal is created', async () => {
+    vi.mocked(planSupplierRefund).mockRejectedValueOnce(ceiling('A refund of 500.00 exceeds the 0.00 Acme has on account'));
+    await expect(autoPostRuleLine(input({ tx: { id: 'btx-1', amount: 500, transaction_date: '2026-09-08', description: 'ACME REFUND', bank_account_id: BANK_GL } }) as never))
+      .rejects.toThrow(/exceeds the 0\.00 Acme has on account/);
+    expect(vi.mocked(planSupplierRefund).mock.calls[0]!.slice(0, 3)).toEqual([COMPANY, SUPPLIER, 500]);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('customer refund (money out): planCustomerRefund refuses, no journal is created', async () => {
+    vi.mocked(planCustomerRefund).mockRejectedValueOnce(ceiling('A refund of 500.00 exceeds the 0.00 Beta has on account'));
+    const CUSTOMER = '66666666-6666-4666-8666-666666666666';
+    await expect(autoPostRuleLine(input({
+      allocType: 'customer', supplierId: null, supplierName: null, customerName: 'Beta', arAccountId: AP_ACCOUNT,
+      rule: { id: 'rule-2', description_template: null, client_id: CUSTOMER },
+    }) as never)).rejects.toThrow(/exceeds the 0\.00 Beta has on account/);
+    expect(vi.mocked(planCustomerRefund).mock.calls[0]!.slice(0, 3)).toEqual([COMPANY, CUSTOMER, 500]);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+});
+
