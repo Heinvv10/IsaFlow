@@ -13,14 +13,20 @@
 -- trust -> trust, others -> the pty fallback AFS always used. So no
 -- company's AFS output changes. `business_structure` (286) is left as it is.
 --
--- Additive: no column or row is dropped. The old CHECK is replaced, because
--- it refuses the new codes. The new CHECK is added NOT VALID and validated
--- after the UPDATE, in this transaction.
+-- Not purely additive, but loses nothing: no column or row is dropped; the
+-- UPDATE rewrites 'pty' to its finer code, and the old CHECK is replaced
+-- because it refuses the new codes. The column becomes NOT NULL (every
+-- reader already falls back from NULL; nothing writes NULL). The new CHECK is
+-- added NOT VALID and validated after the UPDATE in this one transaction
+-- (the DROP already holds the table lock, so this only orders the steps).
+-- Production before this (2026-10-16, read-only): 16 companies, all 'pty'.
 --
--- Deploy order: the code that writes 'pty' (the PIS form's EntityTypeEnum)
--- is replaced in the same PR; old code still writing 'pty' would be refused.
--- Rollback: DROP the new CHECK, UPDATE pty_ltd/ltd/npc -> 'pty', others to
--- 'pty' (lossy), re-add 408's CHECK and default.
+-- Deploy order: ship with its code. Until the code is live, a client that
+-- sends entity_type 'pty' (the old PIS API schema accepted it; no screen
+-- sent it) or 'company' (the old Company Settings select) gets a 500 from the
+-- CHECK; before 894 those Settings values were already refused by 408's CHECK.
+-- Rollback: DROP the new CHECK and NOT NULL, UPDATE pty_ltd/ltd/npc and the
+-- others to 'pty' (lossy), re-add 408's CHECK and default.
 
 ALTER TABLE public.companies DROP CONSTRAINT IF EXISTS companies_entity_type_check;
 
@@ -28,6 +34,7 @@ UPDATE public.companies SET entity_type = 'pty_ltd'
 WHERE entity_type IS NULL OR entity_type IN ('pty', 'company');
 
 ALTER TABLE public.companies ALTER COLUMN entity_type SET DEFAULT 'pty_ltd';
+ALTER TABLE public.companies ALTER COLUMN entity_type SET NOT NULL;
 
 ALTER TABLE public.companies ADD CONSTRAINT companies_entity_type_check CHECK (entity_type IN (
   'sole_proprietor', 'partnership', 'pty_ltd', 'ltd', 'cc', 'npc', 'trust', 'other'

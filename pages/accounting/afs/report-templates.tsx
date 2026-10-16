@@ -6,6 +6,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { FileText, Loader2, AlertCircle, Copy, Check } from 'lucide-react';
+import type { AfsTemplateKey } from '@/lib/entityTypes';
 
 // ── Types ─────��─────────────────────────────────��───────────────────────────
 
@@ -22,7 +23,7 @@ interface TemplateResponse {
 }
 
 type ReportType = 'compilation' | 'accounting_officer' | 'review' | 'audit';
-type EntityType = 'pty' | 'cc' | 'trust';
+type EntityType = AfsTemplateKey;
 type Framework = 'ifrs_smes' | 'full_ifrs';
 
 const REPORT_TYPE_LABELS: Record<ReportType, string> = {

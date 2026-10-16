@@ -6,6 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { UUID } from '@/lib/schemas/common';
 import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
@@ -20,7 +21,7 @@ const PostBody = z.object({
   trading_name: z.string().max(200).optional().nullable(),
   email:        z.string().email().max(200).optional().nullable().or(z.literal('')),
   phone:        z.string().max(50).optional().nullable().or(z.literal('')),
-  plan_id:      z.string().uuid().optional().nullable().or(z.literal('')),
+  plan_id:      UUID.optional().nullable().or(z.literal('')),
 }).strict();
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

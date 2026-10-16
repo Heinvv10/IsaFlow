@@ -4,8 +4,9 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Company, CompanyDocument, Toggle,
   INPUT_CLS, LABEL_CLS, SECTION_CLS,
-  DOC_TYPE_LABELS, INDUSTRIES, BUSINESS_STRUCTURES, ENTITY_TYPES,
+  DOC_TYPE_LABELS, INDUSTRIES,
 } from './settingsTypes';
+import { ENTITY_TYPES } from '@/lib/entityTypes';
 
 interface Props {
   company: Company;
@@ -91,7 +92,7 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
           <div>
             <label className={LABEL_CLS}>Entity Type</label>
             <select className={INPUT_CLS} value={company.entityType} onChange={e => onChange('entityType', e.target.value)}>
-              {ENTITY_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {ENTITY_TYPES.map(t => <option key={t.code} value={t.code}>{t.label}</option>)}
             </select>
           </div>
           <div>
@@ -99,13 +100,6 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
             <select className={INPUT_CLS} value={company.industry || ''} onChange={e => onChange('industry', e.target.value || null)}>
               <option value="">Select industry...</option>
               {INDUSTRIES.map(ind => <option key={ind} value={ind}>{ind}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL_CLS}>Business Structure</label>
-            <select className={INPUT_CLS} value={company.businessStructure || ''} onChange={e => onChange('businessStructure', e.target.value || null)}>
-              <option value="">Select structure...</option>
-              {BUSINESS_STRUCTURES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
           </div>
           <div><label className={LABEL_CLS}>Contact Name</label><input className={INPUT_CLS} value={company.contactName || ''} onChange={e => onChange('contactName', e.target.value)} /></div>

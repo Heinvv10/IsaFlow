@@ -15,11 +15,12 @@ import {
   type ReportType,
   type ReportTemplateContext,
 } from '@/modules/accounting/services/afs/reportTemplates';
+import { AFS_TEMPLATE_KEYS } from '@/lib/entityTypes';
 
 type DbRow = Record<string, unknown>;
 
 const VALID_REPORT_TYPES = new Set(['compilation', 'accounting_officer', 'review', 'audit']);
-const VALID_ENTITY_TYPES = new Set(['pty', 'cc', 'trust']);
+const VALID_ENTITY_TYPES = new Set<string>(AFS_TEMPLATE_KEYS);
 const VALID_FRAMEWORKS = new Set(['ifrs_smes', 'full_ifrs']);
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
