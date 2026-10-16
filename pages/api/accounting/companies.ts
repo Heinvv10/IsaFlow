@@ -1,18 +1,18 @@
 /**
  * Companies API
  * GET  — list companies for current user
- * POST — create a new company
+ * POST — action 'set-default' (creating a company is onboarding's: 405 here)
  * PUT  — update company details
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
-  getCompany, createCompany, updateCompany,
+  getCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
 } from '@/modules/accounting/services/core/companyService';
 import { ENTITY_TYPE_CODES, isEntityTypeCode } from '@/lib/entityTypes';
@@ -77,29 +77,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await setDefaultCompany(userId, req.body.companyId);
       return apiResponse.success(res, { success: true });
     }
-    const {
-      name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
-      website, addressLine1, addressLine2, city, province, postalCode, country,
-      logoData, bankName, bankAccountNumber, bankBranchCode, bankAccountType,
-      financialYearStart, vatPeriod, vatSystemType, defaultCurrency,
-    } = req.body;
-    if (!name) return apiResponse.badRequest(res, 'name is required');
-    if (!isValidVatPeriod(vatPeriod)) {
-      return apiResponse.badRequest(res, "vatPeriod must be 'monthly', 'bi-monthly' or 'none'");
-    }
-    if (!isValidVatSystemType(vatSystemType)) {
-      return apiResponse.badRequest(res, "vatSystemType must be 'invoice', 'payment' or 'none'");
-    }
-    const company = await createCompany(
-      {
-        name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
-        website, addressLine1, addressLine2, city, province, postalCode, country,
-        logoData, bankName, bankAccountNumber, bankBranchCode, bankAccountType,
-        financialYearStart, vatPeriod, vatSystemType, defaultCurrency,
-      },
-      userId
-    );
-    return apiResponse.success(res, company);
+    // Creating a company here made a pty_ltd with no required proof and no
+    // entity choice. Companies are created by onboarding only
+    // (POST /api/onboarding/complete-setup), which enforces both.
+    return apiResponse.error(res, ErrorCode.METHOD_NOT_ALLOWED, 'Create a company through onboarding (/onboarding)');
   }
 
   if (req.method === 'PUT') {

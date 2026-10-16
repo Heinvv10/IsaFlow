@@ -27,10 +27,12 @@ function isSensitiveKey(key: string): boolean {
 
 /** Always a file or an ID number, whatever the value looks like. */
 const PAYLOAD_KEYS = new Set(['file_data', 'fileData', 'idDocument', 'logoData', 'idNumber', 'id_number']);
-/** `data` is a common key (bulk rows, settings): omitted only when it is a file (a data: URL) or a long string. */
+/** `data` is a common key (bulk rows, settings): omitted only when it is a file (a data: URL or a long string), or an array holding one. */
 const LONG_STRING = 1024;
 const isFileLike = (value: unknown) => typeof value === 'string' && (value.startsWith('data:') || value.length > LONG_STRING);
-const omitted = (value: unknown) => (typeof value === 'string' ? `[omitted: ${value.length} chars]` : '[omitted]');
+const holdsFiles = (value: unknown) => isFileLike(value) || (Array.isArray(value) && value.some(isFileLike));
+const omitted = (value: unknown) => (typeof value === 'string' ? `[omitted: ${value.length} chars]`
+  : Array.isArray(value) ? `[omitted: ${value.length} items]` : '[omitted]');
 const present = (value: unknown) => value !== null && value !== undefined && value !== '';
 
 export function sanitizeRequestBody(body: unknown, depth = 0): unknown {
@@ -41,7 +43,7 @@ export function sanitizeRequestBody(body: unknown, depth = 0): unknown {
   for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
     if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';
     else if (PAYLOAD_KEYS.has(key) && present(value)) sanitized[key] = omitted(value);
-    else if (key === 'data' && isFileLike(value)) sanitized[key] = omitted(value);
+    else if (key === 'data' && holdsFiles(value)) sanitized[key] = omitted(value);
     else sanitized[key] = sanitizeRequestBody(value, depth + 1);
   }
   return sanitized;

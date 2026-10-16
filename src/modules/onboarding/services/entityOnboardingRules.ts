@@ -116,6 +116,15 @@ export function proofIssues(facts: SetupFacts): string[] {
   return named.filter(p => !p.hasIdDocument).map(p => `Upload the ID document of ${p.name.trim()}`);
 }
 
+/** More named people than the entity allows (a sole proprietor has one owner). */
+export function tooManyPeopleIssues(code: EntityTypeCode, people: readonly PersonFacts[]): string[] {
+  const def = getEntityType(code);
+  const named = namedPeople(people);
+  return def.maxPeople !== null && named.length > def.maxPeople
+    ? [`A ${def.label.toLowerCase()} has ${def.maxPeople} ${def.personRole.toLowerCase()}`]
+    : [];
+}
+
 /** Every reason the server refuses to finish onboarding; empty = it may finish. */
 export function setupIssues(facts: SetupFacts): string[] {
   if (!isEntityTypeCode(facts.entityType)) return ['Choose the type of business'];
@@ -123,9 +132,7 @@ export function setupIssues(facts: SetupFacts): string[] {
   const issues: string[] = [];
   if (!facts.name.trim()) issues.push(`Enter the ${businessNameLabel(facts.entityType).toLowerCase()}`);
   const named = namedPeople(facts.people);
-  if (def.maxPeople !== null && named.length > def.maxPeople) {
-    issues.push(`A ${def.label.toLowerCase()} has ${def.maxPeople} ${def.personRole.toLowerCase()}`);
-  }
+  issues.push(...tooManyPeopleIssues(facts.entityType, named));
   issues.push(...duplicatePeopleIssues(named));
   const reg = registrationNumberFor(facts.entityType, facts.registrationNumber);
   const regEntity = reg ? entityFromRegistrationNumber(reg) : null;
