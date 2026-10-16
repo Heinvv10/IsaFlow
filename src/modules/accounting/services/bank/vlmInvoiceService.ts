@@ -20,7 +20,7 @@ import {
   parseBankDetails,
 } from './vlmCore';
 import { renderPdfFirstPage } from './vlmPdfRender';
-import { createSlotLimiter, envLimit } from './vlmLimiter';
+import { sharedSlotLimiter, envLimit } from './vlmLimiter';
 
 // ---------------------------------------------------------------------------
 // Extraction prompt
@@ -111,7 +111,7 @@ const PAGE_MARKER = /-- \d+ of \d+ --/g;
  * then a page PNG in memory until vLLM answers, so a bulk upload of scans must
  * not start them all together. `VLM_MAX_PAGE_READS` is read once, at load.
  */
-const pageReads = createSlotLimiter(envLimit('VLM_MAX_PAGE_READS', 2));
+const pageReads = sharedSlotLimiter('vlm-page-reads', envLimit('VLM_MAX_PAGE_READS', 2));
 
 /**
  * Extract from a PDF buffer using VLM.

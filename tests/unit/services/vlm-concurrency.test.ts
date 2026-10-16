@@ -28,6 +28,19 @@ describe('callVlmChat concurrency cap', () => {
     expect(peak).toBe(4);
   });
 
+  it('times out a response whose body stalls, and frees its slot', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { signal: AbortSignal }) => ({
+      ok: true,
+      json: () => new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('This operation was aborted')));
+      }),
+    })));
+    const stalled = await Promise.all(Array.from({ length: 4 }, () => callVlmChat({ ...CONFIG, timeout: 50 }, 's', [])));
+    expect(stalled).toEqual(Array(4).fill(null));
+    vi.stubGlobal('fetch', vi.fn(async () => ok()));
+    expect(await callVlmChat(CONFIG, 's', [])).toBe('ok');
+  }, 5_000);
+
   it('releases the slot when a call fails', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('fetch failed'); }));
     const failed = await Promise.all(Array.from({ length: 6 }, () => callVlmChat(CONFIG, 's', [])));
