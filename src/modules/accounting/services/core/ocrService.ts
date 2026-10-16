@@ -54,7 +54,10 @@ export async function extractFromPdf(buffer: Buffer): Promise<ExtractedDocument>
       const vlmResult = await extractPdfWithVlm(buffer, rawText);
       if (vlmResult) {
         vlmResult.warnings.push(...warnings);
-        return vlmResult;
+        // A weak VLM read must not shadow a better regex read of the same text.
+        if (vlmResult.confidence >= 0.6 || !rawText.trim()) return vlmResult;
+        const regexResult = await extractFromText(rawText, warnings);
+        return regexResult.confidence > vlmResult.confidence ? regexResult : vlmResult;
       }
       warnings.push('VLM extraction returned no result — falling back to regex.');
     } catch (err) {

@@ -1,0 +1,145 @@
+/**
+ * VLM PDF render — turns the first page of a PDF into a PNG for the VLM.
+ *
+ * vLLM rejects a PDF sent as `image_url` (400 "cannot identify image file"),
+ * so a scanned PDF only reaches the model as a rendered page. The PDF is an
+ * untrusted upload, so:
+ * - gs only ever sees bytes starting `%PDF-` (anything before the header is cut
+ *   off; gs runs a file that does not start `%PDF-` as PostScript);
+ * - `-dSAFER` still lets gs write under its temp dir, so it gets a private,
+ *   empty TMPDIR and a clean environment. (bubblewrap is not an option: inside
+ *   isaflow.service the kernel refuses it a user namespace, "setting up uid
+ *   map: Permission denied".)
+ * - page 1 only, into a fixed-size frame, stdin → stdout, a hard timeout, an
+ *   output cap. Output that is not a PNG (an encrypted PDF exits 0 with only a
+ *   message) is a failure. Callers bound how many run at once.
+ */
+
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { accessSync, constants, mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { log } from '@/lib/logger';
+
+const RENDER_TIMEOUT_MS = 30_000;
+const MAX_PNG_BYTES = 20 * 1024 * 1024;
+const PDF_MAGIC = '%PDF-';
+/** Readers accept a header that STARTS anywhere in the first 1 KB. */
+const HEADER_SEARCH_BYTES = 1024 + PDF_MAGIC.length - 1;
+/** Kernel limits on gs itself: 512 MB address space; CPU SIGXCPU at 25 s, SIGKILL at 30 s (peak seen: ~40 MB). */
+const LIMIT_ARGS = ['--as=536870912', '--cpu=25:30', '--core=0', '--'];
+const GS_ARGS = [
+  '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
+  // A fixed 1754x1754 frame with the page scaled to fit, aspect kept: A4 reads
+  // at 150 dpi portrait OR landscape, and a hostile 14,400pt page costs the
+  // same memory as an A4 one.
+  '-sDEVICE=png16m', '-g1754x1754', '-dFIXEDMEDIA', '-dPDFFitPage', '-dFirstPage=1', '-dLastPage=1',
+  '-sOutputFile=-', '-',
+];
+
+/** Base64 PNG of page 1, or null when the PDF cannot be rendered (logged). */
+export async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | null> {
+  const start = pdfBuffer.subarray(0, HEADER_SEARCH_BYTES).indexOf(PDF_MAGIC, 0, 'latin1');
+  if (start < 0) {
+    log.warn('Not rendered: no %PDF- header in the first 1 KB', { bytes: pdfBuffer.length }, 'vlm-pdf-render');
+    return null;
+  }
+  try {
+    const { png, stderr } = await runGhostscript(pdfBuffer.subarray(start));
+    if (png.subarray(0, 4).toString('latin1') === '\x89PNG') {
+      return png.toString('base64');
+    }
+    log.warn('PDF render produced no readable page', {
+      bytes: pdfBuffer.length, pngBytes: png.length, stderr: stderr.trim(),
+    }, 'vlm-pdf-render');
+  } catch (err) {
+    const detail = { bytes: pdfBuffer.length, error: err instanceof Error ? err.message : String(err) };
+    // No gs/prlimit at all is an outage (every scan falls back), not one bad file.
+    if (err instanceof RenderUnavailable) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
+    else log.warn('PDF render failed', detail, 'vlm-pdf-render');
+  }
+  return null;
+}
+
+class RenderUnavailable extends Error {}
+
+/** The PATH gs is both looked up on and spawned with. */
+function gsPath(): string {
+  return process.env.PATH ?? '/usr/bin:/bin';
+}
+
+function onPath(name: string): boolean {
+  return gsPath().split(':').some((dir) => {
+    if (dir === '') return false;
+    try {
+      accessSync(join(dir, name), constants.X_OK);
+      return true;
+    } catch {
+      return false; // not here, or not executable: try the next PATH entry
+    }
+  });
+}
+
+function removeTmpDir(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch (err) {
+    log.warn('Could not remove gs temp dir', {
+      dir, error: err instanceof Error ? err.message : String(err),
+    }, 'vlm-pdf-render');
+  }
+}
+
+function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: string }> {
+  const absent = ['prlimit', 'gs'].filter((name) => !onPath(name));
+  if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
+  // gs's own temp dir, one per render: private (0700), empty, removed when gs exits.
+  const gsTmpDir = mkdtempSync(join(tmpdir(), 'isaflow-gs-'));
+  return new Promise((resolve, reject) => {
+    const env = { NODE_ENV: process.env.NODE_ENV, PATH: gsPath(), TMPDIR: gsTmpDir };
+    let gs: ChildProcessWithoutNullStreams;
+    try {
+      gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...GS_ARGS], { stdio: ['pipe', 'pipe', 'pipe'], env });
+    } catch (err) {
+      removeTmpDir(gsTmpDir);
+      reject(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let stderr = '';
+    let failure: Error | null = null;
+
+    const fail = (err: Error) => {
+      if (!failure) failure = err;
+      gs.kill('SIGKILL');
+    };
+    const timer = setTimeout(() => fail(new Error(`gs timed out after ${RENDER_TIMEOUT_MS} ms`)), RENDER_TIMEOUT_MS);
+
+    gs.stdout.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_PNG_BYTES) fail(new Error(`gs output exceeded ${MAX_PNG_BYTES} bytes`));
+      else chunks.push(chunk);
+    });
+    gs.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-500); });
+    // gs may exit before reading all of a corrupt input; that EPIPE is not the failure.
+    gs.stdin.on('error', (err) => log.debug('gs stdin closed early', { error: err.message }, 'vlm-pdf-render'));
+    gs.on('error', fail);
+    gs.on('close', (code, signal) => {
+      clearTimeout(timer);
+      removeTmpDir(gsTmpDir);
+      // Our own kills set `failure` first, so a bare SIGKILL is the 30 s CPU hard cap
+      // or the kernel OOM killer; SIGXCPU is the 25 s soft cap.
+      const cpuCap = signal === 'SIGXCPU' ? ' (prlimit CPU cap)'
+        : signal === 'SIGKILL' ? ' (prlimit CPU hard cap or OOM killer)' : '';
+      if (failure) reject(failure);
+      else if (signal) reject(new Error(`gs killed by ${signal}${cpuCap}`));
+      else if (code !== 0) {
+        const cap = /VMerror|out of memory|failed to map|cannot allocate/i.test(stderr) ? ' (prlimit memory cap)' : '';
+        reject(new Error(`gs exited ${code}${cap}: ${stderr.trim()}`));
+      }
+      else resolve({ png: Buffer.concat(chunks), stderr });
+    });
+    gs.stdin.end(pdfBuffer);
+  });
+}
