@@ -101,6 +101,16 @@ describe('renderPdfFirstPage', () => {
     }
   }, 30_000);
 
+  it('looks gs up on the same PATH it spawns with when PATH is unset', async () => {
+    const path = process.env.PATH;
+    delete process.env.PATH;
+    try {
+      expect(await renderPdfFirstPage(onePagePdf('NO PATH'))).not.toBeNull();
+    } finally {
+      process.env.PATH = path;
+    }
+  }, 30_000);
+
   it('renders only page 1 of a two-page PDF', async () => {
     const one = await renderPdfFirstPage(onePagePdf('PAGE ONE'));
     const pdf = onePagePdf('PAGE ONE').toString('latin1')
