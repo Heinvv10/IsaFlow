@@ -52,6 +52,7 @@ it('submits the prefilled form with the keys the strict API schema accepts', asy
   render(<SubscriptionsPage />);
   const dialog = await screen.findByRole('dialog');
   await screen.findByRole('option', {name: /starter/i});
+  await screen.findByText('Velocity Fibre (Pty) Ltd');
   fireEvent.change(dialog.querySelector('select')!, {target: {value: PLAN}});
   fireEvent.click(screen.getByRole('button', {name: /^create$/i}));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -72,4 +73,27 @@ it.each([
   await screen.findByText('0 total');
   expect(screen.queryByRole('dialog')).toBeNull();
   expect(route.replace).not.toHaveBeenCalled();
+});
+
+it('does not submit a prefilled company before its name has loaded', async () => {
+  let releaseName: () => void = () => undefined;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (String(url).includes('/plans')) return response([{id: PLAN, name: 'Starter', code: 'starter'}]);
+    if (String(url) === `/api/admin/companies/${COMPANY}`) {
+      await new Promise<void>(r => { releaseName = r; });
+      return response({id: COMPANY, name: 'Velocity Fibre (Pty) Ltd'});
+    }
+    if (init?.method === 'POST') return response({id: 'sub-1'});
+    return response({items: [], total: 0, page: 1, limit: 25});
+  });
+  route.query = {companyId: COMPANY};
+  render(<SubscriptionsPage />);
+  const dialog = await screen.findByRole('dialog');
+  await screen.findByRole('option', {name: /starter/i});
+  fireEvent.change(dialog.querySelector('select')!, {target: {value: PLAN}});
+  fireEvent.click(screen.getByRole('button', {name: /^create$/i}));
+  expect(await screen.findByText(/company is still loading/i)).toBeInTheDocument();
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  releaseName();
+  await screen.findByText('Velocity Fibre (Pty) Ltd');
 });

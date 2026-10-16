@@ -73,6 +73,7 @@ export default function SubscriptionsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm]         = useState<SubForm>(EMPTY_FORM);
   const [formError, setFormError] = useState('');
+  const [companyNamed, setCompanyNamed] = useState(false);
   const [saving, setSaving]     = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [cancelling, setCancelling]           = useState(false);
@@ -135,6 +136,7 @@ export default function SubscriptionsPage() {
   async function handleAdd() {
     setFormError('');
     if (!form.company_id) { setFormError('Company is required'); return; }
+    if (!companyNamed)    { setFormError('Company is still loading'); return; }
     if (!form.plan_id)           { setFormError('Plan is required'); return; }
     setSaving(true);
     try {
@@ -233,7 +235,7 @@ export default function SubscriptionsPage() {
               )}
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Company</label>
-                <SubscriptionCompanyPicker companyId={form.company_id} onChange={id => setForm(f => ({ ...f, company_id: id }))} />
+                <SubscriptionCompanyPicker companyId={form.company_id} onChange={id => setForm(f => ({ ...f, company_id: id }))} onNamedChange={setCompanyNamed} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Plan</label>

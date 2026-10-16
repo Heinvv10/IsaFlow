@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 it('shows the name, not the id, for a preselected company', async () => {
-  render(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={vi.fn()} />);
+  render(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={vi.fn()} onNamedChange={vi.fn()} />);
   expect(await screen.findByText(VELOCITY.name)).toBeInTheDocument();
   expect(screen.queryByDisplayValue(VELOCITY.id)).toBeNull();
   expect(screen.queryByText(VELOCITY.id)).toBeNull();
@@ -27,7 +27,7 @@ it('shows the name, not the id, for a preselected company', async () => {
 
 it('searches by name and hands back the picked company id', async () => {
   const onChange = vi.fn();
-  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} onNamedChange={vi.fn()} />);
   fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'velo'}});
   fireEvent.click(await screen.findByRole('option', {name: VELOCITY.name}));
   expect(onChange).toHaveBeenCalledWith(VELOCITY.id);
@@ -37,19 +37,19 @@ it('searches by name and hands back the picked company id', async () => {
 
 it('Change clears the selection so another company can be picked', async () => {
   const onChange = vi.fn();
-  render(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={onChange} />);
+  render(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={onChange} onNamedChange={vi.fn()} />);
   fireEvent.click(await screen.findByRole('button', {name: /change/i}));
   expect(onChange).toHaveBeenCalledWith('');
 });
 
 it('says so when a preselected company cannot be loaded', async () => {
-  render(<SubscriptionCompanyPicker companyId="22222222-2222-4222-8222-222222222222" onChange={vi.fn()} />);
+  render(<SubscriptionCompanyPicker companyId="22222222-2222-4222-8222-222222222222" onChange={vi.fn()} onNamedChange={vi.fn()} />);
   expect(await screen.findByText(/could not load that company/i)).toBeInTheDocument();
 });
 
 it('says so when no company matches the search', async () => {
   vi.mocked(apiFetch).mockImplementation(async () => response({items: [], total: 0}));
-  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} />);
+  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} onNamedChange={vi.fn()} />);
   fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'zzz'}});
   await waitFor(() => expect(screen.getByText(/no companies match/i)).toBeInTheDocument());
 });
@@ -57,9 +57,9 @@ it('says so when no company matches the search', async () => {
 it('a company that cannot be loaded is dropped, and searching afterwards still works', async () => {
   const onChange = vi.fn();
   const BAD = '22222222-2222-4222-8222-222222222222';
-  const view = render(<SubscriptionCompanyPicker companyId={BAD} onChange={onChange} />);
+  const view = render(<SubscriptionCompanyPicker companyId={BAD} onChange={onChange} onNamedChange={vi.fn()} />);
   await waitFor(() => expect(onChange).toHaveBeenCalledWith(''));
-  view.rerender(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  view.rerender(<SubscriptionCompanyPicker companyId="" onChange={onChange} onNamedChange={vi.fn()} />);
   expect(screen.getByText(/could not load that company/i)).toBeInTheDocument();
   fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'velo'}});
   fireEvent.click(await screen.findByRole('option', {name: VELOCITY.name}));
@@ -68,7 +68,7 @@ it('a company that cannot be loaded is dropped, and searching afterwards still w
 
 it('picks a company with the keyboard', async () => {
   const onChange = vi.fn();
-  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} onNamedChange={vi.fn()} />);
   const box = screen.getByRole('combobox', {name: 'Company'});
   fireEvent.change(box, {target: {value: 'velo'}});
   await screen.findByRole('option', {name: VELOCITY.name});
@@ -79,7 +79,7 @@ it('picks a company with the keyboard', async () => {
 });
 
 it('a failed search clears the previous results instead of leaving them pickable', async () => {
-  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} />);
+  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} onNamedChange={vi.fn()} />);
   const box = screen.getByRole('combobox', {name: 'Company'});
   fireEvent.change(box, {target: {value: 'velo'}});
   await screen.findByRole('option', {name: VELOCITY.name});
@@ -91,7 +91,7 @@ it('a failed search clears the previous results instead of leaving them pickable
 
 it('marks a company that is not active', async () => {
   vi.mocked(apiFetch).mockImplementation(async () => response({items: [{...VELOCITY, status: 'suspended'}], total: 1}));
-  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} />);
+  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} onNamedChange={vi.fn()} />);
   fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'velo'}});
   expect(await screen.findByRole('option', {name: /Velocity Fibre.*suspended/})).toBeInTheDocument();
 });
@@ -106,9 +106,9 @@ it('switching the preselected company does not keep showing the previous name', 
     }
     return response(VELOCITY);
   });
-  const view = render(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={vi.fn()} />);
+  const view = render(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={vi.fn()} onNamedChange={vi.fn()} />);
   await screen.findByText(VELOCITY.name);
-  view.rerender(<SubscriptionCompanyPicker companyId={OTHER.id} onChange={vi.fn()} />);
+  view.rerender(<SubscriptionCompanyPicker companyId={OTHER.id} onChange={vi.fn()} onNamedChange={vi.fn()} />);
   expect(screen.queryByText(VELOCITY.name)).toBeNull();
   releaseOther();
   expect(await screen.findByText(OTHER.name)).toBeInTheDocument();
@@ -119,7 +119,7 @@ it('Enter after the results shrink does not pick a row that is gone', async () =
   const B = { id: '44444444-4444-4444-8444-444444444444', name: 'Velocity Two' };
   vi.mocked(apiFetch).mockImplementation(async url =>
     response({items: new URL(String(url), 'http://x').searchParams.get('search') === 'velo' ? [VELOCITY, B] : [VELOCITY]}));
-  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} onNamedChange={vi.fn()} />);
   const box = screen.getByRole('combobox', {name: 'Company'});
   fireEvent.change(box, {target: {value: 'velo'}});
   await screen.findByRole('option', {name: B.name});
@@ -137,7 +137,7 @@ it('a row highlighted on the old results is not what Enter picks from the new on
   const X = { id: '55555555-5555-4555-8555-555555555555', name: 'Xylo Co' };
   vi.mocked(apiFetch).mockImplementation(async url =>
     response({items: new URL(String(url), 'http://x').searchParams.get('search') === 'velo' ? [VELOCITY] : [X]}));
-  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} onNamedChange={vi.fn()} />);
   const box = screen.getByRole('combobox', {name: 'Company'});
   fireEvent.change(box, {target: {value: 'velo'}});
   await screen.findByRole('option', {name: VELOCITY.name});
@@ -146,4 +146,51 @@ it('a row highlighted on the old results is not what Enter picks from the new on
   await screen.findByRole('option', {name: X.name});
   fireEvent.keyDown(box, {key: 'Enter'});
   expect(onChange).not.toHaveBeenCalled();
+});
+
+it('reports named only once the preselected company name is on screen', async () => {
+  const onNamedChange = vi.fn();
+  render(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={vi.fn()} onNamedChange={onNamedChange} />);
+  expect(onNamedChange).toHaveBeenLastCalledWith(false);
+  await screen.findByText(VELOCITY.name);
+  expect(onNamedChange).toHaveBeenLastCalledWith(true);
+});
+
+it('a picked company is shown by name without looking it up again', async () => {
+  const onChange = vi.fn();
+  const view = render(<SubscriptionCompanyPicker companyId="" onChange={onChange} onNamedChange={vi.fn()} />);
+  fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'velo'}});
+  fireEvent.click(await screen.findByRole('option', {name: VELOCITY.name}));
+  view.rerender(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={onChange} onNamedChange={vi.fn()} />);
+  expect(screen.getByText(VELOCITY.name)).toBeInTheDocument();
+  expect(vi.mocked(apiFetch).mock.calls.map(([u]) => String(u))).not.toContain(`/api/admin/companies/${VELOCITY.id}`);
+});
+
+it('a new company after a failed one shows its own row, not the search box', async () => {
+  const onChange = vi.fn();
+  const BAD = '22222222-2222-4222-8222-222222222222';
+  const view = render(<SubscriptionCompanyPicker companyId={BAD} onChange={onChange} onNamedChange={vi.fn()} />);
+  await screen.findByText(/could not load that company/i);
+  view.rerender(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={onChange} onNamedChange={vi.fn()} />);
+  expect(screen.queryByRole('combobox')).toBeNull();
+  expect(await screen.findByText(VELOCITY.name)).toBeInTheDocument();
+});
+
+it('a slow search answer for an older query is ignored', async () => {
+  let releaseOld: () => void = () => undefined;
+  const OLD = { id: '66666666-6666-4666-8666-666666666666', name: 'Old Answer Co' };
+  vi.mocked(apiFetch).mockImplementation(async url => {
+    const q = new URL(String(url), 'http://x').searchParams.get('search');
+    if (q === 'old') { await new Promise<void>(r => { releaseOld = r; }); return response({items: [OLD]}); }
+    return response({items: [VELOCITY]});
+  });
+  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} onNamedChange={vi.fn()} />);
+  const box = screen.getByRole('combobox', {name: 'Company'});
+  fireEvent.change(box, {target: {value: 'old'}});
+  await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalled());
+  fireEvent.change(box, {target: {value: 'velo'}});
+  await screen.findByRole('option', {name: VELOCITY.name});
+  releaseOld();
+  await new Promise(r => setTimeout(r, 50));
+  expect(screen.queryByRole('option', {name: OLD.name})).toBeNull();
 });
