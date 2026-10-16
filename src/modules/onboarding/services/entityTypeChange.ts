@@ -53,7 +53,9 @@ export async function entityTypeChangeIssues(companyId: string, newType: EntityT
   const company = (await sql`
     SELECT entity_type FROM companies WHERE id = ${companyId}::UUID FOR UPDATE
   `) as { entity_type: string | null }[];
-  if (!company[0] || company[0].entity_type === newType) return [];
+  // No row to lock (deleted, or not this user's to update under RLS): never "no issues".
+  if (!company[0]) throw new Error(`entityTypeChangeIssues: no company row to lock for ${companyId}`);
+  if (company[0].entity_type === newType) return [];
   const docs = (await sql`
     SELECT DISTINCT document_type FROM company_documents
     WHERE company_id = ${companyId}::UUID AND is_active = true

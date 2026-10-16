@@ -102,4 +102,15 @@ describe('sanitizeBody — file payloads and ID numbers (onboarding complete-set
     expect(out.c!.data).toEqual([{ account: '1000', idNumber: '[omitted: 10 chars]' }]);
     expect(JSON.stringify(out)).not.toMatch(/AAAA|BBBB|yyyy|SYNTH-ID/);
   });
+  it('a file nested anywhere under `data` (arrays in arrays, objects in arrays) omits the whole `data`', () => {
+    const out = sanitizeBody({
+      a: { data: [['data:image/png;base64,CCCC']] },
+      b: { data: [{ name: 'scan.pdf', content: 'data:application/pdf;base64,DDDD' }] },
+      c: { data: { files: { front: 'z'.repeat(1500) } } },
+    }) as Record<string, Record<string, unknown>>;
+    expect(out.a!.data).toBe('[omitted: 1 items]');
+    expect(out.b!.data).toBe('[omitted: 1 items]');
+    expect(out.c!.data).toBe('[omitted]');
+    expect(JSON.stringify(out)).not.toMatch(/CCCC|DDDD|zzzz/);
+  });
 });
