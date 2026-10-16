@@ -8,13 +8,17 @@
  * allocation then records its document (allocateTransaction's supplier and
  * customer arms, a split's contact line). Both posting paths that take a GL
  * account from the caller refuse the control accounts here, from a read,
- * before anything is written: a split line (bankSplitDimensions) and a
- * whole-line allocation to an account (allocateTransaction).
+ * before anything is written: a split line (bankSplitDimensions), a whole-line
+ * allocation to an account (allocateTransaction), a bank rule, and a
+ * reconciliation adjustment's contra (createAdjustmentEntry).
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { canonicalSubtype, type CanonicalSubtype } from '../gl/accountSubtypes';
 import { BankAllocationRefusal } from './bankAllocationRefusal';
+
+/** Each caller's own way to name the contact, named in its refusal. */
+export type ContactControlRemedy = 'allocation' | 'split line' | 'rule' | 'adjustment';
 
 const CONTACT_CONTROLS: Partial<Record<CanonicalSubtype, { name: string; who: 'supplier' | 'customer' }>> = {
   payable: { name: 'accounts payable', who: 'supplier' },
@@ -26,7 +30,7 @@ const CONTACT_CONTROLS: Partial<Record<CanonicalSubtype, { name: string; who: 's
  * `rawSubtype`, or null when that account is not AP/AR control.
  */
 export function contactControlRefusal(
-  rawSubtype: unknown, what: string, how: 'allocation' | 'split line' | 'rule' = 'allocation',
+  rawSubtype: unknown, what: string, how: ContactControlRemedy = 'allocation',
 ): BankAllocationRefusal | null {
   const canonical = canonicalSubtype(typeof rawSubtype === 'string' ? rawSubtype : null);
   const control = canonical ? CONTACT_CONTROLS[canonical] : undefined;
@@ -35,6 +39,7 @@ export function contactControlRefusal(
   // customer_id); a whole line is allocated as a supplier / customer.
   const remedy = how === 'split line' ? `contactType '${control.who}' / ${control.who}_id`
     : how === 'rule' ? `set the rule's ${control.who}`
+    : how === 'adjustment' ? `record a ${control.who === 'supplier' ? 'supplier payment' : 'customer receipt'} and reconcile that`
     : `allocate it as a ${control.who}`;
   return new BankAllocationRefusal(`${what} posts to the ${control.name} control account: name the ${control.who} `
     + `instead (${remedy}), so it gets its document`);
@@ -42,7 +47,7 @@ export function contactControlRefusal(
 
 /** contactControlRefusal for an account named by id (company-scoped read); throws the refusal. */
 export async function assertNotContactControl(
-  companyId: string, accountId: string | null | undefined, what: string, how: 'allocation' | 'rule' = 'allocation',
+  companyId: string, accountId: string | null | undefined, what: string, how: ContactControlRemedy = 'allocation',
 ): Promise<void> {
   if (!accountId) return;
   const [row] = (await sql`
