@@ -15,7 +15,7 @@
  *   message) is a failure. Callers bound how many run at once.
  */
 
-import { spawn } from 'child_process';
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { accessSync, constants, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -80,6 +80,16 @@ function onPath(name: string): boolean {
   });
 }
 
+function removeTmpDir(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true });
+  } catch (err) {
+    log.warn('Could not remove gs temp dir', {
+      dir, error: err instanceof Error ? err.message : String(err),
+    }, 'vlm-pdf-render');
+  }
+}
+
 function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: string }> {
   const absent = ['prlimit', 'gs'].filter((name) => !onPath(name));
   if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
@@ -87,7 +97,14 @@ function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: strin
   const gsTmpDir = mkdtempSync(join(tmpdir(), 'isaflow-gs-'));
   return new Promise((resolve, reject) => {
     const env = { NODE_ENV: process.env.NODE_ENV, PATH: gsPath(), TMPDIR: gsTmpDir };
-    const gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...GS_ARGS], { stdio: ['pipe', 'pipe', 'pipe'], env });
+    let gs: ChildProcessWithoutNullStreams;
+    try {
+      gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...GS_ARGS], { stdio: ['pipe', 'pipe', 'pipe'], env });
+    } catch (err) {
+      removeTmpDir(gsTmpDir);
+      reject(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
     const chunks: Buffer[] = [];
     let size = 0;
     let stderr = '';
@@ -110,9 +127,11 @@ function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: strin
     gs.on('error', fail);
     gs.on('close', (code, signal) => {
       clearTimeout(timer);
-      rmSync(gsTmpDir, { recursive: true, force: true });
-      // Our own kills set `failure` first, so a bare SIGKILL is the 30 s CPU hard cap.
-      const cpuCap = signal === 'SIGXCPU' || signal === 'SIGKILL' ? ' (prlimit CPU cap)' : '';
+      removeTmpDir(gsTmpDir);
+      // Our own kills set `failure` first, so a bare SIGKILL is the 30 s CPU hard cap
+      // or the kernel OOM killer; SIGXCPU is the 25 s soft cap.
+      const cpuCap = signal === 'SIGXCPU' ? ' (prlimit CPU cap)'
+        : signal === 'SIGKILL' ? ' (prlimit CPU hard cap or OOM killer)' : '';
       if (failure) reject(failure);
       else if (signal) reject(new Error(`gs killed by ${signal}${cpuCap}`));
       else if (code !== 0) {
