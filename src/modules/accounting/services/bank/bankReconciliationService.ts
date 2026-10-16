@@ -7,6 +7,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import { assertNotContactControl } from './contactControlGuard';
 import type { BankReconciliation } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
@@ -179,6 +180,8 @@ export async function createAdjustmentEntry(
     if (bankAccountId !== recon.bankAccountId) {
       throw new Error('Adjustment bank account does not match the reconciliation');
     }
+    // Its contra may not be AP/AR control: that moves the control with no payment/receipt document (contactControlGuard).
+    await assertNotContactControl(companyId, contraAccountId, 'A bank reconciliation adjustment', 'adjustment');
     // R-035 PR6 (Hein, 2026-10-07, H1): a person names the contra account and
     // the amount — a manual journal — and nobody decides the request it would
     // need, so under enforcement a matching rule refuses it HERE, before the
