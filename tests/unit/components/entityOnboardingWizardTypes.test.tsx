@@ -4,7 +4,7 @@
  * renders; only apiFetch is scripted. Values are synthetic.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { empty500, ok, script } from '../helpers/d2R3a5';
 
@@ -116,7 +116,8 @@ describe('Complete Setup', () => {
     await toDocuments();
     await click(/continue/i);
     const btn = await screen.findByRole('button', { name: /complete setup/i });
-    fireEvent.click(btn); fireEvent.click(btn);
+    // Both clicks inside one act: React has not re-rendered (the button is still enabled) for the second.
+    act(() => { btn.click(); btn.click(); });
     await waitFor(() => expect(loc.href).toBe('/accounting'));
     expect(setupPosts()).toHaveLength(1);
   });
