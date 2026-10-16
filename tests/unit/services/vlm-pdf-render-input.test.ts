@@ -7,7 +7,7 @@
 import { existsSync } from 'fs';
 import { describe, expect, it, vi } from 'vitest';
 
-const sent = vi.hoisted(() => ({ stdin: [] as Buffer[], argv: [] as string[][], tmp: [] as string[] }));
+const sent = vi.hoisted(() => ({ stdin: [] as Buffer[], argv: [] as string[][], tmp: [] as string[], throwOnSpawn: false }));
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   return {
@@ -15,6 +15,7 @@ vi.mock('child_process', async (importOriginal) => {
     spawn: ((cmd: string, args: string[], opts: { env?: Record<string, string> }) => {
       sent.argv.push([cmd, ...args]);
       if (opts.env?.TMPDIR) sent.tmp.push(opts.env.TMPDIR);
+      if (sent.throwOnSpawn) throw new Error('spawn EAGAIN');
       const child = actual.spawn(cmd, args, opts);
       const end = child.stdin!.end.bind(child.stdin!);
       child.stdin!.end = ((chunk: Buffer) => { sent.stdin.push(chunk); return end(chunk); }) as typeof child.stdin.end;
@@ -57,6 +58,18 @@ describe('what renderPdfFirstPage hands to gs', () => {
     expect(sent.tmp).toHaveLength(2);
     expect(sent.tmp[0]).not.toBe(sent.tmp[1]);
     expect(sent.tmp.filter((dir) => existsSync(dir))).toEqual([]);
+  }, 30_000);
+
+  it('removes the temp dir when spawn itself throws', async () => {
+    sent.tmp.length = 0;
+    sent.throwOnSpawn = true;
+    try {
+      expect(await renderPdfFirstPage(PDF)).toBeNull();
+    } finally {
+      sent.throwOnSpawn = false;
+    }
+    expect(sent.tmp).toHaveLength(1);
+    expect(existsSync(sent.tmp[0])).toBe(false);
   }, 30_000);
 
   it('runs gs under prlimit with memory and CPU caps', async () => {
