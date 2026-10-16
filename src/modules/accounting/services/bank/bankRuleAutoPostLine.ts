@@ -10,6 +10,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { recordRuleSupplierDocument } from './bankRuleSupplierDocument';
+import { recordRuleCustomerDocument } from './bankRuleCustomerDocument';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -263,19 +264,17 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     //
     // Both directions, the rule's apply instruction and why a refund has none,
     // and why neither call is caught: `bankRuleSupplierDocument`.
+    // Customer rules too (bankRuleCustomerDocument): AR moved here with no receipt / refund document before.
+    const docArgs = {
+      companyId, ruleAutoApply: rule.auto_apply, bankTxId: String(tx.id), bankAccountId: bankGlAccountId,
+      journalEntryId: je.id, amount: totalAmount, paymentDate: entryDate, description: entryDesc, userId, isDeposit,
+    };
     if (allocType === 'supplier' && supplierId) {
-      await recordRuleSupplierDocument({
-        companyId,
-        supplierId,
-        ruleAutoApply: rule.auto_apply,
-        bankTxId: String(tx.id),
-        bankAccountId: bankGlAccountId,
-        journalEntryId: je.id,
-        amount: totalAmount,
-        paymentDate: entryDate,
-        description: entryDesc,
-        userId,
-        isDeposit,
+      await recordRuleSupplierDocument({ ...docArgs, supplierId });
+    } else if (allocType === 'customer' && rule.client_id) {
+      await recordRuleCustomerDocument({
+        ...docArgs, customerId: String(rule.client_id),
+        bankReference: (tx.reference || tx.bank_reference || tx.description || null) as string | null,
       });
     }
   }
