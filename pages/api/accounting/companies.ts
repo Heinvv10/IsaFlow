@@ -17,7 +17,7 @@ import {
 } from '@/modules/accounting/services/core/companyService';
 import { ENTITY_TYPE_CODES, isEntityTypeCode } from '@/lib/entityTypes';
 import { isValidVatPeriod, isValidVatSystemType } from '@/modules/accounting/services/core/vatSettingValidation';
-import { entityTypeChangeIssues } from '@/modules/onboarding/services/entityTypeChange';
+import { EntityTypeChangeRefused } from '@/modules/onboarding/services/entityTypeChange';
 
 // Re-exported: tests and older imports name them from this route.
 export { isValidVatPeriod, isValidVatSystemType };
@@ -121,15 +121,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!['owner', 'admin'].includes(membership.role)) {
       return apiResponse.forbidden(res, 'Only owners and admins can update company details');
     }
-    // A new entity type needs its own required proof on file (onboarding's rule).
-    if (updates.entityType !== undefined) {
-      const issues = await entityTypeChangeIssues(id, updates.entityType);
-      if (issues.length > 0) {
-        return apiResponse.badRequest(res, `The company cannot become this entity type yet: ${issues.join('. ')}`, { issues });
-      }
+    try {
+      const company = await updateCompany(id, updates);
+      return apiResponse.success(res, company);
+    } catch (err) {
+      // updateCompany checks a new entity type's proof (entityTypeChange.ts) before it writes.
+      if (err instanceof EntityTypeChangeRefused) return apiResponse.badRequest(res, err.message, { issues: err.issues });
+      throw err;
     }
-    const company = await updateCompany(id, updates);
-    return apiResponse.success(res, company);
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'PUT']);

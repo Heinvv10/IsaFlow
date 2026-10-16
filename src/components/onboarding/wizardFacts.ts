@@ -9,13 +9,16 @@ import type { SetupFacts } from '@/modules/onboarding/services/entityOnboardingR
 import { decodedBytes } from '@/modules/onboarding/uploadLimits';
 import type { WizardData } from './wizardTypes';
 
+/** The wizard has no synchronous sha256; the base64 body (prefix and whitespace aside) identifies the same bytes. */
+const base64Of = (data: string | undefined) => (data ? data.slice(data.indexOf(',') + 1).replace(/\s/g, '') : null);
+
 export function factsOf(d: WizardData): SetupFacts {
   return {
     entityType: d.entityType ?? DEFAULT_ENTITY_TYPE,
     name: d.name,
     registrationNumber: d.registrationNumber,
     people: d.directors.map(p => ({
-      name: p.name, hasIdDocument: Boolean(p.idDocument), idNumber: p.idNumber, idDocumentData: p.idDocument?.data ?? null,
+      name: p.name, hasIdDocument: Boolean(p.idDocument), idNumber: p.idNumber, idDocumentFingerprint: base64Of(p.idDocument?.data),
     })),
     documentTypes: d.documents.map(doc => doc.type),
   };

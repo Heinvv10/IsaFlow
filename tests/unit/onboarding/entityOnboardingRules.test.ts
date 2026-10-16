@@ -104,20 +104,35 @@ describe('setupIssues (the whole server-side rule)', () => {
 });
 
 describe('setupIssues: duplicate people', () => {
-  it('the same person twice is refused: same name (any case/spacing), same ID number, or the same ID document', () => {
+  it('the same name (any case/spacing) with no ID numbers, the same ID number, or the same ID document is refused', () => {
     expect(setupIssues(facts('partnership', { people: [withId('Partner A'), withId(' partner  a ')] })))
       .toEqual(['Partner A is listed more than once']);
     expect(setupIssues(facts('partnership', { people: [
       { name: 'Partner A', hasIdDocument: true, idNumber: 'SYNTH-1' }, { name: 'Partner B', hasIdDocument: true, idNumber: ' SYNTH-1 ' },
     ] }))).toEqual(['Two people have the same ID number']);
     expect(setupIssues(facts('partnership', { people: [
-      { name: 'Partner A', hasIdDocument: true, idDocumentData: 'data:x' }, { name: 'Partner B', hasIdDocument: true, idDocumentData: 'data:x' },
+      { name: 'Partner A', hasIdDocument: true, idDocumentFingerprint: 'f1' }, { name: 'Partner B', hasIdDocument: true, idDocumentFingerprint: 'f1' },
     ] }))).toEqual(['Two people have the same ID document']);
+  });
+  it('the same name with the same ID number is refused (as the same ID number)', () => {
+    expect(setupIssues(facts('partnership', { people: [
+      { name: 'John Smith', hasIdDocument: true, idNumber: 'SYNTH-1' }, { name: 'John Smith', hasIdDocument: true, idNumber: 'SYNTH-1' },
+    ] }))).toEqual(['Two people have the same ID number']);
+  });
+  it('two people of the same name with different ID numbers are two people; so is one with and one without an ID number', () => {
+    expect(setupIssues(facts('partnership', { people: [
+      { name: 'John Smith', hasIdDocument: true, idNumber: 'SYNTH-1', idDocumentFingerprint: 'a' },
+      { name: 'John Smith', hasIdDocument: true, idNumber: 'SYNTH-2', idDocumentFingerprint: 'b' },
+    ] }))).toEqual([]);
+    expect(setupIssues(facts('partnership', { people: [
+      { name: 'John Smith', hasIdDocument: true, idNumber: 'SYNTH-1', idDocumentFingerprint: 'a' },
+      { name: 'John Smith', hasIdDocument: true, idDocumentFingerprint: 'b' },
+    ] }))).toEqual([]);
   });
   it('blank ID numbers and missing documents are not duplicates', () => {
     expect(setupIssues(facts('partnership', { people: [
-      { name: 'Partner A', hasIdDocument: true, idNumber: '', idDocumentData: 'data:a' },
-      { name: 'Partner B', hasIdDocument: true, idNumber: '', idDocumentData: 'data:b' },
+      { name: 'Partner A', hasIdDocument: true, idNumber: '', idDocumentFingerprint: 'a' },
+      { name: 'Partner B', hasIdDocument: true, idNumber: '', idDocumentFingerprint: 'b' },
     ] }))).toEqual([]);
   });
 });

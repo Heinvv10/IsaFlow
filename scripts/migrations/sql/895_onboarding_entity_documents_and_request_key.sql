@@ -5,8 +5,8 @@
 --    vat_registration and other; a close corporation proves itself with its
 --    CK1/CK2 ('ck_certificate') and a trust with the Master's Letters of
 --    Authority ('letters_of_authority'), which that CHECK refused. Widened
---    only: every existing value stays valid. Added NOT VALID and validated
---    straight after, in this transaction, as 894 does.
+--    only: every existing value stays valid. Added NOT VALID then
+--    validated, matching 894's pattern.
 --
 -- 2. companies.onboarding_request_key: the idempotency key of the
 --    POST /api/onboarding/complete-setup request that created the company.

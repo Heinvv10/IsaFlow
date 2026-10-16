@@ -13,9 +13,10 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import completeRoute from '../../pages/api/onboarding/complete';
 import companiesRoute from '../../pages/api/accounting/companies';
+import pisScoreRoute from '../../pages/api/accounting/afs/pis-score';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
-  NO_ROWS, callRoute, callSetup, doc, dropSetupUsers, newSetupUser, person, rowsFor, setupBody, type SetupUser,
+  NO_ROWS, PDF, callRoute, callSetup, doc, dropSetupUsers, newSetupUser, person, pngFor, rowsFor, setupBody, type SetupUser,
 } from './helpers/onboardingSetupFixture';
 
 assertDisposable();
@@ -54,32 +55,69 @@ describe('POST /api/onboarding/complete', () => {
   });
 });
 
-describe('PUT /api/accounting/companies: entity type change', () => {
-  const put = (u: SetupUser, body: Record<string, unknown>) => callRoute(companiesRoute, u, { id: u.homeCompanyId, ...body }, '/api/accounting/companies', 'PUT');
-  const typeOf = async (u: SetupUser) => (await pool.query('SELECT entity_type FROM companies WHERE id = $1', [u.homeCompanyId])).rows[0].entity_type;
-  it('to cc without a CK1/CK2 on file: 400 with the issue, the type is unchanged', async () => {
+describe('entity type change: every writer checks the new type\'s proof (companies PUT, pis-score PUT)', () => {
+  const put = (u: SetupUser, body: Record<string, unknown>, id = u.homeCompanyId) => callRoute(companiesRoute, u, { id, ...body }, '/api/accounting/companies', 'PUT');
+  const pis = (u: SetupUser, body: Record<string, unknown>) => callRoute(pisScoreRoute, u, body, '/api/accounting/afs/pis-score', 'PUT');
+  const typeOf = async (id: string) => (await pool.query('SELECT entity_type FROM companies WHERE id = $1', [id])).rows[0].entity_type;
+  const addDoc = (companyId: string, u: SetupUser, type: string, data = PDF) => pool.query(`INSERT INTO company_documents
+    (company_id, document_type, document_name, file_data, mime_type, file_size, uploaded_by) VALUES ($1, $2, 'f.pdf', $3, 'application/pdf', 1, $4)`,
+    [companyId, type, data, u.userId]);
+  const addPerson = (u: SetupUser, name: string, idDoc: { name: string; data: string } | null, idNumber: string | null = null) => pool.query(
+    'INSERT INTO company_directors (company_id, name, role, id_number, id_document_name, id_document_data) VALUES ($1, $2, $3, $4, $5, $6)',
+    [u.homeCompanyId, name, 'Partner', idNumber, idDoc?.name ?? null, idDoc?.data ?? null]);
+
+  it('companies PUT to cc without a CK1/CK2 on file: 400 with the issue, the type is unchanged', async () => {
     const u = await user();
     const out = await put(u, { entityType: 'cc' });
     expect(out.status, JSON.stringify(out.body)).toBe(400);
     expect(out.body.error?.message).toContain('Upload the CK1 or CK2');
-    expect(await typeOf(u)).toBe('pty_ltd');
+    expect(await typeOf(u.homeCompanyId)).toBe('pty_ltd');
   });
-  it('to cc with an active ck_certificate on file: saved', async () => {
+  it('pis-score PUT to cc without a CK1/CK2: 400, unchanged; with one on file: saved', async () => {
     const u = await user();
-    await pool.query(`INSERT INTO company_documents (company_id, document_type, document_name, file_data, mime_type, file_size, uploaded_by)
-      VALUES ($1, 'ck_certificate', 'ck.pdf', 'x', 'application/pdf', 1, $2)`, [u.homeCompanyId, u.userId]);
-    expect((await put(u, { entityType: 'cc' })).status).toBe(200);
-    expect(await typeOf(u)).toBe('cc');
+    const out = await pis(u, { entityType: 'cc' });
+    expect(out.status, JSON.stringify(out.body)).toBe(400);
+    expect(out.body.error?.message).toContain('Upload the CK1 or CK2');
+    expect(await typeOf(u.homeCompanyId)).toBe('pty_ltd');
+    await addDoc(u.homeCompanyId, u, 'ck_certificate');
+    expect((await pis(u, { entityType: 'cc' })).status).toBe(200);
+    expect(await typeOf(u.homeCompanyId)).toBe('cc');
+    expect((await pis(u, { employeeCountEnd: 3 })).status).toBe(200); // no type in the body: no check
   });
-  it('to partnership: needs two people with ID documents on file', async () => {
+  it('a stored document under 1 KB, or inactive, is not proof', async () => {
     const u = await user();
-    const add = (name: string, idDoc: string | null) => pool.query(
-      'INSERT INTO company_directors (company_id, name, role, id_document_name) VALUES ($1, $2, $3, $4)', [u.homeCompanyId, name, 'Partner', idDoc]);
-    await add('Partner A', 'a.png');
-    await add('Partner B', null);
+    await addDoc(u.homeCompanyId, u, 'ck_certificate', `data:application/pdf;base64,${Buffer.from('%PDF').toString('base64')}`);
+    expect((await put(u, { entityType: 'cc' })).status).toBe(400);
+    await addDoc(u.homeCompanyId, u, 'ck_certificate');
+    await pool.query("UPDATE company_documents SET is_active = false WHERE company_id = $1 AND file_data = $2", [u.homeCompanyId, PDF]);
+    expect((await put(u, { entityType: 'cc' })).status).toBe(400);
+  });
+  it('to partnership: an id_document_name with no data (or under 1 KB) is not an ID; two real IDs are', async () => {
+    const u = await user();
+    await addPerson(u, 'Partner A', { name: 'a.png', data: pngFor('Partner A') });
+    await addPerson(u, 'Partner B', { name: 'b.png', data: '' });
     expect((await put(u, { entityType: 'partnership' })).body.error?.message).toContain('Upload the ID document of Partner B');
-    await pool.query("UPDATE company_directors SET id_document_name = 'b.png' WHERE company_id = $1 AND name = 'Partner B'", [u.homeCompanyId]);
+    await pool.query("UPDATE company_directors SET id_document_data = $2 WHERE company_id = $1 AND name = 'Partner B'",
+      [u.homeCompanyId, `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString('base64')}`]);
+    expect((await put(u, { entityType: 'partnership' })).body.error?.message).toContain('Upload the ID document of Partner B');
+    await pool.query("UPDATE company_directors SET id_document_data = $2 WHERE company_id = $1 AND name = 'Partner B'", [u.homeCompanyId, pngFor('Partner B')]);
     expect((await put(u, { entityType: 'partnership' })).status).toBe(200);
+  });
+  it('to partnership: the same person twice (same ID document) is refused', async () => {
+    const u = await user();
+    await addPerson(u, 'Partner A', { name: 'a.png', data: pngFor('same') });
+    await addPerson(u, 'Partner B', { name: 'b.png', data: pngFor('same') });
+    expect((await put(u, { entityType: 'partnership' })).body.error?.message).toContain('Two people have the same ID document');
+  });
+  it("another company the user owns (not the active one): RLS lets the check see its rows, so it judges them", async () => {
+    const u = await user();
+    const other = crypto.randomUUID();
+    await pool.query('INSERT INTO companies (id, name) VALUES ($1, $2)', [other, `WIZ second ${other}`]);
+    await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'owner', false)`, [other, u.userId]);
+    expect((await put(u, { entityType: 'cc' }, other)).status).toBe(400);
+    await addDoc(other, u, 'ck_certificate');
+    expect((await put(u, { entityType: 'cc' }, other)).status).toBe(200);
+    expect(await typeOf(other)).toBe('cc');
   });
   it('an unchanged type, and saves without a type, still work for a company with no documents', async () => {
     const u = await user();
@@ -130,7 +168,12 @@ describe('complete-setup guards', () => {
     expect(ck.body.error?.message).toContain('belongs to a Close corporation (CC)');
     const tiny = { ...doc('cipc_certificate'), data: `data:application/pdf;base64,${Buffer.from('%PDF').toString('base64')}` };
     expect((await callSetup(u, setupBody('pty_ltd', { documents: [tiny] }))).body.error?.message).toContain('too small');
-    const twice = await callSetup(u, setupBody('partnership', { people: [person('Partner A'), { ...person('Partner A'), idNumber: 'SYNTH-X' }] }));
+    // Same name, no ID numbers, different scans: the same person twice. With different ID numbers: two people.
+    const noNumber = (seed: string) => ({ name: 'Partner A', idDocument: { name: `${seed}.png`, data: pngFor(seed) } });
+    const twice = await callSetup(u, setupBody('partnership', { people: [noNumber('one'), noNumber('two')] }));
     expect(twice.body.error?.message).toContain('Partner A is listed more than once');
+    const namesakes = await callSetup(await user(), setupBody('partnership', { people: [
+      { ...noNumber('one'), idNumber: 'SYNTH-1' }, { ...noNumber('two'), idNumber: 'SYNTH-2' }] }));
+    expect(namesakes.status, JSON.stringify(namesakes.body)).toBe(200);
   });
 });

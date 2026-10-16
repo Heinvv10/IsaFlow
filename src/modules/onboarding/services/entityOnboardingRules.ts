@@ -27,8 +27,12 @@ export interface PersonFacts {
   name: string;
   hasIdDocument: boolean;
   idNumber?: string | null;
-  /** The ID document's data URL: the same file twice is the same person twice. */
-  idDocumentData?: string | null;
+  /**
+   * What identifies the ID document's content (the server: sha256 of the
+   * decoded bytes; the wizard: its base64): the same file twice is the same
+   * person twice.
+   */
+  idDocumentFingerprint?: string | null;
 }
 
 export interface SetupFacts {
@@ -61,23 +65,33 @@ export function hasRequiredProofDocument(code: EntityTypeCode, documentTypes: re
 
 const namedPeople = (people: readonly PersonFacts[]) => people.filter(p => p.name.trim().length > 0);
 
-/** The same person entered twice (by name, ID number or ID document) is never two partners. */
-function duplicatePeopleIssues(people: readonly PersonFacts[]): string[] {
+/**
+ * The same person entered twice is never two partners: the same non-empty ID
+ * number, the same ID document, or the same name (case and spacing aside)
+ * where neither has an ID number. Two "John Smith"s with different ID numbers,
+ * or one with and one without, are two people.
+ */
+export function duplicatePeopleIssues(people: readonly PersonFacts[]): string[] {
   const issues: string[] = [];
-  const seen = { name: new Map<string, string>(), id: new Set<string>(), doc: new Set<string>() };
+  const unnumbered = new Map<string, string>();
+  const ids = new Set<string>();
+  const docs = new Set<string>();
   let sameId = false;
   let sameDoc = false;
   for (const p of people) {
-    const name = p.name.trim().toLowerCase().replace(/\s+/g, ' ');
-    const first = seen.name.get(name);
-    if (first !== undefined) issues.push(`${first} is listed more than once`);
-    else seen.name.set(name, p.name.trim());
     const id = (p.idNumber ?? '').replace(/\s+/g, '').toLowerCase();
-    if (id && seen.id.has(id)) sameId = true;
-    if (id) seen.id.add(id);
-    const doc = p.idDocumentData ?? '';
-    if (doc && seen.doc.has(doc)) sameDoc = true;
-    if (doc) seen.doc.add(doc);
+    if (id) {
+      if (ids.has(id)) sameId = true;
+      ids.add(id);
+    } else {
+      const name = p.name.trim().toLowerCase().replace(/\s+/g, ' ');
+      const first = unnumbered.get(name);
+      if (first !== undefined) issues.push(`${first} is listed more than once`);
+      else unnumbered.set(name, p.name.trim());
+    }
+    const doc = p.idDocumentFingerprint ?? '';
+    if (doc && docs.has(doc)) sameDoc = true;
+    if (doc) docs.add(doc);
   }
   if (sameId) issues.push('Two people have the same ID number');
   if (sameDoc) issues.push('Two people have the same ID document');

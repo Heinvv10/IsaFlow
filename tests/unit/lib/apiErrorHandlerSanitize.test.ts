@@ -22,7 +22,7 @@ vi.mock('@/lib/observability/requestLogger', () => ({ logRequestCompleted: vi.fn
 vi.mock('@/lib/sentry/tags', () => ({ setTenantTags: vi.fn(), sanitizeRoute: vi.fn((r: string) => r) }));
 vi.mock('@/lib/cors', () => ({ safeCorsOrigin: vi.fn(() => null) }));
 
-import { __sanitizeBodyForTest as sanitizeBody } from '@/lib/api-error-handler';
+import { sanitizeRequestBody as sanitizeBody } from '@/lib/sanitizeRequestBody';
 
 describe('sanitizeBody — credential redaction', () => {
   it('redacts OAuth token-endpoint credentials that exact-matching previously missed', () => {
@@ -81,5 +81,14 @@ describe('sanitizeBody — file payloads and ID numbers (onboarding complete-set
     expect(out.rows).toEqual([{ id_number: '[omitted: 10 chars]', file_data: `[omitted: ${pdf.length} chars]` }]);
     expect(out.password).toBe('[REDACTED]');
     expect(JSON.stringify(out)).not.toMatch(/SYNTH-ID|AAAA/);
+  });
+  it('a short, non-file `data` is kept and walked (bulk rows, settings), not omitted', () => {
+    const out = sanitizeBody({
+      data: { rows: [{ account: '1000', amount: 5, idNumber: 'SYNTH-ID-3' }] },
+      settings: { data: 'compact' },
+    }) as Record<string, any>;
+    expect(out.data).toEqual({ rows: [{ account: '1000', amount: 5, idNumber: '[omitted: 10 chars]' }] });
+    expect(out.settings).toEqual({ data: 'compact' });
+    expect((sanitizeBody({ data: 'x'.repeat(1025) }) as Record<string, string>).data).toBe('[omitted: 1025 chars]');
   });
 });
