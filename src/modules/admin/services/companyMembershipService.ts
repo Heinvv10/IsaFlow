@@ -10,13 +10,13 @@
  * (it used to upsert the role, which demoted an owner unchecked); the role is
  * changed only through setUserCompanyRole.
  *
- * Matching follows 883: a user id is compared case-insensitively (users.id is
- * text), an owner is `lower(btrim(role)) = 'owner'`, and the lock key is the
- * trigger's own (`company_owners:` + the uuid's canonical text), so an app-side
+ * Matching: a user id is compared case-insensitively (users.id is text; 883
+ * counts owners the same way), an owner is `lower(btrim(role)) = 'owner'`
+ * (stricter than 883's exact match), and the lock key is the trigger's own (`company_owners:` + the uuid's canonical text), so an app-side
  * owner demotion racing this one is judged after it.
  *
- * Every refusal is a CompanyMembershipError, thrown before any write, which the
- * routes answer as a 4xx with its message; anything else propagates (a 500
+ * Every refusal is a CompanyMembershipError, raised when nothing has been
+ * written (a no-op or aborted insert at most), which the routes answer as a 4xx with its message; anything else propagates (a 500
  * rolls the request back).
  */
 
@@ -48,11 +48,17 @@ function assertGrantable(role: string): void {
   }
 }
 
-/** Lock the membership row; throws NOT_FOUND when the user is not linked to the company. */
+/**
+ * Lock the user's membership row(s) and return the role. One person can hold
+ * case-variant rows (the unique key is case-sensitive); the DELETE / UPDATE
+ * below match them all, so an owner row among them makes the link an owner's.
+ * Throws NOT_FOUND when the user is not linked to the company.
+ */
 async function lockMembership(userId: string, companyId: string): Promise<string> {
   const rows = await sql<{ role: string }>`
     SELECT role FROM company_users
     WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
+    ORDER BY (lower(btrim(role)) = 'owner') DESC
     FOR UPDATE
   `;
   const role = rows[0]?.role;
@@ -64,6 +70,12 @@ async function lockMembership(userId: string, companyId: string): Promise<string
 
 /** Throws LAST_OWNER when no OTHER person owns the company (counted as migration 883 counts). */
 async function assertAnotherOwner(userId: string, companyId: string, refusal: string): Promise<void> {
+  // The count below sees a racing demotion only because each statement takes a
+  // fresh snapshot after the lock: READ COMMITTED. Refuse to judge under any other.
+  const iso = await sql<{ level: string }>`SELECT current_setting('transaction_isolation') AS level`;
+  if (iso[0]?.level !== 'read committed') {
+    throw new Error(`last-owner check needs READ COMMITTED, got ${iso[0]?.level ?? 'unknown'}`);
+  }
   await sql`SELECT pg_advisory_xact_lock(hashtextextended('company_owners:' || ${companyId}::uuid::text, 0))`;
   const rows = await sql<{ n: number }>`
     SELECT count(DISTINCT lower(user_id::text))::int AS n FROM company_users

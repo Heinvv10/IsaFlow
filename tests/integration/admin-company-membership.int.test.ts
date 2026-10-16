@@ -183,7 +183,7 @@ describe('admin: no-op and audit failure', () => {
     expect((await audits('user.change_company_role', bob)).length).toBe(before);
   }, 30000);
 
-  it('a failed audit write rolls the role change and the removal back (500)', async () => {
+  it('a failed audit write rolls the role change, the removal and the link back (500)', async () => {
     await link(bob, company, 'viewer');
     await pool.query(`CREATE OR REPLACE FUNCTION pg_temp_fail_member_audit() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN IF NEW.target_id = '${bob}' THEN RAISE EXCEPTION 'audit write refused (test)'; END IF; RETURN NEW; END $$`);
@@ -196,6 +196,9 @@ describe('admin: no-op and audit failure', () => {
       const removed = await remove(bob, company);
       expect(removed.status).toBe(500);
       expect(await roleOf(bob, company)).toBe('viewer');
+      const added = await add(bob, DEMO, 'viewer');
+      expect(added.status).toBe(500);
+      expect(await roleOf(bob, DEMO)).toBeNull();
     } finally {
       await pool.query('DROP TRIGGER IF EXISTS fail_member_audit_test ON admin_audit_log');
       await pool.query('DROP FUNCTION IF EXISTS pg_temp_fail_member_audit()');
