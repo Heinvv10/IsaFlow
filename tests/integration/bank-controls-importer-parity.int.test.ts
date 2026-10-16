@@ -103,6 +103,12 @@ describe('the same line through every other path', () => {
     await pool.query(
       `INSERT INTO bank_categorisation_rules(company_id, rule_name, match_pattern, client_id, gl_account_id, auto_create_entry, created_by)
        VALUES($1,'PAR customer','CUSTOUT',$2,NULL,true,$4),($1,'PAR transfer','XFER',NULL,$3,true,$4)`, [f.c, f.customer, f.bank2, a]);
+    // A customer refund needs credit to refund: since the sweep records the refund document (bankRuleCustomerDocument)
+    // a refund past the customer's credit is refused (counted as autoPostSkippedRefundCeiling). An unapplied receipt
+    // of R300 is that credit, so the outflow here is judged by the importer gate this test is about, as before.
+    await pool.query(
+      `INSERT INTO customer_payments(company_id, client_id, payment_date, total_amount, payment_method, status, created_by, confirmed_by, confirmed_at)
+       VALUES($1,$2,DATE '2020-01-01',300,'eft','confirmed',$3,$3,NOW())`, [f.c, f.customer, a]);
     const apply = async (user: string) => dataOf<{ applied: number; autoPostSkippedApprovalRequired: number }>(await callRoute(
       bankRulesAction as never, tokens[user]!, f.c, 'POST', { action: 'apply', bankAccountId: f.bank }, '/api/accounting/bank-rules-action'));
     expect(await apply(a)).toMatchObject({ applied: 0, autoPostSkippedApprovalRequired: 2 });

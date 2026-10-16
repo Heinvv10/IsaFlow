@@ -10,6 +10,9 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { recordRuleSupplierDocument } from './bankRuleSupplierDocument';
+import { recordRuleCustomerDocument } from './bankRuleCustomerDocument';
+import { planSupplierRefund } from '../ap/supplierRefundDocument';
+import { planCustomerRefund } from '../ar/customerRefundDocument';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -135,6 +138,11 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   const ruleContact = allocType === 'supplier' ? supplierId : allocType === 'customer' && rule.client_id ? String(rule.client_id) : null;
   const importerArm = importerArmOf(allocType, ruleContact, Number(tx.amount)); // the one mapping (bankLineImporterGate)
   if (importerArm && await importerAllocationRefusal(companyId, locked, userId, importerArm)) return { kind: 'approval_required' };
+  // A refund past the contact's credit: refused before the journal (a counted skip), not after it posted and rolled back.
+  if (ruleContact && (allocType === 'supplier') === isDeposit) {
+    if (allocType === 'supplier') await planSupplierRefund(companyId, ruleContact, totalAmount, entryDate);
+    else await planCustomerRefund(companyId, ruleContact, totalAmount, entryDate);
+  }
   const entryDesc = rule.description_template
     ? String(rule.description_template)
         .replace('{description}', String(tx.description || ''))
@@ -263,19 +271,17 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     //
     // Both directions, the rule's apply instruction and why a refund has none,
     // and why neither call is caught: `bankRuleSupplierDocument`.
+    // Customer rules too (bankRuleCustomerDocument): AR moved here with no receipt / refund document before.
+    const docArgs = {
+      companyId, ruleAutoApply: rule.auto_apply, bankTxId: String(tx.id), bankAccountId: bankGlAccountId,
+      journalEntryId: je.id, amount: totalAmount, paymentDate: entryDate, description: entryDesc, userId, isDeposit,
+    };
     if (allocType === 'supplier' && supplierId) {
-      await recordRuleSupplierDocument({
-        companyId,
-        supplierId,
-        ruleAutoApply: rule.auto_apply,
-        bankTxId: String(tx.id),
-        bankAccountId: bankGlAccountId,
-        journalEntryId: je.id,
-        amount: totalAmount,
-        paymentDate: entryDate,
-        description: entryDesc,
-        userId,
-        isDeposit,
+      await recordRuleSupplierDocument({ ...docArgs, supplierId });
+    } else if (allocType === 'customer' && rule.client_id) {
+      await recordRuleCustomerDocument({
+        ...docArgs, customerId: String(rule.client_id),
+        bankReference: (tx.reference || tx.bank_reference || tx.description || null) as string | null,
       });
     }
   }
