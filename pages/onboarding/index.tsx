@@ -90,7 +90,7 @@ export default function OnboardingWizard() {
   // What the server would refuse (the same rules), shown on the review step instead of a failed submit
   const submitIssues = isLast ? setupIssues(factsOf(d)) : [];
   // Why the documents step's Continue is dimmed, said next to it
-  const blockedReason = step === DOCUMENTS_STEP_INDEX && !canContinue ? `${proofIssues(factsOf(d)).join('. ')} to continue.` : '';
+  const blockedReason = step === DOCUMENTS_STEP_INDEX && !canContinue ? `${proofIssues(factsOf(d)).join('; ')} to continue.` : '';
   // Address, logo, bank, financial and COA are skippable; the documents step is not
   const skippable   = step > DETAILS_STEP && step <= COA_STEP_INDEX;
   const isPreStep   = step === SMART_SETUP;
@@ -202,7 +202,7 @@ export default function OnboardingWizard() {
           )}
 
           {blockedReason && (
-            <p id="continue-blocked" className="mt-4 text-sm text-right text-amber-700 dark:text-amber-400">{blockedReason}</p>
+            <p id="continue-blocked" role="status" aria-live="polite" className="mt-4 text-sm text-right text-amber-700 dark:text-amber-400">{blockedReason}</p>
           )}
 
           {/* Navigation */}
