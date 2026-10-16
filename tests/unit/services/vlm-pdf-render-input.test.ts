@@ -52,6 +52,6 @@ describe('what renderPdfFirstPage hands to gs', () => {
   it('runs gs under prlimit with memory and CPU caps', async () => {
     sent.argv.length = 0;
     await renderPdfFirstPage(PDF);
-    expect(sent.argv[0].slice(0, 5)).toEqual(['prlimit', '--as=536870912', '--cpu=30', '--', 'gs']);
+    expect(sent.argv[0].slice(0, 6)).toEqual(['prlimit', '--as=536870912', '--cpu=25:30', '--core=0', '--', 'gs']);
   }, 30_000);
 });

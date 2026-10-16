@@ -26,8 +26,8 @@ const MAX_PNG_BYTES = 20 * 1024 * 1024;
 const PDF_MAGIC = '%PDF-';
 /** Readers accept a header that STARTS anywhere in the first 1 KB. */
 const HEADER_SEARCH_BYTES = 1024 + PDF_MAGIC.length - 1;
-/** Kernel limits on gs itself: 512 MB address space, 30 s CPU (peak seen: ~40 MB). */
-const LIMIT_ARGS = ['--as=536870912', '--cpu=30', '--'];
+/** Kernel limits on gs itself: 512 MB address space; CPU SIGXCPU at 25 s, SIGKILL at 30 s (peak seen: ~40 MB). */
+const LIMIT_ARGS = ['--as=536870912', '--cpu=25:30', '--core=0', '--'];
 const GS_ARGS = [
   '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
   // A fixed 1754x1754 frame with the page scaled to fit, aspect kept: A4 reads
@@ -55,11 +55,16 @@ export async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | nu
   } catch (err) {
     const detail = { bytes: pdfBuffer.length, error: err instanceof Error ? err.message : String(err) };
     // No gs/prlimit at all is an outage (every scan falls back), not one bad file.
-    const missing = (err as NodeJS.ErrnoException).code === 'ENOENT' || detail.error.includes('failed to execute');
-    if (missing) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
+    if (err instanceof RenderUnavailable) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
     else log.warn('PDF render failed', detail, 'vlm-pdf-render');
   }
   return null;
+}
+
+class RenderUnavailable extends Error {}
+
+function onPath(name: string): boolean {
+  return (process.env.PATH ?? '').split(':').some((dir) => dir !== '' && existsSync(join(dir, name)));
 }
 
 let gsTmpDir: string | null = null;
@@ -75,6 +80,8 @@ function privateTmpDir(): string {
 }
 
 function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: string }> {
+  const absent = ['prlimit', 'gs'].filter((name) => !onPath(name));
+  if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
   return new Promise((resolve, reject) => {
     const env = { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? '/usr/bin:/bin', TMPDIR: privateTmpDir() };
     const gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...GS_ARGS], { stdio: ['pipe', 'pipe', 'pipe'], env });
@@ -98,10 +105,14 @@ function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: strin
     // gs may exit before reading all of a corrupt input; that EPIPE is not the failure.
     gs.stdin.on('error', (err) => log.debug('gs stdin closed early', { error: err.message }, 'vlm-pdf-render'));
     gs.on('error', fail);
-    gs.on('close', (code) => {
+    gs.on('close', (code, signal) => {
       clearTimeout(timer);
       if (failure) reject(failure);
-      else if (code !== 0) reject(new Error(`gs exited ${code}: ${stderr.trim()}`));
+      else if (signal) reject(new Error(`gs killed by ${signal}${signal === 'SIGXCPU' ? ' (prlimit CPU cap)' : ''}`));
+      else if (code !== 0) {
+        const cap = /VMerror|out of memory|failed to map|cannot allocate/i.test(stderr) ? ' (prlimit memory cap)' : '';
+        reject(new Error(`gs exited ${code}${cap}: ${stderr.trim()}`));
+      }
       else resolve({ png: Buffer.concat(chunks), stderr });
     });
     gs.stdin.end(pdfBuffer);
