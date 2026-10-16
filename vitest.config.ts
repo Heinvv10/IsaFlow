@@ -3,7 +3,18 @@ import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
-const DB_UNIT_FILES = ['tests/unit/**/*Db.test.ts', 'tests/unit/**/*.integration.test.ts'];
+// Unit files that write journals to the dev DB (see `projects` below). Matched by
+// name, so a new real-DB test that writes journals must use one of these
+// suffixes or be listed here, or it runs in parallel again.
+const DB_UNIT_FILES = [
+  'tests/unit/**/*Db.test.ts',
+  'tests/unit/**/*.db.test.ts',
+  'tests/unit/**/*.integration.test.ts',
+  'tests/unit/lib/withTransactionRequestTx.test.ts',
+  'tests/unit/services/bank/counterpartyLinkCatch.test.ts',
+  'tests/unit/services/reclassificationImpact.test.ts',
+  'tests/unit/services/reclassificationLineLock.test.ts',
+];
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode ?? 'test', process.cwd(), '');
@@ -31,7 +42,7 @@ export default defineConfig(({ mode }) => {
       // is on the `unit` project below: a project's include/exclude MERGE with
       // the root's under `extends`, so the root must not set either.)
       testTimeout: 10000,
-      // The DB-backed unit files pick the same dev company (`LIMIT 1`) and post
+      // Most DB-backed unit files pick the same dev company (`LIMIT 1`) and post
       // journals inside one long BEGIN … ROLLBACK. Journal numbering takes a
       // per-company+year advisory lock with a 5 s budget (migration 857), so in
       // parallel they queue on each other and the losers fail with "lock
