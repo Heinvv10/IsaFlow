@@ -28,7 +28,7 @@ it('shows the name, not the id, for a preselected company', async () => {
 it('searches by name and hands back the picked company id', async () => {
   const onChange = vi.fn();
   render(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
-  fireEvent.change(screen.getByPlaceholderText(/search company/i), {target: {value: 'velo'}});
+  fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'velo'}});
   fireEvent.click(await screen.findByRole('option', {name: VELOCITY.name}));
   expect(onChange).toHaveBeenCalledWith(VELOCITY.id);
   const search = vi.mocked(apiFetch).mock.calls.map(([u]) => String(u)).find(u => u.startsWith('/api/admin/companies?'));
@@ -44,12 +44,54 @@ it('Change clears the selection so another company can be picked', async () => {
 
 it('says so when a preselected company cannot be loaded', async () => {
   render(<SubscriptionCompanyPicker companyId="22222222-2222-4222-8222-222222222222" onChange={vi.fn()} />);
-  expect(await screen.findByText(/could not load the company/i)).toBeInTheDocument();
+  expect(await screen.findByText(/could not load that company/i)).toBeInTheDocument();
 });
 
 it('says so when no company matches the search', async () => {
   vi.mocked(apiFetch).mockImplementation(async () => response({items: [], total: 0}));
   render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} />);
-  fireEvent.change(screen.getByPlaceholderText(/search company/i), {target: {value: 'zzz'}});
+  fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'zzz'}});
   await waitFor(() => expect(screen.getByText(/no companies match/i)).toBeInTheDocument());
+});
+
+it('a company that cannot be loaded is dropped, and searching afterwards still works', async () => {
+  const onChange = vi.fn();
+  const BAD = '22222222-2222-4222-8222-222222222222';
+  const view = render(<SubscriptionCompanyPicker companyId={BAD} onChange={onChange} />);
+  await waitFor(() => expect(onChange).toHaveBeenCalledWith(''));
+  view.rerender(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  expect(screen.getByText(/could not load that company/i)).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'velo'}});
+  fireEvent.click(await screen.findByRole('option', {name: VELOCITY.name}));
+  expect(onChange).toHaveBeenLastCalledWith(VELOCITY.id);
+});
+
+it('picks a company with the keyboard', async () => {
+  const onChange = vi.fn();
+  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  const box = screen.getByRole('combobox', {name: 'Company'});
+  fireEvent.change(box, {target: {value: 'velo'}});
+  await screen.findByRole('option', {name: VELOCITY.name});
+  fireEvent.keyDown(box, {key: 'ArrowDown'});
+  expect(screen.getByRole('option', {name: VELOCITY.name})).toHaveAttribute('aria-selected', 'true');
+  fireEvent.keyDown(box, {key: 'Enter'});
+  expect(onChange).toHaveBeenCalledWith(VELOCITY.id);
+});
+
+it('a failed search clears the previous results instead of leaving them pickable', async () => {
+  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} />);
+  const box = screen.getByRole('combobox', {name: 'Company'});
+  fireEvent.change(box, {target: {value: 'velo'}});
+  await screen.findByRole('option', {name: VELOCITY.name});
+  vi.mocked(apiFetch).mockImplementation(async () => response(null, 500));
+  fireEvent.change(box, {target: {value: 'velox'}});
+  expect(await screen.findByText(/could not search companies/i)).toBeInTheDocument();
+  expect(screen.queryByRole('option')).toBeNull();
+});
+
+it('marks a company that is not active', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => response({items: [{...VELOCITY, status: 'suspended'}], total: 1}));
+  render(<SubscriptionCompanyPicker companyId="" onChange={vi.fn()} />);
+  fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'velo'}});
+  expect(await screen.findByRole('option', {name: /Velocity Fibre.*suspended/})).toBeInTheDocument();
 });
