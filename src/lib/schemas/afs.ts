@@ -22,9 +22,6 @@ export const PortalRoleEnum = z.enum([
   'external_auditor',
 ]);
 
-/** Entity type for PIS score (Public Interest Score). */
-export const EntityTypeEnum = z.enum(['pty', 'cc', 'trust']);
-
 /** Pack-style options for management pack PDF rendering. */
 export const PackStyleEnum = z.enum(['executive', 'detailed', 'board']);
 

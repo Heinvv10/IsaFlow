@@ -3,10 +3,12 @@
 // Switches director/member/trustee, dividends/distributions, etc.
 
 import { sql } from '@/lib/neon';
+import { afsTemplateFor, type AfsTemplateKey } from '@/lib/entityTypes';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-export type EntityType = 'pty' | 'cc' | 'trust';
+/** The AFS template key (src/lib/entityTypes.ts), not a company's entity code. */
+export type EntityType = AfsTemplateKey;
 
 export interface EntityTerminology {
   entityType: EntityType;
@@ -125,12 +127,11 @@ export function getTerminology(entityType: EntityType): EntityTerminology {
  */
 export async function getCompanyTerminology(companyId: string): Promise<EntityTerminology> {
   const rows = (await sql`
-    SELECT COALESCE(entity_type, 'pty') AS entity_type
-    FROM companies WHERE id = ${companyId}
+    SELECT entity_type FROM companies WHERE id = ${companyId}
   `) as Record<string, unknown>[];
 
-  const entityType = (rows[0]?.entity_type as EntityType) ?? 'pty';
-  return getTerminology(entityType);
+  // companies.entity_type is an SA entity code (894); the AFS template derives from it.
+  return getTerminology(afsTemplateFor(rows[0]?.entity_type as string | null | undefined));
 }
 
 /**

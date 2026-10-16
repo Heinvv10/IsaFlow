@@ -18,6 +18,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { UUID } from '@/lib/schemas/common';
 import { randomBytes } from 'crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -34,7 +35,7 @@ import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 import { initializeTransaction } from '@/modules/billing/services/paystackClient';
 
 const PurchaseBody = z.object({
-  bundleId: z.uuidv4(),
+  bundleId: UUID,
 }).strict();
 
 function paystackConfigured(): boolean {

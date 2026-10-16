@@ -69,6 +69,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invite/[token].ts', 'scripts/large-scale-seed.ts',
     'scripts/provision-isademo2.ts', 'scripts/stress-test.ts', `${S}core/userAccessService.ts`,
     `${S}core/userInvitationService.ts`, 'src/modules/admin/services/adminUserActionsService.ts',
+    'src/modules/admin/services/companyMembershipService.ts',
     'src/modules/onboarding/services/tenantProvisioningService.ts',
   ],
   company_invitations: [

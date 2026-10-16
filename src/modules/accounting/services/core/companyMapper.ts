@@ -3,6 +3,7 @@
  * Extracted from companyService.ts for file-size compliance.
  */
 import { fmtDate } from '@/lib/fmtDate';
+import { DEFAULT_ENTITY_TYPE } from '@/lib/entityTypes';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -208,7 +209,7 @@ export function mapCompany(r: Record<string, unknown>): Company {
     lockdownEnabled: bool(r.lockdown_enabled, false),
     lockdownDate: r.lockdown_date != null ? fmtDate(r.lockdown_date) : null,
     vatSystemType: r.vat_system_type != null ? String(r.vat_system_type) : 'invoice',
-    entityType: r.entity_type != null ? String(r.entity_type) : 'company',
+    entityType: r.entity_type != null ? String(r.entity_type) : DEFAULT_ENTITY_TYPE,
     registeredName: strN(r.registered_name),
     taxOffice: strN(r.tax_office),
     contactName: strN(r.contact_name),

@@ -3,6 +3,7 @@
  * to the Company shape used by the settings UI components.
  */
 import type { Company } from './settingsTypes';
+import { DEFAULT_ENTITY_TYPE } from '@/lib/entityTypes';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function mapApiCompany(c: Record<string, any>): Company {
@@ -30,7 +31,7 @@ export function mapApiCompany(c: Record<string, any>): Company {
     lockdownEnabled: c.lockdownEnabled ?? c.lockdown_enabled ?? false,
     lockdownDate: c.lockdownDate ?? c.lockdown_date ?? null,
     vatSystemType: c.vatSystemType ?? c.vat_system_type ?? 'invoice',
-    entityType: c.entityType ?? c.entity_type ?? 'company',
+    entityType: c.entityType ?? c.entity_type ?? DEFAULT_ENTITY_TYPE,
     registeredName: c.registeredName ?? c.registered_name ?? null,
     taxOffice: c.taxOffice ?? c.tax_office ?? null,
     contactName: c.contactName ?? c.contact_name ?? null,

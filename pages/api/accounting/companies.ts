@@ -15,6 +15,7 @@ import {
   getCompany, createCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
 } from '@/modules/accounting/services/core/companyService';
+import { ENTITY_TYPE_CODES, isEntityTypeCode } from '@/lib/entityTypes';
 
 /**
  * AUTH: Uses withAuth (not withAuth) because this endpoint manages the list of
@@ -128,6 +129,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     if (!isValidVatSystemType(updates.vatSystemType)) {
       return apiResponse.badRequest(res, "vatSystemType must be 'invoice', 'payment' or 'none'");
+    }
+    if (updates.entityType !== undefined && !isEntityTypeCode(updates.entityType)) {
+      return apiResponse.badRequest(res, `entityType must be one of: ${ENTITY_TYPE_CODES.join(', ')}`);
     }
     // Verify user is owner or admin of this company
     const userCompanies = await getUserCompanies(userId);
