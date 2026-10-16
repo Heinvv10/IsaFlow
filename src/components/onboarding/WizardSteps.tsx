@@ -256,13 +256,22 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
             </button>
           )}
         </div>
-        {idProofLabel && <p className="text-xs text-gray-500 mb-2">Required: {idProofLabel}.</p>}
+        {idProofLabel && <p className="text-xs text-gray-600 dark:text-gray-300 mb-2">Required: {idProofLabel}.</p>}
         {d.directors.length === 0 && (
           <p className="text-xs text-gray-500">No {def.peopleLabel.toLowerCase()} added yet. Click &quot;+ Add {def.personRole}&quot;, then upload an ID to auto-fill.</p>
         )}
         {d.directors.map((dir, i) => (
           <div key={i} className="border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
-            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-2 items-end">
+            {/* Header row carries the remove button, so below sm the two inputs stack full-width
+                and a 13-digit ID number is not clipped at 390px */}
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-gray-600 dark:text-gray-400">{def.personRole} {i + 1}</span>
+              <button type="button" onClick={() => removeDirector(i)} aria-label={`Remove ${def.personRole} ${i + 1}`}
+                className="text-red-400 hover:text-red-300 p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Full Name</label>
                 <input value={dir.name} onChange={e => updateDirector(i, { name: e.target.value })}
@@ -273,13 +282,8 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
                 <input value={dir.idNumber} onChange={e => updateDirector(i, { idNumber: e.target.value })}
                   placeholder="ID number" className={inputCls} />
               </div>
-              <button type="button" onClick={() => removeDirector(i)}
-                className="text-red-400 hover:text-red-300 p-2 mb-0.5">
-                <X className="w-4 h-4" />
-              </button>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500">{def.personRole}</span>
+            <div className="flex items-center justify-end">
               <div className="flex items-center gap-2">
                 {dir.extracting && <Loader2 className="w-3.5 h-3.5 text-teal-400 animate-spin" />}
                 {dir.idDocument ? (

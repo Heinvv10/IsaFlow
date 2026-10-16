@@ -214,7 +214,9 @@ export function SmartSetupChoice({ entityType, onManual, onExtracted, onBack }: 
                         <div className="flex items-center gap-2">
                           <FileText className="w-4 h-4 text-gray-500" />
                           <span className="text-sm text-gray-700 dark:text-gray-300">{slot.label}</span>
-                          {slot.required && <span className="text-xs bg-teal-600/20 text-teal-400 px-1.5 py-0.5 rounded">Required</span>}
+                          {slot.required
+                            ? <span className="text-xs bg-teal-600/20 text-teal-400 px-1.5 py-0.5 rounded">Required</span>
+                            : <span className="text-xs bg-gray-200 text-gray-600 dark:bg-gray-700/60 dark:text-gray-400 px-1.5 py-0.5 rounded">Optional</span>}
                         </div>
                         {doc ? (
                           <div className="flex items-center gap-2">

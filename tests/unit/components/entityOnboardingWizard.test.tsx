@@ -111,8 +111,14 @@ describe('company types', () => {
     type(fieldInput('Company name'), 'Synthetic (Pty) Ltd');
     await toDocuments();
     expect(continueBtn().disabled).toBe(true);
+    // The dimmed Continue says why, and the button points at the reason.
+    const why = screen.getByText('Upload the CIPC registration certificate (COR14.3) to continue.');
+    expect(continueBtn().getAttribute('aria-describedby')).toBe(why.id);
+    expect(screen.getAllByText('Optional')).toHaveLength(3); // tax clearance, B-BBEE, VAT
     upload(screen.getByLabelText('Upload CIPC Registration Certificate') as HTMLInputElement, pdf('cipc.pdf'));
     await waitFor(() => expect(continueBtn().disabled).toBe(false));
+    expect(screen.queryByText(/to continue\.$/)).toBeNull();
+    expect(continueBtn().getAttribute('aria-describedby')).toBeNull();
     await click(/continue/i);
     expect(await screen.findByText('Review & Complete')).toBeTruthy();
     expect(posts()).toHaveLength(0);
