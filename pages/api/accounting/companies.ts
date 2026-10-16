@@ -1,13 +1,13 @@
 /**
  * Companies API
  * GET  — list companies for current user
- * POST — action 'set-default' (creating a company is onboarding's: 405 here)
+ * POST — action 'set-default' (creating a company is onboarding's: 400 here)
  * PUT  — update company details
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -78,9 +78,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { success: true });
     }
     // Creating a company here made a pty_ltd with no required proof and no
-    // entity choice. Companies are created by onboarding only
-    // (POST /api/onboarding/complete-setup), which enforces both.
-    return apiResponse.error(res, ErrorCode.METHOD_NOT_ALLOWED, 'Create a company through onboarding (/onboarding)');
+    // entity choice. Self-serve creation is POST /api/onboarding/complete-setup,
+    // which enforces both. (Email verification's placeholder, admin create and
+    // waitlist promotion still create companies with the DB default pty_ltd
+    // and no proof: a known follow-up.) 400, not 405: POST stays allowed here
+    // for action 'set-default'.
+    return apiResponse.badRequest(res, 'Create a company through onboarding (/onboarding)');
   }
 
   if (req.method === 'PUT') {

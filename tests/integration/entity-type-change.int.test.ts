@@ -71,11 +71,11 @@ describe('entity type change', () => {
 });
 
 describe('POST /api/accounting/companies', () => {
-  it('no longer creates a company: 405 pointing to onboarding, no row', async () => {
+  it('no longer creates a company: 400 pointing to onboarding (POST itself stays allowed for set-default), no row', async () => {
     const u = await user();
     const name = `WIZ direct create ${crypto.randomUUID()}`;
     const out = await callRoute(companiesRoute, u, { name }, '/api/accounting/companies');
-    expect(out.status, JSON.stringify(out.body)).toBe(405);
+    expect(out.status, JSON.stringify(out.body)).toBe(400);
     expect(out.body.error?.message).toBe('Create a company through onboarding (/onboarding)');
     expect((await pool.query('SELECT COUNT(*)::int AS n FROM companies WHERE name = $1', [name])).rows[0].n).toBe(0);
   });

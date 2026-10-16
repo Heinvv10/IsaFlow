@@ -27,10 +27,15 @@ function isSensitiveKey(key: string): boolean {
 
 /** Always a file or an ID number, whatever the value looks like. */
 const PAYLOAD_KEYS = new Set(['file_data', 'fileData', 'idDocument', 'logoData', 'idNumber', 'id_number']);
-/** `data` is a common key (bulk rows, settings): omitted only when it is a file (a data: URL or a long string), or an array holding one. */
+/** `data` is a common key (bulk rows, settings): omitted only when it is, or holds at any depth, a file (a data: URL or a long string). */
 const LONG_STRING = 1024;
 const isFileLike = (value: unknown) => typeof value === 'string' && (value.startsWith('data:') || value.length > LONG_STRING);
-const holdsFiles = (value: unknown) => isFileLike(value) || (Array.isArray(value) && value.some(isFileLike));
+/** A file anywhere inside the value (nested arrays and objects too). */
+function holdsFiles(value: unknown, depth = 0): boolean {
+  if (isFileLike(value)) return true;
+  if (!value || typeof value !== 'object' || depth > 8) return false;
+  return Object.values(value as Record<string, unknown>).some((v) => holdsFiles(v, depth + 1));
+}
 const omitted = (value: unknown) => (typeof value === 'string' ? `[omitted: ${value.length} chars]`
   : Array.isArray(value) ? `[omitted: ${value.length} items]` : '[omitted]');
 const present = (value: unknown) => value !== null && value !== undefined && value !== '';
