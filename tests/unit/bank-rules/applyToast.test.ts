@@ -22,6 +22,12 @@ describe('buildApplyToast', () => {
     expect(r.kind).toBe('warn');
   });
 
+  it('a rule whose contact is not in this company is reported per rule and turns the toast amber even when lines applied', () => {
+    const r = buildApplyToast({ applied: 4, autoPostRulesSkippedForeignContact: 1 });
+    expect(r.message).toBe('4 categorised · 1 auto-post rule skipped (its supplier or customer is not in this company — set it again)');
+    expect(r.kind).toBe('warn');
+  });
+
   it('plain success — applied with no skips', () => {
     const r = buildApplyToast({ applied: 50 });
     expect(r.kind).toBe('success');

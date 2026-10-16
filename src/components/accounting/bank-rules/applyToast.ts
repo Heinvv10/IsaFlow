@@ -16,6 +16,7 @@ export interface ApplyResultParts {
   autoPostSkippedHeaderAccount?: number;
   autoPostSkippedRefundCeiling?: number;
   autoPostSkippedControlAccount?: number;
+  autoPostRulesSkippedForeignContact?: number;
   autoPostSkippedRaced?: number;
   autoPostSkippedLocked?: number;
   autoPostTruncatedRules?: number;
@@ -44,6 +45,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   const skippedRefund = parts.autoPostSkippedRefundCeiling ?? 0;
   const skippedControl = parts.autoPostSkippedControlAccount ?? 0;
   const noBankGl = parts.autoPostRulesSkippedNoBankGl ?? 0;
+  const foreign = parts.autoPostRulesSkippedForeignContact ?? 0;
   const raced = parts.autoPostSkippedRaced ?? 0;
   const locked = parts.autoPostSkippedLocked ?? 0;
   const truncated = parts.autoPostTruncatedRules ?? 0;
@@ -55,6 +57,7 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   if (skippedControl > 0) bits.push(`${skippedControl} skipped (the rule's account is AP/AR control — set the rule's supplier or customer instead)`);
   if (skippedRefund > 0) bits.push(`${skippedRefund} skipped (a refund larger than the contact's credit — allocate it by hand)`);
   if (noBankGl > 0) bits.push(`${noBankGl} auto-post rule${noBankGl > 1 ? 's' : ''} skipped (bank not GL-linked)`);
+  if (foreign > 0) bits.push(`${foreign} auto-post rule${foreign > 1 ? 's' : ''} skipped (its supplier or customer is not in this company — set it again)`);
   if (raced > 0) bits.push(`${raced} skipped — allocated by another request`);
   if (locked > 0) bits.push(`${locked} skipped — locked by another request, retry`);
   if (truncated > 0) bits.push(`${truncated} rule${truncated > 1 ? 's' : ''} hit the 500-transaction cap — run again`);
@@ -65,10 +68,10 @@ export function buildApplyToast(parts: ApplyResultParts): ApplyToast {
   // `closed_period` here — both are actionable but non-blocking, as is a race,
   // which simply means someone else got to the transaction first.
   const hasCollateral = skippedClosed > 0 || skippedNoPeriod > 0 || skippedVatLocked > 0 || skippedHeader > 0 || skippedRefund > 0 || skippedControl > 0
-    || noBankGl > 0
+    || noBankGl > 0 || foreign > 0
     || raced > 0 || locked > 0 || truncated > 0;
-  // A header or control-account skip recurs on every run until the rule is repointed, so it is never a quiet success.
-  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
+  // A header, control-account or foreign-contact skip recurs on every run until the rule is fixed: never a quiet success.
+  const kind = noBankGl > 0 || skippedHeader > 0 || skippedControl > 0 || foreign > 0 || (applied === 0 && hasCollateral) ? 'warn' : 'success';
   return { kind, message };
 }
 
@@ -108,6 +111,7 @@ export function reportCreated(headline: string, data: Record<string, unknown> | 
     autoPostSkippedHeaderAccount: n('autoPostSkippedHeaderAccount'),
     autoPostSkippedRefundCeiling: n('autoPostSkippedRefundCeiling'),
     autoPostSkippedControlAccount: n('autoPostSkippedControlAccount'),
+    autoPostRulesSkippedForeignContact: n('autoPostRulesSkippedForeignContact'),
   };
   const anythingToReport = Object.values(parts).reduce((sum, v) => sum + v, 0);
   if (anythingToReport > 0) emitApplyToast(headline, parts);
