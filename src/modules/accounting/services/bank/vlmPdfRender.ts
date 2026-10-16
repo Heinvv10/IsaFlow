@@ -63,8 +63,13 @@ export async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | nu
 
 class RenderUnavailable extends Error {}
 
+/** The PATH gs is both looked up on and spawned with. */
+function gsPath(): string {
+  return process.env.PATH ?? '/usr/bin:/bin';
+}
+
 function onPath(name: string): boolean {
-  return (process.env.PATH ?? '').split(':').some((dir) => {
+  return gsPath().split(':').some((dir) => {
     if (dir === '') return false;
     try {
       accessSync(join(dir, name), constants.X_OK);
@@ -81,7 +86,7 @@ function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: strin
   // gs's own temp dir, one per render: private (0700), empty, removed when gs exits.
   const gsTmpDir = mkdtempSync(join(tmpdir(), 'isaflow-gs-'));
   return new Promise((resolve, reject) => {
-    const env = { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? '/usr/bin:/bin', TMPDIR: gsTmpDir };
+    const env = { NODE_ENV: process.env.NODE_ENV, PATH: gsPath(), TMPDIR: gsTmpDir };
     const gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...GS_ARGS], { stdio: ['pipe', 'pipe', 'pipe'], env });
     const chunks: Buffer[] = [];
     let size = 0;
