@@ -76,11 +76,20 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       );
     }
 
+    // The same standing test withAuth applies (src/lib/auth/liveCompanies.ts):
+    // exchanging into a soft-deleted or suspended company would set a cookie
+    // that 403s every later request instead of browsing as that tenant.
     const rows = await sql`
-      SELECT id, name FROM companies WHERE id = ${payload.company_id}::UUID LIMIT 1
+      SELECT id, name FROM companies
+      WHERE id = ${payload.company_id}::UUID
+        AND is_active = true
+        AND status IS DISTINCT FROM 'suspended'
+        AND status IS DISTINCT FROM 'deleted'
+        AND suspended_at IS NULL
+      LIMIT 1
     `;
     if (rows.length === 0) {
-      return apiResponse.notFound(res, 'Company not found');
+      return apiResponse.notFound(res, 'Company not found or no longer available');
     }
 
     const company = rows[0]!;
