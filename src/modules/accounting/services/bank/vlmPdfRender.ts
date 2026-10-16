@@ -4,16 +4,23 @@
  * vLLM rejects a PDF sent as `image_url` (400 "cannot identify image file"),
  * so a scanned PDF only reaches the model as a rendered page. The PDF is an
  * untrusted upload, so it goes to Ghostscript alone (no ImageMagick, no
- * shell): `-dSAFER`, page 1 only into a fixed-size frame, stdin → stdout (no
- * temp files), a hard timeout, and an output cap. Callers bound how many
- * renders run at once.
+ * shell), and only when it starts `%PDF-` (gs runs anything else as
+ * PostScript). `-dSAFER` still permits writes under the temp dir, so gs gets a
+ * private, empty TMPDIR and a clean environment. Page 1 only, into a fixed-size
+ * frame, stdin → stdout, a hard timeout, an output cap. Output that is not a
+ * PNG (an encrypted PDF exits 0 with only a message) is a failure. Callers
+ * bound how many run at once.
  */
 
 import { spawn } from 'child_process';
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { log } from '@/lib/logger';
 
 const RENDER_TIMEOUT_MS = 30_000;
 const MAX_PNG_BYTES = 20 * 1024 * 1024;
+const PDF_MAGIC = '%PDF-';
 const GS_ARGS = [
   '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
   // A fixed 1275x1754 frame (A4 at 150 dpi) with the page scaled to fit, aspect
@@ -24,10 +31,18 @@ const GS_ARGS = [
 
 /** Base64 PNG of page 1, or null when the PDF cannot be rendered (logged). */
 export async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | null> {
+  if (pdfBuffer.subarray(0, PDF_MAGIC.length).toString('latin1') !== PDF_MAGIC) {
+    log.warn('Not rendered: file does not start %PDF-', { bytes: pdfBuffer.length }, 'vlm-pdf-render');
+    return null;
+  }
   try {
-    const png = await runGhostscript(pdfBuffer);
-    if (png.subarray(0, 4).toString('latin1') === '\x89PNG') return png.toString('base64');
-    log.warn('PDF render produced no image', { bytes: pdfBuffer.length }, 'vlm-pdf-render');
+    const { png, stderr } = await runGhostscript(pdfBuffer);
+    if (png.subarray(0, 4).toString('latin1') === '\x89PNG') {
+      return png.toString('base64');
+    }
+    log.warn('PDF render produced no readable page', {
+      bytes: pdfBuffer.length, pngBytes: png.length, stderr: stderr.trim(),
+    }, 'vlm-pdf-render');
   } catch (err) {
     log.warn('PDF render failed', {
       bytes: pdfBuffer.length,
@@ -37,9 +52,18 @@ export async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | nu
   return null;
 }
 
-function runGhostscript(pdfBuffer: Buffer): Promise<Buffer> {
+let gsTmpDir: string | null = null;
+
+/** gs's own temp dir: private (0700), empty, and the only place SAFER lets it write. */
+function privateTmpDir(): string {
+  gsTmpDir ??= mkdtempSync(join(tmpdir(), 'isaflow-gs-'));
+  return gsTmpDir;
+}
+
+function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const gs = spawn('gs', GS_ARGS, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const env = { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? '/usr/bin:/bin', TMPDIR: privateTmpDir() };
+    const gs = spawn('gs', GS_ARGS, { stdio: ['pipe', 'pipe', 'pipe'], env });
     const chunks: Buffer[] = [];
     let size = 0;
     let stderr = '';
@@ -64,7 +88,7 @@ function runGhostscript(pdfBuffer: Buffer): Promise<Buffer> {
       clearTimeout(timer);
       if (failure) reject(failure);
       else if (code !== 0) reject(new Error(`gs exited ${code}: ${stderr.trim()}`));
-      else resolve(Buffer.concat(chunks));
+      else resolve({ png: Buffer.concat(chunks), stderr });
     });
     gs.stdin.end(pdfBuffer);
   });
