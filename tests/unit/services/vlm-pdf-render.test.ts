@@ -66,6 +66,12 @@ describe('renderPdfFirstPage', () => {
     expect(await renderPdfFirstPage(onePagePdf('CUT SHORT').subarray(0, 200))).toBeNull();
   }, 30_000);
 
+  it('renders a PDF with bytes before its %PDF- header (cut off before gs)', async () => {
+    const one = await renderPdfFirstPage(onePagePdf('PAGE ONE'));
+    const prefixed = Buffer.concat([Buffer.from('\uFEFF\r\n  '), onePagePdf('PAGE ONE')]);
+    expect(await renderPdfFirstPage(prefixed)).toBe(one);
+  }, 30_000);
+
   it('renders only page 1 of a two-page PDF', async () => {
     const one = await renderPdfFirstPage(onePagePdf('PAGE ONE'));
     const pdf = onePagePdf('PAGE ONE').toString('latin1')
