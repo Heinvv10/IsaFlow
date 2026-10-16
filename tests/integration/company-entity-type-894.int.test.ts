@@ -70,6 +70,7 @@ describe('migration 894: companies.entity_type CHECK on the eight SA codes', () 
       // The pre-894 state: 408's CHECK gone (a legacy 'company' predates it), default 'pty'.
       await c.query('ALTER TABLE companies DROP CONSTRAINT companies_entity_type_check');
       await c.query("ALTER TABLE companies ALTER COLUMN entity_type SET DEFAULT 'pty'");
+      await c.query('ALTER TABLE companies ALTER COLUMN entity_type DROP NOT NULL');
       const rows: Record<string, string | null> = { pty: 'pty', company: 'company', cc: 'cc', trust: 'trust', nul: null };
       const made: Record<string, string> = {};
       for (const [k, v] of Object.entries(rows)) {

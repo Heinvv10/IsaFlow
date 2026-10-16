@@ -164,7 +164,6 @@ export const LABEL_CLS = 'block text-xs font-medium text-[var(--ff-text-secondar
 export const SECTION_CLS = 'bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl p-6';
 
 export const DOC_TYPE_LABELS: Record<string, string> = {
-  cipc_certificate: 'CIPC Registration Certificate',
   tax_clearance: 'Tax Clearance Certificate',
   bbbee_certificate: 'B-BBEE Certificate',
   vat_registration: 'VAT Registration Certificate',

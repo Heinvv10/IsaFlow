@@ -3,6 +3,7 @@
 import type { AfsDocument, AfsSection, BrandProfile } from './afsTypes';
 import { renderCoverHtml } from './afsHtmlCoverTemplates';
 import { renderSectionContent, escapeHtml } from './afsHtmlTableRenderer';
+import type { AfsTemplateKey } from '@/lib/entityTypes';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ export interface AfsRenderContext {
   registrationNumber: string;
   coverPhotoUrl?: string;
   /** Entity type for terminology — defaults to 'pty' */
-  entityType?: 'pty' | 'cc' | 'trust';
+  entityType?: AfsTemplateKey;
   /** Server-rendered SVG per section type — see serverChartSvg.buildAfsCharts. */
   charts?: Partial<Record<AfsSection['sectionType'], string>>;
 }

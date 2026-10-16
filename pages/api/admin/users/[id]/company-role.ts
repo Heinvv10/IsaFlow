@@ -39,8 +39,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { company_id, role } = parsed.data;
 
     let previousRole: string;
+    let changed: boolean;
     try {
-      ({ previousRole } = await setUserCompanyRole(userId, company_id, role));
+      ({ previousRole, changed } = await setUserCompanyRole(userId, company_id, role));
     } catch (err) {
       if (err instanceof CompanyMembershipError) {
         return apiResponse.error(res, MEMBERSHIP_ERROR_CODE[err.code], err.message);
@@ -48,7 +49,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    if (previousRole !== role) {
+    if (changed) {
       await logAdminAction(
         req.user.id,
         'user.change_company_role',

@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import removeRoute from '../../pages/api/admin/users/[id]/remove-from-company';
 import roleRoute from '../../pages/api/admin/users/[id]/company-role';
+import addRoute from '../../pages/api/admin/users/[id]/add-to-company';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
@@ -40,6 +41,8 @@ async function call(route: Route, method: string, target: string, body: unknown)
 const remove = (user: string, companyId: string) => call(removeRoute as Route, 'DELETE', user, { company_id: companyId });
 const setRole = (user: string, companyId: string, role: string) =>
   call(roleRoute as Route, 'PATCH', user, { company_id: companyId, role });
+const add = (user: string, companyId: string, role: string) =>
+  call(addRoute as Route, 'POST', user, { company_id: companyId, role });
 
 async function link(user: string, companyId: string, role: string) {
   await pool.query(`INSERT INTO company_users (user_id, company_id, role) VALUES ($1, $2, $3)
@@ -144,5 +147,58 @@ describe('admin: change a linked company role', () => {
     const ok = await setRole(alice, company, 'admin');
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
     expect(await roleOf(alice, company)).toBe('admin');
+  }, 30000);
+});
+
+describe('admin: link a company (add-to-company never re-roles an existing link)', () => {
+  it("refuses an existing link (409) instead of upserting the role: the last owner can't be demoted that way", async () => {
+    await pool.query('DELETE FROM company_users WHERE company_id = $1', [company]);
+    await link(alice, company, 'owner');
+    const r = await add(alice, company, 'viewer');
+    expect(r.status).toBe(409);
+    expect(r.body.error?.message).toMatch(/already linked/);
+    expect(await roleOf(alice, company)).toBe('owner');
+    expect(await audits('user.add_to_company', alice)).toEqual([]);
+  }, 30000);
+
+  it('links a new user and audits it; an unknown company is a 404; a non-portal role a 400', async () => {
+    const r = await add(bob, DEMO, 'viewer');
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(await roleOf(bob, DEMO)).toBe('viewer');
+    expect(await audits('user.add_to_company', bob)).toEqual([{ company_id: DEMO, role: 'viewer' }]);
+    expect((await add(bob, crypto.randomUUID(), 'viewer')).status).toBe(404);
+    expect((await add(alice, DEMO, 'owner')).status).toBe(400);
+    expect(await roleOf(alice, DEMO)).toBeNull();
+    await pool.query('DELETE FROM company_users WHERE user_id = $1 AND company_id = $2', [bob, DEMO]);
+  }, 30000);
+});
+
+describe('admin: no-op and audit failure', () => {
+  it('setting the role a link already has writes nothing and audits nothing', async () => {
+    await pool.query('DELETE FROM company_users WHERE company_id = $1', [company]);
+    await link(bob, company, 'viewer');
+    const before = (await audits('user.change_company_role', bob)).length;
+    const r = await setRole(bob, company, 'viewer');
+    expect(r.status).toBe(200);
+    expect((await audits('user.change_company_role', bob)).length).toBe(before);
+  }, 30000);
+
+  it('a failed audit write rolls the role change and the removal back (500)', async () => {
+    await link(bob, company, 'viewer');
+    await pool.query(`CREATE OR REPLACE FUNCTION pg_temp_fail_member_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN IF NEW.target_id = '${bob}' THEN RAISE EXCEPTION 'audit write refused (test)'; END IF; RETURN NEW; END $$`);
+    await pool.query(`CREATE TRIGGER fail_member_audit_test BEFORE INSERT ON admin_audit_log
+      FOR EACH ROW EXECUTE FUNCTION pg_temp_fail_member_audit()`);
+    try {
+      const changed = await setRole(bob, company, 'accountant');
+      expect(changed.status).toBe(500);
+      expect(await roleOf(bob, company)).toBe('viewer');
+      const removed = await remove(bob, company);
+      expect(removed.status).toBe(500);
+      expect(await roleOf(bob, company)).toBe('viewer');
+    } finally {
+      await pool.query('DROP TRIGGER IF EXISTS fail_member_audit_test ON admin_audit_log');
+      await pool.query('DROP FUNCTION IF EXISTS pg_temp_fail_member_audit()');
+    }
   }, 30000);
 });
