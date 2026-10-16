@@ -24,8 +24,10 @@ import { log } from '@/lib/logger';
 const RENDER_TIMEOUT_MS = 30_000;
 const MAX_PNG_BYTES = 20 * 1024 * 1024;
 const PDF_MAGIC = '%PDF-';
-/** Readers accept the header anywhere in the first 1 KB. */
-const HEADER_SEARCH_BYTES = 1024;
+/** Readers accept a header that STARTS anywhere in the first 1 KB. */
+const HEADER_SEARCH_BYTES = 1024 + PDF_MAGIC.length - 1;
+/** Kernel limits on gs itself: 512 MB address space, 30 s CPU (peak seen: ~40 MB). */
+const LIMIT_ARGS = ['--as=536870912', '--cpu=30', '--'];
 const GS_ARGS = [
   '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
   // A fixed 1754x1754 frame with the page scaled to fit, aspect kept: A4 reads
@@ -52,8 +54,9 @@ export async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | nu
     }, 'vlm-pdf-render');
   } catch (err) {
     const detail = { bytes: pdfBuffer.length, error: err instanceof Error ? err.message : String(err) };
-    // No gs at all is an outage (every scan falls back), not one bad file.
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') log.error('PDF render unavailable: gs not found', detail, 'vlm-pdf-render');
+    // No gs/prlimit at all is an outage (every scan falls back), not one bad file.
+    const missing = (err as NodeJS.ErrnoException).code === 'ENOENT' || detail.error.includes('failed to execute');
+    if (missing) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
     else log.warn('PDF render failed', detail, 'vlm-pdf-render');
   }
   return null;
@@ -74,7 +77,7 @@ function privateTmpDir(): string {
 function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: string }> {
   return new Promise((resolve, reject) => {
     const env = { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? '/usr/bin:/bin', TMPDIR: privateTmpDir() };
-    const gs = spawn('gs', GS_ARGS, { stdio: ['pipe', 'pipe', 'pipe'], env });
+    const gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...GS_ARGS], { stdio: ['pipe', 'pipe', 'pipe'], env });
     const chunks: Buffer[] = [];
     let size = 0;
     let stderr = '';

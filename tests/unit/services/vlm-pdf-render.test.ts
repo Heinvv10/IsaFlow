@@ -79,7 +79,7 @@ describe('renderPdfFirstPage', () => {
     process.env.PATH = '/nonexistent';
     try {
       expect(await renderPdfFirstPage(onePagePdf('NO GS'))).toBeNull();
-      expect(error).toHaveBeenCalledWith('PDF render unavailable: gs not found', expect.anything(), 'vlm-pdf-render');
+      expect(error).toHaveBeenCalledWith('PDF render unavailable: gs or prlimit not found', expect.anything(), 'vlm-pdf-render');
     } finally {
       process.env.PATH = path;
       error.mockRestore();
