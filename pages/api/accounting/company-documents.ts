@@ -17,6 +17,7 @@ import { sql } from '@/lib/neon';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/bank/vlmService';
 import { log } from '@/lib/logger';
+import { MIN_UPLOAD_BYTES } from '@/modules/onboarding/uploadLimits';
 import { runAfterCommit } from '@/lib/afterCommit';
 type Row = Record<string, unknown>;
 
@@ -108,6 +109,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const docBuf = decodeUploadPayload(String(fileData));
     if (!docBuf || !magicBytesMatchMime(docBuf, mimeType as string)) {
       return apiResponse.badRequest(res, 'File contents do not match the declared type');
+    }
+    // A certificate is never this small; a header-only file is not proof (uploadLimits).
+    if (docBuf.length < MIN_UPLOAD_BYTES) {
+      return apiResponse.badRequest(res, 'File is too small to be a real document (under 1 KB)');
     }
     if (!(await validateMembership(companyId))) {
       return apiResponse.forbidden(res, 'You do not have access to this company');

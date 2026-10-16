@@ -170,6 +170,11 @@ describe('request key semantics', () => {
     expect(await companiesNamed(body.company.name)).toBe(0);
     expect(await rowsFor(pool, u.homeCompanyId)).toMatchObject({ companies: 1 });
   });
+  it('a looser cap on every attempt: the 61st request in an hour, refused or not, is 429', async () => {
+    const u = await user();
+    for (let i = 0; i < 60; i++) expect((await callSetup(u, { requestKey: 'bad' })).status).toBe(400);
+    expect((await callSetup(u, { requestKey: 'bad' })).status).toBe(429);
+  }, 120000);
   it('rate limit (fix 13): refused requests do not count; the 11th VALID request in an hour is 429', async () => {
     const u = await user();
     for (let i = 0; i < 12; i++) expect((await callSetup(u, { requestKey: 'bad' })).status).toBe(400);

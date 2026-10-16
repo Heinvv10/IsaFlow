@@ -33,6 +33,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
+  // A loose cap on every attempt, refused or not, so the parser and its file
+  // checks cannot be driven in a loop; the tighter one below counts only
+  // requests that passed validation.
+  if (!(await checkRateLimit(`onboarding-setup-attempt:${userId}`, { max: 60, windowSecs: 3600 }))) {
+    return apiResponse.tooManyRequests(res);
+  }
+
   const parsed = parseSetupRequest(req.body);
   if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
   const setup = parsed.value;

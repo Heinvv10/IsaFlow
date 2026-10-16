@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { computePisBreakdown } from '@/modules/accounting/services/afs/pisCalculatorService';
 import { ENTITY_TYPE_CODES } from '@/lib/entityTypes';
+import { EntityTypeChangeRefused, assertEntityTypeChangeAllowed } from '@/modules/onboarding/services/entityTypeChange';
 
 type DbRow = Record<string, unknown>;
 
@@ -79,6 +80,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       registeredAddress,
       entityType,
     } = parsed.data;
+
+    // A new entity type needs its own required proof on file, as on Company Settings.
+    if (entityType) {
+      try {
+        await assertEntityTypeChangeAllowed(companyId, entityType);
+      } catch (err) {
+        if (err instanceof EntityTypeChangeRefused) return apiResponse.badRequest(res, err.message, { issues: err.issues });
+        throw err;
+      }
+    }
 
     await sql`
       UPDATE companies SET

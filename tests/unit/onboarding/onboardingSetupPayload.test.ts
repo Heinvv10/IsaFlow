@@ -2,6 +2,7 @@
  * parseSetupRequest: every check POST /api/onboarding/complete-setup makes on its body before
  * anything is written. Synthetic values; files are built to pass (or fail) fileMagic.
  */
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { parseSetupRequest, setupFactsOf } from '@/modules/onboarding/services/onboardingSetupPayload';
 
@@ -120,6 +121,14 @@ describe('documents', () => {
 });
 
 describe('setupFactsOf', () => {
+  it('fingerprints an ID document by its decoded bytes: the same file under another name or prefix is the same document', () => {
+    const v = value(body({ people: [
+      { name: 'A', idDocument: { name: 'a.png', data: PNG } },
+      { name: 'B', idDocument: { name: 'b.png', data: `data:image/png;base64,${b64(pngBytes()).replace(/(.{76})/g, '$1\n')}` } },
+    ] }));
+    const [a, b] = setupFactsOf(v).people;
+    expect(a!.idDocumentFingerprint).toBe(b!.idDocumentFingerprint);
+  });
   it('passes the registration number, ID numbers and ID documents to the rules', () => {
     const v = value(body({
       company: { name: 'S', registrationNumber: '2020/123456/07' },
@@ -127,7 +136,7 @@ describe('setupFactsOf', () => {
     }));
     expect(setupFactsOf(v)).toEqual({
       entityType: 'other', name: 'S', registrationNumber: '2020/123456/07', documentTypes: ['tax_clearance'],
-      people: [{ name: 'A', hasIdDocument: true, idNumber: 'SYNTH-1', idDocumentData: PNG }],
+      people: [{ name: 'A', hasIdDocument: true, idNumber: 'SYNTH-1', idDocumentFingerprint: createHash('sha256').update(pngBytes()).digest('hex') }],
     });
   });
 });

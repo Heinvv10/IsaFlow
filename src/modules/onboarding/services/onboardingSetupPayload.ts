@@ -21,6 +21,7 @@ import {
   MAX_UPLOAD_BYTES, MIN_UPLOAD_BYTES, TOTAL_TOO_LARGE, decodedBytes,
 } from '../uploadLimits';
 import type { SetupFacts } from './entityOnboardingRules';
+import { uploadFingerprint } from './uploadFingerprint';
 
 export const COA_TEMPLATES: readonly CoaTemplate[] = ['isaflow_standard', 'xero_compatible', 'sage_compatible', 'blank'];
 export const MAX_DOCUMENTS = 20;
@@ -185,7 +186,7 @@ export function setupFactsOf(req: SetupRequest): SetupFacts {
     name: req.company.name,
     registrationNumber: req.company.registrationNumber ?? null,
     people: req.people.map(p => ({
-      name: p.name, hasIdDocument: p.idDocument !== null, idNumber: p.idNumber, idDocumentData: p.idDocument?.data ?? null,
+      name: p.name, hasIdDocument: p.idDocument !== null, idNumber: p.idNumber, idDocumentFingerprint: uploadFingerprint(p.idDocument?.data),
     })),
     documentTypes: req.documents.map(d => d.type),
   };
