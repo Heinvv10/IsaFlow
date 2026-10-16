@@ -46,6 +46,35 @@ export function isVlmAvailable(): boolean {
  */
 const DEFAULT_MAX_TOKENS = parseInt(process.env.VLM_MAX_TOKENS ?? '4096', 10);
 
+/**
+ * Most requests in flight to vLLM at once, per process. vLLM serves
+ * `--max-num-seqs 4`; a bulk upload that fires thousands of calls at once
+ * otherwise overruns it and they fail with "fetch failed". Excess callers wait
+ * their turn instead. Override with `VLM_MAX_CONCURRENCY`.
+ */
+function maxConcurrency(): number {
+  const n = parseInt(process.env.VLM_MAX_CONCURRENCY ?? '4', 10);
+  return Number.isFinite(n) && n > 0 ? n : 4;
+}
+
+let inFlight = 0;
+const waiting: Array<() => void> = [];
+
+async function acquireVlmSlot(): Promise<void> {
+  if (inFlight < maxConcurrency()) {
+    inFlight++;
+    return;
+  }
+  // The releasing caller hands its slot straight to us, so inFlight is unchanged.
+  await new Promise<void>((resolve) => waiting.push(resolve));
+}
+
+function releaseVlmSlot(): void {
+  const next = waiting.shift();
+  if (next) next();
+  else inFlight--;
+}
+
 export async function callVlmChat(
   config: VlmConfig,
   systemPrompt: string,
@@ -63,6 +92,7 @@ export async function callVlmChat(
     stream: false,
   };
 
+  await acquireVlmSlot();
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), config.timeout);
@@ -106,6 +136,8 @@ export async function callVlmChat(
       log.error('vLLM request error', { error: msg }, 'vlm-core');
     }
     return null;
+  } finally {
+    releaseVlmSlot();
   }
 }
 

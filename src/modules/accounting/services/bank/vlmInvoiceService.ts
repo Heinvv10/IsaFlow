@@ -19,13 +19,14 @@ import {
   parseLineItems,
   parseBankDetails,
 } from './vlmCore';
+import { renderPdfFirstPage } from './vlmPdfRender';
 
 // ---------------------------------------------------------------------------
 // Extraction prompt
 // ---------------------------------------------------------------------------
 
 const EXTRACTION_PROMPT = `You are an expert accounting document reader specialised in South African business documents.
-Analyse this document image and extract ALL available information into the JSON structure below.
+Analyse this document (a page image or its text) and extract ALL available information into the JSON structure below.
 Be precise with numbers — do not guess amounts. If a field is not visible, use null.
 
 For South African documents:
@@ -97,9 +98,18 @@ export async function extractWithVlm(
   return parseVlmResponse(content, rawText || '');
 }
 
+/** A text layer shorter than this is treated as a scan with no usable text. */
+const MIN_TEXT_LAYER_CHARS = 200;
+/** A text-only read scoring below this is retried with the rendered page. */
+const MIN_TEXT_ONLY_CONFIDENCE = 0.6;
+
 /**
- * Extract from PDF buffer using VLM.
- * Tries sending the PDF directly, then falls back to rendering the first page.
+ * Extract from a PDF buffer using VLM.
+ *
+ * A digital PDF already carries its text, so that is read first as a cheap
+ * text-only call. A scan, or a text read that comes back weak, goes to the
+ * model as a rendered first page (with the text layer as a cross-check). The
+ * raw PDF is never sent: vLLM rejects it as an image.
  */
 export async function extractPdfWithVlm(
   pdfBuffer: Buffer,
@@ -107,49 +117,33 @@ export async function extractPdfWithVlm(
 ): Promise<ExtractedDocument | null> {
   if (!isVlmAvailable()) return null;
 
-  const base64 = pdfBuffer.toString('base64');
-
-  let result = await extractWithVlm(base64, 'application/pdf', rawText);
-  if (result) return result;
-
-  try {
-    const pngBase64 = await renderPdfFirstPage(pdfBuffer);
-    if (pngBase64) {
-      result = await extractWithVlm(pngBase64, 'image/png', rawText);
-      if (result) return result;
-    }
-  } catch (err) {
-    log.warn('PDF-to-image conversion not available', {
-      error: err instanceof Error ? err.message : String(err),
-    }, 'vlm-invoice');
+  let textResult: ExtractedDocument | null = null;
+  if (rawText && rawText.trim().length >= MIN_TEXT_LAYER_CHARS) {
+    textResult = await extractTextWithVlm(rawText);
+    if (textResult && textResult.confidence >= MIN_TEXT_ONLY_CONFIDENCE) return textResult;
   }
 
-  return null;
+  const pngBase64 = await renderPdfFirstPage(pdfBuffer);
+  if (pngBase64) {
+    const imageResult = await extractWithVlm(pngBase64, 'image/png', rawText);
+    if (imageResult) return imageResult;
+  }
+
+  return textResult;
 }
 
-// ---------------------------------------------------------------------------
-// PDF to image rendering (optional dependency — pdf2pic)
-// ---------------------------------------------------------------------------
+async function extractTextWithVlm(rawText: string): Promise<ExtractedDocument | null> {
+  const config = getVlmConfig();
+  if (!config) return null;
 
-async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | null> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdf2pic = require('pdf2pic') as {
-      fromBuffer: (buf: Buffer, opts: Record<string, unknown>) => (
-        pageNumber: number,
-        options?: Record<string, unknown>
-      ) => Promise<{ base64?: string }>;
-    };
-    const converter = pdf2pic.fromBuffer(pdfBuffer, {
-      density: 200, format: 'png', width: 1600, height: 2200,
-      saveFilename: 'page', savePath: '/tmp',
-    });
-    const result = await converter(1, { saveFilename: 'vlm_page', savePath: '/tmp' });
-    if (result.base64) return result.base64;
-  } catch {
-    // pdf2pic not installed — skip image conversion
-  }
-  return null;
+  log.info('Calling vLLM for text-layer extraction', { model: config.model }, 'vlm-invoice');
+
+  const textPrompt = 'There is no image: this is the text layer of a PDF document. '
+    + `Extract all accounting data from it.\n\n${rawText.substring(0, 8000)}`;
+  const content = await callVlmChat(config, EXTRACTION_PROMPT, [{ type: 'text', text: textPrompt }], 4096);
+  if (!content) return null;
+
+  return parseVlmResponse(content, rawText);
 }
 
 // ---------------------------------------------------------------------------
