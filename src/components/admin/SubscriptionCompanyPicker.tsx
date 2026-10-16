@@ -4,7 +4,7 @@
  * companies still show. (CompanyPicker is the multi-select for announcements.)
  */
 
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
@@ -26,6 +26,8 @@ export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionC
   const [matches, setMatches]           = useState<CompanyOption[] | null>(null);
   const [searchError, setSearchError]   = useState('');
   const [activeIdx, setActiveIdx]       = useState(-1);
+  const listboxId = useId();
+  const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     setSelectedName('');
@@ -52,7 +54,7 @@ export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionC
     const t = setTimeout(() => {
       apiFetch(`/api/admin/companies?${new URLSearchParams({ search: q, limit: '10' })}`)
         .then(async res => { await assertOk(res, SEARCH_ERROR); return res.json(); })
-        .then(json => { if (live) { setSearchError(''); setMatches((json.data?.items ?? []) as CompanyOption[]); } })
+        .then(json => { if (live) { setSearchError(''); setActiveIdx(-1); setMatches((json.data?.items ?? []) as CompanyOption[]); } })
         .catch(err => {
           if (!live) return;
           log.error('Company search failed', { error: err }, 'admin-ui');
@@ -63,6 +65,11 @@ export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionC
     return () => { live = false; clearTimeout(t); };
   }, [query]);
 
+  useEffect(() => {
+    if (activeIdx < 0) return;
+    (listRef.current?.children[activeIdx] as HTMLElement | undefined)?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeIdx]);
+
   function pick(c: CompanyOption) {
     setQuery(''); setMatches(null); setLoadError('');
     onChange(c.id);
@@ -72,7 +79,7 @@ export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionC
     if (!matches || matches.length === 0) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, matches.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter' && activeIdx >= 0) { e.preventDefault(); pick(matches[activeIdx]!); }
+    else if (e.key === 'Enter' && matches[activeIdx]) { e.preventDefault(); pick(matches[activeIdx]); }
     else if (e.key === 'Escape') { setMatches(null); }
   }
 
@@ -90,16 +97,16 @@ export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionC
   return (
     <div>
       <input type="text" role="combobox" aria-label="Company" aria-autocomplete="list" aria-expanded={open}
-        aria-controls="subscription-company-listbox"
-        aria-activedescendant={activeIdx >= 0 ? `subscription-company-${activeIdx}` : undefined}
+        aria-controls={listboxId}
+        aria-activedescendant={activeIdx >= 0 ? `${listboxId}-${activeIdx}` : undefined}
         placeholder="Search company by name..." value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKeyDown} className={INPUT} />
       {(loadError || searchError) && <p className="mt-1 text-xs text-red-500">{searchError || loadError}</p>}
       {matches && matches.length === 0 && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">No companies match &ldquo;{query.trim()}&rdquo;</p>}
       {open && (
-        <ul id="subscription-company-listbox" role="listbox" aria-label="Matching companies"
+        <ul id={listboxId} ref={listRef} role="listbox" aria-label="Matching companies"
           className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
           {matches.map((c, i) => (
-            <li key={c.id} id={`subscription-company-${i}`} role="option" aria-selected={i === activeIdx} onClick={() => pick(c)}
+            <li key={c.id} id={`${listboxId}-${i}`} role="option" aria-selected={i === activeIdx} onClick={() => pick(c)}
               className={`flex items-center justify-between px-3 py-2 text-sm text-gray-900 dark:text-white cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${i === activeIdx ? 'bg-teal-50 dark:bg-teal-900/30' : ''}`}>
               <span className="truncate">{c.name}</span>
               {c.status && c.status !== 'active' && <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{c.status}</span>}
