@@ -34,6 +34,9 @@ describe('contactControlRefusal', () => {
     expect(contactControlRefusal('payable', 'This allocation')!.message).toMatch(/\(allocate it as a supplier\)/);
     expect(contactControlRefusal('payable', 'A split line', 'split line')!.message).toMatch(/\(contactType 'supplier' \/ supplier_id\)/);
     expect(contactControlRefusal('receivable', 'Rule "R"', 'rule')!.message).toMatch(/^Rule "R" posts to .*\(set the rule's customer\)/);
+    expect(contactControlRefusal('payable', 'A bank reconciliation adjustment', 'adjustment')!.message)
+      .toMatch(/\(record a supplier payment and reconcile that\)/);
+    expect(contactControlRefusal('debtors', 'x', 'adjustment')!.message).toMatch(/\(record a customer receipt and reconcile that\)/);
   });
 });
 
