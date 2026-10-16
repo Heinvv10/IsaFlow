@@ -40,11 +40,23 @@ export interface RuleApplyResult {
    */
   autoPostSkippedHeaderAccount?: number;
   /**
+   * Auto-post attempts skipped because a rule's REFUND (money in from a
+   * supplier, money out to a customer) was larger than the credit that contact
+   * holds. The refund document refuses it; the line is left for a person.
+   */
+  autoPostSkippedRefundCeiling?: number;
+  /**
    * Auto-post attempts skipped because the rule's account is AP or AR control
    * (bank/contactControlGuard): posted there, the control moves with no payment
    * or receipt document. Remedy: set the rule's supplier or customer instead.
    */
   autoPostSkippedControlAccount?: number;
+  /**
+   * RULES (not lines) skipped because the rule's supplier or customer is not
+   * this company's — a row written before the R-067/R-068 fences. Its document
+   * would name another tenant's contact. Remedy: set the rule's contact again.
+   */
+  autoPostRulesSkippedForeignContact?: number;
   /**
    * R-035 PR5 (D2): supplier-rule auto-posts skipped because the line was keyed
    * by hand and an enforced supplier_payment rule governs the amount — a payment
