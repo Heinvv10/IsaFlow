@@ -21,6 +21,7 @@ import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
+import { isSupplierRefundRefusal } from '../ap/supplierRefundDocument';
 import { contactControlAccountIds } from './contactControlGuard';
 
 export async function applyRules(
@@ -96,6 +97,9 @@ export async function applyRules(
     let autoPostSkippedVatLocked = 0;
     // The rule's account is a balance-sheet header (gl/headerAccountGuard): the rule needs repointing.
     let autoPostSkippedHeaderAccount = 0;
+    // A rule's refund (money in from a supplier, out to a customer) larger than the credit that contact holds: the
+    // document refuses it and the line's savepoint unwinds it — a line a person has to allocate.
+    let autoPostSkippedRefundCeiling = 0;
     // The rule's account is AP/AR control (contactControlGuard): posting there has no document. Name the contact.
     let autoPostSkippedControlAccount = 0;
     let autoPostSkippedApprovalRequired = 0;
@@ -236,6 +240,7 @@ export async function applyRules(
           if (lineErr instanceof VatPeriodLockedError) { autoPostSkippedVatLocked++; continue; }
           // Refused before its draft exists, like the VAT lock: a skip the run reports, never a run-wide abort.
           if (isHeaderAccountRefusal(lineErr)) { autoPostSkippedHeaderAccount++; continue; }
+          if (isSupplierRefundRefusal(lineErr)) { autoPostSkippedRefundCeiling++; continue; } // AP or AR refund ceiling
           // ...and every other held-row event (D11 `isHeldRowError`), the raw 55P03 above all: since migration 858
           // the line's journal number waits on the company+year number lock, bounded at 5 s, and a peer that holds
           // it longer fails the line with a raw 55P03 — through this same rolled-back savepoint.
@@ -271,7 +276,7 @@ export async function applyRules(
 
     const counts = {
       autoPostRulesSkippedNoBankGl, autoPostSkippedClosedPeriod, autoPostSkippedNoPeriod, autoPostSkippedVatLocked,
-      autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
+      autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedRefundCeiling, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
       autoPostSkippedLocked,
       autoPostTruncatedRules, autoPostVatDenied, autoPostNonSupply,
     };
