@@ -16,7 +16,7 @@ import {
   documentSlotsFor, entityFromRegistrationNumber, smartSetupSourceFor, type DocumentSlot,
 } from '@/modules/onboarding/services/entityOnboardingRules';
 import type { WizardData, DocFile, Director } from './wizardTypes';
-import { UPLOAD_ACCEPT } from './DocumentsStep';
+import { MAX_UPLOAD_BYTES, OWNER_ID_ACCEPT, UPLOAD_ACCEPT } from '@/modules/onboarding/uploadLimits';
 
 interface Props {
   entityType: EntityTypeCode;
@@ -42,7 +42,6 @@ function fileToDataUrl(file: File): Promise<string> {
 }
 
 const OWNER_ID_TYPE = 'director_id';
-const OWNER_ID_ACCEPT = 'image/jpeg,image/png'; // what extract-id reads and complete-setup stores
 const FAIL = 'AI extraction could not read the document. Please enter details manually.';
 
 /** The same certificate, filed under the other entity's proof type (a CIPC certificate that is really a CK1). */
@@ -74,7 +73,7 @@ export function SmartSetupChoice({ entityType, onManual, onExtracted, onBack }: 
   const addDoc = async (slotType: string, file: File) => {
     const accept = slotType === OWNER_ID_TYPE ? OWNER_ID_ACCEPT : UPLOAD_ACCEPT;
     if (!accept.split(',').includes(file.type)) return;
-    if (file.size > 20 * 1024 * 1024) return;
+    if (file.size > MAX_UPLOAD_BYTES) return;
     const dataUrl = await fileToDataUrl(file);
     const newDoc: DocFile = { type: slotType, name: file.name, data: dataUrl, mimeType: file.type, size: file.size };
     setDocs(prev => [...prev.filter(d => d.type !== slotType), newDoc]);

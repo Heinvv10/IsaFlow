@@ -10,11 +10,8 @@ import { Upload, CheckCircle2, AlertCircle } from 'lucide-react';
 import { DEFAULT_ENTITY_TYPE, getEntityType } from '@/lib/entityTypes';
 import { documentSlotsFor, proofIssues, type DocumentSlot } from '@/modules/onboarding/services/entityOnboardingRules';
 import type { DocFile, SetFn, WizardData } from './wizardTypes';
+import { MAX_UPLOAD_BYTES, UPLOAD_ACCEPT } from '@/modules/onboarding/uploadLimits';
 import { factsOf } from './wizardFacts';
-
-/** What complete-setup stores (onboardingSetupPayload ALLOWED_UPLOAD_MIMES). */
-export const UPLOAD_ACCEPT = 'image/jpeg,image/png,image/gif,application/pdf';
-const MAX_BYTES = 20 * 1024 * 1024;
 
 export function DocumentsStep({ d, set }: { d: WizardData; set: SetFn }) {
   const entityType = d.entityType ?? DEFAULT_ENTITY_TYPE;
@@ -23,7 +20,7 @@ export function DocumentsStep({ d, set }: { d: WizardData; set: SetFn }) {
   const peopleIssues = proof.kind === 'person_ids' ? proofIssues(factsOf(d)) : [];
 
   const handleDocFile = (slot: DocumentSlot, file: File) => {
-    if (file.size > MAX_BYTES) return;
+    if (file.size > MAX_UPLOAD_BYTES) return;
     const reader = new FileReader();
     reader.onload = () => {
       const newDoc: DocFile = {

@@ -9,6 +9,23 @@
 import { ApiEnvelopeError, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { WizardData } from './wizardTypes';
 
+/**
+ * A v4 UUID for the request key. crypto.randomUUID exists only on secure
+ * origins (https, localhost); on plain http the wizard must still work, so it
+ * falls back to getRandomValues (available everywhere), then Math.random.
+ */
+export function newRequestKey(): string {
+  const c = globalThis.crypto as Crypto | undefined;
+  if (typeof c?.randomUUID === 'function') return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (typeof c?.getRandomValues === 'function') c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6]! & 0x0f) | 0x40;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 export function setupRequestBody(d: WizardData, requestKey: string) {
   return {
     requestKey,
@@ -26,10 +43,7 @@ export function setupRequestBody(d: WizardData, requestKey: string) {
       bankBranchCode: d.bankBranchCode || undefined,
       bankAccountType: d.bankAccountType,
       financialYearStart: d.financialYearStart,
-      vatPeriod: d.vatPeriod,
-      // Keep both VAT columns in step from the first write — the AFS
-      // accounting-policy notes read vat_system_type, not vat_period.
-      vatSystemType: d.vatPeriod === 'none' ? 'none' : 'invoice',
+      vatPeriod: d.vatPeriod, // vat_system_type follows it on the server (onboardingSetupWriters)
       defaultCurrency: d.defaultCurrency,
     },
     people: d.directors.map(p => ({

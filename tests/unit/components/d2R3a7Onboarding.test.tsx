@@ -16,15 +16,16 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/contexts/CompanyContext', () => { const v = { activeCompany: { id: 'co-1' }, companies: [], switchCompany: vi.fn() }; return { useCompany: () => v }; });
 vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn(), replace: vi.fn() }) }));
 vi.mock('@/components/onboarding/SmartSetupChoice', () => ({ SmartSetupChoice: ({ onManual }: { onManual: () => void }) => <button onClick={onManual}>manual setup</button> }));
-const OLD_ENDPOINTS = ['/api/accounting/companies', 'coa-seed', 'company-directors', 'onboarding/documents', 'onboarding/complete'];
+const OLD_ENDPOINTS = ['/api/accounting/companies', 'coa-seed', 'company-directors', 'onboarding/complete'];
 vi.mock('@/components/onboarding/WizardSteps', async (orig) => {
   const real = await orig<typeof import('@/components/onboarding/WizardSteps')>();
   const Nothing = () => null;
   return {
     ...real, Step2: Nothing, Step3: Nothing, Step4: Nothing, Step5: Nothing, Step6: Nothing, Step7: Nothing, StepCoaTemplate: Nothing,
-    Step1: ({ set }: { set: (k: string, v: unknown) => void }) => (
+    Step1: ({ set }: { set: (k: string, v: unknown) => void }) => (<>
       <button onClick={() => { set('name', 'D2 Co'); set('directors', [{ name: 'D2 Director' }]); set('documents', [{ type: 'cipc_certificate', name: 'c.pdf' }]); }}>fill company</button>
-    ),
+      <button onClick={() => { set('name', 'D2 Co'); set('documents', [{ type: 'cipc_certificate', name: 'c.pdf', size: 16 * 1024 * 1024 }, { type: 'tax_clearance', name: 't.pdf', size: 15 * 1024 * 1024 }]); }}>fill huge</button>
+    </>),
   };
 });
 
@@ -60,7 +61,7 @@ describe('onboarding submit', () => {
   it('complete-setup 400: the server message, no navigation, and no call to the old step-by-step endpoints', async () => {
     wizard(refuse); render(<OnboardingWizard />); await toLastStep();
     expect(await screen.findByText(MSG)).toBeTruthy();
-    expect(OLD_ENDPOINTS.map(posts)).toEqual([0, 0, 0, 0, 0]);
+    expect(OLD_ENDPOINTS.map(posts)).toEqual([0, 0, 0, 0]);
     expect(loc.href).toBe('');
   });
   it('complete-setup empty-body 500: a plain sentence', async () => {
@@ -77,7 +78,7 @@ describe('onboarding submit', () => {
     wizard(); render(<OnboardingWizard />); await toLastStep();
     await waitFor(() => expect(loc.href).toBe('/accounting'));
     expect(posts(SETUP)).toBe(1);
-    expect(OLD_ENDPOINTS.map(posts)).toEqual([0, 0, 0, 0, 0]);
+    expect(OLD_ENDPOINTS.map(posts)).toEqual([0, 0, 0, 0]);
     const body = JSON.parse(String(postsTo(SETUP)[0]![1]!.body)) as Record<string, unknown>;
     expect(body).toMatchObject({
       entityType: 'pty_ltd', coaTemplate: 'isaflow_standard', company: { name: 'D2 Co' },
@@ -101,6 +102,15 @@ describe('onboarding submit', () => {
     expect(await screen.findByText('Could not finish setting up your company - try again')).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/Something went wrong|socket hang up/);
     await waitFor(() => expect((screen.getByRole('button', { name: /complete setup/i }) as HTMLButtonElement).disabled).toBe(false));
+  });
+  it('more than 30 MB of files: the message shows before any request is sent', async () => {
+    wizard(); render(<OnboardingWizard />);
+    fireEvent.click(await screen.findByRole('radio', { name: /Private company \(Pty\) Ltd/ }));
+    await click(/continue/i); await click('manual setup'); await click('fill huge');
+    for (let i = 0; i < 6; i++) await click(/continue/i);
+    await click(/complete setup/i);
+    expect(await screen.findByText('The uploaded files are larger than 30 MB together. Remove or shrink some and try again.')).toBeTruthy();
+    expect(posts(SETUP)).toBe(0); expect(loc.href).toBe('');
   });
   it('Retry after a failure re-sends the same request key, so the server can never make a second company', async () => {
     let n = 0;

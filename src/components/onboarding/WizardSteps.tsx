@@ -9,6 +9,7 @@ import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { CoaTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { DEFAULT_ENTITY_TYPE, getEntityType } from '@/lib/entityTypes';
 import { businessNameLabel, documentSlotsFor } from '@/modules/onboarding/services/entityOnboardingRules';
+import { MAX_UPLOAD_BYTES, UPLOAD_ACCEPT } from '@/modules/onboarding/uploadLimits';
 import type { DocFile, Director, WizardData, SetFn } from './wizardTypes';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -145,7 +146,7 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
   };
 
   const handleIdUpload = async (i: number, file: File) => {
-    if (file.size > 20 * 1024 * 1024) return;
+    if (file.size > MAX_UPLOAD_BYTES) return;
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;
@@ -286,8 +287,7 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
                 ) : (
                   <label className="flex items-center gap-1.5 cursor-pointer text-xs text-teal-400 hover:text-teal-300">
                     <ScanLine className="w-3.5 h-3.5" /> Upload ID
-                    {/* The types complete-setup stores (onboardingSetupPayload ALLOWED_UPLOAD_MIMES) */}
-                    <input type="file" className="hidden" accept="image/jpeg,image/png,image/gif,application/pdf"
+                    <input type="file" className="hidden" accept={UPLOAD_ACCEPT}
                       onChange={e => { const f = e.target.files?.[0]; if (f) void handleIdUpload(i, f); e.target.value = ''; }} />
                   </label>
                 )}
