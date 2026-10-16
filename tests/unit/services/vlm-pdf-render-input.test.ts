@@ -4,15 +4,17 @@
  * `-dSAFER` alone still lets PostScript write under the temp dir, so whatever
  * precedes the header (up to 1 KB) is cut off before the spawn.
  */
+import { existsSync } from 'fs';
 import { describe, expect, it, vi } from 'vitest';
 
-const sent = vi.hoisted(() => ({ stdin: [] as Buffer[], argv: [] as string[][] }));
+const sent = vi.hoisted(() => ({ stdin: [] as Buffer[], argv: [] as string[][], tmp: [] as string[] }));
 vi.mock('child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('child_process')>();
   return {
     ...actual,
-    spawn: ((cmd: string, args: string[], opts: object) => {
+    spawn: ((cmd: string, args: string[], opts: { env?: Record<string, string> }) => {
       sent.argv.push([cmd, ...args]);
+      if (opts.env?.TMPDIR) sent.tmp.push(opts.env.TMPDIR);
       const child = actual.spawn(cmd, args, opts);
       const end = child.stdin!.end.bind(child.stdin!);
       child.stdin!.end = ((chunk: Buffer) => { sent.stdin.push(chunk); return end(chunk); }) as typeof child.stdin.end;
@@ -47,6 +49,14 @@ describe('what renderPdfFirstPage hands to gs', () => {
     sent.stdin.length = 0;
     expect(await renderPdfFirstPage(Buffer.concat([Buffer.alloc(1024, 0x20), PDF]))).toBeNull();
     expect(sent.stdin).toHaveLength(0);
+  }, 30_000);
+
+  it('gives each render its own private TMPDIR and removes it afterwards', async () => {
+    sent.tmp.length = 0;
+    await Promise.all([renderPdfFirstPage(PDF), renderPdfFirstPage(PDF)]);
+    expect(sent.tmp).toHaveLength(2);
+    expect(sent.tmp[0]).not.toBe(sent.tmp[1]);
+    expect(sent.tmp.filter((dir) => existsSync(dir))).toEqual([]);
   }, 30_000);
 
   it('runs gs under prlimit with memory and CPU caps', async () => {
