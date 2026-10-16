@@ -13,34 +13,39 @@ interface CompanyOption { id: string; name: string; status?: string }
 interface SubscriptionCompanyPickerProps {
   companyId: string;
   onChange: (companyId: string) => void;
+  /** True once `companyId` has a name on screen; the form must not submit before. */
+  onNamedChange: (named: boolean) => void;
 }
 
 const INPUT = 'w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500';
 const LOAD_ERROR = 'Could not load that company - search for it by name';
 const SEARCH_ERROR = 'Could not search companies - try again';
 
-export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionCompanyPickerProps) {
+export function SubscriptionCompanyPicker({ companyId, onChange, onNamedChange }: SubscriptionCompanyPickerProps) {
   const [selectedName, setSelectedName] = useState('');
-  const [loadError, setLoadError]       = useState('');
+  // Keyed by the id that failed, so a new id never renders under an old error.
+  const [loadError, setLoadError]       = useState<{ id: string; message: string } | null>(null);
   const [query, setQuery]               = useState('');
   const [matches, setMatches]           = useState<CompanyOption[] | null>(null);
   const [searchError, setSearchError]   = useState('');
   const [activeIdx, setActiveIdx]       = useState(-1);
   const listboxId = useId();
   const listRef = useRef<HTMLUListElement>(null);
+  const picked = useRef<CompanyOption | null>(null);
 
   useEffect(() => {
-    setSelectedName('');
-    if (!companyId) return;
+    const name = (n: string) => { setSelectedName(n); onNamedChange(n !== ''); };
+    if (!companyId) { name(''); return; }
+    if (picked.current?.id === companyId) { setLoadError(null); name(picked.current.name); return; }
+    name('');
     let live = true;
-    setLoadError('');
     apiFetch(`/api/admin/companies/${encodeURIComponent(companyId)}`)
       .then(async res => { await assertOk(res, LOAD_ERROR); return res.json(); })
-      .then(json => { if (live) setSelectedName((json.data as CompanyOption).name); })
+      .then(json => { if (live) { setLoadError(null); name((json.data as CompanyOption).name); } })
       .catch(err => {
         if (!live) return;
         log.warn('Subscription company lookup failed', { companyId, error: err }, 'admin-ui');
-        setLoadError(apiErrorMessage(err, LOAD_ERROR));
+        setLoadError({ id: companyId, message: apiErrorMessage(err, LOAD_ERROR) });
         onChange(''); // an id we can't name must not be submitted
       });
     return () => { live = false; };
@@ -71,7 +76,8 @@ export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionC
   }, [activeIdx]);
 
   function pick(c: CompanyOption) {
-    setQuery(''); setMatches(null); setLoadError('');
+    setQuery(''); setMatches(null); setLoadError(null);
+    picked.current = c; // its name is already known: no second lookup
     onChange(c.id);
   }
 
@@ -83,7 +89,7 @@ export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionC
     else if (e.key === 'Escape') { setMatches(null); }
   }
 
-  if (companyId && !loadError) {
+  if (companyId && loadError?.id !== companyId) {
     return (
       <div className="flex items-center justify-between gap-3 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700">
         <span className="text-gray-900 dark:text-white truncate">{selectedName || 'Loading…'}</span>
@@ -100,7 +106,7 @@ export function SubscriptionCompanyPicker({ companyId, onChange }: SubscriptionC
         aria-controls={listboxId}
         aria-activedescendant={activeIdx >= 0 ? `${listboxId}-${activeIdx}` : undefined}
         placeholder="Search company by name..." value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onKeyDown} className={INPUT} />
-      {(loadError || searchError) && <p className="mt-1 text-xs text-red-500">{searchError || loadError}</p>}
+      {(loadError || searchError) && <p className="mt-1 text-xs text-red-500">{searchError || loadError?.message}</p>}
       {matches && matches.length === 0 && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">No companies match &ldquo;{query.trim()}&rdquo;</p>}
       {open && (
         <ul id={listboxId} ref={listRef} role="listbox" aria-label="Matching companies"
