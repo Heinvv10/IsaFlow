@@ -61,7 +61,8 @@ async function lockMembership(userId: string, companyId: string): Promise<string
     ORDER BY (lower(btrim(role)) = 'owner') DESC
     FOR UPDATE
   `;
-  const role = rows[0]?.role;
+  // Search every row, not rows[0]: FOR UPDATE can return re-read values out of order.
+  const role = rows.find(r => isOwner(r.role))?.role ?? rows[0]?.role;
   if (role === undefined) {
     throw new CompanyMembershipError('NOT_FOUND', 'This user is not linked to that company');
   }
