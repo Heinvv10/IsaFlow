@@ -105,4 +105,21 @@ describeIfDb('a customer bank rule records the receipt or refund behind the AR i
     expect([await count('gl_journal_entries'), await count('supplier_payments')]).toEqual([journals, payments]);
     await clearRules();
   }, 60000);
+
+  it('a rule whose customer is not this company\'s posts nothing (a pre-fence legacy row)', async () => {
+    const other = await seedFixture('CRULEX', DATABASE_URL!);
+    try {
+      await sql`INSERT INTO bank_categorisation_rules
+                  (company_id, rule_name, match_field, match_type, match_pattern, client_id, auto_create_entry, created_by)
+                VALUES (${fx.companyId}::UUID, 'foreign customer rule', 'description', 'contains', 'CRULEFOREIGN', ${other.customerId}::UUID, true, ${fx.userId}::UUID)`;
+      const tx = await seedBankTx(fx, { date: '2026-10-05', amount: 120, description: 'CRULEFOREIGN deposit' });
+      const [journals, receipts] = [await count('gl_journal_entries'), await count('customer_payments')];
+      await apply();
+      expect(await lineStatus(tx)).toBe('imported');
+      expect([await count('gl_journal_entries'), await count('customer_payments')]).toEqual([journals, receipts]);
+    } finally {
+      await clearRules();
+      await dropFixture(other);
+    }
+  }, 60000);
 });

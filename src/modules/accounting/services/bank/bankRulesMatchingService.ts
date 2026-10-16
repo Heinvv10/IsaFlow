@@ -171,14 +171,21 @@ export async function applyRules(
           SELECT name FROM suppliers
           WHERE id = ${ruleSupplierId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
-        supplierName = supRows[0]?.name ? String(supRows[0].name) : `Supplier #${ruleSupplierId}`;
+        supplierName = supRows.length > 0 ? String(supRows[0]!.name ?? '') : null;
       } else if (allocType === 'customer' && ruleClientId) {
         arAccountId = await getSystemAccountId('receivable', companyId);
         const custRows = (await sql`
           SELECT name FROM customers
           WHERE id = ${ruleClientId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
-        customerName = custRows[0]?.name ? String(custRows[0].name) : `Customer #${ruleClientId}`;
+        customerName = custRows.length > 0 ? String(custRows[0]!.name ?? '') : null;
+      }
+
+      // A rule whose contact is not this company's (a row written before the R-067/R-068 fences) posts nothing: its
+      // document would name another tenant's contact. Never a "Supplier #id" label posted against AP/AR.
+      if ((allocType === 'supplier' && supplierName === null) || (allocType === 'customer' && customerName === null)) {
+        log.warn('Skipping auto-create rule whose contact is not in this company', { ruleId: rule.id, ruleName }, 'accounting');
+        continue;
       }
 
       // findMatchingTxs fetches one row past the cap; the extra row is the
