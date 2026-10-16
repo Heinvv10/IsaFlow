@@ -186,3 +186,47 @@ describe('concurrency', () => {
     }
   }, 120000);
 });
+
+describe('owner rule: duplicate rows, role spelling, lock key (review round 2)', () => {
+  it("one person with a viewer row and the sole-owner row (case variants): removing or demoting the link is refused", async () => {
+    await reset();
+    const id = hex();
+    // The viewer row first, so an unordered read of the rows would see it first.
+    await link(id, 'viewer');
+    await link(id.toUpperCase(), 'owner');
+    const removed = await remove(id, company);
+    expect(removed.status).toBe(409);
+    const demoted = await setRole(id, company, 'admin');
+    expect(demoted.status).toBe(409);
+    expect(Object.values(await roles()).sort()).toEqual(['owner', 'viewer']);
+  });
+
+  it("a role stored as ' owner ' is an owner: the sole one is not removed", async () => {
+    await reset();
+    const id = hex();
+    await link(id, ' owner ');
+    expect((await remove(id, company)).status).toBe(409);
+    expect(Object.keys(await roles())).toEqual([id]);
+  });
+
+  it('an upper-case company id takes the same last-owner lock as the trigger (canonical uuid text)', async () => {
+    await reset();
+    const [a, b] = [hex(), hex()];
+    await link(a, 'owner');
+    await link(b, 'owner');
+    const holder = await pool.connect();
+    try {
+      await holder.query("SELECT pg_advisory_lock(hashtextextended('company_owners:' || $1::uuid::text, 0))", [company]);
+      let settled = false;
+      const pending = setRole(a, company.toUpperCase(), 'admin').then((r) => { settled = true; return r; });
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(settled, 'the demotion must wait on the canonical lock').toBe(false);
+      await holder.query("SELECT pg_advisory_unlock(hashtextextended('company_owners:' || $1::uuid::text, 0))", [company]);
+      expect((await pending).status).toBe(200);
+    } finally {
+      await holder.query('SELECT pg_advisory_unlock_all()');
+      holder.release();
+    }
+    expect((await roles())[a]).toBe('admin');
+  });
+});
