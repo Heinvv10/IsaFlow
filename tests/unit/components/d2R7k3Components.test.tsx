@@ -136,11 +136,12 @@ describe('onboarding: legacy user-companies check', () => {
   const me = (companies: () => Response) => script(u => (u.includes('/api/auth/me') ? ok({ user: { onboarding_completed: null } }) : u.includes('user-companies') ? companies() : undefined));
   it('a failing check is logged and the wizard still shows (non-fatal)', async () => {
     me(empty500); render(<OnboardingWizard />);
-    expect(await screen.findByText('smart setup choice')).toBeTruthy();
+    // The wizard opens on its first step, the business-type question.
+    expect(await screen.findByRole('radiogroup', { name: 'What kind of business is this?' })).toBeTruthy();
     expect(logs.warn).toHaveBeenCalledWith('Could not load the user companies during onboarding', { status: 500 }, 'onboarding');
   });
   it('a good empty list shows the wizard without a warning', async () => {
     me(() => ok({ items: [] })); render(<OnboardingWizard />);
-    expect(await screen.findByText('smart setup choice')).toBeTruthy(); expect(logs.warn).not.toHaveBeenCalled();
+    expect(await screen.findByRole('radiogroup', { name: 'What kind of business is this?' })).toBeTruthy(); expect(logs.warn).not.toHaveBeenCalled();
   });
 });
