@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { listLiveCompanyMemberships } from '@/lib/auth/liveCompanies';
 import { mapCompany } from './companyMapper';
 import type { Company, CompanyUser } from './companyMapper';
 
@@ -233,20 +234,20 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
 
 // ── User-Company ─────────────────────────────────────────────────────────────
 
+/**
+ * The user's memberships, filtered to the companies a session may actually be
+ * scoped to — `src/lib/auth/liveCompanies.ts` holds the single predicate this
+ * shares with `withAuth`'s `getCompanyMembership`. Before that, this query
+ * tested only `c.is_active = true`, so an admin-soft-deleted company
+ * (`status = 'deleted'`, `is_active` untouched) still counted as a live
+ * membership for `/api/auth/landing` and for the company switcher, while every
+ * company-scoped request for it answered 403 (incident 2026-10-16).
+ *
+ * Ordering moved from `c.name ASC` to `cu.created_at ASC` so the list's head is
+ * the same company every sign-in path picks.
+ */
 export async function getUserCompanies(userId: string): Promise<CompanyUser[]> {
-  const rows = (await sql`
-    SELECT cu.company_id, c.name AS company_name, cu.role, cu.is_default
-    FROM company_users cu
-    JOIN companies c ON c.id = cu.company_id
-    WHERE cu.user_id = ${userId} AND c.is_active = true
-    ORDER BY cu.is_default DESC, c.name ASC
-  `) as Record<string, unknown>[];
-  return rows.map((r: Record<string, unknown>) => ({
-    companyId: String(r.company_id),
-    companyName: String(r.company_name),
-    role: String(r.role),
-    isDefault: Boolean(r.is_default),
-  }));
+  return listLiveCompanyMemberships(userId);
 }
 
 /**
