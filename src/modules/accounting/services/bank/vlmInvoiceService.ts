@@ -20,6 +20,7 @@ import {
   parseBankDetails,
 } from './vlmCore';
 import { renderPdfFirstPage } from './vlmPdfRender';
+import { createSlotLimiter, envLimit } from './vlmLimiter';
 
 // ---------------------------------------------------------------------------
 // Extraction prompt
@@ -102,14 +103,23 @@ export async function extractWithVlm(
 const MIN_TEXT_LAYER_CHARS = 200;
 /** A text-only read scoring below this is retried with the rendered page. */
 const MIN_TEXT_ONLY_CONFIDENCE = 0.6;
+const TEXT_LAYER_LIMIT = 8000;
+/** pdf-parse marks every page "-- 1 of N --", even a scan's empty ones. */
+const PAGE_MARKER = /-- \d+ of \d+ --/g;
+/**
+ * Page reads (render + VLM call) at once. Each holds a Ghostscript process and
+ * then a page PNG in memory until vLLM answers, so a bulk upload of scans must
+ * not start them all together. `VLM_MAX_PAGE_READS` is read once, at load.
+ */
+const pageReads = createSlotLimiter(envLimit('VLM_MAX_PAGE_READS', 2));
 
 /**
  * Extract from a PDF buffer using VLM.
  *
  * A digital PDF already carries its text, so that is read first as a cheap
  * text-only call. A scan, or a text read that comes back weak, goes to the
- * model as a rendered first page (with the text layer as a cross-check). The
- * raw PDF is never sent: vLLM rejects it as an image.
+ * model as a rendered first page (with the text layer as a cross-check); the
+ * better-scoring read wins. The raw PDF is never sent: vLLM rejects it.
  */
 export async function extractPdfWithVlm(
   pdfBuffer: Buffer,
@@ -118,18 +128,29 @@ export async function extractPdfWithVlm(
   if (!isVlmAvailable()) return null;
 
   let textResult: ExtractedDocument | null = null;
-  if (rawText && rawText.trim().length >= MIN_TEXT_LAYER_CHARS) {
+  if (rawText && rawText.replace(PAGE_MARKER, '').trim().length >= MIN_TEXT_LAYER_CHARS) {
     textResult = await extractTextWithVlm(rawText);
     if (textResult && textResult.confidence >= MIN_TEXT_ONLY_CONFIDENCE) return textResult;
   }
 
-  const pngBase64 = await renderPdfFirstPage(pdfBuffer);
-  if (pngBase64) {
-    const imageResult = await extractWithVlm(pngBase64, 'image/png', rawText);
-    if (imageResult) return imageResult;
+  const imageResult = await pageReads.run(async () => {
+    const pngBase64 = await renderPdfFirstPage(pdfBuffer);
+    return pngBase64 ? extractWithVlm(pngBase64, 'image/png', rawText) : null;
+  });
+  if (imageResult) {
+    const pages = pdfPageCount(rawText);
+    if (pages > 1) imageResult.warnings.push(`Read from page 1 of ${pages} only — check later pages for totals.`);
   }
 
-  return textResult;
+  if (!imageResult) return textResult;
+  if (!textResult) return imageResult;
+  return imageResult.confidence >= textResult.confidence ? imageResult : textResult;
+}
+
+/** Page count from pdf-parse's "-- 1 of N --" page markers; 0 when absent. */
+function pdfPageCount(rawText?: string): number {
+  const m = rawText?.match(/-- \d+ of (\d+) --/);
+  return m?.[1] ? parseInt(m[1], 10) : 0;
 }
 
 async function extractTextWithVlm(rawText: string): Promise<ExtractedDocument | null> {
@@ -139,11 +160,15 @@ async function extractTextWithVlm(rawText: string): Promise<ExtractedDocument | 
   log.info('Calling vLLM for text-layer extraction', { model: config.model }, 'vlm-invoice');
 
   const textPrompt = 'There is no image: this is the text layer of a PDF document. '
-    + `Extract all accounting data from it.\n\n${rawText.substring(0, 8000)}`;
+    + `Extract all accounting data from it.\n\n${rawText.substring(0, TEXT_LAYER_LIMIT)}`;
   const content = await callVlmChat(config, EXTRACTION_PROMPT, [{ type: 'text', text: textPrompt }], 4096);
   if (!content) return null;
 
-  return parseVlmResponse(content, rawText);
+  const doc = parseVlmResponse(content, rawText);
+  if (doc && rawText.length > TEXT_LAYER_LIMIT) {
+    doc.warnings.push(`Read the first ${TEXT_LAYER_LIMIT} characters of the text only — check the rest of the document.`);
+  }
+  return doc;
 }
 
 // ---------------------------------------------------------------------------

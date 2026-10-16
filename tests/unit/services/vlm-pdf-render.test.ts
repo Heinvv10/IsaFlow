@@ -1,7 +1,7 @@
 /**
- * The page render really produces a PNG on this box (ImageMagick + Ghostscript;
- * GraphicsMagick is not installed). Before 2026-10-16 it threw on every PDF
- * and an empty catch hid it.
+ * The page render really produces a PNG on this box (Ghostscript, no temp
+ * files). Before 2026-10-16 pdf2pic needed GraphicsMagick, which is not
+ * installed, and an empty catch hid the failure on every PDF.
  */
 import { describe, expect, it } from 'vitest';
 import { renderPdfFirstPage } from '@/modules/accounting/services/bank/vlmPdfRender';
@@ -34,5 +34,14 @@ describe('renderPdfFirstPage', () => {
 
   it('returns null (and does not throw) for bytes that are not a PDF', async () => {
     expect(await renderPdfFirstPage(Buffer.from('not a pdf'))).toBeNull();
+    expect(await renderPdfFirstPage(Buffer.alloc(0))).toBeNull();
+  }, 30_000);
+
+  it('renders only page 1 of a two-page PDF', async () => {
+    const one = await renderPdfFirstPage(onePagePdf('PAGE ONE'));
+    const pdf = onePagePdf('PAGE ONE').toString('latin1')
+      .replace('/Kids [3 0 R] /Count 1', '/Kids [3 0 R 3 0 R] /Count 2');
+    const png = await renderPdfFirstPage(Buffer.from(pdf, 'latin1'));
+    expect(png).toBe(one);
   }, 30_000);
 });
