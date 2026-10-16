@@ -3,6 +3,8 @@ import { loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+const DB_UNIT_FILES = ['tests/unit/**/*Db.test.ts', 'tests/unit/**/*.integration.test.ts'];
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode ?? 'test', process.cwd(), '');
   return {
@@ -20,15 +22,24 @@ export default defineConfig(({ mode }) => {
         // continue to work without a live connection.
         DATABASE_URL: env['DATABASE_URL'] ?? 'postgresql://dummy:dummy@dummy/test',
       },
-      include: ['tests/unit/**/*.test.ts'],
       // `tests/unit/print/` launches real Chromium (the sheet-count, ruler and
       // printed-file tests), which is timeout-prone beside ~800 files running in
       // parallel. It runs as its own serial `browser-tests` step in
       // scripts/ci/run-ci.sh (`bun run test:print`, vitest.print.config.ts) —
       // excluded HERE so it is not run twice, and required THERE so it is not
-      // optional. Anything added to that directory moves with it.
-      exclude: [...configDefaults.exclude, 'tests/unit/print/**'],
+      // optional. Anything added to that directory moves with it. (The exclude
+      // is on the `unit` project below: a project's include/exclude MERGE with
+      // the root's under `extends`, so the root must not set either.)
       testTimeout: 10000,
+      // The DB-backed unit files pick the same dev company (`LIMIT 1`) and post
+      // journals inside one long BEGIN … ROLLBACK. Journal numbering takes a
+      // per-company+year advisory lock with a 5 s budget (migration 857), so in
+      // parallel they queue on each other and the losers fail with "lock
+      // timeout". They run one file at a time, beside the parallel rest.
+      projects: [
+        { extends: true, test: { name: 'unit', include: ['tests/unit/**/*.test.ts'], exclude: [...configDefaults.exclude, 'tests/unit/print/**', ...DB_UNIT_FILES] } },
+        { extends: true, test: { name: 'unit-db', include: DB_UNIT_FILES, fileParallelism: false } },
+      ],
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],
