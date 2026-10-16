@@ -17,6 +17,7 @@ import { ADMIN_STASH_COOKIE, clearImpersonationCookies } from '@/lib/auth/impers
 import { loadStash, deleteStash } from '@/modules/admin/services/userImpersonationService';
 import { verifyTokenSignature } from '@/lib/auth/gotrue';
 import { verifyCsrf } from '@/lib/auth/csrf';
+import { pickInitialCompanyId } from '@/lib/auth/liveCompanies';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -88,13 +89,11 @@ const handler: NextApiHandler = async (req, res) => {
     expiresIn: 3600,
   });
 
-  const memberships = await sql<{ company_id: string }>`
-    SELECT company_id FROM company_users
-    WHERE user_id = ${stash.admin_user_id}
-    ORDER BY is_default DESC, created_at ASC
-    LIMIT 1
-  `;
-  if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
+  // Returning to the admin's own session: only a company withAuth will still
+  // admit (src/lib/auth/liveCompanies.ts), so ending an impersonation cannot
+  // drop the admin into a soft-deleted tenant that 403s everything.
+  const adminCompanyId = await pickInitialCompanyId(stash.admin_user_id);
+  if (adminCompanyId) setActiveCompanyCookie(res, adminCompanyId);
 
   clearImpersonationCookies(res);
 

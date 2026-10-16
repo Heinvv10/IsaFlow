@@ -15,6 +15,7 @@ import {
   mapCompanyRow, mapCompanyUsers, readStoredCompany, readStoredCompanyId,
   writeStoredCompany, clearStoredCompany, type Company, type CompanyUser,
 } from './companyModel';
+import { recoverActiveCompany } from './companyRecovery';
 
 // The shapes and the two pure translations live in companyModel.ts (300-line
 // ceiling). Re-exported so every existing import site is unchanged.
@@ -76,6 +77,29 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
     return null;
   }, []);
 
+  /** One attempt per provider instance — see the recovery call below. */
+  const recoveryTriedRef = useRef(false);
+
+  const fetchUserCompanies = useCallback(async (): Promise<{
+    answered: boolean; list: CompanyUser[]; targetId: string | null;
+  }> => {
+    try {
+      const res = await apiFetch('/api/accounting/companies?action=user-companies');
+      if (res.ok) {
+        const data = await res.json();
+        return {
+          answered: true,
+          list: mapCompanyUsers(data.data?.items ?? data.data ?? []),
+          targetId: typeof data.data?.activeCompanyId === 'string' ? data.data.activeCompanyId : null,
+        };
+      }
+      log.warn('Failed to load user companies', { status: res.status }, 'context');
+    } catch (e) {
+      log.warn('Failed to load user companies', { error: e }, 'context');
+    }
+    return { answered: false, list: [], targetId: null };
+  }, []);
+
   const loadUserCompanies = useCallback(async () => {
     try {
       if (authLoading) {
@@ -98,21 +122,18 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
       // could pin the UI to a stale/impersonated company the user couldn't leave.
       // The same response carries the company withAuth scoped it to — the
       // active_company_id cookie every API call on the page is served from.
-      let list: CompanyUser[] = [];
-      let targetId: string | null = null;
-      let answered = false;
-      try {
-        const res = await apiFetch('/api/accounting/companies?action=user-companies');
-        if (res.ok) {
-          const data = await res.json();
-          list = mapCompanyUsers(data.data?.items ?? data.data ?? []);
-          targetId = typeof data.data?.activeCompanyId === 'string' ? data.data.activeCompanyId : null;
-          answered = true;
-        } else {
-          log.warn('Failed to load user companies', { status: res.status }, 'context');
-        }
-      } catch (e) {
-        log.warn('Failed to load user companies', { error: e }, 'context');
+      let { answered, list, targetId } = await fetchUserCompanies();
+
+      // No answer is usually a blip — but it is also the exact symptom of an
+      // active_company_id cookie naming a company the server will no longer
+      // serve (a soft-deleted company 403s this very request), which leaves
+      // the UI with neither an active company nor a list to switch with.
+      // Try once, per provider instance, to re-point the session at a live
+      // company and re-read the list; the ref makes a loop impossible.
+      if (!answered && !recoveryTriedRef.current) {
+        recoveryTriedRef.current = true;
+        const recovered = await recoverActiveCompany();
+        if (recovered) ({ answered, list, targetId } = await fetchUserCompanies());
       }
 
       setCompanies(list);
@@ -157,7 +178,7 @@ export function CompanyProvider({ children, skipFetch = false }: CompanyProvider
     } finally {
       if (!authLoading) setLoading(false);   // while auth resolves the spinner stays up
     }
-  }, [authLoading, isAuthenticated, userRole, loadCompanyDetails]);
+  }, [authLoading, isAuthenticated, userRole, loadCompanyDetails, fetchUserCompanies]);
 
   useEffect(() => {
     if (skipFetch) {
