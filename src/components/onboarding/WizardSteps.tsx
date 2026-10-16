@@ -1,45 +1,21 @@
 /**
- * Onboarding wizard step components (Steps 1-7).
+ * Onboarding wizard step components. Step1 (details + people), the review and
+ * the documents step adapt to the business type chosen first (EntityTypeStep).
  */
 
 import { useRef, useState } from 'react';
 import { Upload, X, Loader2, ScanLine, Check } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { CoaTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { DEFAULT_ENTITY_TYPE, getEntityType } from '@/lib/entityTypes';
+import { businessNameLabel, documentSlotsFor } from '@/modules/onboarding/services/entityOnboardingRules';
+import type { DocFile, Director, WizardData, SetFn } from './wizardTypes';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-export interface DocFile {
-  type: string; name: string; data: string; mimeType: string; size: number;
-}
-
-export interface Director {
-  name: string;
-  idNumber: string;
-  role: string; // e.g. 'Director', 'Managing Director', 'Member'
-  idDocument?: DocFile;
-  extracting?: boolean;
-  idVerification?: 'verified' | 'updated' | 'failed'; // result of ID upload extraction
-  idVerificationMsg?: string;
-}
-
-export type { CoaTemplate };
-
-export interface WizardData {
-  name: string; tradingName: string; registrationNumber: string;
-  vatNumber: string; taxNumber: string;
-  addressLine1: string; addressLine2: string; city: string;
-  province: string; postalCode: string; country: string;
-  phone: string; email: string; website: string;
-  logoData: string;
-  bankName: string; bankAccountNumber: string;
-  bankBranchCode: string; bankAccountType: string;
-  financialYearStart: number; vatPeriod: string; defaultCurrency: string;
-  coaTemplate: CoaTemplate;
-  directors: Director[];
-  cipcDirectors: Director[]; // directors extracted from CIPC for validation
-  documents: DocFile[];
-}
+export type { DocFile, Director, WizardData, SetFn, CoaTemplate } from './wizardTypes';
+export { INITIAL_WIZARD } from './wizardTypes';
+export { DocumentsStep as Step6 } from './DocumentsStep';
 
 /** Human labels for the stored vat_period values, used by the review step. */
 const VAT_LABELS: Record<string, string> = {
@@ -48,19 +24,6 @@ const VAT_LABELS: Record<string, string> = {
   'bi-monthly': 'Bi-Monthly (Category A/B)',
 };
 
-export const INITIAL_WIZARD: WizardData = {
-  name: '', tradingName: '', registrationNumber: '', vatNumber: '', taxNumber: '',
-  addressLine1: '', addressLine2: '', city: '', province: '', postalCode: '',
-  country: 'South Africa', phone: '', email: '', website: '', logoData: '',
-  bankName: '', bankAccountNumber: '', bankBranchCode: '', bankAccountType: 'Current',
-  financialYearStart: 3, vatPeriod: 'bi-monthly', defaultCurrency: 'ZAR',
-  coaTemplate: 'isaflow_standard',
-  directors: [],
-  cipcDirectors: [],
-  documents: [],
-};
-
-export type SetFn = <K extends keyof WizardData>(k: K, v: WizardData[K]) => void;
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -76,13 +39,6 @@ export const MONTHS = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ];
-export const DOC_SLOTS = [
-  { type: 'cipc_certificate', label: 'CIPC Registration Certificate', required: true },
-  { type: 'tax_clearance', label: 'SARS Tax Clearance Certificate', required: false },
-  { type: 'bbbee_certificate', label: 'B-BBEE Certificate', required: false },
-  { type: 'vat_registration', label: 'VAT Registration Certificate', required: false },
-];
-const DIRECTOR_ROLES = ['Director', 'Managing Director', 'Member', 'Chairperson', 'Secretary'];
 
 function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
@@ -144,6 +100,10 @@ interface ValidationWarning {
 }
 
 export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
+  const entityType = d.entityType ?? DEFAULT_ENTITY_TYPE;
+  const def = getEntityType(entityType);
+  const idProofLabel = def.requiredProof.kind === 'person_ids' ? def.requiredProof.label : null;
+  const canAddPerson = def.maxPeople === null || d.directors.length < def.maxPeople;
   const [validationWarnings, setValidationWarnings] = useState<ValidationWarning[]>([]);
   const [validating, setValidating] = useState(false);
 
@@ -169,7 +129,7 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
     setValidating(false);
   };
 
-  const addDirector = () => set('directors', [...d.directors, { name: '', idNumber: '', role: 'Director' }]);
+  const addDirector = () => set('directors', [...d.directors, { name: '', idNumber: '', role: def.personRole }]);
   const updateDirector = (i: number, updates: Partial<Director>) => {
     const updated = d.directors.map((dir, idx) => idx === i ? { ...dir, ...updates } : dir);
     set('directors', updated);
@@ -273,25 +233,31 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
 
   return (
     <div className="grid gap-4">
-      <Field label="Company Name" value={d.name} onChange={v => set('name', v)} placeholder="Acme (Pty) Ltd" required />
+      <Field label={businessNameLabel(entityType)} value={d.name} onChange={v => set('name', v)} placeholder="Acme" required />
       <Field label="Trading Name" value={d.tradingName} onChange={v => set('tradingName', v)} placeholder="Acme" />
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Field label="Registration Number (CIPC)" value={d.registrationNumber} onChange={v => set('registrationNumber', v)} />
+        {def.registration && (
+          <Field label={def.registration.label} value={d.registrationNumber}
+            onChange={v => set('registrationNumber', v)} placeholder={def.registration.placeholder} />
+        )}
         <Field label="VAT Number" value={d.vatNumber} onChange={v => set('vatNumber', v)} />
         <Field label="Income Tax Number" value={d.taxNumber} onChange={v => set('taxNumber', v)} />
       </div>
 
-      {/* Directors */}
+      {/* People: label, role and how many follow the business type */}
       <div className="mt-2">
         <div className="flex items-center justify-between mb-2">
-          <label className={labelCls}>Directors / Members</label>
-          <button type="button" onClick={addDirector}
-            className="text-xs text-teal-400 hover:text-teal-300 transition-colors">
-            + Add Director
-          </button>
+          <label className={labelCls}>{def.peopleLabel}</label>
+          {canAddPerson && (
+            <button type="button" onClick={addDirector}
+              className="text-xs text-teal-400 hover:text-teal-300 transition-colors">
+              + Add {def.personRole}
+            </button>
+          )}
         </div>
+        {idProofLabel && <p className="text-xs text-gray-500 mb-2">Required: {idProofLabel}.</p>}
         {d.directors.length === 0 && (
-          <p className="text-xs text-gray-500">No directors added yet. Click &quot;+ Add Director&quot; or upload an ID to auto-fill.</p>
+          <p className="text-xs text-gray-500">No {def.peopleLabel.toLowerCase()} added yet. Click &quot;+ Add {def.personRole}&quot;, then upload an ID to auto-fill.</p>
         )}
         {d.directors.map((dir, i) => (
           <div key={i} className="border border-gray-300 dark:border-gray-700 rounded-lg p-3 mb-3">
@@ -312,12 +278,7 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
               </button>
             </div>
             <div className="flex items-center justify-between">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Role</label>
-                <select value={dir.role} onChange={e => updateDirector(i, { role: e.target.value })} className={inputCls + ' w-48'}>
-                  {DIRECTOR_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </div>
+              <span className="text-xs text-gray-500">{def.personRole}</span>
               <div className="flex items-center gap-2">
                 {dir.extracting && <Loader2 className="w-3.5 h-3.5 text-teal-400 animate-spin" />}
                 {dir.idDocument ? (
@@ -325,7 +286,8 @@ export function Step1({ d, set }: { d: WizardData; set: SetFn }) {
                 ) : (
                   <label className="flex items-center gap-1.5 cursor-pointer text-xs text-teal-400 hover:text-teal-300">
                     <ScanLine className="w-3.5 h-3.5" /> Upload ID
-                    <input type="file" className="hidden" accept="image/*,application/pdf"
+                    {/* The types complete-setup stores (onboardingSetupPayload ALLOWED_UPLOAD_MIMES) */}
+                    <input type="file" className="hidden" accept="image/jpeg,image/png,image/gif,application/pdf"
                       onChange={e => { const f = e.target.files?.[0]; if (f) void handleIdUpload(i, f); e.target.value = ''; }} />
                   </label>
                 )}
@@ -491,56 +453,6 @@ export function Step5({ d, set }: { d: WizardData; set: SetFn }) {
   );
 }
 
-// ── Step 6: Statutory Documents ─────────────────────────────────────────────
-
-export function Step6({ d, set }: { d: WizardData; set: SetFn }) {
-  const handleDocFile = (slot: typeof DOC_SLOTS[number], file: File) => {
-    if (file.size > 10 * 1024 * 1024) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const newDoc: DocFile = {
-        type: slot.type, name: file.name,
-        data: reader.result as string, mimeType: file.type, size: file.size,
-      };
-      set('documents', [...d.documents.filter(dd => dd.type !== slot.type), newDoc]);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removeDoc = (type: string) => set('documents', d.documents.filter(dd => dd.type !== type));
-
-  return (
-    <div className="grid gap-4">
-      {DOC_SLOTS.map(slot => {
-        const doc = d.documents.find(dd => dd.type === slot.type);
-        return (
-          <div key={slot.type} className={`border rounded-lg p-4 ${slot.required && !doc ? 'border-teal-500/50' : 'border-gray-700'}`}>
-            <div className="flex items-center gap-2 mb-2">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{slot.label}</p>
-              {slot.required && <span className="text-xs bg-teal-600/20 text-teal-400 px-1.5 py-0.5 rounded">Required</span>}
-            </div>
-            {doc ? (
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-gray-600 dark:text-gray-400">
-                  {doc.name} ({(doc.size / 1024).toFixed(0)} KB)
-                </div>
-                <button onClick={() => removeDoc(slot.type)}
-                  className="text-xs text-red-400 hover:text-red-300">Remove</button>
-              </div>
-            ) : (
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-teal-400 hover:text-teal-300">
-                <Upload className="w-3.5 h-3.5" /> Upload
-                <input type="file" className="hidden" accept="image/*,application/pdf"
-                  onChange={e => { const f = e.target.files?.[0]; if (f) handleDocFile(slot, f); }} />
-              </label>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── Step 6 (new): Chart of Accounts Template ────────────────────────────────
 
 interface CoaOption {
@@ -631,6 +543,9 @@ export function StepCoaTemplate({ d, set }: { d: WizardData; set: SetFn }) {
 // ── Step 7: Review & Complete ───────────────────────────────────────────────
 
 export function Step7({ d }: { d: WizardData }) {
+  const entityType = d.entityType ?? DEFAULT_ENTITY_TYPE;
+  const def = getEntityType(entityType);
+  const slots = documentSlotsFor(entityType);
   const section = (title: string, items: [string, string | undefined][]) => {
     const filtered = items.filter(([, v]) => v);
     if (filtered.length === 0) return null;
@@ -654,18 +569,19 @@ export function Step7({ d }: { d: WizardData }) {
 
   return (
     <div className="grid gap-6">
-      {section('Company', [
-        ['Name', d.name], ['Trading Name', d.tradingName],
-        ['Registration', d.registrationNumber], ['VAT', d.vatNumber], ['Tax', d.taxNumber],
+      {section('Business', [
+        ['Business type', def.label], ['Name', d.name], ['Trading Name', d.tradingName],
+        [def.registration?.label ?? 'Registration', def.registration ? d.registrationNumber : undefined],
+        ['VAT', d.vatNumber], ['Tax', d.taxNumber],
       ])}
       {d.directors.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-teal-400 mb-2">Directors / Members</h3>
+          <h3 className="text-sm font-semibold text-teal-400 mb-2">{def.peopleLabel}</h3>
           <div className="grid gap-1">
             {d.directors.map((dir, i) => (
               <div key={i} className="flex gap-2 text-sm">
                 <span className="text-gray-800 dark:text-gray-200">{dir.name}</span>
-                <span className="text-gray-500">({dir.role})</span>
+                <span className="text-gray-500">({def.personRole})</span>
                 {dir.idNumber && <span className="text-gray-500">— ID: {dir.idNumber}</span>}
               </div>
             ))}
@@ -699,7 +615,7 @@ export function Step7({ d }: { d: WizardData }) {
           <ul className="space-y-1">
             {d.documents.map(doc => (
               <li key={doc.type} className="text-sm text-gray-700 dark:text-gray-300">
-                {DOC_SLOTS.find(s => s.type === doc.type)?.label || doc.type} — {doc.name}
+                {slots.find(s => s.type === doc.type)?.label || doc.type} — {doc.name}
               </li>
             ))}
           </ul>
