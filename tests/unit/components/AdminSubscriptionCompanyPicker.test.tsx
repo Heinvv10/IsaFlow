@@ -95,3 +95,38 @@ it('marks a company that is not active', async () => {
   fireEvent.change(screen.getByRole('combobox', {name: 'Company'}), {target: {value: 'velo'}});
   expect(await screen.findByRole('option', {name: /Velocity Fibre.*suspended/})).toBeInTheDocument();
 });
+
+it('switching the preselected company does not keep showing the previous name', async () => {
+  const OTHER = { id: '33333333-3333-4333-8333-333333333333', name: 'Blitz Fibre (Pty) Ltd' };
+  let releaseOther: () => void = () => undefined;
+  vi.mocked(apiFetch).mockImplementation(async url => {
+    if (String(url) === `/api/admin/companies/${OTHER.id}`) {
+      await new Promise<void>(r => { releaseOther = r; });
+      return response(OTHER);
+    }
+    return response(VELOCITY);
+  });
+  const view = render(<SubscriptionCompanyPicker companyId={VELOCITY.id} onChange={vi.fn()} />);
+  await screen.findByText(VELOCITY.name);
+  view.rerender(<SubscriptionCompanyPicker companyId={OTHER.id} onChange={vi.fn()} />);
+  expect(screen.queryByText(VELOCITY.name)).toBeNull();
+  releaseOther();
+  expect(await screen.findByText(OTHER.name)).toBeInTheDocument();
+});
+
+it('Enter after the results shrink does not pick a row that is gone', async () => {
+  const onChange = vi.fn();
+  const B = { id: '44444444-4444-4444-8444-444444444444', name: 'Velocity Two' };
+  vi.mocked(apiFetch).mockImplementation(async url =>
+    response({items: new URL(String(url), 'http://x').searchParams.get('search') === 'velo' ? [VELOCITY, B] : [VELOCITY]}));
+  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  const box = screen.getByRole('combobox', {name: 'Company'});
+  fireEvent.change(box, {target: {value: 'velo'}});
+  await screen.findByRole('option', {name: B.name});
+  fireEvent.keyDown(box, {key: 'ArrowDown'});
+  fireEvent.keyDown(box, {key: 'ArrowDown'});
+  fireEvent.change(box, {target: {value: 'veloc'}});
+  await waitFor(() => expect(screen.queryByRole('option', {name: B.name})).toBeNull());
+  fireEvent.keyDown(box, {key: 'Enter'});
+  expect(onChange).not.toHaveBeenCalled();
+});
