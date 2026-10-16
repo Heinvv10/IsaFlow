@@ -5,6 +5,7 @@
 
 import { log } from '@/lib/logger';
 import { markQuotaUsed, markQuotaUsedForStatus, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
+import { sharedSlotLimiter, envLimit } from './vlmLimiter';
 import type { ExtractedLineItem, VendorBankDetails } from '@/modules/accounting/types/documentCapture.types';
 
 // ---------------------------------------------------------------------------
@@ -46,11 +47,28 @@ export function isVlmAvailable(): boolean {
  */
 const DEFAULT_MAX_TOKENS = parseInt(process.env.VLM_MAX_TOKENS ?? '4096', 10);
 
+/**
+ * Most requests in flight to vLLM at once, per process. vLLM serves
+ * `--max-num-seqs 4`; a bulk upload that fires thousands of calls at once
+ * otherwise overruns it and they fail with "fetch failed". Excess callers wait
+ * their turn instead. `VLM_MAX_CONCURRENCY` is read once, at load.
+ */
+const vlmRequests = sharedSlotLimiter('vlm-requests', envLimit('VLM_MAX_CONCURRENCY', 4));
+
 export async function callVlmChat(
   config: VlmConfig,
   systemPrompt: string,
   userContent: Array<Record<string, unknown>>,
   maxTokens: number = DEFAULT_MAX_TOKENS,
+): Promise<string | null> {
+  return vlmRequests.run(() => postVlmChat(config, systemPrompt, userContent, maxTokens));
+}
+
+async function postVlmChat(
+  config: VlmConfig,
+  systemPrompt: string,
+  userContent: Array<Record<string, unknown>>,
+  maxTokens: number,
 ): Promise<string | null> {
   const body = {
     model: config.model,
@@ -63,10 +81,11 @@ export async function callVlmChat(
     stream: false,
   };
 
+  // The timer covers the BODY too: vLLM can send headers and then stall, and a
+  // stalled read would hold a concurrency slot forever.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), config.timeout);
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeout);
-
     const response = await fetch(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -76,8 +95,6 @@ export async function callVlmChat(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       // A 5xx may come after the provider did the work; a 4xx did none (R-175).
@@ -106,6 +123,8 @@ export async function callVlmChat(
       log.error('vLLM request error', { error: msg }, 'vlm-core');
     }
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

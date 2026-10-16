@@ -106,6 +106,8 @@ describe('admin billing actions complete on a success envelope', () => {
     script((p, m) => {
       if (p === '/api/admin/billing/subscriptions' && m === 'GET') return success({ items: created ? [sub] : [], total: created ? 1 : 0, page: 1, limit: 25 });
       if (p === '/api/admin/billing/plans') return success([{ id: 'plan-1', name: 'Starter', code: 'starter' }]);
+      if (p === '/api/admin/companies') return success({ items: [{ id: 'c9', name: 'Company Nine' }], total: 1 });
+      if (p === '/api/admin/companies/c9') return success({ id: 'c9', name: 'Company Nine' });
       if (p === '/api/admin/billing/subscriptions' && m === 'POST') { created = true; return success({ id: 's2' }); }
       return null;
     });
@@ -113,7 +115,9 @@ describe('admin billing actions complete on a success envelope', () => {
     fireEvent.click(await screen.findByRole('button', { name: /add subscription/i }));
     await screen.findByRole('option', { name: /starter/i });
     const dialog = container.querySelector('[role="dialog"]')!;
-    fireEvent.change(dialog.querySelector('input[type="text"]')!, { target: { value: 'c9' } });
+    fireEvent.change(dialog.querySelector('input[type="text"]')!, { target: { value: 'Nine' } });
+    fireEvent.click(await screen.findByRole('option', { name: 'Company Nine' }));
+    await screen.findByText('Company Nine');
     fireEvent.change(dialog.querySelectorAll('select')[0]!, { target: { value: 'plan-1' } });
     fireEvent.click(screen.getByRole('button', { name: /^create$/i }));
     expect(await screen.findByText('Freshly Subscribed Co')).toBeTruthy();
