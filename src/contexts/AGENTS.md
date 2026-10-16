@@ -31,6 +31,7 @@ The React providers `_app.tsx` wraps every page in: who the user is (`AuthContex
 - `tests/unit/components/contexts/` — provider behaviour, including the print-render gate.
 
 ## Recent changes
+- 2026-10-16: **a session pointed at a company the server will no longer serve recovers itself, once.** When `GET /api/accounting/companies?action=user-companies` does not answer (a soft-deleted active company 403s that very request, so the provider has neither an active company nor a list to switch with), `companyRecovery.recoverActiveCompany` reads the user-scoped `/api/auth/me` — which now lists only live memberships — and POSTs `switch-company` to the first one, then the provider re-reads the list. It does NOT reload the page, and a ref guards it to one attempt per provider instance, so a switch that does not help ends on the "no company" screen rather than in a loop. Tests: `tests/unit/components/contexts/companyRecovery.dom.test.tsx`.
 - 2026-10-02: D9 round 2 — `authUnavailable` drives an outage message + Retry on AppLayout's pending screen, instead of a bare spinner.
 - 2026-10-02: D9 — `AuthProvider` treats an unavailable `/api/auth/me` as "try again", not "signed out".
 - 2026-09-28: R-148 — the mount-time divergence is fixed: the provider activates the server's `activeCompanyId` and corrects `localStorage` to it; a failed fetch shows no company and leaves `localStorage` alone.

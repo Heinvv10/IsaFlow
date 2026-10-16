@@ -26,7 +26,7 @@ interface HomeData {
 
 export default function HomePage() {
   const router = useRouter();
-  const { activeCompany, loading: companiesLoading } = useCompany();
+  const { activeCompany, companies, loading: companiesLoading, switchCompany } = useCompany();
   const [data, setData] = useState<HomeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,7 +56,68 @@ export default function HomePage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (companiesLoading || (loading && !data)) {
+  if (companiesLoading) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // Company loading has FINISHED and there is still no active company — the
+  // state the 2026-10-16 incident produced (the session's company had been
+  // soft-deleted, so every company-scoped call 403'd). `load()` returns early
+  // without an active company, so `loading` never clears: rendering the
+  // spinner here spins forever. Say what happened and give a way out instead.
+  if (!activeCompany) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          <div className="max-w-xl rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-6">
+            <h1 className="text-lg font-semibold text-[var(--ff-text-primary)]">No company selected</h1>
+            {companies.length > 0 ? (
+              <>
+                <p className="mt-2 text-sm text-[var(--ff-text-secondary)]">
+                  We couldn&apos;t open the company this session was pointed at — it may have been
+                  removed. Choose one of your companies to carry on.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {companies.map((c) => (
+                    <button
+                      key={c.companyId}
+                      type="button"
+                      onClick={() => void switchCompany(c.companyId)}
+                      className="rounded-lg border border-[var(--ff-border-primary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] hover:bg-[var(--ff-bg-primary)]"
+                    >
+                      {c.companyName || c.companyId}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-[var(--ff-text-secondary)]">
+                  You don&apos;t have access to any company yet. Set one up to get started, or ask
+                  whoever administers your account to invite you.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void router.push('/onboarding')}
+                  className="mt-4 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500"
+                >
+                  Set up a company
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (loading && !data) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center py-24">
