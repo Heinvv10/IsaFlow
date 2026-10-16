@@ -13,7 +13,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
-import { dropFixture, inTx, seedBankTx, seedFixture, seedInvoice, type Fixture } from './helpers/l1FifoFixture';
+import { dropFixture, inTx, seedBankTx, seedFixture, seedInvoice, seedSupplier, type Fixture } from './helpers/l1FifoFixture';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -40,6 +40,14 @@ async function invoicePaid(id: string): Promise<number> {
 async function lineStatus(tx: string): Promise<string> {
   const [r] = (await sql`SELECT status FROM bank_transactions WHERE id = ${tx}::UUID AND company_id = ${fx.companyId}::UUID`) as Record<string, unknown>[];
   return String(r!.status);
+}
+async function count(table: 'gl_journal_entries' | 'customer_payments' | 'supplier_payments'): Promise<number> {
+  const rows = (table === 'gl_journal_entries'
+    ? await sql`SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID`
+    : table === 'customer_payments'
+      ? await sql`SELECT COUNT(*)::int AS n FROM customer_payments WHERE company_id = ${fx.companyId}::UUID`
+      : await sql`SELECT COUNT(*)::int AS n FROM supplier_payments WHERE company_id = ${fx.companyId}::UUID`) as { n: number }[];
+  return rows[0]!.n;
 }
 const apply = () => inTx(fx, () => applyRules(fx.companyId, fx.bankAccountId, fx.userId));
 const clearRules = () => sql`DELETE FROM bank_categorisation_rules WHERE company_id = ${fx.companyId}::UUID`;
@@ -73,11 +81,28 @@ describeIfDb('a customer bank rule records the receipt or refund behind the AR i
     await rule('CRULEREF');
     const refund = await seedBankTx(fx, { date: '2026-10-03', amount: -5000, description: 'CRULEREF refund' });
     const deposit = await seedBankTx(fx, { date: '2026-10-03', amount: 50, description: 'CRULEREF deposit' });
+    const [journals, receipts] = [await count('gl_journal_entries'), await count('customer_payments')];
     const result = await apply();
     expect(result).toMatchObject({ autoPostSkippedRefundCeiling: 1 });
     expect(await lineStatus(refund)).toBe('imported');
+    // Only the deposit wrote: one journal and one receipt. The refund wrote neither.
+    expect([await count('gl_journal_entries'), await count('customer_payments')]).toEqual([journals + 1, receipts + 1]);
     expect(await lineStatus(deposit)).toBe('allocated');
     expect(await receiptsFor(deposit)).toHaveLength(1);
+    await clearRules();
+  }, 60000);
+
+  it('a SUPPLIER rule refund past the supplier\'s credit is skipped and counted too, where it used to abort the run', async () => {
+    const sup = await seedSupplier(fx, 'NOCREDIT');
+    await sql`INSERT INTO bank_categorisation_rules
+                (company_id, rule_name, match_field, match_type, match_pattern, supplier_id, auto_create_entry, created_by)
+              VALUES (${fx.companyId}::UUID, 'supplier refund rule', 'description', 'contains', 'SRULEREF', ${sup}::UUID, true, ${fx.userId}::UUID)`;
+    const refund = await seedBankTx(fx, { date: '2026-10-04', amount: 900, description: 'SRULEREF refund in' });
+    const [journals, payments] = [await count('gl_journal_entries'), await count('supplier_payments')];
+    const result = await apply();
+    expect(result).toMatchObject({ autoPostSkippedRefundCeiling: 1 });
+    expect(await lineStatus(refund)).toBe('imported');
+    expect([await count('gl_journal_entries'), await count('supplier_payments')]).toEqual([journals, payments]);
     await clearRules();
   }, 60000);
 });
