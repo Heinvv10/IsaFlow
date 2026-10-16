@@ -27,6 +27,10 @@ async function countEntries(): Promise<number> {
   const r = await pool.query('SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1', [company]);
   return r.rows[0].n as number;
 }
+async function countLines(): Promise<number> {
+  const r = await pool.query('SELECT COUNT(*)::int AS n FROM gl_journal_lines WHERE company_id=$1', [company]);
+  return r.rows[0].n as number;
+}
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'Recon adjustment control fixture']);
@@ -66,9 +70,9 @@ describe('a reconciliation adjustment onto AP/AR control', () => {
     ['AP control', () => ap, -120, /accounts payable control account: name the supplier/],
     ['AR control', () => ar, 80, /accounts receivable control account: name the customer/],
   ])('refuses %s before anything is written', async (_what, account, amount, message) => {
-    const before = await countEntries();
+    const [entries, lines] = [await countEntries(), await countLines()];
     await expect(createAdjustmentEntry(company, reconId, bank, account(), amount, 'RAC adjustment', user)).rejects.toThrow(message);
-    expect(await countEntries()).toBe(before);
+    expect([await countEntries(), await countLines()]).toEqual([entries, lines]);
   });
 
   it('still posts an adjustment to an ordinary account', async () => {
