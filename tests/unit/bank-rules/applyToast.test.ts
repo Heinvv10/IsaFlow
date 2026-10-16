@@ -16,6 +16,18 @@ describe('buildApplyToast', () => {
     expect(r.message).toBe("7 categorised · 3 skipped (the rule's account is a header with sub-accounts — point the rule at one of them)");
   });
 
+  it('a refund larger than the contact\'s credit is reported (it recurs until someone allocates it), and turns the toast amber when nothing applied', () => {
+    const r = buildApplyToast({ applied: 0, autoPostSkippedRefundCeiling: 2 });
+    expect(r.message).toMatch(/2 skipped \(a refund larger than the contact's credit — allocate it by hand\)/);
+    expect(r.kind).toBe('warn');
+  });
+
+  it('a rule whose contact is not in this company is reported per rule and turns the toast amber even when lines applied', () => {
+    const r = buildApplyToast({ applied: 4, autoPostRulesSkippedForeignContact: 1 });
+    expect(r.message).toBe('4 categorised · 1 auto-post rule skipped (its supplier or customer is not in this company — set it again)');
+    expect(r.kind).toBe('warn');
+  });
+
   it('plain success — applied with no skips', () => {
     const r = buildApplyToast({ applied: 50 });
     expect(r.kind).toBe('success');

@@ -21,6 +21,7 @@ import { autoPostRuleLine } from './bankRuleAutoPostLine';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
+import { isSupplierRefundRefusal } from '../ap/supplierRefundDocument';
 import { contactControlAccountIds } from './contactControlGuard';
 
 export async function applyRules(
@@ -96,8 +97,12 @@ export async function applyRules(
     let autoPostSkippedVatLocked = 0;
     // The rule's account is a balance-sheet header (gl/headerAccountGuard): the rule needs repointing.
     let autoPostSkippedHeaderAccount = 0;
+    // A rule's refund (money in from a supplier, out to a customer) larger than the credit that contact holds: the
+    // document refuses it and the line's savepoint unwinds it — a line a person has to allocate.
+    let autoPostSkippedRefundCeiling = 0;
     // The rule's account is AP/AR control (contactControlGuard): posting there has no document. Name the contact.
     let autoPostSkippedControlAccount = 0;
+    let autoPostRulesSkippedForeignContact = 0; // rules whose supplier/customer is not this company's
     let autoPostSkippedApprovalRequired = 0;
     let autoPostSkippedRaced = 0;
     let autoPostSkippedLocked = 0;
@@ -150,12 +155,6 @@ export async function applyRules(
         continue;
       }
 
-      const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
-      if (allocType === 'account' && ruleGlAccountId && ruleAccountIsControl.has(ruleGlAccountId.toLowerCase())) {
-        autoPostSkippedControlAccount += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
-        continue;
-      }
-
       // Resolve AP/AR control accounts and entity names lazily (only when needed).
       let apAccountId: string | null = null;
       let arAccountId: string | null = null;
@@ -167,14 +166,28 @@ export async function applyRules(
           SELECT name FROM suppliers
           WHERE id = ${ruleSupplierId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
-        supplierName = supRows[0]?.name ? String(supRows[0].name) : `Supplier #${ruleSupplierId}`;
+        supplierName = supRows.length > 0 ? String(supRows[0]!.name ?? '').trim() || `Supplier #${ruleSupplierId}` : null;
       } else if (allocType === 'customer' && ruleClientId) {
         arAccountId = await getSystemAccountId('receivable', companyId);
         const custRows = (await sql`
           SELECT name FROM customers
           WHERE id = ${ruleClientId}::UUID AND company_id = ${companyId}::UUID
         `) as Record<string, unknown>[];
-        customerName = custRows[0]?.name ? String(custRows[0].name) : `Customer #${ruleClientId}`;
+        customerName = custRows.length > 0 ? String(custRows[0]!.name ?? '').trim() || `Customer #${ruleClientId}` : null;
+      }
+
+      // A rule whose contact is not this company's (a row written before the R-067/R-068 fences) posts nothing: its
+      // document would name another tenant's contact. Counted per rule: it recurs until the rule is fixed.
+      if ((allocType === 'supplier' && supplierName === null) || (allocType === 'customer' && customerName === null)) {
+        autoPostRulesSkippedForeignContact++;
+        log.warn('Skipping auto-create rule whose contact is not in this company', { ruleId: rule.id, ruleName }, 'accounting');
+        continue;
+      }
+
+      const matchingTxs = await findMatchingTxs(companyId, bankAccountId, field, pattern);
+      if (allocType === 'account' && ruleGlAccountId && ruleAccountIsControl.has(ruleGlAccountId.toLowerCase())) {
+        autoPostSkippedControlAccount += Math.min(matchingTxs.length, MAX_RULE_CANDIDATES);
+        continue;
       }
 
       // findMatchingTxs fetches one row past the cap; the extra row is the
@@ -236,6 +249,7 @@ export async function applyRules(
           if (lineErr instanceof VatPeriodLockedError) { autoPostSkippedVatLocked++; continue; }
           // Refused before its draft exists, like the VAT lock: a skip the run reports, never a run-wide abort.
           if (isHeaderAccountRefusal(lineErr)) { autoPostSkippedHeaderAccount++; continue; }
+          if (isSupplierRefundRefusal(lineErr)) { autoPostSkippedRefundCeiling++; continue; } // AP or AR refund ceiling
           // ...and every other held-row event (D11 `isHeldRowError`), the raw 55P03 above all: since migration 858
           // the line's journal number waits on the company+year number lock, bounded at 5 s, and a peer that holds
           // it longer fails the line with a raw 55P03 — through this same rolled-back savepoint.
@@ -271,8 +285,8 @@ export async function applyRules(
 
     const counts = {
       autoPostRulesSkippedNoBankGl, autoPostSkippedClosedPeriod, autoPostSkippedNoPeriod, autoPostSkippedVatLocked,
-      autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
-      autoPostSkippedLocked,
+      autoPostSkippedHeaderAccount, autoPostSkippedControlAccount, autoPostSkippedRefundCeiling, autoPostSkippedApprovalRequired, autoPostSkippedRaced,
+      autoPostSkippedLocked, autoPostRulesSkippedForeignContact,
       autoPostTruncatedRules, autoPostVatDenied, autoPostNonSupply,
     };
     log.info('Applied bank rules', { bankAccountId, applied: totalApplied, skipped, ...counts }, 'accounting');
