@@ -86,6 +86,21 @@ describe('renderPdfFirstPage', () => {
     }
   }, 30_000);
 
+  it('treats a gs/prlimit that is present but not executable as an outage too', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'vlm-render-bin-'));
+    for (const name of ['gs', 'prlimit']) writeFileSync(join(bin, name), '#!/bin/sh\n', { mode: 0o644 });
+    const path = process.env.PATH;
+    const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    process.env.PATH = bin;
+    try {
+      expect(await renderPdfFirstPage(onePagePdf('NO X BIT'))).toBeNull();
+      expect(error).toHaveBeenCalledWith('PDF render unavailable: gs or prlimit not found', expect.anything(), 'vlm-pdf-render');
+    } finally {
+      process.env.PATH = path;
+      error.mockRestore();
+    }
+  }, 30_000);
+
   it('renders only page 1 of a two-page PDF', async () => {
     const one = await renderPdfFirstPage(onePagePdf('PAGE ONE'));
     const pdf = onePagePdf('PAGE ONE').toString('latin1')

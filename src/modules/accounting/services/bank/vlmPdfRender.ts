@@ -16,7 +16,7 @@
  */
 
 import { spawn } from 'child_process';
-import { existsSync, mkdtempSync, rmSync } from 'fs';
+import { accessSync, constants, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { log } from '@/lib/logger';
@@ -64,26 +64,24 @@ export async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | nu
 class RenderUnavailable extends Error {}
 
 function onPath(name: string): boolean {
-  return (process.env.PATH ?? '').split(':').some((dir) => dir !== '' && existsSync(join(dir, name)));
-}
-
-let gsTmpDir: string | null = null;
-
-/** gs's own temp dir: private (0700), empty, re-made if removed, deleted on exit. */
-function privateTmpDir(): string {
-  if (gsTmpDir && existsSync(gsTmpDir)) return gsTmpDir;
-  if (!gsTmpDir) {
-    process.once('exit', () => { if (gsTmpDir) rmSync(gsTmpDir, { recursive: true, force: true }); });
-  }
-  gsTmpDir = mkdtempSync(join(tmpdir(), 'isaflow-gs-'));
-  return gsTmpDir;
+  return (process.env.PATH ?? '').split(':').some((dir) => {
+    if (dir === '') return false;
+    try {
+      accessSync(join(dir, name), constants.X_OK);
+      return true;
+    } catch {
+      return false; // not here, or not executable: try the next PATH entry
+    }
+  });
 }
 
 function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: string }> {
   const absent = ['prlimit', 'gs'].filter((name) => !onPath(name));
   if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
+  // gs's own temp dir, one per render: private (0700), empty, removed when gs exits.
+  const gsTmpDir = mkdtempSync(join(tmpdir(), 'isaflow-gs-'));
   return new Promise((resolve, reject) => {
-    const env = { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? '/usr/bin:/bin', TMPDIR: privateTmpDir() };
+    const env = { NODE_ENV: process.env.NODE_ENV, PATH: process.env.PATH ?? '/usr/bin:/bin', TMPDIR: gsTmpDir };
     const gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...GS_ARGS], { stdio: ['pipe', 'pipe', 'pipe'], env });
     const chunks: Buffer[] = [];
     let size = 0;
@@ -107,8 +105,11 @@ function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: strin
     gs.on('error', fail);
     gs.on('close', (code, signal) => {
       clearTimeout(timer);
+      rmSync(gsTmpDir, { recursive: true, force: true });
+      // Our own kills set `failure` first, so a bare SIGKILL is the 30 s CPU hard cap.
+      const cpuCap = signal === 'SIGXCPU' || signal === 'SIGKILL' ? ' (prlimit CPU cap)' : '';
       if (failure) reject(failure);
-      else if (signal) reject(new Error(`gs killed by ${signal}${signal === 'SIGXCPU' ? ' (prlimit CPU cap)' : ''}`));
+      else if (signal) reject(new Error(`gs killed by ${signal}${cpuCap}`));
       else if (code !== 0) {
         const cap = /VMerror|out of memory|failed to map|cannot allocate/i.test(stderr) ? ' (prlimit memory cap)' : '';
         reject(new Error(`gs exited ${code}${cap}: ${stderr.trim()}`));
