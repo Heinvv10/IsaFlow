@@ -83,6 +83,8 @@ const WRITERS: Record<string, string[]> = {
     'scripts/qa-cleanup-run.ts', 'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,
     'src/modules/admin/services/adminCompanyService.ts', 'src/modules/admin/services/companyLifecycleService.ts',
     'src/modules/admin/services/trialService.ts',
+    // complete-setup's UPDATE of the company it has just created (entity_type, onboarding_request_key), as its new owner (withAuth).
+    'src/modules/onboarding/services/onboardingSetupWriters.ts',
     'src/modules/onboarding/services/tenantProvisioningService.ts',
   ],
   // Written only through 881/885's SECURITY DEFINER functions (approvalRuleWriteCensus pins their one caller).
