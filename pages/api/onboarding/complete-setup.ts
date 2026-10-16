@@ -10,9 +10,10 @@
  * is required: a (Pty) Ltd cannot finish without its CIPC certificate, a sole
  * proprietor or partnership without each person's ID document.
  *
- * The old step-by-step endpoints (/api/accounting/companies, coa-seed,
- * company-directors, /api/onboarding/documents, /api/onboarding/complete) stay
- * for their other callers; the wizard uses only this one.
+ * This is the wizard's only write. The step-by-step endpoints it replaced
+ * (/api/accounting/companies POST, coa-seed, company-directors) stay for
+ * their other callers; /api/onboarding/complete only re-issues the cookie for
+ * a user who has already finished.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -24,8 +25,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { setupIssues } from '@/modules/onboarding/services/entityOnboardingRules';
 import { parseSetupRequest, setupFactsOf } from '@/modules/onboarding/services/onboardingSetupPayload';
-import { completeOnboardingSetup } from '@/modules/onboarding/services/onboardingSetupService';
-import { isValidVatPeriod, isValidVatSystemType } from '../accounting/companies';
+import { OnboardingKeyConflictError, completeOnboardingSetup } from '@/modules/onboarding/services/onboardingSetupService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -33,25 +33,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
-  // Pentest H15/M22: the 50 MB body parser is rate-limited per user.
+  const parsed = parseSetupRequest(req.body);
+  if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
+  const setup = parsed.value;
+  const issues = setupIssues(setupFactsOf(setup));
+  if (issues.length > 0) return apiResponse.badRequest(res, issues.join('. '), { issues });
+
+  // Counts only requests that passed validation, so a user fixing a refused
+  // form is not locked out. Next has already parsed the body by now: its size
+  // is bounded by bodyParser.sizeLimit below, not by this limit.
   if (!(await checkRateLimit(`onboarding-setup:${userId}`, { max: 10, windowSecs: 3600 }))) {
     return apiResponse.tooManyRequests(res);
   }
 
-  const parsed = parseSetupRequest(req.body);
-  if (!parsed.ok) return apiResponse.badRequest(res, parsed.error);
-  const setup = parsed.value;
-
-  if (!isValidVatPeriod(setup.company.vatPeriod)) {
-    return apiResponse.badRequest(res, "vatPeriod must be 'monthly', 'bi-monthly' or 'none'");
+  let outcome;
+  try {
+    outcome = await completeOnboardingSetup(setup, userId);
+  } catch (err) {
+    if (err instanceof OnboardingKeyConflictError) {
+      return apiResponse.conflict(res, 'This setup was already submitted for a company that is no longer active. Reload the page and start again.');
+    }
+    throw err;
   }
-  if (!isValidVatSystemType(setup.company.vatSystemType)) {
-    return apiResponse.badRequest(res, "vatSystemType must be 'invoice', 'payment' or 'none'");
-  }
-  const issues = setupIssues(setupFactsOf(setup));
-  if (issues.length > 0) return apiResponse.badRequest(res, issues.join('. '), { issues });
-
-  const outcome = await completeOnboardingSetup(setup, userId);
 
   // Land the user in the company they just set up, and stop the middleware
   // sending them back to /onboarding.
@@ -62,6 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
 export default withAuth(withErrorHandler(withCsrf(handler)));
 
+// 30 MB of files (MAX_TOTAL_UPLOAD_BYTES) is 40 MB as base64, plus the JSON around it.
 export const config = {
-  api: { bodyParser: { sizeLimit: '50mb' } },
+  api: { bodyParser: { sizeLimit: '41mb' } },
 };

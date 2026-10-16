@@ -62,3 +62,24 @@ describe('sanitizeBody — credential redaction', () => {
     expect(out.invoice_number).toBe('INV-1');
   });
 });
+
+describe('sanitizeBody — file payloads and ID numbers (onboarding complete-setup bodies)', () => {
+  it('replaces file data and ID numbers at any depth with a size marker; keeps the rest', () => {
+    const pdf = `data:application/pdf;base64,${'A'.repeat(4000)}`;
+    const out = sanitizeBody({
+      requestKey: 'k', entityType: 'pty_ltd',
+      company: { name: 'Synthetic', logoData: 'data:image/png;base64,AAAA' },
+      people: [{ name: 'Person A', idNumber: 'SYNTH-ID-1', idDocument: { name: 'id.png', data: pdf } }],
+      documents: [{ type: 'cipc_certificate', name: 'c.pdf', data: pdf, mimeType: 'application/pdf' }],
+      rows: [{ id_number: 'SYNTH-ID-2', file_data: pdf }],
+      password: 'p',
+    }) as Record<string, any>;
+    expect(out.entityType).toBe('pty_ltd');
+    expect(out.company).toEqual({ name: 'Synthetic', logoData: '[omitted: 26 chars]' });
+    expect(out.people).toEqual([{ name: 'Person A', idNumber: '[omitted: 10 chars]', idDocument: '[omitted]' }]);
+    expect(out.documents).toEqual([{ type: 'cipc_certificate', name: 'c.pdf', data: `[omitted: ${pdf.length} chars]`, mimeType: 'application/pdf' }]);
+    expect(out.rows).toEqual([{ id_number: '[omitted: 10 chars]', file_data: `[omitted: ${pdf.length} chars]` }]);
+    expect(out.password).toBe('[REDACTED]');
+    expect(JSON.stringify(out)).not.toMatch(/SYNTH-ID|AAAA/);
+  });
+});

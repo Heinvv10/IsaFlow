@@ -32,11 +32,21 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_FRAGMENTS.some((f) => k.includes(f));
 }
 
-function sanitizeBody(body: unknown): unknown {
+// File payloads and ID numbers, at any depth: a logged request body must not
+// carry an uploaded certificate, an ID scan or an ID number (onboarding
+// complete-setup, company-directors, documents). Replaced by a size marker.
+const PAYLOAD_KEYS = new Set(['data', 'file_data', 'fileData', 'idDocument', 'logoData', 'idNumber', 'id_number']);
+const omitted = (value: unknown) => (typeof value === 'string' ? `[omitted: ${value.length} chars]` : '[omitted]');
+
+function sanitizeBody(body: unknown, depth = 0): unknown {
   if (!body || typeof body !== 'object') return body;
+  if (depth > 8) return '[omitted: nested too deep]';
+  if (Array.isArray(body)) return body.map((v) => sanitizeBody(v, depth + 1));
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
-    sanitized[key] = isSensitiveKey(key) ? '[REDACTED]' : value;
+    if (isSensitiveKey(key)) sanitized[key] = '[REDACTED]';
+    else if (PAYLOAD_KEYS.has(key) && value !== null && value !== undefined && value !== '') sanitized[key] = omitted(value);
+    else sanitized[key] = sanitizeBody(value, depth + 1);
   }
   return sanitized;
 }

@@ -5,18 +5,35 @@
  * transaction and commit or roll back together.
  */
 
+import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { createCompany } from '@/modules/accounting/services/core/companyService';
 import { getEntityType } from '@/lib/entityTypes';
 import { registrationNumberFor } from './entityOnboardingRules';
-import type { SetupDocument, SetupPerson, SetupRequest } from './onboardingSetupPayload';
+import type { SetupDocument, SetupRequest } from './onboardingSetupPayload';
 
-/** The company this request key already created for this user, if any (a retried request). */
+/**
+ * The stored key is md5(userId:requestKey) as a uuid, never the client's key
+ * itself: two users sending the same key get different stored keys, so one
+ * can neither collide with nor squat on another's.
+ */
+const storedKey = (userId: string, requestKey: string) => sql`md5(${userId} || ':' || ${requestKey})::UUID`;
+
+/**
+ * The live company this user's request key already created, if any (a retried
+ * request). A company since deactivated, suspended or deleted is not replayed
+ * (liveCompanies.ts's rule); its key still holds the unique index, so a new
+ * create with that key ends in the route's 409.
+ */
 export async function findCompanyForRequestKey(requestKey: string, userId: string): Promise<string | null> {
   const rows = (await sql`
     SELECT c.id FROM companies c
     JOIN company_users cu ON cu.company_id = c.id AND cu.user_id = ${userId}
-    WHERE c.onboarding_request_key = ${requestKey}::UUID
+    WHERE c.onboarding_request_key = ${storedKey(userId, requestKey)}
+      AND c.is_active = true
+      AND c.status IS DISTINCT FROM 'suspended'
+      AND c.status IS DISTINCT FROM 'deleted'
+      AND c.suspended_at IS NULL
   `) as { id: string }[];
   return rows[0]?.id ?? null;
 }
@@ -36,11 +53,14 @@ export async function createSetupCompany(req: SetupRequest, userId: string): Pro
     // Keep both VAT columns in step from the first write (AFS notes read vat_system_type).
     vatSystemType: c.vatSystemType ?? (c.vatPeriod === 'none' ? 'none' : 'invoice'),
   }, userId);
-  await sql`
+  const updated = (await sql`
     UPDATE companies
-    SET entity_type = ${req.entityType}, onboarding_request_key = ${req.requestKey}::UUID
+    SET entity_type = ${req.entityType}, onboarding_request_key = ${storedKey(userId, req.requestKey)}
     WHERE id = ${company.id}::UUID
-  `;
+    RETURNING id
+  `) as { id: string }[];
+  // RLS hides a row it will not let this user update: zero rows, no error.
+  if (updated.length === 0) throw new Error('create-setup: the new company could not be updated (no row returned)');
   return company.id;
 }
 
@@ -54,12 +74,16 @@ export async function createSetupCompany(req: SetupRequest, userId: string): Pro
  */
 export async function scopeRequestToCompany(companyId: string): Promise<void> {
   await sql`SELECT set_config('app.current_company_id', ${companyId}, true)`;
+  // Keep the request context in step with the GUC (nothing after this reads it
+  // today; completeOnboardingSetup restores it if the setup fails).
+  const store = als.getStore();
+  if (store) store.companyId = companyId;
 }
 
 /** The people, each with the entity's role (Owner / Partner / Director / Member / Trustee / Representative). */
-export async function insertSetupPeople(req: SetupRequest, companyId: string, people: SetupPerson[]): Promise<void> {
+export async function insertSetupPeople(req: SetupRequest, companyId: string): Promise<void> {
   const role = getEntityType(req.entityType).personRole;
-  for (const p of people) {
+  for (const p of req.people) {
     await sql`
       INSERT INTO company_directors (company_id, name, id_number, role, id_document_name, id_document_data)
       VALUES (${companyId}::UUID, ${p.name}, ${p.idNumber}, ${role},
