@@ -5,7 +5,7 @@
 
 import { log } from '@/lib/logger';
 import { markQuotaUsed, markQuotaUsedForStatus, markQuotaUsedUnlessNoWork } from '@/lib/quotaUse';
-import { createSlotLimiter, envLimit } from './vlmLimiter';
+import { sharedSlotLimiter, envLimit } from './vlmLimiter';
 import type { ExtractedLineItem, VendorBankDetails } from '@/modules/accounting/types/documentCapture.types';
 
 // ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ const DEFAULT_MAX_TOKENS = parseInt(process.env.VLM_MAX_TOKENS ?? '4096', 10);
  * otherwise overruns it and they fail with "fetch failed". Excess callers wait
  * their turn instead. `VLM_MAX_CONCURRENCY` is read once, at load.
  */
-const vlmRequests = createSlotLimiter(envLimit('VLM_MAX_CONCURRENCY', 4));
+const vlmRequests = sharedSlotLimiter('vlm-requests', envLimit('VLM_MAX_CONCURRENCY', 4));
 
 export async function callVlmChat(
   config: VlmConfig,
@@ -81,10 +81,11 @@ async function postVlmChat(
     stream: false,
   };
 
+  // The timer covers the BODY too: vLLM can send headers and then stall, and a
+  // stalled read would hold a concurrency slot forever.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), config.timeout);
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeout);
-
     const response = await fetch(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -94,8 +95,6 @@ async function postVlmChat(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       // A 5xx may come after the provider did the work; a 4xx did none (R-175).
@@ -124,6 +123,8 @@ async function postVlmChat(
       log.error('vLLM request error', { error: msg }, 'vlm-core');
     }
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

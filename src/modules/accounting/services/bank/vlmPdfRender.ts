@@ -4,8 +4,9 @@
  * vLLM rejects a PDF sent as `image_url` (400 "cannot identify image file"),
  * so a scanned PDF only reaches the model as a rendered page. The PDF is an
  * untrusted upload, so it goes to Ghostscript alone (no ImageMagick, no
- * shell): `-dSAFER`, page 1 only, stdin → stdout (no temp files), a hard
- * timeout, and an output cap. Callers bound how many renders run at once.
+ * shell): `-dSAFER`, page 1 only into a fixed-size frame, stdin → stdout (no
+ * temp files), a hard timeout, and an output cap. Callers bound how many
+ * renders run at once.
  */
 
 import { spawn } from 'child_process';
@@ -15,7 +16,9 @@ const RENDER_TIMEOUT_MS = 30_000;
 const MAX_PNG_BYTES = 20 * 1024 * 1024;
 const GS_ARGS = [
   '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
-  '-sDEVICE=png16m', '-r150', '-dFirstPage=1', '-dLastPage=1',
+  // A fixed 1275x1754 frame (A4 at 150 dpi) with the page scaled to fit, aspect
+  // kept: a hostile 14,400pt page costs the same memory as an A4 one.
+  '-sDEVICE=png16m', '-g1275x1754', '-dFIXEDMEDIA', '-dPDFFitPage', '-dFirstPage=1', '-dLastPage=1',
   '-sOutputFile=-', '-',
 ];
 

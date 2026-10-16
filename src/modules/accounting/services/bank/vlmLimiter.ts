@@ -38,6 +38,24 @@ export function createSlotLimiter(max: number): SlotLimiter {
   };
 }
 
+/**
+ * One limiter per key per PROCESS. Next.js can bundle a module into more than
+ * one server chunk, each with its own module state; a cap held in module state
+ * would then be per-chunk. The registry lives on globalThis instead.
+ */
+const REGISTRY = Symbol.for('isaflow.vlmSlotLimiters');
+
+export function sharedSlotLimiter(key: string, max: number): SlotLimiter {
+  const g = globalThis as typeof globalThis & { [REGISTRY]?: Map<string, SlotLimiter> };
+  const registry = (g[REGISTRY] ??= new Map<string, SlotLimiter>());
+  let limiter = registry.get(key);
+  if (!limiter) {
+    limiter = createSlotLimiter(max);
+    registry.set(key, limiter);
+  }
+  return limiter;
+}
+
 /** A positive integer from the environment, or the fallback. */
 export function envLimit(name: string, fallback: number): number {
   const n = parseInt(process.env[name] ?? '', 10);
