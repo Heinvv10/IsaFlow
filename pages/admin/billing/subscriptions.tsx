@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
+import { SubscriptionCompanyPicker } from '@/components/admin/SubscriptionCompanyPicker';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatCurrency, formatDate } from '@/utils/formatters';
@@ -133,7 +134,7 @@ export default function SubscriptionsPage() {
 
   async function handleAdd() {
     setFormError('');
-    if (!form.company_id.trim()) { setFormError('Company ID is required'); return; }
+    if (!form.company_id) { setFormError('Company is required'); return; }
     if (!form.plan_id)           { setFormError('Plan is required'); return; }
     setSaving(true);
     try {
@@ -231,9 +232,8 @@ export default function SubscriptionsPage() {
                 </div>
               )}
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Company ID</label>
-                <input type="text" value={form.company_id} onChange={e => setForm(f => ({ ...f, company_id: e.target.value }))}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Company</label>
+                <SubscriptionCompanyPicker companyId={form.company_id} onChange={id => setForm(f => ({ ...f, company_id: id }))} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Plan</label>

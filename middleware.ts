@@ -130,7 +130,7 @@ export async function middleware(request: NextRequest) {
     const adminToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
     if (!adminToken) {
       const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('returnTo', pathname);
+      loginUrl.searchParams.set('returnTo', pathname + request.nextUrl.search);
       return NextResponse.redirect(loginUrl);
     }
 
@@ -177,7 +177,7 @@ export async function middleware(request: NextRequest) {
 
   if (!token && (pathname.startsWith('/accounting') || pathname.startsWith('/payroll'))) {
     const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('returnTo', pathname);
+    loginUrl.searchParams.set('returnTo', pathname + request.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
 

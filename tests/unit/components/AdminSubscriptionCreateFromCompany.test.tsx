@@ -22,6 +22,7 @@ beforeEach(() => {
   route.replace.mockClear();
   vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
     if (String(url).includes('/plans')) return response([{id: PLAN, name: 'Starter', code: 'starter'}]);
+    if (String(url) === `/api/admin/companies/${COMPANY}`) return response({id: COMPANY, name: 'Velocity Fibre (Pty) Ltd'});
     if (init?.method === 'POST') return response({id: 'sub-1'});
     return response({items: [], total: 0, page: 1, limit: 25});
   });
@@ -36,11 +37,13 @@ it('Create Subscription on the company Billing tab goes to the existing subscrip
   expect(assign).toHaveBeenCalledWith(`/admin/billing/subscriptions?companyId=${COMPANY}`);
 });
 
-it('opens the Add Subscription form prefilled with ?companyId= and drops the param', async () => {
+it('opens the Add Subscription form prefilled with ?companyId= by name, and drops the param', async () => {
   route.query = {companyId: COMPANY};
   render(<SubscriptionsPage />);
   expect(await screen.findByRole('dialog')).toBeInTheDocument();
-  expect(screen.getByDisplayValue(COMPANY)).toBeInTheDocument();
+  expect(await screen.findByText('Velocity Fibre (Pty) Ltd')).toBeInTheDocument();
+  expect(screen.queryByText(COMPANY)).toBeNull();
+  expect(screen.queryByDisplayValue(COMPANY)).toBeNull();
   expect(route.replace).toHaveBeenCalledWith('/admin/billing/subscriptions', undefined, {shallow: true});
 });
 
