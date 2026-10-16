@@ -113,4 +113,9 @@ describe('sanitizeBody — file payloads and ID numbers (onboarding complete-set
     expect(out.c!.data).toBe('[omitted]');
     expect(JSON.stringify(out)).not.toMatch(/CCCC|DDDD|zzzz/);
   });
+  it('a `data` nested past the depth cap (10 levels) is omitted, not walked: fail closed', () => {
+    let deep: unknown = 'short';
+    for (let i = 0; i < 10; i++) deep = { level: deep };
+    expect((sanitizeBody({ data: deep }) as Record<string, unknown>).data).toBe('[omitted]');
+  });
 });

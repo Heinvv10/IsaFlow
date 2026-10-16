@@ -41,6 +41,11 @@ describe('PIS PUT entityType', () => {
     expect(assertChange).not.toHaveBeenCalled();
     expect(sql).toHaveBeenCalledTimes(1); // the read of the current type, no UPDATE
   });
+  it('an admin changing the type goes through the proof check and saves', async () => {
+    expect((await put({ entityType: 'cc' }, 'admin')).status).toBe(200);
+    expect(assertChange).toHaveBeenCalledWith('c1', 'cc');
+    expect(sql).toHaveBeenCalledTimes(1); // the UPDATE only: no role read for an admin
+  });
   it('a manager re-sending the current type (saving other PIS fields) is not refused', async () => {
     sql.mockResolvedValueOnce([{ entity_type: 'pty_ltd' }] as never);
     expect((await put({ entityType: 'pty_ltd', employeeCountEnd: 4 }, 'manager')).status).toBe(200);
