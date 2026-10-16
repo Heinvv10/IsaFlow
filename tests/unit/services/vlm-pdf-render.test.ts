@@ -7,7 +7,8 @@ import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { log } from '@/lib/logger';
 import { renderPdfFirstPage } from '@/modules/accounting/services/bank/vlmPdfRender';
 
 function onePagePdf(text: string, box = '0 0 612 792', size = 24): Buffer {
@@ -70,6 +71,19 @@ describe('renderPdfFirstPage', () => {
     const one = await renderPdfFirstPage(onePagePdf('PAGE ONE'));
     const prefixed = Buffer.concat([Buffer.from('\uFEFF\r\n  '), onePagePdf('PAGE ONE')]);
     expect(await renderPdfFirstPage(prefixed)).toBe(one);
+  }, 30_000);
+
+  it('logs a missing gs binary as an error (an outage, not a bad file)', async () => {
+    const path = process.env.PATH;
+    const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    process.env.PATH = '/nonexistent';
+    try {
+      expect(await renderPdfFirstPage(onePagePdf('NO GS'))).toBeNull();
+      expect(error).toHaveBeenCalledWith('PDF render unavailable: gs not found', expect.anything(), 'vlm-pdf-render');
+    } finally {
+      process.env.PATH = path;
+      error.mockRestore();
+    }
   }, 30_000);
 
   it('renders only page 1 of a two-page PDF', async () => {
