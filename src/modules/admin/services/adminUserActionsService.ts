@@ -1,7 +1,8 @@
 /**
  * Admin User Actions Service
  * Suspend, activate, delete, password reset, session management,
- * company membership, and onboarding reset.
+ * adding a company membership, and onboarding reset. Removing a membership
+ * or changing its role: companyMembershipService.ts.
  * All mutations should be followed by logAdminAction from auditService.
  */
 
@@ -139,17 +140,6 @@ export async function addUserToCompany(
       SET role = EXCLUDED.role
   `;
   log.info('addUserToCompany', { userId, companyId, role }, 'AdminUserActionsService');
-}
-
-export async function removeUserFromCompany(
-  userId: string,
-  companyId: string,
-): Promise<void> {
-  await sql`
-    DELETE FROM company_users
-    WHERE user_id = ${userId} AND company_id = ${companyId}
-  `;
-  log.info('removeUserFromCompany', { userId, companyId }, 'AdminUserActionsService');
 }
 
 /**
