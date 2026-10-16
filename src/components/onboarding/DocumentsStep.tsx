@@ -63,7 +63,9 @@ export function DocumentsStep({ d, set }: { d: WizardData; set: SetFn }) {
           <div key={slot.type} className={`border rounded-lg p-4 ${slot.required && !doc ? 'border-teal-500/50' : 'border-gray-300 dark:border-gray-700'}`}>
             <div className="flex items-center gap-2 mb-2">
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{slot.label}</p>
-              {slot.required && <span className="text-xs bg-teal-600/20 text-teal-400 px-1.5 py-0.5 rounded">Required</span>}
+              {slot.required
+                ? <span className="text-xs bg-teal-600/20 text-teal-400 px-1.5 py-0.5 rounded">Required</span>
+                : <span className="text-xs bg-gray-200 text-gray-600 dark:bg-gray-700/60 dark:text-gray-400 px-1.5 py-0.5 rounded">Optional</span>}
             </div>
             {doc ? (
               <div className="flex items-center justify-between">

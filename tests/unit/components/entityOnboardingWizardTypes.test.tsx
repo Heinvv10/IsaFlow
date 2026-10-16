@@ -66,7 +66,8 @@ describe('partnership', () => {
     expect(screen.getByText('Partners')).toBeTruthy();
     await addPartner(0, 'Partner A', true);
     await toDocuments();
-    expect(screen.getByText(/Add at least 2 partners, each with their ID document/)).toBeTruthy();
+    const why = screen.getByText('Add at least 2 partners, each with their ID document to continue.');
+    expect(continueBtn().getAttribute('aria-describedby')).toBe(why.id);
     expect(continueBtn().disabled).toBe(true);
   });
   it('two partners, one without an ID: still disabled; with both IDs: enabled', async () => {
@@ -74,7 +75,7 @@ describe('partnership', () => {
     await addPartner(0, 'Partner A', true);
     await addPartner(1, 'Partner B', false);
     await toDocuments();
-    expect(screen.getByText(/Upload the ID document of Partner B/)).toBeTruthy();
+    expect(screen.getByText('Upload the ID document of Partner B to continue.')).toBeTruthy();
     expect(continueBtn().disabled).toBe(true);
     for (let i = 0; i < 6; i++) await click(/back/i);
     upload(screen.getByText('Upload ID').querySelector('input')!, png('Partner B'));

@@ -89,6 +89,8 @@ export default function OnboardingWizard() {
   const isLast      = step === LAST_STEP;
   // What the server would refuse (the same rules), shown on the review step instead of a failed submit
   const submitIssues = isLast ? setupIssues(factsOf(d)) : [];
+  // Why the documents step's Continue is dimmed, said next to it
+  const blockedReason = step === DOCUMENTS_STEP_INDEX && !canContinue ? `${proofIssues(factsOf(d)).join('. ')} to continue.` : '';
   // Address, logo, bank, financial and COA are skippable; the documents step is not
   const skippable   = step > DETAILS_STEP && step <= COA_STEP_INDEX;
   const isPreStep   = step === SMART_SETUP;
@@ -199,6 +201,10 @@ export default function OnboardingWizard() {
             </div>
           )}
 
+          {blockedReason && (
+            <p id="continue-blocked" className="mt-4 text-sm text-right text-amber-700 dark:text-amber-400">{blockedReason}</p>
+          )}
+
           {/* Navigation */}
           <div className="flex justify-between mt-6">
             {step === ENTITY_STEP ? <span /> : (
@@ -227,6 +233,7 @@ export default function OnboardingWizard() {
                 <button
                   onClick={next}
                   disabled={!canContinue}
+                  aria-describedby={blockedReason ? 'continue-blocked' : undefined}
                   className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-5 py-2.5 rounded-lg transition-colors"
                 >
                   Continue <ChevronRight className="w-4 h-4" />
