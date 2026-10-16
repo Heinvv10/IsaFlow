@@ -3,11 +3,15 @@
  * files). Before 2026-10-16 pdf2pic needed GraphicsMagick, which is not
  * installed, and an empty catch hid the failure on every PDF.
  */
+import { execFileSync } from 'child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { describe, expect, it } from 'vitest';
 import { renderPdfFirstPage } from '@/modules/accounting/services/bank/vlmPdfRender';
 
-function onePagePdf(text: string, box = '0 0 612 792'): Buffer {
-  const stream = `BT /F1 24 Tf 72 720 Td (${text}) Tj ET`;
+function onePagePdf(text: string, box = '0 0 612 792', size = 24): Buffer {
+  const stream = `BT /F1 ${size} Tf 72 ${size * 2} Td (${text}) Tj ET`;
   const objs = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
@@ -38,8 +42,24 @@ describe('renderPdfFirstPage', () => {
   }, 30_000);
 
   it('renders a hostile 14,400pt page into the same bounded frame', async () => {
-    const png = Buffer.from((await renderPdfFirstPage(onePagePdf('HUGE', '0 0 14400 14400')))!, 'base64');
+    const png = Buffer.from((await renderPdfFirstPage(onePagePdf('HUGE', '0 0 14400 14400', 2000)))!, 'base64');
     expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1275, 1754]);
+  }, 30_000);
+
+  it('refuses PostScript (no %PDF- header): it never reaches gs, so it writes nothing', async () => {
+    const victim = join(mkdtempSync(join(tmpdir(), 'vlm-render-test-')), 'victim.txt');
+    writeFileSync(victim, 'orig');
+    const ps = `{ (${victim}) (w) file (OVERWRITTEN) writestring } stopped pop showpage\n`;
+    expect(await renderPdfFirstPage(Buffer.from(ps))).toBeNull();
+    expect(readFileSync(victim, 'utf8')).toBe('orig');
+  }, 30_000);
+
+  it('returns null for an encrypted PDF (gs exits 0 with a message, no PNG)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vlm-render-test-'));
+    writeFileSync(join(dir, 'plain.pdf'), onePagePdf('SECRET INVOICE'));
+    execFileSync('gs', ['-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-sDEVICE=pdfwrite', '-sOwnerPassword=o',
+      '-sUserPassword=u', '-dEncryptionR=3', '-dKeyLength=128', '-o', join(dir, 'enc.pdf'), join(dir, 'plain.pdf')]);
+    expect(await renderPdfFirstPage(readFileSync(join(dir, 'enc.pdf')))).toBeNull();
   }, 30_000);
 
   it('renders only page 1 of a two-page PDF', async () => {

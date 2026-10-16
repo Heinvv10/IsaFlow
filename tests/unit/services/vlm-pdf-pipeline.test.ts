@@ -75,6 +75,15 @@ describe('extractPdfWithVlm', () => {
     expect(doc!.confidence).toBe(0.55);
   });
 
+  it('adds the page-1 warning only when the page read is the one returned', async () => {
+    const MEDIUM = { ...WEAK, documentType: 'invoice', vendorName: 'Acme', date: '2026-09-01', totalAmount: 115 };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(MEDIUM)).mockResolvedValueOnce(reply(WEAK)));
+    render.mockResolvedValue('iVBORpng');
+    const doc = await extractPdfWithVlm(PDF, `${TEXT_LAYER}\n-- 1 of 3 --\n`);
+    expect(doc!.vendorName).toBe('Acme');
+    expect(doc!.warnings.some((w) => w.startsWith('Read from page 1'))).toBe(false);
+  });
+
   it('treats a scan whose text is only page markers as a scan', async () => {
     const fetch = vi.fn(async () => reply(GOOD));
     vi.stubGlobal('fetch', fetch);
