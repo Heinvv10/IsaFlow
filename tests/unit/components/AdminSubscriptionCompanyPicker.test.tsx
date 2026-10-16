@@ -131,3 +131,19 @@ it('Enter after the results shrink does not pick a row that is gone', async () =
   fireEvent.keyDown(box, {key: 'Enter'});
   expect(onChange).not.toHaveBeenCalled();
 });
+
+it('a row highlighted on the old results is not what Enter picks from the new ones', async () => {
+  const onChange = vi.fn();
+  const X = { id: '55555555-5555-4555-8555-555555555555', name: 'Xylo Co' };
+  vi.mocked(apiFetch).mockImplementation(async url =>
+    response({items: new URL(String(url), 'http://x').searchParams.get('search') === 'velo' ? [VELOCITY] : [X]}));
+  render(<SubscriptionCompanyPicker companyId="" onChange={onChange} />);
+  const box = screen.getByRole('combobox', {name: 'Company'});
+  fireEvent.change(box, {target: {value: 'velo'}});
+  await screen.findByRole('option', {name: VELOCITY.name});
+  fireEvent.change(box, {target: {value: 'x'}});
+  fireEvent.keyDown(box, {key: 'ArrowDown'}); // highlights Velocity, still on screen
+  await screen.findByRole('option', {name: X.name});
+  fireEvent.keyDown(box, {key: 'Enter'});
+  expect(onChange).not.toHaveBeenCalled();
+});
