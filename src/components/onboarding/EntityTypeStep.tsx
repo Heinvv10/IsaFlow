@@ -27,13 +27,15 @@ export function EntityTypeStep({ value, onChange }: { value: EntityTypeCode | nu
             onClick={() => onChange(def.code)}
             className={[
               'text-left rounded-xl border-2 p-3 transition-all focus:outline-none',
-              selected ? 'border-teal-500 bg-teal-900/20' : 'border-gray-700 bg-gray-800/50 hover:border-gray-500',
+              selected
+                ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                : 'border-gray-300 bg-white hover:border-gray-400 dark:border-gray-700 dark:bg-gray-800/50 dark:hover:border-gray-500',
             ].join(' ')}
           >
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-slate-900 dark:text-white">{def.label}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{hint(def)}</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{hint(def)}</p>
               </div>
               {selected && <Check className="w-4 h-4 text-teal-400 shrink-0" />}
             </div>

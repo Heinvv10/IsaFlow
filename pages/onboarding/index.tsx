@@ -148,7 +148,7 @@ export default function OnboardingWizard() {
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 text-slate-900 dark:text-white px-4 py-8">
       {/* Logo */}
       <div className="max-w-2xl mx-auto mb-8">
-        <img src="/logo.png" alt="ISAFlow" className="h-10 w-auto brightness-0 invert" />
+        <img src="/logo.png" alt="ISAFlow" className="h-10 w-auto brightness-0 dark:invert" />
       </div>
 
       {/* Progress — hidden on the Smart Setup pre-step */}
@@ -204,14 +204,14 @@ export default function OnboardingWizard() {
             {step === ENTITY_STEP ? <span /> : (
               <button
                 onClick={back}
-                className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors"
+                className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" /> Back
               </button>
             )}
             <div className="flex gap-3">
               {skippable && !isLast && (
-                <button onClick={next} className="text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors">
+                <button onClick={next} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
                   Skip
                 </button>
               )}
