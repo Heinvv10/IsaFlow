@@ -124,17 +124,22 @@ describeIfDb('a customer bank rule records the receipt or refund behind the AR i
   }, 60000);
 
   it('a customer with an EMPTY name still posts, labelled by id (only a missing row is skipped)', async () => {
+    const [{ name }] = (await sql`SELECT name FROM customers WHERE id = ${fx.customerId}::UUID AND company_id = ${fx.companyId}::UUID`) as { name: string }[];
     await sql`UPDATE customers SET name = '' WHERE id = ${fx.customerId}::UUID AND company_id = ${fx.companyId}::UUID`;
-    await rule('CRULEBLANK', 'none');
-    const tx = await seedBankTx(fx, { date: '2026-10-06', amount: 70, description: 'CRULEBLANK deposit' });
-    expect(await apply()).toMatchObject({ autoPostRulesSkippedForeignContact: 0 });
-    const [je] = (await sql`
-      SELECT je.description FROM bank_transactions bt
-      JOIN gl_journal_lines bl ON bl.id = bt.matched_journal_line_id
-      JOIN gl_journal_entries je ON je.id = bl.journal_entry_id
-      WHERE bt.id = ${tx}::UUID AND bt.company_id = ${fx.companyId}::UUID`) as { description: string }[];
-    expect(je?.description).toContain(`Receipt from Customer #${fx.customerId}`);
-    expect(await receiptsFor(tx)).toHaveLength(1);
-    await clearRules();
+    try {
+      await rule('CRULEBLANK', 'none');
+      const tx = await seedBankTx(fx, { date: '2026-10-06', amount: 70, description: 'CRULEBLANK deposit' });
+      expect(await apply()).toMatchObject({ autoPostRulesSkippedForeignContact: 0 });
+      const [je] = (await sql`
+        SELECT je.description FROM bank_transactions bt
+        JOIN gl_journal_lines bl ON bl.id = bt.matched_journal_line_id
+        JOIN gl_journal_entries je ON je.id = bl.journal_entry_id
+        WHERE bt.id = ${tx}::UUID AND bt.company_id = ${fx.companyId}::UUID`) as { description: string }[];
+      expect(je?.description).toContain(`Receipt from Customer #${fx.customerId}`);
+      expect(await receiptsFor(tx)).toHaveLength(1);
+    } finally {
+      await sql`UPDATE customers SET name = ${name} WHERE id = ${fx.customerId}::UUID AND company_id = ${fx.companyId}::UUID`;
+      await clearRules();
+    }
   }, 60000);
 });
