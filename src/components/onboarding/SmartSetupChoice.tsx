@@ -159,7 +159,7 @@ export function SmartSetupChoice({ entityType, onManual, onExtracted, onBack }: 
             </button>
           </div>
           <div className="text-center mt-4">
-            <button onClick={onBack} className="text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors">Back</button>
+            <button onClick={onBack} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">Back</button>
           </div>
         </>
       )}
@@ -195,7 +195,7 @@ export function SmartSetupChoice({ entityType, onManual, onExtracted, onBack }: 
                   It is a {getEntityType(extractState.inferred).label}
                 </button>
                 <button onClick={() => finish(extractState.data)}
-                  className="border border-gray-600 text-sm text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg hover:border-teal-500">
+                  className="border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 px-4 py-2 rounded-lg hover:border-teal-500">
                   Keep {def.label}
                 </button>
               </div>
@@ -209,7 +209,7 @@ export function SmartSetupChoice({ entityType, onManual, onExtracted, onBack }: 
                 {slots.map(slot => {
                   const doc = docs.find(d => d.type === slot.type);
                   return (
-                    <div key={slot.type} className={`border rounded-lg p-3 ${slot.required && !doc ? 'border-teal-500/50 bg-teal-500/5' : 'border-gray-700'}`}>
+                    <div key={slot.type} className={`border rounded-lg p-3 ${slot.required && !doc ? 'border-teal-500/50 bg-teal-500/5' : 'border-gray-300 dark:border-gray-700'}`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <FileText className="w-4 h-4 text-gray-500" />
@@ -244,12 +244,12 @@ export function SmartSetupChoice({ entityType, onManual, onExtracted, onBack }: 
 
               <div className="flex items-center justify-between mt-5">
                 <button onClick={() => { setShowUploadArea(false); setExtractState({ status: 'idle' }); setDocs([]); }}
-                  className="text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors">
+                  className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
                   Back
                 </button>
                 <div className="flex gap-3">
                   {docs.length > 0 && (
-                    <button onClick={handleSkipExtract} className="text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors">
+                    <button onClick={handleSkipExtract} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
                       Skip Extraction
                     </button>
                   )}

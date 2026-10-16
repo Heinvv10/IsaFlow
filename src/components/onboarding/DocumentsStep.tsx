@@ -37,7 +37,7 @@ export function DocumentsStep({ d, set }: { d: WizardData; set: SetFn }) {
   return (
     <div className="grid gap-4">
       {proof.kind === 'person_ids' && (
-        <div className={`border rounded-lg p-4 ${peopleIssues.length ? 'border-teal-500/50' : 'border-gray-700'}`}>
+        <div className={`border rounded-lg p-4 ${peopleIssues.length ? 'border-teal-500/50' : 'border-gray-300 dark:border-gray-700'}`}>
           <div className="flex items-center gap-2 mb-1">
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{proof.label}</p>
             <span className="text-xs bg-teal-600/20 text-teal-400 px-1.5 py-0.5 rounded">Required</span>
@@ -60,7 +60,7 @@ export function DocumentsStep({ d, set }: { d: WizardData; set: SetFn }) {
       {documentSlotsFor(entityType).map(slot => {
         const doc = d.documents.find(dd => dd.type === slot.type);
         return (
-          <div key={slot.type} className={`border rounded-lg p-4 ${slot.required && !doc ? 'border-teal-500/50' : 'border-gray-700'}`}>
+          <div key={slot.type} className={`border rounded-lg p-4 ${slot.required && !doc ? 'border-teal-500/50' : 'border-gray-300 dark:border-gray-700'}`}>
             <div className="flex items-center gap-2 mb-2">
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{slot.label}</p>
               {slot.required && <span className="text-xs bg-teal-600/20 text-teal-400 px-1.5 py-0.5 rounded">Required</span>}
