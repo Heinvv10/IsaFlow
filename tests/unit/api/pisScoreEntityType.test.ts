@@ -18,12 +18,12 @@ import handler from '../../../pages/api/accounting/afs/pis-score';
 import { ENTITY_TYPE_CODES } from '@/lib/entityTypes';
 import { EntityTypeChangeRefused } from '@/modules/onboarding/services/entityTypeChange';
 
-async function put(body: Record<string, unknown>) {
+async function put(body: Record<string, unknown>, companyRole = 'owner') {
   const out = { status: 0 };
   const res = { status(c: number) { out.status = c; return this; }, json() { return this; },
     setHeader() { return this; }, end() { return this; } };
   await (handler as unknown as (q: unknown, r: unknown) => Promise<void>)(
-    { method: 'PUT', body, query: {}, companyId: 'c1', user: { id: 'u1' }, headers: {} }, res);
+    { method: 'PUT', body, query: {}, companyId: 'c1', companyRole, user: { id: 'u1' }, headers: {} }, res);
   return out;
 }
 beforeEach(() => { sql.mockClear(); assertChange.mockClear(); });
@@ -34,6 +34,17 @@ describe('PIS PUT entityType', () => {
     expect(sql).toHaveBeenCalledTimes(1);
     expect((sql.mock.calls[0] as unknown[]).slice(1)).toContain(code);
     expect(assertChange).toHaveBeenCalledWith('c1', code);
+  });
+  it('a manager may not change the entity type: 403, no check, nothing written', async () => {
+    sql.mockResolvedValueOnce([{ entity_type: 'pty_ltd' }] as never);
+    expect((await put({ entityType: 'cc' }, 'manager')).status).toBe(403);
+    expect(assertChange).not.toHaveBeenCalled();
+    expect(sql).toHaveBeenCalledTimes(1); // the read of the current type, no UPDATE
+  });
+  it('a manager re-sending the current type (saving other PIS fields) is not refused', async () => {
+    sql.mockResolvedValueOnce([{ entity_type: 'pty_ltd' }] as never);
+    expect((await put({ entityType: 'pty_ltd', employeeCountEnd: 4 }, 'manager')).status).toBe(200);
+    expect(assertChange).not.toHaveBeenCalled(); // unchanged type: nothing to prove
   });
   it('a type the stored proof does not support: 400 and nothing written', async () => {
     assertChange.mockRejectedValueOnce(new EntityTypeChangeRefused(['Upload the CK1 or CK2']));
