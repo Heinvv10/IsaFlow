@@ -15,18 +15,19 @@ import {
 import { apiErrorMessage } from '@/lib/apiFetch';
 import type { EntityTypeCode } from '@/lib/entityTypes';
 import {
-  hasRequiredProofDocument, proofIssues, smartSetupSourceFor,
+  hasRequiredProofDocument, proofIssues, setupIssues, smartSetupSourceFor,
 } from '@/modules/onboarding/services/entityOnboardingRules';
+import { MAX_TOTAL_UPLOAD_BYTES, TOTAL_TOO_LARGE } from '@/modules/onboarding/uploadLimits';
 import {
   type WizardData, INITIAL_WIZARD,
   Step1, Step2, Step3, Step4, Step5, Step6, Step7, StepCoaTemplate,
 } from '@/components/onboarding/WizardSteps';
 import { withEntityType } from '@/components/onboarding/wizardTypes';
-import { factsOf } from '@/components/onboarding/wizardFacts';
+import { factsOf, uploadBytesOf } from '@/components/onboarding/wizardFacts';
 import { EntityTypeStep } from '@/components/onboarding/EntityTypeStep';
 import { SmartSetupChoice } from '@/components/onboarding/SmartSetupChoice';
 import { WizardProgress } from '@/components/onboarding/WizardProgress';
-import { submitOnboardingSetup } from '@/components/onboarding/submitOnboardingSetup';
+import { newRequestKey, submitOnboardingSetup } from '@/components/onboarding/submitOnboardingSetup';
 import { useOnboardingAuthGate } from '@/components/onboarding/useOnboardingAuthGate';
 
 const STEPS = [
@@ -60,7 +61,7 @@ export default function OnboardingWizard() {
   const [submitting, setSubmitting] = useState(false);
   // One key per wizard session, re-sent on every retry: a retry after a lost
   // response gets the company the first request created, never a second one.
-  const requestKeyRef = useRef<string>(globalThis.crypto.randomUUID());
+  const [requestKey] = useState(newRequestKey);
   const inFlightRef = useRef(false);
 
   const set = useCallback(<K extends keyof WizardData>(k: K, v: WizardData[K]) => {
@@ -86,6 +87,8 @@ export default function OnboardingWizard() {
                     : step === DOCUMENTS_STEP_INDEX ? proofIssues(factsOf(d)).length === 0 // the entity's one required proof
                     : true;
   const isLast      = step === LAST_STEP;
+  // What the server would refuse (the same rules), shown on the review step instead of a failed submit
+  const submitIssues = isLast ? setupIssues(factsOf(d)) : [];
   // Address, logo, bank, financial and COA are skippable; the documents step is not
   const skippable   = step > DETAILS_STEP && step <= COA_STEP_INDEX;
   const isPreStep   = step === SMART_SETUP;
@@ -110,11 +113,12 @@ export default function OnboardingWizard() {
 
   const handleSubmit = async () => {
     if (inFlightRef.current) return;
+    if (uploadBytesOf(d) > MAX_TOTAL_UPLOAD_BYTES) { setError(TOTAL_TOO_LARGE); return; }
     inFlightRef.current = true;
     setSubmitting(true);
     setError('');
     try {
-      await submitOnboardingSetup(d, requestKeyRef.current);
+      await submitOnboardingSetup(d, requestKey);
       // Navigate — full reload so the middleware picks up the new cookies (active company, onboarding done)
       window.location.href = '/accounting';
     } catch (err) {
@@ -182,6 +186,12 @@ export default function OnboardingWizard() {
             {step === LAST_STEP && <Step7 d={d} />}
           </div>
 
+          {submitIssues.length > 0 && (
+            <ul className="mt-4 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-400 space-y-0.5">
+              {submitIssues.map(issue => <li key={issue}>{issue}</li>)}
+            </ul>
+          )}
+
           {/* Error */}
           {error && (
             <div className="mt-4 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">
@@ -208,7 +218,7 @@ export default function OnboardingWizard() {
               {isLast ? (
                 <button
                   onClick={() => void handleSubmit()}
-                  disabled={submitting}
+                  disabled={submitting || submitIssues.length > 0}
                   className="flex items-center gap-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white font-medium text-sm px-6 py-2.5 rounded-lg transition-colors"
                 >
                   {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Complete Setup'}
