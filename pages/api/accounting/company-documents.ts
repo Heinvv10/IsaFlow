@@ -178,8 +178,11 @@ export async function extractStatutoryDocData(fileData: string, docType: string,
   const mimeType = match[1]!;
   const base64 = match[2]!;
 
+  // The VLM's hint. A CK1/CK2 is a CIPC-issued registration document and reads
+  // with the CIPC prompt; a trust's Letters of Authority has no prompt of its own.
   const docTypeMap: Record<string, string> = {
     cipc_certificate: 'cipc',
+    ck_certificate: 'cipc',
     tax_clearance: 'tax_clearance',
     bbbee_certificate: 'bbee',
     vat_registration: 'vat_registration',

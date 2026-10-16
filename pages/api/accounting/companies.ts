@@ -16,6 +16,11 @@ import {
   getUserCompanies, setDefaultCompany,
 } from '@/modules/accounting/services/core/companyService';
 import { ENTITY_TYPE_CODES, isEntityTypeCode } from '@/lib/entityTypes';
+import { isValidVatPeriod, isValidVatSystemType } from '@/modules/accounting/services/core/vatSettingValidation';
+import { entityTypeChangeIssues } from '@/modules/onboarding/services/entityTypeChange';
+
+// Re-exported: tests and older imports name them from this route.
+export { isValidVatPeriod, isValidVatSystemType };
 
 /**
  * AUTH: Uses withAuth (not withAuth) because this endpoint manages the list of
@@ -26,30 +31,6 @@ import { ENTITY_TYPE_CODES, isEntityTypeCode } from '@/lib/entityTypes';
  * arbitrary company records is explicitly gated on role === 'super_admin'.
  * See docs/audits/2026-04-14/04-code-quality.md#Q-005 for rationale.
  */
-/**
- * `vat_period` is free text in the schema and is read by the VAT signals via
- * normalizeVatSetting, which silently treats anything unrecognised as
- * bi-monthly. Reject junk at the door instead of filing VAT201 reminders for a
- * company whose cadence was a typo. 'none' = not a VAT vendor.
- */
-const VALID_VAT_PERIODS = ['monthly', 'bi-monthly', 'none'];
-export function isValidVatPeriod(value: unknown): boolean {
-  if (value === undefined || value === null || value === '') return true;
-  return typeof value === 'string' && VALID_VAT_PERIODS.includes(value.trim().toLowerCase());
-}
-
-/**
- * `vat_system_type` is the other half of the pair — it is the column
- * `normalizeVatSetting` reads for the 'none' (not-a-VAT-vendor) flag. An
- * unrecognised value there reads as "registered", so junk must be rejected
- * here too or the two columns silently disagree.
- */
-const VALID_VAT_SYSTEM_TYPES = ['invoice', 'payment', 'none'];
-export function isValidVatSystemType(value: unknown): boolean {
-  if (value === undefined || value === null || value === '') return true;
-  return typeof value === 'string' && VALID_VAT_SYSTEM_TYPES.includes(value.trim().toLowerCase());
-}
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
@@ -139,6 +120,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!membership) return apiResponse.forbidden(res, 'You do not have access to this company');
     if (!['owner', 'admin'].includes(membership.role)) {
       return apiResponse.forbidden(res, 'Only owners and admins can update company details');
+    }
+    // A new entity type needs its own required proof on file (onboarding's rule).
+    if (updates.entityType !== undefined) {
+      const issues = await entityTypeChangeIssues(id, updates.entityType);
+      if (issues.length > 0) {
+        return apiResponse.badRequest(res, `The company cannot become this entity type yet: ${issues.join('. ')}`, { issues });
+      }
     }
     const company = await updateCompany(id, updates);
     return apiResponse.success(res, company);

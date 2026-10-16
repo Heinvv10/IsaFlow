@@ -103,6 +103,40 @@ describe('setupIssues (the whole server-side rule)', () => {
   });
 });
 
+describe('setupIssues: duplicate people', () => {
+  it('the same person twice is refused: same name (any case/spacing), same ID number, or the same ID document', () => {
+    expect(setupIssues(facts('partnership', { people: [withId('Partner A'), withId(' partner  a ')] })))
+      .toEqual(['Partner A is listed more than once']);
+    expect(setupIssues(facts('partnership', { people: [
+      { name: 'Partner A', hasIdDocument: true, idNumber: 'SYNTH-1' }, { name: 'Partner B', hasIdDocument: true, idNumber: ' SYNTH-1 ' },
+    ] }))).toEqual(['Two people have the same ID number']);
+    expect(setupIssues(facts('partnership', { people: [
+      { name: 'Partner A', hasIdDocument: true, idDocumentData: 'data:x' }, { name: 'Partner B', hasIdDocument: true, idDocumentData: 'data:x' },
+    ] }))).toEqual(['Two people have the same ID document']);
+  });
+  it('blank ID numbers and missing documents are not duplicates', () => {
+    expect(setupIssues(facts('partnership', { people: [
+      { name: 'Partner A', hasIdDocument: true, idNumber: '', idDocumentData: 'data:a' },
+      { name: 'Partner B', hasIdDocument: true, idNumber: '', idDocumentData: 'data:b' },
+    ] }))).toEqual([]);
+  });
+});
+
+describe('setupIssues: a registration number of another entity type', () => {
+  it('a CK number on a (Pty) Ltd, or a /07 number on a CC, is refused', () => {
+    expect(setupIssues(facts('pty_ltd', { documentTypes: ['cipc_certificate'], registrationNumber: 'CK1998/012345/23' })))
+      .toEqual(['That registration number belongs to a Close corporation (CC), not a Private company (Pty) Ltd']);
+    expect(setupIssues(facts('cc', { documentTypes: ['ck_certificate'], registrationNumber: '2020/123456/07' })))
+      .toEqual(['That registration number belongs to a Private company (Pty) Ltd, not a Close corporation (CC)']);
+  });
+  it('a matching, unreadable or ignored number is fine', () => {
+    expect(setupIssues(facts('pty_ltd', { documentTypes: ['cipc_certificate'], registrationNumber: '2020/123456/07' }))).toEqual([]);
+    expect(setupIssues(facts('trust', { documentTypes: ['letters_of_authority'], registrationNumber: 'IT1234/2020' }))).toEqual([]);
+    // A sole proprietor has no registration number; whatever is sent is dropped, not judged.
+    expect(setupIssues(facts('sole_proprietor', { people: [withId('Owner A')], registrationNumber: 'CK1998/012345/23' }))).toEqual([]);
+  });
+});
+
 describe('registrationNumberFor', () => {
   it('keeps the number for entities that carry one, trimmed', () => {
     expect(registrationNumberFor('pty_ltd', ' 2020/123456/07 ')).toBe('2020/123456/07');

@@ -10,12 +10,17 @@ import completeSetup from '../../../pages/api/onboarding/complete-setup';
 import { request, response } from '../mfa-impersonation-postgres.helpers';
 import { signSession } from '../r-032-fake-gotrue.helpers';
 
-export const PDF = `data:application/pdf;base64,${Buffer.from('%PDF-1.4\n% synthetic onboarding fixture\n').toString('base64')}`;
-export const PNG = `data:image/png;base64,${Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]).toString('base64')}`;
+// 2 KB each: complete-setup refuses an upload under 1 KB (uploadLimits.MIN_UPLOAD_BYTES).
+const pad = (head: Buffer) => Buffer.concat([head, Buffer.alloc(2048 - head.length, 0x20)]);
+/** A distinct 2 KB PNG per person: the same ID document twice is refused as the same person. */
+export const pngFor = (seed: string) => `data:image/png;base64,${pad(Buffer.concat([
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from(seed)])).toString('base64')}`;
+export const PDF = `data:application/pdf;base64,${pad(Buffer.from('%PDF-1.4\n% synthetic onboarding fixture\n')).toString('base64')}`;
+export const PNG = `data:image/png;base64,${pad(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])).toString('base64')}`;
 
-export const doc = (type: string) => ({ type, name: `${type}.pdf`, data: PDF, mimeType: 'application/pdf', size: 40 });
+export const doc = (type: string) => ({ type, name: `${type}.pdf`, data: PDF, mimeType: 'application/pdf', size: 2048 });
 export const person = (name: string, withId = true) => ({
-  name, idNumber: 'SYNTH-ID-0001', ...(withId ? { idDocument: { name: `${name}-id.png`, data: PNG } } : {}),
+  name, idNumber: `SYNTH-ID-${name}`, ...(withId ? { idDocument: { name: `${name}-id.png`, data: pngFor(name) } } : {}),
 });
 
 export interface SetupUser { userId: string; homeCompanyId: string; token: string }
@@ -42,13 +47,18 @@ export function setupBody(entityType: string, over: Record<string, unknown> = {}
 export interface SetupCall { status: number; body: { data?: { companyId?: string; replayed?: boolean }; error?: { message?: string } }; cookies: string[] }
 
 export async function callSetup(u: SetupUser, body: unknown): Promise<SetupCall> {
-  const req = request({ 'sb-access-token': u.token, active_company_id: u.homeCompanyId }, 'POST') as unknown as
+  return callRoute(completeSetup, u, body, '/api/onboarding/complete-setup');
+}
+
+/** Any withAuth route, as `u` in their home company (CSRF cookie + header set). */
+export async function callRoute(route: unknown, u: SetupUser, body: unknown, url: string, method = 'POST'): Promise<SetupCall> {
+  const req = request({ 'sb-access-token': u.token, active_company_id: u.homeCompanyId }, method) as unknown as
     { body: unknown; url: string; query: unknown };
   req.body = body;
-  req.url = '/api/onboarding/complete-setup';
+  req.url = url;
   req.query = {};
   const out = response();
-  await (completeSetup as unknown as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
+  await (route as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
   return {
     status: out.state.statusCode,
     body: (out.state.body ?? {}) as SetupCall['body'],

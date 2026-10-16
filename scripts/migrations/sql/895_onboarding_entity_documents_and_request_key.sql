@@ -5,14 +5,16 @@
 --    vat_registration and other; a close corporation proves itself with its
 --    CK1/CK2 ('ck_certificate') and a trust with the Master's Letters of
 --    Authority ('letters_of_authority'), which that CHECK refused. Widened
---    only: every existing value stays valid, so the new CHECK validates
---    against the existing rows in this transaction.
+--    only: every existing value stays valid. Added NOT VALID and validated
+--    straight after, in this transaction, as 894 does.
 --
 -- 2. companies.onboarding_request_key: the idempotency key of the
 --    POST /api/onboarding/complete-setup request that created the company.
 --    The wizard sends one key per session and re-sends it on a retry, so a
 --    retry after a response was lost (the first request DID commit) finds
---    that company instead of creating a second one. Nullable, no default:
+--    that company instead of creating a second one. The value stored is
+--    md5(user id || ':' || key) cast to uuid, not the client's key, so two
+--    users' keys never meet in the unique index. Nullable, no default:
 --    every existing company and every company created any other way keeps
 --    NULL. The partial unique index is the backstop behind the route's
 --    advisory lock on the key.
@@ -28,7 +30,8 @@ ALTER TABLE public.company_documents DROP CONSTRAINT IF EXISTS company_documents
 ALTER TABLE public.company_documents ADD CONSTRAINT company_documents_document_type_check CHECK (document_type IN (
   'cipc_certificate', 'ck_certificate', 'letters_of_authority',
   'tax_clearance', 'bbbee_certificate', 'vat_registration', 'other'
-));
+)) NOT VALID;
+ALTER TABLE public.company_documents VALIDATE CONSTRAINT company_documents_document_type_check;
 
 ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS onboarding_request_key uuid;
 

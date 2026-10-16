@@ -11,6 +11,9 @@ vi.mock('@/modules/accounting/services/core/companyService', () => ({
   getCompany: vi.fn(), createCompany: vi.fn(), setDefaultCompany: vi.fn(), updateCompany,
   getUserCompanies: vi.fn(async () => [{ companyId: 'c1', role: 'owner' }]),
 }));
+// The proof check for a CHANGED type reads the DB (tests/integration/onboarding-complete-setup-guards.int.test.ts).
+const changeIssues = vi.hoisted(() => vi.fn(async () => [] as string[]));
+vi.mock('@/modules/onboarding/services/entityTypeChange', () => ({ entityTypeChangeIssues: changeIssues }));
 import handler from '../../../pages/api/accounting/companies';
 import { ENTITY_TYPE_CODES } from '@/lib/entityTypes';
 
@@ -22,7 +25,7 @@ async function put(body: Record<string, unknown>) {
     { method: 'PUT', body, query: {}, user: { id: 'u1' }, headers: {} }, res);
   return out;
 }
-beforeEach(() => updateCompany.mockClear());
+beforeEach(() => { updateCompany.mockClear(); changeIssues.mockClear(); });
 
 describe('PUT /api/accounting/companies entityType edges', () => {
   it.each(['', 'pty', 'company', 'Pty_Ltd', ' cc', 'cc ', null, 5, {}, []])('rejects %j with 400, no write', async v => {
@@ -36,5 +39,14 @@ describe('PUT /api/accounting/companies entityType edges', () => {
   });
   it('an omitted entityType is not validated', async () => {
     expect((await put({ id: 'c1', name: 'x' })).status).toBe(200);
+    expect(changeIssues).not.toHaveBeenCalled();
+  });
+  it('a change the stored proof does not support is a 400 with the issues, no write', async () => {
+    changeIssues.mockResolvedValueOnce(['Upload the CK1 or CK2']);
+    const r = await put({ id: 'c1', entityType: 'cc' });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).toContain('Upload the CK1 or CK2');
+    expect(changeIssues).toHaveBeenCalledWith('c1', 'cc');
+    expect(updateCompany).not.toHaveBeenCalled();
   });
 });

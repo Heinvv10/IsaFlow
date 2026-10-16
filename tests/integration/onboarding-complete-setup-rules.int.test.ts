@@ -9,7 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
-  NO_ROWS, callSetup, doc, dropSetupUsers, newSetupUser, person, rowsFor, setupBody, type SetupUser,
+  callSetup, doc, dropSetupUsers, newSetupUser, person, rowsFor, setupBody, type SetupUser,
 } from './helpers/onboardingSetupFixture';
 
 assertDisposable();
@@ -161,16 +161,23 @@ describe('complete-setup: one company per request key', () => {
     expect(await companiesNamed(body.company.name)).toBe(1);
   });
 
-  it("another user's key does not hand them that company", async () => {
+  it("the same key from another user is a different key: they get their own fresh company, the first is untouched", async () => {
     const owner = await user();
     const body = setupBody('other');
     const first = await callSetup(owner, body);
     expect(first.status).toBe(200);
-    const intruder = await user();
-    const out = await callSetup(intruder, { ...body, company: { name: `WIZ intruder ${crypto.randomUUID()}` } });
-    expect(out.status).toBeGreaterThanOrEqual(400);
-    expect(JSON.stringify(out.body)).not.toContain(first.body.data!.companyId!);
-    expect((await pool.query('SELECT COUNT(*)::int AS n FROM company_users WHERE user_id = $1', [intruder.userId])).rows[0].n).toBe(1);
-    expect(await rowsFor(pool, first.body.data!.companyId!)).toMatchObject({ ...NO_ROWS, companies: 1, company_users: 1, gl_accounts: expect.any(Number), fiscal_periods: expect.any(Number) });
+    const other = await user();
+    const name = `WIZ other user ${crypto.randomUUID()}`;
+    const out = await callSetup(other, { ...body, company: { name } });
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(out.body.data!.replayed).toBe(false);
+    expect(out.body.data!.companyId).not.toBe(first.body.data!.companyId);
+    expect(await companiesNamed(name)).toBe(1);
+    expect(await rowsFor(pool, first.body.data!.companyId!)).toMatchObject({ companies: 1, company_users: 1 });
+    // Stored keys are md5(user:key), so the two rows never share one.
+    const keys = (await pool.query('SELECT onboarding_request_key::text AS k FROM companies WHERE id = ANY($1::uuid[])',
+      [[first.body.data!.companyId, out.body.data!.companyId]])).rows.map((r: { k: string }) => r.k);
+    expect(new Set(keys).size).toBe(2);
+    expect(keys).not.toContain(body.requestKey);
   });
 });
