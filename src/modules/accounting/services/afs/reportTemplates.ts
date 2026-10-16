@@ -2,6 +2,8 @@
 // SA Companies Act & IFRS-compliant report wording templates
 // Based on AFS Master v15 — ISRS 4410, ISRE 2400, ISA 700, Companies Act 71 of 2008
 
+import type { AfsTemplateKey } from '@/lib/entityTypes';
+
 // ── Template Data Context ────────────────────────────────────────────────────
 
 export interface ReportTemplateContext {
@@ -13,7 +15,7 @@ export interface ReportTemplateContext {
   periodStart: string;
   framework: 'ifrs_smes' | 'full_ifrs';
   /** Pty = Private Company, CC = Close Corporation, Trust */
-  entityType: 'pty' | 'cc' | 'trust';
+  entityType: AfsTemplateKey;
   /** Name of the accounting firm / practitioner */
   practitionerName?: string;
   /** City where the report is signed */

@@ -1,8 +1,8 @@
 /**
  * Admin User Actions Service
  * Suspend, activate, delete, password reset, session management,
- * adding a company membership, and onboarding reset. Removing a membership
- * or changing its role: companyMembershipService.ts.
+ * and onboarding reset. Linking, re-roling or removing one company membership:
+ * companyMembershipService.ts.
  * All mutations should be followed by logAdminAction from auditService.
  */
 
@@ -123,24 +123,8 @@ export async function forceLogout(userId: string): Promise<void> {
   log.info('forceLogout — GoTrue tokens revoked + app sessions cleared', { userId }, 'AdminUserActionsService');
 }
 
+/** The roles the admin portal may grant (never `owner`; migration 883 refuses it too). */
 export const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
-
-export async function addUserToCompany(
-  userId: string,
-  companyId: string,
-  role: string,
-): Promise<void> {
-  if (role && !ALLOWED_COMPANY_ROLES.includes(role)) {
-    throw new Error(`Invalid role: ${role}`);
-  }
-  await sql`
-    INSERT INTO company_users (user_id, company_id, role, created_at)
-    VALUES (${userId}, ${companyId}, ${role}, NOW())
-    ON CONFLICT (user_id, company_id) DO UPDATE
-      SET role = EXCLUDED.role
-  `;
-  log.info('addUserToCompany', { userId, companyId, role }, 'AdminUserActionsService');
-}
 
 /**
  * Permanently delete a user and all associated company links / sessions.

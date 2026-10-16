@@ -3,11 +3,12 @@
 // Switches director/member/trustee, dividends/distributions, etc.
 
 import { sql } from '@/lib/neon';
-import { afsTemplateFor } from '@/lib/entityTypes';
+import { afsTemplateFor, type AfsTemplateKey } from '@/lib/entityTypes';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
-export type EntityType = 'pty' | 'cc' | 'trust';
+/** The AFS template key (src/lib/entityTypes.ts), not a company's entity code. */
+export type EntityType = AfsTemplateKey;
 
 export interface EntityTerminology {
   entityType: EntityType;
