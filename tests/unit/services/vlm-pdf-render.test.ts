@@ -43,7 +43,7 @@ describe('renderPdfFirstPage', () => {
 
   it('renders a hostile 14,400pt page into the same bounded frame', async () => {
     const png = Buffer.from((await renderPdfFirstPage(onePagePdf('HUGE', '0 0 14400 14400', 2000)))!, 'base64');
-    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1275, 1754]);
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1754, 1754]);
   }, 30_000);
 
   it('refuses PostScript (no %PDF- header): it never reaches gs, so it writes nothing', async () => {
@@ -60,6 +60,10 @@ describe('renderPdfFirstPage', () => {
     execFileSync('gs', ['-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-sDEVICE=pdfwrite', '-sOwnerPassword=o',
       '-sUserPassword=u', '-dEncryptionR=3', '-dKeyLength=128', '-o', join(dir, 'enc.pdf'), join(dir, 'plain.pdf')]);
     expect(await renderPdfFirstPage(readFileSync(join(dir, 'enc.pdf')))).toBeNull();
+  }, 30_000);
+
+  it('returns null for a truncated PDF (gs exits 0, writes a message, no PNG)', async () => {
+    expect(await renderPdfFirstPage(onePagePdf('CUT SHORT').subarray(0, 200))).toBeNull();
   }, 30_000);
 
   it('renders only page 1 of a two-page PDF', async () => {

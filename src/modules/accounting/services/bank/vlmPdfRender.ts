@@ -23,9 +23,10 @@ const MAX_PNG_BYTES = 20 * 1024 * 1024;
 const PDF_MAGIC = '%PDF-';
 const GS_ARGS = [
   '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
-  // A fixed 1275x1754 frame (A4 at 150 dpi) with the page scaled to fit, aspect
-  // kept: a hostile 14,400pt page costs the same memory as an A4 one.
-  '-sDEVICE=png16m', '-g1275x1754', '-dFIXEDMEDIA', '-dPDFFitPage', '-dFirstPage=1', '-dLastPage=1',
+  // A fixed 1754x1754 frame with the page scaled to fit, aspect kept: A4 reads
+  // at 150 dpi portrait OR landscape, and a hostile 14,400pt page costs the
+  // same memory as an A4 one.
+  '-sDEVICE=png16m', '-g1754x1754', '-dFIXEDMEDIA', '-dPDFFitPage', '-dFirstPage=1', '-dLastPage=1',
   '-sOutputFile=-', '-',
 ];
 
