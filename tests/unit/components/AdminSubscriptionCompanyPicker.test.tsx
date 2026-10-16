@@ -123,9 +123,10 @@ it('Enter after the results shrink does not pick a row that is gone', async () =
   const box = screen.getByRole('combobox', {name: 'Company'});
   fireEvent.change(box, {target: {value: 'velo'}});
   await screen.findByRole('option', {name: B.name});
-  fireEvent.keyDown(box, {key: 'ArrowDown'});
-  fireEvent.keyDown(box, {key: 'ArrowDown'});
   fireEvent.change(box, {target: {value: 'veloc'}});
+  // the old two rows are still on screen while the new search is in flight
+  fireEvent.keyDown(box, {key: 'ArrowDown'});
+  fireEvent.keyDown(box, {key: 'ArrowDown'});
   await waitFor(() => expect(screen.queryByRole('option', {name: B.name})).toBeNull());
   fireEvent.keyDown(box, {key: 'Enter'});
   expect(onChange).not.toHaveBeenCalled();
