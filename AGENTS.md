@@ -40,7 +40,7 @@ Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tena
 | `auth` | GoTrue MFA + session management |
 | `billing` | PAYG Flow wallet, Stitch Express, subscription billing |
 | `bureau` | Bureau-mode payroll |
-| `onboarding` | SA address + CIPC reg-number normalisers (pure) |
+| `onboarding` | Per-entity onboarding rules, transactional company setup (`complete-setup`), VLM normalisers, tenant provisioning |
 
 ## Commands
 
