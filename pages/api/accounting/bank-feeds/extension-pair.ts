@@ -13,6 +13,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { UUID } from '@/lib/schemas/common';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest, signExtensionToken } from '@/lib/auth';
@@ -28,7 +29,7 @@ const SUPPORTED_BANKS = ['absa'] as const;
 
 const PairSchema = z.object({
   bankId: z.enum(SUPPORTED_BANKS),
-  bankAccountId: z.string().uuid(),
+  bankAccountId: UUID,
   externalAccountId: z.string().min(4).max(40),
   scraperVersion: z.string().max(20).optional(),
 }).strict();

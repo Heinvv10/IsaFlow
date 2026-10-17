@@ -200,6 +200,11 @@ export default function AdminUserDetailPage() {
     if (ok) { showToast('Company removed'); void load(); }
   }
 
+  async function handleChangeCompanyRole(companyId: string, role: string) {
+    const ok = await doAction('company-role', 'PATCH', { company_id: companyId, role });
+    if (ok) { showToast('Role updated'); void load(); }
+  }
+
   async function handleConvertToBureau() {
     if (!user) return;
     const suggested = `${user.first_name} ${user.last_name}`.trim() || user.email.split('@')[0]!;
@@ -327,6 +332,7 @@ export default function AdminUserDetailPage() {
               actionLoading={actionLoading}
               onLink={handleLinkCompany}
               onDelink={handleDelinkCompany}
+              onChangeRole={handleChangeCompanyRole}
             />
           )}
           {activeTab === 'audit' && typeof id === 'string' && <UserAuditLog userId={id} />}
