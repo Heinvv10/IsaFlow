@@ -6,6 +6,7 @@
 
 
 import { sql } from '@/lib/neon';
+import { getEntityType, isEntityTypeCode, DEFAULT_ENTITY_TYPE } from '@/lib/entityTypes';
 // import { extractStatutoryDocWithVlm, isVlmAvailable } from '../bank/vlmService';
 import type {
   ExtractedStatutoryDoc,
@@ -25,6 +26,8 @@ type CompanyDocumentRow = {
 
 const DOC_TYPE_MAP: Record<string, StatutoryDocType> = {
   cipc_certificate: 'cipc',
+  ck_certificate: 'ck_certificate',
+  letters_of_authority: 'letters_of_authority',
   tax_clearance: 'tax_clearance',
   bbbee_certificate: 'bbee',
   vat_registration: 'vat_registration',
@@ -32,11 +35,28 @@ const DOC_TYPE_MAP: Record<string, StatutoryDocType> = {
 
 const DOC_TYPE_LABELS: Record<StatutoryDocType, string> = {
   cipc: 'CIPC Registration Certificate',
+  ck_certificate: 'CK1 / CK2 Founding Statement',
+  letters_of_authority: "Master's Letters of Authority",
   tax_clearance: 'Tax Clearance Certificate',
   bbee: 'B-BBEE Certificate',
   vat_registration: 'VAT Registration Certificate',
   unknown: 'Unknown Document',
 };
+
+/**
+ * The registration document this company must hold: its entity type's required
+ * proof when that is a company document (CIPC certificate, CK1/CK2, Letters of
+ * Authority). None for a sole proprietor, partnership or "other", whose proof
+ * is people's IDs or nothing; they get no "CIPC missing" alert.
+ */
+async function registrationProofTypes(companyId: string): Promise<StatutoryDocType[]> {
+  const rows = (await sql`SELECT entity_type FROM companies WHERE id = ${companyId}::uuid`) as { entity_type: string | null }[];
+  const stored = rows[0]?.entity_type;
+  const proof = getEntityType(isEntityTypeCode(stored) ? stored : DEFAULT_ENTITY_TYPE).requiredProof;
+  if (proof.kind !== 'document') return [];
+  const mapped = DOC_TYPE_MAP[proof.documentType];
+  return mapped ? [mapped] : [];
+}
 
 // ---------------------------------------------------------------------------
 // Compliance Alerts
@@ -49,7 +69,9 @@ export async function checkComplianceAlerts(companyId: string): Promise<Complian
   const alerts: ComplianceAlert[] = [];
   const now = new Date();
 
-  const requiredTypes: StatutoryDocType[] = ['cipc', 'tax_clearance', 'bbee', 'vat_registration'];
+  const requiredTypes: StatutoryDocType[] = [
+    ...await registrationProofTypes(companyId), 'tax_clearance', 'bbee', 'vat_registration',
+  ];
 
   // Fetch all active statutory documents with extracted data
    

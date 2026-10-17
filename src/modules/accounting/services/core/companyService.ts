@@ -7,6 +7,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listLiveCompanyMemberships } from '@/lib/auth/liveCompanies';
 import { mapCompany } from './companyMapper';
+import { isEntityTypeCode } from '@/lib/entityTypes';
+import { assertEntityTypeChangeAllowed } from '@/modules/onboarding/services/entityTypeChange';
 import type { Company, CompanyUser } from './companyMapper';
 
 export type { Company, CompanyUser } from './companyMapper';
@@ -95,6 +97,8 @@ export async function createCompany(input: {
 
 export async function updateCompany(id: string, input: Partial<Record<string, unknown>>): Promise<Company> {
   const v = (key: string) => input[key] !== undefined ? (input[key] === '' ? null : input[key]) : undefined;
+  // A new entity type needs its own required proof on file (throws EntityTypeChangeRefused).
+  if (isEntityTypeCode(input.entityType)) await assertEntityTypeChangeAllowed(id, input.entityType);
 
   const rows = (await sql`
     UPDATE companies SET

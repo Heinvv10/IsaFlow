@@ -16,6 +16,7 @@ import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { canWrite } from '@/lib/auth/writeRoles';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
+import { MIN_UPLOAD_BYTES } from '@/modules/onboarding/uploadLimits';
 type Row = Record<string, unknown>;
 
 
@@ -79,6 +80,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (!idBuf || !magicBytesMatchMime(idBuf, detectedMime)) {
           return apiResponse.badRequest(res, 'ID document contents do not match the declared type');
         }
+        // An ID scan is never this small; a header-only file is not an ID (entity proof, uploadLimits).
+        if (idBuf.length < MIN_UPLOAD_BYTES) {
+          return apiResponse.badRequest(res, 'ID document is too small to be a real document (under 1 KB)');
+        }
       }
     }
 
@@ -91,7 +96,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         INSERT INTO company_directors (company_id, name, id_number, role, id_document_name, id_document_data)
         VALUES (
           ${companyId}::UUID, ${dir.name.trim()}, ${dir.idNumber || null},
-          ${dir.role || 'Director'}, ${dir.idDocument?.name || null}, ${dir.idDocument?.data || null}
+          ${dir.role || 'Director'},
+          ${dir.idDocument?.data ? (dir.idDocument.name || 'id-document') : null}, ${dir.idDocument?.data || null}
         )
       `;
     }
