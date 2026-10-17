@@ -1,4 +1,5 @@
 // ── Shared types & constants for Company Settings tabs ────────────────────────
+import { PROOF_DOCUMENT_LABELS } from '@/lib/entityTypes';
 
 export interface Company {
   id: string;
@@ -163,10 +164,10 @@ export const LABEL_CLS = 'block text-xs font-medium text-[var(--ff-text-secondar
 export const SECTION_CLS = 'bg-[var(--ff-surface-primary)] border border-[var(--ff-border-primary)] rounded-xl p-6';
 
 export const DOC_TYPE_LABELS: Record<string, string> = {
-  cipc_certificate: 'CIPC Registration Certificate',
   tax_clearance: 'Tax Clearance Certificate',
   bbbee_certificate: 'B-BBEE Certificate',
   vat_registration: 'VAT Registration Certificate',
+  ...PROOF_DOCUMENT_LABELS,
   other: 'Other Document',
 };
 
@@ -175,27 +176,6 @@ export const INDUSTRIES = [
   'Education', 'Engineering', 'Healthcare', 'Hospitality', 'Information Technology',
   'Legal', 'Manufacturing', 'Mining', 'Property', 'Retail',
   'Telecommunications', 'Transport & Logistics', 'Other',
-];
-
-export const BUSINESS_STRUCTURES = [
-  { value: 'sole_proprietor', label: 'Sole Proprietor' },
-  { value: 'partnership', label: 'Partnership' },
-  { value: 'cc', label: 'Close Corporation (CC)' },
-  { value: 'pty_ltd', label: 'Private Company (Pty Ltd)' },
-  { value: 'ltd', label: 'Public Company (Ltd)' },
-  { value: 'npc', label: 'Non-Profit Organisation (NPC)' },
-  { value: 'trust', label: 'Trust' },
-  { value: 'other', label: 'Other' },
-];
-
-export const ENTITY_TYPES = [
-  { value: 'company', label: 'Company (Pty Ltd)' },
-  { value: 'cc', label: 'Close Corporation (CC)' },
-  { value: 'sole_proprietor', label: 'Sole Proprietor' },
-  { value: 'trust', label: 'Trust' },
-  { value: 'partnership', label: 'Partnership' },
-  { value: 'npc', label: 'Non-Profit Company (NPC)' },
-  { value: 'other', label: 'Other' },
 ];
 
 // ── Toggle ────────────────────────────────────────────────────────────────────

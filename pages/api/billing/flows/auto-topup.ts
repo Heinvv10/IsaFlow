@@ -5,6 +5,7 @@
 
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
+import { UUID } from '@/lib/schemas/common';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -14,7 +15,7 @@ import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 
 const Body = z.object({
   enabled:  z.boolean(),
-  bundleId: z.string().uuid().nullable().optional(),
+  bundleId: UUID.nullable().optional(),
 }).strict().refine((v) => !v.enabled || !!v.bundleId, {
   message: 'bundleId is required when enabling auto-topup',
   path: ['bundleId'],

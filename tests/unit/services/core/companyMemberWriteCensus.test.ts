@@ -80,7 +80,9 @@ const KNOWN_WRITERS = [
   'scripts/stress-test.ts: writes', // W18 stress seed — postgres
   'src/modules/accounting/services/core/userAccessService.ts: writes', // W1/W2 — app_user
   'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — app_user
-  'src/modules/admin/services/adminUserActionsService.ts: writes', // W11–W14 — platform_admin
+  'src/modules/admin/services/adminUserActionsService.ts: writes', // W13–W14 delete-user, reset-onboarding — platform_admin
+  'src/modules/admin/services/companyMembershipService.ts: locks', // the membership row, FOR UPDATE — platform_admin
+  'src/modules/admin/services/companyMembershipService.ts: writes', // W11–W12 link, re-role, remove — platform_admin, last-owner rule
   'src/modules/onboarding/services/tenantProvisioningService.ts: writes', // W15 — migration_admin pool
 ];
 

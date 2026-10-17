@@ -153,7 +153,7 @@ describe('BEST_EFFORT_ACTIONS', () => {
       'invoice.create', 'invoice.send',
       'trial.extend', 'trial.bulk_extend', 'company.extend_trial',
       'user.add_to_company', 'user.remove_from_company', 'user.activate',
-      'flow.eligibility', 'feature_flag.update',
+      'flow.eligibility', 'feature_flag.update', 'user.change_company_role',
     ]) {
       expect(BEST_EFFORT_ACTIONS.has(action)).toBe(false);
     }

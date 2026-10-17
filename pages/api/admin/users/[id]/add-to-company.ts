@@ -1,6 +1,13 @@
 /**
  * Admin Add User To Company API
  * POST /api/admin/users/[id]/add-to-company — Add a user to a company with a given role
+ *
+ * 409 when the user is already linked to the company: this used to upsert the
+ * role, which could demote a company's last owner unchecked; a linked
+ * company's role changes only through PATCH company-role. 400 for a role the
+ * portal may not grant. Only those refusals are caught: any other error, a
+ * failed audit write included, propagates as a 500 and withPlatformAdmin rolls
+ * the link back.
  */
 
 import type { NextApiResponse } from 'next';
@@ -9,8 +16,9 @@ import { type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
-import { log } from '@/lib/logger';
-import { addUserToCompany } from '@/modules/admin/services/adminUserActionsService';
+import {
+  addUserToCompany, CompanyMembershipError, MEMBERSHIP_ERROR_CODE,
+} from '@/modules/admin/services/companyMembershipService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 import { UUID } from '@/lib/schemas/common';
@@ -28,26 +36,27 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (!parsed.success) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
+    const { company_id, role } = parsed.data;
 
     try {
-      const { company_id, role } = parsed.data;
-
       await addUserToCompany(userId, company_id, role);
-
-      await logAdminAction(
-        req.user.id,
-        'user.add_to_company',
-        'user',
-        userId,
-        { company_id, role },
-        getIp(req)
-      );
-
-      return apiResponse.success(res, { added: true });
     } catch (err) {
-      log.error('Failed to add user to company', { userId, error: err }, 'admin-api');
-      return apiResponse.badRequest(res, 'Failed to add user to company');
+      if (err instanceof CompanyMembershipError) {
+        return apiResponse.error(res, MEMBERSHIP_ERROR_CODE[err.code], err.message);
+      }
+      throw err;
     }
+
+    await logAdminAction(
+      req.user.id,
+      'user.add_to_company',
+      'user',
+      userId,
+      { company_id, role },
+      getIp(req)
+    );
+
+    return apiResponse.success(res, { added: true });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
