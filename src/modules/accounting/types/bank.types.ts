@@ -29,6 +29,12 @@ export interface BankCsvParseResult {
   errors: Array<{ row: number; error: string }>;
   bankFormat: string;
   /**
+   * PDFs only: 'native' when the parser written for the statement's own bank read the rows (ABSA's, or
+   * the per-bank factory's); 'fallback' when the ABSA date-amount pattern was applied to another or
+   * unrecognised layout, which reads some rows and silently drops the rest.
+   */
+  parser?: 'native' | 'fallback';
+  /**
    * Account number extracted from the statement (PDFs only, when the parser
    * can find it in the header). Normalised — no spaces, dashes, or other
    * separators. Used by the import API to verify the uploaded statement

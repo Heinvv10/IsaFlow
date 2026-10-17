@@ -52,6 +52,7 @@ beforeEach(() => {
 describe('a PDF the deterministic parsers can read', () => {
   const absa = parsed({
     bankFormat: 'absa',
+    parser: 'native',
     accountNumber: '4102426629',
     transactions: [
       { transactionDate: '2026-03-10', amount: 5000, description: 'Salary', balance: 15000, reference: 'SAL' },
@@ -86,26 +87,35 @@ describe('a PDF the deterministic parsers can read', () => {
   });
 });
 
-describe('a PDF in a layout no bank parser recognises', () => {
-  // The router's last resort is the ABSA date-amount pattern on an unknown layout. On a real digital
-  // GoTyme statement (66 rows) it returned 10, silently: a partial read must not beat the page reader.
-  const partial = parsed({
-    bankFormat: 'unknown',
+describe('rows from the ABSA-pattern fallback', () => {
+  // The router's last resort is the ABSA date-amount pattern on a layout it has no parser for. On a real
+  // digital GoTyme statement (66 rows) it returned 10, silently: a partial read must not beat the page
+  // reader, whether the bank was recognised (its own parser found nothing) or not.
+  const fallback = (bankFormat: string) => parsed({
+    bankFormat,
+    parser: 'fallback',
     transactions: [{ transactionDate: '2026-03-05', amount: -200, description: 'Shop' }],
   });
 
-  it('does not trust the fallback\'s rows; the page reader reads it', async () => {
-    m.parseBankPdf.mockResolvedValue(partial);
+  it.each(['unknown', 'nedbank'])('are not trusted for a %s statement; the page reader reads it', async (format) => {
+    m.parseBankPdf.mockResolvedValue(fallback(format));
     m.readStatementPdf.mockResolvedValue([page({ transactions: [vlmTx('a', -10), vlmTx('b', -20)] })]);
     const out = await extractBankStatementFromDocument(CO, DOC);
     expect(m.readStatementPdf).toHaveBeenCalledTimes(1);
     expect(out.transactions.map((t) => t.description)).toEqual(['a', 'b']);
   });
 
-  it('with no VLM configured, fails rather than keep the fallback\'s partial rows', async () => {
-    m.parseBankPdf.mockResolvedValue(partial);
+  it('with no VLM configured, fail rather than keep the fallback\'s partial rows', async () => {
+    m.parseBankPdf.mockResolvedValue(fallback('nedbank'));
     delete process.env.VLLM_BASE_URL;
     await expect(extractBankStatementFromDocument(CO, DOC)).rejects.toMatchObject({ code: 'unavailable' });
+  });
+
+  it('rows from a recognised bank\'s own parser are trusted', async () => {
+    m.parseBankPdf.mockResolvedValue({ ...fallback('nedbank'), parser: 'native' });
+    const out = await extractBankStatementFromDocument(CO, DOC);
+    expect(m.readStatementPdf).not.toHaveBeenCalled();
+    expect(out.transactions).toHaveLength(1);
   });
 });
 
