@@ -1,7 +1,10 @@
 /**
  * Supplier Statement Reconciliation Service
  *
- * Orchestrates: fetch PDF bytes → VLM extraction → match lines → persist.
+ * Upload → an 'extracting' reconciliation answered at once → a background job reads the statement
+ * and matches its lines (supplierStatementExtractionJob) → the user reviews, rematches, marks
+ * reconciled. A reconciliation that is 'extracting' or 'failed' has no lines to match or reconcile;
+ * it can be retried or (failed only) deleted (supplierStatementLifecycle).
  *
  * DB queries:   supplierStatementReconDb.ts
  * Match logic:  supplierStatementMatchHelper.ts
@@ -9,10 +12,6 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import { getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
-import { fetchRawBytes } from '@/lib/documentStorage';
-import { extractSupplierStatementWithVlm } from '@/modules/accounting/services/bank/vlmSupplierStatementService';
 import {
   buildInserts,
   toDateStr,
@@ -20,7 +19,9 @@ import {
   toStr,
   type MismatchReason,
 } from './supplierStatementMatchHelper';
+import { measureOurSide } from './supplierStatementMeasure';
 import {
+  extractionView,
   fetchFullReconciliation,
   loadSupplierInvoices,
   persistLinesAndUpdateCounts,
@@ -64,7 +65,14 @@ export interface SupplierStatementReconciliation {
   supplierBalance: number;
   isaflowBalance: number;
   variance: number;
-  status: 'unreconciled' | 'reconciled' | 'disputed' | 'archived';
+  status: 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
+  /** Why the read failed (status 'failed'). */
+  extractionError: string | null;
+  /** A failed read can be tried again, except a statement with too many pages. */
+  retryable: boolean;
+  /** Pages read so far and in all, while 'extracting' a PDF. */
+  pagesDone: number | null;
+  pagesTotal: number | null;
   missingInIsaflowCount: number;
   missingInStatementCount: number;
   amountDiffCount: number;
@@ -79,86 +87,6 @@ type DbRow = Record<string, unknown>;
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
-/**
- * Our side of the variance: what we owed this supplier ON THE STATEMENT DATE —
- * the date the supplier's closing balance is struck at — from the AP ageing's
- * own rewind (R-059). It used to be today's si.balance over every non-paid,
- * non-cancelled bill, drafts included: a payment made after the statement date
- * showed as a variance the supplier could never explain, and a bill raised
- * after it was compared against a statement that predates it.
- *
- * The ONE place this is computed. Creation and Rematch both call it, because a
- * variance struck once and then kept while the lines are re-matched against
- * today's bills is a figure from a different moment than the counts beside it
- * (R-059 round 10).
- */
-async function measureOurSide(
-  companyId: string,
-  supplierId: string,
-  statementDate: string,
-  supplierBalance: number,
-): Promise<{ isaflowBalance: number; variance: number }> {
-  const aged = await getAPAgingDetail(companyId, supplierId, statementDate);
-  const isaflowBalance = Math.round(aged.invoices.reduce((s, inv) => s + inv.balance, 0) * 100) / 100;
-  const variance = Math.round((supplierBalance - isaflowBalance) * 100) / 100;
-  return { isaflowBalance, variance };
-}
-
-export async function createReconciliation(
-  companyId: string,
-  supplierId: string,
-  capturedDocumentId: string,
-  userId: string,
-): Promise<SupplierStatementReconciliation> {
-  const raw = await fetchRawBytes(capturedDocumentId, companyId);
-  if (!raw) throw new Error(`Captured document ${capturedDocumentId} not found or has no stored bytes`);
-
-  const base64 = raw.buffer.toString('base64');
-  const mimeType = raw.fileType === 'pdf' ? 'application/pdf' : `image/${raw.fileType}`;
-  const extraction = await extractSupplierStatementWithVlm(base64, mimeType);
-
-  if (extraction.warnings.length > 0) {
-    log.warn('Supplier statement extraction warnings', { warnings: extraction.warnings }, 'recon-service');
-  }
-
-  const statementDate = extraction.statementDate ?? asAtTodayStr();
-  const supplierBalance = extraction.closingBalance ?? 0;
-
-  const { isaflowBalance, variance } = await measureOurSide(companyId, supplierId, statementDate, supplierBalance);
-
-  const [headerRow] = (await sql`
-    INSERT INTO supplier_statement_reconciliations
-      (company_id, supplier_id, source_document_id, statement_date,
-       period_start, period_end, supplier_balance, isaflow_balance, variance,
-       status, created_by)
-    VALUES (
-      ${companyId}, ${supplierId}::uuid, ${capturedDocumentId}::uuid, ${statementDate}::date,
-      ${extraction.periodStart ?? null}::date, ${extraction.periodEnd ?? null}::date,
-      ${supplierBalance}, ${isaflowBalance}, ${variance},
-      'unreconciled', ${userId}::uuid
-    )
-    RETURNING id
-  `) as DbRow[];
-  if (!headerRow) throw new Error('Failed to insert reconciliation header');
-  const reconId = headerRow.id as string;
-
-  const invoices = await loadSupplierInvoices(
-    companyId, supplierId, extraction.periodStart ?? null, extraction.periodEnd ?? null,
-  );
-  const { inserts, confidences } = buildInserts(reconId, extraction.lines, invoices);
-  await persistLinesAndUpdateCounts(reconId, inserts);
-
-  const exact = confidences.filter((c) => c === 1.0).length;
-  const fuzzy = confidences.filter((c) => c === 0.85).length;
-  log.info('Supplier statement match confidence distribution', {
-    reconId, total: inserts.length, exact, fuzzy, unmatched: inserts.length - exact - fuzzy,
-  }, 'recon-service');
-
-  const result = await fetchFullReconciliation(companyId, reconId);
-  if (!result) throw new Error('Failed to retrieve created reconciliation');
-  return result;
-}
 
 export async function getReconciliation(
   companyId: string,
@@ -199,7 +127,7 @@ export async function listReconciliations(
     supplierBalance: toNum(r.supplier_balance),
     isaflowBalance: toNum(r.isaflow_balance),
     variance: toNum(r.variance),
-    status: (r.status as SupplierStatementReconciliation['status']) ?? 'unreconciled',
+    ...extractionView(r),
     missingInIsaflowCount: toNum(r.missing_in_isaflow_count),
     missingInStatementCount: toNum(r.missing_in_statement_count),
     amountDiffCount: toNum(r.amount_diff_count),
@@ -219,6 +147,17 @@ export class ReconciliationClosedError extends Error {
   }
 }
 
+/** Rematch or reconcile of a reconciliation that is still being read, or failed to be. Thrown before any write, so the route may answer 409. */
+export class ReconciliationNotReadyError extends Error {
+  readonly code = 'RECONCILIATION_NOT_READY';
+  constructor(readonly reconciliationId: string, status: string) {
+    super(status === 'extracting'
+      ? 'This statement is still being read.'
+      : 'This statement could not be read; retry it or delete it.');
+    this.name = 'ReconciliationNotReadyError';
+  }
+}
+
 export async function rematchLines(
   companyId: string,
   reconciliationId: string,
@@ -234,6 +173,9 @@ export async function rematchLines(
   // was reconciled at (stored nowhere else). Refused rather than re-matched
   // without the variance write, which would split counts from variance (R-059 r11).
   if (String(header.status) === 'reconciled') throw new ReconciliationClosedError(reconciliationId);
+  // Nothing to match yet (or ever): a rematch would write zero lines over a read in progress.
+  const readState = String(header.status);
+  if (readState === 'extracting' || readState === 'failed') throw new ReconciliationNotReadyError(reconciliationId, readState);
 
   const existingLines = (await sql`
     SELECT * FROM supplier_statement_lines
@@ -292,8 +234,14 @@ export async function markReconciled(
     UPDATE supplier_statement_reconciliations
     SET status = 'reconciled', reconciled_at = NOW(),
         reconciled_by = ${userId}::uuid, updated_at = NOW()
-    WHERE id = ${reconciliationId}::uuid AND company_id = ${companyId}
+    WHERE id = ${reconciliationId}::uuid AND company_id = ${companyId} AND status NOT IN ('extracting', 'failed')
     RETURNING id
   `) as DbRow[];
-  if (!row) throw new Error(`Reconciliation ${reconciliationId} not found`);
+  if (row) return;
+  const [current] = (await sql`
+    SELECT status FROM supplier_statement_reconciliations
+    WHERE id = ${reconciliationId}::uuid AND company_id = ${companyId}
+  `) as DbRow[];
+  if (current) throw new ReconciliationNotReadyError(reconciliationId, String(current.status));
+  throw new Error(`Reconciliation ${reconciliationId} not found`);
 }

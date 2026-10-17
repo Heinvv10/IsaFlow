@@ -11,7 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { markReconciled } from '@/modules/accounting/services/capture/supplierStatementReconService';
+import { markReconciled, ReconciliationNotReadyError } from '@/modules/accounting/services/capture/supplierStatementReconService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -25,7 +25,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!id) return apiResponse.badRequest(res, 'Missing id');
 
-  await markReconciled(companyId, id, userId);
+  try {
+    await markReconciled(companyId, id, userId);
+  } catch (err) {
+    // Still being read, or failed to be: nothing was written, so 409 is safe.
+    if (err instanceof ReconciliationNotReadyError) return apiResponse.conflict(res, err.message);
+    throw err;
+  }
 
   log.info('Reconciliation marked as reconciled', { reconciliationId: id }, 'supplier-stmt-api');
 

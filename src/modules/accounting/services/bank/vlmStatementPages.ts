@@ -17,14 +17,17 @@
  */
 
 import { log } from '@/lib/logger';
+import { buildImageContent } from './vlmCore';
 import { renderPdfPage } from './vlmPdfRender';
 import { sharedSlotLimiter, envLimit } from './vlmLimiter';
 
 /** A page whose text (trimmed) is shorter than this is treated as a scan and rendered. */
 export const MIN_PAGE_TEXT_CHARS = 200;
 const DEFAULT_MAX_STATEMENT_PAGES = 20;
+/** One page of text is a few thousand characters; this only stops a runaway layer. */
+const PAGE_TEXT_LIMIT = 12_000;
 
-export type StatementReadCode = 'too_many_pages' | 'unreadable' | 'page_failed';
+export type StatementReadCode = 'too_many_pages' | 'unreadable' | 'page_failed' | 'unavailable';
 
 /** The message is safe to show the user. */
 export class StatementReadError extends Error {
@@ -162,4 +165,18 @@ async function heartbeat(
       done, total, error: err instanceof Error ? err.message : String(err),
     }, 'vlm-statement-pages');
   }
+}
+
+/**
+ * The user message for one page: which page of how many it is, what to leave
+ * out (`rules`, from the statement kind), and the page as text or as a PNG.
+ */
+export function statementPageContent(req: PageRequest, rules: string): Array<Record<string, unknown>> {
+  const instruction = `This is page ${req.page} of ${req.total} of the statement. `
+    + `Extract only the rows printed on this page. ${rules}`;
+  if (req.pngBase64) return buildImageContent(req.pngBase64, 'image/png', instruction);
+  return [{
+    type: 'text',
+    text: `${instruction}\n\nThere is no image: this is the text layer of the page.\n\n${(req.text ?? '').slice(0, PAGE_TEXT_LIMIT)}`,
+  }];
 }

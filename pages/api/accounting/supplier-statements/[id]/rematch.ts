@@ -14,7 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { rematchLines, ReconciliationClosedError } from '@/modules/accounting/services/capture/supplierStatementReconService';
+import { rematchLines, ReconciliationClosedError, ReconciliationNotReadyError } from '@/modules/accounting/services/capture/supplierStatementReconService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -35,6 +35,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // A reconciled statement is closed: nothing was written, so 409 is safe
     // even though withAuth commits a 4xx.
     if (err instanceof ReconciliationClosedError) return apiResponse.conflict(res, err.message);
+    // Still being read, or failed to be: nothing to match, and nothing was written.
+    if (err instanceof ReconciliationNotReadyError) return apiResponse.conflict(res, err.message);
     throw err;
   }
 }
