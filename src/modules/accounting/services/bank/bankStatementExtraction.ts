@@ -65,9 +65,10 @@ export async function extractBankStatementFromDocument(
 
   if (raw.fileType === 'pdf') {
     const parsed = await parseBankPdf(raw.buffer);
-    // 'unknown' means the router fell back to the ABSA date-amount pattern on a layout it does not know,
-    // which reads some rows of a statement and silently drops the rest (10 of 66 on a GoTyme PDF).
-    if (parsed.transactions.length > 0 && parsed.bankFormat !== 'unknown') return fromParsers(parsed);
+    // Only rows from the parser written for this bank are trusted. The router's last resort (the ABSA
+    // date-amount pattern on another or unknown layout) reads some rows and silently drops the rest:
+    // 10 of 66 on a GoTyme PDF.
+    if (parsed.transactions.length > 0 && parsed.parser === 'native') return fromParsers(parsed);
     if (!isVlmAvailable()) throw unavailable();
     return mergeBankPages(await readStatementPdf(raw.buffer, 'bank', readBankStatementPage, onProgress));
   }

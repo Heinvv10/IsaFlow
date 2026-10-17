@@ -149,14 +149,14 @@ export async function parseBankPdf(
 
   // Route to ABSA parser (handles Investment, DD/MM/YYYY, and text-date variants)
   if (detectedFormat === 'absa') {
-    return parseAbsaPdfText(text);
+    return { ...parseAbsaPdfText(text), parser: 'native' };
   }
 
   // Other SA banks: delegate to factory
   if (['fnb', 'standard_bank', 'nedbank', 'capitec'].includes(detectedFormat)) {
     const { parseBankStatementText } = await import('./bankPdfParserFactory');
     const factoryResult = parseBankStatementText(text, detectedFormat);
-    if (factoryResult.transactions.length > 0) return factoryResult;
+    if (factoryResult.transactions.length > 0) return { ...factoryResult, parser: 'native' };
     // Provisional / empty-period statement — parsed OK but no transactions
     if (factoryResult.errors.some(e => e.error === '__empty_period__')) {
       return {
@@ -177,7 +177,7 @@ export async function parseBankPdf(
     log.info('PDF parsed using ABSA fallback pattern', {
       count: fallback.transactions.length,
     }, 'accounting-pdf');
-    return { ...fallback, bankFormat: detectedFormat };
+    return { ...fallback, bankFormat: detectedFormat, parser: 'fallback' };
   }
 
   return {
