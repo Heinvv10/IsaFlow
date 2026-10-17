@@ -11,7 +11,10 @@ vi.mock('@/modules/accounting/services/core/companyService', () => ({
   getCompany: vi.fn(), createCompany: vi.fn(), setDefaultCompany: vi.fn(), updateCompany,
   getUserCompanies: vi.fn(async () => [{ companyId: 'c1', role: 'owner' }]),
 }));
+// updateCompany checks a CHANGED type's proof against the DB and throws EntityTypeChangeRefused
+// (tests/integration/onboarding-complete-setup-guards.int.test.ts); here it is mocked.
 import handler from '../../../pages/api/accounting/companies';
+import { EntityTypeChangeRefused } from '@/modules/onboarding/services/entityTypeChange';
 import { ENTITY_TYPE_CODES } from '@/lib/entityTypes';
 
 async function put(body: Record<string, unknown>) {
@@ -36,5 +39,11 @@ describe('PUT /api/accounting/companies entityType edges', () => {
   });
   it('an omitted entityType is not validated', async () => {
     expect((await put({ id: 'c1', name: 'x' })).status).toBe(200);
+  });
+  it("updateCompany's proof refusal is a 400 with the issues", async () => {
+    updateCompany.mockRejectedValueOnce(new EntityTypeChangeRefused(['Upload the CK1 or CK2']));
+    const r = await put({ id: 'c1', entityType: 'cc' });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r.body)).toContain('Upload the CK1 or CK2');
   });
 });

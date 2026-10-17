@@ -17,6 +17,7 @@ import { sql } from '@/lib/neon';
 import { isVlmAvailable } from '@/modules/accounting/services/bank/vlmService';
 import { extractStatutoryDocWithVlm } from '@/modules/accounting/services/bank/vlmService';
 import { log } from '@/lib/logger';
+import { MIN_UPLOAD_BYTES } from '@/modules/onboarding/uploadLimits';
 import { runAfterCommit } from '@/lib/afterCommit';
 type Row = Record<string, unknown>;
 
@@ -109,6 +110,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!docBuf || !magicBytesMatchMime(docBuf, mimeType as string)) {
       return apiResponse.badRequest(res, 'File contents do not match the declared type');
     }
+    // A certificate is never this small; a header-only file is not proof (uploadLimits).
+    if (docBuf.length < MIN_UPLOAD_BYTES) {
+      return apiResponse.badRequest(res, 'File is too small to be a real document (under 1 KB)');
+    }
     if (!(await validateMembership(companyId))) {
       return apiResponse.forbidden(res, 'You do not have access to this company');
     }
@@ -178,8 +183,11 @@ export async function extractStatutoryDocData(fileData: string, docType: string,
   const mimeType = match[1]!;
   const base64 = match[2]!;
 
+  // The VLM's hint. A CK1/CK2 is a CIPC-issued registration document and reads
+  // with the CIPC prompt; a trust's Letters of Authority has no prompt of its own.
   const docTypeMap: Record<string, string> = {
     cipc_certificate: 'cipc',
+    ck_certificate: 'cipc',
     tax_clearance: 'tax_clearance',
     bbbee_certificate: 'bbee',
     vat_registration: 'vat_registration',

@@ -4,16 +4,51 @@
 # Module — `src/modules/onboarding/`
 
 ## Purpose
-Utility services that normalise raw data extracted by the VLM (vision-language model) during company onboarding — specifically SA address components and CIPC registration numbers. No DB access, no API routes — pure transformation helpers.
+Company onboarding: the per-entity rules the wizard and the server share, the one transactional completion (`POST /api/onboarding/complete-setup`), the normalisers for VLM-extracted data (SA addresses, CIPC registration numbers), and tenant provisioning / waitlist promotion / PAYG eligibility.
 
 ## Directory layout
 
 ```
 src/modules/onboarding/
 └── services/
-    ├── addressNormaliser.ts        — SA address field rescue + province inference
-    └── registrationNumberNormaliser.ts — CIPC reg number whitespace normaliser
+    ├── entityOnboardingRules.ts     — per-entity rules (pure; client + server)
+    ├── onboardingSetupPayload.ts    — complete-setup body parser + file checks (server)
+    ├── onboardingSetupService.ts    — completeOnboardingSetup: the one transaction (server)
+    ├── onboardingSetupWriters.ts    — its write stages (server)
+    ├── entityTypeChange.ts          — proof check for a later entity-type change (companies PUT)
+    ├── ../uploadLimits.ts           — upload MIME list + size caps (client + server)
+    ├── addressNormaliser.ts         — SA address field rescue + province inference
+    ├── registrationNumberNormaliser.ts — CIPC reg number whitespace normaliser
+    ├── tenantProvisioningService.ts — signup / waitlist tenant creation (admin pool)
+    ├── waitlistPromotionService.ts  — admin waitlist promote
+    └── paygEligibilityService.ts    — PAYG eligibility
 ```
+
+## Entity rules (`entityOnboardingRules.ts`)
+
+Pure functions over `@/lib/entityTypes` (the one list of the 8 SA entity codes; never redefine it). The wizard gates Continue with them and `complete-setup` refuses with them, so the two cannot disagree.
+
+- **One required proof per entity** (Hein, 2026-10-16): pty_ltd / ltd / npc → `cipc_certificate`; cc → `ck_certificate`; trust → `letters_of_authority`; sole_proprietor → the owner with their ID document (exactly 1 owner); partnership → ≥2 partners, each with an ID document; other → nothing. Tax clearance, B-BBEE and the VAT certificate are optional for all (`OPTIONAL_DOCUMENT_SLOTS`). A sole proprietor is never asked for CIPC.
+- `setupIssues(facts)` — every refusal (type, name, max people, the same person twice — the same non-empty ID number, the same ID document (sha256 of the decoded bytes on the server), or the same normalised name where neither has an ID number —, a registration number `entityFromRegistrationNumber` reads as ANOTHER entity type, a document the entity does not use, the proof); empty = may finish. The wizard's review step shows these and disables Complete Setup. `proofIssues` — the proof alone (documents-step gating; also `entityTypeChange.ts`).
+- **Changing the entity type later**: every writer of `companies.entity_type` calls `assertEntityTypeChangeAllowed` (`entityTypeChange.ts`): `companyService.updateCompany` (PUT /api/accounting/companies) and PUT /api/accounting/afs/pis-score; both answer 400 with the issues. Judged over stored rows (company row locked FOR UPDATE first): active (`is_active = true`) `company_documents` of ≥1 KB, `company_directors` identified only by `id_document_data` of ≥1 KB (a name alone is not an ID); sizes from the base64 with whitespace/padding removed; the new type's people maximum; the duplicate-people rule only when the new type's proof is people's IDs (ID fingerprints: md5 of the canonical base64, url-safe alphabet mapped back). Same type, or no type: no check. RLS USING is membership, so a change to another company the user belongs to sees that company's rows.
+- **Self-serve company creation is complete-setup only**: POST /api/accounting/companies with no action answers 400 "Create a company through onboarding (/onboarding)" (its `set-default` action stays). Email verification (the placeholder company), admin create and waitlist promotion still create companies with the DB default `pty_ltd` and no proof (known follow-up).
+- **Compliance alerts** (`statutoryDocService.checkComplianceAlerts`) ask for the entity's registration document (CIPC / CK1-CK2 / Letters of Authority) and none for sole proprietor / partnership / other.
+- `documentSlotsFor` / `allowedDocumentTypes` / `hasRequiredProofDocument` — document slots; `registrationNumberFor` — null for entities with no registration number (sole proprietor, partnership, other); `businessNameLabel`.
+- `entityFromRegistrationNumber` — CIPC suffix /06 ltd, /07 pty_ltd, /08 npc, /23 or a CK prefix cc; else null. Smart Setup ASKS the user when it disagrees with their choice, never switches silently.
+- `smartSetupSourceFor` — company document (`/api/onboarding/extract`) for CIPC/CK types, the owner ID (`/api/onboarding/extract-id`) for a sole proprietor, none for partnership / trust / other (the wizard skips Smart Setup).
+- People are stored in `company_directors` with `role` = the entity's `personRole` (the client's role is ignored).
+
+## Atomic completion (`complete-setup`)
+
+`pages/api/onboarding/complete-setup.ts` (withAuth + withErrorHandler + withCsrf, 41 MB body) → `parseSetupRequest` (shape, UUID `requestKey`, text ≤500 chars, VAT pair validated by `core/vatSettingValidation.ts` and stored trimmed lower-case, logo as `company-logo.ts` checks it, every file: MIME allowlist pdf/jpeg/png/gif, a data-URL prefix that agrees with `mimeType`, magic bytes, ≥1 KB, ≤20 MB; ≤30 MB of files per request, ≤20 documents, ≤50 people) → `setupIssues` → rate limit 10 / hour / user, counting only requests that passed validation (plus 60 / hour on every attempt, before parsing) → `completeOnboardingSetup`. The 1 KB minimum also holds on POST company-directors (an ID name with no data is stored without one) and company-documents.
+
+- **One transaction**: every write uses the request-scoped `sql`, i.e. withAuth's transaction, committed only on a < 500 answer. Order: advisory xact lock on the request key → replay lookup → `createCompany` (`create_company_with_owner`, SECURITY DEFINER: company + owner membership + default taxonomy) → `UPDATE companies SET entity_type, onboarding_request_key` → `set_config('app.current_company_id', <new>, true)` → `seedChartOfAccountsFromTemplate` → people → documents (`file_data` in the DB) → `users.onboarding_completed = true`. All of it inside a savepoint: a throw anywhere rolls the savepoint back and marks the request `rollbackOnly`, so no row survives even if a caller answers 4xx (integration-tested per stage and with a real DB error). The service refuses to run without an ALS transaction. The ALS store's `companyId` follows the GUC (nothing reads it after today).
+- **Why the GUC switch**: the RLS WITH CHECK on gl_accounts / company_directors / company_documents is `company_id = app.current_company_id()`, which withAuth set to the cookie's company. The old step-by-step endpoints (still kept for other callers) wrote the chart and directors to the ACTIVE company, not the new one.
+- **Cookies** (active company = the new one, `ff_onboarding_done`) are set last; withAuth buffers the response until COMMIT and drops Set-Cookie on a failed commit.
+- **Double submit**: the wizard sends one `requestKey` per session and re-sends it on retry. A second request with the key (concurrent, or after a lost response) returns `{ companyId, replayed: true }` for the company the first one created. The stored key is `md5(userId || ':' || requestKey)::uuid`, so another user's identical key is a different key (they get their own company). The replay lookup takes only a live company (`liveCompanies.ts`'s rule); a key whose company was deactivated hits the partial unique index and the route answers 409 with a generic sentence (never the constraint name).
+- `/api/onboarding/complete` (withCsrf) only re-issues the cookie: flag true, or NULL with a `company_users` row (set to true). Refused 409 while the flag is false, with no users row, or NULL with no membership; the wizard's submit is the only way to finish. The old `/api/onboarding/documents` route is deleted.
+- Request-body logs (`src/lib/sanitizeRequestBody.ts`, used by api-error-handler) replace `file_data`, `fileData`, `idDocument`, `logoData`, `idNumber`, `id_number` (any depth) with a size marker, and `data` when it is a data: URL, over 1 KB, or an array holding such a string. Migration 895 adds the column (and widens the `company_documents.document_type` CHECK with `ck_certificate`, `letters_of_authority`).
+- Tests: `tests/unit/onboarding/entityOnboardingRules.test.ts`, `tests/integration/onboarding-complete-setup-{rules,atomic}.int.test.ts`.
 
 ## Services
 
@@ -72,9 +107,21 @@ const regNo = normaliseRegistrationNumber(vlmExtractedRegNo);
 ```
 
 ## Dependencies
-None — both services are pure TypeScript with no imports.
+- Normalisers and `entityOnboardingRules.ts`: pure (the rules import only `@/lib/entityTypes`); safe in client React.
+- Completion: `@/lib/neon` (request `sql`), `@/lib/als`, `@/lib/fileMagic`, `companyService.createCompany`, `chartOfAccountsService.seedChartOfAccountsFromTemplate`.
+
+## Accepted follow-ups (not enforced today)
+- Proof can be removed after onboarding or an entity change: company-directors POST replaces the people (an empty list removes them all) and a company document can be deactivated, with no re-check of the entity's required proof.
+- Stored-ID fingerprints in the entity-change check are md5 of the canonical base64 (prefix, whitespace and padding removed, url-safe alphabet mapped back), not of the decoded bytes; complete-setup's own payload check uses sha256 of the decoded bytes.
+- Email verification's placeholder company, admin create and waitlist promotion create companies with no entity choice and no proof.
 
 ## Multi-tenant / security notes
-- No DB access; no `company_id` needed.
-- No PII stored — these are stateless transforms on data passed in by the caller.
-- Safe to call from both API handlers and client-side React (no Node.js APIs used).
+- Completion writes only the company it just created (scoped by its id, RLS-checked under the switched GUC) and the caller's own `users` row.
+- `WizardSteps.tsx` is over 300 lines (pre-existing); not split.
+- People's ID numbers and ID documents (PII) are stored in `company_directors`; uploaded files are checked by magic bytes, never by the claimed type alone.
+
+## Recent changes
+- 2026-10-16: entity-aware onboarding (step 0 = business type) and the one transactional `complete-setup` endpoint; migration 895.
+- 2026-10-17 (review round 3): entity-change check adds maxPeople, duplicates only for people-proof types, canonical base64 sizes/fingerprints, FOR UPDATE; POST /api/accounting/companies no longer creates a company (405, onboarding only).
+- 2026-10-17 (review round 2): entity-type check on every writer (incl. pis-score), judged by stored data size; 1 KB minimum on directors/documents routes; namesakes with different ID numbers allowed; sanitizer moved out; 60/hour attempt cap; complete.ts membership check.
+- 2026-10-17 (review round 1): `/api/onboarding/complete` no longer finishes onboarding for a false flag; per-user request keys + 409; upload minimum/total caps, prefix check, logo + text caps; duplicate-people and registration-number rules; entity-type change proof check; entity-aware compliance alerts; PII-free body logs.

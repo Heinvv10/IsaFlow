@@ -11,38 +11,7 @@ import { redactShareToken, redactTokenParams } from '@/lib/observability/redactS
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { respondIfReconciliationCompleted } from '@/lib/apiReconciliationCompleted';
 import { respondIfImpersonationForbidden } from '@/lib/auth/impersonationGuard';
-
-const SENSITIVE_KEYS = new Set([
-  'password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key',
-  // OAuth token-endpoint credentials — exact-key matching missed these, so
-  // /api/oauth/token was logging raw refresh tokens + client secrets to stdout.
-  'client_secret', 'clientSecret', 'refresh_token', 'refreshToken',
-  'access_token', 'accessToken', 'code_verifier', 'codeVerifier',
-]);
-
-// Substring fragments — redact any key containing these (case-insensitive), so
-// new/renamed credential fields (…_secret, …_token, …verifier) can't silently
-// leak. Kept narrow to avoid over-redacting benign fields ('code' alone, a
-// single-use auth code, is intentionally NOT a fragment — too broad).
-const SENSITIVE_FRAGMENTS = ['secret', 'token', 'password', 'apikey', 'verifier'];
-
-function isSensitiveKey(key: string): boolean {
-  if (SENSITIVE_KEYS.has(key)) return true;
-  const k = key.toLowerCase();
-  return SENSITIVE_FRAGMENTS.some((f) => k.includes(f));
-}
-
-function sanitizeBody(body: unknown): unknown {
-  if (!body || typeof body !== 'object') return body;
-  const sanitized: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
-    sanitized[key] = isSensitiveKey(key) ? '[REDACTED]' : value;
-  }
-  return sanitized;
-}
-
-// Exported for tests — the request-body log scrubber for credential fields.
-export const __sanitizeBodyForTest = sanitizeBody;
+import { sanitizeRequestBody } from '@/lib/sanitizeRequestBody';
 
 /**
  * Standard API error response
@@ -114,7 +83,7 @@ export function withErrorHandler(
           method: req.method,
           url: safeUrl,
           query: redactTokenParams(req.query),
-          body: req.method !== 'GET' ? sanitizeBody(req.body) : undefined,
+          body: req.method !== 'GET' ? sanitizeRequestBody(req.body) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 
         // Execute the actual handler
