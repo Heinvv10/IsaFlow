@@ -16,6 +16,7 @@ import {
   type LineInsert,
   type MismatchReason,
 } from './supplierStatementMatchHelper';
+import { effectiveExtractionState } from '@/modules/accounting/services/bank/statementExtractionState';
 import type {
   ReconciliationLine,
   MissingInvoice,
@@ -75,13 +76,18 @@ export async function loadSupplierInvoices(
 // Persist lines
 // ---------------------------------------------------------------------------
 
-export async function persistLinesAndUpdateCounts(
+/** A tagged-template runner: the pool's `sql`, or the `tx` of a transaction. */
+export type SqlRunner = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
+
+/** Replace the lines of one reconciliation. Scoped by its id: the caller has checked the reconciliation's company. */
+export async function replaceStatementLines(
+  run: SqlRunner,
   reconId: string,
   inserts: LineInsert[],
 ): Promise<void> {
-  await sql`DELETE FROM supplier_statement_lines WHERE reconciliation_id = ${reconId}::uuid`;
+  await run`DELETE FROM supplier_statement_lines WHERE reconciliation_id = ${reconId}::uuid`;
   for (const ln of inserts) {
-    await sql`
+    await run`
       INSERT INTO supplier_statement_lines
         (reconciliation_id, line_date, reference, description, debit, credit,
          running_balance, matched_supplier_invoice_id, match_confidence, mismatch_reason)
@@ -92,6 +98,13 @@ export async function persistLinesAndUpdateCounts(
       )
     `;
   }
+}
+
+export async function persistLinesAndUpdateCounts(
+  reconId: string,
+  inserts: LineInsert[],
+): Promise<void> {
+  await replaceStatementLines(sql, reconId, inserts);
   await sql`
     UPDATE supplier_statement_reconciliations
     SET missing_in_isaflow_count   = ${inserts.filter((l) => l.mismatchReason === 'missing_in_isaflow').length},
@@ -120,6 +133,27 @@ function mapLineRow(r: DbRow, invNum: string | null): ReconciliationLine {
     matchedInvoiceNumber: invNum,
     matchConfidence: r.match_confidence != null ? toNum(r.match_confidence) : null,
     mismatchReason: (r.mismatch_reason as MismatchReason) ?? null,
+  };
+}
+
+/**
+ * The status and extraction fields of a header row, as a reader sees them: a
+ * row 'extracting' with no heartbeat for 5 minutes is reported as failed.
+ */
+export function extractionView(r: DbRow): Pick<
+  SupplierStatementReconciliation, 'status' | 'extractionError' | 'retryable' | 'pagesDone' | 'pagesTotal'
+> {
+  const state = effectiveExtractionState({
+    status: r.status ?? 'unreconciled', created_at: r.created_at, extraction_heartbeat_at: r.extraction_heartbeat_at,
+    extraction_error: r.extraction_error, extraction_error_code: r.extraction_error_code,
+    extraction_pages_done: r.extraction_pages_done, extraction_pages_total: r.extraction_pages_total,
+  });
+  return {
+    status: state.status as SupplierStatementReconciliation['status'],
+    extractionError: state.extractionError,
+    retryable: state.retryable,
+    pagesDone: state.pagesDone,
+    pagesTotal: state.pagesTotal,
   };
 }
 
@@ -170,7 +204,7 @@ export async function fetchFullReconciliation(
     supplierBalance: toNum(header.supplier_balance),
     isaflowBalance: toNum(header.isaflow_balance),
     variance: toNum(header.variance),
-    status: (header.status as SupplierStatementReconciliation['status']) ?? 'unreconciled',
+    ...extractionView(header),
     missingInIsaflowCount: toNum(header.missing_in_isaflow_count),
     missingInStatementCount: toNum(header.missing_in_statement_count),
     amountDiffCount: toNum(header.amount_diff_count),

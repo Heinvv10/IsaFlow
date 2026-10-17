@@ -1,44 +1,39 @@
-// RED phase — written before implementation
 /**
  * Unit tests for bankStatementOcrService.ts — PRD-05 Phase 7
  *
- * Covers: createImportFromDocument (happy path, exact-fp dup, fuzzy dup,
- * zero-extraction), commitImport (partial dups, status flip, already-committed
- * guard, rollback guard), rollbackImport (status flip, committed guard).
+ * Covers: createImportFromDocument (inserts an 'extracting' row and queues the background job),
+ * retryImport / deleteFailedImport (guarded, company-scoped), the stale-extraction reading of a
+ * row, commitImport / rollbackImport (never on a row that is still being read, or failed).
+ * What the job does with the extraction lives in bankStatementExtractionJob.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ExtractedBankStatement } from '@/modules/accounting/types/documentCapture.types';
 
 // ── Hoisted mocks ─────────────────────────────────────────────────────────────
 
-const { sqlMock } = vi.hoisted(() => ({
+const { sqlMock, afterCommit, runJob } = vi.hoisted(() => ({
   sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn().mockReturnValue('') }),
+  afterCommit: vi.fn<(label: string, fn: () => Promise<unknown>) => void>(),
+  runJob: vi.fn(async () => undefined),
 }));
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock('@/lib/documentStorage', () => ({
-  fetchRawBytes: vi.fn().mockResolvedValue({
-    buffer: Buffer.from('%PDF-1.4 test'),
-    hash: 'deadbeef',
-    size: 13,
-    fileType: 'pdf',
-  }),
-}));
-vi.mock('@/modules/accounting/services/bank/vlmBankService', () => ({
-  extractBankStatementWithVlm: vi.fn(),
-}));
+vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: afterCommit }));
+vi.mock('@/modules/accounting/services/bank/bankStatementExtractionJob', () => ({ runBankStatementExtraction: runJob }));
 
 import {
   createImportFromDocument,
   commitImport,
+  deleteFailedImport,
+  getImport,
+  listImports,
+  retryImport,
   rollbackImport,
 } from '@/modules/accounting/services/bank/bankStatementOcrService';
-import { fetchRawBytes } from '@/lib/documentStorage';
-import { extractBankStatementWithVlm } from '@/modules/accounting/services/bank/vlmBankService';
+import { ExtractionActionRefusedError } from '@/modules/accounting/services/bank/statementExtractionState';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -47,25 +42,6 @@ const BANK_ACCT_ID  = 'bbbbbbbb-0000-0000-0000-000000000002';
 const DOC_ID        = 'cccccccc-0000-0000-0000-000000000003';
 const USER_ID       = 'dddddddd-0000-0000-0000-000000000004';
 const IMPORT_ID     = 'eeeeeeee-0000-0000-0000-000000000005';
-
-/** Minimal VLM extraction with 3 transactions. */
-function makeExtraction(overrides: Partial<ExtractedBankStatement> = {}): ExtractedBankStatement {
-  return {
-    bankName: 'FNB',
-    accountNumber: '62012345678',
-    statementPeriod: { from: '2026-03-01', to: '2026-03-31' },
-    openingBalance: 10000,
-    closingBalance: 9500,
-    confidence: 0.97,
-    warnings: [],
-    transactions: [
-      { date: '2026-03-05', description: 'Pick n Pay Superstore', amount: -200, balance: 9800, reference: 'PNP001', transactionType: 'debit' },
-      { date: '2026-03-10', description: 'Salary Credit March',  amount: 5000, balance: 14800, reference: 'SAL001', transactionType: 'credit' },
-      { date: '2026-03-15', description: 'Eskom prepaid electricity', amount: -300, balance: 14500, reference: 'ESK001', transactionType: 'debit' },
-    ],
-    ...overrides,
-  };
-}
 
 /** DB row returned by INSERT INTO bank_statement_imports */
 function makeImportDbRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -124,107 +100,171 @@ function makeImport(overrides: Partial<{
 
 // ── createImportFromDocument ──────────────────────────────────────────────────
 
+const text = (call: unknown[]) => (call[0] as string[]).join('?').replace(/::\w+/g, '').replace(/\s+/g, ' ').trim();
+
 describe('createImportFromDocument', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(fetchRawBytes).mockResolvedValue({
-      buffer: Buffer.from('%PDF-1.4 test'),
-      hash: 'deadbeef',
-      size: 13,
-      fileType: 'pdf',
-    });
-  });
+  beforeEach(() => { vi.clearAllMocks(); });
 
-  it('happy path: 3 rows, no duplicates → rowCount=3, duplicateCount=0, status=reviewing', async () => {
-    vi.mocked(extractBankStatementWithVlm).mockResolvedValueOnce(makeExtraction());
-
-    // runDedupPass: SELECT existing bank_transactions → empty (no dups)
-    sqlMock.mockResolvedValueOnce([]); // existing bank_transactions
-    // INSERT bank_statement_imports → return persisted row
-    sqlMock.mockResolvedValueOnce([makeImportDbRow({ duplicate_count: 0 })]);
+  it('inserts the row as extracting, with no rows yet, and answers with it', async () => {
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'extracting', row_count: 0, extraction_summary: {}, created_at: new Date() })]);
 
     const result = await createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID);
 
-    expect(result.rowCount).toBe(3);
-    expect(result.duplicateCount).toBe(0);
-    expect(result.status).toBe('extracted');
+    expect(sqlMock).toHaveBeenCalledTimes(1);
+    const insert = sqlMock.mock.calls[0]!;
+    expect(text(insert)).toContain('INSERT INTO bank_statement_imports');
+    expect(text(insert)).toContain("'extracting'");
+    expect(insert.slice(1)).toEqual(expect.arrayContaining([COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID]));
+    expect(result.status).toBe('extracting');
+    expect(result.rows).toEqual([]);
     expect(result.id).toBe(IMPORT_ID);
   });
 
-  it('exact fingerprint duplicate: 1 of 3 rows matches existing tx → duplicateCount=1', async () => {
-    vi.mocked(extractBankStatementWithVlm).mockResolvedValueOnce(makeExtraction());
+  it('queues the extraction for after the request commits, and does not run it inline', async () => {
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'extracting', created_at: new Date() })]);
 
-    // Existing tx matches row[0] exactly: same date, amount, and first-30-chars of description
-    const existingTx = {
-      id: 'tx-existing-001',
-      transaction_date: '2026-03-05',
-      amount: -200,
-      description: 'Pick n Pay Superstore',
-    };
-    sqlMock.mockResolvedValueOnce([existingTx]); // bank_transactions lookup
-    sqlMock.mockResolvedValueOnce([makeImportDbRow({ duplicate_count: 1 })]); // INSERT
+    await createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID);
 
-    const result = await createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID);
+    expect(afterCommit).toHaveBeenCalledTimes(1);
+    expect(runJob).not.toHaveBeenCalled();
+    await afterCommit.mock.calls[0]![1]();
+    expect(runJob).toHaveBeenCalledWith(COMPANY_ID, IMPORT_ID);
+  });
+});
 
-    expect(result.duplicateCount).toBe(1);
-    expect(result.rowCount).toBe(3);
+// ── reading a row that is extracting or failed ────────────────────────────────
+
+describe('getImport / listImports on a row that is being read', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('shows a fresh extraction as extracting, with its page progress', async () => {
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({
+      status: 'extracting', created_at: new Date(), extraction_heartbeat_at: new Date(),
+      extraction_pages_done: 2, extraction_pages_total: 9,
+    })]);
+    const imp = await getImport(COMPANY_ID, IMPORT_ID);
+    expect(imp).toMatchObject({ status: 'extracting', extractionError: null, retryable: false, pagesDone: 2, pagesTotal: 9 });
   });
 
-  it('fuzzy duplicate: date off by 1 day, same amount, description dice ≥ 0.7 → persisted with duplicateCount=1', async () => {
-    vi.mocked(extractBankStatementWithVlm).mockResolvedValueOnce(makeExtraction());
-
-    // Existing tx: date is 2026-03-04 (1 day earlier), same amount, description
-    // is slightly different but dice ≥ 0.7 with "Pick n Pay Superstore"
-    const existingTx = {
-      id: 'tx-fuzzy-001',
-      transaction_date: '2026-03-04', // 1 day off
-      amount: -200,
-      description: 'Pick n Pay Superstore Bellville', // similar but not identical
-    };
-    sqlMock.mockResolvedValueOnce([existingTx]);
-    sqlMock.mockResolvedValueOnce([makeImportDbRow({ duplicate_count: 1 })]);
-
-    const result = await createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID);
-
-    // The dedup pass should mark one row as fuzzy duplicate
-    expect(result.duplicateCount).toBe(1);
+  it('shows an extraction with no heartbeat for over 5 minutes as failed and retryable', async () => {
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({
+      status: 'extracting', created_at: new Date(Date.now() - 20 * 60_000), extraction_heartbeat_at: new Date(Date.now() - 6 * 60_000),
+    })]);
+    const imp = await getImport(COMPANY_ID, IMPORT_ID);
+    expect(imp).toMatchObject({ status: 'failed', extractionError: 'Extraction was interrupted — retry it.', retryable: true });
   });
 
-  it('VLM returns 0 transactions → rowCount=0, warnings includes "No transactions extracted"', async () => {
-    vi.mocked(extractBankStatementWithVlm).mockResolvedValueOnce(
-      makeExtraction({ transactions: [], warnings: ['No transactions extracted'] }),
-    );
-
-    // runDedupPass short-circuits on empty rows array (no SQL call needed)
+  it('applies the same reading to every row of the list', async () => {
     sqlMock.mockResolvedValueOnce([
-      makeImportDbRow({
-        row_count: 0,
-        duplicate_count: 0,
-        extraction_summary: { rows: [], warnings: ['No transactions extracted'] },
-      }),
+      makeImportDbRow({ id: 'a', status: 'extracting', created_at: new Date(Date.now() - 20 * 60_000) }),
+      makeImportDbRow({ id: 'b', status: 'failed', extraction_error: 'Page 1 of 2 could not be read. Retry the import.', created_at: new Date() }),
+      makeImportDbRow({ id: 'c', status: 'extracted', created_at: new Date() }),
     ]);
-
-    const result = await createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID);
-
-    expect(result.rowCount).toBe(0);
-    expect(result.warnings).toContain('No transactions extracted');
+    const list = await listImports(COMPANY_ID);
+    expect(list.map((i) => [i.id, i.status, i.retryable])).toEqual([['a', 'failed', true], ['b', 'failed', true], ['c', 'extracted', false]]);
+    expect(list[1]!.extractionError).toBe('Page 1 of 2 could not be read. Retry the import.');
   });
 
-  it('throws when documentStorage returns null', async () => {
-    vi.mocked(fetchRawBytes).mockResolvedValueOnce(null);
+  it('does not let a too-many-pages failure be retried', async () => {
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({
+      status: 'failed', extraction_error: 'This statement has 31 pages', extraction_error_code: 'too_many_pages', created_at: new Date(),
+    })]);
+    expect((await getImport(COMPANY_ID, IMPORT_ID))!.retryable).toBe(false);
+  });
+});
 
-    await expect(
-      createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID),
-    ).rejects.toThrow(DOC_ID);
+// ── retryImport ───────────────────────────────────────────────────────────────
+
+describe('retryImport', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('puts a failed (or stale) import back to extracting with one guarded UPDATE for this company, then queues the job', async () => {
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'extracting', created_at: new Date() })]);
+
+    const imp = await retryImport(COMPANY_ID, IMPORT_ID);
+
+    const update = sqlMock.mock.calls[0]!;
+    const t = text(update);
+    expect(t).toContain("SET status = 'extracting'");
+    expect(t).toContain('extraction_error = NULL');
+    expect(t).toContain('extraction_heartbeat_at = NOW()');
+    expect(t).toContain('WHERE id = ? AND company_id = ?');
+    expect(t).toContain("status = 'failed'");
+    expect(t).toContain("status = 'extracting' AND COALESCE(extraction_heartbeat_at, created_at) < NOW() - make_interval(mins => ?)");
+    expect(t).toContain("extraction_error_code IS DISTINCT FROM 'too_many_pages'");
+    expect(update.slice(1)).toEqual([IMPORT_ID, COMPANY_ID, 5]);
+    expect(imp.status).toBe('extracting');
+    expect(afterCommit).toHaveBeenCalledTimes(1);
+    await afterCommit.mock.calls[0]![1]();
+    expect(runJob).toHaveBeenCalledWith(COMPANY_ID, IMPORT_ID);
   });
 
-  it('throws when VLM extraction returns null', async () => {
-    vi.mocked(extractBankStatementWithVlm).mockResolvedValueOnce(null);
-    // no bank_transactions query needed — throws before dedup
+  it('refuses, and starts nothing, when the guarded UPDATE matched no row (double click)', async () => {
+    sqlMock.mockResolvedValueOnce([]); // UPDATE matched nothing
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'extracting', created_at: new Date() })]); // why
+    await expect(retryImport(COMPANY_ID, IMPORT_ID)).rejects.toMatchObject({ code: 'IN_PROGRESS' });
+    expect(afterCommit).not.toHaveBeenCalled();
+  });
 
-    await expect(
-      createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID),
-    ).rejects.toThrow('VLM extraction returned null');
+  it('says a too-long statement cannot be retried', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'failed', extraction_error_code: 'too_many_pages', created_at: new Date() })]);
+    await expect(retryImport(COMPANY_ID, IMPORT_ID)).rejects.toMatchObject({ code: 'NOT_RETRYABLE' });
+    expect(afterCommit).not.toHaveBeenCalled();
+  });
+
+  it('says a finished import cannot be retried', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'extracted', created_at: new Date() })]);
+    await expect(retryImport(COMPANY_ID, IMPORT_ID)).rejects.toMatchObject({ code: 'NOT_RETRYABLE' });
+  });
+
+  it('says an import that is not there is not there', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(retryImport(COMPANY_ID, IMPORT_ID)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(retryImport(COMPANY_ID, IMPORT_ID)).rejects.toBeInstanceOf(ExtractionActionRefusedError);
+  });
+
+  it('looks the reason up for this company only', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([]);
+    await retryImport(COMPANY_ID, IMPORT_ID).catch(() => undefined);
+    const why = sqlMock.mock.calls[1]!;
+    expect(text(why)).toContain('company_id = ?');
+    expect(why.slice(1)).toContain(COMPANY_ID);
+  });
+});
+
+// ── deleteFailedImport ────────────────────────────────────────────────────────
+
+describe('deleteFailedImport', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('deletes only a failed (or stale) import of this company', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: IMPORT_ID }]);
+    await expect(deleteFailedImport(COMPANY_ID, IMPORT_ID)).resolves.toBeUndefined();
+    const del = sqlMock.mock.calls[0]!;
+    const t = text(del);
+    expect(t).toContain('DELETE FROM bank_statement_imports');
+    expect(t).toContain('WHERE id = ? AND company_id = ?');
+    expect(t).toContain("status = 'failed'");
+    expect(t).toContain("status = 'extracting' AND COALESCE(extraction_heartbeat_at, created_at) < NOW() - make_interval(mins => ?)");
+    expect(del.slice(1)).toEqual([IMPORT_ID, COMPANY_ID, 5]);
+  });
+
+  it('refuses an import that is extracted, committed or still being read', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'extracted', created_at: new Date() })]);
+    await expect(deleteFailedImport(COMPANY_ID, IMPORT_ID)).rejects.toMatchObject({ code: 'NOT_FAILED' });
+  });
+
+  it('says an import that is not there is not there', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(deleteFailedImport(COMPANY_ID, IMPORT_ID)).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });
 
@@ -358,85 +398,36 @@ describe('rollbackImport', () => {
   });
 });
 
-// ── diceCoefficient (internal — tested via fuzzy dedup behaviour) ─────────────
+// ── an import that is still being read, or failed, is never committed or rolled back ──
 
-describe('fuzzy dedup confidence value', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(fetchRawBytes).mockResolvedValue({
-      buffer: Buffer.from('%PDF-1.4 test'),
-      hash: 'deadbeef',
-      size: 13,
-      fileType: 'pdf',
+describe('commitImport / rollbackImport on an import that is not extracted', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  for (const [status, message] of [
+    ['extracting', 'Import is still being read'],
+    ['failed', 'Import could not be read'],
+  ] as const) {
+    it(`commit refuses a ${status} import and writes nothing`, async () => {
+      sqlMock.mockResolvedValueOnce([]); // FOR UPDATE lock
+      sqlMock.mockResolvedValueOnce([makeImportDbRow({ status, created_at: new Date(), extraction_summary: { rows: [
+        { date: '2026-03-05', description: 'x', amount: -1, isDuplicate: false, reference: null, runningBalance: null, duplicateOfBankTxId: null, duplicateMatchConfidence: 0 },
+      ], warnings: [] } })]);
+
+      await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow(message);
+      expect(sqlMock.mock.calls.map(text).filter((t) => t.startsWith('INSERT') || t.startsWith('UPDATE'))).toEqual([]);
     });
-  });
 
-  it('exact duplicate row carries confidence 1.0 in extraction_summary', async () => {
-    // We control what the DB INSERT returns — the rows embedded in extraction_summary
-    // reflect what createImportFromDocument computed
-    vi.mocked(extractBankStatementWithVlm).mockResolvedValueOnce(
-      makeExtraction({
-        transactions: [
-          { date: '2026-03-05', description: 'Pick n Pay Superstore', amount: -200, balance: 9800, reference: null, transactionType: null },
-        ],
-      }),
-    );
+    it(`rollback refuses a ${status} import and writes nothing`, async () => {
+      sqlMock.mockResolvedValueOnce([makeImportDbRow({ status, created_at: new Date() })]);
 
-    const existingTx = {
-      id: 'tx-exact',
-      transaction_date: '2026-03-05',
-      amount: -200,
-      description: 'Pick n Pay Superstore',
-    };
-    sqlMock.mockResolvedValueOnce([existingTx]); // bank_transactions
-    // Return extraction_summary with the row having confidence 1.0
-    sqlMock.mockResolvedValueOnce([
-      makeImportDbRow({
-        row_count: 1,
-        duplicate_count: 1,
-        extraction_summary: {
-          rows: [{ date: '2026-03-05', description: 'Pick n Pay Superstore', amount: -200, isDuplicate: true, duplicateOfBankTxId: 'tx-exact', duplicateMatchConfidence: 1.0, reference: null, runningBalance: null }],
-          warnings: [],
-        },
-      }),
-    ]);
+      await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow(message);
+      expect(sqlMock).toHaveBeenCalledTimes(1);
+    });
+  }
 
-    const result = await createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID);
-
-    expect(result.rows[0]?.isDuplicate).toBe(true);
-    expect(result.rows[0]?.duplicateMatchConfidence).toBeCloseTo(1.0, 5);
-  });
-
-  it('fuzzy duplicate row carries confidence 0.9 in extraction_summary', async () => {
-    vi.mocked(extractBankStatementWithVlm).mockResolvedValueOnce(
-      makeExtraction({
-        transactions: [
-          { date: '2026-03-05', description: 'Pick n Pay Superstore', amount: -200, balance: null, reference: null, transactionType: null },
-        ],
-      }),
-    );
-
-    const existingTx = {
-      id: 'tx-fuzzy',
-      transaction_date: '2026-03-04', // 1 day off
-      amount: -200,
-      description: 'Pick n Pay Superstore Bellville',
-    };
-    sqlMock.mockResolvedValueOnce([existingTx]);
-    sqlMock.mockResolvedValueOnce([
-      makeImportDbRow({
-        row_count: 1,
-        duplicate_count: 1,
-        extraction_summary: {
-          rows: [{ date: '2026-03-05', description: 'Pick n Pay Superstore', amount: -200, isDuplicate: true, duplicateOfBankTxId: 'tx-fuzzy', duplicateMatchConfidence: 0.9, reference: null, runningBalance: null }],
-          warnings: [],
-        },
-      }),
-    ]);
-
-    const result = await createImportFromDocument(COMPANY_ID, BANK_ACCT_ID, DOC_ID, USER_ID);
-
-    expect(result.rows[0]?.isDuplicate).toBe(true);
-    expect(result.rows[0]?.duplicateMatchConfidence).toBeCloseTo(0.9, 5);
+  it('commit refuses a stale extracting import, which is reported as failed', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'extracting', created_at: new Date(Date.now() - 60 * 60_000) })]);
+    await expect(commitImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import could not be read');
   });
 });

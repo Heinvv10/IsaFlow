@@ -1,7 +1,9 @@
 /**
  * VLM Bank Service — bank statement extraction via vLLM
  *
- * Extracts transaction lists and metadata from South African bank statement images.
+ * Extracts transaction lists and metadata from South African bank statement images,
+ * and from one page of a PDF at a time (readBankStatementPage; vlmStatementPages).
+ * The raw PDF is never sent: vLLM rejects it.
  */
 
 import { log } from '@/lib/logger';
@@ -18,6 +20,7 @@ import {
   asNumber,
   asDateString,
 } from './vlmCore';
+import { statementPageContent, type PageRequest } from './vlmStatementPages';
 
 // ---------------------------------------------------------------------------
 // Extraction prompt
@@ -57,14 +60,23 @@ Rules:
 // Public API
 // ---------------------------------------------------------------------------
 
+/** Rules for one page of a multi-page statement. */
+const PAGE_RULES = 'Do not emit "balance brought forward" or "balance carried forward" rows as transactions. '
+  + 'Give the account number, period and opening/closing balance only if they are printed on this page, otherwise null.';
+
 /**
- * Extract bank statement transactions using VLM.
+ * Extract bank statement transactions from ONE IMAGE using VLM. A PDF is read
+ * page by page instead (readBankStatementPage): vLLM rejects a raw PDF.
  */
 export async function extractBankStatementWithVlm(
   base64: string,
   mimeType: string,
   rawText?: string,
 ): Promise<ExtractedBankStatement | null> {
+  if (mimeType === 'application/pdf') {
+    log.error('Refused to send a raw PDF to vLLM — read it page by page', undefined, 'vlm-bank');
+    return null;
+  }
   const config = getVlmConfig();
   if (!config) return null;
 
@@ -79,14 +91,28 @@ export async function extractBankStatementWithVlm(
   const content = await callVlmChat(config, BANK_STATEMENT_PROMPT, userContent, 8192);
   if (!content) return null;
 
-  return parseBankStatementResponse(content);
+  return parseBankStatementResponse(content, true);
+}
+
+/** One page of a statement PDF; null when the model gave no usable answer for it. */
+export async function readBankStatementPage(req: PageRequest): Promise<ExtractedBankStatement | null> {
+  const config = getVlmConfig();
+  if (!config) return null;
+
+  log.info('Calling vLLM for a bank statement page', { model: config.model, page: req.page, total: req.total }, 'vlm-bank');
+
+  const content = await callVlmChat(config, BANK_STATEMENT_PROMPT, statementPageContent(req, PAGE_RULES), 8192);
+  if (!content) return null;
+
+  return parseBankStatementResponse(content, false);
 }
 
 // ---------------------------------------------------------------------------
 // Response parsing
 // ---------------------------------------------------------------------------
 
-function parseBankStatementResponse(content: string): ExtractedBankStatement | null {
+/** `warnEmpty`: a lone image with no rows says so; a page with none is just an empty page. */
+function parseBankStatementResponse(content: string, warnEmpty: boolean): ExtractedBankStatement | null {
   const jsonStr = cleanVlmJson(content);
 
   try {
@@ -123,7 +149,7 @@ function parseBankStatementResponse(content: string): ExtractedBankStatement | n
       warnings: [],
     };
 
-    if (transactions.length === 0) {
+    if (warnEmpty && transactions.length === 0) {
       result.warnings.push('No transactions extracted from bank statement');
     }
 

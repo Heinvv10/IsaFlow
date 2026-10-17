@@ -4,12 +4,13 @@
  *
  * Detects bank from PDF text content and delegates to the appropriate
  * bank-specific parser. ABSA is handled directly; other banks go via
- * bankPdfParserFactory.ts; unknown formats fall back to VLM.
+ * bankPdfParserFactory.ts. A layout none of them reads is refused: this runs
+ * inside an HTTP request, and the VLM (a page takes ~55 s) is only used by the
+ * background "Upload Bank Statement PDF" import (bankStatementExtractionJob).
  */
 
 import { log } from '@/lib/logger';
 import type { BankCsvParseResult } from '../types/bank.types';
-import { isVlmAvailable, extractBankStatementWithVlm } from '../services/bank/vlmService';
 import { parseAbsaPdfText } from './bankPdfParserAbsa';
 
 export { parseAbsaPdfText };
@@ -179,50 +180,12 @@ export async function parseBankPdf(
     return { ...fallback, bankFormat: detectedFormat };
   }
 
-  // VLM fallback: AI vision extraction
-  if (isVlmAvailable()) {
-    try {
-      log.info('Attempting VLM bank statement extraction', { format: detectedFormat }, 'accounting-pdf');
-      const vlmResult = await extractBankStatementWithVlm(
-        pdfBuffer.toString('base64'),
-        'application/pdf',
-        text,
-      );
-
-      if (vlmResult && vlmResult.transactions.length > 0) {
-        log.info('VLM bank statement extraction successful', {
-          bankName: vlmResult.bankName,
-          count: vlmResult.transactions.length,
-        }, 'accounting-pdf');
-
-        return {
-          transactions: vlmResult.transactions.map(t => ({
-            transactionDate: t.date || '',
-            amount: t.amount,
-            description: t.description,
-            balance: t.balance ?? undefined,
-            reference: t.reference ?? undefined,
-          })),
-          errors: [],
-          bankFormat: vlmResult.bankName?.toLowerCase() || detectedFormat,
-          accountNumber: vlmResult.accountNumber
-            ? vlmResult.accountNumber.replace(/[\s-]/g, '')
-            : undefined,
-        };
-      }
-    } catch (err) {
-      log.warn('VLM bank statement extraction failed', {
-        error: err instanceof Error ? err.message : String(err),
-      }, 'accounting-pdf');
-    }
-  }
-
   return {
     transactions: [],
     errors: [{
       row: 0,
       error: `Could not parse transactions from ${detectedFormat === 'unknown' ? 'unknown bank' : detectedFormat} PDF. ` +
-        'Please download the statement as a CSV and import that instead.',
+        `Download the statement as a CSV and import that, or upload the PDF on the Bank Statements page ('Upload Bank Statement PDF'), which also reads scans and other layouts.`,
     }],
     bankFormat: detectedFormat,
   };

@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { Loader2, AlertCircle, Upload, X, CheckCircle2, FileText } from 'lucide-react';
 
-type ReconStatus = 'unreconciled' | 'reconciled' | 'disputed' | 'archived';
+type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 
 interface SupplierStatementReconciliation {
   id: string; supplierId: string; supplierName: string;
@@ -52,6 +52,8 @@ function VarianceBadge({ variance }: { variance: number }) {
 
 function StatusBadge({ status }: { status: ReconStatus }) {
   const cfg: Record<ReconStatus, { cls: string; label: string }> = {
+    extracting:   { cls: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', label: 'Reading…' },
+    failed:       { cls: 'bg-red-500/20 text-red-400 border-red-500/30',       label: 'Failed' },
     unreconciled: { cls: 'bg-amber-500/20 text-amber-400 border-amber-500/30', label: 'Unreconciled' },
     reconciled:   { cls: 'bg-teal-500/20 text-teal-400 border-teal-500/30',    label: 'Reconciled' },
     disputed:     { cls: 'bg-red-500/20 text-red-400 border-red-500/30',       label: 'Disputed' },
@@ -150,7 +152,7 @@ export default function SupplierStatementsIndexPage() {
               placeholder="All suppliers" className="min-w-[200px]"
               inputClassName="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-indigo-500/50"
             />
-            {(['all', 'unreconciled', 'reconciled', 'disputed', 'archived'] as const).map(f => (
+            {(['all', 'extracting', 'failed', 'unreconciled', 'reconciled', 'disputed', 'archived'] as const).map(f => (
               <button key={f} onClick={() => setFilterStatus(f)}
                 className={`px-3 py-1.5 rounded text-xs font-medium transition-colors capitalize ${filterStatus === f ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] hover:border-indigo-500/40'}`}>
                 {f === 'all' ? 'All statuses' : f}
@@ -177,18 +179,22 @@ export default function SupplierStatementsIndexPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(s => (
+                  {filtered.map(s => {
+                    // A statement still being read (or that failed) has placeholder figures: show none.
+                    const unread = s.status === 'extracting' || s.status === 'failed';
+                    return (
                     <tr key={s.id} onClick={() => router.push(`/accounting/ap/supplier-statements/${s.id}`)}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors">
                       <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtDate(s.statementDate)}</td>
                       <td className="px-4 py-3 text-xs font-medium text-[var(--ff-text-primary)]">{s.supplierName}</td>
                       <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">{s.periodStart || s.periodEnd ? `${fmtDate(s.periodStart)} – ${fmtDate(s.periodEnd)}` : '—'}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.supplierBalance)}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.isaflowBalance)}</td>
-                      <td className="px-4 py-3 text-right"><VarianceBadge variance={s.variance} /></td>
+                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{unread ? '—' : fmtZAR(s.supplierBalance)}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{unread ? '—' : fmtZAR(s.isaflowBalance)}</td>
+                      <td className="px-4 py-3 text-right">{unread ? '—' : <VarianceBadge variance={s.variance} />}</td>
                       <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

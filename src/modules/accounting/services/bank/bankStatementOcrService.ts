@@ -1,18 +1,21 @@
 /**
  * Bank Statement OCR Service — PRD-05 Phase 7
  *
- * Orchestrates: fetch PDF bytes → VLM extraction → dedup pass → persist
- * to bank_statement_imports → commit non-duplicate rows into bank_transactions.
+ * Upload → an 'extracting' bank_statement_imports row answered at once → a background job reads the
+ * statement (bankStatementExtractionJob) → the user reviews the rows → commit inserts the
+ * non-duplicate ones into bank_transactions. A row that is 'extracting' or 'failed' has no rows to
+ * commit or roll back; it can be retried or (failed only) deleted.
  */
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { fetchRawBytes } from '@/lib/documentStorage';
-import { extractBankStatementWithVlm } from './vlmBankService';
-import { runDedupPass } from './bankStatementDedupHelpers';
-import type { ExtractedBankStatement } from '@/modules/accounting/types/documentCapture.types';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { parsedDayWindowError } from '../../utils/journalDateWindow';
+import { runBankStatementExtraction } from './bankStatementExtractionJob';
+import {
+  effectiveExtractionState, explainRefusal, STALE_AFTER_MINUTES,
+} from './statementExtractionState';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -41,7 +44,14 @@ export interface BankStatementImport {
   rowCount: number;
   importedCount: number;
   duplicateCount: number;
-  status: 'extracted' | 'reviewing' | 'committed' | 'rolled_back';
+  status: 'extracting' | 'extracted' | 'reviewing' | 'committed' | 'rolled_back' | 'failed';
+  /** Why the read failed (status 'failed'). */
+  extractionError: string | null;
+  /** A failed read can be tried again, except a statement with too many pages. */
+  retryable: boolean;
+  /** Pages read so far and in all, while 'extracting' a PDF. */
+  pagesDone: number | null;
+  pagesTotal: number | null;
   rows: BankStatementRow[];
   warnings: string[];
   createdAt: string;
@@ -59,17 +69,13 @@ function toDateStr(val: unknown): string | null {
   return fmtDate(val);
 }
 
-const MIME_MAP: Record<string, string> = {
-  pdf: 'application/pdf',
-  jpeg: 'image/jpeg',
-  jpg: 'image/jpeg',
-  png: 'image/png',
-  webp: 'image/webp',
-  tiff: 'image/tiff',
-};
-
 function mapDbRow(row: DbRow): BankStatementImport {
   const summary = (row.extraction_summary ?? {}) as { rows?: BankStatementRow[]; warnings?: string[] };
+  const state = effectiveExtractionState({
+    status: row.status, created_at: row.created_at, extraction_heartbeat_at: row.extraction_heartbeat_at,
+    extraction_error: row.extraction_error, extraction_error_code: row.extraction_error_code,
+    extraction_pages_done: row.extraction_pages_done, extraction_pages_total: row.extraction_pages_total,
+  });
   return {
     id: row.id as string,
     companyId: row.company_id as string,
@@ -82,7 +88,11 @@ function mapDbRow(row: DbRow): BankStatementImport {
     rowCount: Number(row.row_count ?? 0),
     importedCount: Number(row.imported_count ?? 0),
     duplicateCount: Number(row.duplicate_count ?? 0),
-    status: row.status as BankStatementImport['status'],
+    status: state.status as BankStatementImport['status'],
+    extractionError: state.extractionError,
+    retryable: state.retryable,
+    pagesDone: state.pagesDone,
+    pagesTotal: state.pagesTotal,
     rows: summary.rows ?? [],
     warnings: summary.warnings ?? [],
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
@@ -96,75 +106,91 @@ function mapDbRow(row: DbRow): BankStatementImport {
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * Insert the import as 'extracting' and answer with it; the statement is read after the request commits
+ * (a dense page takes the VLM ~55 s, longer than the request may run).
+ */
 export async function createImportFromDocument(
   companyId: string,
   bankAccountId: string,
   capturedDocumentId: string,
   userId: string,
 ): Promise<BankStatementImport> {
-  log.info('bankStatementOcr: starting extraction', { companyId, capturedDocumentId }, 'bank-stmt-ocr');
-
-  const raw = await fetchRawBytes(capturedDocumentId, companyId);
-  if (!raw) throw new Error(`captured_documents row not found or no storage_path: ${capturedDocumentId}`);
-
-  const base64 = raw.buffer.toString('base64');
-  const mimeType = MIME_MAP[raw.fileType] ?? 'application/pdf';
-
-  const extraction: ExtractedBankStatement | null = await extractBankStatementWithVlm(base64, mimeType);
-  if (!extraction) throw new Error('VLM extraction returned null — check vLLM config');
-
-  log.info('bankStatementOcr: extraction complete', {
-    bankName: extraction.bankName,
-    txCount: extraction.transactions.length,
-    warnings: extraction.warnings.length,
-  }, 'bank-stmt-ocr');
-
-  const dedup = await runDedupPass(companyId, bankAccountId, extraction.transactions);
-
-  // sec-numrace S4: a line dated outside the ledger window keeps no date (commit skips it) and says why, as the CSV
-  // import's row error does (utils/journalDateWindow).
-  const outside = (d: string | null | undefined) => (d ? parsedDayWindowError(d) : null);
-  const warnings = [...extraction.warnings, ...extraction.transactions.flatMap((tx) => {
-    const why = outside(tx.date);
-    return why ? [`${why} (${tx.description.slice(0, 60)})`] : [];
-  })];
-  const rows: BankStatementRow[] = extraction.transactions.map((tx, i) => ({
-    date: outside(tx.date) ? '' : tx.date ?? '',
-    description: tx.description,
-    reference: tx.reference ?? null,
-    amount: tx.amount,
-    runningBalance: tx.balance ?? null,
-    isDuplicate: dedup[i]!.isDuplicate,
-    duplicateOfBankTxId: dedup[i]!.duplicateOfBankTxId,
-    duplicateMatchConfidence: dedup[i]!.duplicateMatchConfidence,
-  }));
-
-  const duplicateCount = rows.filter((r) => r.isDuplicate).length;
-  const periodStart = extraction.statementPeriod?.from ?? null;
-  const periodEnd = extraction.statementPeriod?.to ?? null;
-  const extractionSummary = JSON.stringify({ rows, warnings });
-
   const inserted = (await sql`
     INSERT INTO bank_statement_imports (
       company_id, bank_account_id, source_document_id,
-      period_start, period_end, opening_balance, closing_balance,
       row_count, imported_count, duplicate_count,
       status, extraction_summary, created_by
     ) VALUES (
       ${companyId}, ${bankAccountId}::uuid, ${capturedDocumentId}::uuid,
-      ${periodStart}::date, ${periodEnd}::date,
-      ${extraction.openingBalance ?? null}, ${extraction.closingBalance ?? null},
-      ${rows.length}, 0, ${duplicateCount},
-      'extracted', ${extractionSummary}::jsonb, ${userId}::uuid
+      0, 0, 0, 'extracting', '{}'::jsonb, ${userId}::uuid
     )
     RETURNING *
   `) as DbRow[];
 
   const result = mapDbRow(inserted[0]!);
-  log.info('bankStatementOcr: import record created', {
-    importId: result.id, rowCount: rows.length, duplicateCount,
-  }, 'bank-stmt-ocr');
+  runAfterCommit('bank statement extraction', () => runBankStatementExtraction(companyId, result.id));
+  log.info('bankStatementOcr: import queued for extraction', { importId: result.id, capturedDocumentId }, 'bank-stmt-ocr');
   return result;
+}
+
+/**
+ * Put a failed import (or one whose read was interrupted) back to 'extracting' and read it again.
+ * One guarded UPDATE decides: a double click, or a statement that is too long, matches no row.
+ */
+export async function retryImport(companyId: string, importId: string): Promise<BankStatementImport> {
+  const updated = (await sql`
+    UPDATE bank_statement_imports
+    SET status = 'extracting', extraction_error = NULL, extraction_error_code = NULL,
+        extraction_heartbeat_at = NOW(), extraction_pages_done = NULL, extraction_pages_total = NULL,
+        updated_at = NOW()
+    WHERE id = ${importId}::uuid AND company_id = ${companyId}
+      AND extraction_error_code IS DISTINCT FROM 'too_many_pages'
+      AND (status = 'failed'
+        OR (status = 'extracting' AND COALESCE(extraction_heartbeat_at, created_at) < NOW() - make_interval(mins => ${STALE_AFTER_MINUTES})))
+    RETURNING *
+  `) as DbRow[];
+  if (!updated[0]) throw explainRefusal('retry', await findRow(companyId, importId));
+
+  runAfterCommit('bank statement extraction', () => runBankStatementExtraction(companyId, importId));
+  log.info('bankStatementOcr: import queued for another extraction', { importId }, 'bank-stmt-ocr');
+  return mapDbRow(updated[0]);
+}
+
+/** Delete an import that failed (or whose read was interrupted). The uploaded document is kept. */
+export async function deleteFailedImport(companyId: string, importId: string): Promise<void> {
+  const deleted = (await sql`
+    DELETE FROM bank_statement_imports
+    WHERE id = ${importId}::uuid AND company_id = ${companyId}
+      AND (status = 'failed'
+        OR (status = 'extracting' AND COALESCE(extraction_heartbeat_at, created_at) < NOW() - make_interval(mins => ${STALE_AFTER_MINUTES})))
+    RETURNING id
+  `) as DbRow[];
+  if (!deleted[0]) throw explainRefusal('delete', await findRow(companyId, importId));
+  log.info('bankStatementOcr: failed import deleted', { importId }, 'bank-stmt-ocr');
+}
+
+async function findRow(companyId: string, importId: string): Promise<DbRow | null> {
+  const rows = (await sql`
+    SELECT * FROM bank_statement_imports WHERE id = ${importId}::uuid AND company_id = ${companyId} LIMIT 1
+  `) as DbRow[];
+  return rows[0] ?? null;
+}
+
+/** Commit or rollback of an import that is still being read, or failed to be. Thrown before any write, so the route may answer 409. */
+export class ImportNotReadyError extends Error {
+  readonly code = 'IMPORT_NOT_READY';
+  constructor(message: string) {
+    super(message);
+    this.name = 'ImportNotReadyError';
+  }
+}
+
+/** Why an import that is not 'extracted' yet cannot be committed or rolled back. */
+function notReadyError(status: BankStatementImport['status']): Error | null {
+  if (status === 'extracting') return new ImportNotReadyError('Import is still being read');
+  if (status === 'failed') return new ImportNotReadyError('Import could not be read');
+  return null;
 }
 
 export async function getImport(companyId: string, importId: string): Promise<BankStatementImport | null> {
@@ -185,6 +211,8 @@ export async function commitImport(
   await sql`SELECT 1 FROM bank_statement_imports WHERE id = ${importId}::uuid AND company_id = ${companyId} FOR UPDATE`;
   const imp = await getImport(companyId, importId);
   if (!imp) throw new Error(`Import not found: ${importId}`);
+  const notReady = notReadyError(imp.status);
+  if (notReady) throw notReady;
   if (imp.status === 'committed') throw new Error('Import already committed');
   if (imp.status === 'rolled_back') throw new Error('Import has been rolled back');
 
@@ -241,6 +269,8 @@ export async function commitImport(
 export async function rollbackImport(companyId: string, importId: string, userId: string): Promise<void> {
   const imp = await getImport(companyId, importId);
   if (!imp) throw new Error(`Import not found: ${importId}`);
+  const notReady = notReadyError(imp.status);
+  if (notReady) throw notReady;
   if (imp.status === 'committed') throw new Error('Cannot roll back a committed import');
 
   await sql`

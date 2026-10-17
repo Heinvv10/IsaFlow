@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Upload, FileText } from 'lucide-react';
 
-type ImportStatus = 'extracted' | 'reviewing' | 'committed' | 'rolled_back';
+type ImportStatus = 'extracting' | 'extracted' | 'reviewing' | 'committed' | 'rolled_back' | 'failed';
 
 interface BankStatementImport {
   id: string;
@@ -32,6 +32,8 @@ function fmtDate(s: string | null): string {
 
 function StatusBadge({ status }: { status: ImportStatus }) {
   const cfg: Record<ImportStatus, { cls: string; label: string }> = {
+    extracting:  { cls: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', label: 'Reading…' },
+    failed:      { cls: 'bg-red-500/20 text-red-400 border-red-500/30',       label: 'Failed' },
     extracted:   { cls: 'bg-blue-500/20 text-blue-400 border-blue-500/30',    label: 'Extracted' },
     reviewing:   { cls: 'bg-amber-500/20 text-amber-400 border-amber-500/30', label: 'Reviewing' },
     committed:   { cls: 'bg-teal-500/20 text-teal-400 border-teal-500/30',    label: 'Committed' },
