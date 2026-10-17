@@ -2,8 +2,8 @@
  * Bank statement extraction — where a stored statement's rows come from.
  *
  * A PDF goes to the deterministic parsers (ABSA, the per-bank factory) first:
- * they read a digital statement exactly and instantly. Only a PDF they find
- * nothing in (a scan, an unknown layout) is read by the VLM, one page per call
+ * they read a digital statement of a recognised bank exactly and instantly. Only a PDF they
+ * find nothing in, or do not recognise (a scan, an unknown layout), is read by the VLM, one page per call
  * (vlmStatementPages). An image is read in one call. Runs in the background job
  * (bankStatementExtractionJob), outside any request, so it only ever fetches the
  * stored bytes, by company.
@@ -65,7 +65,9 @@ export async function extractBankStatementFromDocument(
 
   if (raw.fileType === 'pdf') {
     const parsed = await parseBankPdf(raw.buffer);
-    if (parsed.transactions.length > 0) return fromParsers(parsed);
+    // 'unknown' means the router fell back to the ABSA date-amount pattern on a layout it does not know,
+    // which reads some rows of a statement and silently drops the rest (10 of 66 on a GoTyme PDF).
+    if (parsed.transactions.length > 0 && parsed.bankFormat !== 'unknown') return fromParsers(parsed);
     if (!isVlmAvailable()) throw unavailable();
     return mergeBankPages(await readStatementPdf(raw.buffer, 'bank', readBankStatementPage, onProgress));
   }
