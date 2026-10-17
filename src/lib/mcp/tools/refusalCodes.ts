@@ -156,6 +156,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // reconciliation holds — R-111. Pre-write, caller-facing.
   'RECONCILED_CASH',
   'RECONCILIATION_CLOSED',
+  // A statement still being read, or whose read failed: commit/rollback/rematch/reconcile refuse it (migration 896).
+  // Fixed wording, no id or table, raised before any write.
+  'IMPORT_NOT_READY',
+  'RECONCILIATION_NOT_READY',
   // D12: a write that would change a COMPLETED bank reconciliation (match/auto-match into it, a line of it, its
   // complete/cancel, a reversal or void of its cash). Names the account and statement date; raised before any write.
   'RECONCILIATION_COMPLETED',
