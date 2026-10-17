@@ -11,7 +11,6 @@
  */
 
 import { sql } from '@/lib/neon';
-import { log } from '@/lib/logger';
 import {
   buildInserts,
   toDateStr,

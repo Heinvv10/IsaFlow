@@ -86,6 +86,29 @@ describe('a PDF the deterministic parsers can read', () => {
   });
 });
 
+describe('a PDF in a layout no bank parser recognises', () => {
+  // The router's last resort is the ABSA date-amount pattern on an unknown layout. On a real digital
+  // GoTyme statement (66 rows) it returned 10, silently: a partial read must not beat the page reader.
+  const partial = parsed({
+    bankFormat: 'unknown',
+    transactions: [{ transactionDate: '2026-03-05', amount: -200, description: 'Shop' }],
+  });
+
+  it('does not trust the fallback\'s rows; the page reader reads it', async () => {
+    m.parseBankPdf.mockResolvedValue(partial);
+    m.readStatementPdf.mockResolvedValue([page({ transactions: [vlmTx('a', -10), vlmTx('b', -20)] })]);
+    const out = await extractBankStatementFromDocument(CO, DOC);
+    expect(m.readStatementPdf).toHaveBeenCalledTimes(1);
+    expect(out.transactions.map((t) => t.description)).toEqual(['a', 'b']);
+  });
+
+  it('with no VLM configured, fails rather than keep the fallback\'s partial rows', async () => {
+    m.parseBankPdf.mockResolvedValue(partial);
+    delete process.env.VLLM_BASE_URL;
+    await expect(extractBankStatementFromDocument(CO, DOC)).rejects.toMatchObject({ code: 'unavailable' });
+  });
+});
+
 describe('a PDF the deterministic parsers cannot read', () => {
   it('reads it page by page and merges the pages', async () => {
     m.readStatementPdf.mockResolvedValue([
