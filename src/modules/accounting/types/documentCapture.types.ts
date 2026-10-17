@@ -95,7 +95,8 @@ export interface ExtractedBankStatement {
 // Statutory Document VLM extraction
 // ---------------------------------------------------------------------------
 
-export type StatutoryDocType = 'cipc' | 'tax_clearance' | 'bbee' | 'vat_registration' | 'unknown';
+/** 'ck_certificate' / 'letters_of_authority': a CC's and a trust's registration proof (src/lib/entityTypes.ts). */
+export type StatutoryDocType = 'cipc' | 'ck_certificate' | 'letters_of_authority' | 'tax_clearance' | 'bbee' | 'vat_registration' | 'unknown';
 
 export interface ExtractedStatutoryDoc {
   documentType: StatutoryDocType;

@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { computePisBreakdown } from '@/modules/accounting/services/afs/pisCalculatorService';
 import { ENTITY_TYPE_CODES } from '@/lib/entityTypes';
+import { EntityTypeChangeRefused, assertEntityTypeChangeAllowed } from '@/modules/onboarding/services/entityTypeChange';
 
 type DbRow = Record<string, unknown>;
 
@@ -79,6 +80,27 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       registeredAddress,
       entityType,
     } = parsed.data;
+
+    // Changing the entity type is owner/admin only, as on Company Settings (PUT
+    // /api/accounting/companies). A manager re-sending the current type while
+    // saving other PIS fields is not a change; any other value is refused here,
+    // before the proof check (whose FOR UPDATE a non-admin cannot take under RLS).
+    const canChangeType = ['owner', 'admin'].includes(req.companyRole);
+    if (entityType && !canChangeType) {
+      const current = (await sql`SELECT entity_type FROM companies WHERE id = ${companyId}`) as DbRow[];
+      if (current[0]?.entity_type !== entityType) {
+        return apiResponse.forbidden(res, 'Only owners and admins can change the entity type');
+      }
+    }
+    // A new entity type needs its own required proof on file, as on Company Settings.
+    if (entityType && canChangeType) {
+      try {
+        await assertEntityTypeChangeAllowed(companyId, entityType);
+      } catch (err) {
+        if (err instanceof EntityTypeChangeRefused) return apiResponse.badRequest(res, err.message, { issues: err.issues });
+        throw err;
+      }
+    }
 
     await sql`
       UPDATE companies SET

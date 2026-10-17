@@ -1,7 +1,7 @@
 /**
  * Companies API
  * GET  — list companies for current user
- * POST — create a new company
+ * POST — action 'set-default' (creating a company is onboarding's: 400 here)
  * PUT  — update company details
  */
 
@@ -12,10 +12,15 @@ import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest }
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
-  getCompany, createCompany, updateCompany,
+  getCompany, updateCompany,
   getUserCompanies, setDefaultCompany,
 } from '@/modules/accounting/services/core/companyService';
 import { ENTITY_TYPE_CODES, isEntityTypeCode } from '@/lib/entityTypes';
+import { isValidVatPeriod, isValidVatSystemType } from '@/modules/accounting/services/core/vatSettingValidation';
+import { EntityTypeChangeRefused } from '@/modules/onboarding/services/entityTypeChange';
+
+// Re-exported: tests and older imports name them from this route.
+export { isValidVatPeriod, isValidVatSystemType };
 
 /**
  * AUTH: Uses withAuth (not withAuth) because this endpoint manages the list of
@@ -26,30 +31,6 @@ import { ENTITY_TYPE_CODES, isEntityTypeCode } from '@/lib/entityTypes';
  * arbitrary company records is explicitly gated on role === 'super_admin'.
  * See docs/audits/2026-04-14/04-code-quality.md#Q-005 for rationale.
  */
-/**
- * `vat_period` is free text in the schema and is read by the VAT signals via
- * normalizeVatSetting, which silently treats anything unrecognised as
- * bi-monthly. Reject junk at the door instead of filing VAT201 reminders for a
- * company whose cadence was a typo. 'none' = not a VAT vendor.
- */
-const VALID_VAT_PERIODS = ['monthly', 'bi-monthly', 'none'];
-export function isValidVatPeriod(value: unknown): boolean {
-  if (value === undefined || value === null || value === '') return true;
-  return typeof value === 'string' && VALID_VAT_PERIODS.includes(value.trim().toLowerCase());
-}
-
-/**
- * `vat_system_type` is the other half of the pair — it is the column
- * `normalizeVatSetting` reads for the 'none' (not-a-VAT-vendor) flag. An
- * unrecognised value there reads as "registered", so junk must be rejected
- * here too or the two columns silently disagree.
- */
-const VALID_VAT_SYSTEM_TYPES = ['invoice', 'payment', 'none'];
-export function isValidVatSystemType(value: unknown): boolean {
-  if (value === undefined || value === null || value === '') return true;
-  return typeof value === 'string' && VALID_VAT_SYSTEM_TYPES.includes(value.trim().toLowerCase());
-}
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
@@ -96,29 +77,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await setDefaultCompany(userId, req.body.companyId);
       return apiResponse.success(res, { success: true });
     }
-    const {
-      name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
-      website, addressLine1, addressLine2, city, province, postalCode, country,
-      logoData, bankName, bankAccountNumber, bankBranchCode, bankAccountType,
-      financialYearStart, vatPeriod, vatSystemType, defaultCurrency,
-    } = req.body;
-    if (!name) return apiResponse.badRequest(res, 'name is required');
-    if (!isValidVatPeriod(vatPeriod)) {
-      return apiResponse.badRequest(res, "vatPeriod must be 'monthly', 'bi-monthly' or 'none'");
-    }
-    if (!isValidVatSystemType(vatSystemType)) {
-      return apiResponse.badRequest(res, "vatSystemType must be 'invoice', 'payment' or 'none'");
-    }
-    const company = await createCompany(
-      {
-        name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
-        website, addressLine1, addressLine2, city, province, postalCode, country,
-        logoData, bankName, bankAccountNumber, bankBranchCode, bankAccountType,
-        financialYearStart, vatPeriod, vatSystemType, defaultCurrency,
-      },
-      userId
-    );
-    return apiResponse.success(res, company);
+    // Creating a company here made a pty_ltd with no required proof and no
+    // entity choice. Self-serve creation is POST /api/onboarding/complete-setup,
+    // which enforces both. (Email verification's placeholder, admin create and
+    // waitlist promotion still create companies with the DB default pty_ltd
+    // and no proof: a known follow-up.) 400, not 405: POST stays allowed here
+    // for action 'set-default'.
+    return apiResponse.badRequest(res, 'Create a company through onboarding (/onboarding)');
   }
 
   if (req.method === 'PUT') {
@@ -140,8 +105,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!['owner', 'admin'].includes(membership.role)) {
       return apiResponse.forbidden(res, 'Only owners and admins can update company details');
     }
-    const company = await updateCompany(id, updates);
-    return apiResponse.success(res, company);
+    try {
+      const company = await updateCompany(id, updates);
+      return apiResponse.success(res, company);
+    } catch (err) {
+      // updateCompany checks a new entity type's proof (entityTypeChange.ts) before it writes.
+      if (err instanceof EntityTypeChangeRefused) return apiResponse.badRequest(res, err.message, { issues: err.issues });
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'PUT']);

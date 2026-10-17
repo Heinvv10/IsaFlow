@@ -1,24 +1,38 @@
 /**
- * /onboarding — 7-step company setup wizard with Smart Setup pre-step.
+ * /onboarding — company setup wizard. Step 0 asks what kind of business this
+ * is; the Smart Setup pre-step (when the type has a document to read) and
+ * every later step follow the answer (src/lib/entityTypes.ts,
+ * entityOnboardingRules). Completes with ONE request to
+ * /api/onboarding/complete-setup, which writes everything in one transaction.
  * Standalone layout (no AppLayout), matches login dark theme.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/router';
+import { useState, useCallback, useRef } from 'react';
 import {
-  Check, Building2, MapPin, Image, Landmark,
+  Check, Building2, MapPin, Image, Landmark, Briefcase,
   Settings, FileText, ChevronLeft, ChevronRight, Loader2, LayoutGrid,
 } from 'lucide-react';
-import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage, isAuthUnavailableStatus } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
+import { apiErrorMessage } from '@/lib/apiFetch';
+import type { EntityTypeCode } from '@/lib/entityTypes';
+import {
+  hasRequiredProofDocument, proofIssues, setupIssues, smartSetupSourceFor,
+} from '@/modules/onboarding/services/entityOnboardingRules';
+import { MAX_TOTAL_UPLOAD_BYTES, TOTAL_TOO_LARGE } from '@/modules/onboarding/uploadLimits';
 import {
   type WizardData, INITIAL_WIZARD,
   Step1, Step2, Step3, Step4, Step5, Step6, Step7, StepCoaTemplate,
 } from '@/components/onboarding/WizardSteps';
+import { withEntityType } from '@/components/onboarding/wizardTypes';
+import { factsOf, uploadBytesOf } from '@/components/onboarding/wizardFacts';
+import { EntityTypeStep } from '@/components/onboarding/EntityTypeStep';
 import { SmartSetupChoice } from '@/components/onboarding/SmartSetupChoice';
+import { WizardProgress } from '@/components/onboarding/WizardProgress';
+import { newRequestKey, submitOnboardingSetup } from '@/components/onboarding/submitOnboardingSetup';
+import { useOnboardingAuthGate } from '@/components/onboarding/useOnboardingAuthGate';
 
 const STEPS = [
-  { icon: Building2,   title: 'Company Details',       sub: 'Tell us about your business' },
+  { icon: Briefcase,   title: 'Business Type',          sub: 'What kind of business is this?' },
+  { icon: Building2,   title: 'Business Details',       sub: 'Tell us about your business' },
   { icon: MapPin,      title: 'Address & Contact',      sub: 'Where can we reach you?' },
   { icon: Image,       title: 'Logo Upload',            sub: 'Brand your workspace' },
   { icon: Landmark,    title: 'Banking Details',        sub: 'Your primary bank account' },
@@ -28,258 +42,91 @@ const STEPS = [
   { icon: Check,       title: 'Review & Complete',      sub: 'Confirm and get started' },
 ];
 
-const DOCUMENTS_STEP_INDEX = 6; // Statutory Documents step — skipped if CIPC uploaded via Smart Setup
-const COA_STEP_INDEX = 5;       // Chart of Accounts template step
+const SMART_SETUP = -1;    // pre-step between the business type and the details
+const ENTITY_STEP = 0;
+const DETAILS_STEP = 1;
+const COA_STEP_INDEX = 6;
+const DOCUMENTS_STEP_INDEX = 7; // skipped once the required certificate came in through Smart Setup
+const LAST_STEP = STEPS.length - 1;
 
 export default function OnboardingWizard() {
-  const router = useRouter();
-
   // ?new=1 means an existing user wants to add a second company.
   // Skip all "already has company → redirect" guards in that case.
   const isAddNew = typeof window !== 'undefined'
     && new URLSearchParams(window.location.search).get('new') === '1';
 
-  // step === -1 is the Smart Setup pre-step (choice screen)
-  const [step, setStep]             = useState(-1);
+  const { authChecked, authTimeout, error, setError } = useOnboardingAuthGate(isAddNew);
+  const [step, setStep]             = useState(ENTITY_STEP);
   const [d, setD]                   = useState<WizardData>(INITIAL_WIZARD);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError]           = useState('');
-  const [authChecked, setAuthChecked] = useState(false);
-  const [authTimeout, setAuthTimeout] = useState(false);
-  const redirectingRef = useRef(false);
-  // Steps already done by a failed submit, so Retry resumes instead of creating a second company
-  const doneRef = useRef<{ companyId?: string; coa?: boolean; dirs?: boolean; docs?: boolean }>({});
-
-  // Auth check — fires once on mount only.
-  // router is intentionally excluded from deps: it is only used for navigation,
-  // not for reading state. Including it caused repeated fires each time Next.js
-  // updated the router reference during navigation, creating a redirect loop.
-  useEffect(() => {
-    let cancelled = false;
-
-    const redirectToAccounting = () => {
-      if (redirectingRef.current) return;
-      redirectingRef.current = true;
-      window.location.replace('/accounting');
-    };
-
-    // 10-second escape hatch: if auth check hangs, show the escape link.
-    const timeoutId = window.setTimeout(() => {
-      if (!cancelled && !authChecked) setAuthTimeout(true);
-    }, 10_000);
-
-    apiFetch('/api/auth/me').then(async (r) => {
-      if (cancelled || redirectingRef.current) return;
-      if (!r.ok) {
-        window.clearTimeout(timeoutId);
-        if (isAuthUnavailableStatus(r.status)) setAuthTimeout(true); else void router.replace('/login'); // D9: an outage is not a sign-out
-        return;
-      }
-      const body = await r.json();
-
-      // When adding a new company, skip both guards and go straight to the wizard.
-      if (isAddNew) {
-        window.clearTimeout(timeoutId);
-        if (!cancelled) setAuthChecked(true);
-        return;
-      }
-
-      // Correct field path: body.data.user.onboarding_completed (snake_case, nested).
-      // Only bypass when explicitly true — if it's null/undefined (legacy users),
-      // fall through to the membership check below.
-      if (body.data?.user?.onboarding_completed === true) {
-        window.clearTimeout(timeoutId);
-        // Await the POST so the Set-Cookie (ff_onboarding_done) is received
-        // before the redirect. Without this, middleware.ts:181-186 redirects
-        // any /accounting/* request without the cookie back to /onboarding,
-        // creating an infinite loop when the cookie is absent (incognito,
-        // cookie-clear, cross-domain) even though the DB flag is true.
-        const completeRes = await apiFetch('/api/onboarding/complete', { method: 'POST' });
-        if (cancelled || redirectingRef.current) return;
-        if (!completeRes.ok) {
-          log.warn('onboarding/complete POST failed on already-completed check', { status: completeRes.status }, 'onboarding');
-          if (!cancelled) { setError('Could not restore your session. Please try again.'); setAuthChecked(true); }
-          return;
-        }
-        redirectToAccounting();
-        return;
-      }
-
-      // If onboarding_completed === false (admin reset), show the wizard — don't
-      // use the membership bypass for explicitly-false flags.
-      if (body.data?.user?.onboarding_completed === false) {
-        window.clearTimeout(timeoutId);
-        if (!cancelled) setAuthChecked(true);
-        return;
-      }
-
-      // Legacy users: onboarding_completed is null/undefined.
-      // Invited users (and users returning after completing the wizard) already
-      // have a company membership — auto-complete and redirect.
-      try {
-        const compRes = await apiFetch('/api/accounting/companies?action=user-companies');
-        if (cancelled || redirectingRef.current) return;
-        if (compRes.ok) {
-          const compBody = (await compRes.json()) as { data?: { items?: unknown[] } };
-          const companies = compBody.data?.items ?? [];
-          if (Array.isArray(companies) && companies.length > 0) {
-            // Await the POST so the Set-Cookie response is received before the
-            // redirect. The cookie is required by middleware — without it the
-            // next request to /accounting would bounce back to /onboarding.
-            const completeRes = await apiFetch('/api/onboarding/complete', { method: 'POST' });
-            if (cancelled || redirectingRef.current) return;
-            if (!completeRes.ok) {
-              log.warn('onboarding/complete POST failed', { status: completeRes.status }, 'onboarding');
-              // Stay on wizard with error message rather than blind redirect.
-              if (!cancelled) {
-                setError('Could not auto-complete onboarding. Please continue manually.');
-                setAuthChecked(true);
-              }
-              window.clearTimeout(timeoutId);
-              return;
-            }
-            window.clearTimeout(timeoutId);
-            // Full navigation so the browser sends the freshly-set cookie on the
-            // next request — avoids the SPA-navigation cookie race.
-            redirectToAccounting();
-            return;
-          }
-        } else log.warn('Could not load the user companies during onboarding', { status: compRes.status }, 'onboarding');
-      } catch (err) {
-        log.warn('Failed to check user companies during onboarding', { error: err }, 'onboarding');
-        // Non-fatal — fall through to show the wizard
-      }
-
-      window.clearTimeout(timeoutId);
-      if (!cancelled) setAuthChecked(true);
-    }).catch((err: unknown) => {
-      log.warn('Auth check failed on onboarding page', { error: err }, 'onboarding');
-      window.clearTimeout(timeoutId);
-      if (!cancelled) setAuthTimeout(true); // D9: unreachable is not signed out
-    });
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // One key per wizard session, re-sent on every retry: a retry after a lost
+  // response gets the company the first request created, never a second one.
+  const [requestKey] = useState(newRequestKey);
+  const inFlightRef = useRef(false);
 
   const set = useCallback(<K extends keyof WizardData>(k: K, v: WizardData[K]) => {
     setD(prev => ({ ...prev, [k]: v }));
   }, []);
+  const chooseEntity = useCallback((code: EntityTypeCode) => setD(prev => withEntityType(prev, code)), []);
 
-  // Smart Setup: merge extracted fields and jump to step 0
+  // Smart Setup: merge extracted fields (and a business type the user confirmed) and go to the details
   const handleExtracted = useCallback((extracted: Partial<WizardData>) => {
-    setD(prev => ({ ...prev, ...extracted }));
-    setStep(0);
+    setD(prev => {
+      const merged = { ...prev, ...extracted };
+      return extracted.entityType ? withEntityType(merged, extracted.entityType) : merged;
+    });
+    setStep(DETAILS_STEP);
   }, []);
 
-  const hasCipc     = d.documents.some(doc => doc.type === 'cipc_certificate');
-  // If the user uploaded the CIPC in the Smart Setup pre-step the Statutory
-  // Documents step (index 6) is already satisfied and is auto-skipped — don't
-  // re-ask users for docs they've already given us.
-  const skipDocsStep = hasCipc;
-  const canContinue = step === 0 ? d.name.trim().length > 0
-                    : step === DOCUMENTS_STEP_INDEX ? hasCipc   // CIPC is required on documents step
+  const entity = d.entityType;
+  const hasSmartSetup = entity !== null && smartSetupSourceFor(entity).kind !== 'none';
+  // Don't re-ask for a certificate the user already gave Smart Setup.
+  const skipDocsStep = entity !== null && hasRequiredProofDocument(entity, d.documents.map(doc => doc.type));
+  const canContinue = step === ENTITY_STEP ? entity !== null
+                    : step === DETAILS_STEP ? d.name.trim().length > 0
+                    : step === DOCUMENTS_STEP_INDEX ? proofIssues(factsOf(d)).length === 0 // the entity's one required proof
                     : true;
-  const isLast      = step === STEPS.length - 1;
-  // Steps 1-5 skippable (address, logo, bank, financial, COA); docs (6) not skippable
-  const skippable   = step >= 1 && step <= COA_STEP_INDEX;
-  const isPreStep   = step === -1;
+  const isLast      = step === LAST_STEP;
+  // What the server would refuse (the same rules), shown on the review step instead of a failed submit
+  const submitIssues = isLast ? setupIssues(factsOf(d)) : [];
+  // Why the documents step's Continue is dimmed, said next to it
+  const blockedReason = step === DOCUMENTS_STEP_INDEX && !canContinue ? `${proofIssues(factsOf(d)).join('; ')} to continue.` : '';
+  // Address, logo, bank, financial and COA are skippable; the documents step is not
+  const skippable   = step > DETAILS_STEP && step <= COA_STEP_INDEX;
+  const isPreStep   = step === SMART_SETUP;
 
   const next = () => {
     if (!canContinue) return;
+    if (step === ENTITY_STEP) { setStep(hasSmartSetup ? SMART_SETUP : DETAILS_STEP); return; }
     setStep(s => {
-      let target = Math.min(s + 1, STEPS.length - 1);
-      if (target === DOCUMENTS_STEP_INDEX && skipDocsStep) target = Math.min(target + 1, STEPS.length - 1);
+      let target = Math.min(s + 1, LAST_STEP);
+      if (target === DOCUMENTS_STEP_INDEX && skipDocsStep) target = Math.min(target + 1, LAST_STEP);
       return target;
     });
   };
   const back = () => {
+    if (step === DETAILS_STEP) { setStep(hasSmartSetup ? SMART_SETUP : ENTITY_STEP); return; }
     setStep(s => {
-      let target = Math.max(s - 1, 0);
-      if (target === DOCUMENTS_STEP_INDEX && skipDocsStep) target = Math.max(target - 1, 0);
+      let target = Math.max(s - 1, ENTITY_STEP);
+      if (target === DOCUMENTS_STEP_INDEX && skipDocsStep) target = Math.max(target - 1, ENTITY_STEP);
       return target;
     });
   };
 
   const handleSubmit = async () => {
+    if (inFlightRef.current) return;
+    if (uploadBytesOf(d) > MAX_TOTAL_UPLOAD_BYTES) { setError(TOTAL_TOO_LARGE); return; }
+    inFlightRef.current = true;
     setSubmitting(true);
     setError('');
     try {
-      // 1. Create company
-      if (!doneRef.current.companyId) {
-      const compRes = await apiFetch('/api/accounting/companies', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: d.name, tradingName: d.tradingName,
-          registrationNumber: d.registrationNumber, vatNumber: d.vatNumber,
-          taxNumber: d.taxNumber, addressLine1: d.addressLine1,
-          addressLine2: d.addressLine2, city: d.city, province: d.province,
-          postalCode: d.postalCode, country: d.country, phone: d.phone,
-          email: d.email, website: d.website, logoData: d.logoData || undefined,
-          bankName: d.bankName || undefined,
-          bankAccountNumber: d.bankAccountNumber || undefined,
-          bankBranchCode: d.bankBranchCode || undefined,
-          bankAccountType: d.bankAccountType,
-          financialYearStart: d.financialYearStart,
-          vatPeriod: d.vatPeriod,
-          // Keep both VAT columns in step from the first write — the AFS
-          // accounting-policy notes read vat_system_type, not vat_period.
-          vatSystemType: d.vatPeriod === 'none' ? 'none' : 'invoice',
-          defaultCurrency: d.defaultCurrency,
-        }),
-      });
-      await assertOk(compRes, 'Could not create the company - try again');
-      const compData = await compRes.json() as { data?: { id?: string } };
-      const newId = compData.data?.id;
-      if (!newId) throw new ApiEnvelopeError('The company was not created - try again');
-      doneRef.current.companyId = newId;
-      }
-      const companyId = doneRef.current.companyId as string;
-
-      // 2. Seed Chart of Accounts from chosen template. A failure blocks completion so the
-      // user can retry or pick 'blank'; the company id is kept so a retry never creates a second one.
-      if (d.coaTemplate !== 'blank' && !doneRef.current.coa) {
-        const coaRes = await apiFetch('/api/accounting/coa-seed', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
-          body: JSON.stringify({ template: d.coaTemplate }),
-        });
-        await assertOk(coaRes, 'Could not set up the chart of accounts - try again');
-        doneRef.current.coa = true;
-      }
-
-      // 3. Save directors and 4. documents: blocking, so a failed save is never dropped silently
-      if (d.directors.length > 0 && !doneRef.current.dirs) {
-        const dirRes = await apiFetch('/api/accounting/company-directors', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Company-Id': companyId },
-          body: JSON.stringify({ directors: d.directors }),
-        });
-        await assertOk(dirRes, 'Could not save the directors - try again');
-        doneRef.current.dirs = true;
-      }
-      if (d.documents.length > 0 && !doneRef.current.docs) {
-        const docRes = await apiFetch('/api/onboarding/documents', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ companyId, documents: d.documents }),
-        });
-        await assertOk(docRes, 'Could not upload the documents - try again');
-        doneRef.current.docs = true;
-      }
-
-      // 5. Mark onboarding complete
-      await assertOk(await apiFetch('/api/onboarding/complete', { method: 'POST' }), 'Could not finish setup - try again');
-
-      // Navigate — full reload so the middleware picks up the new ff_onboarding_done cookie
+      await submitOnboardingSetup(d, requestKey);
+      // Navigate — full reload so the middleware picks up the new cookies (active company, onboarding done)
       window.location.href = '/accounting';
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not finish setting up your company - try again'));
       setSubmitting(false);
+      inFlightRef.current = false;
     }
   };
 
@@ -303,42 +150,21 @@ export default function OnboardingWizard() {
     <div className="min-h-screen bg-slate-50 dark:bg-gray-950 text-slate-900 dark:text-white px-4 py-8">
       {/* Logo */}
       <div className="max-w-2xl mx-auto mb-8">
-        <img src="/logo.png" alt="ISAFlow" className="h-10 w-auto brightness-0 invert" />
+        <img src="/logo.png" alt="ISAFlow" className="h-10 w-auto brightness-0 dark:invert" />
       </div>
 
-      {/* Progress — only shown during the 7-step wizard (step 0-6) */}
+      {/* Progress — hidden on the Smart Setup pre-step */}
       {!isPreStep && (
-        <div className="max-w-2xl mx-auto mb-8">
-          <div className="flex items-center justify-between">
-            {STEPS.map((s, i) => {
-              const isDocsAutoSkipped = i === DOCUMENTS_STEP_INDEX && skipDocsStep;
-              const isPast = i < step || (isDocsAutoSkipped && step > DOCUMENTS_STEP_INDEX);
-              const isCurrent = i === step;
-              return (
-                <div key={i} className="flex items-center flex-1 last:flex-none">
-                  <button
-                    onClick={() => { if (isPast && !isDocsAutoSkipped) setStep(i); }}
-                    disabled={i > step || isDocsAutoSkipped}
-                    title={isDocsAutoSkipped ? 'Already captured from Smart Setup' : s.title}
-                    className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0 transition-colors ${ isDocsAutoSkipped ? 'bg-teal-600/40 text-white/70 cursor-default' : isPast ? 'bg-teal-600 text-white cursor-pointer' : isCurrent ? 'bg-teal-500 text-white ring-2 ring-teal-400' : 'bg-gray-800 text-gray-500' }`}
-                  >
-                    {isDocsAutoSkipped || isPast ? <Check className="w-4 h-4" /> : i + 1}
-                  </button>
-                  {i < STEPS.length - 1 && (
-                    <div className={`h-0.5 flex-1 mx-1 ${(isPast || isDocsAutoSkipped) ? 'bg-teal-600' : 'bg-gray-800'}`} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <WizardProgress steps={STEPS} step={step} skippedIndex={skipDocsStep ? DOCUMENTS_STEP_INDEX : null} onJump={setStep} />
       )}
 
       {/* Pre-step: Smart Setup choice */}
-      {isPreStep && (
+      {isPreStep && entity && (
         <SmartSetupChoice
-          onManual={() => setStep(0)}
+          entityType={entity}
+          onManual={() => setStep(DETAILS_STEP)}
           onExtracted={handleExtracted}
+          onBack={() => setStep(ENTITY_STEP)}
         />
       )}
 
@@ -351,15 +177,22 @@ export default function OnboardingWizard() {
           </div>
 
           <div className="bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-2xl p-6 shadow-xl min-h-[320px]">
-            {step === 0 && <Step1 d={d} set={set} />}
-            {step === 1 && <Step2 d={d} set={set} />}
-            {step === 2 && <Step3 d={d} set={set} />}
-            {step === 3 && <Step4 d={d} set={set} />}
-            {step === 4 && <Step5 d={d} set={set} />}
+            {step === ENTITY_STEP && <EntityTypeStep value={entity} onChange={chooseEntity} />}
+            {step === DETAILS_STEP && <Step1 d={d} set={set} />}
+            {step === 2 && <Step2 d={d} set={set} />}
+            {step === 3 && <Step3 d={d} set={set} />}
+            {step === 4 && <Step4 d={d} set={set} />}
+            {step === 5 && <Step5 d={d} set={set} />}
             {step === COA_STEP_INDEX && <StepCoaTemplate d={d} set={set} />}
-            {step === 6 && <Step6 d={d} set={set} />}
-            {step === 7 && <Step7 d={d} />}
+            {step === DOCUMENTS_STEP_INDEX && <Step6 d={d} set={set} />}
+            {step === LAST_STEP && <Step7 d={d} />}
           </div>
+
+          {submitIssues.length > 0 && (
+            <ul className="mt-4 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-sm text-amber-400 space-y-0.5">
+              {submitIssues.map(issue => <li key={issue}>{issue}</li>)}
+            </ul>
+          )}
 
           {/* Error */}
           {error && (
@@ -368,24 +201,30 @@ export default function OnboardingWizard() {
             </div>
           )}
 
+          {blockedReason && (
+            <p id="continue-blocked" role="status" aria-live="polite" className="mt-4 text-sm text-right text-amber-700 dark:text-amber-400">{blockedReason}</p>
+          )}
+
           {/* Navigation */}
           <div className="flex justify-between mt-6">
-            <button
-              onClick={step === 0 ? () => setStep(-1) : back}
-              className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" /> Back
-            </button>
+            {step === ENTITY_STEP ? <span /> : (
+              <button
+                onClick={back}
+                className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" /> Back
+              </button>
+            )}
             <div className="flex gap-3">
               {skippable && !isLast && (
-                <button onClick={next} className="text-sm text-gray-600 dark:text-gray-400 hover:text-white transition-colors">
+                <button onClick={next} className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors">
                   Skip
                 </button>
               )}
               {isLast ? (
                 <button
                   onClick={() => void handleSubmit()}
-                  disabled={submitting}
+                  disabled={submitting || submitIssues.length > 0}
                   className="flex items-center gap-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white font-medium text-sm px-6 py-2.5 rounded-lg transition-colors"
                 >
                   {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : 'Complete Setup'}
@@ -394,6 +233,7 @@ export default function OnboardingWizard() {
                 <button
                   onClick={next}
                   disabled={!canContinue}
+                  aria-describedby={blockedReason ? 'continue-blocked' : undefined}
                   className="flex items-center gap-1.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-5 py-2.5 rounded-lg transition-colors"
                 >
                   Continue <ChevronRight className="w-4 h-4" />
