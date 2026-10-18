@@ -15,8 +15,9 @@ type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | '
 
 interface SupplierStatementReconciliation {
   id: string; supplierId: string; supplierName: string;
-  statementDate: string; periodStart: string | null; periodEnd: string | null;
-  supplierBalance: number; isaflowBalance: number; variance: number;
+  /** Null while the statement is not read yet ('extracting' or 'failed'): the figures do not exist. */
+  statementDate: string | null; periodStart: string | null; periodEnd: string | null;
+  supplierBalance: number | null; isaflowBalance: number | null; variance: number | null;
   status: ReconStatus;
   missingInIsaflowCount: number; missingInStatementCount: number; amountDiffCount: number;
   createdAt: string;
@@ -24,7 +25,8 @@ interface SupplierStatementReconciliation {
 
 type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
-function fmtZAR(n: number) {
+function fmtZAR(n: number | null) {
+  if (n === null) return '—';
   return 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -44,7 +46,8 @@ function readCsrf(): string | null {
   return m ? m.slice('isaflow_csrf='.length) : null;
 }
 
-function VarianceBadge({ variance }: { variance: number }) {
+function VarianceBadge({ variance }: { variance: number | null }) {
+  if (variance === null) return <span className="font-mono text-xs text-[var(--ff-text-tertiary)]">—</span>;
   const abs = Math.abs(variance);
   const cls = abs <= 0.01 ? 'text-teal-400' : abs <= 100 ? 'text-amber-400' : 'text-red-400';
   return <span className={`font-mono text-xs font-medium ${cls}`}>{fmtZAR(variance)}</span>;
@@ -180,17 +183,15 @@ export default function SupplierStatementsIndexPage() {
                 </thead>
                 <tbody>
                   {filtered.map(s => {
-                    // A statement still being read (or that failed) has placeholder figures: show none.
-                    const unread = s.status === 'extracting' || s.status === 'failed';
                     return (
                     <tr key={s.id} onClick={() => router.push(`/accounting/ap/supplier-statements/${s.id}`)}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors">
                       <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtDate(s.statementDate)}</td>
                       <td className="px-4 py-3 text-xs font-medium text-[var(--ff-text-primary)]">{s.supplierName}</td>
                       <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">{s.periodStart || s.periodEnd ? `${fmtDate(s.periodStart)} – ${fmtDate(s.periodEnd)}` : '—'}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{unread ? '—' : fmtZAR(s.supplierBalance)}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{unread ? '—' : fmtZAR(s.isaflowBalance)}</td>
-                      <td className="px-4 py-3 text-right">{unread ? '—' : <VarianceBadge variance={s.variance} />}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.supplierBalance)}</td>
+                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.isaflowBalance)}</td>
+                      <td className="px-4 py-3 text-right"><VarianceBadge variance={s.variance} /></td>
                       <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
                     </tr>
                     );

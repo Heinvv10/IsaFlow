@@ -58,12 +58,13 @@ export interface SupplierStatementReconciliation {
   supplierId: string;
   supplierName: string;
   sourceDocumentId: string;
-  statementDate: string;
+  /** The figures below are null while the statement is not read yet ('extracting' or 'failed'). */
+  statementDate: string | null;
   periodStart: string | null;
   periodEnd: string | null;
-  supplierBalance: number;
-  isaflowBalance: number;
-  variance: number;
+  supplierBalance: number | null;
+  isaflowBalance: number | null;
+  variance: number | null;
   status: 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
   /** Why the read failed (status 'failed'). */
   extractionError: string | null;
@@ -120,12 +121,8 @@ export async function listReconciliations(
     supplierId: r.supplier_id as string,
     supplierName: String(r.supplier_name ?? ''),
     sourceDocumentId: r.source_document_id as string,
-    statementDate: toDateStr(r.statement_date) ?? '',
     periodStart: toDateStr(r.period_start),
     periodEnd: toDateStr(r.period_end),
-    supplierBalance: toNum(r.supplier_balance),
-    isaflowBalance: toNum(r.isaflow_balance),
-    variance: toNum(r.variance),
     ...extractionView(r),
     missingInIsaflowCount: toNum(r.missing_in_isaflow_count),
     missingInStatementCount: toNum(r.missing_in_statement_count),
@@ -173,7 +170,8 @@ export async function rematchLines(
   // without the variance write, which would split counts from variance (R-059 r11).
   if (String(header.status) === 'reconciled') throw new ReconciliationClosedError(reconciliationId);
   // Nothing to match yet (or ever): a rematch would write zero lines over a read in progress.
-  const readState = String(header.status);
+  // The state a reader is shown: an interrupted read is 'failed' here too, so the refusal says what the page does.
+  const readState = extractionView(header).status;
   if (readState === 'extracting' || readState === 'failed') throw new ReconciliationNotReadyError(reconciliationId, readState);
 
   const existingLines = (await sql`

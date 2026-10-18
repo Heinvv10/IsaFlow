@@ -246,13 +246,28 @@ it('bank list: a statement being read, and a failed one, show their state instea
   expect(screen.getByText('Failed')).toBeTruthy();
 });
 
-it('supplier list: a statement being read, and a failed one, show their state and no placeholder figures', async () => {
+it('supplier list: a statement being read, and a failed one, show their state and no figures (null renders as a dash)', async () => {
+  const unread = { statementDate: null, supplierBalance: null, isaflowBalance: null, variance: null };
   vi.mocked(apiFetch).mockImplementation(async () => ok([
-    supplierRecon({ id: 'a' }), supplierRecon({ id: 'b', status: 'failed', supplierName: 'Beta' }),
+    supplierRecon({ id: 'a', ...unread }), supplierRecon({ id: 'b', status: 'failed', supplierName: 'Beta', ...unread }),
   ]));
   const { container } = render(<SupplierList />);
   expect(await screen.findByText('Reading…')).toBeTruthy();
   expect(screen.getByText('Failed')).toBeTruthy();
-  expect(container.textContent).not.toContain('R 0,00');
   expect(container.textContent).not.toMatch(/R\s0[.,]00/);
+  expect(container.textContent).not.toMatch(/Invalid Date|NaN|1970/);
+  const cells = Array.from(container.querySelectorAll('tbody tr:first-child td')).map((td) => td.textContent);
+  expect(cells[0]).toBe('—'); // statement date
+  expect(cells.slice(3, 6)).toEqual(['—', '—', '—']); // supplier bal., IsaFlow bal., variance
+});
+
+it('supplier list: a statement that has been read shows its figures, a genuine zero variance included', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => ok([
+    supplierRecon({ id: 'a', status: 'unreconciled', supplierBalance: 115.5, isaflowBalance: 115.5, variance: 0 }),
+  ]));
+  const { container } = render(<SupplierList />);
+  await screen.findByText('Unreconciled');
+  const cells = Array.from(container.querySelectorAll('tbody tr:first-child td')).map((td) => td.textContent ?? '');
+  expect(cells[3]).toMatch(/R\s115[.,]50/);
+  expect(cells[5]).toMatch(/R\s0[.,]00/);
 });

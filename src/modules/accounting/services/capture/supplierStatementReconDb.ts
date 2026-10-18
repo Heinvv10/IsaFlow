@@ -137,23 +137,32 @@ function mapLineRow(r: DbRow, invNum: string | null): ReconciliationLine {
 }
 
 /**
- * The status and extraction fields of a header row, as a reader sees them: a
- * row 'extracting' with no heartbeat for 5 minutes is reported as failed.
+ * The status, extraction and figure fields of a header row, as a reader sees them: a row 'extracting'
+ * with no heartbeat for 5 minutes is reported as failed. A row not read yet (extracting, failed, or
+ * interrupted) holds placeholders (today's date, 0 balances, 0 variance); a reader gets null for those,
+ * never a 0 that looks like a statement that ties.
  */
 export function extractionView(r: DbRow): Pick<
-  SupplierStatementReconciliation, 'status' | 'extractionError' | 'retryable' | 'pagesDone' | 'pagesTotal'
+  SupplierStatementReconciliation,
+  'status' | 'extractionError' | 'retryable' | 'pagesDone' | 'pagesTotal'
+  | 'statementDate' | 'supplierBalance' | 'isaflowBalance' | 'variance'
 > {
   const state = effectiveExtractionState({
     status: r.status ?? 'unreconciled', created_at: r.created_at, extraction_heartbeat_at: r.extraction_heartbeat_at,
     extraction_error: r.extraction_error, extraction_error_code: r.extraction_error_code,
     extraction_pages_done: r.extraction_pages_done, extraction_pages_total: r.extraction_pages_total,
   });
+  const read = state.status !== 'extracting' && state.status !== 'failed';
   return {
     status: state.status as SupplierStatementReconciliation['status'],
     extractionError: state.extractionError,
     retryable: state.retryable,
     pagesDone: state.pagesDone,
     pagesTotal: state.pagesTotal,
+    statementDate: read ? toDateStr(r.statement_date) ?? '' : null,
+    supplierBalance: read ? toNum(r.supplier_balance) : null,
+    isaflowBalance: read ? toNum(r.isaflow_balance) : null,
+    variance: read ? toNum(r.variance) : null,
   };
 }
 
@@ -198,12 +207,8 @@ export async function fetchFullReconciliation(
     supplierId: header.supplier_id as string,
     supplierName: String(header.supplier_name ?? ''),
     sourceDocumentId: header.source_document_id as string,
-    statementDate: toDateStr(header.statement_date) ?? '',
     periodStart: toDateStr(header.period_start),
     periodEnd: toDateStr(header.period_end),
-    supplierBalance: toNum(header.supplier_balance),
-    isaflowBalance: toNum(header.isaflow_balance),
-    variance: toNum(header.variance),
     ...extractionView(header),
     missingInIsaflowCount: toNum(header.missing_in_isaflow_count),
     missingInStatementCount: toNum(header.missing_in_statement_count),

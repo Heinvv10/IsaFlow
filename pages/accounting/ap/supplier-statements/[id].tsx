@@ -29,8 +29,9 @@ interface MissingInvoice {
 
 interface SupplierStatementReconciliation {
   id: string; supplierId: string; supplierName: string;
-  statementDate: string; periodStart: string | null; periodEnd: string | null;
-  supplierBalance: number; isaflowBalance: number; variance: number;
+  /** Null while the statement is not read yet ('extracting' or 'failed'): the figures do not exist. */
+  statementDate: string | null; periodStart: string | null; periodEnd: string | null;
+  supplierBalance: number | null; isaflowBalance: number | null; variance: number | null;
   status: ReconStatus;
   /** While 'extracting' / when 'failed': progress and why (the lines are empty until 'unreconciled'). */
   extractionError: string | null; retryable: boolean; pagesDone: number | null; pagesTotal: number | null;
@@ -41,7 +42,8 @@ interface SupplierStatementReconciliation {
 
 type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
-function fmtZAR(n: number) {
+function fmtZAR(n: number | null) {
+  if (n === null) return '—';
   return 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -50,7 +52,8 @@ function fmtDate(s: string | null) {
   try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
 }
 
-function varianceCls(variance: number) {
+function varianceCls(variance: number | null) {
+  if (variance === null) return 'text-[var(--ff-text-tertiary)]';
   const abs = Math.abs(variance);
   if (abs <= 0.01) return 'text-teal-400';
   if (abs <= 100) return 'text-amber-400';
@@ -136,7 +139,7 @@ export default function SupplierStatementDetailPage() {
   }, [reconId, load, showToast]);
 
   const canReconcile = recon
-    ? Math.abs(recon.variance) <= 0.01 && recon.missingInIsaflowCount === 0 && recon.amountDiffCount === 0
+    ? recon.variance !== null && Math.abs(recon.variance) <= 0.01 && recon.missingInIsaflowCount === 0 && recon.amountDiffCount === 0
     : false;
 
   return (
