@@ -79,39 +79,48 @@ export async function loadSupplierInvoices(
 /** A tagged-template runner: the pool's `sql`, or the `tx` of a transaction. */
 export type SqlRunner = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
 
-/** Replace the lines of one reconciliation. Scoped by its id: the caller has checked the reconciliation's company. */
+/**
+ * Replace the lines of one reconciliation. The lines table has no company column, so every statement
+ * checks the parent's company itself: a reconciliation of another company loses and gains no line.
+ */
 export async function replaceStatementLines(
   run: SqlRunner,
+  companyId: string,
   reconId: string,
   inserts: LineInsert[],
 ): Promise<void> {
-  await run`DELETE FROM supplier_statement_lines WHERE reconciliation_id = ${reconId}::uuid`;
+  await run`
+    DELETE FROM supplier_statement_lines
+    WHERE reconciliation_id = ${reconId}::uuid
+      AND EXISTS (SELECT 1 FROM supplier_statement_reconciliations r WHERE r.id = ${reconId}::uuid AND r.company_id = ${companyId})
+  `;
   for (const ln of inserts) {
     await run`
       INSERT INTO supplier_statement_lines
         (reconciliation_id, line_date, reference, description, debit, credit,
          running_balance, matched_supplier_invoice_id, match_confidence, mismatch_reason)
-      VALUES (
-        ${reconId}::uuid, ${ln.lineDate}::date, ${ln.reference}, ${ln.description},
-        ${ln.debit}, ${ln.credit}, ${ln.runningBalance},
-        ${ln.matchedInvoiceId}::uuid, ${ln.matchConfidence}, ${ln.mismatchReason}
-      )
+      SELECT
+        ${reconId}::uuid, ${ln.lineDate}::date, ${ln.reference}::text, ${ln.description}::text,
+        ${ln.debit}::numeric, ${ln.credit}::numeric, ${ln.runningBalance}::numeric,
+        ${ln.matchedInvoiceId}::uuid, ${ln.matchConfidence}::numeric, ${ln.mismatchReason}::text
+      WHERE EXISTS (SELECT 1 FROM supplier_statement_reconciliations r WHERE r.id = ${reconId}::uuid AND r.company_id = ${companyId})
     `;
   }
 }
 
 export async function persistLinesAndUpdateCounts(
+  companyId: string,
   reconId: string,
   inserts: LineInsert[],
 ): Promise<void> {
-  await replaceStatementLines(sql, reconId, inserts);
+  await replaceStatementLines(sql, companyId, reconId, inserts);
   await sql`
     UPDATE supplier_statement_reconciliations
     SET missing_in_isaflow_count   = ${inserts.filter((l) => l.mismatchReason === 'missing_in_isaflow').length},
         missing_in_statement_count = ${inserts.filter((l) => l.mismatchReason === 'missing_in_statement').length},
         amount_diff_count          = ${inserts.filter((l) => l.mismatchReason === 'amount_diff').length},
         updated_at                 = NOW()
-    WHERE id = ${reconId}::uuid
+    WHERE id = ${reconId}::uuid AND company_id = ${companyId}
   `;
 }
 

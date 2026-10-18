@@ -2,7 +2,7 @@
  * The background job that reads an uploaded supplier statement. It runs after the request
  * committed, outside any transaction and as the pool role with no row-level security, so EVERY
  * statement it issues must name the company (the lines table has no company column: its writes
- * come only after the company-scoped reconciliation row is locked). Every move out of
+ * come after the company-scoped reconciliation row is locked, and check the parent's company too). Every move out of
  * 'extracting' is guarded, so a row that was retried or deleted meanwhile is never overwritten by
  * a late result, and its lines are not rewritten either.
  */
@@ -222,7 +222,7 @@ describe('runSupplierStatementExtraction — heartbeat', () => {
 });
 
 describe('every statement the job issues', () => {
-  it('names the company, except the line writes that follow the company-scoped lock', async () => {
+  it('names the company, the line writes included (they check the parent\'s company themselves)', async () => {
     m.extract.mockImplementation(async (_co: string, _doc: string, onProgress: (d: number, t: number) => Promise<void>) => {
       await onProgress(1, 2);
       return extraction();
@@ -231,7 +231,7 @@ describe('every statement the job issues', () => {
     m.extract.mockRejectedValue(new Error('x'));
     await runSupplierStatementExtraction(CO, RECON);
     expect(calls.length).toBeGreaterThanOrEqual(7);
-    for (const c of calls.filter((x) => !text(x).includes('supplier_statement_lines'))) {
+    for (const c of calls) {
       expect(text(c), text(c)).toContain('company_id = ?');
       expect(c.values, text(c)).toContain(CO);
     }
