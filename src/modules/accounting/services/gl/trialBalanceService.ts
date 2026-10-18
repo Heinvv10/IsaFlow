@@ -20,11 +20,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { TrialBalanceRow, TrialBalanceReport } from '../../types/gl.types';
-import {
-  DEFAULT_FY_START_MONTH,
-  fiscalYearStart,
-  resolveFiscalYearStartMonth,
-} from './fiscalYearBasis';
+import { DEFAULT_FY_START_MONTH, fiscalYearStart, resolveFiscalYearStartMonth } from './fiscalYearBasis';
 import { fiscalYearEndBefore, fiscalYearStartsWithin } from './fiscalYearCloseRows';
 import {
   broughtForwardLine,
