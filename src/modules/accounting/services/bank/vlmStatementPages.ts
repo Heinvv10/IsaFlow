@@ -27,7 +27,8 @@ const DEFAULT_MAX_STATEMENT_PAGES = 20;
 /** One page of text is a few thousand characters; this only stops a runaway layer. */
 const PAGE_TEXT_LIMIT = 12_000;
 
-export type StatementReadCode = 'too_many_pages' | 'unreadable' | 'page_failed' | 'unavailable';
+/** `no_transactions` / `no_lines`: every page was read and none had a row (an empty period, or a scan the reader found nothing in). */
+export type StatementReadCode = 'too_many_pages' | 'unreadable' | 'page_failed' | 'unavailable' | 'no_transactions' | 'no_lines';
 
 /** The message is safe to show the user. */
 export class StatementReadError extends Error {
