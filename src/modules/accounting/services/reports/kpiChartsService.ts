@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
 export interface ChartPoint {
@@ -55,7 +56,7 @@ export async function getRevenueChart(companyId: string, months: number): Promis
         COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit ELSE 0 END), 0) AS expenses
       FROM months m
       LEFT JOIN gl_journal_entries je
-        ON je.status = 'posted'
+        ON je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND je.entry_date >= m.month_start
         AND je.entry_date < m.month_start + '1 month'::INTERVAL
@@ -211,7 +212,7 @@ export async function getTopExpenseCategories(companyId: string, limit: number):
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE ga.account_type = 'expense' AND je.status = 'posted'
+      WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
       GROUP BY ga.id, ga.account_name
       HAVING SUM(jl.debit - jl.credit) > 0

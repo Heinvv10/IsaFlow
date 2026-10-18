@@ -59,11 +59,9 @@ const SHARE_CAPITAL_OPENING = 10000;
 const PRIOR_PROFIT = 3000;
 
 // ── Inside the period ────────────────────────────────────────────────────────
-// NOTE: there is deliberately no year-end-close fixture here. yearEndService
-// writes source = 'year_end', which gl_journal_entries_source_check rejects —
-// the constraint is the only guard on that unvalidated INSERT-at-posted path.
-// A close therefore cannot exist in any ledger, and a test that seeded one
-// would be testing a state the database forbids.
+// NOTE: no year-end-close fixture here. Migration 627 admitted source = 'year_end', so a close CAN
+// exist in a ledger; the SOCE skips it (G-01) and
+// tests/integration/g01-year-end-journal-excluded-from-reports.int.test.ts pins that.
 
 const PERIOD_REVENUE = 8000;
 const PERIOD_EXPENSES = 3000;

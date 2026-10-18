@@ -58,6 +58,7 @@ import {
 } from './generalLedgerStreamTypes';
 import { incomeStatementBalanceNullFrom, runningBalanceIsDefined, streamFiscalBasis, withRetainedBf } from './generalLedgerStreamYearEnd';
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 export type { GeneralLedgerCursor, GeneralLedgerLine, GeneralLedgerPage, GeneralLedgerQuery } from './generalLedgerStreamTypes';
 
 /**
@@ -113,7 +114,7 @@ export async function getGeneralLedgerLines(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
                                   AND je.company_id = ${companyId}::UUID
-                                  AND je.status = 'posted'
+                                  AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
                            AND ga.company_id = ${companyId}::UUID
         WHERE jl.company_id = ${companyId}::UUID
@@ -138,7 +139,7 @@ export async function getGeneralLedgerLines(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
                                   AND je.company_id = ${companyId}::UUID
-                                  AND je.status = 'posted'
+                                  AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         WHERE jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${periodStart}::DATE
           AND je.entry_date <= ${periodEnd}::DATE
@@ -162,7 +163,7 @@ export async function getGeneralLedgerLines(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
                                   AND je.company_id = ${companyId}::UUID
-                                  AND je.status = 'posted'
+                                  AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
                            AND ga.company_id = ${companyId}::UUID
         WHERE jl.company_id = ${companyId}::UUID

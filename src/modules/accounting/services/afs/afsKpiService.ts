@@ -12,6 +12,7 @@ import {
   RECEIVABLE_SUBTYPES,
   rawSubtypesFor,
 } from '../gl/accountSubtypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export type { FinancialSnapshot, RagThresholds };
 
@@ -185,7 +186,7 @@ async function fetchIncomeSnapshot(companyId: string, periodStart: string, perio
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${periodStart}::date
       AND je.entry_date <= ${periodEnd}::date
   `) as Row[];
@@ -234,7 +235,7 @@ export async function fetchBalanceSnapshot(companyId: string, periodEnd: string)
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date <= ${periodEnd}::date
   `) as Row[];
 

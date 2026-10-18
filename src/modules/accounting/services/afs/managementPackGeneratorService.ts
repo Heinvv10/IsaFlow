@@ -9,6 +9,7 @@ import { fetchBalanceSnapshot, getKpiScorecard } from './afsKpiService';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
 import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
 
@@ -97,7 +98,7 @@ async function fetchIncomeAgg(companyId: string, start: string, end: string): Pr
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${start}::date
       AND je.entry_date <= ${end}::date
   `) as Row[];
@@ -114,7 +115,7 @@ async function fetchTopMover(companyId: string, start: string, end: string, type
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${start}::date
       AND je.entry_date <= ${end}::date
       AND ga.account_type = ${type}

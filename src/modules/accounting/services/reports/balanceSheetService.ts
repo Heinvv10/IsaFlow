@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { balanceByAccountType } from '../gl/balanceByAccountType';
 import type { BalanceSheetReport } from '../../types/gl.types';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
 
@@ -29,7 +30,7 @@ async function calculateRetainedEarnings(companyId: string, asAtDate: string,
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date <= ${asAtDate}
@@ -87,7 +88,7 @@ export async function getEquityBases(
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.status = 'posted'
+      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
@@ -126,7 +127,7 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string,
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date <= ${asAtDate}

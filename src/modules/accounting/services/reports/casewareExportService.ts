@@ -14,6 +14,7 @@ import {
   round2,
   splitNet,
 } from '../gl/trialBalanceBasis';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
 export interface AccountMapping {
@@ -186,7 +187,7 @@ export async function exportCaseWareTB(
       AND gjl.company_id = ${companyId}
     LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       AND gje.company_id = ${companyId}
-      AND gje.status = 'posted'
+      AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND gje.entry_date <= ${periodEnd}
     LEFT JOIN account_external_mapping aem
       ON aem.gl_account_id = ga.id

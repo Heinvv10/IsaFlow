@@ -20,6 +20,7 @@ import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatu
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Scalar = number | string | null | undefined;
 
@@ -86,7 +87,7 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
           JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
           WHERE jl.company_id = ${companyId}::UUID
             AND je.company_id = ${companyId}::UUID
-            AND je.status = 'posted'
+            AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           GROUP BY jl.gl_account_id
         ) b ON b.gl_account_id = ga.id
        WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND ga.company_id = ${companyId}::UUID
@@ -114,7 +115,7 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-       WHERE ga.account_type = 'revenue' AND je.status = 'posted'
+       WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${monthStart}
     `,
     // Expenses MTD — SUM(debit - credit), matches dashboard-stats.ts expense shape.
@@ -127,7 +128,7 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-       WHERE ga.account_type = 'expense' AND je.status = 'posted'
+       WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
          AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${monthStart}
     `,
   ]);

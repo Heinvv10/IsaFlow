@@ -18,6 +18,7 @@ import { getRetainedEarningsBroughtForward } from '@/modules/accounting/services
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from '../noteHelpers';
 import { getFiscalRangeWithPrior } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type DbRow = Record<string, unknown>;
 
@@ -65,12 +66,13 @@ const ACCUMULATED_EOY_CODE = 'IS485';
 
 /**
  * Accumulated income at the start of a period: what has been posted to equity
- * retained-earnings accounts, plus every prior year's result that was never
- * closed into them.
+ * retained-earnings accounts, plus every prior year's result as the ledger's
+ * revenue and expense accounts still carry it.
  *
- * Both halves are needed for the same reason the balance sheet needs both — no
- * production company carries a posted retained-earnings balance, because the
- * year-end close cannot run.
+ * Both halves are needed for the same reason the balance sheet needs both. The
+ * posted year-end close (source 'year_end') is skipped on BOTH halves
+ * (YEAR_END_JOURNAL_SOURCE): the derived half already counts the year it
+ * transfers, so reading its retained-earnings credit as well counted it twice.
  *
  * Returned CREDIT-POSITIVE, like retained earnings itself.
  */
@@ -84,7 +86,7 @@ async function fetchOpeningAccumulatedIncome(
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
-      WHERE je.status     = 'posted'
+      WHERE je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::uuid
         AND jl.company_id = ${companyId}::uuid
         AND ga.company_id = ${companyId}::uuid
@@ -137,7 +139,7 @@ export async function fetchSectionLines(
     FROM afs_statement_lines sl
     LEFT JOIN afs_account_mappings am ON am.afs_line_code = sl.code AND am.company_id = sl.company_id
     LEFT JOIN gl_journal_lines gjl ON gjl.gl_account_id = am.gl_account_id AND gjl.company_id = ${companyId}::uuid
-    LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted' AND gje.company_id = ${companyId}::uuid
+    LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND gje.company_id = ${companyId}::uuid
     WHERE sl.company_id = ${companyId}::uuid
       AND sl.section = ${section}
       AND sl.is_active = true

@@ -40,6 +40,7 @@ import {
   type ClassifiedFigures,
 } from '../accountClassification';
 import { getFinancialFigures } from '../financialFiguresService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export interface ImpactWindow {
   start: string;
@@ -169,7 +170,7 @@ export async function computeReclassImpact(input: ImpactInput): Promise<ReclassI
         JOIN gl_accounts ga
           ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
        WHERE jl.company_id = ${input.companyId}::UUID
-         AND je.status = 'posted'
+         AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
          AND je.entry_date >= ${win.start}::DATE
          AND je.entry_date <= ${win.end}::DATE
     ),
@@ -240,7 +241,7 @@ async function accountMovements(
         JOIN gl_journal_entries je
           ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
        WHERE jl.company_id = ${input.companyId}::UUID
-         AND je.status = 'posted'
+         AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
          AND je.entry_date >= ${input.window.start}::DATE
          AND je.entry_date <= ${input.window.end}::DATE
     ),

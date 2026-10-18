@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { sql } from '@/lib/neon';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountClassification';
 import { analyzeTrend } from '@/modules/accounting/services/reports/trendAnalysisService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
@@ -42,7 +43,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-            WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
+            WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
               AND ga.account_type = 'asset'
               AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
               AND je.entry_date <= ${to}::date
@@ -54,7 +55,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-            WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
+            WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
               AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
           `
     )

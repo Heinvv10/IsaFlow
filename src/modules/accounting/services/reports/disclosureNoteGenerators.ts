@@ -11,6 +11,7 @@ import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPerio
 import { agedBucketTable, getAgedBucketTotals } from './agedBucketTotals';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—';
@@ -158,7 +159,7 @@ export async function noteRevenue(companyId: string, fiscalYear: number): Promis
     WHERE gjl.company_id = ${companyId}
       AND ga.account_type = 'revenue'
       AND gje.entry_date BETWEEN ${start} AND ${end}
-      AND gje.status = 'posted'
+      AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     GROUP BY ga.id, ga.account_name, ga.account_code HAVING ABS(SUM(gjl.credit - gjl.debit)) > 0.001
     ORDER BY net_amount DESC
   ` as DbRow[];
@@ -187,7 +188,7 @@ export async function noteCash(companyId: string, fiscalYear: number): Promise<D
     FROM gl_accounts ga
     LEFT JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
     LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
-      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+      AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_type = 'asset' AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
     GROUP BY ga.account_name, ga.account_code
@@ -222,7 +223,7 @@ export async function noteTaxation(companyId: string, fiscalYear: number): Promi
     WHERE gjl.company_id = ${companyId}
       AND ga.account_subtype IN ('vat_input', 'vat_output')
       AND gje.entry_date BETWEEN ${start} AND ${end}
-      AND gje.status = 'posted'
+      AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       -- V-05: exclude vatSubmissionService's clearing journal. Both sums NET, as
       -- vatControlMovement does, so a credit note reduces the VAT it reverses;
       -- the FORWARD settlement (DR VAT Output / CR VAT Input) would therefore

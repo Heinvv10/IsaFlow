@@ -6,6 +6,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { YEAR_END_JOURNAL_SOURCE } from './yearEndJournalSource';
 
 // BL-13: gl_journal_lines now has company_id (migration 329). Queries use BOTH
 // jl.company_id and je.company_id for defense-in-depth scoping.
@@ -75,7 +76,7 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearSumm
           WHERE ga.account_type = 'revenue'
             AND je.company_id = ${companyId}
             AND jl.company_id = ${companyId}::UUID
-            AND je.status     = 'posted'
+            AND je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
             AND je.entry_date >= ${fy.start_date}
             AND je.entry_date <= ${fy.end_date}
         `;
@@ -93,7 +94,7 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearSumm
           WHERE ga.account_type = 'expense'
             AND je.company_id = ${companyId}
             AND jl.company_id = ${companyId}::UUID
-            AND je.status     = 'posted'
+            AND je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
             AND je.entry_date >= ${fy.start_date}
             AND je.entry_date <= ${fy.end_date}
         `;
