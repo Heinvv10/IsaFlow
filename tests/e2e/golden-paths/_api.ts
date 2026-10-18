@@ -219,7 +219,6 @@ export class Api {
   }
 }
 
-/** Unique per-run reference so specs can identify and clean their records. */
 /**
  * The one Demo fiscal month (YYYY-MM) reserved for the golden payroll run
  * (h-payroll-run.spec.ts). It is the last month of tax year 2027, the last
@@ -228,6 +227,7 @@ export class Api {
  */
 export const PAYROLL_SANDBOX_MONTH = '2027-02';
 
+/** Unique per-run reference so specs can identify and clean their records. */
 export function gpRef(tag: string): string {
   return `GP-${tag}-${Date.now().toString(36)}`;
 }
