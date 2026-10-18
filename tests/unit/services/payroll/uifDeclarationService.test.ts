@@ -198,8 +198,14 @@ describe('getUifDeclaration - lines come from the stored contributions, not the 
     expect(d!.lines[0]).toMatchObject({ isCapped: true, leviableSalary: 17_712 });
   });
 
-  it('the ceiling constants match the tax table', () => {
-    expect(UIF_MONTHLY_CEILING).toBe(getTaxYearConfig(2027).uifCeiling);
+  it('the ceiling constants match the LATEST registered tax year', () => {
+    // A new year's table with a different ceiling fails this until the constants move.
+    let latest = 2025;
+    for (;;) {
+      try { getTaxYearConfig(latest + 1); latest += 1; } catch { break; }
+    }
+    expect(latest).toBeGreaterThanOrEqual(2027);
+    expect(UIF_MONTHLY_CEILING).toBe(getTaxYearConfig(latest).uifCeiling);
     expect(UIF_CEILING_CONTRIBUTION).toBe(UIF_MONTHLY_CEILING * 0.01);
   });
 });
