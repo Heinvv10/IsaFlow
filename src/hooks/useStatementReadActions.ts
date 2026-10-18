@@ -10,7 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 
 interface Options {
   baseUrl: string | null;
-  reload: () => Promise<void>;
+  reload: () => Promise<unknown>;
   afterDelete: () => void;
   notify: (msg: string, kind: 'ok' | 'err') => void;
 }

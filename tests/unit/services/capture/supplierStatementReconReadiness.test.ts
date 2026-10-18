@@ -11,7 +11,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/modules/accounting/services/ap/apAgingService', () => ({ getAPAgingDetail: vi.fn() }));
 
 import {
-  listReconciliations, markReconciled, rematchLines, ReconciliationNotReadyError,
+  getReconciliation, listReconciliations, markReconciled, rematchLines, ReconciliationNotReadyError,
 } from '@/modules/accounting/services/capture/supplierStatementReconService';
 
 const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -53,6 +53,41 @@ describe('listReconciliations', () => {
   });
 });
 
+describe('figures of a reconciliation that is not read yet', () => {
+  // The row holds 0 balances and today's date until the job has read the statement. Those are placeholders,
+  // not figures: a reader gets null, never a 0 it could mistake for "ties to the cent".
+  const placeholder = { supplier_balance: 0, isaflow_balance: 0, variance: 0 };
+  const unread = [
+    ['extracting', { status: 'extracting', extraction_heartbeat_at: new Date() }],
+    ['an interrupted (stale extracting)', { status: 'extracting', created_at: longAgo }],
+    ['failed', { status: 'failed' }],
+  ] as const;
+
+  for (const [why, over] of unread) {
+    it(`listReconciliations: ${why} has no statement date, balances or variance`, async () => {
+      m.sql.mockResolvedValueOnce([header({ ...placeholder, ...over })]);
+      const [r] = await listReconciliations(CO);
+      expect([r!.statementDate, r!.supplierBalance, r!.isaflowBalance, r!.variance]).toEqual([null, null, null, null]);
+    });
+
+    it(`getReconciliation: ${why} has no statement date, balances or variance`, async () => {
+      m.sql.mockResolvedValueOnce([header({ ...placeholder, ...over })]).mockResolvedValueOnce([]);
+      const r = await getReconciliation(CO, RECON);
+      expect([r!.statementDate, r!.supplierBalance, r!.isaflowBalance, r!.variance]).toEqual([null, null, null, null]);
+    });
+  }
+
+  it('a read statement keeps its figures, a genuine zero included', async () => {
+    const row = header({ supplier_balance: 115.5, isaflow_balance: 100, variance: 0 });
+    m.sql.mockResolvedValueOnce([row]).mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
+    const [listed] = await listReconciliations(CO);
+    const full = await getReconciliation(CO, RECON);
+    for (const r of [listed!, full!]) {
+      expect([r.statementDate, r.supplierBalance, r.isaflowBalance, r.variance]).toEqual(['2026-10-17', 115.5, 100, 0]);
+    }
+  });
+});
+
 describe('rematchLines', () => {
   for (const status of ['extracting', 'failed'] as const) {
     it(`refuses a ${status} reconciliation before writing anything`, async () => {
@@ -62,10 +97,15 @@ describe('rematchLines', () => {
     });
   }
 
-  it('refuses a stale extracting reconciliation too', async () => {
+  it('refuses a stale extracting reconciliation too, as the interrupted (failed) read it is shown as', async () => {
     m.sql.mockResolvedValueOnce([header({ status: 'extracting', created_at: longAgo })]);
-    await expect(rematchLines(CO, RECON)).rejects.toBeInstanceOf(ReconciliationNotReadyError);
+    await expect(rematchLines(CO, RECON)).rejects.toThrow('This statement could not be read; retry it or delete it.');
     expect(written()).toEqual([]);
+  });
+
+  it('says still being read for a live extracting reconciliation', async () => {
+    m.sql.mockResolvedValueOnce([header({ status: 'extracting', extraction_heartbeat_at: new Date() })]);
+    await expect(rematchLines(CO, RECON)).rejects.toThrow('This statement is still being read.');
   });
 });
 
