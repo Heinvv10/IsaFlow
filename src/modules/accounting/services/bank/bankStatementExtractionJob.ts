@@ -21,6 +21,7 @@ import type { ExtractedBankStatement } from '@/modules/accounting/types/document
 import { parsedDayWindowError } from '../../utils/journalDateWindow';
 import { runDedupPass } from './bankStatementDedupHelpers';
 import { extractBankStatementFromDocument } from './bankStatementExtraction';
+import { withKeepAlive } from './extractionKeepAlive';
 import { describeExtractionFailure } from './statementExtractionState';
 import { StatementReadError } from './vlmStatementPages';
 import type { BankStatementRow } from './bankStatementOcrService';
@@ -31,6 +32,16 @@ async function heartbeat(companyId: string, importId: string, attempt: number, d
   await sql`
     UPDATE bank_statement_imports
     SET extraction_heartbeat_at = NOW(), extraction_pages_done = ${done}, extraction_pages_total = ${total}
+    WHERE id = ${importId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+      AND extraction_attempt = ${attempt}
+  `;
+}
+
+/** A sign of life with no progress to report: the job is alive and waiting for a VLM slot. */
+async function touch(companyId: string, importId: string, attempt: number): Promise<void> {
+  await sql`
+    UPDATE bank_statement_imports
+    SET extraction_heartbeat_at = NOW()
     WHERE id = ${importId}::uuid AND company_id = ${companyId} AND status = 'extracting'
       AND extraction_attempt = ${attempt}
   `;
@@ -88,9 +99,9 @@ export async function runBankStatementExtraction(companyId: string, importId: st
     const attempt = Number(row.extraction_attempt);
 
     try {
-      const extraction = await extractBankStatementFromDocument(
+      const extraction = await withKeepAlive(() => touch(companyId, importId, attempt), () => extractBankStatementFromDocument(
         companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, importId, attempt, done, total),
-      );
+      ));
       // A read that found nothing is not saved as an empty statement: nothing would be imported, and a scan
       // the reader missed would look finished. Retryable, with its own code so the cause shows in the row.
       if (extraction.transactions.length === 0) {
