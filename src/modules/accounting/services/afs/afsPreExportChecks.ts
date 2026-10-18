@@ -4,6 +4,7 @@ import { log } from '@/lib/logger';
 import type { ReportingFramework, SectionStatus } from './afsTypes';
 import { getFiscalRange } from './afsFiscalPeriod';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -150,7 +151,7 @@ async function checkClosingCashEqualsBank(
       AND jl.company_id = ${companyId}::UUID
       AND je.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status     = 'posted'
+      AND je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date <= ${periodEnd}::date
   `) as Record<string, unknown>[];
 
@@ -252,7 +253,7 @@ async function checkAllAccountsMapped(
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       WHERE jl.company_id = ${companyId}::UUID
         AND je.company_id = ${companyId}::UUID
-        AND je.status     = 'posted'
+        AND je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.entry_date <= ${periodEnd}::date
       GROUP BY jl.gl_account_id
     ) bal

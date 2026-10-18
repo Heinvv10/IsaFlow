@@ -8,6 +8,7 @@ import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type DbRow = Record<string, unknown>;
 
@@ -28,7 +29,7 @@ export async function generateNote11CashAndCashEquivalents(
       ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
     LEFT JOIN gl_journal_entries gje
       ON gje.id = gjl.journal_entry_id
-      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+      AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       -- CASH_SUBTYPES, not the literal triple: this note prints in the same
       -- AFS export as the cash KPI tiles, which resolve cash the same way.
@@ -90,7 +91,7 @@ export async function generateNote12ShareCapital(
         ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
       JOIN gl_journal_entries gje
         ON gje.id = gjl.journal_entry_id
-        AND gje.entry_date <= ${end} AND gje.status = 'posted'
+        AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       WHERE ga.company_id = ${companyId}
         AND ga.account_type = 'equity'
       GROUP BY ga.account_name, ga.account_code, ga.account_subtype
@@ -152,7 +153,7 @@ export async function generateNote13Borrowings(
       ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
     JOIN gl_journal_entries gje
       ON gje.id = gjl.journal_entry_id
-      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+      AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_subtype IN ('bank_loan', 'mortgage', 'overdraft', 'finance_lease', 'shareholder_loan')
     GROUP BY ga.account_name, ga.account_code, ga.account_subtype
@@ -230,7 +231,7 @@ export async function generateNote15Provisions(
       ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
     JOIN gl_journal_entries gje
       ON gje.id = gjl.journal_entry_id
-      AND gje.status = 'posted'
+      AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_subtype IN ('provision', 'warranty_provision', 'leave_pay_provision')
       AND gje.entry_date <= ${end}

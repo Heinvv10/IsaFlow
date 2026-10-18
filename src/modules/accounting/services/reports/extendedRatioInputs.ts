@@ -30,6 +30,7 @@ import {
 } from '@/modules/accounting/services/gl/financialFiguresService';
 import { ledgerRatioLines, type LedgerRatioLines } from './ledgerRatioLines';
 import type { FinancialData } from './ratioTypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 /** What only the head count and the classified income-statement lines supply. */
 export type LedgerRatioInputs = LedgerRatioLines & { employeeCount: number };
@@ -84,7 +85,7 @@ export async function readLedgerRatioInputs(
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
-      AND je.status = 'posted' AND ga.account_type IN ('revenue', 'expense')
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND ga.account_type IN ('revenue', 'expense')
       AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
     GROUP BY ga.account_type, ga.account_subtype
   `) as ClassificationRow[];

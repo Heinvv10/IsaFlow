@@ -16,6 +16,7 @@ import {
   type DisclosureInputRow,
 } from './incomeStatementDisclosure';
 import { marginPct } from './marginPct';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
 interface ReportLineItem {
@@ -49,7 +50,7 @@ async function fetchIncomeStatementRows(
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date >= ${periodStart}

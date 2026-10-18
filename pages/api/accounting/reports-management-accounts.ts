@@ -20,6 +20,7 @@ import {
   RECEIVABLE_SUBTYPES,
   PAYABLE_SUBTYPES,
 } from '@/modules/accounting/services/gl/accountClassification';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = Record<string, unknown>;
 
@@ -46,7 +47,7 @@ async function getCashFlowSummary(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE jl.company_id = ${companyId}::UUID AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+        WHERE jl.company_id = ${companyId}::UUID AND je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
       sql`
@@ -56,7 +57,7 @@ async function getCashFlowSummary(
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'asset'
           AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
-          AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
       sql`
@@ -66,7 +67,7 @@ async function getCashFlowSummary(
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'liability'
           AND ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[])
-          AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
       sql`
@@ -80,7 +81,7 @@ async function getCashFlowSummary(
           -- asset from investing activities.
           AND COALESCE(ga.account_subtype, '') <> ALL(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
           AND COALESCE(ga.account_subtype, '') <> ALL(${CASH_SUBTYPES as string[]}::TEXT[])
-          AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
       sql`
@@ -90,7 +91,7 @@ async function getCashFlowSummary(
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'equity'
           AND ga.account_subtype IS DISTINCT FROM 'retained_earnings'
-          AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
       sql`
@@ -102,7 +103,7 @@ async function getCashFlowSummary(
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'asset'
-          AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
+          AND je.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.entry_date < ${startDate}
       ` as Promise<Row[]>,
     ]);

@@ -9,6 +9,7 @@ import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { agedBucketTable, getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -67,7 +68,7 @@ export async function generateNote8FinancialAssets(
     JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id
       AND gjl.company_id = ${companyId}
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
-      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+      AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_subtype = ANY(${[
         ...rawSubtypesFor('investment'), 'financial_asset', 'loan_receivable',
@@ -131,7 +132,7 @@ export async function generateNote9Inventories(
       ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
     LEFT JOIN gl_journal_entries gje
       ON gje.id = gjl.journal_entry_id
-      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+      AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_subtype = ANY(${[
         ...rawSubtypesFor('inventory'),

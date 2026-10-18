@@ -28,6 +28,7 @@ import {
   RECEIVABLE_SUBTYPES,
   rawSubtypesFor,
 } from '@/modules/accounting/services/gl/accountSubtypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export interface PackTrendPoint {
   /** YYYY-MM */
@@ -216,7 +217,7 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
     WHERE  je.company_id = ${companyId}::UUID
       AND  jl.company_id = ${companyId}::UUID
       AND  ga.company_id = ${companyId}::UUID
-      AND  je.status     = 'posted'
+      AND  je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND  je.entry_date <= ${upperBound}::date
     GROUP  BY 1
   `) as Row[];
