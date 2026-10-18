@@ -6,11 +6,14 @@
  * way regular earning components do — they become part of `gross_pay`, get
  * taxed via PAYE, and land on the payslip.
  *
- * SARS source codes assigned per BRS v25.2 and the SARS code guide PAYE-AE-06-G06
- * (whose 3605 entry lists "Leave pay (on resignation/encashment of leave credits)";
- * 3810 is the employer medical-aid fringe benefit, not leave pay):
- *   3605 — Annual payment: leave pay on termination
- *   3605 — Annual payment / gratuity (used for notice pay — BCEA s37)
+ * SARS source codes assigned per BRS v25.2 and the SARS code guide PAYE-AE-06-G06:
+ *   3605 — Annual payment. Used for BOTH leave pay and notice pay.
+ *          Leave pay: the guide's 3605 entry lists "Leave pay (on resignation/
+ *          encashment of leave credits)"; MEDIUM-HIGH confidence (guide text read
+ *          from the sars_source_codes import, BRS itself not checked). 3810 is the
+ *          employer medical-aid fringe benefit, not leave pay.
+ *          Notice pay (BCEA s37): carried over from the previous mapping, not
+ *          re-verified.
  *   3901 — Gratuities / severance pay (lump sum — may require a tax directive)
  *
  * Pure logic: no DB access. Callers assemble inputs from the DB and pass them.

@@ -30,10 +30,6 @@ vi.mock('@/lib/neon', () => {
   return { sql: sqlMock, withTransaction: vi.fn() };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/modules/accounting/services/payroll/uifEngine', () => ({
-  calculateUIF: () => ({ employeeContribution: 177.12, employerContribution: 177.12, isCapped: false }),
-}));
-vi.mock('@/modules/accounting/services/payroll/taxTables', () => ({ getTaxYear: () => 2027 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ getAccountByCode: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn() }));
@@ -128,5 +124,46 @@ describe('getUifDeclaration', () => {
     expect(bindsStatus('approved')).toBe(true);
     expect(bindsStatus('paid')).toBe(true);
     expect(bindsStatus('calculated')).toBe(false);
+  });
+});
+
+describe('getUifDeclaration - lines come from the stored contributions, not the tax tables', () => {
+  beforeEach(() => vi.mocked(sql).mockReset());
+
+  const line = (over: Record<string, unknown>) => ({
+    employee_id: 'e1', employee_number: 'E1', first_name: 'A', last_name: 'B',
+    gross_pay: 10_000, uif_employee: 100, uif_employer: 100, ...over,
+  });
+
+  async function detail(period: { period_year: number; period_month: number }, rows: unknown[]) {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([{ ...declarationRow, ...period }] as never)
+      .mockResolvedValueOnce(rows as never);
+    return getUifDeclaration(COMPANY_ID, DECL_ID);
+  }
+
+  it.each([
+    ['a period before any loaded tax year', { period_year: 2023, period_month: 5 }],
+    ['a period after the last loaded tax year', { period_year: 2028, period_month: 5 }],
+  ])('does not throw for %s', async (_label, period) => {
+    const d = await detail(period, [line({})]);
+    expect(d!.lines).toHaveLength(1);
+    expect(d!.lines[0]).toMatchObject({
+      grossPay: 10_000, leviableSalary: 10_000, employeeContribution: 100, employerContribution: 100, isCapped: false,
+    });
+  });
+
+  it('reports a capped line from the stored contribution (R25 000 pay, R177.12 stored)', async () => {
+    const d = await detail({ period_year: 2026, period_month: 6 }, [
+      line({ gross_pay: 25_000, uif_employee: 177.12, uif_employer: 177.12 }),
+    ]);
+    expect(d!.lines[0]).toMatchObject({ leviableSalary: 17_712, isCapped: true });
+  });
+
+  it('shows a UIF-excluded employee (nothing stored) as uncapped on gross', async () => {
+    const d = await detail({ period_year: 2026, period_month: 6 }, [
+      line({ uif_employee: 0, uif_employer: 0 }),
+    ]);
+    expect(d!.lines[0]).toMatchObject({ leviableSalary: 10_000, isCapped: false });
   });
 });
