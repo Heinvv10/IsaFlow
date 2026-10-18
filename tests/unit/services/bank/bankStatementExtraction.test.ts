@@ -126,7 +126,7 @@ describe('native rows that show a dropped line', () => {
   // A bank's own parser skips a line it cannot read and carries on. 10-25% of the lines of two real FNB
   // statements came back as row errors, and their running balances chained once in a hundred pairs.
   const native = (over: Partial<BankCsvParseResult>) => parsed({
-    bankFormat: 'fnb', parser: 'native',
+    bankFormat: 'fnb', parser: 'native', openingBalance: 100,
     transactions: [
       { transactionDate: '2026-03-05', amount: -10, description: 'a', balance: 90 },
       { transactionDate: '2026-03-06', amount: -20, description: 'b', balance: 70 },
@@ -136,6 +136,7 @@ describe('native rows that show a dropped line', () => {
   const dropped: Array<[string, Partial<BankCsvParseResult>]> = [
     ['a row the parser could not read', { errors: [{ row: 3, error: 'Invalid amount: ' }] }],
     ['a first row that does not follow from the printed opening balance (a dropped first row)', { openingBalance: 500 }],
+    ['an oldest row tied to neither a printed opening balance nor a printed amount (its sign is unverified)', { openingBalance: undefined }],
     ['a row without a running balance', {
       transactions: [
         { transactionDate: '2026-03-05', amount: -10, description: 'a', balance: 90 },

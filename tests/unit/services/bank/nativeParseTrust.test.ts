@@ -12,8 +12,9 @@ import { nativeRowsAreComplete } from '@/modules/accounting/services/bank/native
 
 const tx = (amount: number, balance?: number): ParsedBankTransaction => (
   { transactionDate: '2026-03-05', amount, description: 'x', balance });
+/** The statement opened at 100, so tx(-10, 90) is its first row; pass `openingBalance: undefined` for one that printed none. */
 const parsed = (transactions: ParsedBankTransaction[], over: Partial<BankCsvParseResult> = {}): BankCsvParseResult => (
-  { transactions, errors: [], bankFormat: 'absa', parser: 'native', ...over });
+  { transactions, errors: [], bankFormat: 'absa', parser: 'native', openingBalance: 100, ...over });
 
 describe('nativeRowsAreComplete', () => {
   it('accepts rows whose running balances chain, oldest first', () => {
@@ -51,7 +52,7 @@ describe('nativeRowsAreComplete', () => {
   });
 
   it('does not trust a single balance-carrying row with nothing to compare it against', () => {
-    expect(nativeRowsAreComplete(parsed([tx(-10, 90)]))).toBe(false);
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90)], { openingBalance: undefined }))).toBe(false);
   });
 
   it('does not trust an empty result, with or without an opening balance', () => {
@@ -101,6 +102,35 @@ describe('nativeRowsAreComplete against the amount the line printed', () => {
   });
 
   it('refuses it with no opening balance too: the chain holds, the printed amount does not', () => {
-    expect(nativeRowsAreComplete(parsed([printed(-10, 90, 10), printed(-35, 55, 20)]))).toBe(false);
+    expect(nativeRowsAreComplete(parsed([printed(-10, 90, 10), printed(-35, 55, 20)], { openingBalance: undefined }))).toBe(false);
+  });
+});
+
+describe('nativeRowsAreComplete when the statement printed no opening balance', () => {
+  // A parser that derives each amount's sign from the balance before it has nothing to derive the OLDEST row's
+  // sign from. ABSA gives that row the absolute amount and no printedAmount: a debit reads as a credit, and the
+  // chain, which starts at the second row, cannot see it.
+  const printed = (amount: number, balance: number, printedAmount: number): ParsedBankTransaction => ({ ...tx(amount, balance), printedAmount });
+  const noOpening = { openingBalance: undefined };
+
+  it('refuses rows whose oldest row cannot be tied to anything, oldest first (a debit that reads as a credit)', () => {
+    expect(nativeRowsAreComplete(parsed([tx(10, 90), printed(-5, 85, 5)], noOpening))).toBe(false);
+  });
+
+  it('refuses it newest first too: the oldest row is the last', () => {
+    expect(nativeRowsAreComplete(parsed([printed(-5, 85, 5), tx(10, 90)], noOpening))).toBe(false);
+  });
+
+  it('trusts rows whose oldest row carries a printed amount: its sign was derived from a balance', () => {
+    expect(nativeRowsAreComplete(parsed([printed(-10, 90, 10), printed(-5, 85, 5)], noOpening))).toBe(true);
+    expect(nativeRowsAreComplete(parsed([printed(-5, 85, 5), printed(-10, 90, 10)], noOpening))).toBe(true);
+  });
+
+  it('refuses rows when only a later row carries a printed amount', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90), printed(-5, 85, 5)], noOpening))).toBe(false);
+  });
+
+  it('trusts the same rows once an opening balance ties the oldest row', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90), printed(-5, 85, 5)]))).toBe(true);
   });
 });

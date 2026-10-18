@@ -253,7 +253,13 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
     if (skipPat.test(rest!)) {
       // Capture closing balance for sign inference
       const amts = [...rest!.matchAll(saAmtPat)];
-      if (amts.length) prevBalance = parseSAAmount(amts[amts.length - 1]![1]!);
+      if (amts.length) {
+        prevBalance = parseSAAmount(amts[amts.length - 1]![1]!);
+        // The first brought-forward line, before any row, is where the statement opened.
+        if (result.transactions.length === 0 && result.openingBalance === undefined && /brought\s+forward/i.test(rest!)) {
+          result.openingBalance = prevBalance;
+        }
+      }
       continue;
     }
 
@@ -267,10 +273,12 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
 
     // Sign: trailing minus = debit; otherwise derive from balance delta
     let amount: number;
+    let derived = false;
     if (rawTx.endsWith('-')) {
       amount = parseSAAmount(rawTx);
     } else if (prevBalance !== null) {
       amount = Math.round((balance - prevBalance) * 100) / 100;
+      derived = true;
     } else {
       amount = parseSAAmount(rawTx);
     }
@@ -288,7 +296,11 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
       }
     }
 
-    result.transactions.push({ transactionDate, amount, description: fullDesc, balance });
+    // A derived amount keeps the one the line printed (see parseAbsaSlashDateLines).
+    result.transactions.push({
+      transactionDate, amount, description: fullDesc, balance,
+      ...(derived ? { printedAmount: Math.abs(parseSAAmount(rawTx)) } : {}),
+    });
     prevBalance = balance;
   }
 
