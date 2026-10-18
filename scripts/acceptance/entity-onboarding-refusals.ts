@@ -1,6 +1,8 @@
-// Requests for POST /api/onboarding/complete-setup that the server must REFUSE (the catalogue), and ones it ACCEPTS
-// but must store differently from what was sent (the probes). Messages are copied from entityOnboardingRules.ts
-// (setupIssues and its parts) and onboardingSetupPayload.ts (file checks). Data only: no database access here.
+// Requests for POST /api/onboarding/complete-setup that the server must REFUSE (the catalogue), and ones it ACCEPTS (the
+// probes). Probes pin what the server accepts and stores TODAY: where the rules define the outcome (a registration number
+// sent to an entity without one is stored NULL) and where they do not (labelled "known product gap": the behaviour is
+// pinned as it is, and the probe should become a refusal when the gap is closed). Messages are copied from
+// entityOnboardingRules.ts (setupIssues and its parts) and onboardingSetupPayload.ts (file checks). Data only: no database access here.
 import { pdfDataUrl, pngDataUrl, saId, sizedDataUrl, textDataUrl, tinyPdfDataUrl, tinyPngDataUrl } from './entity-onboarding-support';
 
 export type Body = {
@@ -9,7 +11,7 @@ export type Body = {
 };
 export interface RefusalCase { label: string; body: Body; expect: string }
 /** `expectDocs`: the document types stored for the new company, in order of type then insertion (none = no document). */
-export interface ProbeCase { label: string; body: Body; expectReg: string | null; expectDocs?: string }
+export interface ProbeCase { label: string; body: Body; expectReg: string | null; expectDocs?: string; gap?: 'registration' | 'documents' /* the pinned value is today's behaviour, not a rule */ }
 
 const REG: Record<string, string> = { pty_ltd: '2020/123456/07', ltd: '2015/987654/06', npc: '2018/456789/08', cc: 'CK1998/012345/23', trust: 'IT1234/2020' };
 const PROOF: Record<string, string> = { pty_ltd: 'cipc_certificate', ltd: 'cipc_certificate', npc: 'cipc_certificate', cc: 'ck_certificate', trust: 'letters_of_authority' };
@@ -114,9 +116,9 @@ export function probeCatalogue(): ProbeCase[] {
     { label: 'sole_proprietor sent a registration number', body: withReg('sole_proprietor', '2020/123456/07'), expectReg: null },
     { label: 'partnership sent a registration number', body: withReg('partnership', 'IT1234/2020'), expectReg: null },
     { label: 'other sent a registration number', body: withReg('other', '2020/123456/07'), expectReg: null },
-    { label: 'trust sent a wrong-format number (known product gap: no format check)', body: withReg('trust', 'not a real number'), expectReg: 'not a real number', expectDocs: 'letters_of_authority' },
-    { label: 'pty_ltd sent an IT-format number (known product gap: only CIPC and CK shapes are read)', body: withReg('pty_ltd', 'IT1234/2020'), expectReg: 'IT1234/2020', expectDocs: 'cipc_certificate' },
-    { label: 'pty_ltd sent the same document bytes under two slots (no check on company documents)', body: sameBytes('cipc_certificate', 'tax_clearance'), expectReg: REG.pty_ltd!, expectDocs: 'cipc_certificate,tax_clearance' },
-    { label: 'pty_ltd sent the same document type twice (no check on company documents)', body: sameBytes('cipc_certificate', 'cipc_certificate'), expectReg: REG.pty_ltd!, expectDocs: 'cipc_certificate,cipc_certificate' },
+    { label: 'trust sent a wrong-format number (known product gap: no format check)', body: withReg('trust', 'not a real number'), expectReg: 'not a real number', expectDocs: 'letters_of_authority', gap: 'registration' },
+    { label: 'pty_ltd sent an IT-format number (known product gap: only CIPC and CK shapes are read)', body: withReg('pty_ltd', 'IT1234/2020'), expectReg: 'IT1234/2020', expectDocs: 'cipc_certificate', gap: 'registration' },
+    { label: 'pty_ltd sent the same document bytes under two slots (known product gap: company documents are not de-duplicated)', body: sameBytes('cipc_certificate', 'tax_clearance'), expectReg: REG.pty_ltd!, expectDocs: 'cipc_certificate,tax_clearance', gap: 'documents' },
+    { label: 'pty_ltd sent the same document type twice (known product gap: company documents are not de-duplicated)', body: sameBytes('cipc_certificate', 'cipc_certificate'), expectReg: REG.pty_ltd!, expectDocs: 'cipc_certificate,cipc_certificate', gap: 'documents' },
   ];
 }

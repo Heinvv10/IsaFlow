@@ -12,6 +12,7 @@ export const REFUSAL_ALLOW = { url: /\/api\/onboarding\/complete-setup/, status:
  * The same POST the wizard makes (session cookies and CSRF double-submit header), sent through the browser context's request
  * API rather than an in-page fetch: the upload-limit cases carry 20-40 MB bodies, which should not be marshalled through the page.
  */
+// page.request.post does not trigger the page's response listeners (attachLogs), so these calls are checked directly: status, message and rows.
 export async function postSetup(page: Page, body: Body | Record<string, unknown>): Promise<{ status: number; text: string }> {
   const csrf = (await page.context().cookies()).find(c => c.name === 'isaflow_csrf')?.value ?? '';
   const res = await page.request.post(`${BASE}/api/onboarding/complete-setup`, {
@@ -71,9 +72,9 @@ export async function runProbes(browser: Browser, n: number): Promise<Result> {
       if (!id) continue;
       const stored = psql(`select coalesce(registration_number, '<NULL>') from companies where id='${id}'`);
       const want = p.expectReg ?? '<NULL>';
-      check(r, stored === want, `${p.label}: registration_number stored as "${stored}" (rules say "${want}")`);
+      check(r, stored === want, p.gap === 'registration' ? `${p.label}: registration_number currently stored "${stored}" (known gap; pinned "${want}")` : `${p.label}: registration_number stored as "${stored}" (rules say "${want}")`);
       const docs = psql(`select coalesce(string_agg(document_type, ',' order by document_type), '') from company_documents where company_id='${id}'`);
-      check(r, docs === (p.expectDocs ?? ''), `${p.label}: stored document types "${docs}" (expected "${p.expectDocs ?? ''}")`);
+      check(r, docs === (p.expectDocs ?? ''), p.gap === 'documents' ? `${p.label}: document types currently stored "${docs}" (known gap; pinned "${p.expectDocs ?? ''}")` : `${p.label}: stored document types "${docs}" (expected "${p.expectDocs ?? ''}")`);
       for (const q of [`select entity_type, name, registration_number from companies where id='${id}'`, `select document_type, document_name, file_size from company_documents where company_id='${id}' order by document_type`]) r.dbEvidence.push(`psql> ${q};\n${psqlPretty(q)}`);
     }
   } catch (e) { r.notes.push(`ERROR: ${(e as Error).message.split('\n')[0]}`); r.failed = true; }

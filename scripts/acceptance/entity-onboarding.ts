@@ -100,8 +100,11 @@ async function runOnboarding(browser: Browser, c: Case): Promise<Result> {
     await page.getByPlaceholder('Acme').first().fill(c.name);
     if (c.reg) await page.getByPlaceholder(c.regPlaceholder!, { exact: true }).fill(c.reg);
     await expectVisible(page, c.peopleLabel);
-    if (c.regLabel) check(r, (await page.getByText(c.regLabel).count()) >= 1, `registration field "${c.regLabel}" shown`);
-    else check(r, (await page.getByText(/CIPC registration number|CK number|IT number/).count()) === 0, 'no registration number field for this entity');
+    // Structural, not by label text: the VAT / tax / registration fields share one three-column row, so an entity with a
+    // registration field has 3 inputs in it and one without has 2 (the Field component carries no id, name or data attribute).
+    const fieldRow = page.locator('div[class*="sm:grid-cols-3"]').filter({ has: page.locator('input') }).first();
+    check(r, (await fieldRow.locator('input').count()) === (c.regLabel ? 3 : 2), `details step: ${c.regLabel ? 'registration field present (3 inputs in the VAT/tax row)' : 'no registration field (2 inputs in the VAT/tax row)'}`);
+    if (c.regLabel) check(r, (await page.getByText(c.regLabel).count()) >= 1, `registration field is labelled "${c.regLabel}"`);
     if (c.requiredLine) await page.getByText(c.requiredLine, { exact: true }).waitFor({ timeout: 8000 });
     check(r, (await page.getByText(/^Required: /).count()) === (c.requiredLine ? 1 : 0), c.requiredLine ? `details step shows "${c.requiredLine}"` : 'details step shows no "Required:" line');
     const details = async () => {
@@ -221,6 +224,9 @@ async function main() {
     process.exit(2);
   }
   seedThrowawayDb();
+  // The dev server compiles pages on first hit, and a compile that lands mid-run has twice corrupted its chunk cache
+  // ("Cannot find module './77500.js'", every page then 500s). Compile the public pages up front.
+  for (const path of ['/offline', '/login']) await fetch(`${BASE}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(180000) }).then(r => trace(`warm-up ${path}: HTTP ${r.status}`), e => trace(`warm-up ${path}: ${(e as Error).message}`));
   const results: Result[] = [];
   for (const c of cases) results.push(...await attempt(c.n, 'onboarding', `${c.typeLabel} (user onb${c.n})`, [], async b => [await runOnboarding(b, c)]));
   if (want(12)) results.push(...await attempt(12, 'server', 'Server refusals', [], async b => [await runRefusals(b, 12)]));
