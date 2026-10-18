@@ -32,8 +32,8 @@ const ctx: McpToolContext = {
 };
 
 const REFUSALS = [
-  { error: 'too_many_recloses', entryNumber: 'YE-2027' },
-  { error: 'closing_chain_unreadable', entryNumber: 'YE-2027-R3' },
+  { error: 'too_many_recloses', code: 'YEAR_END_TOO_MANY_RECLOSES', entryNumber: 'YE-2027' },
+  { error: 'closing_chain_unreadable', code: 'YEAR_END_CLOSE_CHAIN_TOO_LONG', entryNumber: 'YE-2027-R3' },
 ] as const;
 
 async function post(): Promise<{ status: number; body: unknown }> {
@@ -55,6 +55,7 @@ describe.each(REFUSALS)('close refusal $error', (refusal) => {
     const { status, body } = await post();
     expect(status).toBe(409);
     expect(JSON.stringify(body)).toContain(refusal.entryNumber);
+    expect(JSON.stringify(body)).toContain(refusal.code);
     expect(JSON.stringify(body)).toMatch(/Nothing was posted/);
   });
 
@@ -64,6 +65,7 @@ describe.each(REFUSALS)('close refusal $error', (refusal) => {
     const text = res.content[0]!.text;
     expect(res.isError).toBe(true);
     expect(text).toContain(refusal.entryNumber);
+    expect(text.startsWith(refusal.code)).toBe(true);
     expect(text).toMatch(/Nothing was posted/);
     expect(text).toMatch(/do not retry/);
   });

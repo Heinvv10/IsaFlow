@@ -86,14 +86,14 @@ afterAll(async () => {
 describe('the re-close walk refuses with a typed result', () => {
   it('a year closed and reversed more than 25 times', async () => {
     const result = await closeFiscalYear(many.company, '2025', user);
-    expect(result).toMatchObject({ error: 'too_many_recloses', entryNumber: 'YE-2025' });
+    expect(result).toMatchObject({ error: 'too_many_recloses', code: 'YEAR_END_TOO_MANY_RECLOSES', entryNumber: 'YE-2025' });
     const dry = await closeFiscalYear(many.company, '2025', user, { dryRun: true });
     expect(dry).toMatchObject({ error: 'too_many_recloses' });
   });
 
   it('a close whose reversal chain is too long to read', async () => {
     const result = await closeFiscalYear(long.company, '2025', user);
-    expect(result).toMatchObject({ error: 'closing_chain_unreadable', entryNumber: 'YE-2025' });
+    expect(result).toMatchObject({ error: 'closing_chain_unreadable', code: 'YEAR_END_CLOSE_CHAIN_TOO_LONG', entryNumber: 'YE-2025' });
   });
 
   it('wrote nothing and locked nothing', async () => {

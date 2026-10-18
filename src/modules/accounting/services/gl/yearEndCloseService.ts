@@ -147,8 +147,8 @@ export async function closeFiscalYear(
   try {
     current = await findCurrentClosingJournal(companyId, built.entryNumber);
   } catch (err) {
-    if (err instanceof TooManyRecloses) return { error: 'too_many_recloses', entryNumber: err.baseNumber };
-    if (err instanceof ClosingChainTooLong) return { error: 'closing_chain_unreadable', entryNumber: err.entryNumber };
+    if (err instanceof TooManyRecloses) return { error: 'too_many_recloses', code: err.code, entryNumber: err.baseNumber };
+    if (err instanceof ClosingChainTooLong) return { error: 'closing_chain_unreadable', code: err.code, entryNumber: err.entryNumber };
     throw err;
   }
   const existingEntry = current.existing;

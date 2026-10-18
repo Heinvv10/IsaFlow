@@ -70,13 +70,13 @@ export function yearEndCloseRefusal(year: number, result: CloseYearError): McpTo
       );
     case 'too_many_recloses':
       return toolError(
-        `Fiscal year ${year}: closing journal ${result.entryNumber} has been reversed and re-posted too many `
+        `${result.code}: fiscal year ${year}: closing journal ${result.entryNumber} has been reversed and re-posted too many `
         + 'times. Nothing was posted. A person has to look at the reversals before this year is closed again; '
         + 'do not retry.',
       );
     case 'closing_chain_unreadable':
       return toolError(
-        `Fiscal year ${year}: the reversal chain of closing journal ${result.entryNumber} is too long to read, `
+        `${result.code}: fiscal year ${year}: the reversal chain of closing journal ${result.entryNumber} is too long to read, `
         + 'so it cannot be told whether the year is closed. Nothing was posted. A person has to inspect it; '
         + 'do not retry.',
       );

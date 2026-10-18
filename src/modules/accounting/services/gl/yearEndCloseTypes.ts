@@ -110,11 +110,13 @@ export type CloseYearError =
   | {
       /** The year was closed and reversed more than `limit` times (yearEndClosingNumber). Nothing was written. */
       error: 'too_many_recloses';
+      code: 'YEAR_END_TOO_MANY_RECLOSES';
       entryNumber: string;
     }
   | {
       /** A close's reversal chain is too long to read as standing or undone. Nothing was written. */
       error: 'closing_chain_unreadable';
+      code: 'YEAR_END_CLOSE_CHAIN_TOO_LONG';
       entryNumber: string;
     }
   | { error: 'no_retained_earnings' }

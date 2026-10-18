@@ -5,7 +5,7 @@ import type { ReportingFramework, SectionStatus } from './afsTypes';
 import { getFiscalRange } from './afsFiscalPeriod';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
-import { checkAccountsMappedToTheirStatement } from './afsMappingSectionCheck';
+import { withStatementMappingFinding } from './afsMappingSectionCheck';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -497,10 +497,7 @@ export async function runPreExportChecks(
     checkDirectorsReportApproved(documentId, companyId),
   ]);
 
-  // Only when something is misplaced, so a clean company's list is unchanged.
-  const misplaced = isAfs ? await checkAccountsMappedToTheirStatement(companyId) : null;
-
-  return [
+  return withStatementMappingFinding([
     allMapped,
     balanceSheet,
     closingCash,
@@ -509,6 +506,5 @@ export async function runPreExportChecks(
     allReviewed,
     imageResolution,
     directorsReport,
-    ...(misplaced ? [misplaced] : []),
-  ];
+  ], companyId, isAfs);
 }

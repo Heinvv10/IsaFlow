@@ -75,6 +75,15 @@ describe('a revenue account mapped to a balance-sheet line', () => {
     await pool.query("UPDATE afs_account_mappings SET afs_line_code='IS002' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.revenue]);
   });
 
+  it('but a mapping on a DEACTIVATED line is not warned about (the SFP does not read it)', async () => {
+    await pool.query("UPDATE afs_account_mappings SET afs_line_code='BS046' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.revenue]);
+    await pool.query("UPDATE afs_statement_lines SET is_active=false WHERE company_id=$1 AND code='BS046'", [t.company]);
+    const checks = await runPreExportChecks(t.doc, t.company, 'ifrs_smes');
+    expect(checks.find((c) => c.label === LABEL)).toBeUndefined();
+    await pool.query("UPDATE afs_statement_lines SET is_active=true WHERE company_id=$1 AND code='BS046'", [t.company]);
+    await pool.query("UPDATE afs_account_mappings SET afs_line_code='IS002' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.revenue]);
+  });
+
   it('and a liability account mapped to an income-statement line is named too', async () => {
     await pool.query("UPDATE afs_account_mappings SET afs_line_code='IS002' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.loan]);
     const finding = (await runPreExportChecks(t.doc, t.company, 'ifrs_smes')).find((c) => c.label === LABEL);
