@@ -9,17 +9,24 @@ vi.mock('@/modules/accounting/services/gl/yearEndJournalPoster', async (orig) =>
   ...(await orig<Record<string, unknown>>()),
   findClosingJournal: (...a: unknown[]) => findClosingJournal(...a),
 }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
+const sqlMock = vi.fn();
+vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { findCurrentClosingJournal, reclosingNumber } from '@/modules/accounting/services/gl/yearEndClosingNumber';
+import { findCurrentClosingJournal, reclosingNumber, TooManyRecloses } from '@/modules/accounting/services/gl/yearEndClosingNumber';
 import { classifyClosingJournal } from '@/modules/accounting/services/gl/yearEndJournalPoster';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const closed = (n: string, reversedAt: string | null) =>
   ({ id: `id-${n}`, entry_number: n, source: 'year_end', status: 'posted', reversed_at: reversedAt });
 
-beforeEach(() => findClosingJournal.mockReset());
+/** The posted reversals in force on each journal the walk asks about, in call order: n entries = n links. */
+const chain = (links: number[]) => {
+  const queue = links.flatMap((n) => [...Array.from({ length: n }, (_, i) => [{ id: `r${i}` }]), []]);
+  sqlMock.mockImplementation(async () => queue.shift() ?? []);
+};
+
+beforeEach(() => { findClosingJournal.mockReset(); sqlMock.mockReset(); chain([]); });
 
 describe('classifyClosingJournal', () => {
   it('a posted, unreversed year_end journal is the close', () => {
@@ -55,6 +62,7 @@ describe('findCurrentClosingJournal', () => {
   });
 
   it('walks past reversed closes to the first free number', async () => {
+    chain([1, 1]);
     findClosingJournal
       .mockResolvedValueOnce(closed('YE-2025', '2026-03-01T10:00:00Z'))
       .mockResolvedValueOnce(closed('YE-2025-R1', '2026-04-01T10:00:00Z'))
@@ -72,8 +80,25 @@ describe('findCurrentClosingJournal', () => {
     expect((await findCurrentClosingJournal(COMPANY, 'YE-2025')).existing).toBe(squatter);
   });
 
-  it('refuses a loop rather than walking forever', async () => {
-    findClosingJournal.mockImplementation(async (_c: string, n: string) => closed(n, '2026-03-01T10:00:00Z'));
-    await expect(findCurrentClosingJournal(COMPANY, 'YE-2025')).rejects.toThrow(/reversed more than/);
+  it('a close whose reversal was itself reversed stands: it is returned, flagged reinstated, and classifies as closed', async () => {
+    chain([2]);
+    findClosingJournal.mockResolvedValueOnce(closed('YE-2025', '2026-03-01T10:00:00Z'));
+    const found = await findCurrentClosingJournal(COMPANY, 'YE-2025');
+    expect(found.entryNumber).toBe('YE-2025');
+    expect(found.existing).toMatchObject({ id: 'id-YE-2025', reinstated: true });
+    expect(classifyClosingJournal('YE-2025', found.existing!)).toBeNull();
+  });
+
+  it('a reversal claim with no contra reads as standing, as journalStandsFragment does', async () => {
+    chain([0]);
+    findClosingJournal.mockResolvedValueOnce(closed('YE-2025', '2026-03-01T10:00:00Z'));
+    expect((await findCurrentClosingJournal(COMPANY, 'YE-2025')).existing).toMatchObject({ reinstated: true });
+  });
+
+  it('refuses a loop with a typed error rather than walking forever', async () => {
+    let n = 0;
+    sqlMock.mockImplementation(async () => (n++ % 2 === 0 ? [{ id: 'r' }] : []));
+    findClosingJournal.mockImplementation(async (_c: string, num: string) => closed(num, '2026-03-01T10:00:00Z'));
+    await expect(findCurrentClosingJournal(COMPANY, 'YE-2025')).rejects.toBeInstanceOf(TooManyRecloses);
   });
 });

@@ -48,6 +48,7 @@ const tenant = (): Tenant => ({
 });
 const a = tenant();
 const b = tenant();
+const c = tenant();
 
 async function post(t: Tenant, n: string, date: string, period: string, left: string, right: string,
   amount: number, cc: string | null = null) {
@@ -114,7 +115,7 @@ async function figures(t: Tenant) {
 }
 
 async function cleanup() {
-  for (const t of [a, b]) {
+  for (const t of [a, b, c]) {
     clearSystemAccountCache(t.company);
     await pool.query('DELETE FROM gl_journal_lines WHERE company_id=$1', [t.company]);
     await pool.query('DELETE FROM gl_account_balances WHERE fiscal_period_id IN (SELECT id FROM fiscal_periods WHERE company_id=$1)', [t.company]);
@@ -129,13 +130,16 @@ async function cleanup() {
 
 let beforeA: Awaited<ReturnType<typeof figures>>;
 let beforeB: Awaited<ReturnType<typeof figures>>;
+let beforeC: Awaited<ReturnType<typeof figures>>;
 
 beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `g01-${user}@test.local`]);
   await seed(a, 'G01 tenant A');
   await seed(b, 'G01 tenant B');
+  await seed(c, 'G01 tenant C');
   beforeA = await figures(a);
   beforeB = await figures(b);
+  beforeC = await figures(c);
 }, 120000);
 
 afterAll(async () => {
@@ -215,5 +219,29 @@ describe('G-06: a reversed closing journal and a second close (tenant B)', () =>
     expect(third.closingEntry.id).toBe(again.closingEntry.id);
     const n = await pool.query("SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'", [b.company]);
     expect(n.rows[0].n).toBe(3);
+  }, 60000);
+});
+
+describe('G-06: reversing the reversal reinstates the close (tenant C)', () => {
+  it('is reported as closed, not closed again over a flat P&L', async () => {
+    const first = await closeFiscalYear(c.company, '2025', user) as { closingEntry: { id: string } };
+    await pool.query("UPDATE fiscal_periods SET status='open' WHERE id=$1", [c.p25]);
+    const contra = await reverseJournalEntry(c.company, first.closingEntry.id, user);
+    await reverseJournalEntry(c.company, contra.id, user);
+    await pool.query("UPDATE fiscal_periods SET status='closed' WHERE id=$1", [c.p25]);
+    // The original keeps reversed_at (it is a one-link marker), yet it stands again.
+    const row = await pool.query('SELECT reversed_at FROM gl_journal_entries WHERE id=$1', [first.closingEntry.id]);
+    expect(row.rows[0].reversed_at).not.toBeNull();
+
+    const again = await closeFiscalYear(c.company, '2025', user) as
+      { alreadyClosed: boolean; closingEntry: { id: string; entry_number: string } };
+    expect(again.alreadyClosed).toBe(true);
+    expect(again.closingEntry.id).toBe(first.closingEntry.id);
+    const dry = await closeFiscalYear(c.company, '2025', user, { dryRun: true }) as { alreadyClosed: boolean };
+    expect(dry.alreadyClosed).toBe(true);
+    // Original, its reversal and the reversal of that: three year_end journals, no empty "re-close".
+    const n = await pool.query("SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'", [c.company]);
+    expect(n.rows[0].n).toBe(3);
+    expect(await figures(c)).toEqual(beforeC);
   }, 60000);
 });

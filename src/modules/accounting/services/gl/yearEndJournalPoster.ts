@@ -94,8 +94,9 @@ export function classifyClosingJournal(
       status: String(row.status),
     };
   }
-  // A reversal keeps status 'posted' and sets reversed_at (G-06): either one means "not a close".
-  if (row.status !== 'posted' || row.reversed_at) {
+  // A reversal keeps status 'posted' and sets reversed_at (G-06): either one means "not a close",
+  // unless the reversal was itself reversed (`reinstated`, set by yearEndClosingNumber).
+  if (row.status !== 'posted' || (row.reversed_at && !row.reinstated)) {
     return {
       error: 'closing_journal_not_posted',
       entryNumber,

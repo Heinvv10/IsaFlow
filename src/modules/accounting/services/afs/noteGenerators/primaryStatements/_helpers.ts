@@ -19,6 +19,7 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from '../noteHelpers';
 import { getFiscalRangeWithPrior } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { addDerivedAccumulatedProfit } from './derivedAccumulatedProfit';
 
 type DbRow = Record<string, unknown>;
 
@@ -160,6 +161,11 @@ export async function fetchSectionLines(
     totalBasis: (r.total_basis as TotalBasis | null) ?? 'children',
     totalComponents: Array.isArray(r.total_components) ? (r.total_components as string[]) : null,
   }));
+
+  if (isBs) {
+    // No posted profit sits in the balance-sheet accounts (see derivedAccumulatedProfit).
+    return (await addDerivedAccumulatedProfit(lines, companyId, end, priorEnd)).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
 
   if (!isBs) {
     // IS485 "Accumulated income (loss) end of year" is a RUNNING total, so it

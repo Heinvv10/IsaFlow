@@ -112,13 +112,19 @@ export type CloseYearError =
   | { error: 'no_fiscal_period'; entryDate: string }
   | {
       /**
-       * The year has a `year_end` header that is NOT posted — reversed, or left
-       * in draft. The year is not closed, and it also cannot be closed while
-       * that row holds the entry number.
+       * The year has a `year_end` header that is NOT posted — left in draft, or a
+       * legacy row whose status was flipped to 'reversed'. The year is not closed,
+       * and it also cannot be closed while that row holds the entry number. (A
+       * normally reversed close keeps status 'posted' and is walked past:
+       * yearEndClosingNumber.)
        */
       error: 'closing_journal_not_posted';
       entryNumber: string;
       entryId: string;
+      /**
+       * The row's status. `'reversed'` also stands for a posted row with `reversed_at` set,
+       * which only the lost-race re-read can reach; every consumer prints it, none branches on it.
+       */
       status: string;
     }
   | {

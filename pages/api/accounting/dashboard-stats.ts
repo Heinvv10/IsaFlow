@@ -111,7 +111,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-          AND je.company_id = ${companyId} AND je.entry_date >= ${monthStart}
+          AND je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.entry_date >= ${monthStart}
       `,
       // Unallocated bank transactions
       sql`
