@@ -94,6 +94,17 @@ describe('ABSA slash-date parser: overdrawn (trailing-minus) balances', () => {
     expect(trusted(r)).toBe(false);
   });
 
+  it('a balance printed "0.00-" is zero, not -0', () => {
+    const r = parse(
+      `19/06/2026 ${T}Bal Brought Forward ${T}0.00-`,
+      `22/06/2026 ${T}Acb Credit ${T}Settlement ${T}500.00 ${T}500.00`,
+      `23/06/2026 ${T}Acb Debit:External ${T}Settlement ${T}500.00 ${T}0.00-`,
+    );
+    expect(Object.is(r.openingBalance, 0)).toBe(true);
+    expect(Object.is(r.transactions[1]!.balance, 0)).toBe(true);
+    expect(trusted(r)).toBe(true);
+  });
+
   it('a positive statement reads as before', () => {
     const r = parse(OVERDRAWN_ROWS[0]!, OVERDRAWN_ROWS[1]!, `3/07/2026 ${T}Acb Debit:External ${T}Settlement ${T}1 000.00 ${T}14 000.00`);
     expect(r.transactions.map((t) => [t.amount, t.balance])).toEqual([[5000, 15000], [-1000, 14000]]);
@@ -112,6 +123,17 @@ describe('ABSA investment-account parser: overdrawn (trailing-minus) balances', 
     ));
     expect(r.openingBalance).toBe(-1000);
     expect(r.transactions.map((t) => [t.amount, t.balance])).toEqual([[400, -600], [-200, -800]]);
+    expect(trusted(r)).toBe(true);
+  });
+
+  it('a balance printed "0,00-" is zero, not -0', () => {
+    const r = parseAbsaPdfText(inv(
+      '01 Mar 2026 Balance Brought Forward 0,00-',
+      '02 Mar 2026 Deposit Credit 400,00 400,00',
+      '03 Mar 2026 Withdrawal Debit 400,00- 0,00-',
+    ));
+    expect(Object.is(r.openingBalance, 0)).toBe(true);
+    expect(Object.is(r.transactions[1]!.balance, 0)).toBe(true);
     expect(trusted(r)).toBe(true);
   });
 });
