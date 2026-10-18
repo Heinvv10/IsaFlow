@@ -145,6 +145,15 @@ describe('runBankStatementExtraction — failure', () => {
     expect(f.values).toContain(CO);
   });
 
+  it('fails as unreadable, retryable, when the read found no transaction at all (never ends extracted with 0 rows)', async () => {
+    m.extract.mockResolvedValue(extraction({ transactions: [] }));
+    await runBankStatementExtraction(CO, IMPORT);
+    expect(callsOn("status = 'extracted'")).toEqual([]);
+    const f = failedWith();
+    expect(f.values).toContain('unreadable');
+    expect(f.values).toContain('No transactions could be read from this statement. Retry the import, or upload a clearer copy.');
+  });
+
   it('hides an unexpected error behind a generic message', async () => {
     m.extract.mockRejectedValue(new Error('connect ECONNREFUSED 10.0.0.9:5432'));
     await runBankStatementExtraction(CO, IMPORT);

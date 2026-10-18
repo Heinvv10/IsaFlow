@@ -116,17 +116,18 @@ it('bank: a failed poll between good ones does not stop the polling', async () =
   expect(gets().length).toBeGreaterThanOrEqual(7);
 });
 
-it('supplier: a poll answered 404 stops polling and shows the error', async () => {
-  router.query = { id: 'r1' };
-  let n = 0;
-  vi.mocked(apiFetch).mockImplementation(async () => (++n === 1 ? ok(supplierRecon()) : failing(404, 'Reconciliation not found')));
-  render(<SupplierDetailPage />);
-  await screen.findByText('Reading statement…');
-  await tick(3000);
-  expect(await screen.findByText('Reconciliation not found')).toBeTruthy();
-  await tick(30000);
-  expect(gets()).toHaveLength(2);
-});
+it.each([[404, 'Reconciliation not found'], [403, 'Not allowed']])(
+  'supplier: a poll answered %i stops polling and shows the error', async (status, message) => {
+    router.query = { id: 'r1' };
+    let n = 0;
+    vi.mocked(apiFetch).mockImplementation(async () => (++n === 1 ? ok(supplierRecon()) : failing(status, message)));
+    render(<SupplierDetailPage />);
+    await screen.findByText('Reading statement…');
+    await tick(3000);
+    expect(await screen.findByText(message)).toBeTruthy();
+    await tick(30000);
+    expect(gets()).toHaveLength(2);
+  });
 
 it('supplier: stops after 3 failed polls in a row and shows the error', async () => {
   router.query = { id: 'r1' };

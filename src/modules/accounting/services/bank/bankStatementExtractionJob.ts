@@ -22,6 +22,7 @@ import { parsedDayWindowError } from '../../utils/journalDateWindow';
 import { runDedupPass } from './bankStatementDedupHelpers';
 import { extractBankStatementFromDocument } from './bankStatementExtraction';
 import { describeExtractionFailure } from './statementExtractionState';
+import { StatementReadError } from './vlmStatementPages';
 import type { BankStatementRow } from './bankStatementOcrService';
 
 type DbRow = Record<string, unknown>;
@@ -90,6 +91,10 @@ export async function runBankStatementExtraction(companyId: string, importId: st
       const extraction = await extractBankStatementFromDocument(
         companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, importId, attempt, done, total),
       );
+      // A read that found nothing is a failed read (a blank scan, a page the reader gave up on), not an empty statement.
+      if (extraction.transactions.length === 0) {
+        throw new StatementReadError('unreadable', 'No transactions could be read from this statement. Retry the import, or upload a clearer copy.');
+      }
       const { rows, warnings } = await buildRows(companyId, row.bank_account_id as string, extraction);
       const duplicateCount = rows.filter((r) => r.isDuplicate).length;
       const summary = JSON.stringify({ rows, warnings });

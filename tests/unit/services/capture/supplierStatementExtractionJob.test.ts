@@ -100,10 +100,10 @@ describe('runSupplierStatementExtraction — success', () => {
   });
 
   it('counts a bill in the period the statement does not list as missing from the statement', async () => {
-    m.extract.mockResolvedValue(extraction({ lines: [] }));
+    m.extract.mockResolvedValue(extraction({ lines: [{ date: '2026-03-03', reference: 'INV-9', debit: 50 }] }));
     await runSupplierStatementExtraction(CO, RECON);
     const [done] = callsOn("status = 'unreconciled'");
-    expect(done.values.slice(6, 9)).toEqual([0, 1, 0]);
+    expect(done.values.slice(6, 9)).toEqual([1, 1, 0]);
   });
 
   it('counts a statement line whose amount differs from its bill', async () => {
@@ -173,6 +173,14 @@ describe('runSupplierStatementExtraction — failure', () => {
     expect(f.values).toEqual(expect.arrayContaining(['This statement has 31 pages; the most IsaFlow reads is 20.', 'too_many_pages', RECON, CO]));
     expect(text(f)).toContain("WHERE id = ? AND company_id = ? AND status = 'extracting'");
     expect(callsOn('supplier_statement_lines')).toEqual([]);
+  });
+
+  it('fails as unreadable, retryable, when the read found no line at all (never ends unreconciled with 0 lines)', async () => {
+    m.extract.mockResolvedValue(extraction({ lines: [] }));
+    await runSupplierStatementExtraction(CO, RECON);
+    expect(callsOn("status = 'unreconciled'")).toEqual([]);
+    expect(callsOn('supplier_statement_lines')).toEqual([]);
+    expect(failedWith().values).toEqual(expect.arrayContaining(['unreadable', 'No lines could be read from this statement. Retry the import, or upload a clearer copy.']));
   });
 
   it('hides an unexpected error behind a generic message', async () => {
