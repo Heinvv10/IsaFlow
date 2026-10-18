@@ -19,7 +19,7 @@ interface BSLineItem {
   balance: number;
 }
 
-async function calculateRetainedEarnings(companyId: string, asAtDate: string,
+export async function calculateRetainedEarnings(companyId: string, asAtDate: string,
   costCentreId?: string, businessUnitId?: string): Promise<number> {
   const ccId = costCentreId ?? null;
   const buId = businessUnitId ?? null;

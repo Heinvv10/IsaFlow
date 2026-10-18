@@ -2,7 +2,7 @@
 
 Rule (Hein, option A): every REPORT or STATEMENT reader skips `source = 'year_end'` (both legs) through `YEAR_END_JOURNAL_SOURCE` (`gl/yearEndJournalSource.ts`), because the reporting layer DERIVES the close. The journal stays in the ledger as the lock and audit record and stays visible in raw-ledger views. Mechanised by `tests/unit/guards/yearEndJournalCensus.test.ts`; behaviour pinned by `tests/integration/g01-year-end-journal-excluded-from-reports.int.test.ts`.
 
-Census by TABLE, not by grep count: 272 files in `src/` and `pages/` name `gl_journal_lines` or `gl_journal_entries`. 114 of them SUM ledger lines: 50 are report readers and are changed to exclude, 64 are not report readers (table 2). 1 more (`reports/postedThroughService.ts`, a MAX over created_at) excludes without a SUM. The other files read journal rows for status, linkage or posting guards and produce no balance or total (table 3). `scripts/` (one-off ops and seed scripts) is outside the product and not changed.
+Census by TABLE, not by grep count: 273 files in `src/` and `pages/` name `gl_journal_lines` or `gl_journal_entries`. Scanned statement by statement (`tests/helpers/templateLiterals.ts` reads each template literal on its own, nesting included): 229 statements read the tables and produce a figure (SUM / MAX / MIN / AVG, or debit/credit in the SELECT list) or are listed. 51 files carry the marker on every such statement (table 1); the rest are classified per file with a reason (table 2). The other files read journal rows for status, linkage or posting guards and produce no balance or total (table 3). `scripts/` (one-off ops and seed scripts) is outside the product and not changed.
 
 Why every reader, not only the P&L ones: the posted close credits the retained-earnings account. A balance-sheet or equity reader that kept it while the derived retained earnings (`calculateRetainedEarnings`, `getRetainedEarningsBroughtForward`) also counted the same profit would double count it, so the balance sheet, TB, equity bases, SOCE and AFS mappings skip the close on both legs. Reversed closes: `reverseJournalEntry` copies `source`, so a reversed close and its contra both carry `year_end` and drop out together; a re-close is a third `year_end` journal (`YE-<year>-R<n>`).
 
@@ -12,128 +12,144 @@ Raw-ledger views keep the close visible: journal list and detail (`journalEntryL
 
 ## 1. Statement / report readers: exclude
 
-| file | what it produces | reads RE account directly? | action |
+| file | what it produces | reads an equity / RE balance: also adds the derived RE? | action |
 |---|---|---|---|
-| `src/modules/accounting/services/gl/financialFiguresService.ts` | period P&L + cumulative balance-sheet figures (board pack, ratios, trends, MCP) | yes (equity subtypes, cumulative) | exclude |
-| `src/modules/accounting/services/gl/trialBalanceService.ts` | trial balance rows + totals (TB page, CSV, MCP) | yes (all accounts) | exclude |
-| `src/modules/accounting/services/gl/trialBalanceBasis.ts` | retained earnings brought forward (derived P&L before a date) | no (derives it) | exclude |
-| `src/modules/accounting/services/gl/generalLedgerReportService.ts` | GL report: opening, movement, derived close per account | yes (any account) | exclude |
-| `src/modules/accounting/services/gl/generalLedgerStreamService.ts` | streamed GL with running balance | yes (any account) | exclude |
-| `src/modules/accounting/services/gl/accountTransactionsService.ts` | one account's transactions with opening/closing | yes (any account) | exclude |
-| `src/modules/accounting/services/gl/reclassification/impact.ts` | reclassification before/after P&L bands | no | exclude |
-| `src/modules/accounting/services/gl/yearEndService.ts` | year-end page: revenue/expense/net income per fiscal year | no | exclude |
-| `src/modules/accounting/services/reports/incomeStatementService.ts` | income statement (page, export, comparative, by dimension) | no | exclude |
-| `src/modules/accounting/services/reports/balanceSheetService.ts` | balance sheet, derived retained earnings, equity bases | yes (posted equity + derived) | exclude |
-| `src/modules/accounting/services/reports/trendRowsService.ts` | 12-month account trends (P&L movement, balance-sheet balances) | yes (equity balances) | exclude |
-| `src/modules/accounting/services/reports/dimensionPnlService.ts` | P&L by cost centre / business unit (MCP group_by) | no | exclude |
-| `src/modules/accounting/services/reports/projectProfitabilityService.ts` | project / CC2 profitability + tagging coverage | no | exclude |
-| `src/modules/accounting/services/reports/classificationCoverageService.ts` | classification coverage of P&L accounts | no | exclude |
-| `src/modules/accounting/services/reports/accountLedgerService.ts` | account ledger drill-down (opening, rows, totals) | yes (any account) | exclude |
-| `src/modules/accounting/services/reports/accountLedgerYearEnd.ts` | derived year-end close rows for the account ledger | no | exclude |
-| `src/modules/accounting/services/reports/budgetVarianceService.ts` | actuals for budget vs actual (MCP, board pack) | no | exclude |
-| `src/modules/accounting/services/reports/extendedRatioInputs.ts` | ratio inputs (scorecard, extended ratios) | no | exclude |
-| `src/modules/accounting/services/reports/kpiDashboardService.ts` | KPI dashboard revenue/expense/journal count | no | exclude |
-| `src/modules/accounting/services/reports/kpiChartsService.ts` | KPI charts: monthly revenue/expense, top expenses | no | exclude |
-| `src/modules/accounting/services/reports/consolidatedStatementsService.ts` | group P&L, balance sheet, derived RE | yes (equity) | exclude |
-| `src/modules/accounting/services/reports/consolidatedReportingService.ts` | group dashboard revenue/expense per company | no | exclude |
-| `src/modules/accounting/services/reports/consolidatedTrialBalanceMembers.ts` | member trial balance for the consolidated TB | yes (all accounts) | exclude |
-| `src/modules/accounting/services/reports/consolidationService.ts` | consolidation entity trial balance | yes (all accounts) | exclude |
-| `src/modules/accounting/services/reports/casewareExportService.ts` | CaseWare TB export | yes (all accounts) | exclude |
-| `src/modules/accounting/services/reports/disclosureNoteGenerators.ts` | disclosure notes: revenue, cash, VAT | no | exclude |
-| `src/modules/accounting/services/reports/postedThroughService.ts` | posted_through stamp on every report | no | exclude |
-| `src/modules/accounting/services/reports/unusualJournalsService.ts` | board pack page 11: unusual journals (system close is not user-keyed) | no | exclude |
-| `src/modules/accounting/services/afs/afsKpiService.ts` | AFS KPIs: revenue, profit, equity, working capital | yes (total equity) | exclude |
-| `src/modules/accounting/services/afs/afsMappingQueries.ts` | AFS mapped-account balances (current, prior), mapping coverage | yes (all accounts) | exclude |
-| `src/modules/accounting/services/afs/afsPreExportChecks.ts` | AFS pre-export checks: cash tie, unmapped value | yes (all accounts) | exclude |
-| `src/modules/accounting/services/afs/changesInEquityService.ts` | statement of changes in equity (opening, movements, closing) | yes (equity movements) | exclude |
-| `src/modules/accounting/services/afs/managementPackGeneratorService.ts` | management pack revenue/profit/top lines | no | exclude |
-| `src/modules/accounting/services/afs/pisCalculatorService.ts` | provisional / PIS turnover and liabilities tests | no | exclude |
-| `src/modules/accounting/services/afs/noteGenerators/noteHelpers.ts` | AFS note balances by mapped line | yes (mapped equity lines) | exclude |
-| `src/modules/accounting/services/afs/noteGenerators/notes1to5.ts` | AFS notes 1-5: provisions, intangibles | no | exclude |
-| `src/modules/accounting/services/afs/noteGenerators/notes6to10.ts` | AFS notes 6-10: investments, inventory | no | exclude |
-| `src/modules/accounting/services/afs/noteGenerators/notes11to15.ts` | AFS notes 11-15: cash, equity, loans, provisions | yes (equity note) | exclude |
-| `src/modules/accounting/services/afs/noteGenerators/notes16to20.ts` | AFS notes 16-20: tax, revenue, other income, expenses | no | exclude |
-| `src/modules/accounting/services/afs/noteGenerators/notes21to25.ts` | AFS notes 21-25: finance cost, employee cost, audit fees | no | exclude |
-| `src/modules/accounting/services/afs/noteGenerators/notes26to30.ts` | AFS notes 26-30: subsequent events, result, debtors, creditors | no | exclude |
-| `src/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers.ts` | AFS income statement / balance sheet / SOCE line amounts, opening accumulated income | yes (retained earnings) | exclude |
-| `src/modules/accounting/services/packs/packTrendService.ts` | board pack monthly trend | no | exclude |
-| `pages/api/accounting/reports-management-accounts.ts` | management accounts incl. cash flow deltas | no (non-RE equity) | exclude |
-| `pages/api/accounting/dashboard-stats.ts` | dashboard revenue/expense and bank balances | no | exclude |
-| `pages/api/accounting/reports-trend-analysis.ts` | trend analysis revenue/expense/cash | no | exclude |
-| `pages/api/accounting/reports-cash-flow.ts` | cash flow statement (indirect) | no (non-RE equity) | exclude |
-| `pages/api/accounting/cash-flow-export.ts` | cash flow export | no (non-RE equity) | exclude |
-| `pages/api/accounting/reports-budget-vs-actual.ts` | budget vs actual page | no | exclude |
-| `pages/api/accounting/budget-vs-actual-export.ts` | budget vs actual export | no | exclude |
-| `src/modules/bureau/services/bureauClientMetricsService.ts` | bureau client revenue/expense/bank | no | exclude |
+| `src/modules/accounting/services/gl/financialFiguresService.ts` | period P&L + cumulative balance-sheet figures (board pack, ratios, trends, MCP) | yes: adds `retainedEarningsBroughtForward` + period profit (totalEquity) | exclude |
+| `src/modules/accounting/services/gl/trialBalanceService.ts` | trial balance rows + totals (TB page, CSV, MCP) | yes: derived `RE-BF` row | exclude |
+| `src/modules/accounting/services/gl/trialBalanceBasis.ts` | retained earnings brought forward (derived P&L before a date) | n/a (it IS the derivation) | exclude |
+| `src/modules/accounting/services/gl/generalLedgerReportService.ts` | GL report: opening, movement, derived close per account | n/a: one account's ledger, not a total | exclude |
+| `src/modules/accounting/services/gl/generalLedgerStreamService.ts` | streamed GL with running balance | n/a: one account's ledger, not a total | exclude |
+| `src/modules/accounting/services/gl/accountTransactionsService.ts` | one account's transactions with opening/closing | n/a: one account's ledger, not a total | exclude |
+| `src/modules/accounting/services/gl/reclassification/impact.ts` | reclassification before/after P&L bands | n/a: no equity read | exclude |
+| `src/modules/accounting/services/gl/yearEndService.ts` | year-end page: revenue/expense/net income per fiscal year | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/incomeStatementService.ts` | income statement (page, export, comparative, by dimension) | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/balanceSheetService.ts` | balance sheet, derived retained earnings, equity bases | yes: `calculateRetainedEarnings` injected | exclude |
+| `src/modules/accounting/services/reports/trendRowsService.ts` | 12-month account trends (P&L movement, balance-sheet balances) | n/a: the RE series is suppressed ("derived on the balance sheet") | exclude |
+| `src/modules/accounting/services/reports/dimensionPnlService.ts` | P&L by cost centre / business unit (MCP group_by) | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/projectProfitabilityService.ts` | project / CC2 profitability + tagging coverage | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/classificationCoverageService.ts` | classification coverage of P&L accounts | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/accountLedgerService.ts` | account ledger drill-down (opening, rows, totals) | n/a: one account's ledger, not a total | exclude |
+| `src/modules/accounting/services/reports/accountLedgerYearEnd.ts` | derived year-end close rows for the account ledger | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/budgetVarianceService.ts` | actuals for budget vs actual (MCP, board pack) | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/extendedRatioInputs.ts` | ratio inputs (scorecard, extended ratios) | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/kpiDashboardService.ts` | KPI dashboard revenue/expense/journal count | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/kpiChartsService.ts` | KPI charts: monthly revenue/expense, top expenses | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/consolidatedStatementsService.ts` | group P&L, balance sheet, derived RE | yes: derived RE from the revenue/expense read | exclude |
+| `src/modules/accounting/services/reports/consolidatedReportingService.ts` | group dashboard revenue/expense per company | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/consolidatedTrialBalanceMembers.ts` | member trial balance for the consolidated TB | yes: retained brought forward | exclude |
+| `src/modules/accounting/services/reports/consolidationService.ts` | consolidation entity trial balance | n/a: movement-only trial balance, no balance carried | exclude |
+| `src/modules/accounting/services/reports/casewareExportService.ts` | CaseWare TB export | yes: derived `RE-BF` row | exclude |
+| `src/modules/accounting/services/reports/disclosureNoteGenerators.ts` | disclosure notes: revenue, cash, VAT | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/postedThroughService.ts` | posted_through stamp on every report | n/a: no equity read | exclude |
+| `src/modules/accounting/services/reports/unusualJournalsService.ts` | board pack page 11: unusual journals (system close is not user-keyed) | n/a: no equity read | exclude |
+| `src/modules/accounting/services/afs/afsKpiService.ts` | AFS KPIs: revenue, profit, equity, working capital | FIXED in review round 1: `total_equity` + `calculateRetainedEarnings` (debt-to-equity) | exclude |
+| `src/modules/accounting/services/afs/afsMappingQueries.ts` | AFS mapped-account balances (current, prior), mapping coverage | n/a: per mapped account, mapping screen | exclude |
+| `src/modules/accounting/services/afs/afsPreExportChecks.ts` | AFS pre-export checks: cash tie, unmapped value | via the SFP snapshot (fixed below); cash tie and unmapped value read no equity total | exclude |
+| `src/modules/accounting/services/afs/changesInEquityService.ts` | statement of changes in equity (opening, movements, closing) | yes: opening and profit derived; closing ties to the balance sheet (integration test) | exclude |
+| `src/modules/accounting/services/afs/managementPackGeneratorService.ts` | management pack revenue/profit/top lines | n/a: no equity read | exclude |
+| `src/modules/accounting/services/afs/pisCalculatorService.ts` | provisional / PIS turnover and liabilities tests | n/a: no equity read | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/noteHelpers.ts` | AFS note balances by mapped line | n/a: `fetchBalancesBy*` have no caller | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/notes1to5.ts` | AFS notes 1-5: provisions, intangibles | n/a: no equity read | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/notes6to10.ts` | AFS notes 6-10: investments, inventory | n/a: no equity read | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/notes11to15.ts` | AFS notes 11-15: cash, equity, loans, provisions | FIXED in review round 1: Note 12 adds the derived profit to the RE row | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/notes16to20.ts` | AFS notes 16-20: tax, revenue, other income, expenses | n/a: no equity read | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/notes21to25.ts` | AFS notes 21-25: finance cost, employee cost, audit fees | n/a: no equity read | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/notes26to30.ts` | AFS notes 26-30: subsequent events, result, debtors, creditors | n/a: no equity read | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers.ts` | AFS income statement / balance sheet / SOCE line amounts, opening accumulated income | FIXED in review round 1: SFP adds `calculateRetainedEarnings` to BS045 (current and prior); IS side already derived (`ISACCBF`) | exclude |
+| `src/modules/accounting/services/packs/packTrendService.ts` | board pack monthly trend | n/a: no equity read | exclude |
+| `pages/api/accounting/reports-management-accounts.ts` | management accounts incl. cash flow deltas | n/a: non-RE equity movement only | exclude |
+| `pages/api/accounting/dashboard-stats.ts` | dashboard revenue/expense and bank balances | n/a: no equity read | exclude |
+| `pages/api/accounting/reports-trend-analysis.ts` | trend analysis revenue/expense/cash | n/a: no equity read | exclude |
+| `pages/api/accounting/reports-cash-flow.ts` | cash flow statement (indirect) | n/a: non-RE equity movement only | exclude |
+| `pages/api/accounting/cash-flow-export.ts` | cash flow export | n/a: non-RE equity movement only | exclude |
+| `pages/api/accounting/reports-budget-vs-actual.ts` | budget vs actual page | n/a: no equity read | exclude |
+| `pages/api/accounting/budget-vs-actual-export.ts` | budget vs actual export | n/a: no equity read | exclude |
+| `src/modules/bureau/services/bureauClientMetricsService.ts` | bureau client revenue/expense/bank | n/a: no equity read | exclude |
 
-## 2. Sum ledger lines, not a statement: n/a (allow-listed in the guard test with the same reason)
+## 2. Figure-producing statements that are not statement readers: n/a (allow-listed per file in the guard test, with the same reason)
 
-| file | what it produces | reads RE account directly? | action |
+The guard is per STATEMENT: a marked statement vouches only for itself, so a file in table 1 cannot hide an unmarked query, and a file here needs its reason. Composed templates (fragments handed to a runner) are listed separately in the test's `COMPOSED` list: `customReportFieldDefs` is RAW (a user-built report over the raw ledger, close included), the chain-parity fragments are join conditions.
+
+| file | what it produces | reads an equity / RE balance: also adds the derived RE? | action |
 |---|---|---|---|
-| `pages/api/accounting/journal-entries-audit.ts` | sums ledger lines, not a statement figure | no | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
-| `pages/api/accounting/opening-balances-export.ts` | sums ledger lines, not a statement figure | no | n/a: opening-balance journals only (source opening_balance / auto_migration) |
-| `pages/api/accounting/reports-journal-entries.ts` | sums ledger lines, not a statement figure | no | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
-| `pages/api/accounting/reports-waterfall.ts` | sums ledger lines, not a statement figure | no | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
-| `src/modules/accounting/services/afs/noteGenerators/primaryStatements/cashFlow.ts` | sums ledger lines, not a statement figure | no | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
-| `src/modules/accounting/services/ap/supplierCreditNoteExpenseLines.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/ar/invoiceRevenuePosting.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/audit/checks/journalRiskChecks.ts` | sums ledger lines, not a statement figure | no | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
-| `src/modules/accounting/services/audit/snapshotRows.ts` | sums ledger lines, not a statement figure | no | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
-| `src/modules/accounting/services/bank/agentActivityService.ts` | sums ledger lines, not a statement figure | no | n/a: bank-feed matching and posting: reads one bank line's own journal |
-| `src/modules/accounting/services/bank/autoPostHandOffset.ts` | sums ledger lines, not a statement figure | no | n/a: bank-feed matching and posting: reads one bank line's own journal |
-| `src/modules/accounting/services/bank/autoPostUndoProjection.ts` | sums ledger lines, not a statement figure | no | n/a: bank-feed matching and posting: reads one bank line's own journal |
-| `src/modules/accounting/services/bank/bankCoverageDirections.ts` | sums ledger lines, not a statement figure | no | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
-| `src/modules/accounting/services/bank/bankReconciliationBalance.ts` | sums ledger lines, not a statement figure | no | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
-| `src/modules/accounting/services/bank/bankTxQueryFragments.ts` | sums ledger lines, not a statement figure | no | n/a: bank-feed matching and posting: reads one bank line's own journal |
-| `src/modules/accounting/services/bank/cashBalanceService.ts` | sums ledger lines, not a statement figure | no | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
-| `src/modules/accounting/services/bank/splitJournalDocuments.ts` | sums ledger lines, not a statement figure | no | n/a: bank-feed matching and posting: reads one bank line's own journal |
-| `src/modules/accounting/services/capture/capturedVatEvidence.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/core/migrationExecuteService.ts` | sums ledger lines, not a statement figure | no | n/a: migration-time reconciliation against the source system, before any close exists |
-| `src/modules/accounting/services/core/migrationService.ts` | sums ledger lines, not a statement figure | no | n/a: migration-time reconciliation against the source system, before any close exists |
-| `src/modules/accounting/services/core/migrationSubtypeCheck.ts` | sums ledger lines, not a statement figure | no | n/a: migration-time reconciliation against the source system, before any close exists |
-| `src/modules/accounting/services/core/migrationValidationService.ts` | sums ledger lines, not a statement figure | no | n/a: migration-time reconciliation against the source system, before any close exists |
-| `src/modules/accounting/services/core/sageLedgerRelinkGuard.ts` | sums ledger lines, not a statement figure | no | n/a: migration-time reconciliation against the source system, before any close exists |
-| `src/modules/accounting/services/core/sageMigrationCompareService.ts` | sums ledger lines, not a statement figure | no | n/a: migration-time reconciliation against the source system, before any close exists |
-| `src/modules/accounting/services/dashboard/workbenchService.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/gl/accountMergeFigures.ts` | sums ledger lines, not a statement figure | no | n/a: account-merge guard: counts and sums every posted line of the merged accounts |
-| `src/modules/accounting/services/gl/approvalDocuments.ts` | sums ledger lines, not a statement figure | no | n/a: approval digest of one journal's own debit total |
-| `src/modules/accounting/services/gl/auditTrailAttribution.ts` | sums ledger lines, not a statement figure | no | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
-| `src/modules/accounting/services/gl/auditTrailLedgerService.ts` | sums ledger lines, not a statement figure | no | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
-| `src/modules/accounting/services/gl/chartOfAccountsHealthService.ts` | sums ledger lines, not a statement figure | no | n/a: chart-of-accounts health: per-account stored balance and last posting |
-| `src/modules/accounting/services/gl/closeReadinessChecks/openingBalanceEquityCheck.ts` | sums ledger lines, not a statement figure | no | n/a: opening-balance journals only (source opening_balance / auto_migration) |
-| `src/modules/accounting/services/gl/closeReadinessChecks/orphanPeriodJournalsCheck.ts` | sums ledger lines, not a statement figure | no | n/a: pre-close readiness or draft listing: runs before the close |
-| `src/modules/accounting/services/gl/closeReadinessChecks/tbBalancedCheck.ts` | sums ledger lines, not a statement figure | no | n/a: pre-close readiness or draft listing: runs before the close |
-| `src/modules/accounting/services/gl/closeRun/closeRunRepo.ts` | sums ledger lines, not a statement figure | no | n/a: pre-close readiness or draft listing: runs before the close |
-| `src/modules/accounting/services/gl/controlAccountService.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/gl/glAccountBalance.ts` | sums ledger lines, not a statement figure | no | n/a: a single account's stored balance (chart of accounts, can-it-be-deleted guards) |
-| `src/modules/accounting/services/gl/integrityChecks/accountChecks.ts` | sums ledger lines, not a statement figure | no | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
-| `src/modules/accounting/services/gl/integrityChecks/bankChecks.ts` | sums ledger lines, not a statement figure | no | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
-| `src/modules/accounting/services/gl/integrityChecks/dimensionChecks.ts` | sums ledger lines, not a statement figure | no | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
-| `src/modules/accounting/services/gl/integrityChecks/documentChecks.ts` | sums ledger lines, not a statement figure | no | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
-| `src/modules/accounting/services/gl/integrityChecks/vatChecks.ts` | sums ledger lines, not a statement figure | no | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
-| `src/modules/accounting/services/gl/journalEntryListService.ts` | sums ledger lines, not a statement figure | no | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
-| `src/modules/accounting/services/gl/nonControlPostingAccounts.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/gl/openingBalanceReadService.ts` | sums ledger lines, not a statement figure | no | n/a: opening-balance journals only (source opening_balance / auto_migration) |
-| `src/modules/accounting/services/gl/transactionLedgerService.ts` | sums ledger lines, not a statement figure | no | n/a: bank-account ledger plus the raw journal list |
-| `src/modules/accounting/services/gl/yearEndJournalBuilder.ts` | sums ledger lines, not a statement figure | no | n/a: write path: must SEE the close, or a re-run would close a closed year again |
-| `src/modules/accounting/services/items/fixedAssetReconciliationQueries.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/reconciliation/creditNoteRelief.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/reconciliation/orphanControlPostings.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/reconciliation/unappliedPaymentCash.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/reconciliation/unpostedDocumentQueries.ts` | sums ledger lines, not a statement figure | no | n/a: sub-ledger, control-account or document check: not a P&L or equity figure |
-| `src/modules/accounting/services/reports/cashFlowForecastDataService.ts` | sums ledger lines, not a statement figure | no | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
-| `src/modules/accounting/services/reports/glLineExportService.ts` | sums ledger lines, not a statement figure | no | n/a: GL line export: the raw ledger, close included (visible by design) |
-| `src/modules/accounting/services/reports/vat201NilRatedSupplies.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vat201Service.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vatAllocationMismatchService.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vatControlMovement.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vatExceptionsService.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vatInputSupportQuery.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vatLateClaimBasis.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vatNonSupplyExceptions.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vatReconciliationService.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/reports/vatReturnService.ts` | sums ledger lines, not a statement figure | no | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
-| `src/modules/accounting/services/workbench/monthEndWorkbenchService.ts` | sums ledger lines, not a statement figure | no | n/a: pre-close readiness or draft listing: runs before the close |
+| `pages/api/accounting/journal-entries-audit.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `pages/api/accounting/opening-balances-export.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: opening-balance journals only (source opening_balance / auto_migration) |
+| `pages/api/accounting/reports-journal-entries.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `pages/api/accounting/reports-waterfall.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
+| `src/modules/accounting/services/afs/cashFlowDirectService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
+| `src/modules/accounting/services/afs/noteGenerators/primaryStatements/cashFlow.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
+| `src/modules/accounting/services/ap/supplierCreditNoteExpenseLines.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/ar/invoiceRevenuePosting.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/ar/unappliedReceiptOrigin.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/audit/checks/journalRiskChecks.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `src/modules/accounting/services/audit/snapshotRows.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `src/modules/accounting/services/bank/agentActivityService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
+| `src/modules/accounting/services/bank/autoPostHandOffset.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
+| `src/modules/accounting/services/bank/autoPostUndoProjection.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
+| `src/modules/accounting/services/bank/bankAutoMatchService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
+| `src/modules/accounting/services/bank/bankCoverageDirections.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
+| `src/modules/accounting/services/bank/bankMatchDbQueries.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
+| `src/modules/accounting/services/bank/bankReconciliationBalance.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
+| `src/modules/accounting/services/bank/cashBalanceService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
+| `src/modules/accounting/services/bank/journalReversalState.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
+| `src/modules/accounting/services/bank/splitJournalDocuments.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
+| `src/modules/accounting/services/bank/transferDuplicateGuard.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-feed matching and posting: reads one bank line's own journal |
+| `src/modules/accounting/services/capture/capturedVatEvidence.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/core/anomalyScanService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `src/modules/accounting/services/core/evidenceGraphService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `src/modules/accounting/services/core/migrationExecuteService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: migration-time reconciliation against the source system, before any close exists |
+| `src/modules/accounting/services/core/migrationService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: migration-time reconciliation against the source system, before any close exists |
+| `src/modules/accounting/services/core/migrationSubtypeCheck.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: migration-time reconciliation against the source system, before any close exists |
+| `src/modules/accounting/services/core/migrationValidationService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: migration-time reconciliation against the source system, before any close exists |
+| `src/modules/accounting/services/core/sageLedgerRelinkGuard.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: migration-time reconciliation against the source system, before any close exists |
+| `src/modules/accounting/services/core/sageMigrationCompareService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: migration-time reconciliation against the source system, before any close exists |
+| `src/modules/accounting/services/dashboard/workbenchService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/gl/accountMergeFigures.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: account-merge guard: counts and sums every posted line of the merged accounts |
+| `src/modules/accounting/services/gl/auditTrailAttribution.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `src/modules/accounting/services/gl/auditTrailLedgerService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `src/modules/accounting/services/gl/chartOfAccountsHealthService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: chart-of-accounts health: per-account stored balance and last posting |
+| `src/modules/accounting/services/gl/closeReadinessChecks/openingBalanceEquityCheck.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: opening-balance journals only (source opening_balance / auto_migration) |
+| `src/modules/accounting/services/gl/closeReadinessChecks/orphanPeriodJournalsCheck.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: pre-close readiness or draft listing: runs before the close |
+| `src/modules/accounting/services/gl/closeReadinessChecks/tbBalancedCheck.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: pre-close readiness or draft listing: runs before the close |
+| `src/modules/accounting/services/gl/closeRun/closeRunRepo.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: pre-close readiness or draft listing: runs before the close |
+| `src/modules/accounting/services/gl/controlAccountService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/gl/glIntegrityService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
+| `src/modules/accounting/services/gl/integrityChecks/accountChecks.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
+| `src/modules/accounting/services/gl/integrityChecks/dimensionChecks.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
+| `src/modules/accounting/services/gl/integrityChecks/documentChecks.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
+| `src/modules/accounting/services/gl/integrityChecks/index.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: ledger integrity check over the raw ledger: a stored close is part of what it verifies |
+| `src/modules/accounting/services/gl/journalEntryListService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `src/modules/accounting/services/gl/nonControlPostingAccounts.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/gl/openingBalanceReadService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: opening-balance journals only (source opening_balance / auto_migration) |
+| `src/modules/accounting/services/gl/reclassification/candidates.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: raw-ledger view or audit evidence: shows what is stored, the close included, by design |
+| `src/modules/accounting/services/gl/transactionLedgerService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: bank-account ledger plus the raw journal list |
+| `src/modules/accounting/services/gl/vatLateClaimSplit.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/gl/yearEndJournalBuilder.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: write path: must SEE the close, or a re-run would close a closed year again |
+| `src/modules/accounting/services/items/fixedAssetReconciliationQueries.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/payroll/payrollApprovalGate.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/payroll/payrollJournalChain.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/reconciliation/creditNoteRelief.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/reconciliation/orphanControlPostings.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/reconciliation/unappliedPaymentCash.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/reconciliation/unpostedDocumentQueries.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: sub-ledger, control-account, payroll or document check: not a P&L or equity figure |
+| `src/modules/accounting/services/reports/cashFlowForecastDataService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: cash/bank accounts only: the close posts to revenue, expense and retained earnings |
+| `src/modules/accounting/services/reports/glLineExportService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: GL line export: the raw ledger, close included (visible by design) |
+| `src/modules/accounting/services/reports/vat201NilRatedSupplies.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vat201Service.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatAllocationMismatchService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatBalanceSheetExceptions.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatBoxBasisQuery.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatControlMovement.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatDeclaredElsewhereQuery.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatExceptionsService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatInputSupportQuery.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatNonSupplyExceptions.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatReconciliationService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatReturnService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/reports/vatUnpostedInvoices.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: VAT control accounts only: the close has no VAT line (journalVatLockGuard refuses one) |
+| `src/modules/accounting/services/workbench/monthEndWorkbenchService.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: pre-close readiness or draft listing: runs before the close |
+| `src/modules/accounting/services/gl/approvalDocuments.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: approval digest of one journal's own debit total |
+| `src/modules/accounting/services/gl/glAccountBalance.ts` | sums or lists ledger lines, not a statement figure | n/a | n/a: a single account's stored balance (chart of accounts, can-it-be-deleted guards) |
 
 ## 3. Other readers (status, linkage, posting guards, document ownership): n/a, no balance or total
 
@@ -150,12 +166,20 @@ Raw-ledger views keep the close visible: journal list and detail (`journalEntryL
 - **loans** (2): `loans/loanGlPostingService.ts`, `loans/loanService.ts`
 - **pages/api** (12): `pages/accounting/sage-migration/index.tsx`, `ai-invoice-pipeline.ts`, `assets/[assetId]/gl-account.ts`, `bank-accounts.ts`, `bank-match-confirm.ts`, `bank-reconciliation-report.ts`, `bank-transfers.ts`, `intercompany-transactions.ts`, `month-end-close.ts`, `nl-query.ts`, `provisional/outstanding.ts`, `setup-guide.ts`
 - **payroll** (3): `payroll/payrollApprovalGate.ts`, `payroll/payrollJournalChain.ts`, `payroll/payrollJournalPostingService.ts`
-- **reports** (11): `reports/customReportFieldDefs.ts`, `reports/customReportRunner.ts`, `reports/groupCoaMappingService.ts`, `reports/vatAdjustmentService.ts`, `reports/vatBalanceSheetExceptions.ts`, `reports/vatBoxBasisQuery.ts`, `reports/vatDeclaredElsewhereQuery.ts`, `reports/vatEntryMembership.ts`, `reports/vatInputOverclaim.ts`, `reports/vatPeriodLockService.ts`, `reports/vatUnpostedInvoices.ts`
+- **reports** (11): `reports/groupCoaMappingService.ts`, `reports/vatAdjustmentService.ts`, `reports/vatBalanceSheetExceptions.ts`, `reports/vatBoxBasisQuery.ts`, `reports/vatDeclaredElsewhereQuery.ts`, `reports/vatEntryMembership.ts`, `reports/vatInputOverclaim.ts`, `reports/vatPeriodLockService.ts`, `reports/vatUnpostedInvoices.ts`
 - **shared** (5): `shared/journalChainHead.ts`, `shared/journalInForceAsAt.ts`, `shared/journalPeriodVisibility.ts`, `shared/softDeleteLedgerPresence.ts`, `shared/unapplyRefusal.ts`
 - **src** (12): `src/lib/mcp/postingAgent.ts`, `src/lib/mcp/toolIndex.ts`, `src/lib/mcp/tools/bulkAllocationPost.ts`, `src/lib/mcp/tools/reclassificationPropose.ts`, `src/lib/mcp/tools/writeCancelSupplierInvoice.ts`, `src/lib/mcp/tools/writeDimensionTags.ts`, `src/lib/mcp/tools/writePracticeTime.ts`, `src/lib/mcp/tools/writeReclassification.ts`, `src/modules/admin/services/analyticsService.ts`, `src/modules/admin/services/dataExportService.ts`, `src/modules/admin/services/sageMigrationCommitService.ts`, `src/modules/onboarding/services/paygEligibilityService.ts`
+
+## 3b. Raw by design (not skipped)
+
+`reports/customReportFieldDefs.ts` + `reports/customReportRunner.ts` (user-built custom reports and their totals read the raw ledger, close included), `audit/snapshotRows.ts` (the audit-snapshot trial balance is the stored ledger; the `take_audit_snapshot` tool description says so), GL line export, journal list/detail, audit trail, integrity checks.
+
+## 3c. Equity audit (review round 1)
+
+Every row of table 1 that reads an equity or retained-earnings balance and presents a total either adds the derived profit (balance sheet, TB, financial figures, consolidation statements, CaseWare, SOCE) or was an under-counter now fixed: the AFS Statement of Financial Position (it never added the profit of an unclosed year; the close used to hide that for closed companies), the AFS KPI equity behind debt-to-equity, and Note 12. `tests/integration/g01-afs-equity-ties-out.int.test.ts` pins SFP (current and prior), SOCE, Note 12, KPI equity and the balance sheet to the same figures with no close, after the close, and after reverse + re-close.
 
 ## 4. G-06 (same root): a reversed close
 
 - `gl/yearEndJournalPoster.ts` `classifyClosingJournal`: a `year_end` row with `reversed_at` set is no longer "posted, so closed" (reversal keeps `status = 'posted'`).
-- `gl/yearEndClosingNumber.ts` `findCurrentClosingJournal`: the close walks past reversed closes to the first free `YE-<year>-R<n>`, so the year can be closed again; a re-run after the re-close reports `alreadyClosed` against that journal.
+- `gl/yearEndClosingNumber.ts` `findCurrentClosingJournal`: the close walks past reversed closes to the first free `YE-<year>-R<n>`, so the year can be closed again; a re-run after the re-close reports `alreadyClosed` against that journal. "Reversed" is read from the reversal chain (even number of posted reversals = standing), so reversing the reversal reinstates the original and a re-run reports it closed. Two concurrent re-closes meet at `uq_gl_je_company_entry_number`; the loser gets `alreadyClosed` (`g06-reclose-race.int.test.ts`).
 

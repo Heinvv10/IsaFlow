@@ -114,7 +114,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
             res,
             `This year already has a closing journal (${result.entryNumber}) and it is `
               + `${result.status}, not posted. The year is therefore NOT closed, but it also `
-              + `cannot be closed again while that entry holds the number. Delete or renumber `
+              + `cannot be closed again while that entry holds the number (a reversed closing `
+              + `journal does not block: the next close takes the next -R<n> number). Delete or renumber `
               + `journal ${result.entryId}, then close the year.`
           );
         case 'closing_entry_number_taken':

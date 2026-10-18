@@ -9,6 +9,7 @@ import { getCompanyTerminology } from '../entityTerminology';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { calculateRetainedEarnings } from '@/modules/accounting/services/reports/balanceSheetService';
 
 type DbRow = Record<string, unknown>;
 
@@ -101,9 +102,20 @@ export async function generateNote12ShareCapital(
     getCompanyTerminology(companyId),
   ]);
 
-  const dataSnapshot: Record<string, unknown> = { shareCapital: rows, entityType: terms.entityType };
+  // Posted equity carries no profit of an unclosed year and the posted close is skipped (G-01), so
+  // the note shows the profit to year end as the SFP's "Accumulated profit" line does, or it stops
+  // tying to the SFP and the SOCE. Folded into the retained-earnings row when there is one.
+  const derived = await calculateRetainedEarnings(companyId, end);
+  const equityRows: DbRow[] = rows.map((r) => ({ ...r }));
+  const retainedRow = equityRows.find((r) => r.account_subtype === 'retained_earnings');
+  if (retainedRow) retainedRow.balance = toNum(retainedRow.balance) + derived;
+  else if (Math.abs(derived) >= 0.005) {
+    equityRows.push({ account_name: 'Accumulated profit (loss) (derived, not posted)', account_code: '', account_subtype: 'retained_earnings', balance: derived });
+  }
 
-  const tableRows: string[][] = rows.map((r) => [
+  const dataSnapshot: Record<string, unknown> = { shareCapital: equityRows, entityType: terms.entityType };
+
+  const tableRows: string[][] = equityRows.map((r) => [
     String(r.account_name ?? ''),
     String(r.account_code ?? ''),
     String(r.account_subtype ?? ''),

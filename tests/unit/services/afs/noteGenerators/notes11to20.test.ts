@@ -13,6 +13,10 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/afsFiscalPeriod', () => ({
   getFiscalRange: vi.fn(async () => ({ start: '2026-01-01', end: '2026-12-31' })),
 }));
+// Note 12 adds the profit to year end (the balance sheet's derived retained earnings, G-01); its own
+// arithmetic is pinned against a database in tests/integration/g01-afs-equity-ties-out.int.test.ts.
+const derivedProfit = vi.hoisted(() => vi.fn(async () => 0));
+vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ calculateRetainedEarnings: derivedProfit }));
 // Notes 10 and 16 are the aged report at the year end, summed (R-059). The
 // ageing's own arithmetic is pinned against a database in
 // tests/integration/r059-year-end-notes-agree-with-ageing.int.test.ts; here the
@@ -120,6 +124,25 @@ describe('notes11to20 generators', () => {
       if (table?.type === 'table') {
         expect(table.headers).toEqual(['Account', 'Code', 'Subtype', 'Balance']);
       }
+    });
+
+    it('adds the derived profit to the retained-earnings row', async () => {
+      derivedProfit.mockResolvedValueOnce(250);
+      sqlMock.mockResolvedValueOnce([
+        { account_name: 'Retained Earnings', account_code: '3200', account_subtype: 'retained_earnings', balance: 100 },
+      ]);
+      const result = await generateNote12ShareCapital(COMPANY_ID, FISCAL_YEAR);
+      expect((result.dataSnapshot.shareCapital as Array<{ balance: unknown }>).map((r) => Number(r.balance))).toEqual([350]);
+    });
+
+    it('shows the derived profit as its own row when no retained-earnings account carries a balance', async () => {
+      derivedProfit.mockResolvedValueOnce(250);
+      sqlMock.mockResolvedValueOnce([
+        { account_name: 'Ordinary Share Capital', account_code: '3001', account_subtype: 'share_capital', balance: 1000 },
+      ]);
+      const rows = (await generateNote12ShareCapital(COMPANY_ID, FISCAL_YEAR)).dataSnapshot.shareCapital as Array<Record<string, unknown>>;
+      expect(rows.map((r) => Number(r.balance))).toEqual([1000, 250]);
+      expect(String(rows[1]!.account_name)).toMatch(/derived/);
     });
 
     it('never suppresses even when no equity rows', async () => {

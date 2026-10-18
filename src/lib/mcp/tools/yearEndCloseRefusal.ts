@@ -53,10 +53,11 @@ export function yearEndCloseRefusal(year: number, result: CloseYearError): McpTo
     case 'closing_journal_not_posted':
       return toolError(
         `Fiscal year ${year} has a closing journal (${result.entryNumber}, id ${result.entryId}) `
-        + `in status ${result.status}. The year is NOT closed — a reversed or draft closing `
-        + 'journal has posted nothing — but it cannot be closed again either, because that row '
-        + 'holds the entry number and it is unique per company. A person has to delete or '
-        + 'renumber that journal first. Nothing was posted.',
+        + `in status ${result.status}. The year is NOT closed — a draft closing journal has `
+        + 'posted nothing — but it cannot be closed again until that row stops holding the entry '
+        + 'number, which is unique per company. A person has to delete or renumber that journal '
+        + 'first. (A closing journal that was REVERSED does not block: the next close takes '
+        + 'YE-<year>-R<n>.) Nothing was posted.',
       );
     case 'closing_entry_number_taken':
       return toolError(
