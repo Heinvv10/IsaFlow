@@ -8,10 +8,15 @@
  *   - IRP5 certificates only (no IT3(a), no ITREG)
  *   - Natural persons with valid RSA ID (nature-of-person A)
  *   - Income code 3601 (gross salary/wages)
- *   - Deduction codes 4102 (PAYE), 4141 (UIF emp), 4142 (UIF empr), 4150 (SDL)
+ *   - Deduction codes 4102 (PAYE), 4141 (total UIF: employee + employer), 4142 (SDL)
  *   - Periods-of-employment field derived from employee start/end dates
  *
  * Deliberately out of scope — will be added in later iterations:
+ *   - The IRP5 total fields (gross remuneration 3699 and its 3696-3698 splits,
+ *     4149 total tax/UIF/SDL): their exact definitions need the BRS in hand, so
+ *     they are not guessed. Do not submit this file without checking e@syFile's
+ *     import validation for them.
+ *   - Reason code 4150 (a reason for non-deduction of tax, not an amount).
  *   - ETI (codes 3026, 3190, 7002-7009)
  *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
  *   - Tax directives (code 3220)
@@ -64,9 +69,9 @@ export interface EmployeeInput {
   // Amounts (Rand, cents dropped where applicable):
   grossSalary3601: number;        // 3601 — cents dropped
   paye4102: number;               // 4102 — cents kept (N11.2)
-  uifEmployee4141: number;        // 4141 — cents kept
-  uifEmployer4142: number;        // 4142 — cents kept
-  sdl4150: number;                // 4150 — cents kept
+  uifEmployee: number;            // part of 4141 (total UIF) — cents kept
+  uifEmployer: number;            // part of 4141 (total UIF) — cents kept
+  sdl4142: number;                // 4142 (SDL) — cents kept
 }
 
 export interface BuildInput {
@@ -249,9 +254,9 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     `3215,${emp.periodsInYoA.toFixed(4)}`,
     formatField(3601, emp.grossSalary3601, 'N'),
     formatField(4102, emp.paye4102, 'N_CENTS'),
-    formatField(4141, emp.uifEmployee4141, 'N_CENTS'),
-    formatField(4142, emp.uifEmployer4142, 'N_CENTS'),
-    formatField(4150, emp.sdl4150, 'N_CENTS'),
+    // 4141 is ONE field: the employee's and the employer's UIF together.
+    formatField(4141, Math.round((emp.uifEmployee + emp.uifEmployer) * 100) / 100, 'N_CENTS'),
+    formatField(4142, emp.sdl4142, 'N_CENTS'),
     '9999,9999',
   ];
   return lines.filter((l): l is string => l !== null);
