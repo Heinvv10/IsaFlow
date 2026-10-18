@@ -16,28 +16,31 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     expect(employees.length, 'Demo company must have employees').toBeGreaterThan(0);
 
     // Reuse the sandbox run a previous suite execution left behind (cleanup
-    // below reopens it to 'calculated'), else claim the next free period.
-    // Runs are unique per company+month; without reuse every execution would
-    // permanently consume a period slot.
+    // below reopens it to 'calculated'), else claim the next free sandbox
+    // period. Runs are unique per company+month; without reuse every execution
+    // would permanently consume a period slot.
+    //
+    // The sandbox must sit inside a loaded tax year: calculate refuses a period
+    // whose tax tables are not loaded (UnsupportedTaxYearError), so the old
+    // 2031+ "future sandbox years" no longer calculate. Jan-Feb 2027 are the
+    // only periods that are free in the Demo company (seeded runs stop at Dec
+    // 2026), inside tax year 2027, and in an open fiscal period (to Dec 2027).
+    // Move this window when Demo needs those months for real runs.
+    const SANDBOX_PERIODS = [{ year: 2027, month: 1 }, { year: 2027, month: 2 }];
     const existing = await api.get<any[]>('/api/payroll/runs');
+    const inSandbox = (r: any) =>
+      SANDBOX_PERIODS.some((p) => p.year === r.periodYear && p.month === r.periodMonth);
     const reusable = existing.find(
-      (r) => r.periodYear >= 2031 && ['draft', 'calculated'].includes(r.status),
+      (r) => inSandbox(r) && ['draft', 'calculated'].includes(r.status),
     );
     let runId: string;
     if (reusable) {
       runId = reusable.id;
     } else {
       const used = new Set(existing.map((r) => `${r.periodYear}-${r.periodMonth}`));
-      let year = 2031; // future sandbox years — clear of seeded demo data
-      let month = 1;
-      while (used.has(`${year}-${month}`)) {
-        month += 1;
-        if (month > 12) {
-          month = 1;
-          year += 1;
-        }
-      }
-      const run = await api.post<any>('/api/payroll/runs', { month, year });
+      const free = SANDBOX_PERIODS.find((p) => !used.has(`${p.year}-${p.month}`));
+      expect(free, 'a sandbox payroll period (Jan/Feb 2027) must be free in Demo').toBeTruthy();
+      const run = await api.post<any>('/api/payroll/runs', { month: free!.month, year: free!.year });
       expect(run.id).toBeTruthy();
       runId = run.id;
     }
