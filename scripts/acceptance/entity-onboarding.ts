@@ -1,300 +1,240 @@
-// Browser acceptance, entity onboarding + admin links: needs dev on :3200 vs a throwaway DB, fake GoTrue, PORT/PGPASSWORD/JWT.
-import { chromium, type Page, type BrowserContext } from 'playwright';
-import { execFileSync } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
-const WIZ = process.cwd(); // run from the repo root
-// Directory holding sign.ts (signs a GoTrue-shaped HS256 session with JWT_SECRET) and scratch files.
-const SCRATCH = process.env.ACCEPT_SCRATCH ?? '/tmp/isaflow-accept';
-const OUT = `${WIZ}/docs/evidence/entity-onboarding`;
-const BASE = 'http://localhost:3200';
-const { PORT, PGPASSWORD, JWT } = process.env as Record<string, string>;
-mkdirSync(`${SCRATCH}/files`, { recursive: true });
+// Browser acceptance, entity onboarding for ALL EIGHT entity types + server refusals + admin links.
+// Needs: dev server on BASE (default :3200) against the THROWAWAY Postgres `isaflow_e2e` on localhost, JWT secret for sign.ts,
+// env PORT (postgres) / PGPASSWORD / JWT. Run from the repo root. The evidence set was produced with the Node bundle:
+//   bun build scripts/acceptance/entity-onboarding.ts --target node --format esm --external playwright --outfile node_modules/.cache/entity-onboarding.mjs
+//   node node_modules/.cache/entity-onboarding.mjs
+// Running it directly with `bun scripts/acceptance/entity-onboarding.ts` works but is unreliable on the shared box: Playwright
+// under Bun lost its Chromium intermittently (calls hung without an error); the watchdog in withBrowser then retries the scenario.
+// ONLY=1,4,12 runs just those scenarios (1-8 entity types, 9-11 admin group, 12 refusals, 13 probes); a partial run
+// writes RESULTS.partial.md to the scratch dir and never touches the evidence RESULTS.md.
+import type { Browser, Page } from 'playwright';
+import {
+  BASE, OUT, PAIR, SCRATCH, allShots, attachLogs, check, closeWithin, cont, expectVisible, finish, newResult, pdfFile, pngDataUrl, pngFile,
+  psql, psqlPretty, saId, trace, withBrowser, type Result,
+} from './entity-onboarding-support';
+import { checkIdInputsFit, checkLogoAndCards, checkMobile, expectNoSkeleton, shot, shotLanded } from './entity-onboarding-visual';
+import { openUser, seedThrowawayDb } from './entity-onboarding-seed';
+import { CASES, type Case, type Person } from './entity-onboarding-cases';
+import { REFUSAL_ALLOW, expectRefusal, runProbes, runRefusals } from './entity-onboarding-server';
+import type { Body } from './entity-onboarding-refusals';
+import { ADMIN_LAUNCH_ARGS, runAdmin } from './entity-onboarding-admin';
+import { writeReport } from './entity-onboarding-report';
 
-const psql = (sql: string) => execFileSync('psql', ['-h', '127.0.0.1', '-p', PORT!, '-U', 'postgres', '-d', 'isaflow_e2e', '-At', '-F', ' | ', '-c', sql],
-  { env: { ...process.env, PGPASSWORD } }).toString().trim();
-const cookieFor = (id: string, email: string, aal: string) =>
-  execFileSync('bun', [`${SCRATCH}/sign.ts`, id, email, aal], { cwd: WIZ, env: { ...process.env, JWT_SECRET: JWT } }).toString();
+// extract-id has no VLM in this setup: the wizard keeps the typed name and ID number and says so. That outcome is the expectation.
+const NOTICE = 'AI extraction unavailable.';
+const idNo = (c: Case, i: number) => saId('800101', 5000 + c.n * 10 + i);
+const stripContinue = (t: string) => t.replace(/ to continue\.$/, '');
 
-// Test files: valid PDF header / 1x1 PNG
-const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
-const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
-// unique bytes per file: the server refuses the same document attached twice
-const uniq = (b: Buffer, tag: string) => Buffer.concat([b, Buffer.from(`\n${tag}-${Date.now()}-${Math.random()}\n`), Buffer.alloc(2048, 32)]); // padded: the server refuses files under 1 KB
-const pdfFile = (name: string) => ({ name, mimeType: 'application/pdf', buffer: uniq(PDF, name) });
-const pngFile = (name: string) => ({ name, mimeType: 'image/png', buffer: uniq(PNG, name) });
-
-function saId(yymmdd: string, seq: number): string {
-  const base = `${yymmdd}${String(seq).padStart(4, '0')}08`;
-  let sum = 0;
-  for (let i = 0; i < 12; i++) { let n = Number(base[i]); if (i % 2 === 0) sum += n; else { n *= 2; sum += n > 9 ? n - 9 : n; } }
-  return base + String((10 - (sum % 10)) % 10);
+async function addPerson(page: Page, c: Case, idx: number, p: Person, noticesBefore: number) {
+  await page.getByRole('button', { name: new RegExp(`\\+ Add ${c.role}`) }).click();
+  await page.getByPlaceholder('Full name').nth(idx).fill(p.name);
+  await page.getByPlaceholder('ID number').nth(idx).fill(idNo(c, idx));
+  if (p.withId) await uploadId(page, c, idx, noticesBefore);
 }
 
-type Result = { n: number; name: string; status: 'PASS' | 'FAIL'; notes: string[]; shots: string[] };
-const results: Result[] = [];
-const allShots: string[] = [];
-
-async function shot(page: Page, r: Result, slug: string, combos: Array<['mobile' | 'desktop', 'light' | 'dark']>) {
-  for (const [vp, theme] of combos) {
-    await page.setViewportSize(vp === 'mobile' ? { width: 390, height: 844 } : { width: 1440, height: 900 });
-    await page.evaluate((t) => document.documentElement.classList.toggle('dark', t === 'dark'), theme);
-    await page.waitForTimeout(250);
-    const file = `${String(r.n).padStart(2, '0')}-${slug}-${vp}-${theme}.png`;
-    await page.screenshot({ path: `${OUT}/${file}`, fullPage: vp === 'mobile' });
-    r.shots.push(file); allShots.push(file);
-  }
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.evaluate(() => document.documentElement.classList.add('dark'));
-}
-const overflow: string[] = [];
-async function checkMobile(page: Page, label: string) {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(200);
-  const m = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
-  overflow.push(`${m.sw <= m.iw ? 'OK  ' : 'FAIL'} ${label}: scrollWidth ${m.sw} / innerWidth ${m.iw}`);
-  await page.setViewportSize({ width: 1440, height: 900 });
-}
-const idFit: string[] = [];
-async function checkIdInputsFit(page: Page, label: string) {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(200);
-  const rows = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLInputElement>('input[placeholder="ID number"]'))
-    .map(i => ({ v: i.value, sw: i.scrollWidth, cw: i.clientWidth })));
-  for (const r of rows) {
-    idFit.push(`${r.sw <= r.cw && r.v.length === 13 ? 'OK  ' : 'FAIL'} ${label}: ID ${r.v.length} digits, input scrollWidth ${r.sw} / clientWidth ${r.cw}`);
-    if (r.sw > r.cw || r.v.length !== 13) throw new Error(`ID input clipped at 390px: ${JSON.stringify(r)}`);
-  }
-  await page.setViewportSize({ width: 1440, height: 900 });
-}
-const logoChecks: string[] = [];
-async function checkLogoAndCards(page: Page) {
-  await page.evaluate(() => document.documentElement.classList.remove('dark'));
-  await page.waitForTimeout(250);
-  const m = await page.evaluate(() => {
-    const img = document.querySelector('img[alt="ISAFlow"]') as HTMLImageElement | null;
-    const body = getComputedStyle(document.querySelector('div.min-h-screen') as Element);
-    const card = document.querySelector('[role=radio]') as HTMLElement;
-    const label = card.querySelector('p') as HTMLElement;
-    return { filter: img ? getComputedStyle(img).filter : 'no img', loaded: !!img && img.naturalWidth > 0, bg: body.backgroundColor,
-      cardBg: getComputedStyle(card).backgroundColor, cardBorder: getComputedStyle(card).borderColor, labelColor: getComputedStyle(label).color,
-      hintColor: getComputedStyle(card.querySelectorAll('p')[1] as HTMLElement).color };
-  });
-  logoChecks.push(JSON.stringify(m));
-  await page.evaluate(() => document.documentElement.classList.add('dark'));
-}
-const ALL4: Array<['mobile' | 'desktop', 'light' | 'dark']> = [['mobile', 'light'], ['mobile', 'dark'], ['desktop', 'light'], ['desktop', 'dark']];
-
-async function newCtx(browser: any, id: string, email: string, aal: string): Promise<BrowserContext> {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  await ctx.addCookies([{ name: 'sb-access-token', value: cookieFor(id, email, aal), domain: 'localhost', path: '/' }]);
-  await ctx.addInitScript(() => localStorage.setItem('accounting-theme', 'dark'));
-  return ctx;
+/** Attaches an ID document to the first person still lacking one, then waits for the extraction notice: "AI extraction unavailable." */
+async function uploadId(page: Page, c: Case, idx: number, noticesBefore: number) {
+  await page.locator('label:has-text("Upload ID") input[type=file]').first().setInputFiles(pngFile(`id-${c.n}-${idx + 1}.png`));
+  await page.getByText(NOTICE).nth(noticesBefore).waitFor({ timeout: 90000 });
 }
 
-let logTarget: string[] = [];
-const hooked = new WeakSet<Page>();
-function attachLogs(page: Page, notes: string[]) {
-  logTarget = notes;
-  if (hooked.has(page)) return;
-  hooked.add(page);
-  page.on('console', m => { if (m.type() === 'error') logTarget.push(`console.error: ${m.text().slice(0, 200)}`); });
-  page.on('response', async resp => {
-    const u = resp.url();
-    if (u.includes('/api/onboarding/complete-setup') || (resp.status() >= 400 && u.includes('/api/') && !u.includes('extract')))
-      logTarget.push(`HTTP ${resp.status()} ${resp.request().method()} ${u.replace(BASE, '')} ${(await resp.text().catch(() => '')).slice(0, 300)}`);
-  });
-}
-
-const expectVisible = async (page: Page, text: string | RegExp) => {
-  await page.getByText(text).first().waitFor({ state: 'visible', timeout: 8000 });
+const backToDetails = async (page: Page) => {
+  for (let i = 0; i < 6; i++) await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await page.getByRole('heading', { name: 'Business Details' }).waitFor();
 };
-const cont = (page: Page) => page.getByRole('button', { name: /^Continue/ });
+const toDocuments = async (page: Page, r: Result, slug: string, measure: boolean) => {
+  for (let i = 0; i < 6; i++) { await cont(page).click(); if (measure) await checkMobile(page, r, `${slug} step ${i + 3}`); }
+  await page.getByRole('heading', { name: 'Statutory Documents' }).waitFor();
+};
 
-async function addPerson(userTag: number, page: Page, role: string, idx: number, name: string, idNo: string, withId: boolean) {
-  await page.getByRole('button', { name: new RegExp(`\\+ Add ${role}`) }).click();
-  await page.getByPlaceholder('Full name').nth(idx).fill(name);
-  await page.getByPlaceholder('ID number').nth(idx).fill(idNo);
-  if (withId) {
-    await page.locator('label:has-text("Upload ID") input[type=file]').first().setInputFiles(pngFile(`id-${userTag}-${idx + 1}.png`));
-    // extract-id has no VLM: wait for the extraction to settle (notice appears) before touching the next person
-    await page.getByText(/AI extraction unavailable|No active company|Could not extract|Details extracted|ID verified|updated/).nth(idx).waitFor({ timeout: 90000 });
-  }
+/** The request the wizard would send for the state it is in (people so far, the given documents). */
+const bodyOf = (c: Case, people: Person[], docs: Body['documents']): Body => ({
+  requestKey: crypto.randomUUID(), entityType: c.entityDb, coaTemplate: 'isaflow_standard',
+  company: { name: c.name, ...(c.reg ? { registrationNumber: c.reg } : {}) },
+  people: people.map((p, i) => ({ name: p.name, idNumber: idNo(c, i), ...(p.withId ? { idDocument: { name: `id-${i}.png`, data: pngDataUrl(`srv-${c.n}-${i}`) } } : {}) })),
+  documents: docs,
+});
+
+/** The documents step with the proof missing: Continue dimmed, the exact reason shown, and the server refusing the same state. */
+async function expectBlocked(page: Page, r: Result, c: Case, shotSlug: string, text: string, people: Person[]) {
+  check(r, await cont(page).isDisabled(), 'documents step: Continue is disabled');
+  const reason = ((await page.locator('#continue-blocked').textContent({ timeout: 5000 }).catch(() => null)) ?? '').trim();
+  check(r, reason === text, `blocked reason shown: "${reason}" (expected "${text}")`);
+  await shot(page, r, shotSlug, PAIR);
+  await expectRefusal(page, r, `proof missing, as the wizard holds it: ${stripContinue(text)}`, bodyOf(c, people, []), stripContinue(text));
 }
 
-async function runOnboarding(browser: any, n: number, slug: string, userN: number, cfg: {
-  label: RegExp; typeLabel: string; name: string; reg?: [string, string]; people: string[]; peopleLabel: string; role: string;
-  docLabel?: string; docFile?: string; blockFirst?: boolean; needsHint: RegExp; entityDb: string;
-}): Promise<Result> {
-  const r: Result = { n, name: `${cfg.typeLabel} (user onb${userN})`, status: 'FAIL', notes: [], shots: [] };
-  const uid = `dddddddd-0000-4000-8000-00000000000${userN}`;
-  // like a real signup (provisionTenant): placeholder company + owner membership, active_company_id cookie
-  const ph = crypto.randomUUID();
-  // previous run's companies stay (entity_changes is append-only); only the user's memberships are cleared
-  psql(`delete from company_users where user_id='${uid}'; delete from companies where id='${ph}'`);
-  psql(`insert into companies (id, name, is_active) values ('${ph}', 'Synth Signup ${userN}', true); insert into company_users (company_id, user_id, role, is_default) values ('${ph}', '${uid}', 'owner', true); update users set onboarding_completed=false where id='${uid}'`);
-  const ctx = await newCtx(browser, uid, `onb${userN}@example.test`, 'aal2');
-  await ctx.addCookies([{ name: 'active_company_id', value: ph, domain: 'localhost', path: '/' }]);
-  const page = await ctx.newPage();
-  attachLogs(page, r.notes);
+async function runOnboarding(browser: Browser, c: Case): Promise<Result> {
+  const r = newResult(c.n, 'onboarding', `${c.typeLabel} (user onb${c.n})`, {
+    entity: c.entityDb,
+    allow: [REFUSAL_ALLOW, { url: /\/api\/onboarding\/extract-id/, status: 503, reason: 'no VLM in this setup; the wizard says "AI extraction unavailable."' }],
+  });
+  const { ctx, page, uid, placeholder: ph } = await openUser(browser, c.n);
+  attachLogs(page, r);
   try {
+    // 1. entity step
     await page.goto(`${BASE}/onboarding`);
-    await page.getByRole('radiogroup').waitFor({ timeout: 30000 });
-    await page.getByRole('radio', { name: cfg.label }).click();
-    await expectVisible(page, cfg.needsHint);
-    r.notes.push(`entity step shows hint matching ${cfg.needsHint}`);
-    await checkMobile(page, `${slug} entity step`);
-    if (n === 1) await checkLogoAndCards(page);
-    await shot(page, r, `${slug}-entity-step`, [['mobile', 'dark'], ['desktop', 'light']]);
+    await page.getByRole('radiogroup').waitFor({ timeout: 90000 });
+    await page.getByRole('radio', { name: c.label }).click();
+    await expectVisible(page, c.needsHint);
+    r.notes.push(`entity step shows hint matching ${c.needsHint}`);
+    await checkMobile(page, r, `${c.slug} entity step`);
+    if (c.n === 1) await checkLogoAndCards(page, r);
+    await shot(page, r, `${c.slug}-entity-step`, PAIR);
     await cont(page).click();
-    await page.getByRole('button', { name: /Enter Details Manually/ }).click({ timeout: 3000 }).catch(() => r.notes.push('no Smart Setup pre-step shown'));
-    await page.getByPlaceholder('Acme').first().fill(cfg.name);
-    if (cfg.reg) { await page.getByPlaceholder(cfg.reg[0], { exact: true }).fill(cfg.reg[1]); }
-    await expectVisible(page, cfg.peopleLabel);
-    for (let i = 0; i < cfg.people.length; i++) await addPerson(userN, page, cfg.role, i, cfg.people[i]!, saId('800101', 5000 + n * 10 + i), cfg.people.length > 0 && !cfg.docFile ? true : false);
-    if (cfg.people.length) await expectVisible(page, new RegExp(`Required: .*`));
-    if (cfg.people.length) await checkIdInputsFit(page, `${slug} details`);
-    await shot(page, r, `${slug}-details-people`, n === 2 ? [['mobile', 'light'], ['mobile', 'dark']] : [['mobile', 'light'], ['desktop', 'dark']]);
-    await checkMobile(page, `${slug} details`);
-    for (let i = 0; i < 6; i++) { await cont(page).click(); await checkMobile(page, `${slug} step ${i + 3}`); }
-    await page.getByRole('heading', { name: 'Statutory Documents' }).waitFor();
-    if (cfg.docFile) {
-      await expectVisible(page, cfg.docLabel!);
-      if (cfg.blockFirst) {
-        const disabled = await cont(page).isDisabled();
-        r.notes.push(`Continue disabled without ${cfg.docLabel}: ${disabled}`);
-        await page.getByText(/Upload the .* to continue\./).waitFor({ timeout: 5000 });
-        r.notes.push(`blocked reason shown: ${await page.getByText(/Upload the .* to continue\./).textContent()}`);
-        await shot(page, r, `${slug}-blocked-no-cipc`, ALL4);
-        if (!disabled) throw new Error('Continue was enabled without the required document');
-      }
-      await page.getByLabel(`Upload ${cfg.docLabel}`).setInputFiles(pdfFile(cfg.docFile));
-      await expectVisible(page, cfg.docFile);
-      await shot(page, r, `${slug}-docs-uploaded`, n === 3 ? [['desktop', 'light']] : [['mobile', 'light'], ['desktop', 'dark']]);
+
+    // 2. Smart Setup pre-step: shown exactly for the entities smartSetupSourceFor can read something for
+    const manual = page.getByRole('button', { name: /Enter Details Manually/ });
+    if (c.smartSetup) {
+      const shown = await manual.click({ timeout: 30000 }).then(() => true, () => false);
+      check(r, shown, 'Smart Setup pre-step shown and "Enter Details Manually" clicked');
     } else {
+      await page.getByRole('heading', { name: 'Business Details' }).waitFor({ timeout: 30000 });
+      check(r, (await manual.count()) === 0, 'no Smart Setup pre-step for this entity');
+    }
+
+    // 3. details: a blank name blocks Continue; people label, role and the required-proof line follow the entity
+    await page.getByRole('heading', { name: 'Business Details' }).waitFor();
+    check(r, await cont(page).isDisabled(), 'Continue disabled while the name is blank');
+    if (c.proof === 'none') await shot(page, r, `${c.slug}-blocked-no-name`, PAIR);
+    await page.getByPlaceholder('Acme').first().fill(c.name);
+    if (c.reg) await page.getByPlaceholder(c.regPlaceholder!, { exact: true }).fill(c.reg);
+    await expectVisible(page, c.peopleLabel);
+    // Structural, not by label text: the VAT / tax / registration fields share one three-column row, so an entity with a
+    // registration field has 3 inputs in it and one without has 2 (the Field component carries no id, name or data attribute).
+    const fieldRow = page.locator('div[class*="sm:grid-cols-3"]').filter({ has: page.locator('input') }).first();
+    check(r, (await fieldRow.locator('input').count()) === (c.regLabel ? 3 : 2), `details step: ${c.regLabel ? 'registration field present (3 inputs in the VAT/tax row)' : 'no registration field (2 inputs in the VAT/tax row)'}`);
+    if (c.regLabel) check(r, (await page.getByText(c.regLabel).count()) >= 1, `registration field is labelled "${c.regLabel}"`);
+    if (c.requiredLine) await page.getByText(c.requiredLine, { exact: true }).waitFor({ timeout: 8000 });
+    check(r, (await page.getByText(/^Required: /).count()) === (c.requiredLine ? 1 : 0), c.requiredLine ? `details step shows "${c.requiredLine}"` : 'details step shows no "Required:" line');
+    const details = async () => {
+      if (c.people.some(p => p.withId)) await checkIdInputsFit(page, r, `${c.slug} details`);
+      await shot(page, r, `${c.slug}-details-people`, PAIR);
+      await checkMobile(page, r, `${c.slug} details`);
+    };
+
+    // 4. people and the documents step
+    const typed: Person[] = [];
+    const idsDone = () => typed.filter(p => p.withId).length;
+    const type = async (people: Person[]) => { for (const p of people) { await addPerson(page, c, typed.length, p, idsDone()); typed.push(p); } };
+    if (c.proof === 'person_ids') {
+      for (const [k, stage] of c.stages!.entries()) {
+        await type(stage.add);
+        await toDocuments(page, r, c.slug, k === 0);
+        await expectBlocked(page, r, c, `${c.slug}-blocked-${k + 1}`, stage.blockedText, typed);
+        await backToDetails(page);
+      }
+      await uploadId(page, c, typed.length - 1, typed.slice(0, -1).filter(p => p.withId).length); // the missing ID document
+      await details();
+      await toDocuments(page, r, c.slug, false);
       await expectVisible(page, /Captured on the .* step/);
-      const slots = await page.getByText(/CIPC|CK1|Letters of Authority/).count();
-      r.notes.push(`company-document slots on docs step: ${slots}`);
-      if (slots > 0) throw new Error('company document slot present for a person-ID entity');
-      await shot(page, r, `${slug}-docs-step`, n === 1 ? ALL4 : [['mobile', 'dark'], ['desktop', 'light']]);
+      check(r, (await page.getByText(/CIPC|CK1|Letters of Authority/).count()) === 0, 'no company-document slot on a person-ID entity');
+      check(r, await cont(page).isEnabled(), 'Continue enabled once every ID document is attached');
+      await shot(page, r, `${c.slug}-docs-satisfied`, PAIR);
+    } else {
+      await type(c.people);
+      await details();
+      await toDocuments(page, r, c.slug, true);
+      if (c.proof === 'document') {
+        await expectBlocked(page, r, c, `${c.slug}-blocked-no-proof`, c.blockedText!, c.people);
+        await page.getByLabel(`Upload ${c.doc!.label}`).setInputFiles(pdfFile(c.doc!.file));
+        await expectVisible(page, c.doc!.file);
+        check(r, await cont(page).isEnabled(), 'Continue enabled once the document is attached');
+        await shot(page, r, `${c.slug}-docs-satisfied`, PAIR);
+      } else {
+        check(r, await cont(page).isEnabled(), 'documents step: Continue enabled with nothing uploaded (no proof required)');
+        check(r, (await page.locator('#continue-blocked').count()) === 0, 'documents step: no blocked reason shown');
+        await shot(page, r, `${c.slug}-docs-step`, PAIR);
+        await expectRefusal(page, r, 'blank name, the one thing this entity requires', { ...bodyOf(c, c.people, []), company: { name: '' } }, 'Enter the name');
+      }
     }
     await cont(page).click();
-    await checkMobile(page, `${slug} review`);
+    await checkMobile(page, r, `${c.slug} review`);
+    check(r, await page.getByRole('button', { name: 'Complete Setup' }).isEnabled(), 'review: Complete Setup enabled');
+
+    // 5. complete and land
     await page.getByRole('button', { name: 'Complete Setup' }).click();
     await page.waitForURL(/\/accounting/, { timeout: 60000 });
     await page.waitForLoadState('domcontentloaded');
-    await page.getByText(cfg.name).first().waitFor({ timeout: 45000 });
-    await page.getByLabel('Skip tour').click({ timeout: 5000 }).catch(() => undefined);
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => undefined);
-    await page.waitForFunction(() => document.querySelectorAll('.animate-pulse').length === 0, undefined, { timeout: 8000 }).catch(async () => {
-      const left = await page.evaluate(() => Array.from(document.querySelectorAll('.animate-pulse')).map(e => `${e.tagName}.${(e.getAttribute('class') ?? '').slice(0, 80)} text="${(e.textContent ?? '').slice(0, 20)}" top=${Math.round(e.getBoundingClientRect().top)}`));
-      r.notes.push(`animate-pulse elements still present: ${JSON.stringify(left)}`);
-    });
-    r.notes.push(`accounting page loaded: shows "${cfg.name}", no skeleton, tour dismissed if present`);
-    r.notes.push(`landed at ${page.url().replace(BASE, '')}`);
-    const row = psql(`select c.id, c.entity_type, c.name, cu.role from companies c join company_users cu on cu.company_id=c.id where cu.user_id='${uid}' and c.id<>'${ph}'`);
-    r.notes.push(`DB (new company, placeholder ${ph} excluded): ${row}`);
-    const cookieNow = (await ctx.cookies()).find(c => c.name === 'active_company_id')?.value;
-    const newId = row.split(' | ')[0] ?? '';
-    r.notes.push(`active_company_id cookie after: ${cookieNow} (points at new company: ${cookieNow === newId})`);
-    const ok = row.includes(`| ${cfg.entityDb} |`) && row.includes('| owner') && cookieNow === newId;
-    const docs = psql(`select string_agg(document_type, ',') from company_documents d join company_users cu on cu.company_id=d.company_id where cu.user_id='${uid}' and d.company_id<>'${ph}'`);
-    r.notes.push(`DB docs: ${docs || '(none)'}`);
-    await page.waitForTimeout(1500);
-    if (n <= 3) await shot(page, r, `${slug}-landed`, [['desktop', 'dark']]);
-    r.status = ok ? 'PASS' : 'FAIL';
+    await page.getByRole('heading', { name: c.name }).first().waitFor({ state: 'visible', timeout: 90000 });
+    await page.getByLabel('Skip tour').click({ timeout: 5000 }).catch(() => r.notes.push('no tour shown'));
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => r.notes.push('network did not go idle within 15s'));
+    await expectNoSkeleton(page, r);
+    r.notes.push(`landed at ${page.url().replace(BASE, '')}; page shows "${c.name}"`);
+    await shotLanded(page, r, `${c.slug}-landed`, PAIR, c.name);
+
+    // 6. the database, for the NEW company (placeholder excluded)
+    const newId = psql(`select c.id from companies c join company_users cu on cu.company_id=c.id where cu.user_id='${uid}' and c.id<>'${ph}'`);
+    const cookieNow = (await ctx.cookies()).find(x => x.name === 'active_company_id')?.value;
+    check(r, /^[0-9a-f-]{36}$/.test(newId), `exactly one new company for the user: ${newId}`);
+    check(r, cookieNow === newId, `active_company_id cookie points at the new company: ${cookieNow}`);
+    check(r, r.completeSetupStatus === 200, `complete-setup HTTP ${r.completeSetupStatus}`);
+    check(r, psql(`select name from companies where id='${newId}'`) === c.name, `companies.name = "${c.name}"`);
+    check(r, psql(`select entity_type from companies where id='${newId}'`) === c.entityDb, `companies.entity_type = ${c.entityDb}`);
+    const regWant = c.reg ?? '<NULL>';
+    check(r, psql(`select coalesce(registration_number, '<NULL>') from companies where id='${newId}'`) === regWant, `companies.registration_number = ${regWant}`);
+    check(r, psql(`select role from company_users where company_id='${newId}' and user_id='${uid}'`) === 'owner', 'company_users.role = owner');
+    const want = c.people.map((p, i) => `${p.name}/${c.role}/${idNo(c, i)}/${p.withId}`).sort().join(',');
+    const got = psql(`select coalesce(string_agg(name||'/'||role||'/'||coalesce(id_number, '<NULL>')||'/'||(id_document_data is not null), ',' order by name), '') from company_directors where company_id='${newId}'`);
+    check(r, got === want, `people rows (name/role/id_number/has-ID): "${got}" expected "${want}"`);
+    const docWant = c.doc ? c.doc.type : '';
+    check(r, psql(`select coalesce(string_agg(document_type, ',' order by document_type), '') from company_documents where company_id='${newId}'`) === docWant, `attached document types = "${docWant}"`);
+    check(r, psql(`select onboarding_completed from users where id='${uid}'`) === 't', 'users.onboarding_completed = true');
+    r.dbEvidence = [
+      `select id, name, entity_type, registration_number from companies where id='${newId}'`,
+      `select company_id, user_id, role, is_default from company_users where company_id='${newId}'`,
+      `select name, id_number, role, id_document_name, (id_document_data is not null) as has_id_document from company_directors where company_id='${newId}' order by name`,
+      `select document_type, document_name, mime_type, file_size from company_documents where company_id='${newId}' order by document_type`,
+    ].map(s => `psql> ${s};\n${psqlPretty(s)}`);
   } catch (e) {
+    r.failed = true;
     r.notes.push(`ERROR: ${(e as Error).message.split('\n')[0]}`);
-    await page.screenshot({ path: `${SCRATCH}/fail-${n}.png`, fullPage: true }).catch(() => undefined);
+    await page.screenshot({ path: `${SCRATCH}/fail-${c.n}.png`, fullPage: true }).catch(() => undefined);
+    await page.screenshot({ path: `${OUT}/${String(c.n).padStart(2, '0')}-${c.slug}-FAILED-desktop-dark.png` }).catch(() => undefined);
   }
-  await ctx.close();
+  await page.waitForTimeout(500); // let the last response handler run before the verdict
+  await closeWithin(ctx);
+  finish(r);
   return r;
 }
 
+/** Runs a scenario on its own browser; up to 2 retries if the browser dies or the scenario hangs (see withBrowser), disclosed in the notes. */
+async function attempt(n: number, kind: Result['kind'], name: string, launchArgs: string[], run: (b: Browser) => Promise<Result[]>): Promise<Result[]> {
+  try {
+    trace(`#${n} start`);
+    const { value, attempts } = await withBrowser(`#${n}`, launchArgs, 900000, run);
+    value[0]?.notes.unshift(...attempts.map(a => `RETRY ${a}`));
+    return value;
+  } catch (e) {
+    const r = newResult(n, kind, name);
+    r.failed = true;
+    r.notes.push(`ERROR: ${(e as Error).message.split('\n')[0]} (after 2 retries)`);
+    finish(r);
+    return [r];
+  }
+}
+
 async function main() {
-  const browser = await chromium.launch();
-  const T = 'thandi.synth@example.test';
-  const TID = 'bbbbbbbb-0000-4000-8000-000000000002';
-  const DEMO = '00000000-0000-0000-0000-000000000001';
-
-  results.push(await runOnboarding(browser, 1, 'sole-prop', 1, { label: /Sole proprietor/, typeLabel: 'sole_proprietor', name: 'Synth Plumbing', people: ['Synth Owner'], peopleLabel: 'Owner', role: 'Owner', needsHint: /no document required|needs: |Owner/, entityDb: 'sole_proprietor' }));
-  results.push(await runOnboarding(browser, 2, 'partnership', 2, { label: /Partnership/, typeLabel: 'partnership', name: 'Synth Partners', people: ['Synth Partner One', 'Synth Partner Two'], peopleLabel: 'Partners', role: 'Partner', needsHint: /ID document of every partner/, entityDb: 'partnership' }));
-  results.push(await runOnboarding(browser, 3, 'pty-ltd', 3, { label: /Private company/, typeLabel: 'pty_ltd', name: 'Synth Holdings (Pty) Ltd', reg: ['2020/123456/07', '2020/123456/07'], people: [], peopleLabel: 'Directors', role: 'Director', docLabel: 'CIPC Registration Certificate', docFile: 'cipc.pdf', blockFirst: true, needsHint: /CIPC registration certificate/, entityDb: 'pty_ltd' }));
-  results.push(await runOnboarding(browser, 4, 'cc', 4, { label: /Close corporation/, typeLabel: 'cc', name: 'Synth Builders CC', reg: ['CK1998/012345/23', 'CK1998/012345/23'], people: [], peopleLabel: 'Members', role: 'Member', docLabel: 'CK1 / CK2 Founding Statement', docFile: 'ck1.pdf', needsHint: /CK1 or CK2/, entityDb: 'cc' }));
-  results.push(await runOnboarding(browser, 5, 'trust', 5, { label: /^Trust/, typeLabel: 'trust', name: 'Synth Family Trust', reg: ['IT1234/2020', 'IT1234/2020'], people: [], peopleLabel: 'Trustees', role: 'Trustee', docLabel: "Master's Letters of Authority", docFile: 'loa.pdf', needsHint: /Letters of Authority/, entityDb: 'trust' }));
-
-  // Admin
-  // /admin/* on localhost redirects to NEXT_PUBLIC_ADMIN_URL/<path> (404 here): reach the admin host by name instead
-  const abrowser = await chromium.launch({ args: ['--host-resolver-rules=MAP admin.isaflow.co.za 127.0.0.1:3200'] });
-  const actx = await abrowser.newContext({ viewport: { width: 1440, height: 900 } });
-  await actx.addCookies([{ name: 'sb-access-token', value: cookieFor('aaaaaaaa-0000-4000-8000-000000000001', 'synth.admin@example.test', 'aal2'), url: 'http://admin.isaflow.co.za' }]);
-  await actx.addInitScript(() => localStorage.setItem('accounting-theme', 'dark'));
-  const ap = await actx.newPage();
-  const open = async () => {
-    await ap.goto(`http://admin.isaflow.co.za/users/${TID}`);
-    await ap.getByRole('button', { name: 'companies', exact: true }).click();
-    await ap.getByText('Linked Companies').waitFor({ timeout: 30000 });
-  };
-  const rowOf = (name: string) => ap.locator('tr', { hasText: name });
-  const roleDb = (cid: string) => psql(`select coalesce(string_agg(role,','),'(no row)') from company_users where user_id='${TID}' and company_id='${cid}'`);
-
-  psql(`insert into company_users (company_id, user_id, role, is_default) values ('${DEMO}', '${TID}', 'bookkeeper', true) on conflict do nothing`);
-  const r6: Result = { n: 6, name: 'Admin: change role bookkeeper -> accountant', status: 'FAIL', notes: [], shots: [] };
-  attachLogs(ap, r6.notes);
-  try {
-    await open();
-    r6.notes.push(`before: ${roleDb(DEMO)}`);
-    await rowOf('ISAFlow Demo').getByLabel(/Role in/).selectOption('accountant');
-    await rowOf('ISAFlow Demo').getByRole('button', { name: 'Save role' }).waitFor();
-    r6.notes.push(`dirty state: Save role visible, DB still ${roleDb(DEMO)}`);
-    await shot(ap, r6, 'admin-role-dirty', [['desktop', 'light'], ['desktop', 'dark']]);
-    await rowOf('ISAFlow Demo').getByRole('button', { name: 'Save role' }).click();
-    await ap.waitForTimeout(2000);
-    const after = roleDb(DEMO);
-    r6.notes.push(`after: ${after}`);
-    await shot(ap, r6, 'admin-role-saved', [['desktop', 'light']]);
-    r6.status = after === 'accountant' ? 'PASS' : 'FAIL';
-  } catch (e) { r6.notes.push(`ERROR: ${(e as Error).message.split('\n')[0]}`); }
-  results.push(r6);
-
-  const r7: Result = { n: 7, name: 'Admin: remove ISAFlow Demo link', status: 'FAIL', notes: [], shots: [] };
-  attachLogs(ap, r7.notes);
-  try {
-    await open();
-    await rowOf('ISAFlow Demo').getByRole('button', { name: 'Remove' }).click();
-    await ap.getByText('Remove this link?').waitFor();
-    await ap.getByRole('button', { name: 'Cancel' }).waitFor();
-    await shot(ap, r7, 'admin-remove-confirm', [['desktop', 'light'], ['desktop', 'dark']]);
-    await ap.getByRole('button', { name: 'Confirm remove' }).click();
-    await ap.waitForTimeout(2500);
-    const after = roleDb(DEMO);
-    r7.notes.push(`after: ${after}`);
-    await shot(ap, r7, 'admin-remove-done', [['desktop', 'dark']]);
-    r7.status = after === '(no row)' ? 'PASS' : 'FAIL';
-  } catch (e) { r7.notes.push(`ERROR: ${(e as Error).message.split('\n')[0]}`); }
-  results.push(r7);
-
-  const r8: Result = { n: 8, name: 'Admin: remove last-owner link refused', status: 'FAIL', notes: [], shots: [] };
-  attachLogs(ap, r8.notes);
-  try {
-    await open();
-    await rowOf('Synth Solo Owner').getByRole('button', { name: 'Remove' }).click();
-    await ap.getByRole('button', { name: 'Confirm remove' }).click();
-    const msg = ap.getByText(/last owner/i).first();
-    await msg.waitFor({ timeout: 10000 });
-    r8.notes.push(`message: ${(await msg.textContent())?.trim()}`);
-    const still = psql(`select count(*) from company_users where user_id='${TID}' and company_id='eeeeeeee-0000-4000-8000-000000000001'`);
-    r8.notes.push(`DB link rows remaining: ${still}`);
-    await shot(ap, r8, 'admin-last-owner-refused', [['desktop', 'light'], ['desktop', 'dark']]);
-    r8.status = still === '1' ? 'PASS' : 'FAIL';
-  } catch (e) { r8.notes.push(`ERROR: ${(e as Error).message.split('\n')[0]}`); await ap.screenshot({ path: `${SCRATCH}/fail-8.png`, fullPage: true }); }
-  results.push(r8);
-
-  await browser.close(); await abrowser.close();
-  writeFileSync(`${SCRATCH}/results.json`, JSON.stringify(results, null, 2));
+  const only = process.env.ONLY ? process.env.ONLY.split(',').map(s => Number(s.trim())) : null;
+  const want = (n: number) => only === null || only.includes(n);
+  const cases = CASES.filter(c => want(c.n));
+  const admin = [9, 10, 11].some(want);
+  if (only !== null && cases.length === 0 && !admin && !want(12) && !want(13)) {
+    console.error(`ONLY=${process.env.ONLY} matches no scenario (valid: 1-8 entity types, 9-11 admin, 12 refusals, 13 probes); nothing run, RESULTS.md untouched`);
+    process.exit(2);
+  }
+  seedThrowawayDb();
+  // The dev server compiles pages on first hit, and a compile that lands mid-run has twice corrupted its chunk cache
+  // ("Cannot find module './77500.js'", every page then 500s). Compile the public pages up front.
+  for (const path of ['/offline', '/login']) await fetch(`${BASE}${path}`, { redirect: 'manual', signal: AbortSignal.timeout(180000) }).then(r => trace(`warm-up ${path}: HTTP ${r.status}`), e => trace(`warm-up ${path}: ${(e as Error).message}`));
+  const results: Result[] = [];
+  for (const c of cases) results.push(...await attempt(c.n, 'onboarding', `${c.typeLabel} (user onb${c.n})`, [], async b => [await runOnboarding(b, c)]));
+  if (want(12)) results.push(...await attempt(12, 'server', 'Server refusals', [], async b => [await runRefusals(b, 12)]));
+  if (want(13)) results.push(...await attempt(13, 'server', 'Server probes', [], async b => [await runProbes(b, 13)]));
+  if (admin) results.push(...await attempt(9, 'admin', 'Admin scenarios', ADMIN_LAUNCH_ARGS, b => runAdmin(b, 9)));
+  await writeReport(results, only === null);
   for (const r of results) console.log(`${r.status} #${r.n} ${r.name}\n  ${r.notes.join('\n  ')}`);
   console.log(`${allShots.length} screenshots`);
-  console.log('IDFIT\n' + idFit.join('\n'));
-  console.log('OVERFLOW\n' + overflow.join('\n'));
-  console.log('LOGO/CARDS ' + logoChecks.join('\n'));
+  process.exit(results.some(r => r.status === 'FAIL') ? 1 : 0); // not process.exitCode: a lingering handle must not hold the run open
 }
 main().catch(e => { console.error(e); process.exit(1); });
