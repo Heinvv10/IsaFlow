@@ -15,6 +15,8 @@ export const SCRATCH = process.env.ACCEPT_SCRATCH ?? '/tmp/isaflow-accept';
 export const OUT = process.env.EVIDENCE_DIR ?? `${WIZ}/docs/evidence/entity-onboarding-8types`;
 export const BASE = process.env.BASE ?? 'http://localhost:3200';
 export const BASE_URL = new URL(BASE);
+// The run signs in as synthetic users and writes: it only ever talks to a dev server on this machine.
+if (!['localhost', '127.0.0.1'].includes(BASE_URL.hostname)) throw new Error(`BASE must be a localhost or 127.0.0.1 URL; got ${BASE}`);
 const { PORT, PGPASSWORD, JWT } = process.env as Record<string, string>;
 if (!PORT || !PGPASSWORD || !JWT) throw new Error('PORT (postgres), PGPASSWORD and JWT (the JWT_SECRET) must be set');
 // Hard-coded on purpose: nothing in the environment can point this run at another host or database (seed.ts re-checks the contents).
@@ -46,6 +48,11 @@ export const pdfDataUrl = (tag: string) => `data:application/pdf;base64,${uniq(P
 /** Files the server must refuse: a valid header with under 1 KB, and text bytes (padded past 1 KB) under a document MIME type. */
 export const tinyPdfDataUrl = () => `data:application/pdf;base64,${PDF.toString('base64')}`;
 export const tinyPngDataUrl = () => `data:image/png;base64,${PNG.toString('base64')}`;
+/** A real PDF/PNG header followed by padding, exactly `bytes` long (the upload-limit cases). */
+export const sizedDataUrl = (kind: 'pdf' | 'png', bytes: number, tag: string) => {
+  const head = Buffer.concat([kind === 'pdf' ? PDF : PNG, Buffer.from(`\n${tag}-${Date.now()}-${Math.random()}\n`)]);
+  return `data:${kind === 'pdf' ? 'application/pdf' : 'image/png'};base64,${Buffer.concat([head, Buffer.alloc(Math.max(0, bytes - head.length), 32)]).toString('base64')}`;
+};
 export const textDataUrl = (mime: string) => `data:${mime};base64,${Buffer.from(`plain text, not a document ${'x'.repeat(2048)}`).toString('base64')}`;
 
 /** SA ID number with a valid Luhn digit. */
@@ -71,11 +78,11 @@ export type Combo = ['mobile' | 'desktop', 'light' | 'dark'];
 /** The two views the 8-type evidence set requires per step: desktop 1440 dark, mobile 390 light. */
 export const PAIR: Combo[] = [['desktop', 'dark'], ['mobile', 'light']];
 
-/** Soft assertion: recorded in the notes, marks the scenario FAIL, and lets the run carry on to collect more evidence. */
 /** Timestamped progress line in the scratch dir: if a run ever hangs, the last line says where. */
 let lastProgress = Date.now();
 export const trace = (line: string) => { lastProgress = Date.now(); appendFileSync(`${SCRATCH}/trace.log`, `${new Date().toISOString()} ${line}\n`); };
 
+/** Soft assertion: recorded in the notes, marks the scenario FAIL, and lets the run carry on to collect more evidence. */
 export function check(r: Result, ok: boolean, msg: string) {
   r.notes.push(`${ok ? 'ok  ' : 'FAIL'} ${msg}`);
   trace(`#${r.n} ${ok ? 'ok' : 'FAIL'} ${msg.slice(0, 120)}`);
@@ -131,7 +138,8 @@ export async function closeWithin(target: { close(): Promise<void> }, ms = 20000
 /**
  * One browser per attempt, with a hard time limit and a death watch. On this shared box a Chromium has been seen to vanish
  * mid-run (a pending Playwright call then never settles), so an attempt that times out or loses its browser is retried
- * once on a fresh browser; the retry is written into the scenario's notes by the caller via the returned `attempts`.
+ * on a fresh browser: 3 attempts in all (2 retries). The failed attempts are returned in `attempts` and the caller writes
+ * them into the scenario's notes as RETRY lines.
  */
 export async function withBrowser<T>(label: string, launchArgs: string[], limitMs: number, run: (b: Browser) => Promise<T>): Promise<{ value: T; attempts: string[] }> {
   const attempts: string[] = [];

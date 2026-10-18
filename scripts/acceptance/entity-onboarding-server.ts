@@ -8,17 +8,19 @@ import { probeCatalogue, refusalCatalogue, type Body } from './entity-onboarding
 
 export const REFUSAL_ALLOW = { url: /\/api\/onboarding\/complete-setup/, status: 400, reason: 'intentional refusal under test' };
 
+/**
+ * The same POST the wizard makes (session cookies and CSRF double-submit header), sent through the browser context's request
+ * API rather than an in-page fetch: the upload-limit cases carry 20-40 MB bodies, which should not be marshalled through the page.
+ */
 export async function postSetup(page: Page, body: Body | Record<string, unknown>): Promise<{ status: number; text: string }> {
-  return page.evaluate(async (b) => {
-    const m = document.cookie.split('; ').find(x => x.startsWith('isaflow_csrf='));
-    const resp = await fetch('/api/onboarding/complete-setup', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': m ? m.slice('isaflow_csrf='.length) : '' }, body: JSON.stringify(b), signal: AbortSignal.timeout(90000),
-    });
-    return { status: resp.status, text: await resp.text() };
-  }, body);
+  const csrf = (await page.context().cookies()).find(c => c.name === 'isaflow_csrf')?.value ?? '';
+  const res = await page.request.post(`${BASE}/api/onboarding/complete-setup`, {
+    data: body, headers: { 'X-CSRF-Token': csrf, Origin: BASE }, timeout: 180000,
+  });
+  return { status: res.status(), text: await res.text() };
 }
 
-/** Row counts of the four tables a setup writes. A refused request must leave all four exactly as they were. */
+/** Row counts of the four tables a setup writes. A refused request must leave all four exactly as they were. Counts are table-wide: a concurrent writer can only cause a false FAIL, never a false PASS. */
 const counts = () => psql('select (select count(*) from companies) as c, (select count(*) from company_directors) as d, (select count(*) from company_documents) as docs, (select count(*) from company_users) as m')
   .split(' | ').map(Number);
 const TABLES = ['companies', 'company_directors', 'company_documents', 'company_users'];
@@ -70,7 +72,9 @@ export async function runProbes(browser: Browser, n: number): Promise<Result> {
       const stored = psql(`select coalesce(registration_number, '<NULL>') from companies where id='${id}'`);
       const want = p.expectReg ?? '<NULL>';
       check(r, stored === want, `${p.label}: registration_number stored as "${stored}" (rules say "${want}")`);
-      r.dbEvidence.push(`psql> select entity_type, name, registration_number from companies where id='${id}';\n${psqlPretty(`select entity_type, name, registration_number from companies where id='${id}'`)}`);
+      const docs = psql(`select coalesce(string_agg(document_type, ',' order by document_type), '') from company_documents where company_id='${id}'`);
+      check(r, docs === (p.expectDocs ?? ''), `${p.label}: stored document types "${docs}" (expected "${p.expectDocs ?? ''}")`);
+      for (const q of [`select entity_type, name, registration_number from companies where id='${id}'`, `select document_type, document_name, file_size from company_documents where company_id='${id}' order by document_type`]) r.dbEvidence.push(`psql> ${q};\n${psqlPretty(q)}`);
     }
   } catch (e) { r.notes.push(`ERROR: ${(e as Error).message.split('\n')[0]}`); r.failed = true; }
   await page.waitForTimeout(500);

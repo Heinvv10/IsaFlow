@@ -12,6 +12,7 @@ export interface Case {
   n: number; slug: string; entityDb: string; typeLabel: string; label: RegExp; name: string;
   reg?: string;                 // registration number typed on the details step (and stored); none = stored NULL
   regPlaceholder?: string;      // the field's placeholder (entityTypes.ts registration.placeholder), used to find it
+  regLabel?: string;            // the field's label (entityTypes.ts registration.label); none = the entity has no registration field
   people: Person[];             // people on the details step once the run is complete
   peopleLabel: string; role: string;
   needsHint: RegExp;            // line under the entity card
@@ -42,21 +43,21 @@ export const CASES: Case[] = [
       { add: [{ name: 'Synth Partner Two', withId: false }], blockedText: 'Upload the ID document of Synth Partner Two to continue.' },
     ] },
   { n: 3, slug: 'pty-ltd', entityDb: 'pty_ltd', typeLabel: 'Private company (Pty) Ltd', label: /Private company/, name: 'Synth Holdings (Pty) Ltd',
-    reg: '2020/123456/07', regPlaceholder: '2020/123456/07', people: [], peopleLabel: 'Directors', role: 'Director',
+    reg: '2020/123456/07', regLabel: 'CIPC registration number', regPlaceholder: '2020/123456/07', people: [], peopleLabel: 'Directors', role: 'Director',
     needsHint: /Directors · needs: CIPC registration certificate/, smartSetup: true, proof: 'document', doc: CIPC, blockedText: CIPC_BLOCK },
   { n: 4, slug: 'ltd', entityDb: 'ltd', typeLabel: 'Public company (Ltd)', label: /Public company/, name: 'Synth Listed Ltd',
-    reg: '2015/987654/06', regPlaceholder: '2020/123456/07', people: [{ name: 'Synth Director', withId: false }], peopleLabel: 'Directors', role: 'Director',
+    reg: '2015/987654/06', regLabel: 'CIPC registration number', regPlaceholder: '2020/123456/07', people: [{ name: 'Synth Director', withId: false }], peopleLabel: 'Directors', role: 'Director',
     needsHint: /Directors · needs: CIPC registration certificate/, smartSetup: true, proof: 'document', doc: CIPC, blockedText: CIPC_BLOCK },
   { n: 5, slug: 'cc', entityDb: 'cc', typeLabel: 'Close corporation (CC)', label: /Close corporation/, name: 'Synth Builders CC',
-    reg: 'CK1998/012345/23', regPlaceholder: 'CK1998/012345/23', people: [], peopleLabel: 'Members', role: 'Member', needsHint: /Members · needs: CK1 or CK2/,
+    reg: 'CK1998/012345/23', regLabel: 'CK number', regPlaceholder: 'CK1998/012345/23', people: [], peopleLabel: 'Members', role: 'Member', needsHint: /Members · needs: CK1 or CK2/,
     smartSetup: true, proof: 'document', doc: { label: 'CK1 / CK2 Founding Statement', file: 'ck1.pdf', type: 'ck_certificate' },
     blockedText: 'Upload the CK1 or CK2 to continue.' },
   { n: 6, slug: 'npc', entityDb: 'npc', typeLabel: 'Non-profit company (NPC)', label: /Non-profit company/, name: 'Synth Foundation NPC',
-    reg: '2018/456789/08', regPlaceholder: '2020/123456/07', people: [{ name: 'Synth Director One', withId: false }, { name: 'Synth Director Two', withId: false }],
+    reg: '2018/456789/08', regLabel: 'CIPC registration number', regPlaceholder: '2020/123456/07', people: [{ name: 'Synth Director One', withId: false }, { name: 'Synth Director Two', withId: false }],
     peopleLabel: 'Directors', role: 'Director', needsHint: /Directors · needs: CIPC registration certificate/,
     smartSetup: true, proof: 'document', doc: CIPC, blockedText: CIPC_BLOCK },
   { n: 7, slug: 'trust', entityDb: 'trust', typeLabel: 'Trust', label: /^Trust/, name: 'Synth Family Trust',
-    reg: 'IT1234/2020', regPlaceholder: 'IT1234/2020', people: [], peopleLabel: 'Trustees', role: 'Trustee', needsHint: /Trustees · needs: Master's Letters of Authority/,
+    reg: 'IT1234/2020', regLabel: "Master's reference (IT number)", regPlaceholder: 'IT1234/2020', people: [], peopleLabel: 'Trustees', role: 'Trustee', needsHint: /Trustees · needs: Master's Letters of Authority/,
     smartSetup: false, proof: 'document', doc: { label: "Master's Letters of Authority", file: 'loa.pdf', type: 'letters_of_authority' },
     blockedText: "Upload the Master's Letters of Authority to continue." },
   { n: 8, slug: 'other', entityDb: 'other', typeLabel: 'Other', label: /^Other/, name: 'Synth Other Entity',

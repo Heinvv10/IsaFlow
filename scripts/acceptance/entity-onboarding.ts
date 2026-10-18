@@ -1,6 +1,10 @@
 // Browser acceptance, entity onboarding for ALL EIGHT entity types + server refusals + admin links.
 // Needs: dev server on BASE (default :3200) against the THROWAWAY Postgres `isaflow_e2e` on localhost, JWT secret for sign.ts,
-// env PORT (postgres) / PGPASSWORD / JWT. Run from the repo root: bun scripts/acceptance/entity-onboarding.ts
+// env PORT (postgres) / PGPASSWORD / JWT. Run from the repo root. The evidence set was produced with the Node bundle:
+//   bun build scripts/acceptance/entity-onboarding.ts --target node --format esm --external playwright --outfile node_modules/.cache/entity-onboarding.mjs
+//   node node_modules/.cache/entity-onboarding.mjs
+// Running it directly with `bun scripts/acceptance/entity-onboarding.ts` works but is unreliable on the shared box: Playwright
+// under Bun lost its Chromium intermittently (calls hung without an error); the watchdog in withBrowser then retries the scenario.
 // ONLY=1,4,12 runs just those scenarios (1-8 entity types, 9-11 admin group, 12 refusals, 13 probes); a partial run
 // writes RESULTS.partial.md to the scratch dir and never touches the evidence RESULTS.md.
 import type { Browser, Page } from 'playwright';
@@ -96,6 +100,8 @@ async function runOnboarding(browser: Browser, c: Case): Promise<Result> {
     await page.getByPlaceholder('Acme').first().fill(c.name);
     if (c.reg) await page.getByPlaceholder(c.regPlaceholder!, { exact: true }).fill(c.reg);
     await expectVisible(page, c.peopleLabel);
+    if (c.regLabel) check(r, (await page.getByText(c.regLabel).count()) >= 1, `registration field "${c.regLabel}" shown`);
+    else check(r, (await page.getByText(/CIPC registration number|CK number|IT number/).count()) === 0, 'no registration number field for this entity');
     if (c.requiredLine) await page.getByText(c.requiredLine, { exact: true }).waitFor({ timeout: 8000 });
     check(r, (await page.getByText(/^Required: /).count()) === (c.requiredLine ? 1 : 0), c.requiredLine ? `details step shows "${c.requiredLine}"` : 'details step shows no "Required:" line');
     const details = async () => {
