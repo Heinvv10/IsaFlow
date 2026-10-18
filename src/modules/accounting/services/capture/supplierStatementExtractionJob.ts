@@ -70,9 +70,12 @@ export async function runSupplierStatementExtraction(companyId: string, reconId:
       const extraction = await extractSupplierStatementFromDocument(
         companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, reconId, attempt, done, total),
       );
-      // A read that found nothing is a failed read (a blank scan, a page the reader gave up on), not an empty statement.
+      // A read that found nothing is not saved as an empty statement: there would be nothing to reconcile, and a
+      // scan the reader missed would look finished. Retryable, with its own code so the cause shows in the row.
       if (extraction.lines.length === 0) {
-        throw new StatementReadError('unreadable', 'No lines could be read from this statement. Retry the import, or upload a clearer copy.');
+        throw new StatementReadError('no_lines',
+          'No lines were found in this statement. If the period had no activity there is nothing to reconcile; '
+          + 'if it should have lines, retry the import or upload a clearer copy.');
       }
       if (extraction.warnings.length > 0) {
         log.warn('Supplier statement extraction warnings', { reconId, warnings: extraction.warnings }, 'recon-service');

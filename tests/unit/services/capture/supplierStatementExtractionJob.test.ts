@@ -30,6 +30,7 @@ vi.mock('@/modules/accounting/services/capture/supplierStatementReconDb', async 
 }));
 
 import { StatementReadError } from '@/modules/accounting/services/bank/vlmStatementPages';
+import { effectiveExtractionState } from '@/modules/accounting/services/bank/statementExtractionState';
 import { runSupplierStatementExtraction } from '@/modules/accounting/services/capture/supplierStatementExtractionJob';
 
 const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -175,12 +176,17 @@ describe('runSupplierStatementExtraction — failure', () => {
     expect(callsOn('supplier_statement_lines')).toEqual([]);
   });
 
-  it('fails as unreadable, retryable, when the read found no line at all (never ends unreconciled with 0 lines)', async () => {
+  it('fails with its own retryable code when the read found no line at all (never ends unreconciled with 0 lines)', async () => {
     m.extract.mockResolvedValue(extraction({ lines: [] }));
     await runSupplierStatementExtraction(CO, RECON);
     expect(callsOn("status = 'unreconciled'")).toEqual([]);
     expect(callsOn('supplier_statement_lines')).toEqual([]);
-    expect(failedWith().values).toEqual(expect.arrayContaining(['unreadable', 'No lines could be read from this statement. Retry the import, or upload a clearer copy.']));
+    const f = failedWith();
+    expect(f.values).toContain('no_lines');
+    const message = f.values.find((v) => typeof v === 'string' && v.startsWith('No lines were found')) as string;
+    expect(message).toContain('no activity there is nothing to reconcile');
+    expect(message).toContain('retry the import');
+    expect(effectiveExtractionState({ status: 'failed', extraction_error: message, extraction_error_code: 'no_lines' }).retryable).toBe(true);
   });
 
   it('hides an unexpected error behind a generic message', async () => {

@@ -18,6 +18,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: m.info, warn: m.warn, error: vi.fn
 vi.mock('@/modules/accounting/services/bank/bankStatementExtraction', () => ({ extractBankStatementFromDocument: m.extract }));
 
 import { StatementReadError } from '@/modules/accounting/services/bank/vlmStatementPages';
+import { effectiveExtractionState } from '@/modules/accounting/services/bank/statementExtractionState';
 import { runBankStatementExtraction } from '@/modules/accounting/services/bank/bankStatementExtractionJob';
 
 const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -145,13 +146,16 @@ describe('runBankStatementExtraction — failure', () => {
     expect(f.values).toContain(CO);
   });
 
-  it('fails as unreadable, retryable, when the read found no transaction at all (never ends extracted with 0 rows)', async () => {
+  it('fails with its own retryable code when the read found no transaction at all (never ends extracted with 0 rows)', async () => {
     m.extract.mockResolvedValue(extraction({ transactions: [] }));
     await runBankStatementExtraction(CO, IMPORT);
     expect(callsOn("status = 'extracted'")).toEqual([]);
     const f = failedWith();
-    expect(f.values).toContain('unreadable');
-    expect(f.values).toContain('No transactions could be read from this statement. Retry the import, or upload a clearer copy.');
+    expect(f.values).toContain('no_transactions');
+    const message = f.values.find((v) => typeof v === 'string' && v.startsWith('No transactions were found')) as string;
+    expect(message).toContain('no activity there is nothing to import');
+    expect(message).toContain('retry the import');
+    expect(effectiveExtractionState({ status: 'failed', extraction_error: message, extraction_error_code: 'no_transactions' }).retryable).toBe(true);
   });
 
   it('hides an unexpected error behind a generic message', async () => {

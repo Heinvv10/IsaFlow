@@ -91,9 +91,12 @@ export async function runBankStatementExtraction(companyId: string, importId: st
       const extraction = await extractBankStatementFromDocument(
         companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, importId, attempt, done, total),
       );
-      // A read that found nothing is a failed read (a blank scan, a page the reader gave up on), not an empty statement.
+      // A read that found nothing is not saved as an empty statement: nothing would be imported, and a scan
+      // the reader missed would look finished. Retryable, with its own code so the cause shows in the row.
       if (extraction.transactions.length === 0) {
-        throw new StatementReadError('unreadable', 'No transactions could be read from this statement. Retry the import, or upload a clearer copy.');
+        throw new StatementReadError('no_transactions',
+          'No transactions were found in this statement. If the period had no activity there is nothing to import; '
+          + 'if it should have transactions, retry the import or upload a clearer copy.');
       }
       const { rows, warnings } = await buildRows(companyId, row.bank_account_id as string, extraction);
       const duplicateCount = rows.filter((r) => r.isDuplicate).length;
