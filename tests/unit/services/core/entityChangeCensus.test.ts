@@ -67,7 +67,8 @@ const WRITERS: Record<string, string[]> = {
   ],
   company_users: [
     'pages/api/invitations/[token]/accept.ts', 'pages/api/invite/[token].ts', 'scripts/large-scale-seed.ts',
-    'scripts/acceptance/entity-onboarding.ts', // seeds a throwaway acceptance DB (psql), never a shared one
+    'scripts/acceptance/entity-onboarding-admin.ts', // acceptance admin scenarios on the throwaway DB (psql)
+    'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
     'scripts/provision-isademo2.ts', 'scripts/stress-test.ts', `${S}core/userAccessService.ts`,
     `${S}core/userInvitationService.ts`, 'src/modules/admin/services/adminUserActionsService.ts',
     'src/modules/admin/services/companyMembershipService.ts',
@@ -82,7 +83,7 @@ const WRITERS: Record<string, string[]> = {
     'pages/api/accounting/afs/pis-score.ts', 'pages/api/accounting/chase-settings.ts', 'pages/api/accounting/cipc-annual-return.ts',
     'pages/api/accounting/company-logo.ts', 'pages/api/admin/billing/payg/[companyId]/eligibility.ts',
     'pages/api/admin/companies/bulk-action.ts', 'scripts/large-scale-seed.ts', 'scripts/provision-isademo2.ts',
-    'scripts/acceptance/entity-onboarding.ts', // seeds a throwaway acceptance DB (psql), never a shared one
+    'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
     'scripts/qa-cleanup-run.ts', 'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,
     'src/modules/admin/services/adminCompanyService.ts', 'src/modules/admin/services/companyLifecycleService.ts',
     'src/modules/admin/services/trialService.ts',
