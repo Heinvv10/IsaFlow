@@ -125,6 +125,25 @@ describe('calculate_pay_run', () => {
     expect(calculatePayrollRun).toHaveBeenCalledWith(RUN, COMPANY);
   });
 
+  it('warns that the post-March-2026 ETI table is unconfirmed when ETI is claimed', async () => {
+    vi.mocked(calculatePayrollRun).mockResolvedValue(
+      run({ status: 'calculated', periodMonth: 5, periodYear: 2026, totalEti: 1500 }) as never,
+    );
+    const out = parseOk(await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()));
+    expect(JSON.stringify(out.warnings)).toContain('unconfirmed');
+  });
+
+  it('gives no ETI warning before April 2026 or when no ETI is claimed', async () => {
+    vi.mocked(calculatePayrollRun).mockResolvedValue(
+      run({ status: 'calculated', periodMonth: 3, periodYear: 2026, totalEti: 1500 }) as never,
+    );
+    expect(parseOk(await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())).warnings).toBeUndefined();
+    vi.mocked(calculatePayrollRun).mockResolvedValue(
+      run({ status: 'calculated', periodMonth: 5, periodYear: 2026, totalEti: 0 }) as never,
+    );
+    expect(parseOk(await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())).warnings).toBeUndefined();
+  });
+
   it('flags a run that costed NOBODY rather than reporting success plainly', async () => {
     // An employee with no components costs to zero without erroring. Approving
     // that marks the month done and posts nothing.

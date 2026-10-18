@@ -6,8 +6,6 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateUIF } from './uifEngine';
-import { getTaxYear } from './taxTables';
 import { UI19_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 
 type Row = DbRow;
@@ -106,7 +104,6 @@ export async function getUifDeclaration(
   if (rows.length === 0 || !rows[0]) return null;
 
   const decl = mapUifDeclaration(rows[0]);
-  const taxYear = getTaxYear(decl.periodMonth, decl.periodYear);
   // Bound as an array rather than inlined literals so the vocabulary lives in
   // exactly one place (@/lib/constants/payrollRunStatuses).
   const declarableStatuses: string[] = [...UI19_DECLARABLE_STATUSES];
@@ -133,18 +130,21 @@ export async function getUifDeclaration(
 
   const lines: UifDeclarationLine[] = lineRows.map(r => {
     const grossPay = Number(r.gross_pay);
-    const uif = calculateUIF(grossPay, taxYear);
+    // From the contribution the run stored (1% of what was leviable, ceiling
+    // applied at run time), not from today's tax tables: an old or future
+    // period must not depend on a table being loaded to be displayed.
+    const employeeContribution = Number(r.uif_employee);
+    const storedLeviable = Math.round(employeeContribution / 0.01 * 100) / 100;
+    const isCapped = employeeContribution > 0 && grossPay > storedLeviable;
     return {
       employeeId: String(r.employee_id),
       employeeNumber: String(r.employee_number),
       employeeName: `${r.first_name} ${r.last_name}`,
       grossPay,
-      leviableSalary: uif.isCapped
-        ? uif.employeeContribution / 0.01
-        : grossPay,
-      employeeContribution: Number(r.uif_employee),
+      leviableSalary: employeeContribution > 0 ? storedLeviable : grossPay,
+      employeeContribution,
       employerContribution: Number(r.uif_employer),
-      isCapped: uif.isCapped,
+      isCapped,
     };
   });
 

@@ -1,4 +1,10 @@
-import { etiForRemuneration, selectEtiTable } from './etiTables';
+import {
+  ETI_AFTER_MARCH_2026_POLICY,
+  etiForRemuneration,
+  isEtiTableUnconfirmed,
+  selectEtiTable,
+  type EtiUnconfirmedPolicy,
+} from './etiTables';
 import { getAge } from './payeEngine';
 import type { EtiInput, EtiMissingInput, EtiResult } from './payrollTypes';
 
@@ -18,7 +24,11 @@ function monthsBetween(start: Date, end: Date): number {
  * that the employer or employee is in an SEZ, so a SEZ employee aged 30+ is
  * reported ineligible and the claim is forfeited rather than over-claimed.
  */
-export function calculateEti(input: EtiInput, _taxYear: number): EtiResult {
+export function calculateEti(
+  input: EtiInput,
+  _taxYear: number,
+  policy: EtiUnconfirmedPolicy = ETI_AFTER_MARCH_2026_POLICY,
+): EtiResult {
   const table = selectEtiTable(input.periodDate);
   const age = getAge(input.dateOfBirth, input.periodDate);
   const monthsEmployed = monthsBetween(input.employmentStartDate, input.periodDate) + 1;
@@ -29,6 +39,17 @@ export function calculateEti(input: EtiInput, _taxYear: number): EtiResult {
       isDeterminable: true,
       missingInputs: [],
       ineligibilityReason: 'Employee age must be 18–29',
+      monthsEmployed,
+      employmentYear: null,
+      monthlyEti: 0,
+    };
+  }
+  if (policy === 'fail_closed' && isEtiTableUnconfirmed(input.periodDate)) {
+    return {
+      isEligible: false,
+      isDeterminable: true,
+      missingInputs: [],
+      ineligibilityReason: 'ETI table for pay periods after 31 March 2026 is unconfirmed; none claimed',
       monthsEmployed,
       employmentYear: null,
       monthlyEti: 0,
@@ -45,12 +66,12 @@ export function calculateEti(input: EtiInput, _taxYear: number): EtiResult {
       monthlyEti: 0,
     };
   }
-  if (input.monthlyRemuneration > table.wageCeiling) {
+  if (input.monthlyRemuneration >= table.wageCeiling) {
     return {
       isEligible: false,
       isDeterminable: true,
       missingInputs: [],
-      ineligibilityReason: `Wage exceeds ETI wage ceiling of R${table.wageCeiling.toLocaleString()}`,
+      ineligibilityReason: `Wage is at or above the ETI wage ceiling of R${table.wageCeiling.toLocaleString()}`,
       monthsEmployed,
       employmentYear: null,
       monthlyEti: 0,

@@ -16,10 +16,34 @@
  *                       R >= 6 500         nil
  *
  * ASSUMPTION, UNCONFIRMED: the April 2025 table is applied to every period
- * after 31 March 2026 as well. The Employment Tax Incentive Amendment Act
- * (Act 3 of 2026, 1 April 2026) may have changed it and its text was not
- * available; confirm before relying on ETI for periods from April 2026.
+ * after 31 March 2026 as well, although SARS describes it as running for 12
+ * months. The Employment Tax Incentive Amendment Act (Act 3 of 2026,
+ * 1 April 2026) may have changed it and its text was not available. Until that
+ * is decided, `ETI_AFTER_MARCH_2026_POLICY` governs those periods.
  */
+
+/** Thrown for a pay period no ETI table covers. */
+export class UnsupportedEtiPeriodError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnsupportedEtiPeriodError';
+  }
+}
+
+/**
+ * What to do with pay periods from 1 April 2026, whose ETI table is unconfirmed:
+ *  - 'warn'        keep claiming on the April 2025 table; every line with ETI > 0
+ *                  carries a non-blocking ETI_TABLE_UNCONFIRMED warning.
+ *  - 'fail_closed' claim nothing for those periods (monthlyEti 0, reported ineligible).
+ * Flip this one constant once Hein decides.
+ */
+export type EtiUnconfirmedPolicy = 'warn' | 'fail_closed';
+export const ETI_AFTER_MARCH_2026_POLICY: EtiUnconfirmedPolicy = 'warn';
+
+export const ETI_TABLE_UNCONFIRMED_MESSAGE =
+  'The ETI table for pay periods after 31 March 2026 is unconfirmed: the April 2025 table has been '
+  + 'applied, but SARS describes it as running for 12 months and the 1 April 2026 amendment has not '
+  + 'been checked. Verify the ETI claimed before submitting the EMP201.';
 
 export interface EtiTable {
   /** Below this remuneration the incentive is `lowBandRate` x remuneration. */
@@ -61,11 +85,17 @@ function monthIndex(periodDate: Date): number {
 
 const MARCH_2022 = 2022 * 12 + 2;
 const APRIL_2025 = 2025 * 12 + 3;
+const APRIL_2026 = 2026 * 12 + 3;
+
+/** True for a pay period from 1 April 2026, whose ETI table is unconfirmed. */
+export function isEtiTableUnconfirmed(periodDate: Date): boolean {
+  return monthIndex(periodDate) >= APRIL_2026;
+}
 
 export function selectEtiTable(periodDate: Date): EtiTable {
   const idx = monthIndex(periodDate);
   if (idx < MARCH_2022) {
-    throw new Error('No ETI table is loaded for pay periods before March 2022');
+    throw new UnsupportedEtiPeriodError('No ETI table is loaded for pay periods before March 2022');
   }
   return idx < APRIL_2025 ? ETI_FROM_MARCH_2022 : ETI_FROM_APRIL_2025;
 }

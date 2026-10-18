@@ -213,7 +213,7 @@ export async function calculatePayrollRun(
       netPay: line.netPay,
       componentBreakdown: JSON.stringify(line.componentBreakdown),
       validationResults: JSON.stringify([
-        ...empValidation, ...lineValidation, ...validateEti(employee, line.eti),
+        ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
       ]),
     });
 

@@ -66,8 +66,11 @@ const TAX_2026: TaxYearConfig = {
 // Tax year 2027 = 1 March 2026 to 28 February 2027 (SARS 2026/27).
 // Source: https://www.sars.gov.za/tax-rates/income-tax/rates-of-tax-for-individuals/
 // and https://www.sars.gov.za/tax-rates/medical-tax-credit-rates/ (retrieved 2026-10-18).
-// uifCeiling and sdlThresholdAnnual are carried forward from 2026: no official
-// change was cited for either.
+// The brackets, rebates, thresholds and medical credits are the SARS figures. uifCeiling and sdlThresholdAnnual are NOT SARS-sourced for 2026/27:
+// they are carried forward from 2026 and UNVERIFIED for this year. UIF ceiling:
+// R17 712 a month since 1 June 2021 (HIGH confidence). SDL: R500 000 is the
+// long-standing annual payroll threshold; the date of its last change is not
+// known. Neither was re-checked on 2026-10-18.
 const TAX_2027: TaxYearConfig = {
   year: 2027,
   brackets: [
@@ -87,6 +90,7 @@ const TAX_2027: TaxYearConfig = {
   threshold75plus:  171_300,
   medicalCreditMainAndFirst: 376,
   medicalCreditAdditional:   254,
+  // Carried forward from 2026, not SARS-verified for 2026/27 (see above).
   uifCeiling:         TAX_2026.uifCeiling,
   sdlThresholdAnnual: TAX_2026.sdlThresholdAnnual,
 };
