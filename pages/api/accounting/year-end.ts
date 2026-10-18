@@ -127,6 +127,18 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
               + `entry numbers are unique per company, so it cannot be closed while that row `
               + `holds the number. Renumber journal ${result.entryId}, then close the year.`
           );
+        case 'too_many_recloses':
+          return apiResponse.conflict(
+            res,
+            `Closing journal ${result.entryNumber} has been reversed and re-posted too many times. `
+              + `Nothing was posted; a person has to look at the reversals before the year is closed again.`
+          );
+        case 'closing_chain_unreadable':
+          return apiResponse.conflict(
+            res,
+            `The reversal chain of closing journal ${result.entryNumber} is too long to read, so it `
+              + `cannot be told whether the year is closed. Nothing was posted; a person has to inspect it.`
+          );
         default: {
           // Exhaustive over CloseYearError: `unhandled` stops being `never` the
           // moment a member is added without a case. Without this the refusal

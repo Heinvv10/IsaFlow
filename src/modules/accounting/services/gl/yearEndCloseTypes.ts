@@ -107,6 +107,16 @@ export type CloseYearDryRunResult =
 export type CloseYearError =
   | { error: 'open_periods'; count: number; openPeriods: Array<{ id: string; periodName: string; periodNumber: number }> }
   | { error: 'year_not_found' }
+  | {
+      /** The year was closed and reversed more than `limit` times (yearEndClosingNumber). Nothing was written. */
+      error: 'too_many_recloses';
+      entryNumber: string;
+    }
+  | {
+      /** A close's reversal chain is too long to read as standing or undone. Nothing was written. */
+      error: 'closing_chain_unreadable';
+      entryNumber: string;
+    }
   | { error: 'no_retained_earnings' }
   | { error: 'ambiguous_retained_earnings'; accountCodes: string[] }
   | { error: 'no_fiscal_period'; entryDate: string }

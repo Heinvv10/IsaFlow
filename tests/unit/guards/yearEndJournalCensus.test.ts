@@ -15,6 +15,14 @@
  * report field. A CASH entry is verified, not trusted: every statement it covers must filter to
  * cash or bank accounts. docs/fixes/g01-census.md is the long form.
  *
+ * NAMED LIMITS (what a source-text rule cannot see; each is why the reader table in
+ * g01-every-reader.int.test.ts exists): SQL assembled by string concatenation or a function that returns
+ * text; SQL in a database view or function (migrations); `sql.unsafe`/`pool.query` over a variable; SQL a
+ * model writes (nl-query); a figure read through another table (the gl_account_balances cache, bank
+ * transaction amounts); `count(*)` (a number of rows, not a balance, so deliberately not a figure); a
+ * JavaScript regex literal that looks like a string to the scanner (the scanner knows the common shapes).
+ * Quoted strings that merely NAME the tables are census-listed below so a new one is a decision.
+ *
  * A source-text ratchet, not a behaviour test: the behaviour is pinned by
  * tests/integration/g01-every-reader.int.test.ts and g01-year-end-journal-excluded-from-reports.
  */
@@ -22,7 +30,7 @@ import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { templateLiterals } from '../../helpers/templateLiterals';
+import { quotedStrings, templateLiterals } from '../../helpers/templateLiterals';
 import {
   carriesMarker, isFigure, isSql, ledgerStatements, unmarkedFigureStatements, type Stmt,
 } from '../../helpers/ledgerStatements';
@@ -46,6 +54,8 @@ const CATEGORIES = {
   ACCOUNT_BALANCE: "a single account's stored balance (chart of accounts, can-it-be-deleted guards)",
   GUARD: 'write-time guard that counts every posted line of the accounts it protects',
   FRAGMENT: 'reversal-chain or dimension fragment: a join condition, no figure',
+  PROSE: 'tool or UI description text that mentions the table; no query',
+  TABLE_NAME: 'a table name in an allow/deny list or reference map; no query',
   RECLASS: 'reclassification candidates: the close stays in the universe and is a typed skip (is_year_end_close), never movable',
 } as const;
 type Category = keyof typeof CATEGORIES;
@@ -152,7 +162,19 @@ const COMPOSED: Array<[string, Category]> = [
   ['shared/softDeleteLedgerPresence.ts', 'FRAGMENT'],
 ];
 
-const key = (f: string) => (f.startsWith('pages/') ? f : `${SVC}${f}`);
+/** Quoted strings (not sql/tx templates) that name the journal tables: the cheap census for SQL that is not a tagged statement. */
+const STRINGS: Array<[string, Category]> = [
+  ['pages/api/accounting/nl-query.ts', 'RAW'],
+  ['lib/mcp/tools/reclassificationPropose.ts', 'PROSE'],
+  ['lib/mcp/tools/writeDimensionTags.ts', 'PROSE'],
+  ['ar/portalChatbotService.ts', 'TABLE_NAME'],
+  ['core/nlQueryFkPairs.ts', 'TABLE_NAME'],
+  ['core/nlQueryValidationService.ts', 'TABLE_NAME'],
+  ['gl/accountMergeReferences.ts', 'TABLE_NAME'],
+  ['gl/closeRun/closeRunProposalBuilder.ts', 'PROSE'],
+];
+
+const key = (f: string) => (f.startsWith('pages/') ? f : f.startsWith('lib/') ? `src/${f}` : `${SVC}${f}`);
 
 function files(): string[] {
   return execFileSync('git', ['ls-files', '--', 'src', 'pages'], { cwd: ROOT, encoding: 'utf8' })
@@ -200,7 +222,7 @@ describe('G-01: the year-end closing journal is excluded through one shared mark
   });
 
   it('every category used has its one-line justification, and none is unused', () => {
-    const used = new Set<string>([...entries.map(([, c]) => c), ...COMPOSED.map(([, c]) => c)]);
+    const used = new Set<string>([...entries.map(([, c]) => c), ...COMPOSED.map(([, c]) => c), ...STRINGS.map(([, c]) => c)]);
     expect([...used].filter((c) => !(c in CATEGORIES))).toEqual([]);
     expect(Object.keys(CATEGORIES).filter((c) => !used.has(c))).toEqual([]);
   });
@@ -211,6 +233,15 @@ describe('G-01: the year-end closing journal is excluded through one shared mark
     expect(unlisted).toEqual([]);
     const stale = COMPOSED.filter(([c]) => !composed.includes(key(c))).map(([c]) => c);
     expect(stale).toEqual([]);
+  });
+
+  it('a quoted string that names the journal tables is classified (SQL that is not a tagged statement)', () => {
+    const NAMES = /gl_journal_(?:lines|entries)/i;
+    const hits = sources.filter(({ src }) => NAMES.test(src))
+      .filter(({ src }) => quotedStrings(src).some((s) => NAMES.test(s.text))).map(({ f }) => f);
+    expect(hits.length).toBeGreaterThan(3);
+    expect(hits.filter((f) => !STRINGS.some(([c]) => key(c) === f))).toEqual([]);
+    expect(STRINGS.filter(([c]) => !hits.includes(key(c))).map(([c]) => c)).toEqual([]);
   });
 
   it('a file that exposes jl.debit / jl.credit as a report field is a classified composer', () => {
@@ -263,6 +294,56 @@ describe('the rule catches planted evasions', () => {
 
   it('a marked sibling statement does not vouch for an unmarked one in the same file', () => {
     const src = stmt(`SELECT SUM(jl.debit) AS d ${FROM}`, MARK) + stmt(`SELECT SUM(jl.credit) AS c ${FROM}`);
+    expect(flagged(src)).toBe(1);
+  });
+
+  const SUMQ = (where: string, from = FROM) => stmt(`SELECT SUM(jl.debit) AS d ${from} ${where}`);
+  const M = 'je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}';
+
+  it('a neutralised marker does not count: OR TRUE, an OR before it, or a bracket group an OR can switch off', () => {
+    expect(flagged(SUMQ(`AND ${M}`))).toBe(0);
+    expect(flagged(SUMQ(`AND (${M} OR TRUE)`))).toBe(1);
+    expect(flagged(SUMQ(`AND ${M} OR TRUE`))).toBe(1);
+    expect(flagged(SUMQ(`AND (je.status = 'draft' OR ${M})`))).toBe(1);
+    expect(flagged(SUMQ(`AND (${M} AND je.status = 'posted' OR jl.debit > 0)`))).toBe(1);
+    expect(flagged(SUMQ(`AND (je.status = 'posted' OR je.status = 'draft') AND ${M}`))).toBe(0);
+  });
+
+  it('a marker inside an SQL string literal does not count', () => {
+    expect(flagged(SUMQ(`AND jl.description = '${M}'`))).toBe(1);
+  });
+
+  it('a marker on an alias that is not gl_journal_entries in that statement does not count', () => {
+    expect(flagged(SUMQ('AND x.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}'))).toBe(1);
+    expect(flagged(SUMQ('AND jl.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}'))).toBe(1);
+    const aliased = 'FROM gl_journal_lines l JOIN gl_journal_entries e ON e.id = l.journal_entry_id WHERE e.company_id = ${c}';
+    expect(flagged(SUMQ('AND e.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}', aliased))).toBe(0);
+    expect(flagged(SUMQ('AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}', aliased))).toBe(1);
+  });
+
+  it('schema-qualified, quoted and comma-joined tables are still ledger statements', () => {
+    const where = 'WHERE je.company_id = ${c}';
+    expect(flagged(stmt(`SELECT SUM(jl.debit) FROM public.gl_journal_lines jl JOIN public.gl_journal_entries je ON je.id = jl.journal_entry_id ${where}`))).toBe(1);
+    expect(flagged(stmt(`SELECT SUM(jl.debit) FROM "gl_journal_lines" jl JOIN "gl_journal_entries" je ON je.id = jl.journal_entry_id ${where}`))).toBe(1);
+    expect(flagged(stmt(`SELECT SUM(jl.debit) FROM gl_accounts ga, gl_journal_lines jl, gl_journal_entries je WHERE je.id = jl.journal_entry_id`))).toBe(1);
+    expect(flagged(stmt(`SELECT SUM(jl.debit) FROM public.gl_journal_lines jl JOIN public.gl_journal_entries je ON je.id = jl.journal_entry_id ${where} AND ${M}`))).toBe(0);
+  });
+
+  it('serialising a line, or its other money column, is a figure', () => {
+    expect(flagged(stmt(`SELECT to_jsonb(jl) AS row ${FROM}`))).toBe(1);
+    expect(flagged(stmt(`SELECT row_to_json(jl) AS row ${FROM}`))).toBe(1);
+    expect(flagged(stmt(`SELECT jl.late_claim_base ${FROM}`))).toBe(1);
+    expect(flagged(stmt(`SELECT jl.id, jl.description ${FROM}`))).toBe(0);
+  });
+
+  it('a wildcard counts only for an alias bound to gl_journal_lines', () => {
+    expect(flagged(stmt(`SELECT x.* FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id = jl.journal_entry_id JOIN other x ON x.id = jl.id`))).toBe(0);
+    expect(flagged(stmt(`SELECT l.* FROM gl_journal_lines l JOIN gl_journal_entries je ON je.id = l.journal_entry_id`))).toBe(1);
+  });
+
+  it('the scanner is not thrown by a regex literal holding a quote or a backtick', () => {
+    const src = "const clean = (s: string) => s.replace(/'/g, \"''\").replace(/`/g, '');\n"
+      + stmt(`SELECT SUM(jl.debit) AS d ${FROM}`);
     expect(flagged(src)).toBe(1);
   });
 

@@ -234,6 +234,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'VAT_PERIOD_LOCK_REFUSED',
   'WIP_ENTRIES_LOCKED',
   'WRITE_OFF_NOT_APPROVABLE',
-  // G-06 (gl/yearEndClosingNumber): a year closed and reversed more than 25 times; the message names only the closing number.
+  // G-06 (gl/yearEndClosingNumber): a year closed and reversed more than 25 times, or a close whose reversal chain is too long to read; the messages name only the closing number.
+  'YEAR_END_CLOSE_CHAIN_TOO_LONG',
   'YEAR_END_TOO_MANY_RECLOSES',
 ]);

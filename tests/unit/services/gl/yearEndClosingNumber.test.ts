@@ -13,7 +13,7 @@ const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { findCurrentClosingJournal, reclosingNumber, TooManyRecloses } from '@/modules/accounting/services/gl/yearEndClosingNumber';
+import { ClosingChainTooLong, findCurrentClosingJournal, reclosingNumber, TooManyRecloses } from '@/modules/accounting/services/gl/yearEndClosingNumber';
 import { classifyClosingJournal } from '@/modules/accounting/services/gl/yearEndJournalPoster';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -100,5 +100,11 @@ describe('findCurrentClosingJournal', () => {
     sqlMock.mockImplementation(async () => (n++ % 2 === 0 ? [{ id: 'r' }] : []));
     findClosingJournal.mockImplementation(async (_c: string, num: string) => closed(num, '2026-03-01T10:00:00Z'));
     await expect(findCurrentClosingJournal(COMPANY, 'YE-2025')).rejects.toBeInstanceOf(TooManyRecloses);
+  });
+
+  it('refuses a reversal chain longer than it will read instead of guessing it stands', async () => {
+    sqlMock.mockImplementation(async () => [{ id: 'next' }]);
+    findClosingJournal.mockResolvedValueOnce(closed('YE-2025', '2026-03-01T10:00:00Z'));
+    await expect(findCurrentClosingJournal(COMPANY, 'YE-2025')).rejects.toBeInstanceOf(ClosingChainTooLong);
   });
 });
