@@ -7,6 +7,13 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { UI19_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import {
+  componentIdsToResolve,
+  loadComponentTypes,
+  parseBreakdown,
+  rebuildUifLeviable,
+  uifLineBase,
+} from './uifLeviableBase';
 
 type Row = DbRow;
 
@@ -44,52 +51,22 @@ export interface UifDeclarationLine {
   employeeName: string;
   grossPay: number;
   /**
-   * The base the run levied UIF on. The run does not store it, so it is
-   * recovered: exact when the line is capped (the ceiling) or when the whole
-   * gross was leviable; otherwise back-solved from the stored contribution,
-   * which is rounded to cents, so it can be up to R0.50 out. 0 contribution
-   * (UIF-excluded) shows gross, as before (audit P20).
+   * The base the run levied UIF on (capped at the ceiling). The run does not
+   * store it, so it is rebuilt from the line's component breakdown (exact, see
+   * uifLeviableBase.ts). Only when that cannot be done is it derived from the
+   * stored contribution: exact at the ceiling or when all of gross was
+   * leviable, otherwise up to R0.50 out. A UIF-excluded employee (nothing
+   * stored) shows gross (audit P20).
    */
   leviableSalary: number;
   employeeContribution: number;
   employerContribution: number;
-  /** Leviable pay reached the UIF ceiling; read from the stored contribution. */
+  /** Leviable pay is above the UIF ceiling (the contribution is capped). */
   isCapped: boolean;
 }
 
 export interface UifDeclarationDetail extends UifDeclaration {
   lines: UifDeclarationLine[];
-}
-
-/**
- * The UIF ceiling in force for the periods this view serves, and 1% of it.
- * A named constant, not a tax-table lookup, so an old or future period does not
- * need a table to be displayed. Must equal `uifCeiling` in taxTables.ts
- * (tests pin that); revisit with a period-effective value when SARS moves it.
- */
-export const UIF_MONTHLY_CEILING = 17_712;
-export const UIF_CEILING_CONTRIBUTION = 177.12;
-
-/**
- * Recover a line's UIF base from what the run stored (gross and the rounded
- * employee contribution). Pure; see `UifDeclarationLine.leviableSalary`.
- *
- * Capped = the stored contribution reached the ceiling's and gross is above the
- * ceiling. The one case this cannot tell apart: leviable pay in
- * (R17 711.50, R17 712] on a line whose gross is above the ceiling because of
- * non-UIF earnings, which reads as capped.
- */
-export function uifLineBase(
-  grossPay: number,
-  employeeContribution: number,
-): { leviableSalary: number; isCapped: boolean } {
-  if (employeeContribution <= 0) return { leviableSalary: grossPay, isCapped: false };
-  if (employeeContribution >= UIF_CEILING_CONTRIBUTION && grossPay > UIF_MONTHLY_CEILING) {
-    return { leviableSalary: UIF_MONTHLY_CEILING, isCapped: true };
-  }
-  const grossContribution = Math.round(grossPay * 0.01 * 100) / 100;
-  if (grossContribution === employeeContribution) return { leviableSalary: grossPay, isCapped: false };
-  return { leviableSalary: Math.round(employeeContribution / 0.01 * 100) / 100, isCapped: false };
 }
 
 /** Exported for `uifPaymentService`, which was split out of this file. */
@@ -156,7 +133,8 @@ export async function getUifDeclaration(
       pe.last_name,
       prl.gross_pay,
       prl.uif_employee,
-      prl.uif_employer
+      prl.uif_employer,
+      prl.component_breakdown
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     JOIN payroll_employees   pe  ON pe.id  = prl.employee_id
@@ -167,10 +145,21 @@ export async function getUifDeclaration(
     ORDER BY pe.employee_number
   `) as Row[];
 
-  const lines: UifDeclarationLine[] = lineRows.map(r => {
+  const breakdowns = lineRows.map((r) => parseBreakdown(r.component_breakdown));
+  const types = await loadComponentTypes(
+    companyId,
+    [...new Set(breakdowns.flatMap((b) => (b ? componentIdsToResolve(b) : [])))],
+  );
+
+  const lines: UifDeclarationLine[] = lineRows.map((r, i) => {
     const grossPay = Number(r.gross_pay);
     const employeeContribution = Number(r.uif_employee);
-    const { leviableSalary, isCapped } = uifLineBase(grossPay, employeeContribution);
+    const items = breakdowns[i];
+    const { leviableSalary, isCapped } = uifLineBase(
+      grossPay,
+      employeeContribution,
+      items ? rebuildUifLeviable(items, types) : null,
+    );
     return {
       employeeId: String(r.employee_id),
       employeeNumber: String(r.employee_number),
