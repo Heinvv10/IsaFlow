@@ -54,7 +54,8 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
     /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*(-?)\s*$/;
   const oneNumTail = /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*(-?)\s*$/;
   const cleanNum = (s: string) => parseFloat(s.replace(/[\s,]/g, ''));
-  const signed = (n: number, minus: string) => (minus === '-' ? -n : n);
+  // "0.00-" is zero, not -0 (Intl.NumberFormat renders -0 as "-0.00").
+  const signed = (n: number, minus: string) => (minus === '-' && n !== 0 ? -n : n);
 
   let prevBalance: number | null = null;
   let lineNum = 0;
@@ -200,7 +201,7 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
   const parseSAAmount = (raw: string): number => {
     const isNeg = raw.endsWith('-');
     const n = parseFloat(raw.replace(/-$/, '').replace(/\s/g, '').replace(',', '.'));
-    return isNeg ? -n : n;
+    return isNeg && n !== 0 ? -n : n;
   };
 
   const datePat = /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(.+)$/i;
