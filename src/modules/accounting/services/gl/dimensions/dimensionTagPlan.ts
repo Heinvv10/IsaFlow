@@ -23,6 +23,7 @@ import { resolveDimensionRefs } from './dimensionRefResolver';
 import { deriveLineDimensions } from './dimensionDerivation';
 import { DimensionRefusal, type DimensionIds, type DimensionRefs } from './dimensionTypes';
 import type { GLEntrySource } from '../../../types/gl.types';
+import { YEAR_END_JOURNAL_SOURCE } from '../yearEndJournalSource';
 
 export const MAX_TAG_LINES = 500;
 
@@ -98,6 +99,9 @@ export async function planDimensionTags(companyId: string, items: readonly TagLi
     if (row.status !== 'posted') throw new DimensionRefusal(`${where}: only posted lines are tagged here; edit a draft on the draft`);
     if (isControlSubtype(row.account_subtype)) {
       throw new DimensionRefusal(`${where}: a control-account line (bank, AP, AR, VAT, payroll clearing) carries no dimensions`);
+    }
+    if (row.source === YEAR_END_JOURNAL_SOURCE) {
+      throw new DimensionRefusal(`${where}: the year-end closing journal is the lock record of a closed year and carries no dimensions`);
     }
     if (NO_DIMENSION_SOURCES.has(row.source as GLEntrySource)) {
       throw new DimensionRefusal(`${where}: a settlement, receipt, transfer or VAT-payment journal carries no dimensions`);

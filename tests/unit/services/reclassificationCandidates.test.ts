@@ -27,6 +27,7 @@ function row(over: Partial<CandidateRow> = {}): CandidateRow {
     project_id: null,
     reversed: false,
     is_reversal_leg: false,
+    is_year_end_close: false,
     vat_type: null,
     bu_id: null,
     cc1_id: null,
@@ -43,6 +44,21 @@ function row(over: Partial<CandidateRow> = {}): CandidateRow {
 const OPEN = { postingDate: null } as const;
 
 describe('partitionCandidates', () => {
+  it('skips the posted year-end close with its own reason, even with a posting date (G-01)', () => {
+    const { movable, skipped } = partitionCandidates(
+      [row({ is_year_end_close: true, period_status: 'locked' })],
+      { postingDate: '2026-06-30' },
+    );
+    expect(movable).toEqual([]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]).toMatchObject({ reason: 'year_end_close', amount: 1000 });
+  });
+
+  it('reports the close as the close, not as reversed, when it was also reversed', () => {
+    const { skipped } = partitionCandidates([row({ is_year_end_close: true, reversed: true })], OPEN);
+    expect(skipped[0]).toMatchObject({ reason: 'year_end_close' });
+  });
+
   it('moves an ordinary posted line and carries its amount and project, never the legacy cost centre (D4)', () => {
     const { movable, skipped } = partitionCandidates(
       [row({ debit: '1234.56', credit: '0.00', project_id: 'p1' })],

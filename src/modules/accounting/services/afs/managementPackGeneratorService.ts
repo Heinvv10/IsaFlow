@@ -83,7 +83,7 @@ function priorPeriod(period: string): string {
 
 // ── DB helpers ───────────────────────────────────────────────────────────────
 
-async function fetchIncomeAgg(companyId: string, start: string, end: string): Promise<Record<string, unknown>> {
+export async function fetchIncomeAgg(companyId: string, start: string, end: string): Promise<Record<string, unknown>> {
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
@@ -105,7 +105,7 @@ async function fetchIncomeAgg(companyId: string, start: string, end: string): Pr
   return (rows[0] ?? {}) as Record<string, unknown>;
 }
 
-async function fetchTopMover(companyId: string, start: string, end: string, type: 'revenue' | 'expense'): Promise<{ name: string; amount: number }> {
+export async function fetchTopMover(companyId: string, start: string, end: string, type: 'revenue' | 'expense'): Promise<{ name: string; amount: number }> {
   const rows = (await sql`
     SELECT ga.account_name,
       SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE jl.debit - jl.credit END) AS amount

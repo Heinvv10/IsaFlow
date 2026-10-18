@@ -56,6 +56,8 @@ export interface CandidateRow {
   /** `open` / `closed` / `locked`, or null when no period covers the entry. */
   period_status: string | null;
   has_period: boolean;
+  /** The ENTRY is the posted year-end close (source 'year_end'): a lock record, never movable. */
+  is_year_end_close: boolean;
   /** A live earlier batch already moved this line. */
   already_reclassified: boolean;
   /** This line IS the contra leg an earlier reclassification posted. */
@@ -92,6 +94,7 @@ export interface ReclassSkip {
 }
 
 export type ReclassSkipReason =
+  | 'year_end_close'
   | 'entry_reversed'
   | 'entry_is_reversal'
   | 'appeared_after_lock'
@@ -142,6 +145,10 @@ function skipReasonFor(row: CandidateRow, opts: PartitionOptions): ReclassSkipRe
   if (opts.lockedLineIds !== undefined && !opts.lockedLineIds.has(row.line_id)) {
     return 'appeared_after_lock';
   }
+  // The year-end close is the lock and audit record of a closed year and every report skips it
+  // (G-01). Moving its line posts a contra the reports do NOT skip, so the move would never show.
+  // A skip, not a filter: the line stays in the universe, and the reason says why.
+  if (row.is_year_end_close) return 'year_end_close';
   if (row.reversed) return 'entry_reversed';
   // A REVERSAL IS A PAIR, AND THIS TOOL MUST SEE BOTH HALVES OF IT.
   //
