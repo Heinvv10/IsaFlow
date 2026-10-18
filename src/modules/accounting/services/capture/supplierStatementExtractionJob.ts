@@ -22,6 +22,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { describeExtractionFailure } from '@/modules/accounting/services/bank/statementExtractionState';
+import { StatementReadError } from '@/modules/accounting/services/bank/vlmStatementPages';
 import { extractSupplierStatementFromDocument } from './supplierStatementExtraction';
 import { measureOurSide } from './supplierStatementMeasure';
 import { buildInserts } from './supplierStatementMatchHelper';
@@ -69,6 +70,10 @@ export async function runSupplierStatementExtraction(companyId: string, reconId:
       const extraction = await extractSupplierStatementFromDocument(
         companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, reconId, attempt, done, total),
       );
+      // A read that found nothing is a failed read (a blank scan, a page the reader gave up on), not an empty statement.
+      if (extraction.lines.length === 0) {
+        throw new StatementReadError('unreadable', 'No lines could be read from this statement. Retry the import, or upload a clearer copy.');
+      }
       if (extraction.warnings.length > 0) {
         log.warn('Supplier statement extraction warnings', { reconId, warnings: extraction.warnings }, 'recon-service');
       }
