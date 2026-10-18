@@ -187,6 +187,15 @@ describe('G-01: the year-end closing journal is invisible to every report (tenan
     expect(dim.residual.netProfit).toBe(0);
   });
 
+  it('the close\'s lines carry no cost centre, business unit or project, so the tag-filtered readers cannot see them', async () => {
+    const tagged = await pool.query(
+      `SELECT count(*)::int AS n FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id=jl.journal_entry_id
+       WHERE je.company_id=$1 AND je.source='year_end'
+         AND (jl.cc1_id IS NOT NULL OR jl.cc2_id IS NOT NULL OR jl.bu_id IS NOT NULL OR jl.project_id IS NOT NULL OR jl.cost_center_id IS NOT NULL)`,
+      [a.company]);
+    expect(tagged.rows[0].n).toBe(0);
+  });
+
   it('the raw ledger still holds the journal (the lock and audit record)', async () => {
     const lines = await pool.query(
       `SELECT count(*)::int AS n FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id=jl.journal_entry_id

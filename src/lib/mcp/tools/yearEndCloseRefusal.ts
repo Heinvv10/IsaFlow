@@ -68,6 +68,18 @@ export function yearEndCloseRefusal(year: number, result: CloseYearError): McpTo
         + 'the INSERT. The year is not closed and nothing was posted. A person has to renumber '
         + 'that journal first; do not retry until they have.',
       );
+    case 'too_many_recloses':
+      return toolError(
+        `Fiscal year ${year}: closing journal ${result.entryNumber} has been reversed and re-posted too many `
+        + 'times. Nothing was posted. A person has to look at the reversals before this year is closed again; '
+        + 'do not retry.',
+      );
+    case 'closing_chain_unreadable':
+      return toolError(
+        `Fiscal year ${year}: the reversal chain of closing journal ${result.entryNumber} is too long to read, `
+        + 'so it cannot be told whether the year is closed. Nothing was posted. A person has to inspect it; '
+        + 'do not retry.',
+      );
     case 'no_retained_earnings':
       return toolError(
         'No account carries the retained_earnings system role for this company. Create one with '

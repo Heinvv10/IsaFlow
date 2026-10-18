@@ -21,13 +21,21 @@ export interface G01Tenant {
   acct: Record<'bank' | 'loan' | 'capital' | 'retained' | 'revenue' | 'expense' | 'dep' | 'fin' | 'pay' | 'aud' | 'tax' | 'other' | 'charges', string>;
   doc: string;
   project: string;
+  /** The retained-earnings role account's code and name (a chart need not call it 3200 / Retained Earnings). */
+  reCode: string;
+  reName: string;
+  /** An extra equity account named like retained earnings but without the role (subtype NULL), mapped to BS046. */
+  decoy: string | null;
   period: Record<'p24' | 'p25' | 'p26', string>;
   ccA: string; ccB: string; ccP: string; bu: string;
 }
 
-export function newTenant(): G01Tenant {
+export interface TenantOptions { reCode?: string; reName?: string; decoy?: boolean }
+
+export function newTenant(opts: TenantOptions = {}): G01Tenant {
   return {
     company: id(), group: id(), doc: id(), project: id(),
+    reCode: opts.reCode ?? '3200', reName: opts.reName ?? 'Retained Earnings', decoy: opts.decoy ? id() : null,
     acct: { bank: id(), loan: id(), capital: id(), retained: id(), revenue: id(), expense: id(), dep: id(), fin: id(), pay: id(), aud: id(), tax: id(), other: id(), charges: id() },
     period: { p24: id(), p25: id(), p26: id() },
     ccA: id(), ccB: id(), ccP: id(), bu: id(),
@@ -57,10 +65,10 @@ export async function seedTenant(pool: Pool, t: G01Tenant, user: string, name: s
      VALUES($1,$7,'1000','Bank','asset','bank','debit',true,false),
            ($2,$7,'2000','Loan','liability','bank_loan','credit',true,false),
            ($3,$7,'3000','Share capital','equity','share_capital','credit',true,false),
-           ($4,$7,'3200','Retained Earnings','equity','retained_earnings','credit',true,true),
+           ($4,$7,$8,$9,'equity','retained_earnings','credit',true,true),
            ($5,$7,'4000','Sales','revenue','sales','credit',true,false),
            ($6,$7,'5000','Rent','expense','operating_expense','debit',true,false)`,
-    [a.bank, a.loan, a.capital, a.retained, a.revenue, a.expense, t.company]);
+    [a.bank, a.loan, a.capital, a.retained, a.revenue, a.expense, t.company, t.reCode, t.reName]);
   // Expense accounts of the subtypes the AFS notes read. Deliberately NOT mapped to a statement line: the
   // pre-export tie-out then has unmapped value that the close would zero if it were counted.
   await pool.query(
@@ -73,6 +81,11 @@ export async function seedTenant(pool: Pool, t: G01Tenant, user: string, name: s
            ($7,$6,'4100','Other income','revenue','other_income','credit',true,false),
            ($8,$6,'5600','Bank charges','expense','bank_charges','debit',true,false)`,
     [a.dep, a.fin, a.pay, a.aud, a.tax, t.company, a.other, a.charges]);
+  if (t.decoy) {
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account)
+       VALUES($1,$2,'3300','Retained earnings (old)','equity',NULL,'credit',true,false)`, [t.decoy, t.company]);
+  }
   await pool.query(`INSERT INTO projects(id,company_id,project_number,name) VALUES($1,$2,'P-1','Job one')`, [t.project, t.company]);
   // Leaf accounts at level 3, as a real chart has them (the budget export lists only level 3).
   await pool.query('UPDATE gl_accounts SET level = 3 WHERE company_id = $1', [t.company]);
@@ -95,6 +108,9 @@ export async function seedTenant(pool: Pool, t: G01Tenant, user: string, name: s
   await pool.query(
     `INSERT INTO afs_documents(id,company_id,fiscal_year,document_type,reporting_framework) VALUES($1,$2,2025,'afs','ifrs_smes')`,
     [t.doc, t.company]);
+  if (t.decoy) {
+    await pool.query("INSERT INTO afs_account_mappings(company_id,gl_account_id,afs_line_code) VALUES($1,$2,'BS046')", [t.company, t.decoy]);
+  }
   await seedGroup(pool, t);
   const p = t.period;
   // Eight journals are keyed on their own day: the other nine are "backdated" (recorded today), one short of
@@ -122,6 +138,7 @@ export async function seedTenant(pool: Pool, t: G01Tenant, user: string, name: s
   // Equity-to-equity transfers either side of the close, so the retained-earnings ledger has a line before it and two
   // after it (a page of that ledger is the only place its position among the lines matters).
   await post(pool, t, user, 'RE1', '2025-05-01', p.p25, a.capital, a.retained, 50, day);
+  if (t.decoy) await post(pool, t, user, 'DECOY', '2025-05-05', p.p25, a.capital, t.decoy, 20, day);
   await post(pool, t, user, 'RE2', '2026-05-01', p.p26, a.retained, a.capital, 30, day);
   await post(pool, t, user, 'RECLS', '2026-04-01', p.p26, a.retained, a.capital, 100, day);
   await post(pool, t, user, 'S4', '2026-02-01', p.p26, a.bank, a.revenue, 600, day);

@@ -20,7 +20,17 @@ export interface TemplateLiteral {
 }
 
 export function templateLiterals(src: string): TemplateLiteral[] {
+  return scan(src).templates;
+}
+
+/** Every '...' and "..." string at code level (not inside a template), with its 1-based line. */
+export function quotedStrings(src: string): Array<{ text: string; line: number }> {
+  return scan(src).strings;
+}
+
+function scan(src: string): { templates: TemplateLiteral[]; strings: Array<{ text: string; line: number }> } {
   const out: TemplateLiteral[] = [];
+  const strings: Array<{ text: string; line: number }> = [];
   let i = 0;
 
   const lineAt = (pos: number): number => src.slice(0, pos).split('\n').length;
@@ -29,6 +39,32 @@ export function templateLiterals(src: string): TemplateLiteral[] {
     i += 1;
     while (i < src.length && src[i] !== q) i += src[i] === '\\' ? 2 : 1;
     i += 1;
+  }
+
+  /** True when a '/' at `pos` opens a regex literal (what precedes it cannot end an expression). */
+  function opensRegex(pos: number): boolean {
+    let j = pos - 1;
+    while (j >= 0 && /\s/.test(src[j]!)) j -= 1;
+    if (j < 0) return true;
+    const prev = src[j]!;
+    if (/[(,=:[!&|?{};+\-*%<>~^]/.test(prev)) return true;
+    // `return /x/`, `typeof /x/`, ...: a keyword before the slash.
+    return /\b(?:return|typeof|case|of|in|void|delete|throw)$/.test(src.slice(Math.max(0, j - 7), j + 1));
+  }
+
+  /** Skip a regex literal opening at `i` (after the '/'), classes and escapes included, then its flags. */
+  function skipRegex(): void {
+    i += 1;
+    let inClass = false;
+    while (i < src.length && src[i] !== '\n') {
+      const c = src[i]!;
+      if (c === '\\') { i += 2; continue; }
+      if (c === '[') inClass = true;
+      else if (c === ']') inClass = false;
+      else if (c === '/' && !inClass) { i += 1; break; }
+      i += 1;
+    }
+    while (i < src.length && /[a-z]/i.test(src[i]!)) i += 1;
   }
 
   /** Parse a template whose opening backtick is at `i`; leaves `i` after the closing one. */
@@ -72,6 +108,7 @@ export function templateLiterals(src: string): TemplateLiteral[] {
       const c = src[i]!;
       if (c === '`') { template(); text += '`…`'; continue; }
       if (c === '"' || c === "'") { const s = i; skipQuoted(c); text += src.slice(s, i); continue; }
+      if (c === '/' && src[i + 1] !== '/' && src[i + 1] !== '*' && opensRegex(i)) { const s = i; skipRegex(); text += src.slice(s, i); continue; }
       if (c === '{') depth += 1;
       if (c === '}') { depth -= 1; if (depth === 0) { i += 1; return text; } }
       text += c;
@@ -84,9 +121,15 @@ export function templateLiterals(src: string): TemplateLiteral[] {
     const c = src[i]!;
     if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i += 1; continue; }
     if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 2; continue; }
-    if (c === '"' || c === "'") { skipQuoted(c); continue; }
+    if (c === '"' || c === "'") {
+      const s = i;
+      skipQuoted(c);
+      strings.push({ text: src.slice(s + 1, i - 1), line: lineAt(s) });
+      continue;
+    }
+    if (c === '/' && opensRegex(i)) { skipRegex(); continue; }
     if (c === '`') { template(); continue; }
     i += 1;
   }
-  return out;
+  return { templates: out, strings };
 }

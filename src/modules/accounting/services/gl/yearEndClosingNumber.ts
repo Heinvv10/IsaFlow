@@ -34,6 +34,18 @@ export class TooManyRecloses extends Error {
   }
 }
 
+/**
+ * A reversal chain longer than `MAX_CHAIN` is forged or looped. Reading it as "standing" would be a guess, and the
+ * guess decides whether a second close is posted over a flat P&L, so the walk refuses instead.
+ */
+export class ClosingChainTooLong extends Error {
+  readonly code = 'YEAR_END_CLOSE_CHAIN_TOO_LONG';
+  constructor(readonly entryNumber: string) {
+    super(`The reversal chain of closing journal ${entryNumber} is too long to read; a person has to inspect it`);
+    this.name = 'ClosingChainTooLong';
+  }
+}
+
 export interface CurrentClosingJournal {
   /** The number this close writes under (or, with `existing`, the number it already holds). */
   entryNumber: string;
@@ -57,7 +69,7 @@ async function reversalsInForce(companyId: string, row: Record<string, unknown>)
     if (next.length === 0) return depth;
     current = String(next[0]!.id);
   }
-  return 0;
+  throw new ClosingChainTooLong(String(row.entry_number ?? row.id));
 }
 
 /** True when the row is a year-end close that stands undone: reversed, and not reinstated since. */
