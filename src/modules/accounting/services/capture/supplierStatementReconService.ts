@@ -198,7 +198,7 @@ export async function rematchLines(
   }));
 
   const { inserts } = buildInserts(reconciliationId, syntheticLines, invoices);
-  await persistLinesAndUpdateCounts(reconciliationId, inserts);
+  await persistLinesAndUpdateCounts(companyId, reconciliationId, inserts);
 
   // Re-measure our side too. Rematch re-reads the bills, so the counts move —
   // approving a draft turns its "missing in IsaFlow" line into a match — and a

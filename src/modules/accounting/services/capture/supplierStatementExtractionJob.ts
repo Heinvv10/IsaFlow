@@ -95,7 +95,7 @@ export async function runSupplierStatementExtraction(companyId: string, reconId:
           FOR UPDATE
         `;
         if (locked.length === 0) return false;
-        await replaceStatementLines(tx, reconId, inserts);
+        await replaceStatementLines(tx, companyId, reconId, inserts);
         await tx`
           UPDATE supplier_statement_reconciliations
           SET status = 'unreconciled', statement_date = ${statementDate}::date,
