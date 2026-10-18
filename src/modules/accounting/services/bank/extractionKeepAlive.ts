@@ -24,9 +24,12 @@ export const KEEPALIVE_INTERVAL_MS = 60_000;
  */
 export const KEEPALIVE_MS_PER_PAGE = 180_000;
 
-/** The longest a read may keep its row alive: the page cap times the per-page budget. */
+/** The longest delay setTimeout holds (2^31 - 1 ms, about 24.8 days); a longer one fires after 1 ms (TimeoutOverflowWarning). */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** The longest a read may keep its row alive: the page cap times the per-page budget, within what a timer can hold. */
 export function keepAliveCeilingMs(): number {
-  return maxStatementPages() * KEEPALIVE_MS_PER_PAGE;
+  return Math.min(maxStatementPages() * KEEPALIVE_MS_PER_PAGE, MAX_TIMER_MS);
 }
 
 /**
@@ -56,7 +59,7 @@ export async function withKeepAlive<T>(
     log.warn('Statement keep-alive reached its ceiling with the read still pending; the row will be shown as interrupted', {
       ceilingMs,
     }, 'statement-extraction');
-  }, ceilingMs);
+  }, Math.min(ceilingMs, MAX_TIMER_MS));
   // The beat must not hold the process open at shutdown.
   timer.unref?.();
   ceiling.unref?.();
