@@ -63,10 +63,18 @@ export function parseBreakdown(raw: unknown): BreakdownItem[] | null {
   return value;
 }
 
-/** Ids whose component type has to be looked up: UIF-applicable, not synthetic. */
+/** Shape only (Postgres accepts any hex 8-4-4-4-12), so seeded ids pass too. */
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Ids whose component type has to be looked up: UIF-applicable and a uuid. A
+ * legacy or imported id that is neither a uuid nor synthetic would make the
+ * `::uuid[]` cast throw for the whole declaration, so it is left out and stays
+ * unresolved: that one line falls back.
+ */
 export function componentIdsToResolve(items: BreakdownItem[]): string[] {
   return items
-    .filter((i) => i.isUifApplicable && !i.componentId.startsWith(SYNTHETIC_ID_PREFIX))
+    .filter((i) => i.isUifApplicable && UUID_SHAPE.test(i.componentId))
     .map((i) => i.componentId);
 }
 

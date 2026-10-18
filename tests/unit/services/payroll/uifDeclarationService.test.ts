@@ -283,6 +283,28 @@ describe('getUifDeclaration - lines come from the stored contributions, not the 
       expect(l.leviableSalary).toBe(15_000);
     });
 
+    it('a non-uuid component id falls back for that line only and does not break the declaration', async () => {
+      vi.mocked(sql)
+        .mockResolvedValueOnce([declarationRow] as never)
+        .mockResolvedValueOnce([
+          line({ employee_id: 'e1', gross_pay: 20_000, uif_employee: 177.12, uif_employer: 177.12,
+            component_breakdown: [item('legacy-import-7', 17_711.8, true), item(ALLOWANCE, 2_288.2, false)] }),
+          line({ employee_id: 'e2', gross_pay: 20_000, uif_employee: 177.12, uif_employer: 177.12,
+            component_breakdown: [item(SALARY, 17_711.8, true), item(ALLOWANCE, 2_288.2, false)] }),
+        ] as never)
+        .mockImplementationOnce((async (strings: TemplateStringsArray, ...values: unknown[]) => {
+          // Postgres refuses a non-uuid in the ::uuid[] cast; model that.
+          if ((values.flat() as unknown[]).some((v) => typeof v === 'string' && v.startsWith('legacy'))) {
+            throw new Error('invalid input syntax for type uuid: "legacy-import-7"');
+          }
+          return TYPES;
+        }) as never);
+
+      const d = (await getUifDeclaration(COMPANY_ID, DECL_ID))!;
+      expect(d.lines[0]).toMatchObject({ isCapped: true, leviableSalary: 17_712 });      // fallback
+      expect(d.lines[1]).toMatchObject({ isCapped: false, leviableSalary: 17_711.8 });   // rebuilt
+    });
+
     it('queries component types for this company only', async () => {
       await withBreakdown(10_000, 100, [item(SALARY, 10_000, true)]);
       const call = vi.mocked(sql).mock.calls.at(-1)!;
