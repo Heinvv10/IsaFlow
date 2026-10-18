@@ -68,7 +68,7 @@ Raw-ledger views keep the close visible: journal list and detail (`journalEntryL
 
 ## 2. Figure-producing statements that are not statement readers: n/a (allow-listed per file in the guard test, with the same reason)
 
-The guard is per STATEMENT: a marked statement vouches only for itself, so a file in table 1 cannot hide an unmarked query, and a file here needs its reason. Composed templates (fragments handed to a runner) are listed separately in the test's `COMPOSED` list: `customReportFieldDefs` is RAW (a user-built report over the raw ledger, close included), the chain-parity fragments are join conditions.
+The guard is per STATEMENT (`tests/unit/guards/yearEndJournalCensus.test.ts`, rule in `tests/helpers/ledgerStatements.ts`): the marker counts only inside that statement's own SQL (an import, a TS or SQL comment or a marked sibling does not), a figure is an aggregate in any case/spacing (`SUM (`, `sum(`, `MAX`, `array_agg` ...) or line amounts in the SELECT list (which is what a TS-side `.reduce` needs), and each entry carries a CATEGORY (WRITE, RAW, INTEGRITY, CASH, SUBLEDGER, VAT, MIGRATION, READINESS, OPENING, BANK, APPROVAL, ACCOUNT_BALANCE, GUARD, FRAGMENT) with a one-line justification. A CASH entry is verified: every statement it covers must filter to cash or bank accounts. Planted evasions (spaced/lower-case SUM, marker in an import or comment, a marked sibling, a nested template) go red. Composed templates (fragments handed to a runner) are listed separately in the test's `COMPOSED` list: `customReportFieldDefs` is RAW (a user-built report over the raw ledger, close included), the chain-parity fragments are join conditions.
 
 | file | what it produces | reads an equity / RE balance: also adds the derived RE? | action |
 |---|---|---|---|
@@ -177,6 +177,29 @@ The guard is per STATEMENT: a marked statement vouches only for itself, so a fil
 ## 3c. Equity audit (review round 1)
 
 Every row of table 1 that reads an equity or retained-earnings balance and presents a total either adds the derived profit (balance sheet, TB, financial figures, consolidation statements, CaseWare, SOCE) or was an under-counter now fixed: the AFS Statement of Financial Position (it never added the profit of an unclosed year; the close used to hide that for closed companies), the AFS KPI equity behind debt-to-equity, and Note 12. `tests/integration/g01-afs-equity-ties-out.int.test.ts` pins SFP (current and prior), SOCE, Note 12, KPI equity and the balance sheet to the same figures with no close, after the close, and after reverse + re-close.
+
+## 3d. Reclassification and tagging (adversarial review)
+
+`gl/reclassification/candidates.ts` listed the closing line, so a posted batch contra'd it and the contra (source `reclassification`) was not skipped: the preview said 1750 moved, every report said nothing moved, and four journals were left behind. The close is now a SKIP with its own reason, `year_end_close` (`partition.ts`), so the universe identity holds and the line is reported. `dimensions/dimensionTagPlan.ts` refuses a line of the closing journal ("carries no dimensions"). `tests/integration/g01-reclassification-skips-the-close.int.test.ts`.
+
+## 3e. Reader table (test-quality review)
+
+`tests/integration/g01-every-reader.int.test.ts` runs every reader of table 1 (service, MCP tool or route) for a tenant that posted the close and an identical tenant that never did, in three ledger states after a baseline (closed; reversed and re-closed; closed year reopened), and the outputs must be equal. The mutant-to-failing-test table is in the PR body.
+
+## 3f. Mutation evidence and the surviving (equivalent) sites
+
+Every `... IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}` was replaced by an always-true `${YEAR_END_JOURNAL_SOURCE}::TEXT IS NOT NULL` (same parameter count), first per FILE (51 files) and then per SITE (109 sites), and `g01-every-reader`, `g01-year-end-journal-excluded-from-reports`, `g01-afs-equity-ties-out` and `g01-reclassification-skips-the-close` were run against each mutant. 50 of 51 file mutants and 75 of 109 site mutants are killed. The 34 surviving sites cannot be killed because the mutation cannot change what they read. The close posts only to revenue and expense accounts and to the retained-earnings role account, so:
+
+- **A / B. account filter excludes all three**: cash/bank (dashboard-stats 69, management accounts 106, trend analysis 46, pre-export 154, Note 11 33, disclosure cash 191, bureau 90), receivables, payables, investing assets, loans, provisions, intangibles, investments, inventory, deferred tax, liabilities (cash-flow export 69/84/99, management accounts 60/70/84, Note 13/15 168/246, Note 17 83, Note 5 262, Note 27 185/198, Notes 8/9 71/135, PIS liabilities 105/193).
+- **C. equity other than the retained-earnings subtype**: cash-flow export 115, management accounts 94. The close's equity leg is on the `retained_earnings` role account, which these filters exclude by construction.
+- **D. VAT subtypes**: disclosure taxation 226 (the close has no VAT line).
+- **E. needs a project / CC2 tag the close lines never carry**: project profitability 127, 146, 173.
+- **F. cancels in the reported total**: `afsKpiService.fetchBalanceSnapshot` 243 adds posted equity and derived profit; including the close in both moves profit from one to the other (equity 11450 either way). The killed site is `income` (L171).
+- **G. the series is suppressed**: `trendRowsService.getMonthlyBalances` 169 reads asset/liability/equity balances, but the retained-earnings series is "derived on the balance sheet" and not drawn.
+- **H. existence test**: `afsMappingQueries` 90 and 244 ask whether an inactive account has any posted line; an account carrying a close line has real lines too.
+- **I. rounded away at fixture scale**: `pisCalculatorService.computePisScore` revenue 92 returns points rounded to 2 dp of millions; its twin in `computePisBreakdown` (full precision) is killed.
+
+The only file whose every site is equivalent is `afs/noteGenerators/notes6to10.ts` (investments and inventory, both asset-only).
 
 ## 4. G-06 (same root): a reversed close
 

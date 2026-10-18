@@ -27,7 +27,10 @@ export async function generateNote26EventsAfterReportingDate(
   log.info('note26: querying post-period journal entries', { companyId, fiscalYear });
 
   const rows = (await sql`
-    SELECT gje.description, gje.entry_date, gje.total_amount
+    -- total_amount is not a column of gl_journal_entries (42703 on every call): the journal's debit total is read from its lines.
+    SELECT gje.description, gje.entry_date,
+           (SELECT COALESCE(SUM(l.debit), 0) FROM gl_journal_lines l
+             WHERE l.journal_entry_id = gje.id AND l.company_id = ${companyId}) AS total_amount
     FROM gl_journal_entries gje
     WHERE gje.company_id = ${companyId}
       AND gje.entry_date > ${end}
