@@ -23,11 +23,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { marginPct, marginPct2dp } from '@/modules/accounting/services/reports/marginPct';
-import {
-  CASH_SUBTYPES,
-  RECEIVABLE_SUBTYPES,
-  rawSubtypesFor,
-} from '@/modules/accounting/services/gl/accountSubtypes';
+import { CASH_SUBTYPES, RECEIVABLE_SUBTYPES, rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export interface PackTrendPoint {

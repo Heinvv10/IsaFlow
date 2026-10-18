@@ -45,11 +45,7 @@ import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import {
-  BALANCE_TOLERANCE,
-  EMPTY_TOTALS,
-  openingMap,
-  round2,
-  toIso,
+  BALANCE_TOLERANCE, EMPTY_TOTALS, openingMap, round2, toIso,
   type GeneralLedgerCursor,
   type GeneralLedgerLine,
   type GeneralLedgerPage,
