@@ -6,7 +6,9 @@
  * the upload's COMMIT, outside any request, as the pool role with no row-level
  * security: EVERY statement here names the company, and every move out of
  * 'extracting' is guarded by `status = 'extracting'`, so a row that was retried,
- * rolled back or deleted meanwhile is never overwritten by a late result.
+ * rolled back or deleted meanwhile is never overwritten by a late result. A retry bumps
+ * `extraction_attempt`; the job writes only while it still holds the attempt it claimed, so a read
+ * thought dead (stale) that finishes or fails late cannot touch the row its retry is reading.
  *
  * Never throws: a failure is recorded on the row (a user-safe message) and the
  * row ends 'failed'. A job that dies outright leaves the row 'extracting' with
@@ -24,11 +26,12 @@ import type { BankStatementRow } from './bankStatementOcrService';
 
 type DbRow = Record<string, unknown>;
 
-async function heartbeat(companyId: string, importId: string, done: number, total: number): Promise<void> {
+async function heartbeat(companyId: string, importId: string, attempt: number, done: number, total: number): Promise<void> {
   await sql`
     UPDATE bank_statement_imports
     SET extraction_heartbeat_at = NOW(), extraction_pages_done = ${done}, extraction_pages_total = ${total}
     WHERE id = ${importId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+      AND extraction_attempt = ${attempt}
   `;
 }
 
@@ -57,12 +60,13 @@ async function buildRows(
   return { rows, warnings };
 }
 
-async function markFailed(companyId: string, importId: string, err: unknown): Promise<void> {
+async function markFailed(companyId: string, importId: string, attempt: number, err: unknown): Promise<void> {
   const { message, code } = describeExtractionFailure(err, 'bank');
   const failed = (await sql`
     UPDATE bank_statement_imports
     SET status = 'failed', extraction_error = ${message}, extraction_error_code = ${code}, updated_at = NOW()
     WHERE id = ${importId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+      AND extraction_attempt = ${attempt}
     RETURNING id
   `) as DbRow[];
   log.info('bankStatementOcr: extraction failed', { importId, code, recorded: failed.length === 1 }, 'bank-stmt-ocr');
@@ -72,7 +76,7 @@ async function markFailed(companyId: string, importId: string, err: unknown): Pr
 export async function runBankStatementExtraction(companyId: string, importId: string): Promise<void> {
   try {
     const claimed = (await sql`
-      SELECT bank_account_id, source_document_id FROM bank_statement_imports
+      SELECT bank_account_id, source_document_id, extraction_attempt FROM bank_statement_imports
       WHERE id = ${importId}::uuid AND company_id = ${companyId} AND status = 'extracting'
     `) as DbRow[];
     const row = claimed[0];
@@ -80,10 +84,11 @@ export async function runBankStatementExtraction(companyId: string, importId: st
       log.warn('bankStatementOcr: import is no longer extracting, nothing to do', { importId }, 'bank-stmt-ocr');
       return;
     }
+    const attempt = Number(row.extraction_attempt);
 
     try {
       const extraction = await extractBankStatementFromDocument(
-        companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, importId, done, total),
+        companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, importId, attempt, done, total),
       );
       const { rows, warnings } = await buildRows(companyId, row.bank_account_id as string, extraction);
       const duplicateCount = rows.filter((r) => r.isDuplicate).length;
@@ -98,6 +103,7 @@ export async function runBankStatementExtraction(companyId: string, importId: st
             status = 'extracted', extraction_summary = ${summary}::jsonb,
             extraction_error = NULL, extraction_error_code = NULL, updated_at = NOW()
         WHERE id = ${importId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+          AND extraction_attempt = ${attempt}
         RETURNING id
       `) as DbRow[];
       if (saved.length === 0) {
@@ -106,7 +112,7 @@ export async function runBankStatementExtraction(companyId: string, importId: st
       }
       log.info('bankStatementOcr: extraction complete', { importId, rowCount: rows.length, duplicateCount }, 'bank-stmt-ocr');
     } catch (err) {
-      await markFailed(companyId, importId, err);
+      await markFailed(companyId, importId, attempt, err);
     }
   } catch (err) {
     log.error('bankStatementOcr: could not record the extraction outcome', {

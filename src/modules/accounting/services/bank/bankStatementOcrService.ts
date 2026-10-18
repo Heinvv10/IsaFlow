@@ -141,7 +141,7 @@ export async function createImportFromDocument(
 export async function retryImport(companyId: string, importId: string): Promise<BankStatementImport> {
   const updated = (await sql`
     UPDATE bank_statement_imports
-    SET status = 'extracting', extraction_error = NULL, extraction_error_code = NULL,
+    SET status = 'extracting', extraction_attempt = extraction_attempt + 1, extraction_error = NULL, extraction_error_code = NULL,
         extraction_heartbeat_at = NOW(), extraction_pages_done = NULL, extraction_pages_total = NULL,
         updated_at = NOW()
     WHERE id = ${importId}::uuid AND company_id = ${companyId}
@@ -267,17 +267,23 @@ export async function commitImport(
 }
 
 export async function rollbackImport(companyId: string, importId: string, userId: string): Promise<void> {
+  // Locked first, as commit does: a commit in flight finishes before this reads, and is then refused below.
+  await sql`SELECT 1 FROM bank_statement_imports WHERE id = ${importId}::uuid AND company_id = ${companyId} FOR UPDATE`;
   const imp = await getImport(companyId, importId);
   if (!imp) throw new Error(`Import not found: ${importId}`);
   const notReady = notReadyError(imp.status);
   if (notReady) throw notReady;
   if (imp.status === 'committed') throw new Error('Cannot roll back a committed import');
+  if (imp.status === 'rolled_back') return; // a second click: already done, nothing to write
 
-  await sql`
+  // The status test is in the UPDATE too: the read above is not what decides, the row count is.
+  const rolledBack = (await sql`
     UPDATE bank_statement_imports
     SET status = 'rolled_back', updated_at = NOW()
-    WHERE id = ${importId}::uuid AND company_id = ${companyId}
-  `;
+    WHERE id = ${importId}::uuid AND company_id = ${companyId} AND status IN ('extracted', 'reviewing')
+    RETURNING id
+  `) as DbRow[];
+  if (rolledBack.length === 0) throw new Error(`Import could not be rolled back: ${importId}`);
 
   log.info('bankStatementOcr: import rolled back', { importId, userId }, 'bank-stmt-ocr');
 }

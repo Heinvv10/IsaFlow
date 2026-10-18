@@ -105,6 +105,10 @@ export async function readStatementPdf<T>(
       `This statement has ${total} pages; the most IsaFlow reads is ${cap}. ${hint}`);
   }
 
+  // The page count is known: tell the row before the first (slow, possibly queued) VLM call, or a job
+  // waiting its turn behind other reads looks dead to the 5-minute staleness rule.
+  await heartbeat(onProgress, 0, total);
+
   let failed = false;
   let done = 0;
   const results = await Promise.allSettled(texts.map(async (text, i) => {

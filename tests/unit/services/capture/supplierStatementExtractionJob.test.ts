@@ -36,6 +36,8 @@ const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
 const SUP = 'bbbbbbbb-0000-0000-0000-000000000002';
 const DOC = 'cccccccc-0000-0000-0000-000000000003';
 const RECON = 'eeeeeeee-0000-0000-0000-000000000005';
+/** The attempt the claimed row holds: a retry bumps it. */
+const ATTEMPT = 3;
 
 interface Call { text: string; values: unknown[] }
 const calls: Call[] = [];
@@ -55,7 +57,7 @@ const extraction = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.resetAllMocks();
   calls.length = 0;
-  db = { claim: [{ supplier_id: SUP, source_document_id: DOC }], lock: [{ id: RECON }], failed: [{ id: RECON }] };
+  db = { claim: [{ supplier_id: SUP, source_document_id: DOC, extraction_attempt: ATTEMPT }], lock: [{ id: RECON }], failed: [{ id: RECON }] };
   m.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const c = { text: strings.join('?'), values };
     calls.push(c);
@@ -77,7 +79,7 @@ describe('runSupplierStatementExtraction — success', () => {
     expect(m.loadInvoices).toHaveBeenCalledWith(CO, SUP, '2026-03-01', '2026-03-31');
     const [done] = callsOn("status = 'unreconciled'");
     expect(text(done)).toContain("WHERE id = ? AND company_id = ? AND status = 'extracting'");
-    expect(done.values).toEqual(['2026-03-31', '2026-03-01', '2026-03-31', 115, 100, 15, 0, 0, 0, RECON, CO]);
+    expect(done.values).toEqual(['2026-03-31', '2026-03-01', '2026-03-31', 115, 100, 15, 0, 0, 0, RECON, CO, ATTEMPT]);
     expect(text(done)).toContain('extraction_error = NULL, extraction_error_code = NULL');
   });
 
@@ -115,8 +117,8 @@ describe('runSupplierStatementExtraction — success', () => {
     await runSupplierStatementExtraction(CO, RECON);
     const lock = orderOf('FOR UPDATE');
     expect(lock).toBeGreaterThan(-1);
-    expect(text(calls[lock])).toContain("WHERE id = ? AND company_id = ? AND status = 'extracting' FOR UPDATE");
-    expect(calls[lock].values).toEqual([RECON, CO]);
+    expect(text(calls[lock])).toContain("WHERE id = ? AND company_id = ? AND status = 'extracting' AND extraction_attempt = ? FOR UPDATE");
+    expect(calls[lock].values).toEqual([RECON, CO, ATTEMPT]);
     expect(orderOf('DELETE FROM supplier_statement_lines')).toBeGreaterThan(lock);
     expect(orderOf('INSERT INTO supplier_statement_lines')).toBeGreaterThan(lock);
     expect(orderOf("status = 'unreconciled'")).toBeGreaterThan(orderOf('INSERT INTO supplier_statement_lines'));
@@ -207,7 +209,7 @@ describe('runSupplierStatementExtraction — heartbeat', () => {
     const [beat] = callsOn('extraction_heartbeat_at = NOW()');
     expect(text(beat)).toContain('extraction_pages_done = ?, extraction_pages_total = ?');
     expect(text(beat)).toContain("WHERE id = ? AND company_id = ? AND status = 'extracting'");
-    expect(beat.values).toEqual([3, 12, RECON, CO]);
+    expect(beat.values).toEqual([3, 12, RECON, CO, ATTEMPT]);
   });
 });
 
@@ -225,5 +227,39 @@ describe('every statement the job issues', () => {
       expect(text(c), text(c)).toContain('company_id = ?');
       expect(c.values, text(c)).toContain(CO);
     }
+  });
+});
+
+describe('a read that was retried meanwhile (extraction_attempt)', () => {
+  const guarded = (c: Call | undefined) => {
+    expect(c).toBeDefined();
+    expect(text(c!), text(c!)).toContain('AND extraction_attempt = ?');
+    expect(c!.values, text(c!)).toContain(ATTEMPT);
+  };
+
+  it('claims the row and learns its attempt', async () => {
+    await runSupplierStatementExtraction(CO, RECON);
+    expect(text(calls[0]!)).toMatch(/^SELECT supplier_id, source_document_id, extraction_attempt FROM/);
+  });
+
+  it('locks, then writes its result, only while it still holds the attempt it claimed', async () => {
+    await runSupplierStatementExtraction(CO, RECON);
+    guarded(callsOn('FOR UPDATE')[0]);
+    guarded(callsOn("status = 'unreconciled'")[0]);
+  });
+
+  it('records its failure only while it still holds the attempt it claimed', async () => {
+    m.extract.mockRejectedValue(new Error('x'));
+    await runSupplierStatementExtraction(CO, RECON);
+    guarded(callsOn("SET status = 'failed'")[0]);
+  });
+
+  it('beats only while it still holds the attempt it claimed', async () => {
+    m.extract.mockImplementation(async (_co: string, _doc: string, onProgress: (d: number, t: number) => Promise<void>) => {
+      await onProgress(1, 2);
+      return extraction();
+    });
+    await runSupplierStatementExtraction(CO, RECON);
+    guarded(callsOn('extraction_heartbeat_at = NOW()')[0]);
   });
 });

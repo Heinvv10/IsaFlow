@@ -187,6 +187,8 @@ describe('retryImport', () => {
     const t = text(update);
     expect(t).toContain("SET status = 'extracting'");
     expect(t).toContain('extraction_error = NULL');
+    // A read thought dead that finishes late must not overwrite this attempt's row (job guards on it).
+    expect(t).toContain('extraction_attempt = extraction_attempt + 1');
     expect(t).toContain('extraction_heartbeat_at = NOW()');
     expect(t).toContain('WHERE id = ? AND company_id = ?');
     expect(t).toContain("status = 'failed'");
@@ -375,23 +377,51 @@ describe('rollbackImport', () => {
 
   it('flips status to rolled_back and resolves without inserting rows', async () => {
     const importRow = makeImportDbRow({ status: 'extracted', extraction_summary: { rows: [], warnings: [] } });
-    sqlMock.mockResolvedValueOnce([importRow]); // getImport
-    sqlMock.mockResolvedValueOnce([]);          // UPDATE status
+    sqlMock.mockResolvedValueOnce([]);                 // FOR UPDATE lock
+    sqlMock.mockResolvedValueOnce([importRow]);        // getImport
+    sqlMock.mockResolvedValueOnce([{ id: IMPORT_ID }]); // UPDATE status ... RETURNING
 
     await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).resolves.toBeUndefined();
 
-    // Only 2 sql calls: getImport SELECT + UPDATE (no INSERTs)
-    expect(sqlMock).toHaveBeenCalledTimes(2);
+    // Only 3 sql calls: lock + getImport SELECT + UPDATE (no INSERTs)
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('locks the row first, and writes only to a company\'s extracted or reviewing import', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'reviewing' })]);
+    sqlMock.mockResolvedValueOnce([{ id: IMPORT_ID }]);
+    await rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID);
+    const [lock, , update] = sqlMock.mock.calls.map(text);
+    expect(lock).toContain('FOR UPDATE');
+    expect(lock).toContain('company_id = ?');
+    expect(update).toContain("WHERE id = ? AND company_id = ? AND status IN ('extracted', 'reviewing')");
+  });
+
+  it('refuses, rather than report success, when the guarded UPDATE matched no row', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'extracted' })]);
+    sqlMock.mockResolvedValueOnce([]); // nothing matched
+    await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('could not be rolled back');
+  });
+
+  it('is a no-op the second time: an already rolled-back import writes nothing', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValueOnce([makeImportDbRow({ status: 'rolled_back' })]);
+    await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).resolves.toBeUndefined();
+    expect(sqlMock.mock.calls.map(text).filter((t) => t.startsWith('UPDATE'))).toEqual([]);
   });
 
   it('throws "Cannot roll back a committed import" when already committed', async () => {
     const importRow = makeImportDbRow({ status: 'committed', extraction_summary: { rows: [], warnings: [] } });
+    sqlMock.mockResolvedValueOnce([]);
     sqlMock.mockResolvedValueOnce([importRow]);
 
     await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Cannot roll back a committed import');
   });
 
   it('throws when import is not found', async () => {
+    sqlMock.mockResolvedValueOnce([]);
     sqlMock.mockResolvedValueOnce([]);
 
     await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow('Import not found');
@@ -418,10 +448,11 @@ describe('commitImport / rollbackImport on an import that is not extracted', () 
     });
 
     it(`rollback refuses a ${status} import and writes nothing`, async () => {
+      sqlMock.mockResolvedValueOnce([]); // FOR UPDATE lock
       sqlMock.mockResolvedValueOnce([makeImportDbRow({ status, created_at: new Date() })]);
 
       await expect(rollbackImport(COMPANY_ID, IMPORT_ID, USER_ID)).rejects.toThrow(message);
-      expect(sqlMock).toHaveBeenCalledTimes(1);
+      expect(sqlMock.mock.calls.map(text).filter((t) => t.startsWith('UPDATE'))).toEqual([]);
     });
   }
 

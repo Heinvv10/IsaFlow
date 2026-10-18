@@ -6,11 +6,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, RefreshCw, CheckCircle2, X, ChevronDown, ChevronUp, ArrowLeft, ExternalLink } from 'lucide-react';
 import { StatementReading, StatementReadFailed } from '@/components/accounting/StatementReadState';
 import { MatchStatusCell } from '@/components/accounting/ap/SupplierStatementMatchCell';
-import { usePollWhileReading } from '@/hooks/usePollWhileReading';
+import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
 import { useStatementReadActions } from '@/hooks/useStatementReadActions';
 
 type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
@@ -78,8 +78,9 @@ export default function SupplierStatementDetailPage() {
   }, []);
 
   // `silent`: a poll while the statement is being read. It keeps what is on screen and shows no spinner.
-  const load = useCallback(async (silent = false) => {
-    if (!reconId) return;
+  // Resolves to what the poll found: 'stop' when the statement is gone or not ours (404/403), 'failed' for any other error.
+  const load = useCallback(async (silent = false): Promise<PollOutcome> => {
+    if (!reconId) return 'ok';
     if (!silent) { setLoading(true); setError(''); }
     try {
       const res = await apiFetch(`/api/accounting/supplier-statements/${reconId}`);
@@ -89,9 +90,11 @@ export default function SupplierStatementDetailPage() {
       setRecon(data);
       setError('');
       if (data && data.missingInStatementCount > 0) setMissingOpen(true);
+      return 'ok';
     } catch (err) {
       if (!silent) setRecon(null);
       setError(apiErrorMessage(err, 'Could not load the reconciliation - try again'));
+      return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'failed';
     }
     finally { if (!silent) setLoading(false); }
   }, [reconId]);
