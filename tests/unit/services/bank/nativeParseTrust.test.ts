@@ -40,17 +40,67 @@ describe('nativeRowsAreComplete', () => {
     expect(nativeRowsAreComplete(parsed([tx(-10, 90), tx(-20, 70)], { errors: [{ row: 3, error: 'Invalid amount: ' }] }))).toBe(false);
   });
 
-  it('accepts clean rows that carry no balances: nothing contradicts them', () => {
-    expect(nativeRowsAreComplete(parsed([tx(-10), tx(-20)]))).toBe(true);
+  it('does not trust rows that carry no balances: nothing shows that none was dropped', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-10), tx(-20)]))).toBe(false);
   });
 
-  it('carries a row without a balance into the next balance rather than breaking the chain at it', () => {
-    expect(nativeRowsAreComplete(parsed([tx(-10, 90), tx(-5), tx(-15, 70)]))).toBe(true);
-    expect(nativeRowsAreComplete(parsed([tx(-10, 90), tx(-5), tx(-20, 70)]))).toBe(false);
+  it('does not trust a result in which only some rows carry a balance, however the others chain', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90), tx(-5), tx(-15, 70)]))).toBe(false);
+    expect(nativeRowsAreComplete(parsed([tx(-10), tx(-20, 70)]))).toBe(false);
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90), tx(-20, 70), tx(5)]))).toBe(false);
   });
 
-  it('accepts a single row and an empty result', () => {
-    expect(nativeRowsAreComplete(parsed([tx(-10, 90)]))).toBe(true);
-    expect(nativeRowsAreComplete(parsed([]))).toBe(true);
+  it('does not trust a single balance-carrying row with nothing to compare it against', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90)]))).toBe(false);
+  });
+
+  it('does not trust an empty result, with or without an opening balance', () => {
+    expect(nativeRowsAreComplete(parsed([]))).toBe(false);
+    expect(nativeRowsAreComplete(parsed([], { openingBalance: 100 }))).toBe(false);
+  });
+});
+
+describe('nativeRowsAreComplete against the printed opening balance', () => {
+  it('accepts rows that start where the statement opened, oldest first', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90), tx(-20, 70)], { openingBalance: 100 }))).toBe(true);
+  });
+
+  it('accepts rows that start where the statement opened, newest first', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-20, 70), tx(-10, 90)], { openingBalance: 100 }))).toBe(true);
+  });
+
+  it('refuses rows whose first row is not the first row of the statement (a dropped first row), oldest first', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-20, 70), tx(-5, 65)], { openingBalance: 100 }))).toBe(false);
+  });
+
+  it('refuses a dropped first row, newest first', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-5, 65), tx(-20, 70)], { openingBalance: 100 }))).toBe(false);
+  });
+
+  it('trusts one row that follows from the opening balance, and refuses one that does not', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90)], { openingBalance: 100 }))).toBe(true);
+    expect(nativeRowsAreComplete(parsed([tx(-10, 80)], { openingBalance: 100 }))).toBe(false);
+  });
+
+  it('accepts a cent of rounding at the opening balance', () => {
+    expect(nativeRowsAreComplete(parsed([tx(-10, 90.01)], { openingBalance: 100 }))).toBe(true);
+  });
+});
+
+describe('nativeRowsAreComplete against the amount the line printed', () => {
+  // ABSA's parser derives each amount from the balances, so its balances chain by construction: a dropped row
+  // is absorbed into the next row's amount. The amount printed on the line is what shows it.
+  const printed = (amount: number, balance: number, printedAmount: number): ParsedBankTransaction => ({ ...tx(amount, balance), printedAmount });
+
+  it('accepts rows whose derived amount is the printed one', () => {
+    expect(nativeRowsAreComplete(parsed([printed(-10, 90, 10), printed(-20, 70, 20)], { openingBalance: 100 }))).toBe(true);
+  });
+
+  it('refuses a row whose derived amount is larger than the printed one (a row dropped before it)', () => {
+    expect(nativeRowsAreComplete(parsed([printed(-10, 90, 10), printed(-35, 55, 20)], { openingBalance: 100 }))).toBe(false);
+  });
+
+  it('refuses it with no opening balance too: the chain holds, the printed amount does not', () => {
+    expect(nativeRowsAreComplete(parsed([printed(-10, 90, 10), printed(-35, 55, 20)]))).toBe(false);
   });
 });

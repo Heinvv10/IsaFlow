@@ -54,9 +54,10 @@ describe('a PDF the deterministic parsers can read', () => {
     bankFormat: 'absa',
     parser: 'native',
     accountNumber: '4102426629',
+    openingBalance: 10000,
     transactions: [
       { transactionDate: '2026-03-10', amount: 5000, description: 'Salary', balance: 15000, reference: 'SAL' },
-      { transactionDate: '2026-03-05', amount: -200, description: 'Shop' },
+      { transactionDate: '2026-03-05', amount: -200, description: 'Shop', balance: 14800 },
     ],
   });
 
@@ -67,7 +68,7 @@ describe('a PDF the deterministic parsers can read', () => {
     expect(m.parseBankPdf).toHaveBeenCalledWith(PDF);
     expect(out.transactions).toEqual([
       { date: '2026-03-10', description: 'Salary', amount: 5000, balance: 15000, reference: 'SAL', transactionType: null },
-      { date: '2026-03-05', description: 'Shop', amount: -200, balance: null, reference: null, transactionType: null },
+      { date: '2026-03-05', description: 'Shop', amount: -200, balance: 14800, reference: null, transactionType: null },
     ]);
     expect(out.accountNumber).toBe('4102426629');
   });
@@ -111,7 +112,10 @@ describe('rows from the ABSA-pattern fallback', () => {
   });
 
   it('rows from a recognised bank\'s own parser are trusted', async () => {
-    m.parseBankPdf.mockResolvedValue({ ...fallback('nedbank'), parser: 'native' });
+    const own = fallback('nedbank');
+    m.parseBankPdf.mockResolvedValue({
+      ...own, parser: 'native', openingBalance: 300, transactions: [{ ...own.transactions[0]!, balance: 100 }],
+    });
     const out = await extractBankStatementFromDocument(CO, DOC);
     expect(m.readStatementPdf).not.toHaveBeenCalled();
     expect(out.transactions).toHaveLength(1);
@@ -131,6 +135,13 @@ describe('native rows that show a dropped line', () => {
   });
   const dropped: Array<[string, Partial<BankCsvParseResult>]> = [
     ['a row the parser could not read', { errors: [{ row: 3, error: 'Invalid amount: ' }] }],
+    ['a first row that does not follow from the printed opening balance (a dropped first row)', { openingBalance: 500 }],
+    ['a row without a running balance', {
+      transactions: [
+        { transactionDate: '2026-03-05', amount: -10, description: 'a', balance: 90 },
+        { transactionDate: '2026-03-06', amount: -20, description: 'b' },
+      ],
+    }],
     ['a running balance that does not follow from the amounts', {
       transactions: [
         { transactionDate: '2026-03-05', amount: -10, description: 'a', balance: 90 },

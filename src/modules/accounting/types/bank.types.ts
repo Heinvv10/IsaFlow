@@ -22,6 +22,11 @@ export interface ParsedBankTransaction {
   description: string;
   reference?: string;
   balance?: number;
+  /**
+   * PDFs only, set by a parser that derives `amount` from the balances (ABSA): the absolute amount the
+   * line printed. A derived amount that differs from it means a row between two balances was dropped.
+   */
+  printedAmount?: number;
 }
 
 export interface BankCsvParseResult {
@@ -34,6 +39,11 @@ export interface BankCsvParseResult {
    * unrecognised layout, which reads some rows and silently drops the rest.
    */
   parser?: 'native' | 'fallback';
+  /**
+   * PDFs only, when the parser read the printed "balance brought forward": the balance the statement opened
+   * with, before its first row. The trust test in nativeParseTrust compares the rows against it.
+   */
+  openingBalance?: number;
   /**
    * Account number extracted from the statement (PDFs only, when the parser
    * can find it in the header). Normalised — no spaces, dashes, or other
