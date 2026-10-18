@@ -23,6 +23,7 @@ vi.mock('@/modules/accounting/services/capture/supplierStatementReconDb', async 
   loadSupplierInvoices: async () => [],
 }));
 
+import { keepAliveCeilingMs } from '@/modules/accounting/services/bank/extractionKeepAlive';
 import { effectiveExtractionState } from '@/modules/accounting/services/bank/statementExtractionState';
 import { runBankStatementExtraction } from '@/modules/accounting/services/bank/bankStatementExtractionJob';
 import { runSupplierStatementExtraction } from '@/modules/accounting/services/capture/supplierStatementExtractionJob';
@@ -133,6 +134,19 @@ describe.each([
     await vi.advanceTimersByTimeAsync(minutes(1));
     await job;
     expect(row.finished).toBe(true);
+  });
+
+  it('a job whose read never settles stops beating at the ceiling, and its row then goes stale', async () => {
+    extract.mockImplementation(() => new Promise(() => undefined));
+    void run(CO, ROW);
+    const ceiling = keepAliveCeilingMs();
+    await vi.advanceTimersByTimeAsync(ceiling);
+    expect(shownAs()).toBe('extracting');
+    const beats = row.heartbeats;
+    expect(beats).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(minutes(5) + 1000);
+    expect(row.heartbeats).toBe(beats);
+    expect(shownAs()).toBe('failed');
   });
 
   it('stops beating when the job fails, so the row it leaves is judged by its last sign of life', async () => {
