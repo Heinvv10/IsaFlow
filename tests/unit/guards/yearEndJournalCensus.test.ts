@@ -36,7 +36,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { quotedStrings } from '../../helpers/templateLiterals';
 import {
-  bodyCarriesMarker, carriesMarker, isFigure, isSql, ledgerStatements, selectScopes, type Stmt,
+  bodyCarriesMarker, carriesMarker, isFigure, isSql, ledgerStatements, selectScopes, ungatedEntryLeftJoins, type Stmt,
 } from '../../helpers/ledgerStatements';
 import {
   CASH_FILTER, CATEGORIES, COMPOSED, CORRELATED_ON, entries, key, RECLASS_FLAG, STRINGS,
@@ -72,6 +72,13 @@ describe('G-01: the year-end closing journal is excluded through one shared mark
       !carriesMarker(s) && s.f === key(f) && (m === undefined || s.body.includes(m))))
       .map(([f, , m]) => (m ? `${f} (${m})` : f));
     expect(stale).toEqual([]);
+  });
+
+  it('no figure-bearing statement, allow-listed or not, has an ungated LEFT JOIN onto gl_journal_entries', () => {
+    // The category excuses the year-end marker, not a join that keeps the lines of draft and excluded entries.
+    const offenders = figures.filter((s) => selectScopes(s.body).some((sc) => ungatedEntryLeftJoins(sc.text).length > 0))
+      .map((s) => `${s.f}:${s.t.line}`);
+    expect(offenders).toEqual([]);
   });
 
   it('every CASH entry is verified: each statement it covers filters to cash or bank accounts', () => {

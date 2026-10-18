@@ -14,6 +14,7 @@ import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { boundedRowWait, lockSystemRoleWrites, textUnlessLockError } from '../gl/systemRoleWriteLock';
 import { clearSystemAccountCacheAfterCommit } from '../gl/systemAccountResolver';
 import { assertAccountChangesKeepVatLocks, type AccountAttributeChange } from '../gl/vatLockLineClassification';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // Rollback lives in its own file for the 300-line cap; re-exported so the API
 // route and the wizard keep importing it from here.
@@ -219,11 +220,11 @@ export async function verifyBalances(
     try {
       const glRows = (await sql`
         SELECT ga.account_name,
-          COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0) AS net_debit,
+          COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit - jl.credit END), 0) AS net_debit,
           ga.normal_balance
         FROM gl_accounts ga
         LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-        LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+        LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND je.company_id = ${companyId}::UUID
         WHERE ga.company_id = ${companyId}::UUID AND ga.account_code = ${acct.sourceCode}
         GROUP BY ga.id, ga.account_name, ga.normal_balance
         LIMIT 1

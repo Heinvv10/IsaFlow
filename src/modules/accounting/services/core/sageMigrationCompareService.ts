@@ -7,22 +7,24 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ComparisonReport } from './sageMigrationService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 type Row = DbRow;
 
 export async function generateComparison(companyId: string, userId: string): Promise<ComparisonReport> {
   try {
     const sageBalances = (await sql`
-      SELECT sa.sage_account_id, sa.name, sa.balance, ga.account_code, ga.account_name, ga.id AS gl_id
+      SELECT sa.sage_id, sa.account_name AS sage_name, sa.balance, ga.account_code, ga.account_name, ga.id AS gl_id
       FROM sage_accounts sa JOIN gl_accounts ga ON ga.id = sa.gl_account_id
       WHERE sa.company_id = ${companyId}::UUID ORDER BY ga.account_code
     `) as Row[];
 
     const glBalances = (await sql`
       SELECT ga.id, ga.account_code, ga.account_name, ga.normal_balance,
-        COALESCE(SUM(jl.debit), 0) AS total_debit, COALESCE(SUM(jl.credit), 0) AS total_credit
+        COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit END), 0) AS total_debit,
+        COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit END), 0) AS total_credit
       FROM gl_accounts ga
       LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-      LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+      LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND je.company_id = ${companyId}::UUID
       WHERE ga.company_id = ${companyId}::UUID AND ga.level >= 3 GROUP BY ga.id, ga.account_code, ga.account_name, ga.normal_balance ORDER BY ga.account_code
     `) as Row[];
 

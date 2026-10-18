@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { templateLiterals } from '../../helpers/templateLiterals';
-import { REF, selectScopes, unmarkedFigureStatements } from '../../helpers/ledgerStatements';
+import { REF, selectScopes, ungatedEntryLeftJoins, unmarkedFigureStatements } from '../../helpers/ledgerStatements';
 
 describe('the rule catches planted evasions', () => {
   const MARK = 'AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}';
@@ -140,5 +140,15 @@ describe('the rule catches planted evasions', () => {
 
   it('the scopes of a statement are its SELECTs, set-operator branches included', () => {
     expect(selectScopes(`${BRANCH(true)} UNION ALL ${BRANCH(false)}`)).toHaveLength(2);
+  });
+
+  it('an ungated LEFT JOIN onto gl_journal_entries is found whatever its ON says, marked or not', () => {
+    const base = (select: string, on: string, tail = '') =>
+      `SELECT ${select} FROM gl_accounts ga LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id `
+      + `LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id ${on} ${tail} GROUP BY ga.id`;
+    expect(ungatedEntryLeftJoins(base('SUM(jl.debit)', "AND je.status = 'posted'"))).toEqual(['je']);
+    expect(ungatedEntryLeftJoins(base('SUM(jl.debit)', `AND je.status = 'posted' AND ${M}`))).toEqual(['je']);
+    expect(ungatedEntryLeftJoins(base('SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit END)', "AND je.status = 'posted'"))).toEqual([]);
+    expect(ungatedEntryLeftJoins(base('SUM(jl.debit)', "AND je.status = 'posted'", 'WHERE je.id IS NOT NULL'))).toEqual([]);
   });
 });
