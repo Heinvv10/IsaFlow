@@ -253,7 +253,7 @@ export async function generateNote5IntangibleAssets(
   // Query GL accounts classified as intangible assets
   const rows = (await sql`
     SELECT ga.account_name, ga.account_code, ga.account_subtype,
-           COALESCE(SUM(gjl.debit - gjl.credit), 0) AS balance
+           COALESCE(SUM(CASE WHEN gje.id IS NULL THEN 0 ELSE gjl.debit - gjl.credit END), 0) AS balance
     FROM gl_accounts ga
     LEFT JOIN gl_journal_lines gjl
       ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
@@ -264,7 +264,7 @@ export async function generateNote5IntangibleAssets(
       AND ga.account_subtype = ANY(${[...rawSubtypesFor('intangible_asset'),
         'goodwill', 'software', 'patent', 'trademark', 'licence']}::TEXT[])
     GROUP BY ga.account_name, ga.account_code, ga.account_subtype
-    HAVING COALESCE(SUM(gjl.debit - gjl.credit), 0) <> 0
+    HAVING COALESCE(SUM(CASE WHEN gje.id IS NULL THEN 0 ELSE gjl.debit - gjl.credit END), 0) <> 0
     ORDER BY ga.account_subtype, ga.account_name
   `) as DbRow[];
 

@@ -27,7 +27,7 @@ const MAX_RECLOSES = 25;
 const MAX_CHAIN = 20;
 
 export class TooManyRecloses extends Error {
-  readonly code = 'YEAR_END_TOO_MANY_RECLOSES';
+  readonly code = 'YEAR_END_TOO_MANY_RECLOSES' as const;
   constructor(readonly baseNumber: string) {
     super(`Closing journal ${baseNumber} has been reversed more than ${MAX_RECLOSES} times`);
     this.name = 'TooManyRecloses';
@@ -39,7 +39,7 @@ export class TooManyRecloses extends Error {
  * guess decides whether a second close is posted over a flat P&L, so the walk refuses instead.
  */
 export class ClosingChainTooLong extends Error {
-  readonly code = 'YEAR_END_CLOSE_CHAIN_TOO_LONG';
+  readonly code = 'YEAR_END_CLOSE_CHAIN_TOO_LONG' as const;
   constructor(readonly entryNumber: string) {
     super(`The reversal chain of closing journal ${entryNumber} is too long to read; a person has to inspect it`);
     this.name = 'ClosingChainTooLong';

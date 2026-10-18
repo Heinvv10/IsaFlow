@@ -131,13 +131,15 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
           return apiResponse.conflict(
             res,
             `Closing journal ${result.entryNumber} has been reversed and re-posted too many times. `
-              + `Nothing was posted; a person has to look at the reversals before the year is closed again.`
+              + `Nothing was posted; a person has to look at the reversals before the year is closed again.`,
+            { code: result.code }
           );
         case 'closing_chain_unreadable':
           return apiResponse.conflict(
             res,
             `The reversal chain of closing journal ${result.entryNumber} is too long to read, so it `
-              + `cannot be told whether the year is closed. Nothing was posted; a person has to inspect it.`
+              + `cannot be told whether the year is closed. Nothing was posted; a person has to inspect it.`,
+            { code: result.code }
           );
         default: {
           // Exhaustive over CloseYearError: `unhandled` stops being `never` the

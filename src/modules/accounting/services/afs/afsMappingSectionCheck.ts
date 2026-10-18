@@ -16,13 +16,14 @@ interface Misplaced { account_code: string; account_name: string; account_type: 
 
 const SHOWN = 10;
 
-export async function checkAccountsMappedToTheirStatement(companyId: string): Promise<ExportCheck | null> {
+async function checkAccountsMappedToTheirStatement(companyId: string): Promise<ExportCheck | null> {
   const rows = (await sql`
     SELECT ga.account_code, ga.account_name, ga.account_type, m.afs_line_code, sl.section
     FROM afs_account_mappings m
     JOIN afs_statement_lines sl ON sl.code = m.afs_line_code AND sl.company_id = m.company_id
     JOIN gl_accounts ga ON ga.id = m.gl_account_id AND ga.company_id = m.company_id
     WHERE m.company_id = ${companyId}::UUID
+      AND sl.is_active = true
       AND ((sl.section = 'balance_sheet' AND ga.account_type IN ('revenue', 'expense'))
         OR (sl.section = 'income_statement' AND ga.account_type IN ('asset', 'liability', 'equity')))
     ORDER BY ga.account_code, m.afs_line_code
@@ -41,4 +42,12 @@ export async function checkAccountsMappedToTheirStatement(companyId: string): Pr
       + 'twice (again inside the accumulated profit), which is why the balance sheet may not balance. '
       + 'Remap each to a line of its own statement.',
   };
+}
+
+/** The AFS checks, plus the misplaced-account finding only when there is one (a clean company's list is unchanged). */
+export async function withStatementMappingFinding(
+  checks: ExportCheck[], companyId: string, isAfs: boolean,
+): Promise<ExportCheck[]> {
+  const misplaced = isAfs ? await checkAccountsMappedToTheirStatement(companyId) : null;
+  return misplaced ? [...checks, misplaced] : checks;
 }

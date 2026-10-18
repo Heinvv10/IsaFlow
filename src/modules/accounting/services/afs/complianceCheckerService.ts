@@ -159,9 +159,7 @@ function runMathematicalChecks(sections: AfsSectionRow[]): ComplianceIssue[] {
   const note17 = byType('note_17');
 
   if (sfp?.data_snapshot) {
-    // The SFP generator writes totalAssets / totalLiabilities / totalEquity at the TOP LEVEL of its snapshot
-    // (balanceSheet.ts). This read a `totals` object nobody writes, so it never fired. A figure that is not
-    // there is not a pass: the pre-export blocker owns "missing", this check only judges figures it can see.
+    // balanceSheet.ts writes these at the TOP LEVEL; this read a `totals` object nobody writes. A missing figure is the pre-export blocker's.
     const figures = [sfp.data_snapshot.totalAssets, sfp.data_snapshot.totalLiabilities, sfp.data_snapshot.totalEquity].map(Number);
     if (figures.every((n) => Number.isFinite(n))) {
       const diff = figures[0]! - figures[1]! - figures[2]!;
@@ -188,8 +186,8 @@ function runMathematicalChecks(sections: AfsSectionRow[]): ComplianceIssue[] {
   if (equity?.status === 'pending') {
     issues.push({ checkId: 'mathematical.equity_closing_balance', category: 'mathematical', severity: 'info', message: 'Section not yet generated — check deferred', sectionType: 'changes_in_equity' });
   } else if (equity?.data_snapshot && sfp?.data_snapshot) {
-    const eqClose = Number(equity.data_snapshot.closingTotalEquity ?? NaN);
-    const sfpEq = Number(sfp.data_snapshot.totalEquity ?? NaN);
+    // Near-tautology: both sides sum the same BS equity lines, so this only catches a stale snapshot, not a wrong figure.
+    const [eqClose, sfpEq] = [equity.data_snapshot.closingTotalEquity, sfp.data_snapshot.totalEquity].map((v) => Number(v ?? NaN)) as [number, number];
     if (!isNaN(eqClose) && !isNaN(sfpEq) && Math.abs(eqClose - sfpEq) > 0.01) {
       issues.push({ checkId: 'mathematical.equity_closing_balance', category: 'mathematical', severity: 'blocker', message: 'Equity statement closing does not match balance sheet equity', sectionType: 'changes_in_equity', detail: `Equity stmt: ${eqClose}, BS: ${sfpEq}` });
     }

@@ -24,7 +24,7 @@ export async function generateNote11CashAndCashEquivalents(
 
   const rows = (await sql`
     SELECT ga.account_name, ga.account_code,
-      COALESCE(SUM(gjl.debit - gjl.credit), 0) AS balance
+      COALESCE(SUM(CASE WHEN gje.id IS NULL THEN 0 ELSE gjl.debit - gjl.credit END), 0) AS balance
     FROM gl_accounts ga
     LEFT JOIN gl_journal_lines gjl
       ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
