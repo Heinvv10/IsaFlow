@@ -2,7 +2,7 @@
  * K-053 round 8 (M-2) — the supplier statement reconciliation's OWN side of
  * the variance reads the same dated question as the control account.
  *
- * `createReconciliation` compares the supplier's statement balance against
+ * The statement read (`createReconciliation`, then the background job) compares the supplier's statement balance against
  * "what our ledger carries", and that second figure is what round 7 dated.
  * Nothing reconciled it: reverting the predicate left the whole K-053 suite
  * green. It needs a fixture of its own because the entry point runs a VLM
@@ -24,20 +24,23 @@ import { als } from '@/lib/als';
 import { sql, getPoolForTests } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { createAndRead } from './supplier-statement-read.helpers';
 
 const STATEMENT_BALANCE = 9999;
 
-vi.mock('@/lib/documentStorage', () => ({
-  fetchRawBytes: vi.fn(async () => ({ buffer: Buffer.from('%PDF-1.4 k053'), fileType: 'pdf' })),
+vi.mock('@/lib/afterCommit', async (original) => ({
+  ...(await original<typeof import('@/lib/afterCommit')>()),
+  runAfterCommit: () => undefined, // the job is driven by createAndRead
 }));
-vi.mock('@/modules/accounting/services/bank/vlmSupplierStatementService', () => ({
-  extractSupplierStatementWithVlm: vi.fn(async () => ({
-    statementDate: null, periodStart: null, periodEnd: null,
-    closingBalance: STATEMENT_BALANCE, lines: [], warnings: [],
+vi.mock('@/modules/accounting/services/capture/supplierStatementExtraction', () => ({
+  extractSupplierStatementFromDocument: vi.fn(async () => ({
+    statementDate: undefined, periodStart: undefined, periodEnd: undefined,
+    closingBalance: STATEMENT_BALANCE, warnings: [],
+    // one line: a read that finds none fails. It matches no bill, so only the counts see it.
+    lines: [{ date: '2026-01-02', reference: 'K053-STMT-LINE', description: 'Statement line', debit: 1 }],
   })),
 }));
 
-const { createReconciliation } = await import('@/modules/accounting/services/capture/supplierStatementReconService');
 const { postSupplierInvoiceToGL } = await import('@/modules/accounting/services/ap/supplierInvoiceWorkflowService');
 const { softDelete } = await import('@/modules/accounting/services/core/softDeleteService');
 
@@ -181,7 +184,7 @@ describeIfDb('K-053 the supplier statement variance measures our ledger as it st
   });
 
   it('our side of the variance is the balance the creditors control still carries', async () => {
-    const recon = await createReconciliation(COMPANY, supplier, DOCUMENT, USER);
+    const recon = await createAndRead(COMPANY, supplier, DOCUMENT, USER);
 
     const control = (await sql`
       SELECT COALESCE(SUM(l.credit - l.debit), 0) AS net
