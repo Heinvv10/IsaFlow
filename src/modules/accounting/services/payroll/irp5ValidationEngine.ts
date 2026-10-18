@@ -199,7 +199,7 @@ export async function validateEmployeeIrp5(
     }
   }
 
-  // UIF (4141) and SDL (4150) are auto-calculated from gross pay by uifEngine /
+  // UIF (4141) and SDL (4142) are auto-calculated from gross pay by uifEngine /
   // sdlEngine — they are never payroll_components, so we do NOT flag their
   // absence on the employee.
 
