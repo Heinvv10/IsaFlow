@@ -3,7 +3,7 @@
  *
  * A PDF goes to the deterministic parsers (ABSA, the per-bank factory) first:
  * they read a digital statement of a recognised bank exactly and instantly. Only a PDF they
- * find nothing in, or do not recognise (a scan, an unknown layout), is read by the VLM, one page per call
+ * find nothing in, do not recognise, or read with a dropped line (a scan, an unknown layout), is read by the VLM, one page per call
  * (vlmStatementPages). An image is read in one call. Runs in the background job
  * (bankStatementExtractionJob), outside any request, so it only ever fetches the
  * stored bytes, by company.
@@ -15,6 +15,7 @@ import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
 import type { ExtractedBankStatement } from '@/modules/accounting/types/documentCapture.types';
 import { isVlmAvailable } from './vlmCore';
 import { extractBankStatementWithVlm, readBankStatementPage } from './vlmBankService';
+import { nativeRowsAreComplete } from './nativeParseTrust';
 import { mergeBankPages } from './vlmStatementMerge';
 import { readStatementPdf, StatementReadError } from './vlmStatementPages';
 
@@ -47,7 +48,7 @@ function fromParsers(parsed: BankCsvParseResult): ExtractedBankStatement {
       transactionType: null,
     })),
     confidence: 1,
-    warnings: parsed.errors.map((e) => e.error),
+    warnings: [],
   };
 }
 
@@ -65,10 +66,11 @@ export async function extractBankStatementFromDocument(
 
   if (raw.fileType === 'pdf') {
     const parsed = await parseBankPdf(raw.buffer);
-    // Only rows from the parser written for this bank are trusted. The router's last resort (the ABSA
-    // date-amount pattern on another or unknown layout) reads some rows and silently drops the rest:
-    // 10 of 66 on a GoTyme PDF.
-    if (parsed.transactions.length > 0 && parsed.parser === 'native') return fromParsers(parsed);
+    // Only rows from the parser written for this bank, with no sign of a dropped line, are trusted. The
+    // router's last resort (the ABSA date-amount pattern on another or unknown layout) reads some rows and
+    // silently drops the rest (10 of 66 on a GoTyme PDF), and a bank's own parser skips a line it cannot
+    // read (nativeParseTrust).
+    if (parsed.transactions.length > 0 && parsed.parser === 'native' && nativeRowsAreComplete(parsed)) return fromParsers(parsed);
     if (!isVlmAvailable()) throw unavailable();
     return mergeBankPages(await readStatementPdf(raw.buffer, 'bank', readBankStatementPage, onProgress));
   }

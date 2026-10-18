@@ -10,12 +10,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { log } from '@/lib/logger';
-import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import type { ResponseFor } from '@/lib/apiRoutes';
 import { Loader2, AlertCircle, Upload, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { StatementReviewPanel, type BankStatementImport } from '@/components/accounting/bank-transactions/StatementReviewPanel';
 import { StatementReading, StatementReadFailed } from '@/components/accounting/StatementReadState';
-import { usePollWhileReading } from '@/hooks/usePollWhileReading';
+import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
 import { useStatementReadActions } from '@/hooks/useStatementReadActions';
 
 type BankAccount = Extract<ResponseFor<'/api/accounting/bank-accounts'>, unknown[]>[number];
@@ -83,7 +83,8 @@ export default function ImportPdfPage() {
   }, []);
 
   // `silent`: a poll while the statement is being read. It keeps what is on screen and shows no spinner.
-  const loadImport = useCallback(async (id: string, silent = false) => {
+  // Resolves to what the poll found: 'stop' when the import is gone or not ours (404/403), 'failed' for any other error.
+  const loadImport = useCallback(async (id: string, silent = false): Promise<PollOutcome> => {
     if (!silent) { setLoading(true); setError(''); }
     try {
       const res = await apiFetch(`/api/accounting/bank-statements/${id}`);
@@ -91,14 +92,16 @@ export default function ImportPdfPage() {
       const json = await res.json() as { data?: BankStatementImport };
       setImp(json.data ?? null);
       setError('');
+      return 'ok';
     } catch (err) {
       if (!silent) setImp(null);
       setError(apiErrorMessage(err, 'Could not load this import - try again'));
+      return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'failed';
     }
     finally { if (!silent) setLoading(false); }
   }, []);
 
-  const pollImport = useCallback(() => (importId ? loadImport(importId, true) : Promise.resolve()), [importId, loadImport]);
+  const pollImport = useCallback(() => (importId ? loadImport(importId, true) : Promise.resolve<PollOutcome>('ok')), [importId, loadImport]);
   usePollWhileReading(imp?.status, pollImport);
   const { busy: readBusy, retry: handleRetry, remove: handleDelete } = useStatementReadActions({
     baseUrl: importId ? `/api/accounting/bank-statements/${importId}` : null,

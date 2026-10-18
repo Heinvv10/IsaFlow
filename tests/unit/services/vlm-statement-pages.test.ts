@@ -194,10 +194,25 @@ describe('readStatementPdf concurrency', () => {
 describe('readStatementPdf progress', () => {
   const pdf3 = syntheticPdf([line(250), line(250), line(250)]);
 
-  it('reports (done, total) after each page', async () => {
+  it('reports (0, total) first, then (done, total) after each page', async () => {
     const calls: Array<[number, number]> = [];
     await readStatementPdf(pdf3, 'bank', echo, async (done, total) => { calls.push([done, total]); });
-    expect(calls).toEqual([[1, 3], [2, 3], [3, 3]]);
+    expect(calls).toEqual([[0, 3], [1, 3], [2, 3], [3, 3]]);
+  });
+
+  it('reports (0, total) before the first page is read, so a job queued behind other reads is not taken for dead', async () => {
+    const order: string[] = [];
+    await readStatementPdf(pdf3, 'bank', async (req) => { order.push(`page ${req.page}`); return req.page; },
+      async (done) => { order.push(`beat ${done}`); });
+    expect(order[0]).toBe('beat 0');
+    expect(order.indexOf('page 1')).toBeGreaterThan(0);
+  });
+
+  it('does not report a statement it refuses for length', async () => {
+    process.env.VLM_MAX_STATEMENT_PAGES = '2';
+    const onProgress = vi.fn();
+    await rejection(readStatementPdf(pdf3, 'bank', echo, onProgress));
+    expect(onProgress).not.toHaveBeenCalled();
   });
 
   it('does not fail the read when the progress write fails', async () => {

@@ -9,7 +9,9 @@
  * company column, so its rows are written only after the company-scoped parent
  * is locked `FOR UPDATE ... status = 'extracting'` in the same transaction as
  * the move to 'unreconciled': a row that was retried or deleted meanwhile is
- * neither overwritten nor given a second set of lines by a late result.
+ * neither overwritten nor given a second set of lines by a late result. A retry bumps
+ * `extraction_attempt`; every write is also guarded by the attempt the job claimed, so a read thought
+ * dead (stale) that finishes or fails late cannot touch the row its retry is reading.
  *
  * Never throws: a failure is recorded on the row (a user-safe message) and the
  * row ends 'failed'. A job that dies outright leaves the row 'extracting' with
@@ -27,20 +29,22 @@ import { loadSupplierInvoices, replaceStatementLines } from './supplierStatement
 
 type DbRow = Record<string, unknown>;
 
-async function heartbeat(companyId: string, reconId: string, done: number, total: number): Promise<void> {
+async function heartbeat(companyId: string, reconId: string, attempt: number, done: number, total: number): Promise<void> {
   await sql`
     UPDATE supplier_statement_reconciliations
     SET extraction_heartbeat_at = NOW(), extraction_pages_done = ${done}, extraction_pages_total = ${total}
     WHERE id = ${reconId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+      AND extraction_attempt = ${attempt}
   `;
 }
 
-async function markFailed(companyId: string, reconId: string, err: unknown): Promise<void> {
+async function markFailed(companyId: string, reconId: string, attempt: number, err: unknown): Promise<void> {
   const { message, code } = describeExtractionFailure(err, 'supplier');
   const failed = (await sql`
     UPDATE supplier_statement_reconciliations
     SET status = 'failed', extraction_error = ${message}, extraction_error_code = ${code}, updated_at = NOW()
     WHERE id = ${reconId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+      AND extraction_attempt = ${attempt}
     RETURNING id
   `) as DbRow[];
   log.info('supplierStatementRecon: extraction failed', { reconId, code, recorded: failed.length === 1 }, 'recon-service');
@@ -50,7 +54,7 @@ async function markFailed(companyId: string, reconId: string, err: unknown): Pro
 export async function runSupplierStatementExtraction(companyId: string, reconId: string): Promise<void> {
   try {
     const claimed = (await sql`
-      SELECT supplier_id, source_document_id FROM supplier_statement_reconciliations
+      SELECT supplier_id, source_document_id, extraction_attempt FROM supplier_statement_reconciliations
       WHERE id = ${reconId}::uuid AND company_id = ${companyId} AND status = 'extracting'
     `) as DbRow[];
     const row = claimed[0];
@@ -59,10 +63,11 @@ export async function runSupplierStatementExtraction(companyId: string, reconId:
       return;
     }
     const supplierId = row.supplier_id as string;
+    const attempt = Number(row.extraction_attempt);
 
     try {
       const extraction = await extractSupplierStatementFromDocument(
-        companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, reconId, done, total),
+        companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, reconId, attempt, done, total),
       );
       if (extraction.warnings.length > 0) {
         log.warn('Supplier statement extraction warnings', { reconId, warnings: extraction.warnings }, 'recon-service');
@@ -81,6 +86,7 @@ export async function runSupplierStatementExtraction(companyId: string, reconId:
         const locked = await tx`
           SELECT id FROM supplier_statement_reconciliations
           WHERE id = ${reconId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+            AND extraction_attempt = ${attempt}
           FOR UPDATE
         `;
         if (locked.length === 0) return false;
@@ -95,6 +101,7 @@ export async function runSupplierStatementExtraction(companyId: string, reconId:
               amount_diff_count = ${count('amount_diff')},
               extraction_error = NULL, extraction_error_code = NULL, updated_at = NOW()
           WHERE id = ${reconId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+            AND extraction_attempt = ${attempt}
         `;
         return true;
       });
@@ -109,7 +116,7 @@ export async function runSupplierStatementExtraction(companyId: string, reconId:
         reconId, total: inserts.length, exact, fuzzy, unmatched: inserts.length - exact - fuzzy,
       }, 'recon-service');
     } catch (err) {
-      await markFailed(companyId, reconId, err);
+      await markFailed(companyId, reconId, attempt, err);
     }
   } catch (err) {
     log.error('supplierStatementRecon: could not record the extraction outcome', {

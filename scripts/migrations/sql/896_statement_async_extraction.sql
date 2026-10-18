@@ -10,6 +10,9 @@
 --   extraction_heartbeat_at touched after every page read; a row 'extracting' with no heartbeat
 --                           for 5 minutes is reported as interrupted (computed on read, no cron)
 --   extraction_pages_done / extraction_pages_total   progress shown while 'extracting'
+--   extraction_attempt      bumped by every retry; a job writes only while it still holds the attempt it
+--                           claimed, so a read that was thought dead and finishes late cannot overwrite
+--                           (or fail) the row the retry is now reading
 --
 -- The status CHECK is inline in 417, so its name is <table>_status_check. It is looked up by
 -- definition rather than assumed, so a renamed constraint cannot survive and keep refusing the
@@ -43,11 +46,13 @@ ALTER TABLE bank_statement_imports
   ADD COLUMN IF NOT EXISTS extraction_error_code    TEXT,
   ADD COLUMN IF NOT EXISTS extraction_heartbeat_at  TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS extraction_pages_done    INTEGER,
-  ADD COLUMN IF NOT EXISTS extraction_pages_total   INTEGER;
+  ADD COLUMN IF NOT EXISTS extraction_pages_total   INTEGER,
+  ADD COLUMN IF NOT EXISTS extraction_attempt       INTEGER      NOT NULL DEFAULT 0;
 
 ALTER TABLE supplier_statement_reconciliations
   ADD COLUMN IF NOT EXISTS extraction_error         TEXT,
   ADD COLUMN IF NOT EXISTS extraction_error_code    TEXT,
   ADD COLUMN IF NOT EXISTS extraction_heartbeat_at  TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS extraction_pages_done    INTEGER,
-  ADD COLUMN IF NOT EXISTS extraction_pages_total   INTEGER;
+  ADD COLUMN IF NOT EXISTS extraction_pages_total   INTEGER,
+  ADD COLUMN IF NOT EXISTS extraction_attempt       INTEGER      NOT NULL DEFAULT 0;

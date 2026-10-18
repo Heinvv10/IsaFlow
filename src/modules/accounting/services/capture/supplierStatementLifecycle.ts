@@ -54,7 +54,7 @@ export async function createReconciliation(
 export async function retryReconciliation(companyId: string, reconId: string): Promise<SupplierStatementReconciliation> {
   const [updated] = (await sql`
     UPDATE supplier_statement_reconciliations
-    SET status = 'extracting', extraction_error = NULL, extraction_error_code = NULL,
+    SET status = 'extracting', extraction_attempt = extraction_attempt + 1, extraction_error = NULL, extraction_error_code = NULL,
         extraction_heartbeat_at = NOW(), extraction_pages_done = NULL, extraction_pages_total = NULL,
         updated_at = NOW()
     WHERE id = ${reconId}::uuid AND company_id = ${companyId}

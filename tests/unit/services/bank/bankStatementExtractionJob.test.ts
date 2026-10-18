@@ -24,6 +24,8 @@ const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
 const BANK = 'bbbbbbbb-0000-0000-0000-000000000002';
 const DOC = 'cccccccc-0000-0000-0000-000000000003';
 const IMPORT = 'eeeeeeee-0000-0000-0000-000000000005';
+/** The attempt the claimed row holds: a retry bumps it. */
+const ATTEMPT = 3;
 
 interface Call { text: string; values: unknown[] }
 const calls: Call[] = [];
@@ -45,7 +47,7 @@ const extraction = (over: Partial<ExtractedBankStatement> = {}): ExtractedBankSt
 beforeEach(() => {
   vi.resetAllMocks();
   calls.length = 0;
-  db = { claim: [{ bank_account_id: BANK, source_document_id: DOC }], final: [{ id: IMPORT }], existing: [], failedRows: [{ id: IMPORT }] };
+  db = { claim: [{ bank_account_id: BANK, source_document_id: DOC, extraction_attempt: ATTEMPT }], final: [{ id: IMPORT }], existing: [], failedRows: [{ id: IMPORT }] };
   m.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const c = { text: strings.join('?'), values };
     calls.push(c);
@@ -187,7 +189,7 @@ describe('runBankStatementExtraction — heartbeat', () => {
     expect(beat).toBeDefined();
     expect(text(beat)).toContain("WHERE id = ? AND company_id = ? AND status = 'extracting'");
     expect(text(beat)).toContain('extraction_pages_done = ?, extraction_pages_total = ?');
-    expect(beat.values).toEqual([3, 12, IMPORT, CO]);
+    expect(beat.values).toEqual([3, 12, IMPORT, CO, ATTEMPT]);
   });
 });
 
@@ -205,5 +207,44 @@ describe('every statement the job issues', () => {
       expect(text(c), text(c)).toContain('company_id = ?');
       expect(c.values, text(c)).toContain(CO);
     }
+  });
+});
+
+describe('a read that was retried meanwhile (extraction_attempt)', () => {
+  const guarded = (c: Call) => {
+    expect(text(c), text(c)).toContain('AND extraction_attempt = ?');
+    expect(c.values, text(c)).toContain(ATTEMPT);
+  };
+
+  it('claims the row and learns its attempt', async () => {
+    await runBankStatementExtraction(CO, IMPORT);
+    expect(text(calls[0])).toMatch(/^SELECT bank_account_id, source_document_id, extraction_attempt FROM/);
+  });
+
+  it('writes its result only while it still holds the attempt it claimed', async () => {
+    await runBankStatementExtraction(CO, IMPORT);
+    guarded(callsOn("status = 'extracted'")[0]!);
+  });
+
+  it('records its failure only while it still holds the attempt it claimed', async () => {
+    m.extract.mockRejectedValue(new Error('x'));
+    await runBankStatementExtraction(CO, IMPORT);
+    guarded(callsOn("SET status = 'failed'")[0]!);
+  });
+
+  it('beats only while it still holds the attempt it claimed', async () => {
+    m.extract.mockImplementation(async (_co: string, _doc: string, onProgress: (d: number, t: number) => Promise<void>) => {
+      await onProgress(1, 2);
+      return extraction();
+    });
+    await runBankStatementExtraction(CO, IMPORT);
+    guarded(callsOn('extraction_heartbeat_at = NOW()')[0]!);
+  });
+
+  it('a late failure of the old read leaves the retried row alone (no row matched, nothing thrown)', async () => {
+    m.extract.mockRejectedValue(new Error('x'));
+    db.failedRows = [];
+    await expect(runBankStatementExtraction(CO, IMPORT)).resolves.toBeUndefined();
+    expect(m.info).toHaveBeenCalledWith('bankStatementOcr: extraction failed', expect.objectContaining({ recorded: false }), 'bank-stmt-ocr');
   });
 });

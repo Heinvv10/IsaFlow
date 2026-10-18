@@ -80,6 +80,8 @@ describe('retryReconciliation', () => {
     const t = text(update);
     expect(t).toContain("SET status = 'extracting'");
     expect(t).toContain('extraction_error = NULL');
+    // A read thought dead that finishes late must not overwrite this attempt's row (job guards on it).
+    expect(t).toContain('extraction_attempt = extraction_attempt + 1');
     expect(t).toContain('extraction_heartbeat_at = NOW()');
     expect(t).toContain('WHERE id = ? AND company_id = ?');
     expect(t).toContain("status = 'failed'");

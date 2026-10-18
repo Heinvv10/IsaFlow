@@ -58,7 +58,6 @@ describe('a PDF the deterministic parsers can read', () => {
       { transactionDate: '2026-03-10', amount: 5000, description: 'Salary', balance: 15000, reference: 'SAL' },
       { transactionDate: '2026-03-05', amount: -200, description: 'Shop' },
     ],
-    errors: [{ row: 7, error: 'Could not read the amount' }],
   });
 
   it('uses their rows and never calls the VLM', async () => {
@@ -73,11 +72,11 @@ describe('a PDF the deterministic parsers can read', () => {
     expect(out.accountNumber).toBe('4102426629');
   });
 
-  it('spans the period over the rows and carries the parser\'s row errors as warnings', async () => {
+  it('spans the period over the rows', async () => {
     m.parseBankPdf.mockResolvedValue(absa);
     const out = await extractBankStatementFromDocument(CO, DOC);
     expect(out.statementPeriod).toEqual({ from: '2026-03-05', to: '2026-03-10' });
-    expect(out.warnings).toEqual(['Could not read the amount']);
+    expect(out.warnings).toEqual([]);
   });
 
   it('fetches the bytes for this company only', async () => {
@@ -116,6 +115,49 @@ describe('rows from the ABSA-pattern fallback', () => {
     const out = await extractBankStatementFromDocument(CO, DOC);
     expect(m.readStatementPdf).not.toHaveBeenCalled();
     expect(out.transactions).toHaveLength(1);
+  });
+});
+
+describe('native rows that show a dropped line', () => {
+  // A bank's own parser skips a line it cannot read and carries on. 10-25% of the lines of two real FNB
+  // statements came back as row errors, and their running balances chained once in a hundred pairs.
+  const native = (over: Partial<BankCsvParseResult>) => parsed({
+    bankFormat: 'fnb', parser: 'native',
+    transactions: [
+      { transactionDate: '2026-03-05', amount: -10, description: 'a', balance: 90 },
+      { transactionDate: '2026-03-06', amount: -20, description: 'b', balance: 70 },
+    ],
+    ...over,
+  });
+  const dropped: Array<[string, Partial<BankCsvParseResult>]> = [
+    ['a row the parser could not read', { errors: [{ row: 3, error: 'Invalid amount: ' }] }],
+    ['a running balance that does not follow from the amounts', {
+      transactions: [
+        { transactionDate: '2026-03-05', amount: -10, description: 'a', balance: 90 },
+        { transactionDate: '2026-03-07', amount: 50, description: 'c', balance: 120 },
+      ],
+    }],
+  ];
+
+  it.each(dropped)('go to the page reader for %s', async (_why, over) => {
+    m.parseBankPdf.mockResolvedValue(native(over));
+    m.readStatementPdf.mockResolvedValue([page({ transactions: [vlmTx('p1', -10), vlmTx('p2', -20), vlmTx('p3', -30)] })]);
+    const out = await extractBankStatementFromDocument(CO, DOC);
+    expect(m.readStatementPdf).toHaveBeenCalledTimes(1);
+    expect(out.transactions.map((t) => t.description)).toEqual(['p1', 'p2', 'p3']);
+  });
+
+  it.each(dropped)('fail, not keep partial rows, for %s when no VLM is configured', async (_why, over) => {
+    m.parseBankPdf.mockResolvedValue(native(over));
+    delete process.env.VLLM_BASE_URL;
+    await expect(extractBankStatementFromDocument(CO, DOC)).rejects.toMatchObject({ code: 'unavailable' });
+  });
+
+  it('clean native rows with a chaining balance are trusted', async () => {
+    m.parseBankPdf.mockResolvedValue(native({}));
+    const out = await extractBankStatementFromDocument(CO, DOC);
+    expect(m.readStatementPdf).not.toHaveBeenCalled();
+    expect(out.transactions).toHaveLength(2);
   });
 });
 
