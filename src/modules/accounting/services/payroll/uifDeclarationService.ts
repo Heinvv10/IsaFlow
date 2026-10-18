@@ -43,14 +43,53 @@ export interface UifDeclarationLine {
   employeeNumber: string;
   employeeName: string;
   grossPay: number;
+  /**
+   * The base the run levied UIF on. The run does not store it, so it is
+   * recovered: exact when the line is capped (the ceiling) or when the whole
+   * gross was leviable; otherwise back-solved from the stored contribution,
+   * which is rounded to cents, so it can be up to R0.50 out. 0 contribution
+   * (UIF-excluded) shows gross, as before (audit P20).
+   */
   leviableSalary: number;
   employeeContribution: number;
   employerContribution: number;
+  /** Leviable pay reached the UIF ceiling; read from the stored contribution. */
   isCapped: boolean;
 }
 
 export interface UifDeclarationDetail extends UifDeclaration {
   lines: UifDeclarationLine[];
+}
+
+/**
+ * The UIF ceiling in force for the periods this view serves, and 1% of it.
+ * A named constant, not a tax-table lookup, so an old or future period does not
+ * need a table to be displayed. Must equal `uifCeiling` in taxTables.ts
+ * (tests pin that); revisit with a period-effective value when SARS moves it.
+ */
+export const UIF_MONTHLY_CEILING = 17_712;
+export const UIF_CEILING_CONTRIBUTION = 177.12;
+
+/**
+ * Recover a line's UIF base from what the run stored (gross and the rounded
+ * employee contribution). Pure; see `UifDeclarationLine.leviableSalary`.
+ *
+ * Capped = the stored contribution reached the ceiling's and gross is above the
+ * ceiling. The one case this cannot tell apart: leviable pay in
+ * (R17 711.50, R17 712] on a line whose gross is above the ceiling because of
+ * non-UIF earnings, which reads as capped.
+ */
+export function uifLineBase(
+  grossPay: number,
+  employeeContribution: number,
+): { leviableSalary: number; isCapped: boolean } {
+  if (employeeContribution <= 0) return { leviableSalary: grossPay, isCapped: false };
+  if (employeeContribution >= UIF_CEILING_CONTRIBUTION && grossPay > UIF_MONTHLY_CEILING) {
+    return { leviableSalary: UIF_MONTHLY_CEILING, isCapped: true };
+  }
+  const grossContribution = Math.round(grossPay * 0.01 * 100) / 100;
+  if (grossContribution === employeeContribution) return { leviableSalary: grossPay, isCapped: false };
+  return { leviableSalary: Math.round(employeeContribution / 0.01 * 100) / 100, isCapped: false };
 }
 
 /** Exported for `uifPaymentService`, which was split out of this file. */
@@ -130,18 +169,14 @@ export async function getUifDeclaration(
 
   const lines: UifDeclarationLine[] = lineRows.map(r => {
     const grossPay = Number(r.gross_pay);
-    // From the contribution the run stored (1% of what was leviable, ceiling
-    // applied at run time), not from today's tax tables: an old or future
-    // period must not depend on a table being loaded to be displayed.
     const employeeContribution = Number(r.uif_employee);
-    const storedLeviable = Math.round(employeeContribution / 0.01 * 100) / 100;
-    const isCapped = employeeContribution > 0 && grossPay > storedLeviable;
+    const { leviableSalary, isCapped } = uifLineBase(grossPay, employeeContribution);
     return {
       employeeId: String(r.employee_id),
       employeeNumber: String(r.employee_number),
       employeeName: `${r.first_name} ${r.last_name}`,
       grossPay,
-      leviableSalary: employeeContribution > 0 ? storedLeviable : grossPay,
+      leviableSalary,
       employeeContribution,
       employerContribution: Number(r.uif_employer),
       isCapped,

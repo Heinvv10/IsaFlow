@@ -35,7 +35,10 @@ vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ cre
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn() }));
 
 import { sql } from '@/lib/neon';
+import { getTaxYearConfig } from '@/modules/accounting/services/payroll/taxTables';
 import {
+  UIF_CEILING_CONTRIBUTION,
+  UIF_MONTHLY_CEILING,
   generateUifDeclaration,
   getUifDeclaration,
 } from '@/modules/accounting/services/payroll/uifDeclarationService';
@@ -165,5 +168,38 @@ describe('getUifDeclaration - lines come from the stored contributions, not the 
       line({ uif_employee: 0, uif_employer: 0 }),
     ]);
     expect(d!.lines[0]).toMatchObject({ leviableSalary: 10_000, isCapped: false });
+  });
+
+  it('an uncapped employee with a non-UIF earning is NOT capped (R12 000 gross, R10 000 leviable)', async () => {
+    const d = await detail({ period_year: 2026, period_month: 6 }, [
+      line({ gross_pay: 12_000, uif_employee: 100, uif_employer: 100 }),
+    ]);
+    expect(d!.lines[0]).toMatchObject({ isCapped: false, leviableSalary: 10_000 });
+  });
+
+  it('shows gross exactly when all of it was leviable (R1 234.57, stored R12.35)', async () => {
+    const d = await detail({ period_year: 2026, period_month: 6 }, [
+      line({ gross_pay: 1_234.57, uif_employee: 12.35, uif_employer: 12.35 }),
+    ]);
+    expect(d!.lines[0]).toMatchObject({ isCapped: false, leviableSalary: 1_234.57 });
+  });
+
+  it('exactly at the ceiling is not capped (R17 712 gross, R177.12 stored)', async () => {
+    const d = await detail({ period_year: 2026, period_month: 6 }, [
+      line({ gross_pay: 17_712, uif_employee: 177.12, uif_employer: 177.12 }),
+    ]);
+    expect(d!.lines[0]).toMatchObject({ isCapped: false, leviableSalary: 17_712 });
+  });
+
+  it('one cent over the ceiling is capped at the ceiling', async () => {
+    const d = await detail({ period_year: 2026, period_month: 6 }, [
+      line({ gross_pay: 17_712.01, uif_employee: 177.12, uif_employer: 177.12 }),
+    ]);
+    expect(d!.lines[0]).toMatchObject({ isCapped: true, leviableSalary: 17_712 });
+  });
+
+  it('the ceiling constants match the tax table', () => {
+    expect(UIF_MONTHLY_CEILING).toBe(getTaxYearConfig(2027).uifCeiling);
+    expect(UIF_CEILING_CONTRIBUTION).toBe(UIF_MONTHLY_CEILING * 0.01);
   });
 });
