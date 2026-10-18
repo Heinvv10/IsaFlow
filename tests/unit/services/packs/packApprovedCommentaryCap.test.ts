@@ -144,6 +144,8 @@ describe('mixed word lengths at the budget (next-fit wrapping can waste a line b
   }
 
   for (const [name, input] of Object.entries(FIXTURES)) {
+    // Forty full page builds: ~1.4s on a quiet box, past the 10s default when
+    // the shared runner is at load 50+ (master run 39011025942).
     it(`composes twelve sheets for forty seeded texts — ${name}`, async () => {
       for (let seed = 1; seed <= 40; seed++) {
         const body = randomText(seed, MAX_APPROVED_PACK_EMS);
@@ -154,7 +156,7 @@ describe('mixed word lengths at the budget (next-fit wrapping can waste a line b
         const doc = await compose(input, [row]);
         expect(doc.pages, `seed ${seed}`).toHaveLength(12);
       }
-    });
+    }, 30_000);
   }
 });
 
