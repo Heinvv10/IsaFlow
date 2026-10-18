@@ -134,6 +134,18 @@ describe('markReconciled', () => {
     });
   }
 
+  it('says why by the state a reader is shown: a stale extracting reconciliation is the interrupted read it looks like', async () => {
+    m.sql.mockResolvedValueOnce([]);
+    m.sql.mockResolvedValueOnce([header({ status: 'extracting', created_at: longAgo })]);
+    await expect(markReconciled(CO, RECON, 'user')).rejects.toThrow('This statement could not be read; retry it or delete it.');
+  });
+
+  it('says still being read for a live extracting reconciliation', async () => {
+    m.sql.mockResolvedValueOnce([]);
+    m.sql.mockResolvedValueOnce([header({ status: 'extracting', extraction_heartbeat_at: new Date() })]);
+    await expect(markReconciled(CO, RECON, 'user')).rejects.toThrow('This statement is still being read.');
+  });
+
   it('still says not found for a reconciliation that is not there', async () => {
     m.sql.mockResolvedValueOnce([]);
     m.sql.mockResolvedValueOnce([]);

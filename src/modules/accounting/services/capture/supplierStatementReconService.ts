@@ -236,9 +236,10 @@ export async function markReconciled(
   `) as DbRow[];
   if (row) return;
   const [current] = (await sql`
-    SELECT status FROM supplier_statement_reconciliations
+    SELECT status, created_at, extraction_heartbeat_at, extraction_error_code FROM supplier_statement_reconciliations
     WHERE id = ${reconciliationId}::uuid AND company_id = ${companyId}
   `) as DbRow[];
-  if (current) throw new ReconciliationNotReadyError(reconciliationId, String(current.status));
+  // The state a reader is shown, as rematchLines does: an interrupted read is 'failed'.
+  if (current) throw new ReconciliationNotReadyError(reconciliationId, extractionView(current).status);
   throw new Error(`Reconciliation ${reconciliationId} not found`);
 }
