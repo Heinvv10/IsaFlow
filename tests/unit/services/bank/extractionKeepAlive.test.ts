@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: m.warn, error: vi.fn(), debug: vi.fn() } }));
 
-import { KEEPALIVE_INTERVAL_MS, KEEPALIVE_MS_PER_PAGE, keepAliveCeilingMs, withKeepAlive } from '@/modules/accounting/services/bank/extractionKeepAlive';
+import { KEEPALIVE_INTERVAL_MS, KEEPALIVE_MS_PER_PAGE, MAX_TIMER_MS, keepAliveCeilingMs, withKeepAlive } from '@/modules/accounting/services/bank/extractionKeepAlive';
 import { maxStatementPages } from '@/modules/accounting/services/bank/vlmStatementPages';
 import { effectiveExtractionState, STALE_AFTER_MINUTES } from '@/modules/accounting/services/bank/statementExtractionState';
 
@@ -115,6 +115,25 @@ describe('the keep-alive ceiling: work that never settles must not beat for ever
     try {
       expect(keepAliveCeilingMs()).toBe(5 * KEEPALIVE_MS_PER_PAGE);
     } finally { vi.unstubAllEnvs(); }
+  });
+
+  it('never exceeds what setTimeout can hold: a huge page cap would fire the ceiling after 1 ms and end the beating', async () => {
+    expect(MAX_TIMER_MS).toBe(2 ** 31 - 1);
+    vi.stubEnv('VLM_MAX_STATEMENT_PAGES', '100000');
+    try {
+      expect(keepAliveCeilingMs()).toBe(MAX_TIMER_MS);
+      const beat = vi.fn(async () => undefined);
+      void withKeepAlive(beat, never, 10);
+      await vi.advanceTimersByTimeAsync(120);
+      expect(beat.mock.calls.length).toBeGreaterThanOrEqual(10);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it('clamps a ceiling handed in directly too', async () => {
+    const beat = vi.fn(async () => undefined);
+    void withKeepAlive(beat, never, 10, 2 ** 40);
+    await vi.advanceTimersByTimeAsync(120);
+    expect(beat.mock.calls.length).toBeGreaterThanOrEqual(10);
   });
 
   it('stops beating at the ceiling while the work is still pending, and says so', async () => {
