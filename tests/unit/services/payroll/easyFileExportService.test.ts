@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 
 import {
@@ -119,9 +121,9 @@ const validEmployee: EmployeeInput = {
   periodsInYoA: 12,
   grossSalary3601: 360000,
   paye4102: 54000,
-  uifEmployee4141: 177.12,
-  uifEmployer4142: 177.12,
-  sdl4150: 3600,
+  uifEmployee: 177.12,
+  uifEmployer: 177.12,
+  sdl4142: 3600,
 };
 
 describe('buildEmployerRecord', () => {
@@ -178,6 +180,18 @@ describe('buildEmployeeRecord', () => {
     expect(lines.find((l) => l.startsWith('4102,'))).toBe('4102,54000.00');
   });
 
+  it('4141 is total UIF (employee + employer) and 4142 is SDL; 4150 is never emitted', () => {
+    const lines = buildEmployeeRecord(validEmployee);
+    expect(lines.find((l) => l.startsWith('4141,'))).toBe('4141,354.24');
+    expect(lines.find((l) => l.startsWith('4142,'))).toBe('4142,3600.00');
+    expect(lines.some((l) => l.startsWith('4150,'))).toBe(false);
+  });
+
+  it('does not lose a cent summing employee and employer UIF', () => {
+    const lines = buildEmployeeRecord({ ...validEmployee, uifEmployee: 0.1, uifEmployer: 0.2 });
+    expect(lines.find((l) => l.startsWith('4141,'))).toBe('4141,0.30');
+  });
+
   it('rejects non-30-char certificate numbers', () => {
     expect(() => buildEmployeeRecord({ ...validEmployee, certificateNumber: 'ABC' })).toThrow(UsageError);
   });
@@ -188,6 +202,17 @@ describe('buildEmployeeRecord', () => {
 
   it('rejects zero gross (BRS §3p — at least one income code > 0)', () => {
     expect(() => buildEmployeeRecord({ ...validEmployee, grossSalary3601: 0 })).toThrow(UsageError);
+  });
+});
+
+describe('golden file', () => {
+  it('matches the reviewed e@syFile IRP5 export byte for byte', () => {
+    const golden = readFileSync(
+      path.join(__dirname, 'fixtures', 'easyfile-irp5.golden.txt'),
+      'utf8',
+    );
+    const file = buildIrp5File({ employer: validEmployer, employees: [validEmployee] });
+    expect(file).toBe(golden);
   });
 });
 

@@ -1,4 +1,4 @@
-import { getTaxYearConfig } from './taxTables';
+import { etiForRemuneration, selectEtiTable } from './etiTables';
 import { getAge } from './payeEngine';
 import type { EtiInput, EtiMissingInput, EtiResult } from './payrollTypes';
 
@@ -9,17 +9,26 @@ function monthsBetween(start: Date, end: Date): number {
   );
 }
 
-export function calculateEti(input: EtiInput, taxYear: number): EtiResult {
-  const config = getTaxYearConfig(taxYear);
+/**
+ * The incentive is selected by the pay period (see etiTables), not by
+ * `_taxYear`, which is kept so callers do not change.
+ *
+ * Qualifying age is 18-29 (ETI Act s6(a)). The Special Economic Zone exception
+ * (no upper age limit) is NOT applied: nothing in the employee schema records
+ * that the employer or employee is in an SEZ, so a SEZ employee aged 30+ is
+ * reported ineligible and the claim is forfeited rather than over-claimed.
+ */
+export function calculateEti(input: EtiInput, _taxYear: number): EtiResult {
+  const table = selectEtiTable(input.periodDate);
   const age = getAge(input.dateOfBirth, input.periodDate);
   const monthsEmployed = monthsBetween(input.employmentStartDate, input.periodDate) + 1;
 
-  if (age < 18 || age > 35) {
+  if (age < 18 || age > 29) {
     return {
       isEligible: false,
       isDeterminable: true,
       missingInputs: [],
-      ineligibilityReason: 'Employee age must be 18–35',
+      ineligibilityReason: 'Employee age must be 18–29',
       monthsEmployed,
       employmentYear: null,
       monthlyEti: 0,
@@ -36,12 +45,12 @@ export function calculateEti(input: EtiInput, taxYear: number): EtiResult {
       monthlyEti: 0,
     };
   }
-  if (input.monthlyRemuneration > config.etiWageCeiling) {
+  if (input.monthlyRemuneration > table.wageCeiling) {
     return {
       isEligible: false,
       isDeterminable: true,
       missingInputs: [],
-      ineligibilityReason: `Wage exceeds ETI wage ceiling of R${config.etiWageCeiling.toLocaleString()}`,
+      ineligibilityReason: `Wage exceeds ETI wage ceiling of R${table.wageCeiling.toLocaleString()}`,
       monthsEmployed,
       employmentYear: null,
       monthlyEti: 0,
@@ -60,19 +69,7 @@ export function calculateEti(input: EtiInput, taxYear: number): EtiResult {
   }
 
   const employmentYear: 1 | 2 = monthsEmployed <= 12 ? 1 : 2;
-  const maxEti = employmentYear === 1 ? config.etiYearOneMax : config.etiYearTwoMax;
-
-  let monthlyEti: number;
-  if (input.monthlyRemuneration <= config.etiWageFloor) {
-    monthlyEti = 0;
-  } else if (input.monthlyRemuneration <= 4_500) {
-    monthlyEti = maxEti;
-  } else {
-    const taper =
-      (config.etiWageCeiling - input.monthlyRemuneration) /
-      (config.etiWageCeiling - 4_500);
-    monthlyEti = maxEti * taper;
-  }
+  const monthlyEti = etiForRemuneration(input.monthlyRemuneration, employmentYear, table);
 
   return {
     isEligible: true,
@@ -80,7 +77,7 @@ export function calculateEti(input: EtiInput, taxYear: number): EtiResult {
     missingInputs: [],
     monthsEmployed,
     employmentYear,
-    monthlyEti: Math.round(Math.max(0, monthlyEti) * 100) / 100,
+    monthlyEti: Math.round(monthlyEti * 100) / 100,
   };
 }
 

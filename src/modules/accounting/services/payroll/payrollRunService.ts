@@ -6,7 +6,7 @@ import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
-import { getTaxYear } from './taxTables';
+import { getTaxYear, getTaxYearConfig } from './taxTables';
 import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
 import type { EmployeeComponent, PayrollComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
@@ -126,6 +126,10 @@ export async function calculatePayrollRun(
     year: Number(run.period_year),
   };
   const taxYear = getTaxYear(period.month, period.year);
+  // Refuse an unloaded tax year here, before applyRunLoans commits loan
+  // deductions and before any line is built. UnsupportedTaxYearError is a
+  // refusal with nothing written; the callers answer it as a 4xx.
+  getTaxYearConfig(taxYear);
   const periodDate = new Date(period.year, period.month - 1, 28);
 
   const employees = await listPayrollEmployees(companyId);

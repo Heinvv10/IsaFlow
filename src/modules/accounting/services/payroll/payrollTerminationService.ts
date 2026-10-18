@@ -6,8 +6,10 @@
  * way regular earning components do — they become part of `gross_pay`, get
  * taxed via PAYE, and land on the payslip.
  *
- * SARS source codes assigned per BRS v25.2:
- *   3810 — Leave pay
+ * SARS source codes assigned per BRS v25.2 and the SARS code guide PAYE-AE-06-G06
+ * (whose 3605 entry lists "Leave pay (on resignation/encashment of leave credits)";
+ * 3810 is the employer medical-aid fringe benefit, not leave pay):
+ *   3605 — Annual payment: leave pay on termination
  *   3605 — Annual payment / gratuity (used for notice pay — BCEA s37)
  *   3901 — Gratuities / severance pay (lump sum — may require a tax directive)
  *
@@ -59,7 +61,7 @@ export interface TerminationPreview {
 const LEAVE_PAY: PayrollComponent = {
   id: 'synthetic:termination:leave-payout',
   name: 'Leave Pay-Out (Termination)',
-  sarsSourceCode: '3810',
+  sarsSourceCode: '3605',
   componentType: 'earning',
   isTaxable: true,
   isUifApplicable: true,  // BCEA: leave pay on termination is remuneration for UIF purposes
