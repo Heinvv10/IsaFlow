@@ -73,6 +73,8 @@ const KNOWN_WRITERS = [
   'pages/api/invitations/revoke/[id].ts: writes', // W8 revoke — app_user
   'pages/api/invite/[token].ts: writes', // W10 /invite accept — the login role, invitation's role
   'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
+  'scripts/acceptance/entity-onboarding-admin.ts: writes', // browser acceptance admin scenarios — throwaway DB via psql
+  'scripts/acceptance/entity-onboarding-seed.ts: writes', // browser acceptance seed — throwaway DB via psql
   'scripts/acceptance/entity-onboarding.ts: writes', // browser acceptance seed — throwaway DB via psql
   'scripts/large-scale-seed.ts: writes', // W18 seed — postgres
   'scripts/provision-isademo2.ts: writes', // W18 demo provisioning — postgres
