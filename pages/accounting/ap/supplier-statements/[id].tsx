@@ -81,7 +81,7 @@ export default function SupplierStatementDetailPage() {
   }, []);
 
   // `silent`: a poll while the statement is being read. It keeps what is on screen and shows no spinner.
-  // Resolves to what the poll found: 'stop' when the statement is gone or not ours (404/403), 'failed' for any other error.
+  // Resolves to what the poll found: 'stop' when the statement is gone or not ours (404/403), 'bad' for any other error.
   const load = useCallback(async (silent = false): Promise<PollOutcome> => {
     if (!reconId) return 'ok';
     if (!silent) { setLoading(true); setError(''); }
@@ -97,7 +97,7 @@ export default function SupplierStatementDetailPage() {
     } catch (err) {
       if (!silent) setRecon(null);
       setError(apiErrorMessage(err, 'Could not load the reconciliation - try again'));
-      return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'failed';
+      return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'bad';
     }
     finally { if (!silent) setLoading(false); }
   }, [reconId]);

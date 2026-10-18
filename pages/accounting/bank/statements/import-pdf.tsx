@@ -83,7 +83,7 @@ export default function ImportPdfPage() {
   }, []);
 
   // `silent`: a poll while the statement is being read. It keeps what is on screen and shows no spinner.
-  // Resolves to what the poll found: 'stop' when the import is gone or not ours (404/403), 'failed' for any other error.
+  // Resolves to what the poll found: 'stop' when the import is gone or not ours (404/403), 'bad' for any other error.
   const loadImport = useCallback(async (id: string, silent = false): Promise<PollOutcome> => {
     if (!silent) { setLoading(true); setError(''); }
     try {
@@ -96,7 +96,7 @@ export default function ImportPdfPage() {
     } catch (err) {
       if (!silent) setImp(null);
       setError(apiErrorMessage(err, 'Could not load this import - try again'));
-      return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'failed';
+      return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'bad';
     }
     finally { if (!silent) setLoading(false); }
   }, []);
