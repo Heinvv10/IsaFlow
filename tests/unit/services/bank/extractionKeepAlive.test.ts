@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: m.warn, error: vi.fn(), debug: vi.fn() } }));
 
-import { KEEPALIVE_INTERVAL_MS, withKeepAlive } from '@/modules/accounting/services/bank/extractionKeepAlive';
+import { KEEPALIVE_INTERVAL_MS, KEEPALIVE_MS_PER_PAGE, keepAliveCeilingMs, withKeepAlive } from '@/modules/accounting/services/bank/extractionKeepAlive';
+import { maxStatementPages } from '@/modules/accounting/services/bank/vlmStatementPages';
 import { effectiveExtractionState, STALE_AFTER_MINUTES } from '@/modules/accounting/services/bank/statementExtractionState';
 
 beforeEach(() => { vi.useFakeTimers(); m.warn.mockReset(); });
@@ -98,5 +99,51 @@ describe('a row that is alive and waiting is not shown as interrupted', () => {
     await run;
     await vi.advanceTimersByTimeAsync(minutes(STALE_AFTER_MINUTES) + 1000);
     expect(stale()).toBe(true);
+  });
+});
+
+describe('the keep-alive ceiling: work that never settles must not beat for ever', () => {
+  const never = () => new Promise<void>(() => undefined);
+
+  it('is the page cap times a per-page budget that covers a VLM request timeout (120 s) with room to queue', () => {
+    expect(KEEPALIVE_MS_PER_PAGE).toBeGreaterThanOrEqual(120_000);
+    expect(keepAliveCeilingMs()).toBe(maxStatementPages() * KEEPALIVE_MS_PER_PAGE);
+  });
+
+  it('follows VLM_MAX_STATEMENT_PAGES', () => {
+    vi.stubEnv('VLM_MAX_STATEMENT_PAGES', '5');
+    try {
+      expect(keepAliveCeilingMs()).toBe(5 * KEEPALIVE_MS_PER_PAGE);
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it('stops beating at the ceiling while the work is still pending, and says so', async () => {
+    const beat = vi.fn(async () => undefined);
+    void withKeepAlive(beat, never, KEEPALIVE_INTERVAL_MS, minutes(10));
+    await vi.advanceTimersByTimeAsync(minutes(10));
+    const atCeiling = beat.mock.calls.length;
+    expect(atCeiling).toBeGreaterThanOrEqual(9);
+    expect(atCeiling).toBeLessThanOrEqual(10);
+    expect(m.warn).toHaveBeenCalledWith(expect.stringContaining('ceiling'), expect.anything(), expect.anything());
+    await vi.advanceTimersByTimeAsync(minutes(60));
+    expect(beat.mock.calls.length).toBe(atCeiling);
+  });
+
+  it('a hung job goes stale after its last beat, so retry and delete are accepted again', async () => {
+    let lastBeat = Date.now();
+    void withKeepAlive(async () => { lastBeat = Date.now(); }, never, KEEPALIVE_INTERVAL_MS, minutes(10));
+    await vi.advanceTimersByTimeAsync(minutes(10));
+    const state = () => effectiveExtractionState({ status: 'extracting', extraction_heartbeat_at: new Date(lastBeat) }).status;
+    expect(state()).toBe('extracting');
+    await vi.advanceTimersByTimeAsync(minutes(STALE_AFTER_MINUTES) + 1000);
+    expect(state()).toBe('failed');
+  });
+
+  it('work that settles before the ceiling is unaffected, and the ceiling timer does not outlive it', async () => {
+    const beat = vi.fn(async () => undefined);
+    await Promise.all([withKeepAlive(beat, () => later(minutes(2)), KEEPALIVE_INTERVAL_MS, minutes(10)), vi.advanceTimersByTimeAsync(minutes(2))]);
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(minutes(20));
+    expect(m.warn).not.toHaveBeenCalled();
   });
 });
