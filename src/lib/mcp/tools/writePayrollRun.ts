@@ -41,6 +41,7 @@ import {
   runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
+import { UnsupportedTaxYearError, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -107,14 +108,18 @@ export const calculatePayRunTool: McpTool = {
       const blocked = run.journalEntryId != null
         && await payrollJournalInForce(ctx.companyId, run.journalEntryId)
         && await runHasLoanWork(ctx.companyId, runId, run.periodYear, run.periodMonth);
+      const taxYearMissing = unloadedTaxYearMessage(run.periodMonth, run.periodYear);
       return ok({
         dryRun: true,
         wroteNothing: true,
         journals: [],
-        effects: blocked
+        effects: blocked || taxYearMissing
           ? []
           : [`Recost run ${run.periodMonth}/${run.periodYear} (status '${run.status}') and rebuild its lines.`],
-        skipped: blocked ? [new PayrollRunJournalPostedError(runId).message] : [],
+        skipped: [
+          ...(blocked ? [new PayrollRunJournalPostedError(runId).message] : []),
+          ...(taxYearMissing ? [taxYearMissing] : []),
+        ],
         current: runPayload(run),
       });
     }
@@ -136,7 +141,8 @@ export const calculatePayRunTool: McpTool = {
       // Same shape: raised before any line is touched, and the message names
       // the action the agent must take instead.
       if (err instanceof PayrollRunJournalPostedError
-        || err instanceof PayrollLoanLockTimeoutError) {
+        || err instanceof PayrollLoanLockTimeoutError
+        || err instanceof UnsupportedTaxYearError) {
         return toolError(err.message);
       }
       throw err;

@@ -56,6 +56,7 @@ import {
   runHasLoanWork,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 import { payrollJournalInForce } from '@/modules/accounting/services/payroll/payrollJournalChain';
+import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
 import { approvePayRunTool, calculatePayRunTool } from '@/lib/mcp/tools/writePayrollRun';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
@@ -153,6 +154,21 @@ describe('calculate_pay_run', () => {
     const r = await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
     expect(r.isError).toBe(true);
     expect(errText(r)).toContain('retry in a moment');
+  });
+
+  it('returns the unloaded-tax-year refusal so the agent reads what is missing', async () => {
+    vi.mocked(calculatePayrollRun).mockRejectedValue(new UnsupportedTaxYearError(2028));
+    const r = await calculatePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
+    expect(errText(r)).toContain('tax year 2028');
+  });
+
+  it('dry run PREDICTS the unloaded-tax-year refusal instead of promising a recost', async () => {
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ periodMonth: 3, periodYear: 2027 }) as never);
+    const out = parseOk(await calculatePayRunTool.handler(
+      { run_id: RUN, dry_run: true, ...KEY }, ctx(),
+    ));
+    expect(out.effects).toEqual([]);
+    expect(JSON.stringify(out.skipped)).toContain('tax year 2028');
   });
 
   it('RETHROWS anything else so the savepoint sees it', async () => {
