@@ -1,17 +1,21 @@
 // Requests for POST /api/onboarding/complete-setup that the server must REFUSE (the catalogue), and ones it ACCEPTS
 // but must store differently from what was sent (the probes). Messages are copied from entityOnboardingRules.ts
 // (setupIssues and its parts) and onboardingSetupPayload.ts (file checks). Data only: no database access here.
-import { pdfDataUrl, pngDataUrl, saId, textDataUrl, tinyPdfDataUrl, tinyPngDataUrl } from './entity-onboarding-support';
+import { pdfDataUrl, pngDataUrl, saId, sizedDataUrl, textDataUrl, tinyPdfDataUrl, tinyPngDataUrl } from './entity-onboarding-support';
 
 export type Body = {
   requestKey: string; entityType: string; coaTemplate: string;
   company: Record<string, unknown>; people: Array<Record<string, unknown>>; documents: Array<Record<string, unknown>>;
 };
 export interface RefusalCase { label: string; body: Body; expect: string }
-export interface ProbeCase { label: string; body: Body; expectReg: string | null }
+/** `expectDocs`: the document types stored for the new company, in order of type then insertion (none = no document). */
+export interface ProbeCase { label: string; body: Body; expectReg: string | null; expectDocs?: string }
 
 const REG: Record<string, string> = { pty_ltd: '2020/123456/07', ltd: '2015/987654/06', npc: '2018/456789/08', cc: 'CK1998/012345/23', trust: 'IT1234/2020' };
 const PROOF: Record<string, string> = { pty_ltd: 'cipc_certificate', ltd: 'cipc_certificate', npc: 'cipc_certificate', cc: 'ck_certificate', trust: 'letters_of_authority' };
+const MiB = 1024 * 1024;
+// uploadLimits.ts: MAX_UPLOAD_BYTES 20 MiB per file, MAX_TOTAL_UPLOAD_BYTES 30 MiB per request, onboardingSetupPayload.ts: MAX_DOCUMENTS 20, MAX_PEOPLE 50
+const TOTAL_TOO_LARGE = 'The uploaded files are larger than 30 MB together. Remove or shrink some and try again.';
 let seq = 0;
 const next = () => ++seq;
 
@@ -41,18 +45,35 @@ export function refusalCatalogue(): RefusalCase[] {
   const dupNumber = valid('partnership'); dupNumber.people[1]!.idNumber = dupNumber.people[0]!.idNumber;
   const dupDoc = valid('partnership'); dupDoc.people[1]!.idDocument = dupDoc.people[0]!.idDocument;
   const dupName = valid('partnership');
-  Object.assign(dupName.people[0]!, { name: 'Pat Jones', idNumber: '' });
-  Object.assign(dupName.people[1]!, { name: 'pat  jones', idNumber: '' });
+  Object.assign(dupName.people[0]!, { name: 'Synth Pat Jones', idNumber: '' });
+  Object.assign(dupName.people[1]!, { name: 'synth  PAT jones', idNumber: '' }); // double space and different case: still the same name
   const twoOwners = valid('sole_proprietor'); twoOwners.people.push(person('Synth Second Owner'));
   const tiny = valid('pty_ltd'); tiny.documents = [{ ...doc('cipc_certificate', 'tiny.pdf'), data: tinyPdfDataUrl() }];
   const tinyId = valid('sole_proprietor'); tinyId.people[0]!.idDocument = { name: 'tiny-id.png', data: tinyPngDataUrl() };
   const fakePdf = valid('pty_ltd'); fakePdf.documents = [{ ...doc('cipc_certificate', 'fake.pdf'), data: textDataUrl('application/pdf') }];
   const textMime = valid('pty_ltd'); textMime.documents = [{ ...doc('cipc_certificate', 'notes.txt'), data: textDataUrl('text/plain'), mimeType: 'text/plain' }];
   const fakeId = valid('sole_proprietor'); fakeId.people[0]!.idDocument = { name: 'fake-id.png', data: textDataUrl('image/png') };
+  const bigDoc = valid('pty_ltd'); bigDoc.documents = [{ ...doc('cipc_certificate', 'big.pdf'), data: sizedDataUrl('pdf', 20 * MiB + 1024, 'big') }];
+  const bigId = valid('sole_proprietor'); bigId.people[0]!.idDocument = { name: 'big-id.png', data: sizedDataUrl('png', 20 * MiB + 1024, 'bigid') };
+  // two files under the 20 MiB cap each, 30 MiB + 1 KiB together (the base64 body stays under the route's 41 MB parser limit)
+  const bigTotal = valid('pty_ltd');
+  bigTotal.documents = [
+    { ...doc('cipc_certificate', 'a.pdf'), data: sizedDataUrl('pdf', 15 * MiB + 512, 'a') },
+    { ...doc('tax_clearance', 'b.pdf'), data: sizedDataUrl('pdf', 15 * MiB + 512, 'b') },
+  ];
+  const manyDocs = valid('pty_ltd');
+  for (let i = 0; i < 20; i++) manyDocs.documents.push(doc('tax_clearance', `extra-${i}.pdf`)); // 1 proof + 20 = 21
+  const manyPeople = valid('other'); manyPeople.people = Array.from({ length: 51 }, (_, i) => person(`Synth Person ${i + 1}`, { idDocument: null }));
   return [
+    { label: 'registration: CK-prefixed CK1998/012345/23 on trust', body: withReg('trust', 'CK1998/012345/23'), expect: belongs('Close corporation (CC)', 'Trust') },
+    { label: 'limit: one document over 20 MB (20 MiB + 1 KiB)', body: bigDoc, expect: 'Document "big.pdf" exceeds the 20 MB limit' },
+    { label: 'limit: one ID document over 20 MB (20 MiB + 1 KiB)', body: bigId, expect: 'ID document of Synth Owner exceeds the 20 MB limit' },
+    { label: 'limit: two documents of 15 MiB, over 30 MB together', body: bigTotal, expect: TOTAL_TOO_LARGE },
+    { label: 'limit: 21 documents', body: manyDocs, expect: 'Maximum 20 documents' },
+    { label: 'limit: 51 people', body: manyPeople, expect: 'Maximum 50 people' },
     { label: 'duplicate people: same ID number', body: dupNumber, expect: 'Two people have the same ID number' },
     { label: 'duplicate people: same ID document bytes', body: dupDoc, expect: 'Two people have the same ID document' },
-    { label: 'duplicate people: same name, neither has an ID number', body: dupName, expect: 'Pat Jones is listed more than once' },
+    { label: 'duplicate people: same name, neither has an ID number', body: dupName, expect: 'Synth Pat Jones is listed more than once' },
     { label: 'too many people: sole proprietor with 2 owners', body: twoOwners, expect: 'A sole proprietor has 1 owner' },
     ...(['pty_ltd:CK1998/012345/07:Private company (Pty) Ltd', 'ltd:CK1998/012345/06:Public company (Ltd)', 'npc:CK1998/012345/08:Non-profit company (NPC)']
       .map(s => s.split(':') as [string, string, string])
@@ -82,10 +103,20 @@ export function refusalCatalogue(): RefusalCase[] {
  * whose format the suffix check cannot read is not judged), so the server stores NULL / the text as sent.
  */
 export function probeCatalogue(): ProbeCase[] {
+  /** pty_ltd with two documents carrying identical bytes. */
+  const sameBytes = (a: string, b: string): Body => {
+    const body = valid('pty_ltd');
+    const first = doc(a, 'same-1.pdf');
+    body.documents = [first, { ...doc(b, 'same-2.pdf'), data: first.data }];
+    return body;
+  };
   return [
     { label: 'sole_proprietor sent a registration number', body: withReg('sole_proprietor', '2020/123456/07'), expectReg: null },
     { label: 'partnership sent a registration number', body: withReg('partnership', 'IT1234/2020'), expectReg: null },
     { label: 'other sent a registration number', body: withReg('other', '2020/123456/07'), expectReg: null },
-    { label: 'trust sent a wrong-format number', body: withReg('trust', 'not a real number'), expectReg: 'not a real number' },
+    { label: 'trust sent a wrong-format number (known product gap: no format check)', body: withReg('trust', 'not a real number'), expectReg: 'not a real number', expectDocs: 'letters_of_authority' },
+    { label: 'pty_ltd sent an IT-format number (known product gap: only CIPC and CK shapes are read)', body: withReg('pty_ltd', 'IT1234/2020'), expectReg: 'IT1234/2020', expectDocs: 'cipc_certificate' },
+    { label: 'pty_ltd sent the same document bytes under two slots (no check on company documents)', body: sameBytes('cipc_certificate', 'tax_clearance'), expectReg: REG.pty_ltd!, expectDocs: 'cipc_certificate,tax_clearance' },
+    { label: 'pty_ltd sent the same document type twice (no check on company documents)', body: sameBytes('cipc_certificate', 'cipc_certificate'), expectReg: REG.pty_ltd!, expectDocs: 'cipc_certificate,cipc_certificate' },
   ];
 }
