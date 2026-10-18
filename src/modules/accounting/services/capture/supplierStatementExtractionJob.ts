@@ -21,6 +21,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { withKeepAlive } from '@/modules/accounting/services/bank/extractionKeepAlive';
 import { describeExtractionFailure } from '@/modules/accounting/services/bank/statementExtractionState';
 import { StatementReadError } from '@/modules/accounting/services/bank/vlmStatementPages';
 import { extractSupplierStatementFromDocument } from './supplierStatementExtraction';
@@ -34,6 +35,16 @@ async function heartbeat(companyId: string, reconId: string, attempt: number, do
   await sql`
     UPDATE supplier_statement_reconciliations
     SET extraction_heartbeat_at = NOW(), extraction_pages_done = ${done}, extraction_pages_total = ${total}
+    WHERE id = ${reconId}::uuid AND company_id = ${companyId} AND status = 'extracting'
+      AND extraction_attempt = ${attempt}
+  `;
+}
+
+/** A sign of life with no progress to report: the job is alive and waiting for a VLM slot. */
+async function touch(companyId: string, reconId: string, attempt: number): Promise<void> {
+  await sql`
+    UPDATE supplier_statement_reconciliations
+    SET extraction_heartbeat_at = NOW()
     WHERE id = ${reconId}::uuid AND company_id = ${companyId} AND status = 'extracting'
       AND extraction_attempt = ${attempt}
   `;
@@ -67,9 +78,9 @@ export async function runSupplierStatementExtraction(companyId: string, reconId:
     const attempt = Number(row.extraction_attempt);
 
     try {
-      const extraction = await extractSupplierStatementFromDocument(
+      const extraction = await withKeepAlive(() => touch(companyId, reconId, attempt), () => extractSupplierStatementFromDocument(
         companyId, row.source_document_id as string, (done, total) => heartbeat(companyId, reconId, attempt, done, total),
-      );
+      ));
       // A read that found nothing is not saved as an empty statement: there would be nothing to reconcile, and a
       // scan the reader missed would look finished. Retryable, with its own code so the cause shows in the row.
       if (extraction.lines.length === 0) {
