@@ -55,7 +55,7 @@ it('usePollWhileReading stops once a poll reports the statement is gone', async 
 });
 
 it('usePollWhileReading stops after 3 failed polls in a row', async () => {
-  const reload = vi.fn(async (): Promise<PollOutcome> => 'failed');
+  const reload = vi.fn(async (): Promise<PollOutcome> => 'bad');
   renderHook(() => usePollWhileReading('extracting', reload));
   await tick(3000);
   await tick(3000);
@@ -67,7 +67,7 @@ it('usePollWhileReading stops after 3 failed polls in a row', async () => {
 });
 
 it('usePollWhileReading counts only failures in a row: a good poll starts the count again', async () => {
-  const outcomes: PollOutcome[] = ['failed', 'failed', 'ok', 'failed', 'failed', 'ok'];
+  const outcomes: PollOutcome[] = ['bad', 'bad', 'ok', 'bad', 'bad', 'ok'];
   const reload = vi.fn(async (): Promise<PollOutcome> => outcomes.shift() ?? 'ok');
   renderHook(() => usePollWhileReading('extracting', reload));
   for (let i = 0; i < 6; i += 1) await tick(3000);
