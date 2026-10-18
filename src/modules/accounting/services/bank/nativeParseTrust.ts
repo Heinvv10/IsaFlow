@@ -6,8 +6,9 @@
  *   - the parser's own row errors;
  *   - a row without a running balance, or balances that do not follow from the amounts (a row missing
  *     between two balances). Every row must carry one: a result with none, or some, proves nothing;
- *   - where the parser read the printed "balance brought forward", a first row that does not follow from
- *     it (a dropped first row);
+ *   - a first row that does not follow from the printed "balance brought forward" (a dropped first row), and
+ *     with none printed, a first row whose amount the line printed; a first row tied to neither is refused,
+ *     since its amount and sign are then unverified;
  *   - where the parser derives each amount from the balances (ABSA), so that its balances chain by
  *     construction, an amount that differs from the one printed on the line.
  * A dropped LAST row is not caught: no parser reads a printed closing balance, because the layouts do not
@@ -27,19 +28,20 @@ const cents = (n: number) => Math.round(n * 100);
 const within = (a: number, b: number) => Math.abs(cents(a) - cents(b)) <= TOLERANCE_CENTS;
 
 /**
- * Every balance follows from the previous one and the amounts, and (when known) the oldest row follows from
- * the opening balance. Rows may be oldest first or newest first; either order will do.
+ * Every balance follows from the previous one and the amounts, and the oldest row is tied to something that is
+ * not itself derived: the printed opening balance, or (ABSA) the amount its line printed. The chain starts at
+ * the second row, so without that tie the oldest row's amount, and above all its SIGN, is unverified: ABSA
+ * gives it the absolute amount when no brought-forward line precedes it, and a debit would import as a credit.
+ * Rows may be oldest first or newest first; either order will do.
  */
 function balancesChain(rows: ParsedBankTransaction[], opening: number | undefined): boolean {
-  // With nothing before the first row to compare against, a single row proves nothing.
-  if (rows.length < 2 && opening === undefined) return false;
   const holds = (newestFirst: boolean) => {
     for (let k = 1; k < rows.length; k++) {
       const [older, newer] = newestFirst ? [rows[k]!, rows[k - 1]!] : [rows[k - 1]!, rows[k]!];
       if (!within(older.balance! + newer.amount, newer.balance!)) return false;
     }
-    if (opening === undefined) return true;
     const oldest = newestFirst ? rows[rows.length - 1]! : rows[0]!;
+    if (opening === undefined) return oldest.printedAmount !== undefined;
     return within(opening + oldest.amount, oldest.balance!);
   };
   return holds(false) || holds(true);

@@ -39,9 +39,49 @@ describe('ABSA slash-date parser', () => {
     expect(nativeRowsAreComplete({ ...r, parser: 'native' })).toBe(false);
   });
 
+  it('a statement with no brought-forward line: the first row\'s sign is unverified, so the rows are not trusted', () => {
+    // Opened at 100, but nothing printed it: the parser reads the 10.00 debit as a credit (it has no balance to derive the sign from).
+    const r = parseAbsaPdfText(['Absa Bank Limited', '15/03/2026 Shop Purchase 10.00 90.00', '16/03/2026 Fuel 5.00 85.00'].join('\n'));
+    expect(r.openingBalance).toBeUndefined();
+    expect(r.transactions.map((t) => [t.amount, t.balance, t.printedAmount])).toEqual([[10, 90, undefined], [-5, 85, 5]]);
+    expect(nativeRowsAreComplete({ ...r, parser: 'native' })).toBe(false);
+  });
+
   it('takes the opening balance from the first brought-forward line only', () => {
     const r = parseAbsaPdfText(absa(SHOP, '03/03/2026 Bal Brought Forward 777.00', SALARY));
     expect(r.openingBalance).toBe(1000);
+  });
+});
+
+describe('ABSA investment-account parser (day, month name, year; comma decimals)', () => {
+  const inv = (...rows: string[]) => ['Absa Bank Limited', 'Investment Account', '01 Mar 2026 Balance Brought Forward 1 000,00', ...rows].join('\n');
+  const CREDIT = '02 Mar 2026 Deposit Credit 500,00 1 500,00';
+  const DEBIT = '03 Mar 2026 Withdrawal Debit 200,00- 1 300,00';
+
+  it('reports the balance brought forward and the amount each derived line printed', () => {
+    const r = parseAbsaPdfText(inv(CREDIT, DEBIT));
+    expect(r.openingBalance).toBe(1000);
+    expect(r.transactions.map((t) => [t.amount, t.balance])).toEqual([[500, 1500], [-200, 1300]]);
+    expect(r.transactions[0]!.printedAmount).toBe(500);
+    expect(nativeRowsAreComplete({ ...r, parser: 'native' })).toBe(true);
+  });
+
+  it('takes only a brought-forward line as the opening balance, and only before the first row', () => {
+    const total = parseAbsaPdfText(['Absa Bank Limited', 'Investment Account', '01 Mar 2026 Total Credits 777,00', CREDIT].join('\n'));
+    expect(total.openingBalance).toBeUndefined();
+    const late = parseAbsaPdfText(['Absa Bank Limited', 'Investment Account', CREDIT, '03 Mar 2026 Balance Brought Forward 999,00'].join('\n'));
+    expect(late.openingBalance).toBeUndefined();
+  });
+
+  it('a dropped first row is shown by the opening balance', () => {
+    const r = parseAbsaPdfText(inv(DEBIT));
+    expect(nativeRowsAreComplete({ ...r, parser: 'native' })).toBe(false);
+  });
+
+  it('a dropped middle row is shown by the printed amount', () => {
+    const r = parseAbsaPdfText(inv(CREDIT, '04 Mar 2026 Deposit Credit 100,00 1 900,00'));
+    expect(r.transactions[1]!.amount).toBe(400);
+    expect(nativeRowsAreComplete({ ...r, parser: 'native' })).toBe(false);
   });
 });
 
