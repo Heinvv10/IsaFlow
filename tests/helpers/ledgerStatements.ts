@@ -122,6 +122,26 @@ function leftJoinOnWithoutGuard(body: string, alias: string, markerAt: number): 
   return false;
 }
 
+/**
+ * LEFT JOINs onto gl_journal_entries whose alias the statement never uses outside that join's own ON clause.
+ * Whatever the ON says (posted, a date, the close marker), such a join blanks the entry's columns but keeps the
+ * line, so a SUM over the lines counts draft and excluded entries. An allow-list category excuses the year-end
+ * marker; it does not excuse this.
+ */
+export function ungatedEntryLeftJoins(body: string): string[] {
+  const out: string[] = [];
+  const join = /\bLEFT\s+(?:OUTER\s+)?JOIN\s+(?:ONLY\s+)?(?:"?public"?\s*\.\s*)?"?gl_journal_entries"?(?:\s+(?:AS\s+)?([A-Za-z_]\w*))?/gi;
+  for (const j of body.matchAll(join)) {
+    const alias = j[1] && !RESERVED.has(j[1].toUpperCase()) ? j[1] : 'gl_journal_entries';
+    const onStart = j.index! + j[0].length;
+    const next = body.slice(onStart).search(/\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|LEFT|RIGHT|INNER|FULL|CROSS|JOIN)\b/i);
+    const onEnd = next < 0 ? body.length : onStart + next;
+    const outside = body.slice(0, j.index!) + ' ' + body.slice(onEnd);
+    if (!new RegExp(String.raw`\b${alias}\s*\.\s*\w+`, 'i').test(outside)) out.push(alias);
+  }
+  return out;
+}
+
 /** Whether this SELECT's own SQL carries the marker as a live conjunct on its gl_journal_entries alias. */
 export function bodyCarriesMarker(body: string): boolean {
   const entries = aliasesOf(body, 'entries');
