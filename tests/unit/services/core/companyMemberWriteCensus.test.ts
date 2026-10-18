@@ -75,7 +75,7 @@ const KNOWN_WRITERS = [
   'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
   'scripts/acceptance/entity-onboarding-admin.ts: writes', // browser acceptance admin scenarios — throwaway DB via psql
   'scripts/acceptance/entity-onboarding-seed.ts: writes', // browser acceptance seed — throwaway DB via psql
-  'scripts/acceptance/entity-onboarding.ts: writes', // browser acceptance seed — throwaway DB via psql
+  'scripts/acceptance/entity-onboarding-server.ts: names as a string', // browser acceptance: counts the four setup tables before and after a refused request (SELECT only, throwaway DB)
   'scripts/large-scale-seed.ts: writes', // W18 seed — postgres
   'scripts/provision-isademo2.ts: writes', // W18 demo provisioning — postgres
   'scripts/qa-check-demo-db.ts: names as a string', // read-only table list

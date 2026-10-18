@@ -1,25 +1,30 @@
-// Shared helpers for the entity-onboarding browser acceptance (entity-onboarding.ts, entity-onboarding-admin.ts).
-// Needs: dev server on BASE against a THROWAWAY Postgres, JWT_SECRET signer (sign.ts), PGPASSWORD/PORT for psql.
+// Shared helpers for the entity-onboarding browser acceptance (entity-onboarding*.ts).
+// Needs: dev server on BASE against the THROWAWAY Postgres `isaflow_e2e` on localhost, the session signer (sign.ts),
+// env PORT (postgres) / PGPASSWORD / JWT (the dev server's JWT_SECRET).
 import { chromium, type Page, type BrowserContext, type Browser } from 'playwright';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 
-export const WIZ = process.cwd(); // run from the repo root
+export const WIZ = process.cwd();
+// The run reads and writes relative to the repo root (evidence dir, signer): refuse to start anywhere else.
+const pkgName = (() => { try { return (JSON.parse(readFileSync(`${WIZ}/package.json`, 'utf8')) as { name?: string }).name; } catch { return undefined; } })();
+if (pkgName !== 'isaflow') throw new Error(`run from the IsaFlow repo root (package.json name "isaflow"); cwd is ${WIZ}`);
+
 // Scratch directory for failure screenshots and results.json.
 export const SCRATCH = process.env.ACCEPT_SCRATCH ?? '/tmp/isaflow-accept';
 export const OUT = process.env.EVIDENCE_DIR ?? `${WIZ}/docs/evidence/entity-onboarding-8types`;
 export const BASE = process.env.BASE ?? 'http://localhost:3200';
 export const BASE_URL = new URL(BASE);
 const { PORT, PGPASSWORD, JWT } = process.env as Record<string, string>;
-const PGHOST = process.env.PGHOST ?? '127.0.0.1';
-const PGDATABASE = process.env.PGDATABASE ?? 'isaflow_e2e';
 if (!PORT || !PGPASSWORD || !JWT) throw new Error('PORT (postgres), PGPASSWORD and JWT (the JWT_SECRET) must be set');
+// Hard-coded on purpose: nothing in the environment can point this run at another host or database (seed.ts re-checks the contents).
+const PGHOST = '127.0.0.1';
+export const THROWAWAY_DB = 'isaflow_e2e';
 mkdirSync(SCRATCH, { recursive: true });
 mkdirSync(OUT, { recursive: true });
 
-const psqlArgs = (extra: string[], sql: string) =>
-  ['-h', PGHOST, '-p', PORT, '-U', 'postgres', '-d', PGDATABASE, ...extra, '-c', sql];
-const psqlEnv = { ...process.env, PGPASSWORD };
+const psqlArgs = (extra: string[], sql: string) => ['-h', PGHOST, '-p', PORT, '-U', 'postgres', '-d', THROWAWAY_DB, ...extra, '-c', sql];
+const psqlEnv = { ...process.env, PGPASSWORD, PGHOST: undefined, PGDATABASE: undefined, PGSERVICE: undefined, PGOPTIONS: undefined };
 /** Machine-readable: unaligned, tuples only, " | " between columns. */
 export const psql = (sql: string) => execFileSync('psql', psqlArgs(['-At', '-F', ' | '], sql), { env: psqlEnv }).toString().trim();
 /** Human-readable, verbatim psql output (aligned table with header and row count), pasted into RESULTS.md. */
@@ -37,6 +42,11 @@ const uniq = (b: Buffer, tag: string) => Buffer.concat([b, Buffer.from(`\n${tag}
 export const pdfFile = (name: string) => ({ name, mimeType: 'application/pdf', buffer: uniq(PDF, name) });
 export const pngFile = (name: string) => ({ name, mimeType: 'image/png', buffer: uniq(PNG, name) });
 export const pngDataUrl = (tag: string) => `data:image/png;base64,${uniq(PNG, tag).toString('base64')}`;
+export const pdfDataUrl = (tag: string) => `data:application/pdf;base64,${uniq(PDF, tag).toString('base64')}`;
+/** Files the server must refuse: a valid header with under 1 KB, and text bytes (padded past 1 KB) under a document MIME type. */
+export const tinyPdfDataUrl = () => `data:application/pdf;base64,${PDF.toString('base64')}`;
+export const tinyPngDataUrl = () => `data:image/png;base64,${PNG.toString('base64')}`;
+export const textDataUrl = (mime: string) => `data:${mime};base64,${Buffer.from(`plain text, not a document ${'x'.repeat(2048)}`).toString('base64')}`;
 
 /** SA ID number with a valid Luhn digit. */
 export function saId(yymmdd: string, seq: number): string {
@@ -46,125 +56,108 @@ export function saId(yymmdd: string, seq: number): string {
   return base + String((10 - (sum % 10)) % 10);
 }
 
+/** A response the scenario expects to see as an error, and why. Anything else >= 400 on /api/ fails the scenario. */
+export type AllowedError = { url: RegExp; status: number; reason: string };
+export type Refusal = { label: string; status: number; message: string; created: string };
 export type Result = {
-  n: number; name: string; status: 'PASS' | 'FAIL'; notes: string[]; shots: string[];
-  entity?: string; completeSetupStatus?: number; failed?: boolean;
-  refusals?: Array<{ label: string; status: number; body: string }>; dbEvidence?: string[];
+  n: number; kind: 'onboarding' | 'server' | 'admin'; name: string; status: 'PASS' | 'FAIL'; notes: string[]; shots: string[];
+  entity?: string; completeSetupStatus?: number; failed?: boolean; allow: AllowedError[];
+  refusals?: Refusal[]; dbEvidence?: string[];
 };
+export const newResult = (n: number, kind: Result['kind'], name: string, extra: Partial<Result> = {}): Result =>
+  ({ n, kind, name, status: 'FAIL', notes: [], shots: [], allow: [], ...extra });
 export const allShots: string[] = [];
 export type Combo = ['mobile' | 'desktop', 'light' | 'dark'];
-export const ALL4: Combo[] = [['mobile', 'light'], ['mobile', 'dark'], ['desktop', 'light'], ['desktop', 'dark']];
 /** The two views the 8-type evidence set requires per step: desktop 1440 dark, mobile 390 light. */
 export const PAIR: Combo[] = [['desktop', 'dark'], ['mobile', 'light']];
 
-export async function shot(page: Page, r: Result, slug: string, combos: Combo[]) {
-  for (const [vp, theme] of combos) {
-    await page.setViewportSize(vp === 'mobile' ? { width: 390, height: 844 } : { width: 1440, height: 900 });
-    await page.evaluate((t) => document.documentElement.classList.toggle('dark', t === 'dark'), theme);
-    await page.waitForTimeout(250);
-    const file = `${String(r.n).padStart(2, '0')}-${slug}-${vp}-${theme}.png`;
-    await page.screenshot({ path: `${OUT}/${file}`, fullPage: vp === 'mobile' });
-    r.shots.push(file); allShots.push(file);
-  }
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.evaluate(() => document.documentElement.classList.add('dark'));
-}
+/** Soft assertion: recorded in the notes, marks the scenario FAIL, and lets the run carry on to collect more evidence. */
+/** Timestamped progress line in the scratch dir: if a run ever hangs, the last line says where. */
+let lastProgress = Date.now();
+export const trace = (line: string) => { lastProgress = Date.now(); appendFileSync(`${SCRATCH}/trace.log`, `${new Date().toISOString()} ${line}\n`); };
 
-/**
- * Landed dashboard: switches the app's OWN theme with its header toggle (ThemeContext state). Toggling only the html
- * class leaves context-driven parts dark, and a stored preference does not survive a dev reload (StrictMode re-runs
- * ThemeContext's save effect before its load effect has applied).
- */
-export async function shotLanded(page: Page, r: Result, slug: string, combos: Combo[], name: string) {
-  await page.getByRole('heading', { name }).first().waitFor({ state: 'visible', timeout: 45000 });
-  const toggle = page.locator('button[title="Switch to light mode"], button[title="Switch to dark mode"]');
-  for (const [vp, theme] of combos) {
-    await page.setViewportSize(vp === 'mobile' ? { width: 390, height: 844 } : { width: 1440, height: 900 });
-    const isDark = (await toggle.getAttribute('title')) === 'Switch to light mode';
-    if (isDark !== (theme === 'dark')) await toggle.dispatchEvent('click');
-    await page.waitForTimeout(1200);
-    const file = `${String(r.n).padStart(2, '0')}-${slug}-${vp}-${theme}.png`;
-    await page.screenshot({ path: `${OUT}/${file}`, fullPage: false });
-    r.shots.push(file); allShots.push(file);
-  }
-  if ((await toggle.getAttribute('title')) === 'Switch to dark mode') await toggle.dispatchEvent('click');
-  await page.setViewportSize({ width: 1440, height: 900 });
+export function check(r: Result, ok: boolean, msg: string) {
+  r.notes.push(`${ok ? 'ok  ' : 'FAIL'} ${msg}`);
+  trace(`#${r.n} ${ok ? 'ok' : 'FAIL'} ${msg.slice(0, 120)}`);
+  if (!ok) r.failed = true;
 }
-
-export const overflow: string[] = [];
-export async function checkMobile(page: Page, label: string) {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(200);
-  const m = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: window.innerWidth }));
-  overflow.push(`${m.sw <= m.iw ? 'OK  ' : 'FAIL'} ${label}: scrollWidth ${m.sw} / innerWidth ${m.iw}`);
-  await page.setViewportSize({ width: 1440, height: 900 });
-}
-
-export const idFit: string[] = [];
-export async function checkIdInputsFit(page: Page, label: string) {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(200);
-  const rows = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLInputElement>('input[placeholder="ID number"]'))
-    .map(i => ({ v: i.value, sw: i.scrollWidth, cw: i.clientWidth })));
-  for (const r of rows) {
-    idFit.push(`${r.sw <= r.cw && r.v.length === 13 ? 'OK  ' : 'FAIL'} ${label}: ID ${r.v.length} digits, input scrollWidth ${r.sw} / clientWidth ${r.cw}`);
-    if (r.sw > r.cw || r.v.length !== 13) throw new Error(`ID input clipped at 390px: ${JSON.stringify(r)}`);
-  }
-  await page.setViewportSize({ width: 1440, height: 900 });
-}
-
-export const logoChecks: string[] = [];
-export async function checkLogoAndCards(page: Page) {
-  await page.evaluate(() => document.documentElement.classList.remove('dark'));
-  await page.waitForTimeout(250);
-  const m = await page.evaluate(() => {
-    const img = document.querySelector('img[alt="ISAFlow"]') as HTMLImageElement | null;
-    const body = getComputedStyle(document.querySelector('div.min-h-screen') as Element);
-    const card = document.querySelector('[role=radio]') as HTMLElement;
-    const label = card.querySelector('p') as HTMLElement;
-    return { filter: img ? getComputedStyle(img).filter : 'no img', loaded: !!img && img.naturalWidth > 0, bg: body.backgroundColor,
-      cardBg: getComputedStyle(card).backgroundColor, cardBorder: getComputedStyle(card).borderColor, labelColor: getComputedStyle(label).color,
-      hintColor: getComputedStyle(card.querySelectorAll('p')[1] as HTMLElement).color };
-  });
-  logoChecks.push(JSON.stringify(m));
-  await page.evaluate(() => document.documentElement.classList.add('dark'));
-}
+/** `r.status` from its checks; call once, after the last response handler has had time to run. */
+export const finish = (r: Result) => { r.status = r.failed ? 'FAIL' : 'PASS'; };
 
 export async function newCtx(browser: Browser, id: string, email: string, aal: string): Promise<BrowserContext> {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  ctx.setDefaultTimeout(90000); // the shared box is often heavily loaded; the dev server compiles pages on first hit
   await ctx.addCookies([{ name: 'sb-access-token', value: cookieFor(id, email, aal), domain: BASE_URL.hostname, path: '/' }]);
-  // default dark, but never overwrite a theme the run itself chose (the landed-dashboard shots reload in light)
+  // default dark, but never overwrite a theme the run itself chose (the landed-dashboard shots switch it in-page)
   await ctx.addInitScript(() => { if (!localStorage.getItem('accounting-theme')) localStorage.setItem('accounting-theme', 'dark'); });
   return ctx;
 }
 
 let logTarget: Result | null = null;
 const hooked = new WeakSet<Page>();
-/** Routes console errors, failed API calls and every complete-setup response into `r` (the latest caller wins). */
+/**
+ * Routes console errors and API failures into `r` (the latest caller wins). Every complete-setup response sets
+ * `completeSetupStatus`. A response >= 400 under /api/ that is not in `r.allow` marks the scenario FAILED.
+ */
 export function attachLogs(page: Page, r: Result) {
   logTarget = r;
   if (hooked.has(page)) return;
   hooked.add(page);
   page.on('console', m => { if (m.type() === 'error') logTarget?.notes.push(`console.error: ${m.text().slice(0, 200)}`); });
   page.on('response', async resp => {
+    const t = logTarget;
     const u = resp.url();
-    const isSetup = u.includes('/api/onboarding/complete-setup');
-    if (isSetup || (resp.status() >= 400 && u.includes('/api/') && !u.includes('extract'))) {
-      if (isSetup && resp.request().method() === 'POST' && logTarget) logTarget.completeSetupStatus = resp.status();
-      logTarget?.notes.push(`HTTP ${resp.status()} ${resp.request().method()} ${u.replace(BASE, '')} ${(await resp.text().catch(() => '')).slice(0, 300)}`);
-    }
+    if (!t || !u.includes('/api/')) return;
+    const isSetup = u.includes('/api/onboarding/complete-setup') && resp.request().method() === 'POST';
+    if (isSetup) t.completeSetupStatus = resp.status();
+    if (resp.status() < 400) return;
+    const hit = t.allow.find(a => a.url.test(u) && a.status === resp.status());
+    const body = (await resp.text().catch(() => '')).slice(0, 200);
+    t.notes.push(`${hit ? 'expected' : 'UNEXPECTED'} HTTP ${resp.status()} ${resp.request().method()} ${u.replace(BASE, '')} ${body}${hit ? ` (${hit.reason})` : ''}`);
+    if (!hit) t.failed = true;
   });
-}
-
-/** Soft assertion: recorded in the notes, marks the scenario FAIL, and lets the run carry on to collect more evidence. */
-export function check(r: Result, ok: boolean, msg: string) {
-  r.notes.push(`${ok ? 'ok  ' : 'FAIL'} ${msg}`);
-  if (!ok) r.failed = true;
 }
 
 export const expectVisible = async (page: Page, text: string | RegExp) => {
   await page.getByText(text).first().waitFor({ state: 'visible', timeout: 8000 });
 };
 export const cont = (page: Page) => page.getByRole('button', { name: /^Continue/ });
+
+/** Playwright's close() has been seen to hang when the browser dies while closing (pipe terminated); never let that stall the run. */
+export async function closeWithin(target: { close(): Promise<void> }, ms = 20000): Promise<void> {
+  await Promise.race([target.close().catch(() => undefined), new Promise<void>(resolve => setTimeout(resolve, ms))]);
+}
+
+/**
+ * One browser per attempt, with a hard time limit and a death watch. On this shared box a Chromium has been seen to vanish
+ * mid-run (a pending Playwright call then never settles), so an attempt that times out or loses its browser is retried
+ * once on a fresh browser; the retry is written into the scenario's notes by the caller via the returned `attempts`.
+ */
+export async function withBrowser<T>(label: string, launchArgs: string[], limitMs: number, run: (b: Browser) => Promise<T>): Promise<{ value: T; attempts: string[] }> {
+  const attempts: string[] = [];
+  for (let i = 1; ; i++) {
+    const b = await chromium.launch({ args: launchArgs });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let idle: ReturnType<typeof setInterval> | undefined;
+    const lost = new Promise<never>((_, reject) => {
+      b.on('disconnected', () => reject(new Error('browser process died')));
+      timer = setTimeout(() => reject(new Error(`no result within ${limitMs / 1000}s`)), limitMs);
+      // the browser can vanish without 'disconnected' ever firing (observed under Bun): no check or screenshot for 5 minutes = hung
+      lastProgress = Date.now();
+      idle = setInterval(() => { if (Date.now() - lastProgress > 300000) reject(new Error('no progress for 300s (browser gone?)')); }, 10000);
+    });
+    try {
+      const value = await Promise.race([run(b), lost]);
+      return { value, attempts };
+    } catch (e) {
+      attempts.push(`${label}: attempt ${i} failed (${(e as Error).message.split('\n')[0]})`);
+      if (i >= 3) throw e;
+    } finally {
+      clearTimeout(timer);
+      clearInterval(idle);
+      await closeWithin(b);
+    }
+  }
+}
 
 export { chromium };
