@@ -112,6 +112,8 @@ export async function lineRows(companyId: string, cutoff: string): Promise<LineR
  * debit / credit = the year's movement to the cutoff, closing = opening +
  * debit − credit (debit positive). Income-statement accounts are not reset at
  * year start here: what a year-end close posted is in the lines themselves.
+ * RAW by design (G-01): unlike the trial_balance report, the posted year-end close is NOT skipped,
+ * so this is the stored ledger an auditor can re-add, not the statement figure.
  */
 export async function tbRows(companyId: string, cutoff: string, fyStart: string): Promise<TbRow[]> {
   return bulkPlan(async () => {

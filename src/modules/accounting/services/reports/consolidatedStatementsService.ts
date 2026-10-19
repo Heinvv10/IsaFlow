@@ -19,6 +19,7 @@ import {
   type ConsolidatedBSLineItem,
   type ConsolidatedBSTotals,
 } from './consolidatedTrialBalanceService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
 
@@ -82,7 +83,7 @@ export async function getConsolidatedIncomeStatement(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE je.status = 'posted'
+        WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${member.companyId}::UUID
           AND jl.company_id = ${member.companyId}::UUID
           AND ga.company_id = ${member.companyId}::UUID
@@ -190,7 +191,7 @@ export async function getConsolidatedBalanceSheet(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE je.status = 'posted'
+        WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${member.companyId}::UUID
           AND jl.company_id = ${member.companyId}::UUID
           AND ga.company_id = ${member.companyId}::UUID
@@ -222,7 +223,7 @@ export async function getConsolidatedBalanceSheet(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE je.status = 'posted'
+        WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${member.companyId}::UUID
           AND jl.company_id = ${member.companyId}::UUID
           AND ga.company_id = ${member.companyId}::UUID

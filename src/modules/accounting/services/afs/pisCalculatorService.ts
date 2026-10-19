@@ -5,6 +5,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PisScore } from './afsTypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -88,7 +89,7 @@ export async function computePisScore(
       WHERE je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
-        AND je.status = 'posted'
+        AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND ga.account_type = 'revenue'
         AND je.entry_date >= ${fiscalYearStart}
         AND je.entry_date <= ${fiscalYearEnd}
@@ -101,7 +102,7 @@ export async function computePisScore(
       WHERE je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
-        AND je.status = 'posted'
+        AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND ga.account_type = 'liability'
         AND (ga.account_subtype IS NULL
              OR ga.account_subtype NOT IN ('equity_loan', 'shareholder_loan'))
@@ -176,7 +177,7 @@ export async function computePisBreakdown(
       WHERE je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
-        AND je.status = 'posted'
+        AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND ga.account_type = 'revenue'
         AND je.entry_date >= ${fiscalYearStart}
         AND je.entry_date <= ${fiscalYearEnd}
@@ -189,7 +190,7 @@ export async function computePisBreakdown(
       WHERE je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND ga.company_id = ${companyId}::UUID
-        AND je.status = 'posted'
+        AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND ga.account_type = 'liability'
         AND (ga.account_subtype IS NULL
              OR ga.account_subtype NOT IN ('equity_loan', 'shareholder_loan'))

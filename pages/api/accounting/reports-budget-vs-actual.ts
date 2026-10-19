@@ -24,6 +24,7 @@ import {
   buildBudgetVsActualLines,
   type RawActualRow,
 } from '@/modules/accounting/services/reports/budgetVsActualLines';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -157,7 +158,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         WHERE jl.company_id = ${companyId}::UUID
           AND je.company_id = ${companyId}::UUID
-          AND je.status = 'posted'
+          AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.entry_date >= ${startDate}
           AND je.entry_date <= ${endDate}
         GROUP BY jl.gl_account_id

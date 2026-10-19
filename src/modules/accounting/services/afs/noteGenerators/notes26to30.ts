@@ -14,6 +14,7 @@ import {
   RECEIVABLE_SUBTYPES,
 } from '@/modules/accounting/services/gl/accountSubtypes';
 import { fetchBalanceSnapshot } from '@/modules/accounting/services/afs/afsKpiService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Note 26 — Events After Reporting Date ────────────────────────────────────
 
@@ -26,12 +27,15 @@ export async function generateNote26EventsAfterReportingDate(
   log.info('note26: querying post-period journal entries', { companyId, fiscalYear });
 
   const rows = (await sql`
-    SELECT gje.description, gje.entry_date, gje.total_amount
+    -- total_amount is not a column of gl_journal_entries (42703 on every call): the journal's debit total is read from its lines.
+    SELECT gje.description, gje.entry_date,
+           (SELECT COALESCE(SUM(l.debit), 0) FROM gl_journal_lines l
+             WHERE l.journal_entry_id = gje.id AND l.company_id = ${companyId}) AS total_amount
     FROM gl_journal_entries gje
     WHERE gje.company_id = ${companyId}
       AND gje.entry_date > ${end}
       AND gje.entry_date <= NOW()
-      AND gje.status = 'posted'
+      AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     ORDER BY gje.entry_date DESC
     LIMIT 20
   `) as DbRow[];
@@ -96,7 +100,7 @@ export async function generateNote27GoingConcern(
       FROM gl_accounts ga
       JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
-        AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
+        AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       WHERE ga.company_id = ${companyId}
         AND ga.account_type IN ('revenue', 'expense')
     ` as Promise<DbRow[]>,
@@ -178,7 +182,7 @@ export async function generateNote29FinancialInstrumentsRisk(
       FROM gl_accounts ga
       JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
-        AND gje.entry_date <= ${end} AND gje.status = 'posted'
+        AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       WHERE ga.company_id = ${companyId}
         AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
       GROUP BY ga.account_name, ga.account_code
@@ -191,7 +195,7 @@ export async function generateNote29FinancialInstrumentsRisk(
       FROM gl_accounts ga
       JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
-        AND gje.entry_date <= ${end} AND gje.status = 'posted'
+        AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       WHERE ga.company_id = ${companyId}
         AND ga.account_subtype = ANY(${[
           ...PAYABLE_SUBTYPES, 'bank_loan', 'overdraft',

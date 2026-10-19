@@ -159,9 +159,10 @@ function runMathematicalChecks(sections: AfsSectionRow[]): ComplianceIssue[] {
   const note17 = byType('note_17');
 
   if (sfp?.data_snapshot) {
-    const totals = sfp.data_snapshot.totals as Record<string, unknown> | undefined;
-    if (totals) {
-      const diff = Number(totals.totalAssets ?? 0) - Number(totals.totalLiabilities ?? 0) - Number(totals.totalEquity ?? 0);
+    // balanceSheet.ts writes these at the TOP LEVEL; this read a `totals` object nobody writes. A missing figure is the pre-export blocker's.
+    const figures = [sfp.data_snapshot.totalAssets, sfp.data_snapshot.totalLiabilities, sfp.data_snapshot.totalEquity].map(Number);
+    if (figures.every((n) => Number.isFinite(n))) {
+      const diff = figures[0]! - figures[1]! - figures[2]!;
       if (Math.abs(diff) > 0.01) {
         issues.push({
           checkId: 'mathematical.balance_sheet_balances', category: 'mathematical', severity: 'blocker',
@@ -185,9 +186,8 @@ function runMathematicalChecks(sections: AfsSectionRow[]): ComplianceIssue[] {
   if (equity?.status === 'pending') {
     issues.push({ checkId: 'mathematical.equity_closing_balance', category: 'mathematical', severity: 'info', message: 'Section not yet generated — check deferred', sectionType: 'changes_in_equity' });
   } else if (equity?.data_snapshot && sfp?.data_snapshot) {
-    const eqClose = Number(equity.data_snapshot.closingTotalEquity ?? NaN);
-    const totals = sfp.data_snapshot.totals as Record<string, unknown> | undefined;
-    const sfpEq = Number(totals?.totalEquity ?? NaN);
+    // Near-tautology: both sides sum the same BS equity lines, so this only catches a stale snapshot, not a wrong figure.
+    const [eqClose, sfpEq] = [equity.data_snapshot.closingTotalEquity, sfp.data_snapshot.totalEquity].map((v) => Number(v ?? NaN)) as [number, number];
     if (!isNaN(eqClose) && !isNaN(sfpEq) && Math.abs(eqClose - sfpEq) > 0.01) {
       issues.push({ checkId: 'mathematical.equity_closing_balance', category: 'mathematical', severity: 'blocker', message: 'Equity statement closing does not match balance sheet equity', sectionType: 'changes_in_equity', detail: `Equity stmt: ${eqClose}, BS: ${sfpEq}` });
     }

@@ -114,7 +114,8 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
             res,
             `This year already has a closing journal (${result.entryNumber}) and it is `
               + `${result.status}, not posted. The year is therefore NOT closed, but it also `
-              + `cannot be closed again while that entry holds the number. Delete or renumber `
+              + `cannot be closed again while that entry holds the number (a reversed closing `
+              + `journal does not block: the next close takes the next -R<n> number). Delete or renumber `
               + `journal ${result.entryId}, then close the year.`
           );
         case 'closing_entry_number_taken':
@@ -125,6 +126,20 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
               + `status ${result.status}, not a year-end close, so the year is NOT closed — but `
               + `entry numbers are unique per company, so it cannot be closed while that row `
               + `holds the number. Renumber journal ${result.entryId}, then close the year.`
+          );
+        case 'too_many_recloses':
+          return apiResponse.conflict(
+            res,
+            `Closing journal ${result.entryNumber} has been reversed and re-posted too many times. `
+              + `Nothing was posted; a person has to look at the reversals before the year is closed again.`,
+            { code: result.code }
+          );
+        case 'closing_chain_unreadable':
+          return apiResponse.conflict(
+            res,
+            `The reversal chain of closing journal ${result.entryNumber} is too long to read, so it `
+              + `cannot be told whether the year is closed. Nothing was posted; a person has to inspect it.`,
+            { code: result.code }
           );
         default: {
           // Exhaustive over CloseYearError: `unhandled` stops being `never` the

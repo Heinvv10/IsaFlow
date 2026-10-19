@@ -12,9 +12,11 @@ import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt } from '../noteHelpers';
 import { fetchSectionLines } from './_helpers';
+import { DERIVED_ACCUMULATED_PROFIT_CODE } from './derivedAccumulatedProfit';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
-const EQUITY_CODES = new Set(['BS043', 'BS044', 'BS045', 'BS046', 'BS047', 'BS048']);
+// BSACCPL: the derived accumulated-profit line a taxonomy without BS045 gets (derivedAccumulatedProfit.ts).
+const EQUITY_CODES = new Set(['BS043', 'BS044', 'BS045', 'BS046', 'BS047', 'BS048', DERIVED_ACCUMULATED_PROFIT_CODE]);
 
 export async function generateChangesInEquity(
   companyId: string,
@@ -34,7 +36,8 @@ export async function generateChangesInEquity(
   ]);
 
   return {
-    dataSnapshot: { equityLines },
+    // closingTotalEquity: the key the compliance checker compares to the SFP's totalEquity (credit-positive).
+    dataSnapshot: { equityLines, closingTotalEquity: -equityLines.filter((l) => !l.isTotal).reduce((s, l) => s + l.currentAmount, 0) },
     content: {
       title: 'Statement of Changes in Equity',
       blocks: [
