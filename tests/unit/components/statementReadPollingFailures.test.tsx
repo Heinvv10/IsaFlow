@@ -129,7 +129,8 @@ describe('the pages', () => {
     });
     render(<BankImportPage />);
     await screen.findByText('Reading statement…');
-    // The clock also moves with real time while the page is searched, so each check keeps 1.5 s clear of an edge.
+    // The clock also moves with real time while the page is searched, so each "not yet" check keeps clear of its edge:
+    // 2.5 s at the tightest (poll 2 due at 9 s, checked at 6.5 s; poll 3 due at 21 s, checked at 18.5 s), 3 s and 7 s after.
     await tick(3000);            // poll 1 fails; the next waits 6 s
     expect(await screen.findByText('Server fell over')).toBeTruthy();
     expect(polls()).toHaveLength(2);
