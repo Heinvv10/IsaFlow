@@ -36,6 +36,7 @@ import {
   PayrollLoanLockTimeoutError,
   PayrollRunJournalPostedError,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
+import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
 import handler from '../../../pages/api/payroll/runs/[id]/calculate';
 
 const RUN = '22222222-2222-4222-8222-222222222222';
@@ -91,6 +92,16 @@ describe('POST /api/payroll/runs/[id]/calculate — loan refusals', () => {
 
     await handler(req, res);
     expect(res.statusCode).toBe(400);
+  });
+
+  it('answers an unloaded tax year with 400 and the message, not a 500', async () => {
+    vi.mocked(calculatePayrollRun).mockRejectedValueOnce(new UnsupportedTaxYearError(2028));
+    const { req, res } = mockReqRes();
+
+    await handler(req, res);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.sent)).toContain('tax year 2028');
+    expect(JSON.stringify(res.sent)).toContain('UNSUPPORTED_TAX_YEAR');
   });
 
   it('PROPAGATES anything unexpected so the request rolls back', async () => {

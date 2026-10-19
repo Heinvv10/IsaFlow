@@ -25,6 +25,7 @@ interface WarningLine {
 /** The group heading per code. An unknown code falls back to its first message. */
 const GROUP_LABEL: Record<string, string> = {
   ETI_INDETERMINATE: 'ETI eligibility could not be determined — no ETI claimed',
+  ETI_TABLE_UNCONFIRMED: 'ETI claimed on a table that is unconfirmed for pay periods after 31 March 2026 — verify before submitting',
   PAYE_ZERO_ON_TAXABLE_INCOME: 'Taxable income above the threshold but zero PAYE — verify tax number and directive',
   MISSING_TAX_NUMBER: 'No SARS tax number — PAYE cannot be calculated',
   INVALID_TAX_NUMBER_FORMAT: 'Tax number invalid — must be 10 digits',

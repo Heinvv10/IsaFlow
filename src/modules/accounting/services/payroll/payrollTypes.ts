@@ -42,6 +42,7 @@ export interface PayrollPeriod {
 
 export interface PayeInput {
   annualTaxableIncome: number;
+  /** Age on the last day of the tax year (28/29 Feb), which decides the age rebates. */
   ageAtPeriodEnd: number;
   monthlyMedicalBeneficiaries: number;
   taxYear: number;

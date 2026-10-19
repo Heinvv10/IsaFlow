@@ -12,14 +12,15 @@
  *   bunx playwright test tests/e2e/close-agent/close-run-engine.spec.ts --config playwright-standalone.config.ts
  */
 import { test, expect } from '@playwright/test';
-import { Api } from '../golden-paths/_api';
+import { Api, PAYROLL_SANDBOX_MONTH } from '../golden-paths/_api';
 
 const CLOSE_AGENT = 'close-agent:v1';
 
+// PAYROLL_SANDBOX_MONTH (Feb 2027) is reserved for the golden payroll run and is never picked here.
 async function pickSandboxPeriod(api: Api): Promise<{ id: string }> {
   for (const year of [2027, 2028, 2029]) {
-    const periods = await api.get<Array<{ id: string; status: string }>>(`/api/accounting/fiscal-periods?year=${year}`);
-    const open = periods.find(p => p.status === 'open');
+    const periods = await api.get<Array<{ id: string; startDate: string; status: string }>>(`/api/accounting/fiscal-periods?year=${year}`);
+    const open = periods.find(p => p.status === 'open' && String(p.startDate).slice(0, 7) !== PAYROLL_SANDBOX_MONTH);
     if (open) return { id: open.id };
   }
   throw new Error('No open sandbox period in 2027–2029');
