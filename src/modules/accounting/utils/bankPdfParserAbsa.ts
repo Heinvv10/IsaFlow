@@ -6,6 +6,7 @@
 import { log } from '@/lib/logger';
 import type { BankCsvParseResult } from '../types/bank.types';
 import { extractAccountNumber } from './bankPdfParserUtils';
+import { ignoreContinuation, isPageBoundary } from './bankPdfParserAbsaContinuation';
 
 // Month name lookup for ABSA PDF date parsing ("15 Jan 2026")
 const MONTH_MAP: Record<string, string> = {
@@ -47,51 +48,17 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
   const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
   const datePat = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(.+)$/;
+  // A balance is a plain figure, or an overdrawn one with a trailing minus ("45 574.41-"), which the text layer
+  // sometimes detaches ("45 574.41 -"). The amount before it is always unsigned.
   const twoNumTail =
-    /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
-  const oneNumTail = /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
+    /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*(-?)\s*$/;
+  const oneNumTail = /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*(-?)\s*$/;
   const cleanNum = (s: string) => parseFloat(s.replace(/[\s,]/g, ''));
+  // "0.00-" is zero, not -0 (Intl.NumberFormat renders -0 as "-0.00").
+  const signed = (n: number, minus: string) => (minus === '-' && n !== 0 ? -n : n);
 
   let prevBalance: number | null = null;
   let lineNum = 0;
-
-  const ignoreContinuation = (line: string): boolean => {
-    if (!line) return true;
-    if (/^\(Effective\s/i.test(line)) return true;
-    if (/^(Balance Brought Forward|Sundry (Credits|Debits)|Charges|Total (Debits|Credits))/i.test(line)) return true;
-    if (/^Page\s+\d+/i.test(line)) return true;
-    if (/^(Classic Business Acc|Cheque account statement|Statement Number)/i.test(line)) return true;
-    if (/^BRIGHTSPHERE|BLITZ|VELOCITY/i.test(line)) return true;
-    if (/^(Return address|Reg No|Absa Bank Limited)/i.test(line)) return true;
-    if (/^\d{4,}$/.test(line)) return true;
-    return false;
-  };
-
-  const BOUNDARY_MARKERS = [
-    /-{2,}\s*\d+\s+of\s+\d+\s*-{2,}/i,
-    /Page\s+\d+\s+of\s+\d+/i,
-    /Tax Invoice/i,
-    /Your transactions/i,
-    /Cheque Account Number/i,
-    /Date\s+Transaction\s+Description/i,
-    /Authorised Financial Services Provider/i,
-    /Registration Number\s+\d{4}/i,
-    /^CSP\d+|BFIBRE\s+\d+/i,
-    /YOUR PRICING PLAN/i,
-    /CREDIT INTEREST RATE/i,
-    /PRICING PLAN/i,
-    /CHARGE LEGEND/i,
-    /VAT REGISTRATION/i,
-    /NCRCP\d/i,
-    /^\d{2}-\d{4}-\d{4}\b/,
-    /SERVICE FEE:/i,
-    /MNTHLY ACCT FEE/i,
-    /Sms Notifications?/i,
-    /^CHARGES\s/i,
-  ] as const;
-
-  const isPageBoundary = (line: string): boolean =>
-    BOUNDARY_MARKERS.some(re => re.test(line));
 
   const MAX_CONT_LINES = 2;
   let stitchIdx: number | null = null;
@@ -124,18 +91,24 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
     const m2 = rest!.match(twoNumTail);
     if (!m2) {
       const m1 = rest!.match(oneNumTail);
-      if (m1 && /bal|brought|forward/i.test(m1[1]!)) prevBalance = cleanNum(m1[2]!);
+      if (m1 && /bal|brought|forward/i.test(m1[1]!)) {
+        prevBalance = signed(cleanNum(m1[2]!), m1[3]!);
+        // The first one, before any row, is where the statement opened.
+        if (result.transactions.length === 0 && result.openingBalance === undefined) result.openingBalance = prevBalance;
+      }
       continue;
     }
 
     const rawDesc = m2[1]!.trim();
     const amountAbs = cleanNum(m2[2]!);
-    const balance = cleanNum(m2[3]!);
+    const balance = signed(cleanNum(m2[3]!), m2[4]!);
     if (isNaN(amountAbs) || isNaN(balance)) {
       result.errors.push({ row: lineNum, error: `Invalid numeric in: ${line}` });
       continue;
     }
 
+    // With a balance to compare, the amount is the movement of the balance, so a row dropped before this one is
+    // absorbed into it: the amount the line printed (kept as printedAmount) is what shows the difference.
     let signedAmount = amountAbs;
     if (prevBalance !== null) signedAmount = Math.round((balance - prevBalance) * 100) / 100;
 
@@ -144,7 +117,10 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
       .replace(/\s+Settlement$/i, '')
       .trim();
 
-    result.transactions.push({ transactionDate, amount: signedAmount, description, balance });
+    result.transactions.push({
+      transactionDate, amount: signedAmount, description, balance,
+      ...(prevBalance !== null ? { printedAmount: amountAbs } : {}),
+    });
     stitchIdx = result.transactions.length - 1;
     stitchCount = 0;
     prevBalance = balance;
@@ -225,7 +201,7 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
   const parseSAAmount = (raw: string): number => {
     const isNeg = raw.endsWith('-');
     const n = parseFloat(raw.replace(/-$/, '').replace(/\s/g, '').replace(',', '.'));
-    return isNeg ? -n : n;
+    return isNeg && n !== 0 ? -n : n;
   };
 
   const datePat = /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(.+)$/i;
@@ -244,7 +220,13 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
     if (skipPat.test(rest!)) {
       // Capture closing balance for sign inference
       const amts = [...rest!.matchAll(saAmtPat)];
-      if (amts.length) prevBalance = parseSAAmount(amts[amts.length - 1]![1]!);
+      if (amts.length) {
+        prevBalance = parseSAAmount(amts[amts.length - 1]![1]!);
+        // The first brought-forward line, before any row, is where the statement opened.
+        if (result.transactions.length === 0 && result.openingBalance === undefined && /brought\s+forward/i.test(rest!)) {
+          result.openingBalance = prevBalance;
+        }
+      }
       continue;
     }
 
@@ -258,10 +240,12 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
 
     // Sign: trailing minus = debit; otherwise derive from balance delta
     let amount: number;
+    let derived = false;
     if (rawTx.endsWith('-')) {
       amount = parseSAAmount(rawTx);
     } else if (prevBalance !== null) {
       amount = Math.round((balance - prevBalance) * 100) / 100;
+      derived = true;
     } else {
       amount = parseSAAmount(rawTx);
     }
@@ -279,7 +263,11 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
       }
     }
 
-    result.transactions.push({ transactionDate, amount, description: fullDesc, balance });
+    // A derived amount keeps the one the line printed (see parseAbsaSlashDateLines).
+    result.transactions.push({
+      transactionDate, amount, description: fullDesc, balance,
+      ...(derived ? { printedAmount: Math.abs(parseSAAmount(rawTx)) } : {}),
+    });
     prevBalance = balance;
   }
 

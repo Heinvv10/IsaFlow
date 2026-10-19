@@ -1,7 +1,9 @@
 /**
  * VLM Supplier Statement Service — supplier statement extraction via vLLM
  *
- * Extracts line items and metadata from South African supplier statement PDFs.
+ * Extracts line items and metadata from South African supplier statements: an
+ * image in one call, a PDF one page per call (readSupplierStatementPage). The
+ * raw PDF is never sent: vLLM rejects it.
  * SA convention: opening balance at top, lines are invoices/credit notes/payments,
  * running balance column on the right.
  */
@@ -16,6 +18,7 @@ import {
   asNumber,
   asDateString,
 } from './vlmCore';
+import { statementPageContent, type PageRequest } from './vlmStatementPages';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,44 +91,54 @@ Rules:
 // Public API
 // ---------------------------------------------------------------------------
 
+/** Rules for one page of a multi-page statement. */
+const PAGE_RULES = 'Do not emit rows that only carry a balance "brought forward" from the previous page '
+  + 'or "carried forward" to the next one. Give the supplier name, dates and balances only if they are '
+  + 'printed on this page, otherwise null.';
+
 /**
- * Extract supplier statement lines + metadata using VLM.
- * Returns a safe default (empty lines) if VLM is not configured or extraction fails.
+ * Extract supplier statement lines + metadata from ONE IMAGE using VLM. Null when
+ * the model gave no usable answer (a failed read is not an empty statement).
  */
-export async function extractSupplierStatementWithVlm(
+export async function extractSupplierStatementImage(
   base64: string,
   mimeType: string,
-  rawText?: string,
-): Promise<SupplierStatementExtraction> {
-  const empty: SupplierStatementExtraction = {
-    lines: [],
-    warnings: ['VLM not configured — no extraction performed'],
-  };
-
-  const config = getVlmConfig();
-  if (!config) return empty;
-
-  let textPrompt = 'Extract all line items and metadata from this supplier statement.';
-  if (rawText && rawText.trim().length > 0) {
-    textPrompt += `\n\nPDF text layer (may assist with handwriting or low-res scans):\n\n${rawText.substring(0, 6000)}`;
+): Promise<SupplierStatementExtraction | null> {
+  if (mimeType === 'application/pdf') {
+    log.error('Refused to send a raw PDF to vLLM — read it page by page', undefined, 'vlm-supplier-stmt');
+    return null;
   }
+  const config = getVlmConfig();
+  if (!config) return null;
 
   log.info('Calling vLLM for supplier statement extraction', { model: config.model }, 'vlm-supplier-stmt');
 
-  const userContent = buildImageContent(base64, mimeType, textPrompt);
+  const userContent = buildImageContent(base64, mimeType, 'Extract all line items and metadata from this supplier statement.');
   const content = await callVlmChat(config, SUPPLIER_STATEMENT_PROMPT, userContent, 8192);
-  if (!content) {
-    return { lines: [], warnings: ['VLM returned no content'] };
-  }
+  if (!content) return null;
 
-  return parseSupplierStatementResponse(content);
+  return parseSupplierStatementResponse(content, true);
+}
+
+/** One page of a statement PDF; null when the model gave no usable answer for it. */
+export async function readSupplierStatementPage(req: PageRequest): Promise<SupplierStatementExtraction | null> {
+  const config = getVlmConfig();
+  if (!config) return null;
+
+  log.info('Calling vLLM for a supplier statement page', { model: config.model, page: req.page, total: req.total }, 'vlm-supplier-stmt');
+
+  const content = await callVlmChat(config, SUPPLIER_STATEMENT_PROMPT, statementPageContent(req, PAGE_RULES), 8192);
+  if (!content) return null;
+
+  return parseSupplierStatementResponse(content, false);
 }
 
 // ---------------------------------------------------------------------------
 // Response parsing
 // ---------------------------------------------------------------------------
 
-function parseSupplierStatementResponse(content: string): SupplierStatementExtraction {
+/** `warnEmpty`: a lone image with no lines says so; a page with none is just an empty page. */
+function parseSupplierStatementResponse(content: string, warnEmpty: boolean): SupplierStatementExtraction | null {
   const jsonStr = cleanVlmJson(content);
 
   try {
@@ -154,7 +167,7 @@ function parseSupplierStatementResponse(content: string): SupplierStatementExtra
         if (ws) warnings.push(ws);
       }
     }
-    if (lines.length === 0) {
+    if (warnEmpty && lines.length === 0) {
       warnings.push('No lines extracted from supplier statement');
     }
 
@@ -180,6 +193,6 @@ function parseSupplierStatementResponse(content: string): SupplierStatementExtra
     log.error('Failed to parse supplier statement VLM response', {
       error: err instanceof Error ? err.message : String(err),
     }, 'vlm-supplier-stmt');
-    return { lines: [], warnings: ['Failed to parse VLM JSON response'] };
+    return null;
   }
 }
