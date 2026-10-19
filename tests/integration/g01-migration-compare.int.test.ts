@@ -156,4 +156,55 @@ describe('a Sage account mapped to a GL account the comparison does not list as 
       expect.objectContaining({ accountCode: '1900', accountName: 'Other assets (header)', sageBalance: 25, glBalance: 0, difference: 25 }),
     ]);
   });
+
+  it('and so is one on an account at the DEFAULT level (a flat chart never given a hierarchy)', async () => {
+    const flat = crypto.randomUUID();
+    // No level column: gl_accounts.level defaults to 1.
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,is_active)
+       VALUES($1,$2,'1950','Flat chart account','asset','debit',true)`, [flat, t.company]);
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,balance,gl_account_id,mapping_status)
+       VALUES(gen_random_uuid(),$1,'S-1950','1950','Sage flat',60,$2,'manual')`, [t.company, flat]);
+    expect((await pool.query('SELECT level FROM gl_accounts WHERE id=$1', [flat])).rows[0].level).toBe(1);
+    const report = await generateComparison(t.company, user);
+    expect(report.differences).toContainEqual(
+      expect.objectContaining({ accountCode: '1950', sageBalance: 60, glBalance: 0, difference: 60 }));
+  });
+});
+
+describe('the edges of what the mapping can point at', () => {
+  const foreignCompany = crypto.randomUUID();
+  const foreignGl = crypto.randomUUID();
+
+  afterAll(async () => {
+    await pool.query('DELETE FROM sage_accounts WHERE company_id=$1 AND sage_id=$2', [t.company, 'S-FOREIGN']);
+    await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [foreignCompany]);
+    await pool.query('DELETE FROM companies WHERE id=$1', [foreignCompany]);
+  });
+
+  it("a Sage row pointing at ANOTHER company's GL account is reported as unmapped and matches nothing", async () => {
+    await pool.query('INSERT INTO companies(id,name,financial_year_start) VALUES($1,$2,1)', [foreignCompany, 'G01 foreign']);
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
+       VALUES($1,$2,'7777','Foreign bank','asset','debit',3,true)`, [foreignGl, foreignCompany]);
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,balance,gl_account_id,mapping_status)
+       VALUES(gen_random_uuid(),$1,'S-FOREIGN','7777','Sage foreign',0,$2,'manual')`, [t.company, foreignGl]);
+    // A zero balance would hide a match; give it one equal to nothing the tenant holds.
+    await pool.query("UPDATE sage_accounts SET balance=77 WHERE company_id=$1 AND sage_id='S-FOREIGN'", [t.company]);
+    const report = await generateComparison(t.company, user);
+    expect(report.differences).toContainEqual(
+      expect.objectContaining({ accountCode: '7777', sageBalance: 77, glBalance: 0, kind: 'sage_unmapped' }));
+    expect(report.differences.find((d) => d.accountName === 'Foreign bank')).toBeUndefined();
+  });
+
+  it('with no Sage accounts at all, every ledger balance is a difference and nothing is balanced', async () => {
+    await pool.query('DELETE FROM sage_accounts WHERE company_id=$1', [t.company]);
+    const report = await generateComparison(t.company, user);
+    expect(report.sageTotals.accountCount).toBe(0);
+    expect(report.isBalanced).toBe(false);
+    expect(report.differences.length).toBeGreaterThan(0);
+    expect(report.differences.every((d) => d.kind === 'gl_unmapped')).toBe(true);
+  });
 });

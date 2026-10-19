@@ -264,6 +264,13 @@ export function correlatedToMarkedEntry(body: string): boolean {
 }
 
 /**
+ * A census substring that may excuse a sibling scope: long enough to name one scope, and more than SQL words (a bare
+ * `SELECT`, an empty string or `SELECT FROM WHERE` would match nearly any scope and excuse a lines SUM).
+ */
+const MIN_EXCUSE = 20;
+export const usableExcuse = (o: string): boolean => o.trim().length >= MIN_EXCUSE && /[^A-Za-z\s]/.test(o);
+
+/**
  * EVERY unmarked scope of the statement reads headers only: no line table, no money column, no aggregate (a
  * reversal-chain walk). `containing` names the walk: some unmarked scope must contain it, but naming it does not
  * excuse its siblings, so an unmarked line-reading SELECT elsewhere in the statement is refused. The one exception
@@ -273,11 +280,12 @@ export function correlatedToMarkedEntry(body: string): boolean {
  */
 export function headersOnly(body: string, containing?: string, otherEntries: string[] = []): boolean {
   const unmarked = unmarkedScopes(body);
+  const excuses = otherEntries.filter(usableExcuse);
   const reads = (t: string): boolean => /gl_journal_lines/i.test(t) || FIGURE.test(t) || lineWildcard(t);
   return unmarked.length > 0
     && (containing === undefined || unmarked.some((s) => s.text.includes(containing)))
     && unmarked.every((s) => !reads(s.text)
-      || (otherEntries.some((o) => s.text.includes(o)) && (containing === undefined || !s.text.includes(containing))));
+      || (excuses.some((o) => s.text.includes(o)) && (containing === undefined || !s.text.includes(containing))));
 }
 
 /** Every SELECT that reads the journal tables (other than an existence test) carries its own live marker. */
