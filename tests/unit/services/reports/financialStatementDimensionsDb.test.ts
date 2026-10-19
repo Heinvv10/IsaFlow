@@ -50,7 +50,7 @@ async function withLedger(run: () => Promise<void>) {
       await sql`CREATE TEMP TABLE IF NOT EXISTS companies (id uuid, name text) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS gl_accounts (id uuid, company_id uuid, account_code text, account_name text,
         account_type text, account_subtype text, normal_balance text, level int, parent_account_id uuid) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_entries (id uuid, company_id uuid, status text, entry_date date) ON COMMIT DROP`;
+      await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_entries (id uuid, company_id uuid, status text, entry_date date, source text) ON COMMIT DROP`;
       await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid,
         debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, project_id uuid, bu_id uuid) ON COMMIT DROP`;
       await sql`INSERT INTO companies VALUES (${company}::uuid, 'Fixture')`;
