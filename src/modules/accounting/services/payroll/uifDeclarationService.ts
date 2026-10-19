@@ -6,9 +6,14 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { calculateUIF } from './uifEngine';
-import { getTaxYear } from './taxTables';
 import { UI19_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import {
+  componentIdsToResolve,
+  loadComponentTypes,
+  parseBreakdown,
+  rebuildUifLeviable,
+  uifLineBase,
+} from './uifLeviableBase';
 
 type Row = DbRow;
 
@@ -45,9 +50,18 @@ export interface UifDeclarationLine {
   employeeNumber: string;
   employeeName: string;
   grossPay: number;
+  /**
+   * The base the run levied UIF on (capped at the ceiling). The run does not
+   * store it, so it is rebuilt from the line's component breakdown (exact, see
+   * uifLeviableBase.ts). Only when that cannot be done is it derived from the
+   * stored contribution: exact at the ceiling or when all of gross was
+   * leviable, otherwise up to R0.50 out. A UIF-excluded employee (nothing
+   * stored) shows gross (audit P20).
+   */
   leviableSalary: number;
   employeeContribution: number;
   employerContribution: number;
+  /** Leviable pay is above the UIF ceiling (the contribution is capped). */
   isCapped: boolean;
 }
 
@@ -106,7 +120,6 @@ export async function getUifDeclaration(
   if (rows.length === 0 || !rows[0]) return null;
 
   const decl = mapUifDeclaration(rows[0]);
-  const taxYear = getTaxYear(decl.periodMonth, decl.periodYear);
   // Bound as an array rather than inlined literals so the vocabulary lives in
   // exactly one place (@/lib/constants/payrollRunStatuses).
   const declarableStatuses: string[] = [...UI19_DECLARABLE_STATUSES];
@@ -120,7 +133,8 @@ export async function getUifDeclaration(
       pe.last_name,
       prl.gross_pay,
       prl.uif_employee,
-      prl.uif_employer
+      prl.uif_employer,
+      prl.component_breakdown
     FROM payroll_run_lines prl
     JOIN payroll_run_headers prh ON prh.id = prl.run_id
     JOIN payroll_employees   pe  ON pe.id  = prl.employee_id
@@ -131,20 +145,30 @@ export async function getUifDeclaration(
     ORDER BY pe.employee_number
   `) as Row[];
 
-  const lines: UifDeclarationLine[] = lineRows.map(r => {
+  const breakdowns = lineRows.map((r) => parseBreakdown(r.component_breakdown));
+  const types = await loadComponentTypes(
+    companyId,
+    [...new Set(breakdowns.flatMap((b) => (b ? componentIdsToResolve(b) : [])))],
+  );
+
+  const lines: UifDeclarationLine[] = lineRows.map((r, i) => {
     const grossPay = Number(r.gross_pay);
-    const uif = calculateUIF(grossPay, taxYear);
+    const employeeContribution = Number(r.uif_employee);
+    const items = breakdowns[i];
+    const { leviableSalary, isCapped } = uifLineBase(
+      grossPay,
+      employeeContribution,
+      items ? rebuildUifLeviable(items, types) : null,
+    );
     return {
       employeeId: String(r.employee_id),
       employeeNumber: String(r.employee_number),
       employeeName: `${r.first_name} ${r.last_name}`,
       grossPay,
-      leviableSalary: uif.isCapped
-        ? uif.employeeContribution / 0.01
-        : grossPay,
-      employeeContribution: Number(r.uif_employee),
+      leviableSalary,
+      employeeContribution,
       employerContribution: Number(r.uif_employer),
-      isCapped: uif.isCapped,
+      isCapped,
     };
   });
 

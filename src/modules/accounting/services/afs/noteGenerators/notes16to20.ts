@@ -12,6 +12,7 @@ import {
   OTHER_INCOME_SUBTYPES,
   TAX_EXPENSE_SUBTYPES,
 } from '@/modules/accounting/services/gl/accountClassification';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 /**
  * Note 17 splits income tax into current and deferred. Both spellings
@@ -71,7 +72,7 @@ export async function generateNote17IncomeTax(
       JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       WHERE gjl.company_id = ${companyId}
-        AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'`,
+        AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}`,
     sql`SELECT
         SUM(gjl.debit - gjl.credit) FILTER (WHERE ga.account_subtype = 'deferred_tax_asset') AS dta,
         SUM(gjl.credit - gjl.debit) FILTER (WHERE ga.account_subtype = 'deferred_tax_liability') AS dtl
@@ -79,7 +80,7 @@ export async function generateNote17IncomeTax(
       JOIN gl_accounts ga ON ga.id = gjl.gl_account_id
       JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       WHERE gjl.company_id = ${companyId}
-        AND gje.entry_date <= ${end} AND gje.status = 'posted'`,
+        AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}`,
   ]);
 
   const tp = (taxProvision as DbRow[])[0] ?? {};
@@ -136,7 +137,7 @@ export async function generateNote18RevenueDisaggregation(
       AND COALESCE(ga.account_subtype, '') <> ALL(
         ${OTHER_INCOME_SUBTYPES as string[]}::TEXT[]
       )
-      AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
+      AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     -- Per ACCOUNT and thresholded exactly as incomeStatementService bands the
     -- same lines: two accounts sharing a name are two rows, and a nil net
     -- movement is dropped in either direction.
@@ -187,7 +188,7 @@ export async function generateNote19OtherIncome(
       -- turnover; claiming them here made notes 18 and 19 overlap instead of
       -- partition. See OTHER_INCOME_SUBTYPES.
       AND ga.account_subtype = ANY(${OTHER_INCOME_SUBTYPES as string[]}::TEXT[])
-      AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
+      AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     GROUP BY ga.id, ga.account_name, ga.account_subtype
     HAVING ABS(SUM(gjl.credit - gjl.debit)) > 0.001
     ORDER BY ga.account_subtype
@@ -236,7 +237,7 @@ export async function generateNote20OperatingExpenses(
       AND COALESCE(ga.account_subtype, '') <> ALL(
         ${NON_OPERATING_EXPENSE_SUBTYPES as string[]}::TEXT[]
       )
-      AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted'
+      AND gje.entry_date BETWEEN ${start} AND ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     -- Grouped and thresholded EXACTLY as incomeStatementService bands the same
     -- lines: per ACCOUNT, keeping any non-nil movement in either direction.
     -- A one-sided HAVING dropped every net-credit operating expense - a

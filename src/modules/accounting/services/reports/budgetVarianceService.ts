@@ -25,6 +25,7 @@ import {
   type BudgetVsActualLine,
   type RawActualRow,
 } from './budgetVsActualLines';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export interface BudgetVarianceRow extends BudgetVsActualLine {
   account_id: string;
@@ -96,7 +97,7 @@ export async function getBudgetVariance(
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       WHERE jl.company_id = ${companyId}::UUID
         AND je.company_id = ${companyId}::UUID
-        AND je.status = 'posted'
+        AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
       GROUP BY jl.gl_account_id
@@ -110,7 +111,7 @@ export async function getBudgetVariance(
     SELECT MAX(je.entry_date)::text AS posted_through
     FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
   `) as Array<{ posted_through: string | null }>;

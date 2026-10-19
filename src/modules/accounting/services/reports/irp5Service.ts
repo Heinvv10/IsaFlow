@@ -63,19 +63,35 @@ export interface EMP501Summary {
 // SOURCE CODE MAPPING
 // ═══════════════════════════════════════════════════════════════════════════
 
-const CODE_MAPPING: Array<{ code: string; field: keyof IRP5EmployeeData }> = [
-  { code: '3601', field: 'grossSalary' },
-  { code: '3701', field: 'commission' },
-  { code: '3801', field: 'overtime' },
-  { code: '3605', field: 'bonus' },
-  { code: '3702', field: 'travelAllowance' },
-  { code: '4001', field: 'pensionContribEmployee' },
-  { code: '4003', field: 'medicalAidEmployee' },
-  { code: '4004', field: 'retirementAnnuity' },
-  { code: '4102', field: 'paye' },
-  { code: '4141', field: 'uifEmployee' },
-  { code: '4142', field: 'uifEmployer' },
-  { code: '4150', field: 'sdl' },
+interface CodeMapping {
+  code: string;
+  amount: (data: IRP5EmployeeData) => number;
+  /** Replaces the sars_source_codes description where that row is mislabelled. */
+  description?: string;
+}
+
+const field = (key: keyof IRP5EmployeeData) => (data: IRP5EmployeeData): number => data[key];
+
+// 4141 = total UIF (employee + employer) and 4142 = SDL on the IRP5. 4150 is a
+// reason code for non-deduction of tax, not an amount, so it is never emitted.
+// The sars_source_codes rows for 4141/4142 carry the old labels (employee UIF /
+// employer UIF), hence the description overrides.
+const CODE_MAPPING: CodeMapping[] = [
+  { code: '3601', amount: field('grossSalary') },
+  { code: '3701', amount: field('commission') },
+  { code: '3801', amount: field('overtime') },
+  { code: '3605', amount: field('bonus') },
+  { code: '3702', amount: field('travelAllowance') },
+  { code: '4001', amount: field('pensionContribEmployee') },
+  { code: '4003', amount: field('medicalAidEmployee') },
+  { code: '4004', amount: field('retirementAnnuity') },
+  { code: '4102', amount: field('paye') },
+  {
+    code: '4141',
+    amount: (d) => d.uifEmployee + d.uifEmployer,
+    description: 'UIF contributions (employee and employer)',
+  },
+  { code: '4142', amount: field('sdl'), description: 'Skills Development Levy (SDL)' },
 ];
 
 export async function calculateIRP5SourceCodes(
@@ -84,12 +100,12 @@ export async function calculateIRP5SourceCodes(
 ): Promise<SourceCodeEntry[]> {
   const entries: SourceCodeEntry[] = [];
   for (const mapping of CODE_MAPPING) {
-    const amount = data[mapping.field];
+    const amount = mapping.amount(data);
     if (amount && amount > 0) {
       const sarsCode = await getSarsCode(mapping.code, taxYear);
       entries.push({
         code: mapping.code,
-        description: sarsCode?.description ?? '',
+        description: mapping.description ?? sarsCode?.description ?? '',
         amount: Math.round(amount * 100) / 100,
       });
     }
@@ -124,7 +140,14 @@ export async function buildIRP5Certificate(input: {
   const deductionCodes = codeCategories.filter((x) => x.coarse === 'deduction').map((x) => x.sc);
 
   const totalGrossIncome = Math.round(incomeCodes.reduce((s, c) => s + c.amount, 0) * 100) / 100;
-  const totalDeductions = Math.round(deductionCodes.reduce((s, c) => s + c.amount, 0) * 100) / 100;
+  // 4141 sits in the 'deduction' category but includes the employer's UIF,
+  // which is not deducted from the employee.
+  const employerUifInDeductions = deductionCodes.some((c) => c.code === '4141')
+    ? input.employeeData.uifEmployer
+    : 0;
+  const totalDeductions = Math.round(
+    (deductionCodes.reduce((s, c) => s + c.amount, 0) - employerUifInDeductions) * 100,
+  ) / 100;
 
   return {
     employeeName: input.employeeName,

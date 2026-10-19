@@ -19,6 +19,7 @@ import {
 import { getRetainedEarningsBroughtForward } from './trialBalanceBasis';
 import { inclusiveDays } from '@/modules/accounting/services/reports/priorPeriod';
 import type { FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 interface RawRow {
   account_type: AccountType;
@@ -85,7 +86,7 @@ export async function getFinancialFigures(
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date <= ${to}::date
     GROUP BY ga.account_type, ga.account_subtype
   ` as unknown as Promise<RawRow[]>,

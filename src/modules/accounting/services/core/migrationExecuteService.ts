@@ -219,7 +219,7 @@ export async function verifyBalances(
     try {
       const glRows = (await sql`
         SELECT ga.account_name,
-          COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0) AS net_debit,
+          COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit - jl.credit END), 0) AS net_debit,
           ga.normal_balance
         FROM gl_accounts ga
         LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID

@@ -6,7 +6,7 @@
  * best-effort reverses/reopens so repeated runs don't accumulate books noise.
  */
 import { test, expect } from '@playwright/test';
-import { Api } from './_api';
+import { Api, PAYROLL_SANDBOX_MONTH } from './_api';
 
 test('payroll run: create → calculate → approve posts a GL journal', async ({ baseURL }) => {
   const api = await Api.login(baseURL!);
@@ -16,28 +16,32 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     expect(employees.length, 'Demo company must have employees').toBeGreaterThan(0);
 
     // Reuse the sandbox run a previous suite execution left behind (cleanup
-    // below reopens it to 'calculated'), else claim the next free period.
-    // Runs are unique per company+month; without reuse every execution would
-    // permanently consume a period slot.
+    // below reopens it to 'calculated'), else create it. Runs are unique per
+    // company+month, so there is exactly one slot and it is reused forever.
+    //
+    // The sandbox must sit inside a loaded tax year: calculate refuses a period
+    // whose tax tables are not loaded (UnsupportedTaxYearError), so the old
+    // 2031+ "future sandbox years" no longer calculate. Feb 2027 is the last
+    // month of tax year 2027, absent from Demo's seeded runs (they stop at Dec
+    // 2026), and in an open fiscal period. It is RESERVED for this spec: the
+    // close-agent specs take the first open 2027 period and skip this month
+    // (PAYROLL_SANDBOX_MONTH). Jan 2027 is theirs, so it is not a fallback.
+    // Move this when Demo needs Feb 2027 for a real payroll run.
+    const [sandboxYear, sandboxMonth] = PAYROLL_SANDBOX_MONTH.split('-').map(Number) as [number, number];
     const existing = await api.get<any[]>('/api/payroll/runs');
-    const reusable = existing.find(
-      (r) => r.periodYear >= 2031 && ['draft', 'calculated'].includes(r.status),
-    );
+    const inSandbox = (r: any) => r.periodYear === sandboxYear && r.periodMonth === sandboxMonth;
+    const slot = existing.find(inSandbox);
     let runId: string;
-    if (reusable) {
-      runId = reusable.id;
+    if (slot && ['draft', 'calculated'].includes(slot.status)) {
+      runId = slot.id;
     } else {
-      const used = new Set(existing.map((r) => `${r.periodYear}-${r.periodMonth}`));
-      let year = 2031; // future sandbox years — clear of seeded demo data
-      let month = 1;
-      while (used.has(`${year}-${month}`)) {
-        month += 1;
-        if (month > 12) {
-          month = 1;
-          year += 1;
-        }
-      }
-      const run = await api.post<any>('/api/payroll/runs', { month, year });
+      expect(
+        slot,
+        `the sandbox payroll run for ${PAYROLL_SANDBOX_MONTH} is '${slot?.status}', not reusable. `
+          + 'A previous run failed its cleanup: reopen it (POST /api/payroll/runs/<id>/reopen) in the Demo '
+          + 'company, or use a real run you no longer need. Do not move the spec to another month.',
+      ).toBeUndefined();
+      const run = await api.post<any>('/api/payroll/runs', { month: sandboxMonth, year: sandboxYear });
       expect(run.id).toBeTruthy();
       runId = run.id;
     }

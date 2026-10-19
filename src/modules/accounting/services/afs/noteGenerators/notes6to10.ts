@@ -9,6 +9,7 @@ import { fmt, toNum } from './noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { agedBucketTable, getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -67,7 +68,7 @@ export async function generateNote8FinancialAssets(
     JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id
       AND gjl.company_id = ${companyId}
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
-      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+      AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_subtype = ANY(${[
         ...rawSubtypesFor('investment'), 'financial_asset', 'loan_receivable',
@@ -125,20 +126,20 @@ export async function generateNote9Inventories(
   // Query GL accounts classified as inventory
   const rows = (await sql`
     SELECT ga.account_name, ga.account_code, ga.account_subtype,
-           COALESCE(SUM(gjl.debit - gjl.credit), 0) AS balance
+           COALESCE(SUM(CASE WHEN gje.id IS NULL THEN 0 ELSE gjl.debit - gjl.credit END), 0) AS balance
     FROM gl_accounts ga
     LEFT JOIN gl_journal_lines gjl
       ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
     LEFT JOIN gl_journal_entries gje
       ON gje.id = gjl.journal_entry_id
-      AND gje.entry_date <= ${end} AND gje.status = 'posted'
+      AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_subtype = ANY(${[
         ...rawSubtypesFor('inventory'),
         'raw_materials', 'work_in_progress', 'finished_goods', 'consumables',
       ]}::TEXT[])
     GROUP BY ga.account_name, ga.account_code, ga.account_subtype
-    HAVING COALESCE(SUM(gjl.debit - gjl.credit), 0) <> 0
+    HAVING COALESCE(SUM(CASE WHEN gje.id IS NULL THEN 0 ELSE gjl.debit - gjl.credit END), 0) <> 0
     ORDER BY ga.account_subtype, ga.account_name
   `) as DbRow[];
 

@@ -9,6 +9,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { journalStandsFragment } from '../../shared/journalInForceAsAt';
+import { YEAR_END_JOURNAL_SOURCE } from '../yearEndJournalSource';
 import type { CandidateRow } from './partition';
 
 export type {
@@ -59,6 +60,7 @@ export async function findReclassCandidates(
            jl.cc2_id,
            (je.reversed_at IS NOT NULL)   AS reversed,
            (je.reversal_of_id IS NOT NULL) AS is_reversal_leg,
+           (je.source = ${YEAR_END_JOURNAL_SOURCE}::TEXT) AS is_year_end_close,
            fp.status                    AS period_status,
            (fp.id IS NOT NULL)          AS has_period,
            EXISTS (
@@ -125,6 +127,7 @@ export async function findReclassCandidates(
     cc2_id: r.cc2_id === null || r.cc2_id === undefined ? null : String(r.cc2_id),
     reversed: r.reversed === true,
     is_reversal_leg: r.is_reversal_leg === true,
+    is_year_end_close: r.is_year_end_close === true,
     period_status: r.period_status === null ? null : String(r.period_status),
     has_period: r.has_period === true,
     already_reclassified: r.already_reclassified === true,

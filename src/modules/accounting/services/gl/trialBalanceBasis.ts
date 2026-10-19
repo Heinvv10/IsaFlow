@@ -9,13 +9,14 @@
  *     range.
  *   - Income-statement accounts (revenue / expense) restart each fiscal year,
  *     so their balance is the movement within the reporting range only.
- *   - The ledger holds no year-end closing journals (see balanceSheetService's
- *     `calculateRetainedEarnings`), so the profit earned BEFORE the range still
- *     sits in the revenue/expense accounts. Excluding it without putting it
- *     back into equity would leave the trial balance out of balance by exactly
- *     that amount. `getRetainedEarningsBroughtForward` computes it, and
- *     `broughtForwardLine` gives it a row that says on its face that it is
- *     derived rather than posted.
+ *   - Every report treats the ledger as holding no year-end closing journals
+ *     (see balanceSheetService's `calculateRetainedEarnings`): the posted close
+ *     (source 'year_end', yearEndJournalSource.ts) is skipped by every report
+ *     reader, both legs, so the profit earned BEFORE the range still sits in the
+ *     revenue/expense accounts. Excluding it without putting it back into equity
+ *     would leave the trial balance out of balance by exactly that amount.
+ *     `getRetainedEarningsBroughtForward` computes it, and `broughtForwardLine`
+ *     gives it a row that says on its face that it is derived rather than posted.
  *
  * Dates are handled as 'YYYY-MM-DD' strings throughout — never via Date
  * arithmetic and never via `.toISOString()`. See src/lib/pgTypes.ts.
@@ -27,6 +28,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 /** Account types whose balances accumulate across fiscal years. */
 export const BALANCE_SHEET_TYPES = ['asset', 'liability', 'equity'] as const;
@@ -54,7 +56,7 @@ export async function getRetainedEarningsBroughtForward(
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date < ${fromDate}
