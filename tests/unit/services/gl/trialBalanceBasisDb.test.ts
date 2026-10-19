@@ -72,20 +72,23 @@ async function findCandidate(): Promise<Candidate | null> {
         SELECT 1 FROM gl_journal_entries je
         JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE je.company_id = p.company_id AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+        WHERE je.company_id = p.company_id AND je.status = 'posted'
+          AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND ga.account_type IN ('asset', 'liability', 'equity')
           AND je.entry_date < p.start_date
       )
       AND EXISTS (
         SELECT 1 FROM gl_journal_entries je2
-        WHERE je2.company_id = p.company_id AND je2.status = 'posted' AND je2.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+        WHERE je2.company_id = p.company_id AND je2.status = 'posted'
+          AND je2.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je2.entry_date BETWEEN p.start_date AND p.end_date
       )
       AND EXISTS (
         SELECT 1 FROM gl_journal_entries je3
         JOIN gl_journal_lines jl3 ON jl3.journal_entry_id = je3.id
         JOIN gl_accounts ga3 ON ga3.id = jl3.gl_account_id
-        WHERE je3.company_id = p.company_id AND je3.status = 'posted' AND je3.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+        WHERE je3.company_id = p.company_id AND je3.status = 'posted'
+          AND je3.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND ga3.account_type IN ('revenue', 'expense')
           AND je3.entry_date >= p.fy_start AND je3.entry_date < p.start_date
       )
@@ -283,7 +286,8 @@ describe('retained earnings brought forward — the date bound is strict', () =>
       FROM gl_journal_entries je
       JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND ga.account_type IN ('revenue', 'expense')
+      WHERE je.status = 'posted'
+        AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND ga.account_type IN ('revenue', 'expense')
       GROUP BY je.company_id, je.entry_date
       HAVING ABS(SUM(jl.credit - jl.debit)) > 1
       ORDER BY ABS(SUM(jl.credit - jl.debit)) DESC
