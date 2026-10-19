@@ -13,6 +13,17 @@ describe('glTypeForSageType', () => {
   });
 });
 
+describe('glTypeForSageType parses the id strictly', () => {
+  it('refuses anything that is not plain digits, so Number()/parseInt() readings do not place an account', () => {
+    for (const raw of ['5 (asset)', '1x', '0x5', '1e0', '+1', '1.0', '-1', '０５']) expect(glTypeForSageType(raw)).toBeNull();
+  });
+
+  it('trims surrounding space, and accepts leading zeros', () => {
+    expect(glTypeForSageType(' 1 ')).toBe('revenue');
+    expect(glTypeForSageType('05')).toBe('asset');
+  });
+});
+
 describe('nameSimilarity', () => {
   it('scores an identical name 1 and unrelated names 0', () => {
     expect(nameSimilarity('bank account', 'bank account')).toBe(1);

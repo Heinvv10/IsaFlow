@@ -7,11 +7,12 @@ const SAGE_TYPE_TO_GL: Record<number, string> = { 1: 'revenue', 2: 'expense', 5:
 
 /**
  * The GL account type for a Sage `account_type` value (stored as text), or null when it has none or is not an id
- * this map knows. A null is "cannot place", never "any type": the caller must not auto-map such an account.
+ * this map knows. Only plain digits (after trim) are an id: `Number()` would also read '0x5' and '1e0'. A null is
+ * "cannot place", never "any type": the caller must not auto-map such an account.
  */
 export function glTypeForSageType(raw: unknown): string | null {
-  if (raw == null || String(raw).trim() === '') return null;
-  return SAGE_TYPE_TO_GL[Number(raw)] ?? null;
+  const text = raw == null ? '' : String(raw).trim();
+  return /^\d+$/.test(text) ? SAGE_TYPE_TO_GL[Number(text)] ?? null : null;
 }
 
 export function nameSimilarity(a: string, b: string): number {
