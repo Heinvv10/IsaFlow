@@ -245,7 +245,7 @@ async function assertEmployeesInCompany(companyId: string, employeeIds: string[]
   }
 }
 
-async function refreshBatchTotals(batchId: string): Promise<void> {
+async function refreshBatchTotals(companyId: string, batchId: string): Promise<void> {
   await sql`
     UPDATE payroll_batches
        SET line_count = COALESCE((
@@ -255,7 +255,7 @@ async function refreshBatchTotals(batchId: string): Promise<void> {
              SELECT SUM(value) FROM payroll_batch_lines WHERE batch_id = ${batchId}::uuid
            ), 0),
            updated_at = NOW()
-     WHERE id = ${batchId}::uuid
+     WHERE id = ${batchId}::uuid AND company_id = ${companyId}::uuid
   `;
 }
 
@@ -313,7 +313,7 @@ export async function addBatchLines(
     inserted += 1;
   }
 
-  await refreshBatchTotals(batchId);
+  await refreshBatchTotals(companyId, batchId);
   return { inserted };
 }
 
@@ -373,7 +373,7 @@ export async function validateBatch(companyId: string, batchId: string): Promise
   await sql`
     UPDATE payroll_batches
        SET status = ${newStatus}, updated_at = NOW()
-     WHERE id = ${batchId}::uuid
+     WHERE id = ${batchId}::uuid AND company_id = ${companyId}::uuid
   `;
 
   return { ok: errors.length === 0, errors, totalLines: lines.length };
@@ -479,7 +479,7 @@ export async function postBatch(
            posted_at = NOW(),
            posted_by = ${userId},
            updated_at = NOW()
-     WHERE id = ${batchId}::uuid
+     WHERE id = ${batchId}::uuid AND company_id = ${companyId}::uuid
   `;
 
   log.info(
