@@ -1,8 +1,9 @@
 /**
  * G-01 final: the two migration balance comparisons (verifyBalances after an import, and the Sage comparison
  * report) summed lines over `LEFT JOIN gl_journal_entries ... AND je.status = 'posted'` with no gate on the
- * joined entry, so a DRAFT line (and the posted year-end close) was counted and the comparison showed a
- * difference against a source that matched the posted ledger. The close is skipped like every report's.
+ * joined entry, so a DRAFT line was counted and the comparison showed a difference against a source that
+ * matched the posted ledger. Both are ledger-to-ledger reconciliations of ALL time, and the source's balances
+ * already carry the year's P&L rolled into retained income, so they INCLUDE the stored year-end close.
  *
  * (generateComparison also selected `sa.sage_account_id` and `sa.name`, columns sage_accounts does not have,
  * so it threw 42703 on every call; it now selects the real ones.)
@@ -21,12 +22,12 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const user = crypto.randomUUID();
 const t = newTenant();
 
-/** Normal-side balance of an account over posted entries that are not the close: what the source system holds. */
+/** Normal-side balance of an account over POSTED entries, the stored close included: what the source system holds. */
 async function posted(accountId: string, credit: boolean): Promise<number> {
   const r = await pool.query(
     `SELECT SUM(jl.${credit ? 'credit - jl.debit' : 'debit - jl.credit'})::numeric AS n FROM gl_journal_lines jl
      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-     WHERE je.company_id=$1 AND jl.gl_account_id=$2 AND je.status='posted' AND je.source <> 'year_end'`, [t.company, accountId]);
+     WHERE je.company_id=$1 AND jl.gl_account_id=$2 AND je.status='posted'`, [t.company, accountId]);
   return Number(r.rows[0].n);
 }
 
@@ -60,7 +61,7 @@ afterAll(async () => {
 });
 
 describe('a source that matches the posted ledger compares as matching', () => {
-  it('verifyBalances: no difference on the bank (a draft line) or revenue (a draft line and the close)', async () => {
+  it('verifyBalances: no difference on the bank (a draft line) or on revenue (a draft line; the stored close is counted)', async () => {
     const results = await verifyBalances(t.company, [
       { sourceCode: '1000', sourceName: 'Bank', sourceType: 'asset', openingBalance: await posted(t.acct.bank, false) },
       { sourceCode: '4000', sourceName: 'Sales', sourceType: 'revenue', openingBalance: await posted(t.acct.revenue, true) },

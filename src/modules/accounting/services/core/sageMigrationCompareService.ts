@@ -7,7 +7,6 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ComparisonReport } from './sageMigrationService';
-import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 type Row = DbRow;
 
 export async function generateComparison(companyId: string, userId: string): Promise<ComparisonReport> {
@@ -24,7 +23,7 @@ export async function generateComparison(companyId: string, userId: string): Pro
         COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit END), 0) AS total_credit
       FROM gl_accounts ga
       LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-      LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND je.company_id = ${companyId}::UUID
+      LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
       WHERE ga.company_id = ${companyId}::UUID AND ga.level >= 3 GROUP BY ga.id, ga.account_code, ga.account_name, ga.normal_balance ORDER BY ga.account_code
     `) as Row[];
 
