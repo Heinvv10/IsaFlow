@@ -11,12 +11,13 @@ import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { Loader2, AlertCircle, Upload, X, CheckCircle2, FileText } from 'lucide-react';
 
-type ReconStatus = 'unreconciled' | 'reconciled' | 'disputed' | 'archived';
+type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 
 interface SupplierStatementReconciliation {
   id: string; supplierId: string; supplierName: string;
-  statementDate: string; periodStart: string | null; periodEnd: string | null;
-  supplierBalance: number; isaflowBalance: number; variance: number;
+  /** Null while the statement is not read yet ('extracting' or 'failed'): the figures do not exist. */
+  statementDate: string | null; periodStart: string | null; periodEnd: string | null;
+  supplierBalance: number | null; isaflowBalance: number | null; variance: number | null;
   status: ReconStatus;
   missingInIsaflowCount: number; missingInStatementCount: number; amountDiffCount: number;
   createdAt: string;
@@ -24,7 +25,8 @@ interface SupplierStatementReconciliation {
 
 type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
-function fmtZAR(n: number) {
+function fmtZAR(n: number | null) {
+  if (n === null) return '—';
   return 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -44,7 +46,8 @@ function readCsrf(): string | null {
   return m ? m.slice('isaflow_csrf='.length) : null;
 }
 
-function VarianceBadge({ variance }: { variance: number }) {
+function VarianceBadge({ variance }: { variance: number | null }) {
+  if (variance === null) return <span className="font-mono text-xs text-[var(--ff-text-tertiary)]">—</span>;
   const abs = Math.abs(variance);
   const cls = abs <= 0.01 ? 'text-teal-400' : abs <= 100 ? 'text-amber-400' : 'text-red-400';
   return <span className={`font-mono text-xs font-medium ${cls}`}>{fmtZAR(variance)}</span>;
@@ -52,6 +55,8 @@ function VarianceBadge({ variance }: { variance: number }) {
 
 function StatusBadge({ status }: { status: ReconStatus }) {
   const cfg: Record<ReconStatus, { cls: string; label: string }> = {
+    extracting:   { cls: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', label: 'Reading…' },
+    failed:       { cls: 'bg-red-500/20 text-red-400 border-red-500/30',       label: 'Failed' },
     unreconciled: { cls: 'bg-amber-500/20 text-amber-400 border-amber-500/30', label: 'Unreconciled' },
     reconciled:   { cls: 'bg-teal-500/20 text-teal-400 border-teal-500/30',    label: 'Reconciled' },
     disputed:     { cls: 'bg-red-500/20 text-red-400 border-red-500/30',       label: 'Disputed' },
@@ -150,7 +155,7 @@ export default function SupplierStatementsIndexPage() {
               placeholder="All suppliers" className="min-w-[200px]"
               inputClassName="w-full px-3 py-2 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] text-[var(--ff-text-primary)] text-sm focus:outline-none focus:border-indigo-500/50"
             />
-            {(['all', 'unreconciled', 'reconciled', 'disputed', 'archived'] as const).map(f => (
+            {(['all', 'extracting', 'failed', 'unreconciled', 'reconciled', 'disputed', 'archived'] as const).map(f => (
               <button key={f} onClick={() => setFilterStatus(f)}
                 className={`px-3 py-1.5 rounded text-xs font-medium transition-colors capitalize ${filterStatus === f ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40' : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] hover:border-indigo-500/40'}`}>
                 {f === 'all' ? 'All statuses' : f}
@@ -177,7 +182,8 @@ export default function SupplierStatementsIndexPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(s => (
+                  {filtered.map(s => {
+                    return (
                     <tr key={s.id} onClick={() => router.push(`/accounting/ap/supplier-statements/${s.id}`)}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors">
                       <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtDate(s.statementDate)}</td>
@@ -188,7 +194,8 @@ export default function SupplierStatementsIndexPage() {
                       <td className="px-4 py-3 text-right"><VarianceBadge variance={s.variance} /></td>
                       <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

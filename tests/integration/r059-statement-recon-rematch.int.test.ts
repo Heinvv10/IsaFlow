@@ -40,6 +40,7 @@ import { SignJWT } from 'jose';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { createAndRead } from './supplier-statement-read.helpers';
 
 function shift(days: number): string {
   const d = new Date();
@@ -51,17 +52,18 @@ const STMT = shift(-10);
 let nextExtraction: { closingBalance: number; lines: { date: string; reference: string; debit: number }[] } =
   { closingBalance: 0, lines: [] };
 
-vi.mock('@/lib/documentStorage', () => ({
-  fetchRawBytes: vi.fn(async () => ({ buffer: Buffer.from('%PDF-1.4 r059'), fileType: 'pdf' })),
+vi.mock('@/lib/afterCommit', async (original) => ({
+  ...(await original<typeof import('@/lib/afterCommit')>()),
+  runAfterCommit: () => undefined, // the job is driven by createAndRead
 }));
-vi.mock('@/modules/accounting/services/bank/vlmSupplierStatementService', () => ({
-  extractSupplierStatementWithVlm: vi.fn(async () => ({
-    statementDate: STMT, periodStart: null, periodEnd: null,
+vi.mock('@/modules/accounting/services/capture/supplierStatementExtraction', () => ({
+  extractSupplierStatementFromDocument: vi.fn(async () => ({
+    statementDate: STMT, periodStart: undefined, periodEnd: undefined,
     closingBalance: nextExtraction.closingBalance, lines: nextExtraction.lines, warnings: [],
   })),
 }));
 
-const { createReconciliation, markReconciled, getReconciliation, rematchLines, ReconciliationClosedError } =
+const { markReconciled, getReconciliation, rematchLines, ReconciliationClosedError } =
   await import('@/modules/accounting/services/capture/supplierStatementReconService');
 const rematchRoute = (await import('../../pages/api/accounting/supplier-statements/[id]/rematch')).default;
 
@@ -126,7 +128,7 @@ describeIfDb('R-059 Rematch measures at the statement date, and a reconciled sta
   it('PAY: a payment dated after the statement date does not move a Rematch', async () => {
     const b = await bill(suppliers.PAY, '-PAY', 500, shift(-40), 'approved');
     nextExtraction = { closingBalance: 500, lines: [{ date: shift(-40), reference: TAG + '-PAY', debit: 500 }] };
-    const created = await createReconciliation(COMPANY, suppliers.PAY, docs.PAY, USER);
+    const created = await createAndRead(COMPANY, suppliers.PAY, docs.PAY, USER);
     expect({ isaflow: created.isaflowBalance, variance: created.variance }).toEqual({ isaflow: 500, variance: 0 });
 
     // Settled TODAY — after the statement date.
@@ -145,7 +147,7 @@ describeIfDb('R-059 Rematch measures at the statement date, and a reconciled sta
   it('CLOSED: once reconciled, Rematch is refused and nothing moves', async () => {
     await bill(suppliers.CLOSED, '-C1', 300, shift(-40), 'approved');
     nextExtraction = { closingBalance: 300, lines: [{ date: shift(-40), reference: TAG + '-C1', debit: 300 }] };
-    const created = await createReconciliation(COMPANY, suppliers.CLOSED, docs.CLOSED, USER);
+    const created = await createAndRead(COMPANY, suppliers.CLOSED, docs.CLOSED, USER);
     await markReconciled(COMPANY, created.id, USER);
     const snapshot = async () => {
       const r = (await getReconciliation(COMPANY, created.id))!;
@@ -171,7 +173,7 @@ describeIfDb('R-059 Rematch measures at the statement date, and a reconciled sta
   it('RACE: a mark-reconciled committing while Rematch is in flight still wins — 409, variance unchanged', async () => {
     await bill(suppliers.RACE, '-R1', 300, shift(-40), 'approved');
     nextExtraction = { closingBalance: 300, lines: [{ date: shift(-40), reference: TAG + '-R1', debit: 300 }] };
-    const created = await createReconciliation(COMPANY, suppliers.RACE, docs.RACE, USER);
+    const created = await createAndRead(COMPANY, suppliers.RACE, docs.RACE, USER);
     // Captured after the upload, dated before the statement: a Rematch that got
     // through would re-measure isaflow to 500 and the variance to -200.
     await bill(suppliers.RACE, '-R2', 200, shift(-30), 'approved');

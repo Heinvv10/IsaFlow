@@ -1,5 +1,5 @@
 /**
- * VLM PDF render — turns the first page of a PDF into a PNG for the VLM.
+ * VLM PDF render — turns one page of a PDF into a PNG for the VLM.
  *
  * vLLM rejects a PDF sent as `image_url` (400 "cannot identify image file"),
  * so a scanned PDF only reaches the model as a rendered page. The PDF is an
@@ -10,7 +10,7 @@
  *   empty TMPDIR and a clean environment. (bubblewrap is not an option: inside
  *   isaflow.service the kernel refuses it a user namespace, "setting up uid
  *   map: Permission denied".)
- * - page 1 only, into a fixed-size frame, stdin → stdout, a hard timeout, an
+ * - one page only, into a fixed-size frame, stdin → stdout, a hard timeout, an
  *   output cap. Output that is not a PNG (an encrypted PDF exits 0 with only a
  *   message) is a failure. Callers bound how many run at once.
  */
@@ -28,32 +28,44 @@ const PDF_MAGIC = '%PDF-';
 const HEADER_SEARCH_BYTES = 1024 + PDF_MAGIC.length - 1;
 /** Kernel limits on gs itself: 512 MB address space; CPU SIGXCPU at 25 s, SIGKILL at 30 s (peak seen: ~40 MB). */
 const LIMIT_ARGS = ['--as=536870912', '--cpu=25:30', '--core=0', '--'];
-const GS_ARGS = [
+const gsArgs = (page: number): string[] => [
   '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
   // A fixed 1754x1754 frame with the page scaled to fit, aspect kept: A4 reads
   // at 150 dpi portrait OR landscape, and a hostile 14,400pt page costs the
   // same memory as an A4 one.
-  '-sDEVICE=png16m', '-g1754x1754', '-dFIXEDMEDIA', '-dPDFFitPage', '-dFirstPage=1', '-dLastPage=1',
+  '-sDEVICE=png16m', '-g1754x1754', '-dFIXEDMEDIA', '-dPDFFitPage', `-dFirstPage=${page}`, `-dLastPage=${page}`,
   '-sOutputFile=-', '-',
 ];
 
 /** Base64 PNG of page 1, or null when the PDF cannot be rendered (logged). */
-export async function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | null> {
+export function renderPdfFirstPage(pdfBuffer: Buffer): Promise<string | null> {
+  return renderPdfPage(pdfBuffer, 1);
+}
+
+/**
+ * Base64 PNG of the 1-based `page`, or null when it cannot be rendered (logged).
+ * A page past the end makes gs exit 0 with no image, which is the same null.
+ */
+export async function renderPdfPage(pdfBuffer: Buffer, page: number): Promise<string | null> {
+  if (!Number.isInteger(page) || page < 1) {
+    log.warn('Not rendered: page must be a positive integer', { page }, 'vlm-pdf-render');
+    return null;
+  }
   const start = pdfBuffer.subarray(0, HEADER_SEARCH_BYTES).indexOf(PDF_MAGIC, 0, 'latin1');
   if (start < 0) {
     log.warn('Not rendered: no %PDF- header in the first 1 KB', { bytes: pdfBuffer.length }, 'vlm-pdf-render');
     return null;
   }
   try {
-    const { png, stderr } = await runGhostscript(pdfBuffer.subarray(start));
+    const { png, stderr } = await runGhostscript(pdfBuffer.subarray(start), page);
     if (png.subarray(0, 4).toString('latin1') === '\x89PNG') {
       return png.toString('base64');
     }
     log.warn('PDF render produced no readable page', {
-      bytes: pdfBuffer.length, pngBytes: png.length, stderr: stderr.trim(),
+      page, bytes: pdfBuffer.length, pngBytes: png.length, stderr: stderr.trim(),
     }, 'vlm-pdf-render');
   } catch (err) {
-    const detail = { bytes: pdfBuffer.length, error: err instanceof Error ? err.message : String(err) };
+    const detail = { page, bytes: pdfBuffer.length, error: err instanceof Error ? err.message : String(err) };
     // No gs/prlimit at all is an outage (every scan falls back), not one bad file.
     if (err instanceof RenderUnavailable) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
     else log.warn('PDF render failed', detail, 'vlm-pdf-render');
@@ -90,7 +102,7 @@ function removeTmpDir(dir: string): void {
   }
 }
 
-function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: string }> {
+function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer; stderr: string }> {
   const absent = ['prlimit', 'gs'].filter((name) => !onPath(name));
   if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
   // gs's own temp dir, one per render: private (0700), empty, removed when gs exits.
@@ -99,7 +111,7 @@ function runGhostscript(pdfBuffer: Buffer): Promise<{ png: Buffer; stderr: strin
     const env = { NODE_ENV: process.env.NODE_ENV, PATH: gsPath(), TMPDIR: gsTmpDir };
     let gs: ChildProcessWithoutNullStreams;
     try {
-      gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...GS_ARGS], { stdio: ['pipe', 'pipe', 'pipe'], env });
+      gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...gsArgs(page)], { stdio: ['pipe', 'pipe', 'pipe'], env });
     } catch (err) {
       removeTmpDir(gsTmpDir);
       reject(err instanceof Error ? err : new Error(String(err)));
