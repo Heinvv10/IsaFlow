@@ -19,19 +19,23 @@ export async function generateComparison(companyId: string, userId: string): Pro
     `) as Row[];
 
     const glBalances = (await sql`
-      SELECT ga.id, ga.account_code, ga.account_name, ga.normal_balance,
+      SELECT ga.id, ga.account_code, ga.account_name, ga.normal_balance, ga.level,
         COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit END), 0) AS total_debit,
         COALESCE(SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit END), 0) AS total_credit
       FROM gl_accounts ga
       LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
       LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-      WHERE ga.company_id = ${companyId}::UUID AND ga.level >= 3 GROUP BY ga.id, ga.account_code, ga.account_name, ga.normal_balance ORDER BY ga.account_code
+      WHERE ga.company_id = ${companyId}::UUID GROUP BY ga.id, ga.account_code, ga.account_name, ga.normal_balance, ga.level ORDER BY ga.account_code
     `) as Row[];
 
+    // Every account is compared at any level (a flat chart is all level 1; a header can carry its own lines). Lines
+    // are summed per account, never rolled up, so no balance is counted twice. The count is leaves plus any header
+    // with activity.
     const glMap = new Map<string, number>();
-    let glTotalDebit = 0; let glTotalCredit = 0;
+    let glTotalDebit = 0; let glTotalCredit = 0; let glAccountCount = 0;
     for (const gl of glBalances) {
       const d = Number(gl.total_debit), c = Number(gl.total_credit);
+      if (Number(gl.level) >= 3 || d !== 0 || c !== 0) glAccountCount++;
       glMap.set(String(gl.id), String(gl.normal_balance) === 'debit' ? d - c : c - d);
       glTotalDebit += d; glTotalCredit += c;
     }
@@ -82,7 +86,7 @@ export async function generateComparison(companyId: string, userId: string): Pro
     const report: ComparisonReport = {
       comparisonDate: new Date().toISOString().slice(0, 10),
       sageTotals: { totalDebit: sageTotalDebit, totalCredit: sageTotalCredit, accountCount: sageBalances.length },
-      glTotals: { totalDebit: glTotalDebit, totalCredit: glTotalCredit, accountCount: glBalances.length },
+      glTotals: { totalDebit: glTotalDebit, totalCredit: glTotalCredit, accountCount: glAccountCount },
       differences,
       isBalanced: differences.length === 0,
     };
