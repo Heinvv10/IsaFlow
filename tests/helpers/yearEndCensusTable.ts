@@ -8,6 +8,7 @@ export const SVC = 'src/modules/accounting/services/';
 /** One line each: why a statement of this category is not a statement/report figure. */
 export const CATEGORIES = {
   WRITE: 'write path: must SEE the close, or a re-run would close a closed year again',
+  RECONCILIATION: 'ledger-to-ledger reconciliation: the stored close is part of what the other ledger\'s balance reflects',
   RAW: 'raw-ledger view or audit evidence: shows what is stored, the close included, by design',
   INTEGRITY: 'ledger integrity check over the raw ledger: a stored close is part of what it verifies',
   CASH: 'cash/bank accounts only: the close posts to revenue, expense and retained earnings',
@@ -63,6 +64,8 @@ export const entries: Array<[string, Category, string?]> = [
   ['capture/capturedVatEvidence.ts', 'VAT'],
   ['core/anomalyScanService.ts', 'RAW'],
   ['core/evidenceGraphService.ts', 'RAW'],
+  ['core/migrationExecuteService.ts', 'RECONCILIATION', 'FROM gl_accounts ga'],
+  ['core/sageMigrationCompareService.ts', 'RECONCILIATION', 'FROM gl_accounts ga'],
   ['core/migrationService.ts', 'MIGRATION'],
   ['core/migrationSubtypeCheck.ts', 'MIGRATION'],
   ['core/migrationValidationService.ts', 'MIGRATION'],

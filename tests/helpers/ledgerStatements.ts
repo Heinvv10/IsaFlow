@@ -122,11 +122,26 @@ function leftJoinOnWithoutGuard(body: string, alias: string, markerAt: number): 
   return false;
 }
 
+/** Balanced-bracket argument of the aggregate whose opening bracket is at `open` (the index of "("). */
+function argumentAt(text: string, open: number): string {
+  let depth = 0;
+  for (let i = open; i < text.length; i += 1) {
+    if (text[i] === '(') depth += 1;
+    else if (text[i] === ')') { depth -= 1; if (depth === 0) return text.slice(open + 1, i); }
+  }
+  return text.slice(open + 1);
+}
+
 /**
- * LEFT JOINs onto gl_journal_entries whose alias the statement never uses outside that join's own ON clause.
- * Whatever the ON says (posted, a date, the close marker), such a join blanks the entry's columns but keeps the
- * line, so a SUM over the lines counts draft and excluded entries. An allow-list category excuses the year-end
- * marker; it does not excuse this.
+ * LEFT JOINs onto the entry of the lines (`ON ... journal_entry_id`) that do not gate the LINES. Whatever the ON says (posted, a date, the
+ * close marker), such a join blanks the entry's columns but keeps the line, so a SUM over the lines counts
+ * draft and excluded entries. The join is GATED when one of these holds:
+ *   - the alias is inside EVERY aggregate argument that sums a line's money (`SUM(CASE WHEN je.id IS NULL ...)`);
+ *     an alias used only in the SELECT list, or only in `MAX(je.created_at)`, gates nothing;
+ *   - an `alias.id IS [NOT] NULL` predicate is in the statement (WHERE or a CASE);
+ *   - a WHERE predicate compares an alias column (a NULL entry fails it);
+ *   - a later JOIN hangs off the alias, so the lines only exist through a matched entry.
+ * An allow-list category excuses the year-end marker; it does not excuse this.
  */
 export function ungatedEntryLeftJoins(body: string): string[] {
   const out: string[] = [];
@@ -136,8 +151,36 @@ export function ungatedEntryLeftJoins(body: string): string[] {
     const onStart = j.index! + j[0].length;
     const next = body.slice(onStart).search(/\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|LEFT|RIGHT|INNER|FULL|CROSS|JOIN)\b/i);
     const onEnd = next < 0 ? body.length : onStart + next;
+    // Only a join onto the ENTRY OF THE LINES (ON ... journal_entry_id) can over-count them; a LEFT JOIN onto a
+    // reversal original (`orig.id = je.reversal_of_id`) or a payment's journal header sums no line through it.
+    if (!/\bjournal_entry_id\b/i.test(body.slice(onStart, onEnd))) continue;
     const outside = body.slice(0, j.index!) + ' ' + body.slice(onEnd);
-    if (!new RegExp(String.raw`\b${alias}\s*\.\s*\w+`, 'i').test(outside)) out.push(alias);
+    const uses = new RegExp(String.raw`\b${alias}\s*\.\s*\w+`, 'i');
+    if (!uses.test(outside)) { out.push(alias); continue; }
+    // Aggregates over the lines: the alias must be inside EACH of them. Judged first, then the alias is looked for
+    // OUTSIDE every aggregate argument (a WHERE / CASE predicate there gates all of them).
+    let allAggregatesGated = true;
+    let anyOverLines = false;
+    let rest = '';
+    let cursor = 0;
+    for (const a of outside.matchAll(/\b(?:SUM|AVG|ARRAY_AGG|STRING_AGG|JSONB_AGG|JSON_AGG|BOOL_AND|BOOL_OR|MAX|MIN)\s*\(/gi)) {
+      if (a.index! < cursor) continue;
+      const open = a.index! + a[0].length - 1;
+      const arg = argumentAt(outside, open);
+      rest += outside.slice(cursor, open + 1);
+      cursor = open + 1 + arg.length;
+      if (!new RegExp(`\\b${MONEY}\\b|\\b(?:${[...aliasesOf(body, 'lines')].join('|')})\\s*\\.`, 'i').test(arg)) { rest += arg; continue; }
+      anyOverLines = true;
+      if (!uses.test(arg)) allAggregatesGated = false;
+    }
+    rest += outside.slice(cursor);
+    const nullTest = new RegExp(String.raw`\b${alias}\s*\.\s*id\s+IS\s+(?:NOT\s+)?NULL`, 'i').test(rest);
+    const where = /\bWHERE\b([\s\S]*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bHAVING\b|\bLIMIT\b|$)/i.exec(rest)?.[1] ?? '';
+    const inWhere = uses.test(where);
+    const hung = [...body.slice(onEnd).matchAll(/\b(?:LEFT|RIGHT|INNER|FULL|CROSS)?\s*JOIN\b[^]*?\bON\b([^]*?)(?=\b(?:WHERE|GROUP\s+BY|ORDER\s+BY|HAVING|LIMIT|LEFT|RIGHT|INNER|FULL|CROSS|JOIN)\b|$)/gi)]
+      .some((m) => uses.test(m[1]!));
+    const gatedByPredicate = nullTest || inWhere || hung;
+    if (!(gatedByPredicate || (anyOverLines && allAggregatesGated))) out.push(alias);
   }
   return out;
 }

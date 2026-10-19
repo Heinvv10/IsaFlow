@@ -183,4 +183,22 @@ describe('the rule catches planted evasions', () => {
     expect(headersOnly(walk('r.id, r.debit'), 'SELECT r.id')).toBe(false);
     expect(headersOnly(walk('r.id'), 'SELECT nothing here')).toBe(false);
   });
+
+  it('"gated" means the alias is inside every aggregate over the lines, not merely used somewhere', () => {
+    const left = (select: string) =>
+      `SELECT ${select} FROM gl_accounts ga LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id `
+      + `LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' GROUP BY ga.id`;
+    // The alias appears (MAX(je.created_at), a SELECT-list column) but the SUM over the lines is not gated by it.
+    expect(ungatedEntryLeftJoins(left('SUM(jl.debit) AS d, MAX(je.created_at) AS t'))).toEqual(['je']);
+    expect(ungatedEntryLeftJoins(left('SUM(jl.debit) AS d, je.entry_date'))).toEqual(['je']);
+    expect(ungatedEntryLeftJoins(left('SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit END) AS d, SUM(jl.credit) AS c'))).toEqual(['je']);
+    // bank/cashBalanceService.ts's shape: every SUM over the lines carries the guard.
+    expect(ungatedEntryLeftJoins(left(
+      'SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit END) AS d, SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.credit END) AS c, MAX(je.created_at) AS t'))).toEqual([]);
+    expect(ungatedEntryLeftJoins(left('SUM(CASE WHEN je.entry_date <= \'2025-12-31\' THEN jl.debit ELSE 0 END)'))).toEqual([]);
+  });
+
+  it('a LEFT JOIN onto a reversal original, not onto the entry of the lines, is not the lines\' gate', () => {
+    expect(ungatedEntryLeftJoins('SELECT jl.debit FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id = jl.journal_entry_id LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id')).toEqual([]);
+  });
 });

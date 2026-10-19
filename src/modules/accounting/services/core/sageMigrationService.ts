@@ -192,12 +192,12 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
 
 export async function getAccountMappings(companyId: string): Promise<AccountMapping[]> {
   const rows = (await sql`
-    SELECT sa.sage_account_id, sa.name, sa.account_type, sa.balance,
+    SELECT sa.sage_id AS sage_account_id, sa.account_name AS name, sa.account_type, sa.balance,
       sa.gl_account_id, sa.mapping_status, sa.mapping_notes,
       ga.account_code, ga.account_name
     FROM sage_accounts sa LEFT JOIN gl_accounts ga ON ga.id = sa.gl_account_id
     WHERE sa.company_id = ${companyId}::UUID
-    ORDER BY sa.name
+    ORDER BY sa.account_name
   `) as Row[];
 
   return rows.map((r: Row) => ({
@@ -228,7 +228,7 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
   const runId = await startRun('account_mapping', userId, companyId);
   return withRunRecovery(runId, companyId, async () => {
     const sageAccounts = (await sql`
-      SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY name
+      SELECT id, sage_id AS sage_account_id, account_name AS name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY account_name
     `) as Row[];
     const glAccounts = (await sql`
       SELECT id, account_code, account_name, account_type FROM gl_accounts
@@ -282,11 +282,11 @@ export async function mapAccount(companyId: string, sageAccountId: string, glAcc
     }
 
     const result = (await sql`UPDATE sage_accounts SET gl_account_id = ${glAccountId}::UUID, mapping_status = 'manual',
-      mapping_notes = ${notes || 'Manually mapped'} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_account_id`) as Row[];
+      mapping_notes = ${notes || 'Manually mapped'} WHERE sage_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_id`) as Row[];
     if (result.length === 0) throw new Error(`Sage account not found: ${sageAccountId}`);
   } else {
     const result = (await sql`UPDATE sage_accounts SET gl_account_id = NULL, mapping_status = 'unmapped',
-      mapping_notes = ${notes || null} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_account_id`) as Row[];
+      mapping_notes = ${notes || null} WHERE sage_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_id`) as Row[];
     if (result.length === 0) throw new Error(`Sage account not found: ${sageAccountId}`);
   }
 }
