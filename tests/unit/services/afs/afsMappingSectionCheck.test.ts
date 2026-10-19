@@ -7,7 +7,9 @@ vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 import { withStatementMappingFinding } from '@/modules/accounting/services/afs/afsMappingSectionCheck';
 
 const DIVIDENDS_ADVICE = "Dividends paid is shown on the income statement; this version doesn't yet carry it into "
-  + "balance-sheet equity, so the balance sheet won't balance.";
+  + "balance-sheet equity, so the balance sheet may not balance.";
+const TWICE = /revenue or expense account on a balance sheet line is counted twice/;
+const STOCK = /asset, liability or equity account on an income statement line is a balance shown as a period movement and missing from the balance sheet/;
 const row = (code: string, type: string, line: string, section: string) =>
   ({ account_code: code, account_name: `Acct ${code}`, account_type: type, afs_line_code: line, section });
 const dividends = row('3500', 'equity', 'IS484', 'income_statement');
@@ -41,23 +43,34 @@ describe('withStatementMappingFinding', () => {
   it('keeps the remap advice for a revenue account on a balance-sheet line', async () => {
     const f = await finding([revenueOnBs]);
     expect(f.detail).toMatch(/Remap each to a line of its own statement/);
+    expect(f.detail).toMatch(TWICE);
+    expect(f.detail).not.toMatch(STOCK);
     expect(f.detail).not.toContain('Dividends paid');
   });
 
-  it('keeps the remap advice for a non-dividend equity-or-liability account on an income line', async () => {
+  it('says a stock on an income line is a balance shown as a period movement, not that it is counted twice', async () => {
     const f = await finding([loanOnIs, row('3200', 'equity', 'IS005', 'income_statement')]);
+    expect(f.detail).toMatch(STOCK);
     expect(f.detail).toMatch(/Remap each/);
+    expect(f.detail).not.toMatch(TWICE);
     expect(f.detail).not.toContain('Dividends paid');
   });
 
-  it('gives each its own advice when both occur', async () => {
-    const f = await finding([dividends, revenueOnBs]);
+  it('does not state that the balance sheet will be out as a certainty', async () => {
+    const f = await finding([dividends]);
+    expect(f.detail).not.toMatch(/won't balance|will not balance/);
+  });
+
+  it('gives each its own advice when all three occur', async () => {
+    const f = await finding([dividends, revenueOnBs, loanOnIs]);
     expect(f.detail).toContain(DIVIDENDS_ADVICE);
-    expect(f.detail).toMatch(/Remap each/);
+    expect(f.detail).toMatch(TWICE);
+    expect(f.detail).toMatch(STOCK);
   });
 
   it('does not give the dividends advice to a non-equity account on IS484', async () => {
     const f = await finding([row('2000', 'liability', 'IS484', 'income_statement')]);
+    expect(f.detail).toMatch(STOCK);
     expect(f.detail).toMatch(/Remap each/);
     expect(f.detail).not.toContain('Dividends paid');
   });
