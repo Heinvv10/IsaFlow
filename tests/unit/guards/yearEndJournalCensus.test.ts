@@ -26,7 +26,9 @@
  * marker on a DIFFERENT gl_journal_entries alias than the one the figure's lines join (a self-join, `orig`);
  * a join condition that makes the marker true for every row; a marker in a LEFT JOIN's ON beside an alias used only
  * in the SELECT list or GROUP BY (that does not gate the SUM) or beside `WHERE je.id IS NOT NULL OR ...`; a marker
- * on a second, self-joined entries alias.
+ * on a second, self-joined entries alias; and a LEFT JOIN gated only by a PREDICATE MENTION: `alias.id IS [NOT] NULL` or
+ * a WHERE comparison anywhere on the alias counts (`WHERE (je.status = 'posted' OR je.id IS NULL)`, a SELECT-list
+ * `(je.id IS NULL) AS orphan`), whether or not it keeps a NULL entry's lines out of the SUM.
  * Quoted strings that merely NAME the tables are census-listed below so a new one is a decision.
  *
  * A source-text ratchet, not a behaviour test: the behaviour is pinned by

@@ -12,9 +12,10 @@ type Row = DbRow;
 export async function generateComparison(companyId: string, userId: string): Promise<ComparisonReport> {
   try {
     const sageBalances = (await sql`
-      SELECT sa.sage_id, sa.account_name AS sage_name, sa.balance, ga.account_code, ga.account_name, ga.id AS gl_id
-      FROM sage_accounts sa JOIN gl_accounts ga ON ga.id = sa.gl_account_id
-      WHERE sa.company_id = ${companyId}::UUID ORDER BY ga.account_code
+      SELECT sa.sage_id, sa.account_name AS sage_name, sa.account_code AS sage_code, sa.balance,
+        ga.account_code, ga.account_name, ga.id AS gl_id
+      FROM sage_accounts sa LEFT JOIN gl_accounts ga ON ga.id = sa.gl_account_id AND ga.company_id = sa.company_id
+      WHERE sa.company_id = ${companyId}::UUID ORDER BY ga.account_code NULLS LAST, sa.account_code
     `) as Row[];
 
     const glBalances = (await sql`
@@ -37,9 +38,21 @@ export async function generateComparison(companyId: string, userId: string): Pro
 
     const differences: ComparisonReport['differences'] = [];
     let sageTotalDebit = 0; let sageTotalCredit = 0;
+    const mappedGl = new Set<string>();
     for (const sage of sageBalances) {
       const sb = Number(sage.balance || 0), gb = glMap.get(String(sage.gl_id)) || 0;
       if (sb > 0) sageTotalDebit += sb; else sageTotalCredit += Math.abs(sb);
+      if (sage.gl_id == null) {
+        // A Sage balance no GL account is mapped to: nothing in the ledger answers for it.
+        if (Math.abs(sb) > 0.01) {
+          differences.push({
+            accountCode: String(sage.sage_code ?? sage.sage_id), accountName: `${sage.sage_name} (no GL account mapped)`,
+            sageBalance: sb, glBalance: 0, difference: sb, kind: 'sage_unmapped',
+          });
+        }
+        continue;
+      }
+      mappedGl.add(String(sage.gl_id));
       if (Math.abs(sb - gb) > 0.01) {
         differences.push({
           accountCode: String(sage.account_code),
@@ -49,6 +62,16 @@ export async function generateComparison(companyId: string, userId: string): Pro
           difference: sb - gb,
         });
       }
+    }
+
+    // A ledger balance no Sage account is mapped to: the source does not carry it.
+    for (const gl of glBalances) {
+      const gb = glMap.get(String(gl.id)) || 0;
+      if (mappedGl.has(String(gl.id)) || Math.abs(gb) <= 0.01) continue;
+      differences.push({
+        accountCode: String(gl.account_code), accountName: `${gl.account_name} (no Sage account mapped)`,
+        sageBalance: 0, glBalance: gb, difference: -gb, kind: 'gl_unmapped',
+      });
     }
 
     const report: ComparisonReport = {

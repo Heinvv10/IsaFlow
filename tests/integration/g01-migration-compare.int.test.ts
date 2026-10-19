@@ -43,11 +43,13 @@ beforeAll(async () => {
     `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
      VALUES($1,$2,15,0,'d',$4),($1,$3,0,15,'d',$4)`, [draft, t.acct.bank, t.acct.revenue, t.company]);
   await closeFiscalYear(t.company, '2025', user);
-  for (const [accountId, code] of [[t.acct.bank, '1000'], [t.acct.revenue, '4000']] as const) {
+  // The source system holds every account the ledger holds a balance on, mapped one to one.
+  const accounts = await pool.query('SELECT id, account_code, normal_balance FROM gl_accounts WHERE company_id=$1', [t.company]);
+  for (const a of accounts.rows) {
     await pool.query(
       `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,balance,gl_account_id,mapping_status)
        VALUES(gen_random_uuid(),$1,$2,$3,'sage',$4,$5,'mapped')`,
-      [t.company, `S-${code}`, code, await posted(accountId, code === '4000'), accountId]);
+      [t.company, `S-${a.account_code}`, a.account_code, (await posted(a.id, a.normal_balance === 'credit')) || 0, a.id]);
   }
 }, 120000);
 
@@ -73,5 +75,38 @@ describe('a source that matches the posted ledger compares as matching', () => {
     const report = await generateComparison(t.company, user);
     expect(report.differences).toEqual([]);
     expect(report.isBalanced).toBe(true);
+  });
+});
+
+describe('a source that carries balances the mapping does not reach', () => {
+  const find = async () => generateComparison(t.company, user);
+
+  it('an unmapped Sage account with a balance is a difference, and the report is not balanced', async () => {
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,balance,mapping_status)
+       VALUES(gen_random_uuid(),$1,'S-9999','9999','Sage only',500,'unmapped')`, [t.company]);
+    const report = await find();
+    expect(report.isBalanced).toBe(false);
+    expect(report.differences).toEqual([
+      expect.objectContaining({ accountCode: '9999', sageBalance: 500, glBalance: 0, difference: 500, kind: 'sage_unmapped' }),
+    ]);
+    expect(report.differences[0]!.accountName).toMatch(/Sage only.*no GL account mapped/);
+  });
+
+  it('an unmapped Sage account with no balance is not', async () => {
+    await pool.query("UPDATE sage_accounts SET balance = 0 WHERE company_id=$1 AND sage_id='S-9999'", [t.company]);
+    const report = await find();
+    expect(report.differences).toEqual([]);
+    expect(report.isBalanced).toBe(true);
+  });
+
+  it('a GL account with a balance and no Sage account mapped to it is a difference', async () => {
+    await pool.query("DELETE FROM sage_accounts WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.capital]);
+    const report = await find();
+    expect(report.isBalanced).toBe(false);
+    expect(report.differences).toEqual([
+      expect.objectContaining({ accountCode: '3000', sageBalance: 0, glBalance: await posted(t.acct.capital, true), kind: 'gl_unmapped' }),
+    ]);
+    expect(report.differences[0]!.difference).toBe(-(await posted(t.acct.capital, true)));
   });
 });
