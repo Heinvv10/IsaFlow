@@ -184,7 +184,22 @@ describe('K-022 payroll recalculation and loan repayment', () => {
     await calculatePayrollRun(run, company);
     const third = await snapshot();
     expect(third.loanDeduction).toBe(1000);
-    expect(third.netPay).toBe(17003.80);
+    // Hand-derived (period 3/2026 = tax year 2027, SARS 2026/27), not read off a run.
+    // Fixture: salary R20 000 (taxable, UIF-applicable), LOAN deduction R1 000 (not
+    // taxable, so annual taxable income = 20 000 x 12 = R240 000), no date of birth
+    // (age 30, primary rebate only), medical-aid main member with no dependants
+    // (the column default), so one beneficiary.
+    //   tax on R240 000 (18% band, which now runs to R245 100)   = 0.18 x 240 000 = 43 200.00
+    //   less primary rebate 17 820, medical credit 376 x 12 = 4 512
+    //   annual 43 200 - 17 820 - 4 512 = 20 868;  PAYE = 20 868 / 12 = 1 739.00
+    //   UIF employee = 1% x 20 000 = 200, capped at 1% x 17 712 = 177.12
+    //   net = 20 000 - 1 000 (loan) - 1 739.00 - 177.12 = 17 083.88
+    // Under the 2025/26 tables this test used to pin 17 003.80, which is the same
+    // arithmetic with R240 000 in the 26% band (that band started at R237 101):
+    //   42 678 + 0.26 x (240 000 - 237 100) = 43 432;  - 17 235 - 364 x 12 (4 368)
+    //   = 21 829;  PAYE 1 819.08;  net = 20 000 - 1 000 - 1 819.08 - 177.12 = 17 003.80.
+    // The +80.08 is exactly the 2026/27 table change (PAYE 1 819.08 -> 1 739.00).
+    expect(third.netPay).toBe(17083.88);
     expect(third.outstanding).toBe(9000);
     expect(third.principalPaid).toBe(1000);
 

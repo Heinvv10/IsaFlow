@@ -28,6 +28,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 /**
  * A read that consumed no ledger row.
@@ -59,7 +60,7 @@ export async function getLedgerPostedThrough(
     SELECT MAX(je.created_at) AS posted_through
     FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date <= ${asAtDate}::DATE
       AND (${from}::TEXT IS NULL OR je.entry_date >= ${from}::DATE)
   `) as DbRow[];

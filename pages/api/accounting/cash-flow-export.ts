@@ -22,6 +22,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { csvVal } from '@/lib/csv';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -48,7 +49,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE jl.company_id = ${companyId}::UUID AND je.status = 'posted'
+    WHERE jl.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
@@ -65,7 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     WHERE jl.company_id = ${companyId}::UUID
     AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
       AND je.company_id = ${companyId}
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
   `;
@@ -80,7 +81,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     WHERE jl.company_id = ${companyId}::UUID
     AND ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[])
       AND je.company_id = ${companyId}
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
   `;
@@ -95,7 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     WHERE jl.company_id = ${companyId}::UUID
     AND ga.account_subtype = ANY(${INVESTING_ASSET_SUBTYPES as string[]}::TEXT[])
       AND je.company_id = ${companyId}
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
   `;
@@ -111,7 +112,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     AND ga.account_type = 'equity'
       AND (ga.account_subtype IS NULL OR ga.account_subtype != 'retained_earnings')
       AND je.company_id = ${companyId}
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
   `;

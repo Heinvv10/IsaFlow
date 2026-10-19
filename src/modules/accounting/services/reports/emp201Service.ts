@@ -1,8 +1,8 @@
 /**
  * EMP201 Generation Service
  * Reads SARS EMP201 (PAYE/UIF/SDL) totals from Phase 1 payroll tables
- * (payroll_run_headers). Gracefully returns zero-filled data if the
- * tables have not yet been created (clean-install safety net).
+ * (payroll_run_headers). Returns zero-filled data only if the tables have not
+ * yet been created (clean-install safety net); a query failure is thrown.
  *
  * Legacy tables (payroll_runs, payslips) were dropped in migration 384.
  */
@@ -89,7 +89,10 @@ export async function generateEMP201(
     `) as Row[];
     tablesReady = tables.length >= 2;
   } catch (err) {
-    log.warn('Could not check payroll tables', { error: err }, 'emp201Service');
+    // A failed check is not "tables missing": answering it with an all-zero
+    // declaration would tell the employer nothing is owed.
+    log.error('Could not check payroll tables for EMP201', { error: err, companyId }, 'emp201Service');
+    throw err;
   }
 
   if (!tablesReady) {
@@ -189,7 +192,8 @@ export async function generateEMP201(
       payrollRuns,
     };
   } catch (err) {
-    log.warn('Error generating EMP201 from payroll data', { error: err }, 'emp201Service');
-    return emptyResult;
+    // Never convert a failure into a valid-looking nil declaration (R0 PAYE/UIF/SDL).
+    log.error('Error generating EMP201 from payroll data', { error: err, companyId }, 'emp201Service');
+    throw err;
   }
 }

@@ -173,9 +173,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       grossSalary3601: gross,
       paye4102: Number(agg.total_paye ?? 0),
-      uifEmployee4141: Number(agg.total_uif_emp ?? 0),
-      uifEmployer4142: Number(agg.total_uif_empr ?? 0),
-      sdl4150: Number(agg.total_sdl ?? 0),
+      uifEmployee: Number(agg.total_uif_emp ?? 0),
+      uifEmployer: Number(agg.total_uif_empr ?? 0),
+      sdl4142: Number(agg.total_sdl ?? 0),
     });
   }
 

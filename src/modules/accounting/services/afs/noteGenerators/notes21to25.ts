@@ -9,6 +9,7 @@ import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Note 21 — Finance Costs ───────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ export async function generateNote21FinanceCosts(
     WHERE gjl.company_id = ${companyId}
       AND ga.account_subtype = ANY(${rawSubtypesFor('finance_cost')}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end}
-      AND gje.status = 'posted'
+      AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     -- Same defect as note 20's, one file over: an interest rebate or a
     -- reversed finance charge is a net-credit finance cost, and a one-sided
     -- HAVING dropped it while the income statement still reported it. Note 22
@@ -91,7 +92,7 @@ export async function generateNote22EmployeeBenefits(
         'uif', 'medical_aid', 'provident_fund', 'leave_pay', 'bonuses',
       ]}::TEXT[])
       AND gje.entry_date BETWEEN ${start} AND ${end}
-      AND gje.status = 'posted'
+      AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     GROUP BY ga.account_subtype
     ORDER BY ga.account_subtype
   `) as DbRow[];
@@ -167,7 +168,7 @@ export async function generateNote24AuditorRemuneration(
       AND gjl.company_id = ${companyId}
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id
       AND gje.entry_date BETWEEN ${start} AND ${end}
-      AND gje.status = 'posted'
+      AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_subtype = 'audit_fees'
     GROUP BY ga.account_name

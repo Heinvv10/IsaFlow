@@ -119,7 +119,9 @@ export const compareAuditSnapshotTool: McpTool = {
 export const takeAuditSnapshotTool: McpTool = {
   name: 'take_audit_snapshot',
   description:
-    'TAKE A SEALED AUDIT SNAPSHOT NOW at an accounting-date cutoff: the trial balance, every posted journal and line dated '
+    'TAKE A SEALED AUDIT SNAPSHOT NOW at an accounting-date cutoff: the RAW LEDGER trial balance (a posted year-end closing '
+    + 'journal is in it, so closed years show zero revenue and expense and the profit in retained earnings; the trial_balance '
+    + 'report instead derives the close and skips that journal), every posted journal and line dated '
     + 'on or before it (each hashed), AR / AP ageing and control totals, and a check run, sealed with an HMAC. Append-only: '
     + 'it cannot be changed or deleted afterwards. Refused over the size cap (choose an earlier cutoff). dry_run: true '
     + 'runs the take\'s refusals (role, rate limit, signing key, busy, size cap) and returns how many posted lines it would '
