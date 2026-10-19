@@ -4,6 +4,7 @@ import { log } from '@/lib/logger';
 import { canonicalSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { getRetainedEarningsBroughtForward } from '@/modules/accounting/services/gl/trialBalanceBasis';
 import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
 
@@ -25,17 +26,12 @@ export interface EquityColumn {
    * silently dropped and the closing balance stops tying to the balance sheet —
    * the same failure mode as an unmapped account vanishing from a statement.
    *
-   * NOT a year-end close. A close credits retained earnings with the year's
-   * result and is a transfer rather than a distribution, so it belongs here
-   * and is currently reported under `dividends` instead. That is not worth
-   * routing yet because the close CANNOT RUN AT ALL: yearEndService inserts
-   * source = 'year_end', which gl_journal_entries_source_check rejects with
-   * 23514, and the constraint is deliberately the only guard on that
-   * unvalidated INSERT-at-posted path (see
-   * tests/unit/services/glEntrySourceConstraint.test.ts). When that writer is
-   * converted to createJournalEntry/postJournalEntry and the source admitted,
-   * route `source = 'year_end'` here — a branch added before then would be
-   * unreachable and untestable.
+   * NOT a year-end close. The close journal (source = 'year_end', admitted by
+   * migration 627) never reaches this statement: both queries below skip it
+   * (YEAR_END_JOURNAL_SOURCE), because the profit it transfers into retained
+   * earnings is already the derived profit-for-the-year and opening column.
+   * Reading it too booked the profit under `dividends` (a credit to retained
+   * earnings that is not profit) and left profit-for-the-year at 0 (G-01).
    */
   otherMovements: number;
   closing: number;
@@ -106,7 +102,7 @@ async function fetchOpeningBalances(companyId: string, beforeDate: string): Prom
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE je.status     = 'posted'
+    WHERE je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
@@ -140,7 +136,7 @@ async function fetchMovements(
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE je.status     = 'posted'
+    WHERE je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID

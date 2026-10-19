@@ -13,6 +13,7 @@ import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatu
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragmentForRowTenant } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { EliminationStateError, EliminationUnbalancedError } from './eliminationErrors';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
 
@@ -137,7 +138,7 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
       sql`SELECT je.company_id, ga.account_type, COALESCE(SUM(jl.debit),0) AS total_debit, COALESCE(SUM(jl.credit),0) AS total_credit
           FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id=jl.journal_entry_id
           JOIN gl_accounts ga ON ga.id=jl.gl_account_id
-          WHERE je.status='posted' AND jl.company_id = ANY(${companyIds}::UUID[]) AND je.company_id = ANY(${companyIds}::UUID[]) AND ga.company_id = ANY(${companyIds}::UUID[])
+          WHERE je.status='posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND jl.company_id = ANY(${companyIds}::UUID[]) AND je.company_id = ANY(${companyIds}::UUID[]) AND ga.company_id = ANY(${companyIds}::UUID[])
             AND je.entry_date>=${yearStart} AND je.entry_date<=${yearEnd} AND ga.account_type IN ('revenue','expense')
           GROUP BY je.company_id, ga.account_type` as Promise<DbRow[]>,
     ]);

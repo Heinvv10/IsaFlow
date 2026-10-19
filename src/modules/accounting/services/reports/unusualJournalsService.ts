@@ -21,6 +21,7 @@
 import { sql } from '@/lib/neon';
 import type { PeriodWindow } from './priorPeriod';
 import { isDocumentPosting } from './journalSourceKinds';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export type UnusualJournalReason = 'round_number' | 'backdated';
 
@@ -127,7 +128,7 @@ async function bulkLoadDays(companyId: string, days: string[]): Promise<Set<stri
     SELECT je.entry_date, je.created_at
     FROM gl_journal_entries je
     WHERE je.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND (je.created_at AT TIME ZONE 'Africa/Johannesburg')::DATE = ANY(${days}::DATE[])
   `) as Array<Record<string, unknown>>;
 
@@ -196,7 +197,7 @@ export async function getUnusualJournals(
       SELECT up.id, up.reference FROM up WHERE up.reversal_of_id IS NULL LIMIT 1
     ) root ON true
     WHERE je.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE
     GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.source, je.created_at, je.reference,
       je.reversal_of_id, root.id, root.reference, tl.amounts

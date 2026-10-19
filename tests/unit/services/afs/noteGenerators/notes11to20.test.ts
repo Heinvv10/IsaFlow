@@ -13,6 +13,8 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/afsFiscalPeriod', () => ({
   getFiscalRange: vi.fn(async () => ({ start: '2026-01-01', end: '2026-12-31' })),
 }));
+// Note 12 adds the derived profit (G-01): pinned in notes12DerivedProfit.test.ts.
+vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ calculateRetainedEarnings: vi.fn(async () => 0) }));
 // Notes 10 and 16 are the aged report at the year end, summed (R-059). The
 // ageing's own arithmetic is pinned against a database in
 // tests/integration/r059-year-end-notes-agree-with-ageing.int.test.ts; here the

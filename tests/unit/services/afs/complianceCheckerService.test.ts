@@ -20,7 +20,7 @@ const BASE_DOC = [{ id: DOC_ID, company_id: COMPANY, fiscal_year: 2025, reportin
 /** Build a complete set of sections that passes all checks. */
 function buildPassingSections() {
   const snapshot = {
-    totals: { totalAssets: 200_000, totalLiabilities: 120_000, totalEquity: 80_000 },
+    totalAssets: 200_000, totalLiabilities: 120_000, totalEquity: 80_000,
     cashAccountBalance: 10_000,
     currentRatio: 1.5,
   };
@@ -71,7 +71,7 @@ describe('complianceCheckerService', () => {
 
   it('blocker: balance sheet does not balance', async () => {
     const badSnapshot = {
-      totals: { totalAssets: 100_000, totalLiabilities: 60_000, totalEquity: 30_000 }, // gap = 10_000
+      totalAssets: 100_000, totalLiabilities: 60_000, totalEquity: 30_000, // gap = 10_000
       cashAccountBalance: 5_000,
       currentRatio: 1.5,
     };
@@ -131,7 +131,7 @@ describe('complianceCheckerService', () => {
 
   it('warning: going concern triggered when currentRatio < 1.0 and note_27 pending', async () => {
     const lowCrSnapshot = {
-      totals: { totalAssets: 200_000, totalLiabilities: 120_000, totalEquity: 80_000 },
+      totalAssets: 200_000, totalLiabilities: 120_000, totalEquity: 80_000,
       cashAccountBalance: 10_000,
       currentRatio: 0.8,
     };

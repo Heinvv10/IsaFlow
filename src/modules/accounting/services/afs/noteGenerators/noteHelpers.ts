@@ -4,6 +4,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { getFiscalRangeWithPrior } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ export async function fetchBalancesByNote(
     FROM afs_statement_lines sl
     JOIN afs_account_mappings am ON am.afs_line_code = sl.code AND am.company_id = sl.company_id
     JOIN gl_journal_lines gjl ON gjl.gl_account_id = am.gl_account_id AND gjl.company_id = ${companyId}
-    JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted'
+    JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE sl.company_id = ${companyId}
       AND sl.note_number = ${noteNumber}
       AND sl.is_active = true
@@ -124,7 +125,7 @@ export async function fetchBalancesByCodes(
     FROM afs_statement_lines sl
     JOIN afs_account_mappings am ON am.afs_line_code = sl.code AND am.company_id = sl.company_id
     JOIN gl_journal_lines gjl ON gjl.gl_account_id = am.gl_account_id AND gjl.company_id = ${companyId}
-    JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted'
+    JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE sl.company_id = ${companyId}
       AND sl.code = ANY(${codes})
       AND sl.is_active = true
@@ -202,7 +203,7 @@ export async function fetchSubtypeBalances(
       ), 0) AS prior_amount
     FROM gl_accounts ga
     JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}
-    JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted'
+    JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
       AND ga.account_subtype = ANY(${subtypes})
   `) as DbRow[];
