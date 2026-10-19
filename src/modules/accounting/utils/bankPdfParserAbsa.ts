@@ -6,6 +6,7 @@
 import { log } from '@/lib/logger';
 import type { BankCsvParseResult } from '../types/bank.types';
 import { extractAccountNumber } from './bankPdfParserUtils';
+import { ignoreContinuation, isPageBoundary } from './bankPdfParserAbsaContinuation';
 
 // Month name lookup for ABSA PDF date parsing ("15 Jan 2026")
 const MONTH_MAP: Record<string, string> = {
@@ -47,51 +48,17 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
   const lines = text.split('\n').map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
 
   const datePat = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(.+)$/;
+  // A balance is a plain figure, or an overdrawn one with a trailing minus ("45 574.41-"), which the text layer
+  // sometimes detaches ("45 574.41 -"). The amount before it is always unsigned.
   const twoNumTail =
-    /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
-  const oneNumTail = /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*$/;
+    /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*(-?)\s*$/;
+  const oneNumTail = /^(.*?)\s+(\d{1,3}(?:[\s,]\d{3})*\.\d{2})\s*(-?)\s*$/;
   const cleanNum = (s: string) => parseFloat(s.replace(/[\s,]/g, ''));
+  // "0.00-" is zero, not -0 (Intl.NumberFormat renders -0 as "-0.00").
+  const signed = (n: number, minus: string) => (minus === '-' && n !== 0 ? -n : n);
 
   let prevBalance: number | null = null;
   let lineNum = 0;
-
-  const ignoreContinuation = (line: string): boolean => {
-    if (!line) return true;
-    if (/^\(Effective\s/i.test(line)) return true;
-    if (/^(Balance Brought Forward|Sundry (Credits|Debits)|Charges|Total (Debits|Credits))/i.test(line)) return true;
-    if (/^Page\s+\d+/i.test(line)) return true;
-    if (/^(Classic Business Acc|Cheque account statement|Statement Number)/i.test(line)) return true;
-    if (/^BRIGHTSPHERE|BLITZ|VELOCITY/i.test(line)) return true;
-    if (/^(Return address|Reg No|Absa Bank Limited)/i.test(line)) return true;
-    if (/^\d{4,}$/.test(line)) return true;
-    return false;
-  };
-
-  const BOUNDARY_MARKERS = [
-    /-{2,}\s*\d+\s+of\s+\d+\s*-{2,}/i,
-    /Page\s+\d+\s+of\s+\d+/i,
-    /Tax Invoice/i,
-    /Your transactions/i,
-    /Cheque Account Number/i,
-    /Date\s+Transaction\s+Description/i,
-    /Authorised Financial Services Provider/i,
-    /Registration Number\s+\d{4}/i,
-    /^CSP\d+|BFIBRE\s+\d+/i,
-    /YOUR PRICING PLAN/i,
-    /CREDIT INTEREST RATE/i,
-    /PRICING PLAN/i,
-    /CHARGE LEGEND/i,
-    /VAT REGISTRATION/i,
-    /NCRCP\d/i,
-    /^\d{2}-\d{4}-\d{4}\b/,
-    /SERVICE FEE:/i,
-    /MNTHLY ACCT FEE/i,
-    /Sms Notifications?/i,
-    /^CHARGES\s/i,
-  ] as const;
-
-  const isPageBoundary = (line: string): boolean =>
-    BOUNDARY_MARKERS.some(re => re.test(line));
 
   const MAX_CONT_LINES = 2;
   let stitchIdx: number | null = null;
@@ -125,7 +92,7 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
     if (!m2) {
       const m1 = rest!.match(oneNumTail);
       if (m1 && /bal|brought|forward/i.test(m1[1]!)) {
-        prevBalance = cleanNum(m1[2]!);
+        prevBalance = signed(cleanNum(m1[2]!), m1[3]!);
         // The first one, before any row, is where the statement opened.
         if (result.transactions.length === 0 && result.openingBalance === undefined) result.openingBalance = prevBalance;
       }
@@ -134,7 +101,7 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
 
     const rawDesc = m2[1]!.trim();
     const amountAbs = cleanNum(m2[2]!);
-    const balance = cleanNum(m2[3]!);
+    const balance = signed(cleanNum(m2[3]!), m2[4]!);
     if (isNaN(amountAbs) || isNaN(balance)) {
       result.errors.push({ row: lineNum, error: `Invalid numeric in: ${line}` });
       continue;
@@ -234,7 +201,7 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
   const parseSAAmount = (raw: string): number => {
     const isNeg = raw.endsWith('-');
     const n = parseFloat(raw.replace(/-$/, '').replace(/\s/g, '').replace(',', '.'));
-    return isNeg ? -n : n;
+    return isNeg && n !== 0 ? -n : n;
   };
 
   const datePat = /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})\s+(.+)$/i;
