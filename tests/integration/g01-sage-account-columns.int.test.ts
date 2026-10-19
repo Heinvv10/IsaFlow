@@ -90,3 +90,18 @@ describe('auto-mapping fails closed on a Sage account type it cannot resolve', (
     expect((await getAccountMappings(company)).find((m) => m.sageAccountId === 'SG-R')).toMatchObject({ glAccountCode: '4000', mappingStatus: 'auto' });
   });
 });
+
+describe('the fail-closed note never replaces what a person wrote', () => {
+  it('keeps a hand-written note, and refreshes its own', async () => {
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,account_type,balance,mapping_status,mapping_notes)
+       VALUES(gen_random_uuid(),$1,'SG-H','9100','Sales revenue','Asset',1,'unmapped','Ask Willie about this one'),
+             (gen_random_uuid(),$1,'SG-E','9101','Sales revenue','Asset',1,'unmapped','Not auto-mapped: an older reason'),
+             (gen_random_uuid(),$1,'SG-B','9102','Sales revenue','Asset',1,'unmapped','')`, [company]);
+    await autoMapAccounts(company, user);
+    const byId = Object.fromEntries((await getAccountMappings(company)).map((m) => [m.sageAccountId, m]));
+    expect(byId['SG-H']!.mappingNotes).toBe('Ask Willie about this one');
+    expect(byId['SG-E']!.mappingNotes).toBe("Not auto-mapped: Sage account type 'Asset' is not one this version can place; map it by hand");
+    expect(byId['SG-B']!.mappingNotes).toMatch(/^Not auto-mapped: Sage account type 'Asset'/);
+  });
+});

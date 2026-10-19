@@ -242,6 +242,7 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
         await sql`
           UPDATE sage_accounts SET mapping_notes = ${note}
           WHERE id = ${sage.id} AND company_id = ${companyId}::UUID
+            AND (COALESCE(mapping_notes, '') = '' OR mapping_notes LIKE 'Not auto-mapped:%') -- never a note a person wrote
         `;
         skipped++; continue;
       }

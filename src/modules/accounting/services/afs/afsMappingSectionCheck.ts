@@ -22,9 +22,14 @@ const SHOWN = 10;
 const DIVIDENDS_LINE = 'IS484';
 const isDividends = (r: Misplaced): boolean => r.account_type === 'equity' && r.afs_line_code === DIVIDENDS_LINE;
 const DIVIDENDS_ADVICE = 'Dividends paid is shown on the income statement; this version doesn\'t yet carry it into '
-  + 'balance-sheet equity, so the balance sheet won\'t balance.';
-const REMAP_ADVICE = 'A revenue or expense account on a balance sheet line is counted twice (again inside the '
-  + 'accumulated profit), which is why the balance sheet may not balance. Remap each to a line of its own statement.';
+  + 'balance-sheet equity, so the balance sheet may not balance.';
+const REMAP = 'Remap each to a line of its own statement.';
+// Revenue or expense on a balance-sheet line: the balance sheet also adds the profit to date, which holds the same figure.
+const TWICE_ADVICE = 'A revenue or expense account on a balance sheet line is counted twice (again inside the '
+  + `accumulated profit), which is why the balance sheet may not balance. ${REMAP}`;
+// An asset, liability or equity account on an income-statement line: a balance reported as a movement.
+const STOCK_ADVICE = 'An asset, liability or equity account on an income statement line is a balance shown as a '
+  + `period movement and missing from the balance sheet, which is why the balance sheet may not balance. ${REMAP}`;
 
 async function checkAccountsMappedToTheirStatement(companyId: string): Promise<ExportCheck | null> {
   const rows = (await sql`
@@ -45,7 +50,8 @@ async function checkAccountsMappedToTheirStatement(companyId: string): Promise<E
     + `${r.section === 'balance_sheet' ? 'a balance sheet' : 'an income statement'} line`);
   const more = rows.length > SHOWN ? `; and ${rows.length - SHOWN} more` : '';
   const advice = [
-    rows.some((r) => !isDividends(r)) ? REMAP_ADVICE : null,
+    rows.some((r) => r.section === 'balance_sheet') ? TWICE_ADVICE : null,
+    rows.some((r) => r.section === 'income_statement' && !isDividends(r)) ? STOCK_ADVICE : null,
     rows.some(isDividends) ? DIVIDENDS_ADVICE : null,
   ].filter((a): a is string => a !== null);
   return {

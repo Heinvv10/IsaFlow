@@ -38,9 +38,10 @@ export async function generateComparison(companyId: string, userId: string): Pro
 
     const differences: ComparisonReport['differences'] = [];
     let sageTotalDebit = 0; let sageTotalCredit = 0;
-    const mappedGl = new Set<string>();
+    // Several Sage accounts can map to one GL account: their balances are summed and compared once.
+    const sageByGl = new Map<string, number>();
     for (const sage of sageBalances) {
-      const sb = Number(sage.balance || 0), gb = glMap.get(String(sage.gl_id)) || 0;
+      const sb = Number(sage.balance || 0);
       if (sb > 0) sageTotalDebit += sb; else sageTotalCredit += Math.abs(sb);
       if (sage.gl_id == null) {
         // A Sage balance no GL account is mapped to: nothing in the ledger answers for it.
@@ -52,14 +53,16 @@ export async function generateComparison(companyId: string, userId: string): Pro
         }
         continue;
       }
-      mappedGl.add(String(sage.gl_id));
+      sageByGl.set(String(sage.gl_id), (sageByGl.get(String(sage.gl_id)) ?? 0) + sb);
+    }
+    const mappedGl = new Set(sageByGl.keys());
+    for (const gl of glBalances) {
+      const sb = sageByGl.get(String(gl.id));
+      if (sb === undefined) continue;
+      const gb = glMap.get(String(gl.id)) || 0;
       if (Math.abs(sb - gb) > 0.01) {
         differences.push({
-          accountCode: String(sage.account_code),
-          accountName: String(sage.account_name),
-          sageBalance: sb,
-          glBalance: gb,
-          difference: sb - gb,
+          accountCode: String(gl.account_code), accountName: String(gl.account_name), sageBalance: sb, glBalance: gb, difference: sb - gb,
         });
       }
     }

@@ -108,5 +108,31 @@ describe('a source that carries balances the mapping does not reach', () => {
       expect.objectContaining({ accountCode: '3000', sageBalance: 0, glBalance: await posted(t.acct.capital, true), kind: 'gl_unmapped' }),
     ]);
     expect(report.differences[0]!.difference).toBe(-(await posted(t.acct.capital, true)));
+    // Put the source's capital account back for the cases after this one.
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,balance,gl_account_id,mapping_status)
+       VALUES(gen_random_uuid(),$1,'S-3000','3000','sage',$2,$3,'mapped')`, [t.company, await posted(t.acct.capital, true), t.acct.capital]);
+  });
+});
+
+describe('several Sage accounts mapped to one GL account', () => {
+  const bankCode = '1000';
+
+  it('are summed before they are compared: one difference per GL account, none when the sum matches', async () => {
+    const bank = Number((await pool.query("SELECT balance FROM sage_accounts WHERE company_id=$1 AND account_code=$2 AND gl_account_id=$3", [t.company, bankCode, t.acct.bank])).rows[0].balance);
+    // Split the bank's Sage balance over two Sage accounts that both map to it.
+    await pool.query("UPDATE sage_accounts SET balance=$3 WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.bank, bank - 40]);
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,balance,gl_account_id,mapping_status)
+       VALUES(gen_random_uuid(),$1,'S-1000b','1000b','Bank (second)',40,$2,'mapped')`, [t.company, t.acct.bank]);
+    const matching = await generateComparison(t.company, user);
+    expect(matching.differences).toEqual([]);
+    expect(matching.isBalanced).toBe(true);
+
+    await pool.query("UPDATE sage_accounts SET balance=balance+7 WHERE company_id=$1 AND sage_id='S-1000b'", [t.company]);
+    const off = await generateComparison(t.company, user);
+    expect(off.differences).toEqual([
+      expect.objectContaining({ accountCode: bankCode, sageBalance: bank + 7, glBalance: bank, difference: 7 }),
+    ]);
   });
 });
