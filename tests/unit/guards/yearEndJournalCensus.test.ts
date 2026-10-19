@@ -28,7 +28,9 @@
  * in the SELECT list or GROUP BY (that does not gate the SUM) or beside `WHERE je.id IS NOT NULL OR ...`; a marker
  * on a second, self-joined entries alias; and a LEFT JOIN gated only by a PREDICATE MENTION: `alias.id IS [NOT] NULL` or
  * a WHERE comparison anywhere on the alias counts (`WHERE (je.status = 'posted' OR je.id IS NULL)`, a SELECT-list
- * `(je.id IS NULL) AS orphan`), whether or not it keeps a NULL entry's lines out of the SUM.
+ * `(je.id IS NULL) AS orphan`), whether or not it keeps a NULL entry's lines out of the SUM; so does an INVERTED gate
+ * (`SUM(CASE WHEN je.id IS NULL THEN jl.debit ELSE 0 END)`, `SUM(jl.debit) FILTER (WHERE je.id IS NULL)`), a tautological
+ * WHERE (`je.id IS NULL OR je.id IS NOT NULL`) and a later join whose ON uses the alias trivially (`je.id = je.id`).
  * Quoted strings that merely NAME the tables are census-listed below so a new one is a decision.
  *
  * A source-text ratchet, not a behaviour test: the behaviour is pinned by
@@ -106,9 +108,12 @@ describe('G-01: the year-end closing journal is excluded through one shared mark
     expect(offenders).toEqual([]);
   });
 
-  it('every CHAIN entry is verified: the unmarked scopes it names read headers only, no line table, money column or aggregate', () => {
-    const offenders = entries.filter(([, c]) => c === 'CHAIN').flatMap(([f, , m]) =>
-      figures.filter((s) => s.f === key(f) && !carriesMarker(s) && !headersOnly(s.body, m)).map((s) => `${s.f}:${s.t.line} (${m})`));
+  it('every CHAIN entry is verified: every unmarked scope of the statement reads headers only (naming the walk does not vouch for its siblings), no line table, money column or aggregate', () => {
+    const offenders = entries.filter(([, c]) => c === 'CHAIN').flatMap(([f, , m]) => {
+      const others = entries.filter(([g, c, x]) => g === f && c !== 'CHAIN' && x !== undefined).map(([, , x]) => x!);
+      return figures.filter((s) => s.f === key(f) && !carriesMarker(s) && !headersOnly(s.body, m, others))
+        .map((s) => `${s.f}:${s.t.line} (${m})`);
+    });
     expect(offenders).toEqual([]);
   });
 

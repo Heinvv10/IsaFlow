@@ -264,13 +264,20 @@ export function correlatedToMarkedEntry(body: string): boolean {
 }
 
 /**
- * Every unmarked scope (those whose text contains `containing`, when given) reads headers only: no line table, no
- * money column, no aggregate (a reversal-chain walk). False when there is no such scope.
+ * EVERY unmarked scope of the statement reads headers only: no line table, no money column, no aggregate (a
+ * reversal-chain walk). `containing` names the walk: some unmarked scope must contain it, but naming it does not
+ * excuse its siblings, so an unmarked line-reading SELECT elsewhere in the statement is refused. The one exception
+ * is a sibling the census covers with ANOTHER entry (`otherEntries`: the substrings of the file's non-CHAIN
+ * entries), which that entry's own category answers for; a scope that contains `containing` is never excused.
+ * False when there is no such scope.
  */
-export function headersOnly(body: string, containing?: string): boolean {
-  const unmarked = unmarkedScopes(body).filter((s) => containing === undefined || s.text.includes(containing));
+export function headersOnly(body: string, containing?: string, otherEntries: string[] = []): boolean {
+  const unmarked = unmarkedScopes(body);
+  const reads = (t: string): boolean => /gl_journal_lines/i.test(t) || FIGURE.test(t) || lineWildcard(t);
   return unmarked.length > 0
-    && unmarked.every((s) => !/gl_journal_lines/i.test(s.text) && !FIGURE.test(s.text) && !lineWildcard(s.text));
+    && (containing === undefined || unmarked.some((s) => s.text.includes(containing)))
+    && unmarked.every((s) => !reads(s.text)
+      || (otherEntries.some((o) => s.text.includes(o)) && (containing === undefined || !s.text.includes(containing))));
 }
 
 /** Every SELECT that reads the journal tables (other than an existence test) carries its own live marker. */
