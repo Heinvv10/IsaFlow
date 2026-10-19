@@ -20,6 +20,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import {
   BROUGHT_FORWARD_CODE,
   getRetainedEarningsBroughtForward,
@@ -103,14 +104,20 @@ async function findCandidate(): Promise<Candidate | null> {
   };
 }
 
-/** Income-statement movement in [from, to). What a period-bounded cut would drop. */
+/** The calendar day after an ISO date: turns an inclusive period end into the exclusive `to` below. */
+const dayAfter = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * Income-statement movement in [from, to). What a period-bounded cut would drop. Skips the posted year-end close, as
+ * every report reader does (G-01).
+ */
 async function isMovementBetween(companyId: string, from: string, to: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS net
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.account_type IN ('revenue', 'expense')
@@ -238,8 +245,8 @@ describe('trial balance basis — against a real ledger', () => {
     const isRows = report.rows.filter(r => ['revenue', 'expense'].includes(r.accountType));
     const isTotal = isRows.reduce((s, r) => s + (r.debitBalance - r.creditBalance), 0);
 
-    const periodOnly = await isMovementBetween(c.companyId, c.periodStart, c.periodEnd);
-    const yearToDate = await isMovementBetween(c.companyId, c.fyStart, c.periodEnd);
+    const periodOnly = await isMovementBetween(c.companyId, c.periodStart, dayAfter(c.periodEnd));
+    const yearToDate = await isMovementBetween(c.companyId, c.fyStart, dayAfter(c.periodEnd));
 
     // Year-to-date, not the period's own movement.
     expect(Math.abs(isTotal - yearToDate)).toBeLessThan(0.01);
