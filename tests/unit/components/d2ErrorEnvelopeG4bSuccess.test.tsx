@@ -46,9 +46,13 @@ describe('admin billing actions complete on a success envelope', () => {
   it('success: invoices send completes', async () => {
     script((p, m) => (p === '/api/admin/billing/invoices' && m === 'GET' ? success({ items: [INVOICE], total: 1, page: 1, limit: 25 }) : null));
     render(<InvoicesPage />);
-    fireEvent.click(await screen.findByTitle('Send'));
-    await waitFor(() => expect(calls('/api/admin/billing/invoices/inv-1/send', 'POST')).toBe(1));
+    const send = await screen.findByTitle('Send');
+    // The page loads twice on mount (the page effect, then the 300 ms search debounce). Let both land before the
+    // click, so the count below is the post-send reload alone rather than a race with the debounce on a slow runner.
     await waitFor(() => expect(calls('/api/admin/billing/invoices', 'GET')).toBe(2));
+    fireEvent.click(send);
+    await waitFor(() => expect(calls('/api/admin/billing/invoices/inv-1/send', 'POST')).toBe(1));
+    await waitFor(() => expect(calls('/api/admin/billing/invoices', 'GET')).toBe(3));
     expect(screen.queryByText(/failed/i)).toBeNull();
   });
 
