@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { templateLiterals } from '../../helpers/templateLiterals';
-import { REF, selectScopes, ungatedEntryLeftJoins, unmarkedFigureStatements } from '../../helpers/ledgerStatements';
+import { correlatedToMarkedEntry, headersOnly, REF, selectScopes, ungatedEntryLeftJoins, unmarkedFigureStatements } from '../../helpers/ledgerStatements';
 
 describe('the rule catches planted evasions', () => {
   const MARK = 'AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}';
@@ -150,5 +150,37 @@ describe('the rule catches planted evasions', () => {
     expect(ungatedEntryLeftJoins(base('SUM(jl.debit)', `AND je.status = 'posted' AND ${M}`))).toEqual(['je']);
     expect(ungatedEntryLeftJoins(base('SUM(CASE WHEN je.id IS NULL THEN 0 ELSE jl.debit END)', "AND je.status = 'posted'"))).toEqual([]);
     expect(ungatedEntryLeftJoins(base('SUM(jl.debit)', "AND je.status = 'posted'", 'WHERE je.id IS NOT NULL'))).toEqual([]);
+  });
+
+  const SUB = (tie: string) => `SELECT SUM(l.debit) FROM gl_journal_lines l WHERE l.journal_entry_id = ${tie}`;
+
+  it('a CORRELATED subselect must be tied to a marked entries alias of an ENCLOSING scope', () => {
+    const ok = `SELECT je.id, (${SUB('je.id')}) FROM gl_journal_entries je WHERE je.company_id = \${c} AND ${M}`;
+    expect(correlatedToMarkedEntry(ok)).toBe(true);
+    // Tied to something that is not an entries alias.
+    expect(correlatedToMarkedEntry(`SELECT ga.id, (${SUB('ga.id')}) FROM gl_accounts ga`)).toBe(false);
+    // The entries alias is not marked.
+    expect(correlatedToMarkedEntry(`SELECT je.id, (${SUB('je.id')}) FROM gl_journal_entries je`)).toBe(false);
+    // Outer SUM beside an uncorrelated marked EXISTS: the EXISTS gates nothing.
+    const withExists = `SELECT SUM(l.debit) FROM gl_journal_lines l WHERE EXISTS (SELECT 1 FROM gl_journal_entries x WHERE ${M.replace('je.', 'x.')})`;
+    expect(correlatedToMarkedEntry(withExists)).toBe(false);
+    // Outer SUM beside a marked CTE it is not tied to.
+    const withCte = `WITH ok AS (SELECT je.id FROM gl_journal_entries je WHERE ${M}) SELECT SUM(l.debit) FROM gl_journal_lines l, ok`;
+    expect(correlatedToMarkedEntry(withCte)).toBe(false);
+    // Tied to the CTE's alias from outside it: not an ancestor scope.
+    const siblingTie = `WITH ok AS (SELECT je.id FROM gl_journal_entries je WHERE ${M}) SELECT (${SUB('je.id')}) FROM ok`;
+    expect(correlatedToMarkedEntry(siblingTie)).toBe(false);
+  });
+
+  it('a CHAIN walk must read headers only', () => {
+    const walk = (select: string) => `WITH RECURSIVE up AS (SELECT ${select} FROM gl_journal_entries r WHERE r.id = \${id} UNION ALL SELECT ${select.replace(/r\./g, 'p.')} FROM gl_journal_entries p JOIN up ON p.id = up.reversal_of_id) SELECT * FROM up`;
+    expect(headersOnly(walk('r.id, r.reversal_of_id, r.reference'))).toBe(true);
+    expect(headersOnly(walk('r.id, SUM(r.total_amount)'))).toBe(false);
+    expect(headersOnly(`${walk('r.id')} UNION ALL SELECT l.debit FROM gl_journal_lines l`)).toBe(false);
+    expect(headersOnly('SELECT 1')).toBe(false);
+    // Naming the scope: the walk's own SELECTs are judged, a line-reading sibling is not smuggled in under them.
+    expect(headersOnly(walk('r.id, r.reference'), 'SELECT r.id')).toBe(true);
+    expect(headersOnly(walk('r.id, r.debit'), 'SELECT r.id')).toBe(false);
+    expect(headersOnly(walk('r.id'), 'SELECT nothing here')).toBe(false);
   });
 });
