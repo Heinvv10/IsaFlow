@@ -182,6 +182,17 @@ describe('the rule catches planted evasions', () => {
     expect(headersOnly(walk('r.id, r.reference'), 'SELECT r.id')).toBe(true);
     expect(headersOnly(walk('r.id, r.debit'), 'SELECT r.id')).toBe(false);
     expect(headersOnly(walk('r.id'), 'SELECT nothing here')).toBe(false);
+    // Naming the walk does not vouch for an unmarked line-reading SELECT elsewhere in the same statement.
+    const sibling = `${walk('r.id, r.reference')} UNION ALL SELECT SUM(l.debit) FROM gl_journal_lines l`;
+    expect(headersOnly(sibling, 'SELECT r.id')).toBe(false);
+    expect(headersOnly(`SELECT (SELECT SUM(l.debit) FROM gl_journal_lines l WHERE l.journal_entry_id = x.id) FROM (${walk('r.id')}) x`, 'SELECT r.id')).toBe(false);
+    // A sibling another census entry answers for is excused; the same sibling unnamed by any entry, or one that
+    // also contains the walk's own name, is not.
+    const bank = 'SELECT array_agg(DISTINCT ABS(bt.amount)) FROM bank_transactions bt JOIN gl_journal_lines bl ON bl.journal_entry_id = bt.id';
+    expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT r.id', ['array_agg(DISTINCT ABS(bt.amount))'])).toBe(true);
+    expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT r.id', [])).toBe(false);
+    expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT r.id', ['SELECT array_agg'])).toBe(true);
+    expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT array_agg', ['SELECT array_agg'])).toBe(false);
   });
 
   it('"gated" means the alias is inside every aggregate over the lines, not merely used somewhere', () => {
@@ -209,6 +220,23 @@ describe('the rule catches planted evasions', () => {
     expect(ungatedEntryLeftJoins(left('SUM(jl.debit) AS d, (je.id IS NULL) AS orphan'))).toEqual([]);
     // The same statement without any such mention is flagged.
     expect(ungatedEntryLeftJoins(left('SUM(jl.debit) AS d'))).toEqual(['je']);
+  });
+
+  it('NAMED LIMIT: an inverted gate, a tautological WHERE and a trivial join condition all count as gating', () => {
+    // None of these keeps a NULL entry's lines out of the figure the right way round, but the rule looks for the alias
+    // in a gating position, not at what the predicate decides. Documented, not closed.
+    const join = (select: string, tail = '', onExtra = '') =>
+      `SELECT ${select} FROM gl_accounts ga LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id `
+      + `LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' ${onExtra} ${tail} GROUP BY ga.id`;
+    // (a) inverted: sums the lines whose entry did NOT match.
+    expect(ungatedEntryLeftJoins(join('SUM(CASE WHEN je.id IS NULL THEN jl.debit ELSE 0 END) AS d'))).toEqual([]);
+    expect(ungatedEntryLeftJoins(join('SUM(jl.debit) FILTER (WHERE je.id IS NULL) AS d'))).toEqual([]);
+    // (b) a WHERE that every row passes.
+    expect(ungatedEntryLeftJoins(join('SUM(jl.debit) AS d', 'WHERE je.id IS NULL OR je.id IS NOT NULL'))).toEqual([]);
+    // (c) a later join whose ON uses the alias trivially.
+    expect(ungatedEntryLeftJoins(join('SUM(jl.debit) AS d', '', 'JOIN gl_accounts ga2 ON ga2.id = ga.id AND je.id = je.id'))).toEqual([]);
+    // The same statements with no mention of the alias in a gating position are flagged.
+    expect(ungatedEntryLeftJoins(join('SUM(jl.debit) AS d'))).toEqual(['je']);
   });
 
   it('a LEFT JOIN onto a reversal original, not onto the entry of the lines, is not the lines\' gate', () => {
