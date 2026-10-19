@@ -198,6 +198,10 @@ describe('the rule catches planted evasions', () => {
     for (const weak of ['', ' ', 'SELECT', 'SUM(l.debit)', 'SELECT FROM WHERE AND', 'gl_journal_lines']) {
       expect(headersOnly(outer, 'SELECT r.id', [weak]), JSON.stringify(weak)).toBe(false);
     }
+    // A letters-only entry of 20+ characters that DOES occur in the sibling excuses nothing (words only, no identifier).
+    const wordy = `${walk('r.id')} UNION ALL SELECT SUM(l.debit) AS totalamountofdebitsposted FROM gl_journal_lines l`;
+    expect(headersOnly(wordy, 'SELECT r.id', ['totalamountofdebitsposted'])).toBe(false);
+    expect(headersOnly(wordy, 'SELECT r.id', ['SELECT SUM(l.debit) AS totalamountofdebitsposted'])).toBe(true);
     // The same sibling IS excused by a long, specific entry.
     expect(headersOnly(outer, 'SELECT r.id', ['SELECT SUM(l.debit) FROM gl_journal_lines l'])).toBe(true);
   });
