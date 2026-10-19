@@ -24,6 +24,7 @@ import {
   runWithYearEndCloses,
   yearEndCloseDescription,
 } from './fiscalYearCloseRows';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
 
@@ -87,7 +88,7 @@ export async function getAccountTransactions(
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
-      WHERE je.status = 'posted'
+      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
@@ -108,7 +109,7 @@ export async function getAccountTransactions(
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
-      WHERE je.status = 'posted'
+      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)

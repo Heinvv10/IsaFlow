@@ -49,6 +49,7 @@ import { sql } from '@/lib/neon';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 import { balanceByAccountType } from '../gl/balanceByAccountType';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export interface AccountTrends {
   /** Twelve `YYYY-MM` keys, oldest first. */
@@ -110,7 +111,7 @@ export async function getMonthlyMovements(companyId: string, asOf: string): Prom
     WHERE jl.company_id = ${companyId}::UUID
       AND je.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND ga.account_type IN ('revenue', 'expense')
       AND je.entry_date >= ${windowStart}::date
       AND je.entry_date <= ${asOf}::date
@@ -165,7 +166,7 @@ export async function getMonthlyBalances(companyId: string, asOf: string): Promi
     WHERE jl.company_id = ${companyId}::UUID
       AND je.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND ga.account_type IN ('asset', 'liability', 'equity')
       AND je.entry_date <= ${asOf}::date
       AND (

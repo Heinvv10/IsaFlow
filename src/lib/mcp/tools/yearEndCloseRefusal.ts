@@ -53,10 +53,11 @@ export function yearEndCloseRefusal(year: number, result: CloseYearError): McpTo
     case 'closing_journal_not_posted':
       return toolError(
         `Fiscal year ${year} has a closing journal (${result.entryNumber}, id ${result.entryId}) `
-        + `in status ${result.status}. The year is NOT closed — a reversed or draft closing `
-        + 'journal has posted nothing — but it cannot be closed again either, because that row '
-        + 'holds the entry number and it is unique per company. A person has to delete or '
-        + 'renumber that journal first. Nothing was posted.',
+        + `in status ${result.status}. The year is NOT closed — a draft closing journal has `
+        + 'posted nothing — but it cannot be closed again until that row stops holding the entry '
+        + 'number, which is unique per company. A person has to delete or renumber that journal '
+        + 'first. (A closing journal that was REVERSED does not block: the next close takes '
+        + 'YE-<year>-R<n>.) Nothing was posted.',
       );
     case 'closing_entry_number_taken':
       return toolError(
@@ -66,6 +67,18 @@ export function yearEndCloseRefusal(year: number, result: CloseYearError): McpTo
         + 'are unique per company with no predicate on source or status, so that row blocks '
         + 'the INSERT. The year is not closed and nothing was posted. A person has to renumber '
         + 'that journal first; do not retry until they have.',
+      );
+    case 'too_many_recloses':
+      return toolError(
+        `${result.code}: fiscal year ${year}: closing journal ${result.entryNumber} has been reversed and re-posted too many `
+        + 'times. Nothing was posted. A person has to look at the reversals before this year is closed again; '
+        + 'do not retry.',
+      );
+    case 'closing_chain_unreadable':
+      return toolError(
+        `${result.code}: fiscal year ${year}: the reversal chain of closing journal ${result.entryNumber} is too long to read, `
+        + 'so it cannot be told whether the year is closed. Nothing was posted. A person has to inspect it; '
+        + 'do not retry.',
       );
     case 'no_retained_earnings':
       return toolError(

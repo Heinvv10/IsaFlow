@@ -2,7 +2,8 @@
  * Year-end close rows for an income-statement account's ledger listing.
  *
  * Income-statement accounts restart at each fiscal-year start (trialBalanceBasis),
- * but the ledger holds no year-end closing journals. So a ledger listing of a
+ * and every report reads the ledger as holding no year-end closing journals: the posted close
+ * (source 'year_end') is skipped, because the close is derived. So a ledger listing of a
  * revenue or expense account must itself:
  *
  *   1. open at the start of the fiscal year containing `fromDate`, never from

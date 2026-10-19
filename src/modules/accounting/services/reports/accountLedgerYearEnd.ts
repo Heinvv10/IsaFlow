@@ -20,6 +20,7 @@ import {
   yearEndCloseDescription,
 } from '../gl/fiscalYearCloseRows';
 import type { AccountLedgerRow } from './accountLedgerTypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export interface LedgerScope {
   companyId: string;
@@ -76,6 +77,7 @@ export async function loadYearEndCloses(
       AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
       AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
       AND (${postedOnly}::boolean = false OR je.status = 'posted')
+      AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${openingFloor}::date
       AND je.entry_date <  ${bounds[bounds.length - 1]}::date
     GROUP BY 1
@@ -130,6 +132,7 @@ export async function netOfFirstLines(scope: LedgerScope, n: number): Promise<nu
         AND (${cc}::uuid IS NULL OR jl.cc1_id = ${cc}::uuid OR jl.cc2_id = ${cc}::uuid)
         AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
         AND (${postedOnly}::boolean = false OR je.status = 'posted')
+        AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.entry_date >= ${fromDate}
         AND je.entry_date <= ${toDate}
       ORDER BY je.entry_date ASC, COALESCE(je.created_at, 'epoch'::timestamptz) ASC, jl.id ASC

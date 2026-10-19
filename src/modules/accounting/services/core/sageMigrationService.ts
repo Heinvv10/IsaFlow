@@ -10,6 +10,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { glTypeForSageType, nameSimilarity } from './sageAccountTypes';
 type Row = DbRow;
 
 // Re-export importers so API routes import from one place
@@ -45,7 +46,11 @@ export interface ComparisonReport {
   comparisonDate: string;
   sageTotals: { totalDebit: number; totalCredit: number; accountCount: number };
   glTotals: { totalDebit: number; totalCredit: number; accountCount: number };
-  differences: Array<{ accountCode: string; accountName: string; sageBalance: number; glBalance: number; difference: number }>;
+  /** `kind` is absent for a mapped pair whose balances differ; otherwise which side has no counterpart. */
+  differences: Array<{
+    accountCode: string; accountName: string; sageBalance: number; glBalance: number; difference: number;
+    kind?: 'sage_unmapped' | 'gl_unmapped';
+  }>;
   isBalanced: boolean;
 }
 
@@ -192,12 +197,12 @@ export async function getMigrationStatus(companyId: string): Promise<MigrationSt
 
 export async function getAccountMappings(companyId: string): Promise<AccountMapping[]> {
   const rows = (await sql`
-    SELECT sa.sage_account_id, sa.name, sa.account_type, sa.balance,
+    SELECT sa.sage_id AS sage_account_id, sa.account_name AS name, sa.account_type, sa.balance,
       sa.gl_account_id, sa.mapping_status, sa.mapping_notes,
       ga.account_code, ga.account_name
     FROM sage_accounts sa LEFT JOIN gl_accounts ga ON ga.id = sa.gl_account_id
     WHERE sa.company_id = ${companyId}::UUID
-    ORDER BY sa.name
+    ORDER BY sa.account_name
   `) as Row[];
 
   return rows.map((r: Row) => ({
@@ -212,23 +217,11 @@ export async function getAccountMappings(companyId: string): Promise<AccountMapp
   }));
 }
 
-function nameSimilarity(a: string, b: string): number {
-  const tokensA = new Set(a.split(/[\s\-_&/]+/).filter(Boolean));
-  const tokensB = new Set(b.split(/[\s\-_&/]+/).filter(Boolean));
-  if (tokensA.size === 0 || tokensB.size === 0) return 0;
-  let overlap = 0;
-  for (const t of tokensA) {
-    if (tokensB.has(t)) overlap++;
-    else { for (const tb of tokensB) { if (tb.includes(t) || t.includes(tb)) { overlap += 0.5; break; } } }
-  }
-  return overlap / Math.max(tokensA.size, tokensB.size);
-}
-
 export async function autoMapAccounts(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('account_mapping', userId, companyId);
   return withRunRecovery(runId, companyId, async () => {
     const sageAccounts = (await sql`
-      SELECT id, sage_account_id, name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY name
+      SELECT id, sage_id AS sage_account_id, account_name AS name, account_type, balance FROM sage_accounts WHERE company_id = ${companyId}::UUID AND gl_account_id IS NULL ORDER BY account_name
     `) as Row[];
     const glAccounts = (await sql`
       SELECT id, account_code, account_name, account_type FROM gl_accounts
@@ -236,15 +229,27 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
     `) as Row[];
 
     let succeeded = 0; let skipped = 0;
-    const typeMap: Record<number, string> = { 1: 'revenue', 2: 'expense', 5: 'asset', 6: 'liability', 7: 'equity' };
 
     for (const sage of sageAccounts) {
       const sageName = String(sage.name).toLowerCase().trim();
-      const sageType = sage.account_type != null ? typeMap[Number(sage.account_type)] : null;
+      const sageType = glTypeForSageType(sage.account_type);
+      if (!sageType) {
+        // Without a type the match would run across every GL type: fail closed and say why on the account.
+        const raw = sage.account_type == null ? '' : String(sage.account_type).trim();
+        const note = raw === ''
+          ? 'Not auto-mapped: the Sage account has no type; map it by hand'
+          : `Not auto-mapped: Sage account type '${raw}' is not one this version can place; map it by hand`;
+        await sql`
+          UPDATE sage_accounts SET mapping_notes = ${note}
+          WHERE id = ${sage.id} AND company_id = ${companyId}::UUID
+            AND (COALESCE(mapping_notes, '') = '' OR mapping_notes LIKE 'Not auto-mapped:%') -- never a note a person wrote
+        `;
+        skipped++; continue;
+      }
       let bestMatch: Row | null = null; let bestScore = 0;
 
       for (const gl of glAccounts) {
-        if (sageType && String(gl.account_type) !== sageType) continue;
+        if (String(gl.account_type) !== sageType) continue;
         const score = nameSimilarity(sageName, String(gl.account_name).toLowerCase().trim());
         if (score > bestScore && score >= 0.6) { bestScore = score; bestMatch = gl; }
       }
@@ -282,11 +287,11 @@ export async function mapAccount(companyId: string, sageAccountId: string, glAcc
     }
 
     const result = (await sql`UPDATE sage_accounts SET gl_account_id = ${glAccountId}::UUID, mapping_status = 'manual',
-      mapping_notes = ${notes || 'Manually mapped'} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_account_id`) as Row[];
+      mapping_notes = ${notes || 'Manually mapped'} WHERE sage_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_id`) as Row[];
     if (result.length === 0) throw new Error(`Sage account not found: ${sageAccountId}`);
   } else {
     const result = (await sql`UPDATE sage_accounts SET gl_account_id = NULL, mapping_status = 'unmapped',
-      mapping_notes = ${notes || null} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_account_id`) as Row[];
+      mapping_notes = ${notes || null} WHERE sage_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_id`) as Row[];
     if (result.length === 0) throw new Error(`Sage account not found: ${sageAccountId}`);
   }
 }

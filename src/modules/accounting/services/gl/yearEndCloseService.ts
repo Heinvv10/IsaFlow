@@ -43,6 +43,7 @@ import {
   postClosingJournal,
 } from './yearEndJournalPoster';
 import { fiscalYearRange } from './fiscalYearCalendar';
+import { ClosingChainTooLong, findCurrentClosingJournal, TooManyRecloses } from './yearEndClosingNumber';
 
 export type {
   CloseYearDryRunResult,
@@ -132,7 +133,7 @@ export async function closeFiscalYear(
   const retained = await resolveRetainedEarnings(companyId);
   if ('error' in retained) return retained;
 
-  const preview = buildPreview(
+  const built = buildPreview(
     yearLabel, fmtDate(yearRange.end_date), revenueAccounts, expenseAccounts, retained, netIncome,
   );
 
@@ -140,7 +141,18 @@ export async function closeFiscalYear(
   // an already-closed year apart from a dormant one, and a re-run after P&L
   // landed in the closed year has a NON-empty preview, so it used to reach the
   // INSERT and die on uq_gl_je_company_entry_number as a raw 23505.
-  const existingEntry = await findClosingJournal(companyId, preview.entryNumber);
+  // A close that was REVERSED is skipped, and the preview takes the next free number (G-06).
+  // Both refusals come from this READ phase, before any write: they are typed results, not thrown 500s.
+  let current: Awaited<ReturnType<typeof findCurrentClosingJournal>>;
+  try {
+    current = await findCurrentClosingJournal(companyId, built.entryNumber);
+  } catch (err) {
+    if (err instanceof TooManyRecloses) return { error: 'too_many_recloses', code: err.code, entryNumber: err.baseNumber };
+    if (err instanceof ClosingChainTooLong) return { error: 'closing_chain_unreadable', code: err.code, entryNumber: err.entryNumber };
+    throw err;
+  }
+  const existingEntry = current.existing;
+  const preview = { ...built, entryNumber: current.entryNumber };
   if (existingEntry) {
     const refusal = classifyClosingJournal(preview.entryNumber, existingEntry);
     if (refusal) return refusal;

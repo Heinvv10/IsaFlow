@@ -21,6 +21,7 @@ import { log } from '@/lib/logger';
 import type { ProjectProfitabilityReport } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 import type { ProjectBasis } from './projectBasis';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
 interface ReportLineItem {
@@ -63,7 +64,7 @@ export async function getProjectTaggingCoverage(
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
-      WHERE je.status = 'posted'
+      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
@@ -123,7 +124,7 @@ async function jobReports(companyId: string, periodStart: string, periodEnd: str
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     LEFT JOIN projects p ON p.id = jl.project_id AND p.company_id = ${companyId}::UUID
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date >= ${periodStart}
@@ -142,7 +143,7 @@ async function jobReports(companyId: string, periodStart: string, periodEnd: str
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
-      WHERE je.status = 'posted'
+      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
@@ -169,7 +170,7 @@ async function cc2Reports(companyId: string, periodStart: string, periodEnd: str
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
     LEFT JOIN cost_centres cc ON cc.id = jl.cc2_id AND cc.company_id = ${companyId}::UUID
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.entry_date >= ${periodStart}

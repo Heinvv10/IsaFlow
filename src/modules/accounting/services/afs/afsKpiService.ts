@@ -12,6 +12,7 @@ import {
   RECEIVABLE_SUBTYPES,
   rawSubtypesFor,
 } from '../gl/accountSubtypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export type { FinancialSnapshot, RagThresholds };
 
@@ -185,7 +186,7 @@ async function fetchIncomeSnapshot(companyId: string, periodStart: string, perio
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${periodStart}::date
       AND je.entry_date <= ${periodEnd}::date
   `) as Row[];
@@ -227,14 +228,19 @@ export async function fetchBalanceSnapshot(companyId: string, periodEnd: string)
       COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS trade_receivables,
       COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit ELSE 0 END), 0) AS trade_payables,
       COALESCE(SUM(CASE WHEN ga.account_type = 'liability' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_debt,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'equity' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity
+      COALESCE(SUM(CASE WHEN ga.account_type = 'equity' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity,
+      -- Posted equity carries no profit of an unclosed year, and the posted close is skipped (G-01):
+      -- add the profit to the date (credit less debit over revenue AND expense), exactly the figure
+      -- the balance sheet injects (reports/balanceSheetService.calculateRetainedEarnings), or
+      -- debt-to-equity loses it.
+      COALESCE(SUM(CASE WHEN ga.account_type IN ('revenue', 'expense') THEN jl.credit - jl.debit ELSE 0 END), 0) AS derived_profit
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date <= ${periodEnd}::date
   `) as Row[];
 
@@ -246,7 +252,7 @@ export async function fetchBalanceSnapshot(companyId: string, periodEnd: string)
     tradeReceivables:   Number(row.trade_receivables ?? 0),
     tradePayables:      Number(row.trade_payables ?? 0),
     totalDebt:          Number(row.total_debt ?? 0),
-    totalEquity:        Number(row.total_equity ?? 0),
+    totalEquity:        Number(row.total_equity ?? 0) + Number(row.derived_profit ?? 0),
   };
 }
 

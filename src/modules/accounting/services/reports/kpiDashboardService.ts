@@ -10,6 +10,7 @@ import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatu
 import { marginPct } from './marginPct';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { asAtTodayStr, documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 
 export interface DashboardKPIs {
@@ -53,7 +54,7 @@ export async function getDashboardKPIs(companyId: string,
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'revenue' AND je.status = 'posted'
+        WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
       `,
@@ -62,7 +63,7 @@ export async function getDashboardKPIs(companyId: string,
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'revenue' AND je.status = 'posted'
+        WHERE ga.account_type = 'revenue' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
       `,
@@ -71,7 +72,7 @@ export async function getDashboardKPIs(companyId: string,
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'expense' AND je.status = 'posted'
+        WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${fromDate} AND je.entry_date <= ${toDate}
       `,
@@ -80,7 +81,7 @@ export async function getDashboardKPIs(companyId: string,
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE ga.account_type = 'expense' AND je.status = 'posted'
+        WHERE ga.account_type = 'expense' AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id = ${companyId}::UUID AND jl.company_id = ${companyId}::UUID
           AND je.entry_date >= ${priorFromStr} AND je.entry_date <= ${priorToStr}
       `,
@@ -186,7 +187,7 @@ export async function getDashboardKPIs(companyId: string,
         SELECT COUNT(*) AS count
         FROM gl_journal_entries
         WHERE company_id = ${companyId}::UUID
-          AND status = 'posted'
+          AND status = 'posted' AND source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND entry_date >= ${fromDate} AND entry_date <= ${toDate}
       `,
     ]);

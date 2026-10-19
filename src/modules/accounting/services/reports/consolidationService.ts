@@ -18,6 +18,7 @@ import type {
   ConsolidatedTrialBalance,
   IntercompanyBalance,
 } from './consolidationTypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 export {
   createCompanyRelationship,
@@ -144,7 +145,7 @@ export async function getConsolidatedTrialBalance(
         FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
-        WHERE je.status      = 'posted'
+        WHERE je.status      = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je.company_id  = ${entity.id}::UUID
           AND jl.company_id  = ${entity.id}::UUID
           AND ga.company_id  = ${entity.id}::UUID

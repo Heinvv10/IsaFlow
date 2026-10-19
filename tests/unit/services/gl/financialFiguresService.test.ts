@@ -26,6 +26,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { sql } from '@/lib/neon';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import {
   getFinancialFigures,
   toFinancialData,
@@ -88,8 +89,10 @@ describe('getFinancialFigures', () => {
     expect(text).toMatch(/je\.status = 'posted'/);
     expect(text).toMatch(/je\.company_id/);
     expect(text).toMatch(/jl\.company_id/);
+    // The posted year-end close is skipped (G-01): the derived close already carries it.
+    expect(text).toMatch(/je\.source IS DISTINCT FROM/);
     const params = mockSql.mock.calls[0]!.slice(1);
-    expect(params).toEqual(['2026-01-01', '2026-01-01', COMPANY, COMPANY, COMPANY, '2026-12-31']);
+    expect(params).toEqual(['2026-01-01', '2026-01-01', COMPANY, COMPANY, COMPANY, YEAR_END_JOURNAL_SOURCE, '2026-12-31']);
   });
 
   it('splits period movement from cumulative balances off one query', async () => {
