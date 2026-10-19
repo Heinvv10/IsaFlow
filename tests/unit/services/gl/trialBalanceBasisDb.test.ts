@@ -20,6 +20,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import {
   BROUGHT_FORWARD_CODE,
   getRetainedEarningsBroughtForward,
@@ -72,12 +73,14 @@ async function findCandidate(): Promise<Candidate | null> {
         JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE je.company_id = p.company_id AND je.status = 'posted'
+          AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND ga.account_type IN ('asset', 'liability', 'equity')
           AND je.entry_date < p.start_date
       )
       AND EXISTS (
         SELECT 1 FROM gl_journal_entries je2
         WHERE je2.company_id = p.company_id AND je2.status = 'posted'
+          AND je2.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND je2.entry_date BETWEEN p.start_date AND p.end_date
       )
       AND EXISTS (
@@ -85,6 +88,7 @@ async function findCandidate(): Promise<Candidate | null> {
         JOIN gl_journal_lines jl3 ON jl3.journal_entry_id = je3.id
         JOIN gl_accounts ga3 ON ga3.id = jl3.gl_account_id
         WHERE je3.company_id = p.company_id AND je3.status = 'posted'
+          AND je3.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           AND ga3.account_type IN ('revenue', 'expense')
           AND je3.entry_date >= p.fy_start AND je3.entry_date < p.start_date
       )
@@ -103,14 +107,20 @@ async function findCandidate(): Promise<Candidate | null> {
   };
 }
 
-/** Income-statement movement in [from, to). What a period-bounded cut would drop. */
+/** The calendar day after an ISO date: turns an inclusive period end into the exclusive `to` below. */
+const dayAfter = (iso: string) => new Date(Date.parse(`${iso}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * Income-statement movement in [from, to). What a period-bounded cut would drop. Skips the posted year-end close, as
+ * every report reader does (G-01).
+ */
 async function isMovementBetween(companyId: string, from: string, to: string): Promise<number> {
   const rows = (await sql`
     SELECT COALESCE(SUM(jl.debit) - SUM(jl.credit), 0) AS net
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.account_type IN ('revenue', 'expense')
@@ -126,7 +136,7 @@ async function inceptionBalances(companyId: string, asAt: string): Promise<Map<s
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.account_type IN ('asset', 'liability', 'equity')
@@ -145,7 +155,7 @@ async function periodMovements(
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-    WHERE je.status = 'posted'
+    WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.account_type IN ('asset', 'liability', 'equity')
@@ -238,8 +248,8 @@ describe('trial balance basis — against a real ledger', () => {
     const isRows = report.rows.filter(r => ['revenue', 'expense'].includes(r.accountType));
     const isTotal = isRows.reduce((s, r) => s + (r.debitBalance - r.creditBalance), 0);
 
-    const periodOnly = await isMovementBetween(c.companyId, c.periodStart, c.periodEnd);
-    const yearToDate = await isMovementBetween(c.companyId, c.fyStart, c.periodEnd);
+    const periodOnly = await isMovementBetween(c.companyId, c.periodStart, dayAfter(c.periodEnd));
+    const yearToDate = await isMovementBetween(c.companyId, c.fyStart, dayAfter(c.periodEnd));
 
     // Year-to-date, not the period's own movement.
     expect(Math.abs(isTotal - yearToDate)).toBeLessThan(0.01);
@@ -276,7 +286,8 @@ describe('retained earnings brought forward — the date bound is strict', () =>
       FROM gl_journal_entries je
       JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-      WHERE je.status = 'posted' AND ga.account_type IN ('revenue', 'expense')
+      WHERE je.status = 'posted'
+        AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND ga.account_type IN ('revenue', 'expense')
       GROUP BY je.company_id, je.entry_date
       HAVING ABS(SUM(jl.credit - jl.debit)) > 1
       ORDER BY ABS(SUM(jl.credit - jl.debit)) DESC
@@ -300,7 +311,7 @@ describe('retained earnings brought forward — the date bound is strict', () =>
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
-      WHERE je.status = 'posted'
+      WHERE je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         AND je.company_id = ${companyId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND ga.account_type IN ('revenue', 'expense')
