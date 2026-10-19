@@ -16,6 +16,7 @@ import {
   type LineInsert,
   type MismatchReason,
 } from './supplierStatementMatchHelper';
+import { effectiveExtractionState } from '@/modules/accounting/services/bank/statementExtractionState';
 import type {
   ReconciliationLine,
   MissingInvoice,
@@ -75,30 +76,51 @@ export async function loadSupplierInvoices(
 // Persist lines
 // ---------------------------------------------------------------------------
 
-export async function persistLinesAndUpdateCounts(
+/** A tagged-template runner: the pool's `sql`, or the `tx` of a transaction. */
+export type SqlRunner = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
+
+/**
+ * Replace the lines of one reconciliation. The lines table has no company column, so every statement
+ * checks the parent's company itself: a reconciliation of another company loses and gains no line.
+ */
+export async function replaceStatementLines(
+  run: SqlRunner,
+  companyId: string,
   reconId: string,
   inserts: LineInsert[],
 ): Promise<void> {
-  await sql`DELETE FROM supplier_statement_lines WHERE reconciliation_id = ${reconId}::uuid`;
+  await run`
+    DELETE FROM supplier_statement_lines
+    WHERE reconciliation_id = ${reconId}::uuid
+      AND EXISTS (SELECT 1 FROM supplier_statement_reconciliations r WHERE r.id = ${reconId}::uuid AND r.company_id = ${companyId})
+  `;
   for (const ln of inserts) {
-    await sql`
+    await run`
       INSERT INTO supplier_statement_lines
         (reconciliation_id, line_date, reference, description, debit, credit,
          running_balance, matched_supplier_invoice_id, match_confidence, mismatch_reason)
-      VALUES (
-        ${reconId}::uuid, ${ln.lineDate}::date, ${ln.reference}, ${ln.description},
-        ${ln.debit}, ${ln.credit}, ${ln.runningBalance},
-        ${ln.matchedInvoiceId}::uuid, ${ln.matchConfidence}, ${ln.mismatchReason}
-      )
+      SELECT
+        ${reconId}::uuid, ${ln.lineDate}::date, ${ln.reference}::text, ${ln.description}::text,
+        ${ln.debit}::numeric, ${ln.credit}::numeric, ${ln.runningBalance}::numeric,
+        ${ln.matchedInvoiceId}::uuid, ${ln.matchConfidence}::numeric, ${ln.mismatchReason}::text
+      WHERE EXISTS (SELECT 1 FROM supplier_statement_reconciliations r WHERE r.id = ${reconId}::uuid AND r.company_id = ${companyId})
     `;
   }
+}
+
+export async function persistLinesAndUpdateCounts(
+  companyId: string,
+  reconId: string,
+  inserts: LineInsert[],
+): Promise<void> {
+  await replaceStatementLines(sql, companyId, reconId, inserts);
   await sql`
     UPDATE supplier_statement_reconciliations
     SET missing_in_isaflow_count   = ${inserts.filter((l) => l.mismatchReason === 'missing_in_isaflow').length},
         missing_in_statement_count = ${inserts.filter((l) => l.mismatchReason === 'missing_in_statement').length},
         amount_diff_count          = ${inserts.filter((l) => l.mismatchReason === 'amount_diff').length},
         updated_at                 = NOW()
-    WHERE id = ${reconId}::uuid
+    WHERE id = ${reconId}::uuid AND company_id = ${companyId}
   `;
 }
 
@@ -120,6 +142,36 @@ function mapLineRow(r: DbRow, invNum: string | null): ReconciliationLine {
     matchedInvoiceNumber: invNum,
     matchConfidence: r.match_confidence != null ? toNum(r.match_confidence) : null,
     mismatchReason: (r.mismatch_reason as MismatchReason) ?? null,
+  };
+}
+
+/**
+ * The status, extraction and figure fields of a header row, as a reader sees them: a row 'extracting'
+ * with no heartbeat for 5 minutes is reported as failed. A row not read yet (extracting, failed, or
+ * interrupted) holds placeholders (today's date, 0 balances, 0 variance); a reader gets null for those,
+ * never a 0 that looks like a statement that ties.
+ */
+export function extractionView(r: DbRow): Pick<
+  SupplierStatementReconciliation,
+  'status' | 'extractionError' | 'retryable' | 'pagesDone' | 'pagesTotal'
+  | 'statementDate' | 'supplierBalance' | 'isaflowBalance' | 'variance'
+> {
+  const state = effectiveExtractionState({
+    status: r.status ?? 'unreconciled', created_at: r.created_at, extraction_heartbeat_at: r.extraction_heartbeat_at,
+    extraction_error: r.extraction_error, extraction_error_code: r.extraction_error_code,
+    extraction_pages_done: r.extraction_pages_done, extraction_pages_total: r.extraction_pages_total,
+  });
+  const read = state.status !== 'extracting' && state.status !== 'failed';
+  return {
+    status: state.status as SupplierStatementReconciliation['status'],
+    extractionError: state.extractionError,
+    retryable: state.retryable,
+    pagesDone: state.pagesDone,
+    pagesTotal: state.pagesTotal,
+    statementDate: read ? toDateStr(r.statement_date) ?? '' : null,
+    supplierBalance: read ? toNum(r.supplier_balance) : null,
+    isaflowBalance: read ? toNum(r.isaflow_balance) : null,
+    variance: read ? toNum(r.variance) : null,
   };
 }
 
@@ -164,13 +216,9 @@ export async function fetchFullReconciliation(
     supplierId: header.supplier_id as string,
     supplierName: String(header.supplier_name ?? ''),
     sourceDocumentId: header.source_document_id as string,
-    statementDate: toDateStr(header.statement_date) ?? '',
     periodStart: toDateStr(header.period_start),
     periodEnd: toDateStr(header.period_end),
-    supplierBalance: toNum(header.supplier_balance),
-    isaflowBalance: toNum(header.isaflow_balance),
-    variance: toNum(header.variance),
-    status: (header.status as SupplierStatementReconciliation['status']) ?? 'unreconciled',
+    ...extractionView(header),
     missingInIsaflowCount: toNum(header.missing_in_isaflow_count),
     missingInStatementCount: toNum(header.missing_in_statement_count),
     amountDiffCount: toNum(header.amount_diff_count),
