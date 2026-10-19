@@ -49,7 +49,7 @@ describe('admin billing actions complete on a success envelope', () => {
     const send = await screen.findByTitle('Send');
     // The page loads twice on mount (the page effect, then the 300 ms search debounce). Let both land before the
     // click, so the count below is the post-send reload alone rather than a race with the debounce on a slow runner.
-    await waitFor(() => expect(calls('/api/admin/billing/invoices', 'GET')).toBe(2));
+    await waitFor(() => expect(calls('/api/admin/billing/invoices', 'GET')).toBe(2), { timeout: 5000 });
     fireEvent.click(send);
     await waitFor(() => expect(calls('/api/admin/billing/invoices/inv-1/send', 'POST')).toBe(1));
     await waitFor(() => expect(calls('/api/admin/billing/invoices', 'GET')).toBe(3));
