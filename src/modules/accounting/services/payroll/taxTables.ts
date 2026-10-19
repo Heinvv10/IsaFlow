@@ -69,7 +69,7 @@ const TAX_2026: TaxYearConfig = {
 // The brackets, rebates, thresholds and medical credits are the SARS figures.
 // uifCeiling and sdlThresholdAnnual are unchanged from 2026, checked against SARS on 2026-10-19:
 // UIF: R17 712 a month "as from 1 June 2021" (https://www.sars.gov.za/types-of-tax/unemployment-insurance-fund/).
-// SDL: employers whose leviable remuneration won't exceed R500 000 a year are exempt; SARS
+// SDL: employers whose leviable remuneration won't exceed R500 000 over the next 12 months are exempt; SARS
 // gives no effective date (https://www.sars.gov.za/types-of-tax/skills-development-levy/).
 const TAX_2027: TaxYearConfig = {
   year: 2027,
