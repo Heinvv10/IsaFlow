@@ -29,9 +29,6 @@ export const CATEGORIES = {
 } as const;
 export type Category = keyof typeof CATEGORIES;
 
-/** What a CORRELATED statement must show: its lines are tied to one entry id of the (marked) enclosing query. */
-export const CORRELATED_ON = /journal_entry_id\s*=\s*\w+\.id/;
-
 /** What a RECLASS statement must show: the close flagged on the row, for partition.ts to skip. */
 export const RECLASS_FLAG = /is_year_end_close/;
 
@@ -74,7 +71,9 @@ export const entries: Array<[string, Category, string?]> = [
   ['gl/accountMergeFigures.ts', 'GUARD'],
   ['gl/reclassification/candidates.ts', 'RECLASS'],
   ['afs/noteGenerators/notes26to30.ts', 'CORRELATED', 'SELECT COALESCE(SUM(l.debit)'],
-  ['reports/unusualJournalsService.ts', 'CHAIN', 'WITH RECURSIVE up AS'],
+  ['reports/unusualJournalsService.ts', 'CHAIN', 'SELECT r.id, r.reversal_of_id'],
+  ['reports/unusualJournalsService.ts', 'CHAIN', 'SELECT p.id, p.reversal_of_id'],
+  ['reports/unusualJournalsService.ts', 'BANK', 'array_agg(DISTINCT ABS(bt.amount))'],
   ['gl/auditTrailAttribution.ts', 'RAW'],
   ['gl/auditTrailLedgerService.ts', 'RAW'],
   ['gl/chartOfAccountsHealthService.ts', 'ACCOUNT_BALANCE'],

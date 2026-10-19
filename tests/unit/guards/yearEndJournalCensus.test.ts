@@ -24,7 +24,9 @@
  * Also not seen: an uncorrelated EXISTS / IN subselect carrying the marker (it gates nothing in the outer
  * query, and the rule skips existence tests altogether, so a figure hidden inside one is a named limit); a
  * marker on a DIFFERENT gl_journal_entries alias than the one the figure's lines join (a self-join, `orig`);
- * a join condition that makes the marker true for every row.
+ * a join condition that makes the marker true for every row; a marker in a LEFT JOIN's ON beside an alias used only
+ * in the SELECT list or GROUP BY (that does not gate the SUM) or beside `WHERE je.id IS NOT NULL OR ...`; a marker
+ * on a second, self-joined entries alias.
  * Quoted strings that merely NAME the tables are census-listed below so a new one is a decision.
  *
  * A source-text ratchet, not a behaviour test: the behaviour is pinned by
@@ -36,10 +38,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { quotedStrings } from '../../helpers/templateLiterals';
 import {
-  bodyCarriesMarker, carriesMarker, isFigure, isSql, ledgerStatements, selectScopes, ungatedEntryLeftJoins, type Stmt,
+  carriesMarker, correlatedToMarkedEntry, headersOnly, isFigure, isSql, ledgerStatements, selectScopes, ungatedEntryLeftJoins, type Stmt,
 } from '../../helpers/ledgerStatements';
 import {
-  CASH_FILTER, CATEGORIES, COMPOSED, CORRELATED_ON, entries, key, RECLASS_FLAG, STRINGS,
+  CASH_FILTER, CATEGORIES, COMPOSED, entries, key, RECLASS_FLAG, STRINGS,
 } from '../../helpers/yearEndCensusTable';
 
 const ROOT = resolve(__dirname, '../../..');
@@ -95,11 +97,16 @@ describe('G-01: the year-end closing journal is excluded through one shared mark
     expect(offenders).toEqual([]);
   });
 
-  it('every CORRELATED entry is verified: tied to an entry id, with the outer query carrying the marker', () => {
+  it('every CORRELATED entry is verified: tied to an entry alias an enclosing scope filtered with the marker', () => {
     const offenders = figures.filter((s) => !carriesMarker(s)
-      && covers(s).some(([, c]) => c === 'CORRELATED')
-      && !(CORRELATED_ON.test(s.body) && selectScopes(s.body).some((sc) => /\bFROM\s+gl_journal_entries\b/i.test(sc.text) && bodyCarriesMarker(sc.text))))
+      && covers(s).some(([, c]) => c === 'CORRELATED') && !correlatedToMarkedEntry(s.body))
       .map((s) => `${s.f}:${s.t.line}`);
+    expect(offenders).toEqual([]);
+  });
+
+  it('every CHAIN entry is verified: the unmarked scopes it names read headers only, no line table, money column or aggregate', () => {
+    const offenders = entries.filter(([, c]) => c === 'CHAIN').flatMap(([f, , m]) =>
+      figures.filter((s) => s.f === key(f) && !carriesMarker(s) && !headersOnly(s.body, m)).map((s) => `${s.f}:${s.t.line} (${m})`));
     expect(offenders).toEqual([]);
   });
 

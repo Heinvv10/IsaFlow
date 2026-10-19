@@ -154,12 +154,22 @@ export function bodyCarriesMarker(body: string): boolean {
   return false;
 }
 
-interface Scope { text: string; checked: boolean }
+export interface Scope {
+  text: string;
+  /** False for an EXISTS / IN subselect: an existence test, not a reader of figures. */
+  checked: boolean;
+  /** The bracket group this scope came from, and the group that contains it (null at the top). */
+  group: number;
+  parentGroup: number | null;
+}
 
 /** SELECT bodies of a statement: each bracketed SELECT/WITH group and the outer text, split at UNION / INTERSECT / EXCEPT. */
 export function selectScopes(body: string): Scope[] {
   const scopes: Scope[] = [];
-  function walk(text: string, checked: boolean): void {
+  let nextGroup = 0;
+  function walk(text: string, checked: boolean, parentGroup: number | null): void {
+    const group = nextGroup;
+    nextGroup += 1;
     let outer = '';
     for (let i = 0; i < text.length;) {
       if (text[i] !== '(') { outer += text[i]!; i += 1; continue; }
@@ -170,17 +180,54 @@ export function selectScopes(body: string): Scope[] {
       if (/^\s*(?:SELECT|WITH|VALUES)\b/i.test(inner)) {
         // An existence / membership subselect gates nothing in the outer query; it is a named limit.
         const guardOnly = /\b(?:EXISTS|IN|ANY|ALL|SOME)\s*$/i.test(outer);
-        walk(inner, !guardOnly);
+        walk(inner, !guardOnly, group);
         outer += ' ';
       } else {
         outer += text.slice(i, j);
       }
       i = j;
     }
-    for (const branch of outer.split(/\b(?:UNION(?:\s+ALL)?|INTERSECT|EXCEPT)\b/i)) scopes.push({ text: branch, checked });
+    for (const branch of outer.split(/\b(?:UNION(?:\s+ALL)?|INTERSECT|EXCEPT)\b/i)) scopes.push({ text: branch, checked, group, parentGroup });
   }
-  walk(body, true);
+  walk(body, true, null);
   return scopes;
+}
+
+/** The SELECTs that read the journal tables (an existence test excepted) WITHOUT their own live marker. */
+export function unmarkedScopes(body: string): Scope[] {
+  return selectScopes(body).filter((s) => s.checked && REF.test(s.text) && !bodyCarriesMarker(s.text));
+}
+
+/**
+ * Every unmarked scope is a subselect over the lines of ONE entry that an ENCLOSING scope already filtered:
+ * it is tied (`<lines>.journal_entry_id = X.id`) to an alias X that is bound to gl_journal_entries in an
+ * ancestor group and carries the marker there. A tie to any other alias (`ga.id`), to a marked sibling or CTE,
+ * or to a marked EXISTS does not count.
+ */
+export function correlatedToMarkedEntry(body: string): boolean {
+  const scopes = selectScopes(body);
+  const unmarked = unmarkedScopes(body);
+  if (unmarked.length === 0) return false;
+  const parents = new Map<number, number | null>(scopes.map((s) => [s.group, s.parentGroup]));
+  return unmarked.every((s) => {
+    const tie = /journal_entry_id\s*=\s*(\w+)\.id\b/i.exec(s.text);
+    if (!tie || s.parentGroup === null) return false;
+    const alias = tie[1]!;
+    const ancestors = new Set<number>();
+    for (let g: number | null = s.parentGroup; g !== null; g = parents.get(g) ?? null) ancestors.add(g);
+    return scopes.some((o) => o.checked && ancestors.has(o.group)
+      && aliasesOf(o.text, 'entries').has(alias) && bodyCarriesMarker(o.text));
+  });
+}
+
+/**
+ * Every unmarked scope (those whose text contains `containing`, when given) reads headers only: no line table, no
+ * money column, no aggregate (a reversal-chain walk). False when there is no such scope.
+ */
+export function headersOnly(body: string, containing?: string): boolean {
+  const unmarked = unmarkedScopes(body).filter((s) => containing === undefined || s.text.includes(containing));
+  return unmarked.length > 0
+    && unmarked.every((s) => !/gl_journal_lines/i.test(s.text) && !FIGURE.test(s.text) && !lineWildcard(s.text));
 }
 
 /** Every SELECT that reads the journal tables (other than an existence test) carries its own live marker. */
