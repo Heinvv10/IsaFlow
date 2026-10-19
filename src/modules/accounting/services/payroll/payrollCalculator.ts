@@ -13,7 +13,11 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   const { employee, components, period, taxYear, annualPayrollEstimate } = input;
 
   const periodDate = new Date(period.year, period.month - 1, 28);
-  const age = employee.dateOfBirth ? getAge(employee.dateOfBirth, periodDate) : 30;
+  // SARS grants the age rebates for the whole year of assessment to an
+  // employee who reaches 65 / 75 on or before its last day (end of February),
+  // so the rebate age is taken there, not at the pay date.
+  const taxYearEnd = new Date(taxYear, 2, 0);
+  const rebateAge = employee.dateOfBirth ? getAge(employee.dateOfBirth, taxYearEnd) : 30;
 
   let grossPay = 0;
   let taxableIncome = 0;
@@ -52,7 +56,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   const paye = calculatePAYE({
     annualTaxableIncome: taxableIncome * 12,
-    ageAtPeriodEnd: age,
+    ageAtPeriodEnd: rebateAge,
     monthlyMedicalBeneficiaries: medicalBeneficiaries,
     taxYear,
   });
