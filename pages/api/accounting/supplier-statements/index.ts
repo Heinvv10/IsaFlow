@@ -1,7 +1,8 @@
 /**
  * GET  /api/accounting/supplier-statements          — list reconciliations
  * GET  /api/accounting/supplier-statements?supplierId=... — filter by supplier
- * POST /api/accounting/supplier-statements          — upload statement PDF + run VLM
+ * POST /api/accounting/supplier-statements          — upload statement; answers 201 with the reconciliation
+ *      ('extracting'): the VLM reads it in the background, so poll GET [id]
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,10 +17,8 @@ import { log } from '@/lib/logger';
 import { storeCapturedBytes } from '@/lib/documentStorage';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { sql } from '@/lib/neon';
-import {
-  createReconciliation,
-  listReconciliations,
-} from '@/modules/accounting/services/capture/supplierStatementReconService';
+import { listReconciliations } from '@/modules/accounting/services/capture/supplierStatementReconService';
+import { createReconciliation } from '@/modules/accounting/services/capture/supplierStatementLifecycle';
 
 export const config = { api: { bodyParser: false } };
 
@@ -133,7 +132,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse, companyId: 
       WHERE id = ${documentId}::uuid
     `;
 
-    log.info('Supplier statement uploaded, starting reconciliation', {
+    log.info('Supplier statement uploaded, queueing reconciliation', {
       documentId,
       supplierId,
     }, 'supplier-stmt-api');

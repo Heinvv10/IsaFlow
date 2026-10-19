@@ -21,10 +21,11 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/lib/documentStorage', () => ({
   fetchRawBytes: vi.fn(async () => ({ buffer: Buffer.from('%PDF-1.4'), hash: 'x', size: 8, fileType: 'pdf' })),
 }));
-vi.mock('@/modules/accounting/services/bank/vlmBankService', () => ({ extractBankStatementWithVlm: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankStatementExtraction', () => ({ extractBankStatementFromDocument: vi.fn() }));
 
-import { commitImport, createImportFromDocument } from '@/modules/accounting/services/bank/bankStatementOcrService';
-import { extractBankStatementWithVlm } from '@/modules/accounting/services/bank/vlmBankService';
+import { commitImport } from '@/modules/accounting/services/bank/bankStatementOcrService';
+import { runBankStatementExtraction } from '@/modules/accounting/services/bank/bankStatementExtractionJob';
+import { extractBankStatementFromDocument } from '@/modules/accounting/services/bank/bankStatementExtraction';
 import { invalidPeriodDate } from '@/modules/accounting/services/items/depreciationRunPlan';
 import { postClosingJournal } from '@/modules/accounting/services/gl/yearEndJournalPoster';
 import { isJournalDateRefused } from '@/modules/accounting/utils/journalDateWindow';
@@ -58,11 +59,12 @@ describe('OCR statement import', () => {
         { date: '2026-03-05', description: 'modern', amount: -11, balance: null, reference: null, transactionType: null },
       ],
     };
-    vi.mocked(extractBankStatementWithVlm).mockResolvedValueOnce(extraction);
+    vi.mocked(extractBankStatementFromDocument).mockResolvedValueOnce(extraction);
+    sqlMock.mockResolvedValueOnce([{ bank_account_id: BANK, source_document_id: DOC }]); // the job's claim
     sqlMock.mockResolvedValueOnce([]); // dedup: existing lines
-    sqlMock.mockResolvedValueOnce([importRow([])]); // INSERT bank_statement_imports
-    await createImportFromDocument(CO, BANK, DOC, USER);
-    const insert = sqlMock.mock.calls.find((c) => String((c[0] as string[]).join('')).includes('INSERT INTO bank_statement_imports'));
+    sqlMock.mockResolvedValueOnce([{ id: IMPORT }]); // UPDATE bank_statement_imports -> extracted
+    await runBankStatementExtraction(CO, IMPORT);
+    const insert = sqlMock.mock.calls.find((c) => String((c[0] as string[]).join('')).includes("status = 'extracted'"));
     const json = insert!.slice(1).find((v) => typeof v === 'string' && v.startsWith('{"rows"')) as string;
     const stored = JSON.parse(json) as { rows: { date: string }[]; warnings: string[] };
     expect(stored.rows.map((r) => r.date)).toEqual(['', '2026-03-05']);

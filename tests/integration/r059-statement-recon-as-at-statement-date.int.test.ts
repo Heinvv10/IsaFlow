@@ -21,6 +21,7 @@ import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { createAndRead } from './supplier-statement-read.helpers';
 
 function shift(days: number): string {
   const d = new Date();
@@ -30,17 +31,19 @@ function shift(days: number): string {
 const STMT = shift(-60);
 const CLOSING = 1000;
 
-vi.mock('@/lib/documentStorage', () => ({
-  fetchRawBytes: vi.fn(async () => ({ buffer: Buffer.from('%PDF-1.4 r059'), fileType: 'pdf' })),
+vi.mock('@/lib/afterCommit', async (original) => ({
+  ...(await original<typeof import('@/lib/afterCommit')>()),
+  runAfterCommit: () => undefined, // the job is driven by createAndRead
 }));
-vi.mock('@/modules/accounting/services/bank/vlmSupplierStatementService', () => ({
-  extractSupplierStatementWithVlm: vi.fn(async () => ({
-    statementDate: STMT, periodStart: null, periodEnd: null,
-    closingBalance: CLOSING, lines: [], warnings: [],
+vi.mock('@/modules/accounting/services/capture/supplierStatementExtraction', () => ({
+  extractSupplierStatementFromDocument: vi.fn(async () => ({
+    statementDate: STMT, periodStart: undefined, periodEnd: undefined,
+    closingBalance: CLOSING, warnings: [],
+    // one line: a read that finds none fails. It matches no bill, so only the counts see it.
+    lines: [{ date: STMT, reference: 'R059-STMT-LINE', description: 'Statement line', debit: 1 }],
   })),
 }));
 
-const { createReconciliation } = await import('@/modules/accounting/services/capture/supplierStatementReconService');
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 
@@ -97,7 +100,7 @@ describeIfDb('R-059 the supplier statement variance is measured at the statement
   }, 120000);
 
   it('our side is what we owed the supplier on the statement date', async () => {
-    const recon = await createReconciliation(COMPANY, supplier, DOCUMENT, USER);
+    const recon = await createAndRead(COMPANY, supplier, DOCUMENT, USER);
     expect(recon.statementDate).toBe(STMT);
     expect(recon.isaflowBalance).toBeCloseTo(1000, 2);
     expect(recon.variance).toBeCloseTo(0, 2);

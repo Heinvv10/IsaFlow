@@ -6,10 +6,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, RefreshCw, CheckCircle2, X, ChevronDown, ChevronUp, ArrowLeft, ExternalLink } from 'lucide-react';
+import { StatementReading, StatementReadFailed } from '@/components/accounting/StatementReadState';
+import { MatchStatusCell } from '@/components/accounting/ap/SupplierStatementMatchCell';
+import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
+import { useStatementReadActions } from '@/hooks/useStatementReadActions';
 
-type ReconStatus = 'unreconciled' | 'reconciled' | 'disputed' | 'archived';
+type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 type MismatchReason = 'missing_in_isaflow' | 'missing_in_statement' | 'amount_diff' | 'date_diff' | null;
 
 interface StatementLine {
@@ -25,9 +29,12 @@ interface MissingInvoice {
 
 interface SupplierStatementReconciliation {
   id: string; supplierId: string; supplierName: string;
-  statementDate: string; periodStart: string | null; periodEnd: string | null;
-  supplierBalance: number; isaflowBalance: number; variance: number;
+  /** Null while the statement is not read yet ('extracting' or 'failed'): the figures do not exist. */
+  statementDate: string | null; periodStart: string | null; periodEnd: string | null;
+  supplierBalance: number | null; isaflowBalance: number | null; variance: number | null;
   status: ReconStatus;
+  /** While 'extracting' / when 'failed': progress and why (the lines are empty until 'unreconciled'). */
+  extractionError: string | null; retryable: boolean; pagesDone: number | null; pagesTotal: number | null;
   missingInIsaflowCount: number; missingInStatementCount: number; amountDiffCount: number;
   lines: StatementLine[]; missingInvoices: MissingInvoice[];
   createdAt: string; reconciledAt: string | null;
@@ -35,7 +42,8 @@ interface SupplierStatementReconciliation {
 
 type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
-function fmtZAR(n: number) {
+function fmtZAR(n: number | null) {
+  if (n === null) return '—';
   return 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -44,33 +52,12 @@ function fmtDate(s: string | null) {
   try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
 }
 
-function varianceCls(variance: number) {
+function varianceCls(variance: number | null) {
+  if (variance === null) return 'text-[var(--ff-text-tertiary)]';
   const abs = Math.abs(variance);
   if (abs <= 0.01) return 'text-teal-400';
   if (abs <= 100) return 'text-amber-400';
   return 'text-red-400';
-}
-
-function MatchStatusCell({ line }: { line: StatementLine }) {
-  const conf = line.matchConfidence ?? 0;
-  if (line.mismatchReason === 'missing_in_isaflow') {
-    return (
-      <div className="flex items-center gap-1.5">
-        <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-red-500/15 text-red-400 border-red-500/30">Missing in IsaFlow</span>
-        <div className="relative group/tip">
-          <button disabled className="text-xs text-[var(--ff-text-tertiary)] border border-[var(--ff-border-light)] px-2 py-0.5 rounded opacity-50 cursor-not-allowed">Create invoice</button>
-          <span className="pointer-events-none absolute bottom-full left-0 mb-1.5 px-2 py-1 rounded text-xs bg-gray-900 text-gray-200 whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity z-10">
-            Phase 7 scope — create manually for now
-          </span>
-        </div>
-      </div>
-    );
-  }
-  if (line.mismatchReason === 'amount_diff') return <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-amber-500/15 text-amber-400 border-amber-500/30">Amount diff</span>;
-  if (line.mismatchReason === 'date_diff') return <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-amber-500/15 text-amber-400 border-amber-500/30">Date diff</span>;
-  if (conf >= 0.95) return <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-teal-500/15 text-teal-400 border-teal-500/30">Matched</span>;
-  if (conf >= 0.70) return <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-amber-500/15 text-amber-400 border-amber-500/30">Fuzzy match</span>;
-  return <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-slate-600/30 text-slate-400 border-slate-500/30">Unmatched</span>;
 }
 
 const TH = 'px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--ff-text-tertiary)]';
@@ -93,21 +80,38 @@ export default function SupplierStatementDetailPage() {
     setTimeout(() => setToast(null), 5000);
   }, []);
 
-  const load = useCallback(async () => {
-    if (!reconId) return;
-    setLoading(true); setError('');
+  // `silent`: a poll while the statement is being read. It keeps what is on screen and shows no spinner.
+  // Resolves to what the poll found: 'stop' when the statement is gone or not ours (404/403), 'bad' for any other error.
+  const load = useCallback(async (silent = false): Promise<PollOutcome> => {
+    if (!reconId) return 'ok';
+    if (!silent) { setLoading(true); setError(''); }
     try {
       const res = await apiFetch(`/api/accounting/supplier-statements/${reconId}`);
       await assertOk(res, 'Could not load the reconciliation - try again');
       const json = await res.json() as { data?: SupplierStatementReconciliation };
       const data = json.data ?? null;
       setRecon(data);
+      setError('');
       if (data && data.missingInStatementCount > 0) setMissingOpen(true);
-    } catch (err) { setRecon(null); setError(apiErrorMessage(err, 'Could not load the reconciliation - try again')); }
-    finally { setLoading(false); }
+      return 'ok';
+    } catch (err) {
+      if (!silent) setRecon(null);
+      setError(apiErrorMessage(err, 'Could not load the reconciliation - try again'));
+      return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'bad';
+    }
+    finally { if (!silent) setLoading(false); }
   }, [reconId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const poll = useCallback(() => load(true), [load]);
+  usePollWhileReading(recon?.status, poll);
+  const { busy: readBusy, retry: handleRetry, remove: handleDelete } = useStatementReadActions({
+    baseUrl: reconId ? `/api/accounting/supplier-statements/${reconId}` : null,
+    reload: poll,
+    afterDelete: () => { void router.push('/accounting/ap/supplier-statements'); },
+    notify: showToast,
+  });
 
   const handleRematch = useCallback(async () => {
     if (!reconId) return;
@@ -135,7 +139,7 @@ export default function SupplierStatementDetailPage() {
   }, [reconId, load, showToast]);
 
   const canReconcile = recon
-    ? Math.abs(recon.variance) <= 0.01 && recon.missingInIsaflowCount === 0 && recon.amountDiffCount === 0
+    ? recon.variance !== null && Math.abs(recon.variance) <= 0.01 && recon.missingInIsaflowCount === 0 && recon.amountDiffCount === 0
     : false;
 
   return (
@@ -153,6 +157,10 @@ export default function SupplierStatementDetailPage() {
 
           {loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-indigo-400" /></div>
+          ) : recon?.status === 'extracting' ? (
+            <StatementReading pagesDone={recon.pagesDone} pagesTotal={recon.pagesTotal} />
+          ) : recon?.status === 'failed' ? (
+            <StatementReadFailed error={recon.extractionError} retryable={recon.retryable} busy={readBusy} onRetry={handleRetry} onDelete={handleDelete} />
           ) : recon ? (
             <>
               {/* Header card */}
