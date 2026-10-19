@@ -19,6 +19,7 @@ import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/pay
 import {
   PayrollRunJournalPostedError,
 } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
+import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,6 +52,10 @@ async function handler(
     if (respondIfLockTimeout(res, err)) return;
     if (err instanceof PayrollRunJournalPostedError) {
       return apiResponse.badRequest(res, err.message, { code: err.code });
+    }
+    // Raised before anything is written; the message says what is missing.
+    if (err instanceof UnsupportedTaxYearError) {
+      return apiResponse.badRequest(res, err.message, { code: 'UNSUPPORTED_TAX_YEAR', taxYear: err.taxYear });
     }
     throw err;
   }

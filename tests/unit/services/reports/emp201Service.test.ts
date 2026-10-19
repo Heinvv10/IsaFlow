@@ -18,6 +18,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 
 const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
@@ -126,6 +127,37 @@ describe('emp201Service — Phase 1 schema (payroll_run_headers)', () => {
     // periodStart/periodEnd must still be echoed back
     expect(res.periodStart).toBe(PERIOD_START);
     expect(res.periodEnd).toBe(PERIOD_END);
+  });
+
+  // ── P15: a failure is an error, never an all-zero declaration ───────────────
+
+  it('rejects when the payroll_run_headers query fails, instead of returning zeros', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce(TABLE_CHECK_ROWS as never)
+      .mockRejectedValueOnce(new Error('canceling statement due to statement timeout'));
+
+    await expect(generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END))
+      .rejects.toThrow('statement timeout');
+  });
+
+  it('rejects when the table-existence check fails, instead of returning zeros', async () => {
+    vi.mocked(sql).mockRejectedValueOnce(new Error('connection terminated'));
+
+    await expect(generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END))
+      .rejects.toThrow('connection terminated');
+  });
+
+  it('logs the failure before re-throwing it', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce(TABLE_CHECK_ROWS as never)
+      .mockRejectedValueOnce(new Error('boom'));
+
+    await expect(generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END)).rejects.toThrow('boom');
+    expect(log.error).toHaveBeenCalledWith(
+      'Error generating EMP201 from payroll data',
+      expect.objectContaining({ companyId: COMPANY_ID }),
+      'emp201Service',
+    );
   });
 
   // ── Test 4: UIF 50/50 split ──────────────────────────────────────────────────
