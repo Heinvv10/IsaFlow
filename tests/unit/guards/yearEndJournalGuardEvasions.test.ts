@@ -191,8 +191,15 @@ describe('the rule catches planted evasions', () => {
     const bank = 'SELECT array_agg(DISTINCT ABS(bt.amount)) FROM bank_transactions bt JOIN gl_journal_lines bl ON bl.journal_entry_id = bt.id';
     expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT r.id', ['array_agg(DISTINCT ABS(bt.amount))'])).toBe(true);
     expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT r.id', [])).toBe(false);
-    expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT r.id', ['SELECT array_agg'])).toBe(true);
-    expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT array_agg', ['SELECT array_agg'])).toBe(false);
+    expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT r.id', ['SELECT array_agg(DISTINCT'])).toBe(true);
+    expect(headersOnly(`${walk('r.id')} UNION ALL ${bank}`, 'SELECT array_agg', ['SELECT array_agg(DISTINCT'])).toBe(false);
+    // A weak excusing entry (empty, a bare keyword, too short, words only) excuses nothing.
+    const outer = `${walk('r.id')} UNION ALL SELECT SUM(l.debit) FROM gl_journal_lines l`;
+    for (const weak of ['', ' ', 'SELECT', 'SUM(l.debit)', 'SELECT FROM WHERE AND', 'gl_journal_lines']) {
+      expect(headersOnly(outer, 'SELECT r.id', [weak]), JSON.stringify(weak)).toBe(false);
+    }
+    // The same sibling IS excused by a long, specific entry.
+    expect(headersOnly(outer, 'SELECT r.id', ['SELECT SUM(l.debit) FROM gl_journal_lines l'])).toBe(true);
   });
 
   it('"gated" means the alias is inside every aggregate over the lines, not merely used somewhere', () => {
