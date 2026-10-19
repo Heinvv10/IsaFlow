@@ -198,6 +198,19 @@ describe('the rule catches planted evasions', () => {
     expect(ungatedEntryLeftJoins(left('SUM(CASE WHEN je.entry_date <= \'2025-12-31\' THEN jl.debit ELSE 0 END)'))).toEqual([]);
   });
 
+  it('NAMED LIMIT: any `alias.id IS [NOT] NULL` or WHERE comparison on the alias counts as gating, however it is combined', () => {
+    // These do NOT gate the SUM over the lines, but the rule accepts them: it looks for the alias in a predicate,
+    // not at what the predicate does with a NULL entry. Documented, not closed; the reader table in
+    // g01-every-reader.int.test.ts is what catches a real one.
+    const left = (select: string, where = '') =>
+      `SELECT ${select} FROM gl_accounts ga LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id `
+      + `LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.status = 'posted' ${where} GROUP BY ga.id`;
+    expect(ungatedEntryLeftJoins(left('SUM(jl.debit) AS d', "WHERE (je.status = 'posted' OR je.id IS NULL)"))).toEqual([]);
+    expect(ungatedEntryLeftJoins(left('SUM(jl.debit) AS d, (je.id IS NULL) AS orphan'))).toEqual([]);
+    // The same statement without any such mention is flagged.
+    expect(ungatedEntryLeftJoins(left('SUM(jl.debit) AS d'))).toEqual(['je']);
+  });
+
   it('a LEFT JOIN onto a reversal original, not onto the entry of the lines, is not the lines\' gate', () => {
     expect(ungatedEntryLeftJoins('SELECT jl.debit FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id = jl.journal_entry_id LEFT JOIN gl_journal_entries orig ON orig.id = je.reversal_of_id')).toEqual([]);
   });

@@ -61,3 +61,32 @@ describe('the Sage account-mapping calls run against the real columns', () => {
     await expect(mapAccount(company, 'SG-nope', sales)).rejects.toThrow(/Sage account not found/);
   });
 });
+
+describe('auto-mapping fails closed on a Sage account type it cannot resolve', () => {
+  it('leaves a text-typed and an untyped account unmapped, with the reason on the account', async () => {
+    // Both are named exactly like the revenue GL account. Their types do not resolve (the map is numeric), so the
+    // type filter used to be skipped and they were mapped across types.
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,account_type,balance,mapping_status)
+       VALUES(gen_random_uuid(),$1,'SG-T','9001','Sales revenue','Asset',10,'unmapped'),
+             (gen_random_uuid(),$1,'SG-N','9002','Sales revenue',NULL,20,'unmapped'),
+             (gen_random_uuid(),$1,'SG-U','9003','Sales revenue','99',30,'unmapped')`, [company]);
+    const run = await autoMapAccounts(company, user);
+    const byId = Object.fromEntries((await getAccountMappings(company)).map((m) => [m.sageAccountId, m]));
+    for (const id of ['SG-T', 'SG-N', 'SG-U']) {
+      expect(byId[id]).toMatchObject({ glAccountId: null, mappingStatus: 'unmapped' });
+      expect(byId[id]!.mappingNotes).toMatch(/^Not auto-mapped: /);
+    }
+    expect(byId['SG-T']!.mappingNotes).toContain("'Asset'");
+    expect(byId['SG-N']!.mappingNotes).toContain('has no type');
+    expect(run.skipped).toBeGreaterThanOrEqual(3);
+  });
+
+  it('still maps an account whose numeric type resolves, even when it arrives as text', async () => {
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,account_type,balance,mapping_status)
+       VALUES(gen_random_uuid(),$1,'SG-R','9004','Sales revenue','1',40,'unmapped')`, [company]);
+    await autoMapAccounts(company, user);
+    expect((await getAccountMappings(company)).find((m) => m.sageAccountId === 'SG-R')).toMatchObject({ glAccountCode: '4000', mappingStatus: 'auto' });
+  });
+});
