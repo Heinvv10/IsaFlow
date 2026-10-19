@@ -124,7 +124,11 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
     const m2 = rest!.match(twoNumTail);
     if (!m2) {
       const m1 = rest!.match(oneNumTail);
-      if (m1 && /bal|brought|forward/i.test(m1[1]!)) prevBalance = cleanNum(m1[2]!);
+      if (m1 && /bal|brought|forward/i.test(m1[1]!)) {
+        prevBalance = cleanNum(m1[2]!);
+        // The first one, before any row, is where the statement opened.
+        if (result.transactions.length === 0 && result.openingBalance === undefined) result.openingBalance = prevBalance;
+      }
       continue;
     }
 
@@ -136,6 +140,8 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
       continue;
     }
 
+    // With a balance to compare, the amount is the movement of the balance, so a row dropped before this one is
+    // absorbed into it: the amount the line printed (kept as printedAmount) is what shows the difference.
     let signedAmount = amountAbs;
     if (prevBalance !== null) signedAmount = Math.round((balance - prevBalance) * 100) / 100;
 
@@ -144,7 +150,10 @@ export function parseAbsaSlashDateLines(text: string): BankCsvParseResult {
       .replace(/\s+Settlement$/i, '')
       .trim();
 
-    result.transactions.push({ transactionDate, amount: signedAmount, description, balance });
+    result.transactions.push({
+      transactionDate, amount: signedAmount, description, balance,
+      ...(prevBalance !== null ? { printedAmount: amountAbs } : {}),
+    });
     stitchIdx = result.transactions.length - 1;
     stitchCount = 0;
     prevBalance = balance;
@@ -244,7 +253,13 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
     if (skipPat.test(rest!)) {
       // Capture closing balance for sign inference
       const amts = [...rest!.matchAll(saAmtPat)];
-      if (amts.length) prevBalance = parseSAAmount(amts[amts.length - 1]![1]!);
+      if (amts.length) {
+        prevBalance = parseSAAmount(amts[amts.length - 1]![1]!);
+        // The first brought-forward line, before any row, is where the statement opened.
+        if (result.transactions.length === 0 && result.openingBalance === undefined && /brought\s+forward/i.test(rest!)) {
+          result.openingBalance = prevBalance;
+        }
+      }
       continue;
     }
 
@@ -258,10 +273,12 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
 
     // Sign: trailing minus = debit; otherwise derive from balance delta
     let amount: number;
+    let derived = false;
     if (rawTx.endsWith('-')) {
       amount = parseSAAmount(rawTx);
     } else if (prevBalance !== null) {
       amount = Math.round((balance - prevBalance) * 100) / 100;
+      derived = true;
     } else {
       amount = parseSAAmount(rawTx);
     }
@@ -279,7 +296,11 @@ export function parseAbsaInvestmentLines(text: string): BankCsvParseResult {
       }
     }
 
-    result.transactions.push({ transactionDate, amount, description: fullDesc, balance });
+    // A derived amount keeps the one the line printed (see parseAbsaSlashDateLines).
+    result.transactions.push({
+      transactionDate, amount, description: fullDesc, balance,
+      ...(derived ? { printedAmount: Math.abs(parseSAAmount(rawTx)) } : {}),
+    });
     prevBalance = balance;
   }
 

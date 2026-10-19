@@ -1,17 +1,22 @@
 /**
  * Bank Statement PDF Import & Review — PRD-05 Phase 7
  * Upload mode (no ?id): drag-drop PDF + bank account selector.
- * Review mode (?id=<importId>): delegates to StatementReviewPanel.
+ * Review mode (?id=<importId>): delegates to StatementReviewPanel. A statement is read in the
+ * background, so while it is 'extracting' this page polls every 3 s ("Reading statement…") and a
+ * failed read shows why, with Retry (unless it is too long to read) and Delete.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { log } from '@/lib/logger';
-import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import type { ResponseFor } from '@/lib/apiRoutes';
 import { Loader2, AlertCircle, Upload, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { StatementReviewPanel, type BankStatementImport } from '@/components/accounting/bank-transactions/StatementReviewPanel';
+import { StatementReading, StatementReadFailed } from '@/components/accounting/StatementReadState';
+import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
+import { useStatementReadActions } from '@/hooks/useStatementReadActions';
 
 type BankAccount = Extract<ResponseFor<'/api/accounting/bank-accounts'>, unknown[]>[number];
 
@@ -77,16 +82,33 @@ export default function ImportPdfPage() {
     }
   }, []);
 
-  const loadImport = useCallback(async (id: string) => {
-    setLoading(true); setError('');
+  // `silent`: a poll while the statement is being read. It keeps what is on screen and shows no spinner.
+  // Resolves to what the poll found: 'stop' when the import is gone or not ours (404/403), 'bad' for any other error.
+  const loadImport = useCallback(async (id: string, silent = false): Promise<PollOutcome> => {
+    if (!silent) { setLoading(true); setError(''); }
     try {
       const res = await apiFetch(`/api/accounting/bank-statements/${id}`);
       await assertOk(res, 'Could not load this import - try again');
       const json = await res.json() as { data?: BankStatementImport };
       setImp(json.data ?? null);
-    } catch (err) { setImp(null); setError(apiErrorMessage(err, 'Could not load this import - try again')); }
-    finally { setLoading(false); }
+      setError('');
+      return 'ok';
+    } catch (err) {
+      if (!silent) setImp(null);
+      setError(apiErrorMessage(err, 'Could not load this import - try again'));
+      return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'bad';
+    }
+    finally { if (!silent) setLoading(false); }
   }, []);
+
+  const pollImport = useCallback(() => (importId ? loadImport(importId, true) : Promise.resolve<PollOutcome>('ok')), [importId, loadImport]);
+  usePollWhileReading(imp?.status, pollImport);
+  const { busy: readBusy, retry: handleRetry, remove: handleDelete } = useStatementReadActions({
+    baseUrl: importId ? `/api/accounting/bank-statements/${importId}` : null,
+    reload: pollImport,
+    afterDelete: () => { void router.push('/accounting/bank/statements'); },
+    notify: showToast,
+  });
 
   useEffect(() => {
     if (importId) void loadImport(importId);
@@ -165,9 +187,13 @@ export default function ImportPdfPage() {
             {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-900/30 text-red-400 text-sm mb-4"><AlertCircle className="h-4 w-4" />{error}</div>}
             {loading
               ? <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-indigo-400" /></div>
-              : imp
-                ? <StatementReviewPanel imp={imp} committing={committing} rollingBack={rollingBack} onCommit={handleCommit} onRollback={handleRollback} />
-                : null}
+              : imp?.status === 'extracting'
+                ? <StatementReading pagesDone={imp.pagesDone} pagesTotal={imp.pagesTotal} />
+                : imp?.status === 'failed'
+                  ? <StatementReadFailed error={imp.extractionError} retryable={imp.retryable} busy={readBusy} onRetry={handleRetry} onDelete={handleDelete} />
+                  : imp
+                    ? <StatementReviewPanel imp={imp} committing={committing} rollingBack={rollingBack} onCommit={handleCommit} onRollback={handleRollback} />
+                    : null}
           </div>
         </div>
         <ToastBar toast={toast} onDismiss={() => setToast(null)} />
