@@ -56,11 +56,13 @@ export async function generateComparison(companyId: string, userId: string): Pro
       sageByGl.set(String(sage.gl_id), (sageByGl.get(String(sage.gl_id)) ?? 0) + sb);
     }
     const mappedGl = new Set(sageByGl.keys());
-    for (const gl of glBalances) {
-      const sb = sageByGl.get(String(gl.id));
-      if (sb === undefined) continue;
-      const gb = glMap.get(String(gl.id)) || 0;
+    // Walk the MAPPED accounts, not the leaf list: a Sage account can be mapped to a header (level 1-2) account the
+    // ledger query does not list, whose balance here is then 0.
+    const glNames = new Map(sageBalances.filter((r) => r.gl_id != null).map((r) => [String(r.gl_id), r]));
+    for (const [glId, sb] of sageByGl) {
+      const gb = glMap.get(glId) ?? 0;
       if (Math.abs(sb - gb) > 0.01) {
+        const gl = glNames.get(glId)!;
         differences.push({
           accountCode: String(gl.account_code), accountName: String(gl.account_name), sageBalance: sb, glBalance: gb, difference: sb - gb,
         });
