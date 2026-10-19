@@ -128,19 +128,19 @@ describe.skipIf(!hasRealDb)('IRP5 Source Code Calculation', () => {
     expect(codes.find((c: SourceCodeEntry) => c.code === '4102')?.amount).toBe(72000);
   });
 
-  it('maps UIF employee to code 4141', async () => {
+  it('maps total UIF (employee + employer) to code 4141', async () => {
     const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
-    expect(codes.find((c: SourceCodeEntry) => c.code === '4141')?.amount).toBe(2136.12);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4141')?.amount).toBe(4272.24);
   });
 
-  it('maps UIF employer to code 4142', async () => {
+  it('maps SDL to code 4142', async () => {
     const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
-    expect(codes.find((c: SourceCodeEntry) => c.code === '4142')?.amount).toBe(2136.12);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4142')?.amount).toBe(4260);
   });
 
-  it('maps SDL to code 4150', async () => {
+  it('never emits 4150 (a reason code, not an amount)', async () => {
     const codes = await calculateIRP5SourceCodes(sampleEmployee, TAX_YEAR);
-    expect(codes.find((c: SourceCodeEntry) => c.code === '4150')?.amount).toBe(4260);
+    expect(codes.find((c: SourceCodeEntry) => c.code === '4150')).toBeUndefined();
   });
 
   it('omits zero-value codes', async () => {

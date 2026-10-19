@@ -56,7 +56,7 @@ describe('calculateEti — a real determination is marked determinable', () => {
   });
 
   it('marks a genuinely INELIGIBLE result determinable, with a reason', () => {
-    // 50 years old — outside the 18-35 band. A real determination, not a gap.
+    // 50 years old — outside the 18-29 band. A real determination, not a gap.
     const r = calculateEti(
       { ...determinable, dateOfBirth: new Date(1976, 0, 15) },
       TAX_YEAR,

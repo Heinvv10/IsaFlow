@@ -63,17 +63,25 @@ describe('buildTerminationComponents', () => {
   it('emits one EmployeeComponent per non-zero amount with SARS codes', () => {
     const comps = buildTerminationComponents({ ...base, reason: 'retrenchment', servedNoticeDays: 15 });
     const codes = comps.map((c) => c.component.sarsSourceCode);
-    expect(codes).toEqual(expect.arrayContaining(['3810', '3605', '3901']));
+    expect(codes).toEqual(expect.arrayContaining(['3605', '3901']));
+  });
+
+  it('never reports leave pay as 3810 (the employer medical-aid fringe benefit)', () => {
+    const comps = buildTerminationComponents({ ...base, reason: 'retrenchment', servedNoticeDays: 15 });
+    expect(comps.map((c) => c.component.sarsSourceCode)).not.toContain('3810');
+    const leave = comps.find((c) => c.component.name.startsWith('Leave Pay'));
+    expect(leave?.component.sarsSourceCode).toBe('3605');
+    expect(leave?.component.componentType).toBe('earning');
   });
 
   it('skips components with zero amount', () => {
     const comps = buildTerminationComponents({ ...base, unusedLeaveDays: 0, includeLeavePayout: true });
-    expect(comps.find((c) => c.component.sarsSourceCode === '3810')).toBeUndefined();
+    expect(comps.find((c) => c.component.name.startsWith('Leave Pay'))).toBeUndefined();
   });
 
   it('marks leave + notice as UIF/SDL-applicable; severance as not', () => {
     const comps = buildTerminationComponents({ ...base, reason: 'retrenchment' });
-    const leave = comps.find((c) => c.component.sarsSourceCode === '3810');
+    const leave = comps.find((c) => c.component.name.startsWith('Leave Pay'));
     const severance = comps.find((c) => c.component.sarsSourceCode === '3901');
     expect(leave?.component.isUifApplicable).toBe(true);
     expect(severance?.component.isUifApplicable).toBe(false);
