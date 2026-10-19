@@ -136,3 +136,24 @@ describe('several Sage accounts mapped to one GL account', () => {
     ]);
   });
 });
+
+describe('a Sage account mapped to a GL account the comparison does not list as a leaf', () => {
+  it('is still compared: a Sage balance on a level-2 account is a difference, not a "balanced" report', async () => {
+    // Back to the matching state left by the case above.
+    await pool.query("UPDATE sage_accounts SET balance=balance-7 WHERE company_id=$1 AND sage_id='S-1000b'", [t.company]);
+    expect((await generateComparison(t.company, user)).differences).toEqual([]);
+
+    const header = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
+       VALUES($1,$2,'1900','Other assets (header)','asset','debit',2,true)`, [header, t.company]);
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,balance,gl_account_id,mapping_status)
+       VALUES(gen_random_uuid(),$1,'S-1900','1900','Sage header',25,$2,'manual')`, [t.company, header]);
+    const report = await generateComparison(t.company, user);
+    expect(report.isBalanced).toBe(false);
+    expect(report.differences).toEqual([
+      expect.objectContaining({ accountCode: '1900', accountName: 'Other assets (header)', sageBalance: 25, glBalance: 0, difference: 25 }),
+    ]);
+  });
+});
