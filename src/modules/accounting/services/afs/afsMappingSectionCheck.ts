@@ -16,6 +16,16 @@ interface Misplaced { account_code: string; account_name: string; account_type: 
 
 const SHOWN = 10;
 
+// An equity account mapped to IS484 "Dividends paid" is a deliberate mapping, not a slip: the income statement
+// shows the dividend, but the balance sheet's equity does not yet take it from the accumulated profit. Remapping
+// it would not help, so it gets its own advice.
+const DIVIDENDS_LINE = 'IS484';
+const isDividends = (r: Misplaced): boolean => r.account_type === 'equity' && r.afs_line_code === DIVIDENDS_LINE;
+const DIVIDENDS_ADVICE = 'Dividends paid is shown on the income statement; this version doesn\'t yet carry it into '
+  + 'balance-sheet equity, so the balance sheet won\'t balance.';
+const REMAP_ADVICE = 'A revenue or expense account on a balance sheet line is counted twice (again inside the '
+  + 'accumulated profit), which is why the balance sheet may not balance. Remap each to a line of its own statement.';
+
 async function checkAccountsMappedToTheirStatement(companyId: string): Promise<ExportCheck | null> {
   const rows = (await sql`
     SELECT ga.account_code, ga.account_name, ga.account_type, m.afs_line_code, sl.section
@@ -34,13 +44,15 @@ async function checkAccountsMappedToTheirStatement(companyId: string): Promise<E
     `${r.account_code} ${r.account_name} (${r.account_type}) is mapped to ${r.afs_line_code}, `
     + `${r.section === 'balance_sheet' ? 'a balance sheet' : 'an income statement'} line`);
   const more = rows.length > SHOWN ? `; and ${rows.length - SHOWN} more` : '';
+  const advice = [
+    rows.some((r) => !isDividends(r)) ? REMAP_ADVICE : null,
+    rows.some(isDividends) ? DIVIDENDS_ADVICE : null,
+  ].filter((a): a is string => a !== null);
   return {
     label: 'Every mapped account is on the right statement',
     passed: false,
     severity: 'warning',
-    detail: `${named.join('; ')}${more}. A revenue or expense account on a balance sheet line is counted `
-      + 'twice (again inside the accumulated profit), which is why the balance sheet may not balance. '
-      + 'Remap each to a line of its own statement.',
+    detail: `${named.join('; ')}${more}. ${advice.join(' ')}`,
   };
 }
 
