@@ -173,6 +173,45 @@ describe('a Sage account mapped to a GL account the comparison does not list as 
   });
 });
 
+describe('header accounts that carry their own posted lines', () => {
+  const left = crypto.randomUUID();
+  const right = crypto.randomUUID();
+  const entry = crypto.randomUUID();
+
+  it('a level-1 account with posted lines and no Sage mapping is reported as gl_unmapped, with its real balance', async () => {
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
+       VALUES($1,$3,'1960','Level one debit','asset','debit',1,true),($2,$3,'2960','Level one credit','liability','credit',1,true)`,
+      [left, right, t.company]);
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_by,posted_at)
+       VALUES($1,$2,'HDR-1','2026-03-01',$3,'header lines','manual','posted',$4,$4,now())`, [entry, t.company, t.period.p26, user]);
+    await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
+       VALUES($1,$2,40,0,'h',$4),($1,$3,0,40,'h',$4)`, [entry, left, right, t.company]);
+    const before = await generateComparison(t.company, user);
+    expect(before.differences).toContainEqual(expect.objectContaining({ accountCode: '1960', sageBalance: 0, glBalance: 40, difference: -40, kind: 'gl_unmapped' }));
+    expect(before.differences).toContainEqual(expect.objectContaining({ accountCode: '2960', glBalance: 40, kind: 'gl_unmapped' }));
+  });
+
+  it('a level-1 account mapped to a Sage row compares against its real balance, and totals count each line once', async () => {
+    const totals = async () => (await generateComparison(t.company, user)).glTotals;
+    const base = await totals();
+    await pool.query(
+      `INSERT INTO sage_accounts(id,company_id,sage_id,account_code,account_name,balance,gl_account_id,mapping_status)
+       VALUES(gen_random_uuid(),$1,'S-1960','1960','Sage level one',40,$2,'manual')`, [t.company, left]);
+    const matched = await generateComparison(t.company, user);
+    expect(matched.differences.find((d) => d.accountCode === '1960')).toBeUndefined();
+    await pool.query("UPDATE sage_accounts SET balance=55 WHERE company_id=$1 AND sage_id='S-1960'", [t.company]);
+    const off = await generateComparison(t.company, user);
+    expect(off.differences).toContainEqual(expect.objectContaining({ accountCode: '1960', sageBalance: 55, glBalance: 40, difference: 15 }));
+    // Own lines only: mapping does not change the ledger totals, and debits equal credits.
+    expect(await totals()).toEqual(base);
+    expect(base.totalDebit).toBeCloseTo(base.totalCredit, 2);
+    await pool.query("DELETE FROM sage_accounts WHERE company_id=$1 AND sage_id='S-1960'", [t.company]);
+  });
+});
+
 describe('the edges of what the mapping can point at', () => {
   const foreignCompany = crypto.randomUUID();
   const foreignGl = crypto.randomUUID();
