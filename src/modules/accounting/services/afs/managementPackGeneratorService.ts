@@ -9,6 +9,7 @@ import { fetchBalanceSnapshot, getKpiScorecard } from './afsKpiService';
 import { generateExecutiveSummary, generateSectionCommentary } from './packAiSummaryService';
 import { deliverPack } from './packDeliveryService';
 import type { ManagementPackConfig, NoteContent, KpiResult } from './afsTypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
 
@@ -82,7 +83,7 @@ function priorPeriod(period: string): string {
 
 // ── DB helpers ───────────────────────────────────────────────────────────────
 
-async function fetchIncomeAgg(companyId: string, start: string, end: string): Promise<Record<string, unknown>> {
+export async function fetchIncomeAgg(companyId: string, start: string, end: string): Promise<Record<string, unknown>> {
   const rows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
@@ -97,14 +98,14 @@ async function fetchIncomeAgg(companyId: string, start: string, end: string): Pr
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${start}::date
       AND je.entry_date <= ${end}::date
   `) as Row[];
   return (rows[0] ?? {}) as Record<string, unknown>;
 }
 
-async function fetchTopMover(companyId: string, start: string, end: string, type: 'revenue' | 'expense'): Promise<{ name: string; amount: number }> {
+export async function fetchTopMover(companyId: string, start: string, end: string, type: 'revenue' | 'expense'): Promise<{ name: string; amount: number }> {
   const rows = (await sql`
     SELECT ga.account_name,
       SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE jl.debit - jl.credit END) AS amount
@@ -114,7 +115,7 @@ async function fetchTopMover(companyId: string, start: string, end: string, type
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND ga.company_id = ${companyId}::UUID
-      AND je.status = 'posted'
+      AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date >= ${start}::date
       AND je.entry_date <= ${end}::date
       AND ga.account_type = ${type}

@@ -16,6 +16,7 @@ import { fiscalYearStartsWithin, incomeStatementOpeningFloor } from '../gl/fisca
 import { assertLedgerRange } from '../gl/ledgerDateRange';
 import { LedgerAccountNotFoundError } from '../gl/ledgerErrors';
 import { buildPageRows, loadYearEndCloses, netOfFirstLines, planPage, type LedgerScope } from './accountLedgerYearEnd';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 type Row = DbRow;
 
@@ -111,7 +112,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
             AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
-            AND je.status        = 'posted'
+            AND je.status        = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         `) as Row[]
       : (await sql`
           SELECT
@@ -126,6 +127,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date    < ${fromDate}
             AND (${openingFloor}::date IS NULL OR je.entry_date >= ${openingFloor}::date)
+            AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         `) as Row[];
 
     const obDebit = Number(obRows[0]?.total_debit ?? 0);
@@ -149,7 +151,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
-            AND je.status        = 'posted'
+            AND je.status        = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         `) as Row[]
       : (await sql`
           SELECT COUNT(*) AS total
@@ -162,6 +164,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
+            AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         `) as Row[];
 
     const lineTotal = Number(countRows[0]?.total ?? 0);
@@ -198,7 +201,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
-            AND je.status        = 'posted'
+            AND je.status        = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           ORDER BY je.entry_date ASC, COALESCE(je.created_at, 'epoch'::timestamptz) ASC, jl.id ASC
           LIMIT  ${plan.lineLimit}
           OFFSET ${plan.lineOffset}
@@ -222,6 +225,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
+            AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           ORDER BY je.entry_date ASC, COALESCE(je.created_at, 'epoch'::timestamptz) ASC, jl.id ASC
           LIMIT  ${plan.lineLimit}
           OFFSET ${plan.lineOffset}
@@ -253,7 +257,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
-            AND je.status        = 'posted'
+            AND je.status        = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         `) as Row[]
       : (await sql`
           SELECT
@@ -268,6 +272,7 @@ export async function getAccountLedger(
             AND (${bu}::uuid IS NULL OR jl.bu_id = ${bu}::uuid)
             AND je.entry_date   >= ${fromDate}
             AND je.entry_date   <= ${toDate}
+            AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         `) as Row[];
 
     const periodDebit = Number(periodRows[0]?.period_debit ?? 0);

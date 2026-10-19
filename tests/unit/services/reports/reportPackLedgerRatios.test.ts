@@ -37,6 +37,7 @@ vi.mock('@/modules/accounting/services/afs/cashFlowDirectService', () => ({
 import ratiosRoute from '../../../../pages/api/accounting/reports-extended-ratios';
 import { readReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 import { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const FROM = '2026-03-01';
@@ -185,7 +186,7 @@ describe('the read behind them', () => {
     for (const alias of ['je', 'jl', 'ga']) {
       expect(movement[0]).toMatch(new RegExp(`${alias}\\.company_id = \\?::UUID`));
     }
-    expect(movement[1]).toEqual([COMPANY, COMPANY, COMPANY, FROM, TO]);
+    expect(movement[1]).toEqual([COMPANY, COMPANY, COMPANY, YEAR_END_JOURNAL_SOURCE, FROM, TO]);
   });
 
   it('counts heads as at the END of the window it was asked for', async () => {

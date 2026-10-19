@@ -10,6 +10,7 @@ import type {
   AfsAccountMapping,
   MappedTrialBalanceLine,
 } from './afsMappingTypes';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Row mappers ───────────────────────────────────────────────────────────────
 
@@ -86,7 +87,7 @@ export async function getUnmappedAccounts(companyId: string): Promise<Array<{
         SELECT 1 FROM gl_journal_lines jl
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
-          AND je.company_id = a.company_id AND je.status = 'posted'
+          AND je.company_id = a.company_id AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       ))
       AND NOT EXISTS (
         SELECT 1 FROM afs_account_mappings m
@@ -157,7 +158,7 @@ export async function getMappedTrialBalance(
       WHERE je.company_id = ${companyId}
         AND jl.company_id = ${companyId}
         AND je.fiscal_period_id = ${fiscalPeriodId}
-        AND je.status = 'posted'
+        AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       GROUP BY jl.gl_account_id
     ) b ON b.gl_account_id = m.gl_account_id
     WHERE m.company_id = ${companyId}
@@ -179,7 +180,7 @@ export async function getMappedTrialBalance(
         WHERE je.company_id = ${companyId}
           AND jl.company_id = ${companyId}
           AND je.fiscal_period_id = ${priorPeriodId}
-          AND je.status = 'posted'
+          AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
         GROUP BY jl.gl_account_id
       ) b ON b.gl_account_id = m.gl_account_id
       WHERE m.company_id = ${companyId}`;
@@ -240,7 +241,7 @@ export async function getMappingStats(companyId: string): Promise<{
             SELECT 1 FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
-              AND je.company_id = a.company_id AND je.status = 'posted'
+              AND je.company_id = a.company_id AND je.status = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
           )))::int AS total_accounts,
       (SELECT COUNT(*) FROM afs_account_mappings WHERE company_id = ${companyId})::int AS mapped_accounts,
       (SELECT COUNT(*) FROM afs_statement_lines WHERE company_id = ${companyId})::int AS total_lines,

@@ -40,11 +40,17 @@ export interface ClosingJournalResult {
  *
  * A POSTED `year_end` header means the year is closed: report it, write nothing.
  *
- * A REVERSED or DRAFT `year_end` header does NOT mean the year is closed — the
- * lines have been undone, the P&L is back where it was — but it does mean the
- * year cannot be closed again as things stand, because that row holds the fixed
- * `YE-<year>` number. Reporting it as `alreadyClosed` would be a lie AND would
- * leave the year locked out for good, since that path writes nothing.
+ * A REVERSED `year_end` header does NOT mean the year is closed, and a reversal
+ * leaves `status = 'posted'` and sets only `reversed_at` (journalEntryReversalClaim),
+ * so `reversed_at` is what tells it apart (G-06). The close walks past it to the
+ * next free `YE-<year>-R<n>` number (`yearEndClosingNumber`), so the year can be
+ * closed again.
+ *
+ * A DRAFT `year_end` header (or a legacy `status = 'reversed'` one) does NOT mean
+ * the year is closed either, but it does mean the year cannot be closed again as
+ * things stand, because that row holds the `YE-<year>` number. Reporting it as
+ * `alreadyClosed` would be a lie AND would leave the year locked out for good,
+ * since that path writes nothing.
  *
  * A header of ANY OTHER source carrying `YE-<year>` — a manual journal a user
  * numbered that way, an import — is a squatter. It says nothing about whether
@@ -88,12 +94,14 @@ export function classifyClosingJournal(
       status: String(row.status),
     };
   }
-  if (row.status !== 'posted') {
+  // A reversal keeps status 'posted' and sets reversed_at (G-06): either one means "not a close",
+  // unless the reversal was itself reversed (`reinstated`, set by yearEndClosingNumber).
+  if (row.status !== 'posted' || (row.reversed_at && !row.reinstated)) {
     return {
       error: 'closing_journal_not_posted',
       entryNumber,
       entryId: String(row.id),
-      status: String(row.status),
+      status: row.status === 'posted' ? 'reversed' : String(row.status),
     };
   }
   return null;
