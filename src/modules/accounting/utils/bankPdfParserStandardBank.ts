@@ -82,8 +82,15 @@ function parseStandardBankColumnFormat(text: string): BankCsvParseResult {
     const credit = parseNum(creditRaw!);
     const balance = parseNum(balanceRaw!);
 
-    // Skip balance rows (no real transaction)
-    if (debit === 0 && credit === 0) { skippedBalanceRows++; continue; }
+    // Skip balance rows (no real transaction). The "BALANCE BROUGHT FORWARD" row before the first
+    // transaction is where the statement opened.
+    if (debit === 0 && credit === 0) {
+      skippedBalanceRows++;
+      if (result.transactions.length === 0 && result.openingBalance === undefined && /brought forward/i.test(descRaw!)) {
+        result.openingBalance = balance;
+      }
+      continue;
+    }
 
     const amount = credit !== 0 ? credit : debit;
     const transactionDate = parseYyyymmdd(dateRaw!);

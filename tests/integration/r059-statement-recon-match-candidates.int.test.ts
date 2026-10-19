@@ -40,6 +40,7 @@ import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { createAndRead } from './supplier-statement-read.helpers';
 
 function shift(days: number): string {
   const d = new Date();
@@ -48,23 +49,24 @@ function shift(days: number): string {
 }
 const STMT = shift(-10);
 
-/** What the mocked VLM returns for the next createReconciliation call. */
+/** What the mocked VLM returns for the next createAndRead call. */
 let nextExtraction: {
   closingBalance: number; periodStart?: string; periodEnd?: string;
   lines: { date: string; reference: string; debit: number }[];
 } = { closingBalance: 0, lines: [] };
 
-vi.mock('@/lib/documentStorage', () => ({
-  fetchRawBytes: vi.fn(async () => ({ buffer: Buffer.from('%PDF-1.4 r059'), fileType: 'pdf' })),
+vi.mock('@/lib/afterCommit', async (original) => ({
+  ...(await original<typeof import('@/lib/afterCommit')>()),
+  runAfterCommit: () => undefined, // the job is driven by createAndRead
 }));
-vi.mock('@/modules/accounting/services/bank/vlmSupplierStatementService', () => ({
-  extractSupplierStatementWithVlm: vi.fn(async () => ({
-    statementDate: STMT, periodStart: nextExtraction.periodStart ?? null, periodEnd: nextExtraction.periodEnd ?? null,
+vi.mock('@/modules/accounting/services/capture/supplierStatementExtraction', () => ({
+  extractSupplierStatementFromDocument: vi.fn(async () => ({
+    statementDate: STMT, periodStart: nextExtraction.periodStart, periodEnd: nextExtraction.periodEnd,
     closingBalance: nextExtraction.closingBalance, lines: nextExtraction.lines, warnings: [],
   })),
 }));
 
-const { createReconciliation, markReconciled, getReconciliation, rematchLines } =
+const { markReconciled, getReconciliation, rematchLines } =
   await import('@/modules/accounting/services/capture/supplierStatementReconService');
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
@@ -134,7 +136,7 @@ describeIfDb('R-059 statement lines match the ageing\'s population: NULL in, dra
 
   it('N: a NULL-status bill matches its line, the statement ties, and it can be marked reconciled', async () => {
     nextExtraction = { closingBalance: 1000, lines: [{ date: shift(-50), reference: TAG + '-N', debit: 1000 }] };
-    const recon = await createReconciliation(COMPANY, suppliers.N, docs.N, USER);
+    const recon = await createAndRead(COMPANY, suppliers.N, docs.N, USER);
     expect({
       variance: recon.variance, missing: recon.missingInIsaflowCount, amountDiff: recon.amountDiffCount,
       matched: recon.lines.map(l => l.matchedInvoiceNumber),
@@ -147,7 +149,7 @@ describeIfDb('R-059 statement lines match the ageing\'s population: NULL in, dra
 
   it('D: a DRAFT bill is not a match candidate — its line is missing from IsaFlow', async () => {
     nextExtraction = { closingBalance: 300, lines: [{ date: shift(-50), reference: TAG + '-D', debit: 300 }] };
-    const recon = await createReconciliation(COMPANY, suppliers.D, docs.D, USER);
+    const recon = await createAndRead(COMPANY, suppliers.D, docs.D, USER);
     recons.D = recon.id;
     expect({
       missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber),
@@ -164,7 +166,7 @@ describeIfDb('R-059 statement lines match the ageing\'s population: NULL in, dra
       closingBalance: 300, periodStart: shift(-30), periodEnd: STMT,
       lines: [{ date: shift(-20), reference: TAG + '-PB', debit: 300 }],
     };
-    const recon = await createReconciliation(COMPANY, suppliers.P, docs.P, USER);
+    const recon = await createAndRead(COMPANY, suppliers.P, docs.P, USER);
     recons.P = recon.id;
     expect({
       isaflow: recon.isaflowBalance, variance: recon.variance,
@@ -175,7 +177,7 @@ describeIfDb('R-059 statement lines match the ageing\'s population: NULL in, dra
 
   it('X: a CANCELLED bill is not a match candidate', async () => {
     nextExtraction = { closingBalance: 300, lines: [{ date: shift(-50), reference: TAG + '-X', debit: 300 }] };
-    const recon = await createReconciliation(COMPANY, suppliers.X, docs.X, USER);
+    const recon = await createAndRead(COMPANY, suppliers.X, docs.X, USER);
     expect({ missing: recon.missingInIsaflowCount, matched: recon.lines.map(l => l.matchedInvoiceNumber) })
       .toEqual({ missing: 1, matched: [null] });
     expect(canReconcile(recon)).toBe(false);

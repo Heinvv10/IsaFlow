@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle2, X, ChevronDown, ChevronUp } from 'lucide-react';
 
-export type ImportStatus = 'extracted' | 'reviewing' | 'committed' | 'rolled_back';
+export type ImportStatus = 'extracting' | 'extracted' | 'reviewing' | 'committed' | 'rolled_back' | 'failed';
 
 export interface StatementRow {
   date: string; description: string; reference: string | null;
@@ -21,6 +21,8 @@ export interface BankStatementImport {
   openingBalance: number | null; closingBalance: number | null;
   rowCount: number; importedCount: number; duplicateCount: number;
   status: ImportStatus; rows: StatementRow[]; warnings: string[];
+  /** While 'extracting' / when 'failed': progress and why (the review table is empty until 'extracted'). */
+  extractionError: string | null; retryable: boolean; pagesDone: number | null; pagesTotal: number | null;
   createdAt: string; committedAt: string | null;
 }
 
