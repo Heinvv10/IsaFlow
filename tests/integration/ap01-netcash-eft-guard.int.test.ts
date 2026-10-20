@@ -10,8 +10,23 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 
-const sender = vi.hoisted(() => ({ submitEftBatch: vi.fn() }));
+const sender = vi.hoisted(() => ({
+  submitEftBatch: vi.fn(),
+  park: null as null | { entered: () => void; hold: Promise<void> },
+}));
 vi.mock('@/modules/accounting/services/ap/netcashService', () => ({ submitEftBatch: sender.submitEftBatch }));
+// The first caller of the gate (a netcash/submit that has locked and judged its batch, not yet claimed it) can be parked.
+vi.mock('@/modules/accounting/services/ap/batchBankFileGate', async (orig) => {
+  const actual = await orig<typeof import('@/modules/accounting/services/ap/batchBankFileGate')>();
+  return {
+    ...actual,
+    assertBatchMayBeSent: async (...a: Parameters<typeof actual.assertBatchMayBeSent>) => {
+      await actual.assertBatchMayBeSent(...a);
+      const park = sender.park;
+      if (park) { sender.park = null; park.entered(); await park.hold; }
+    },
+  };
+});
 
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import eftGenerate from '../../pages/api/accounting/eft-generate';
@@ -31,7 +46,7 @@ const UNKNOWN = { success: false, outcome: 'unknown', error: 'The operation was 
 const REJECTED = { success: false, outcome: 'rejected', error: 'Invalid account number' };
 
 beforeAll(async () => { user = await createUser(pool, tokens); });
-beforeEach(() => { sender.submitEftBatch.mockReset(); });
+beforeEach(() => { sender.submitEftBatch.mockReset(); sender.park = null; });
 afterAll(() => cleanupPr5(pool, companies, [user]));
 
 async function approvedBatch() {
@@ -76,4 +91,36 @@ describe('eft-generate against a Netcash submission (AP-01)', () => {
     expect((await submit(c, b.id)).state.statusCode).toBe(400);
     expect((await file(c, b.id)).state.statusCode).toBe(200);
   });
+
+  it('a bank file requested while a submit sits between its status check and its claim waits for it, and is refused', async () => {
+    const { c, b } = await approvedBatch();
+    sender.submitEftBatch.mockResolvedValue(ACCEPTED);
+    let release!: () => void;
+    let entered!: () => void;
+    const inGate = new Promise<void>((res) => { entered = res; });
+    sender.park = { entered, hold: new Promise<void>((res) => { release = res; }) };
+    const submitP = submit(c, b.id); // holds the batch row, has judged it, has NOT claimed it yet
+    await inGate;
+    const fileP = file(c, b.id);
+    const state = await Promise.race([fileP.then(() => 'finished' as const), waitsOnBatchLock()]);
+    release();
+    const [sent, produced] = await Promise.all([submitP, fileP]);
+    // Never both channels for one batch: a file AND a Netcash send.
+    const fileBuilt = produced.state.statusCode === 200;
+    expect(fileBuilt && sender.submitEftBatch.mock.calls.length > 0, 'a bank file was built for a batch Netcash was also sent').toBe(false);
+    expect(sent.state.statusCode, JSON.stringify(sent.state.body)).toBe(200);
+    expect(produced.state.statusCode, JSON.stringify(produced.state.body)).toBe(409);
+    expect(state).toBe('waiting'); // the file request queued behind the submit's lock on the batch row, then found the claim
+  });
 });
+
+async function waitsOnBatchLock(): Promise<'waiting'> {
+  for (let i = 0; i < 500; i += 1) {
+    const res = await pool.query(
+      `SELECT 1 FROM pg_stat_activity
+       WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%supplier_payment_batches%'`);
+    if (res.rowCount) return 'waiting';
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('nothing finished and nothing waited on a supplier_payment_batches lock');
+}
