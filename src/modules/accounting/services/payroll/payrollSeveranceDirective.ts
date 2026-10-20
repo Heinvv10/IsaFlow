@@ -70,6 +70,8 @@ export interface SeveranceDirectiveLookup {
   available: SeveranceDirective | null;
   /** True when an approved severance directive for the employee has been paid by something else. */
   paidElsewhere: boolean;
+  /** An approved, unpaid directive whose tax figure cannot be paid (directivePaye null), when none is available. */
+  unpayable: { id: string; number: string | null } | null;
 }
 
 export async function findSeveranceDirectiveForRun(
@@ -95,7 +97,12 @@ export async function findSeveranceDirectiveForRun(
     ORDER BY d.effective_date, d.created_at, d.id
   `) as DbRow[];
   const free = rows.find(r => r.paid_elsewhere !== true && directivePaye(r) != null);
-  return { available: free ? mapDirective(free) : null, paidElsewhere: rows.some(r => r.paid_elsewhere === true) };
+  const bad = free ? undefined : rows.find(r => r.paid_elsewhere !== true);
+  return {
+    available: free ? mapDirective(free) : null,
+    paidElsewhere: rows.some(r => r.paid_elsewhere === true),
+    unpayable: bad ? { id: String(bad.id), number: bad.directive_number == null ? null : String(bad.directive_number) } : null,
+  };
 }
 
 /**
@@ -120,6 +127,13 @@ export async function listSeveranceOnlyRunEmployees(
         SELECT 1 FROM tax_directives d
         WHERE d.company_id = e.company_id AND d.employee_id = e.id
           AND d.directive_type = 'severance' AND d.status = 'approved'
+          -- Narrows only: leavers whose every directive is paid drop out here;
+          -- findSeveranceDirectiveForRun below decides.
+          AND NOT EXISTS (
+            SELECT 1 FROM tax_directive_payments tdp
+            WHERE tdp.company_id = d.company_id AND tdp.tax_directive_id = d.id
+              AND (tdp.payroll_run_id IS NULL OR tdp.payroll_run_id <> ${runId}::uuid)
+          )
       )
     ORDER BY e.last_name, e.first_name
   `) as DbRow[];

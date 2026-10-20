@@ -67,7 +67,8 @@ describe('BRK-3: a directive whose rate exceeds 100%', () => {
     await calculateRun(f, mar);
     const l = await runLine(pool, mar, f.employee);
     expect(l.gross).toBe(20_000);
-    expect(codes(l.validation_results)).toContain('SEVERANCE_AWAITING_DIRECTIVE');
+    expect(codes(l.validation_results)).toContain('SEVERANCE_DIRECTIVE_UNPAYABLE');
+    expect(codes(l.validation_results)).not.toContain('SEVERANCE_AWAITING_DIRECTIVE');
     expect((await approveRun(f, mar)).statusCode).toBe(200);
     expect(await directivePayments(pool, d)).toEqual([]);
   });
@@ -142,5 +143,27 @@ describe('BRK-6: severance captured as a 3901 component AND its directive approv
     expect(l.gross).toBe(50_000);
     expect(codes(l.validation_results)).toContain('SEVERANCE_CAPTURED_AS_COMPONENT');
     expect(approved.statusCode).toBe(400); // the hand-made component has no directive
+  });
+});
+
+describe('BRK-6b (round 2): the hand-made 3901 is flagged not taxable', () => {
+  it('still blocks approval, so the directive is not left for a later run to pay a second time', async () => {
+    const { previewRun } = await import('./p3-severance.helpers');
+    const f = await seedRetrenchedEmployee(pool, '2026-06-30', 'BRK6b non-taxable 3901');
+    fixtures.push(f);
+    const comp = (await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Severance (captured, not taxable)', '3901', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
+       VALUES ($1, $2, 30000, '2026-06-01', '2026-06-30')`, [f.employee, comp]);
+    await approvedDirective(f, 30_000, 0.1, '2026-06-01');
+    const june = await createRunFor(f, 6);
+    await calculateRun(f, june);
+    const l = await runLine(pool, june, f.employee);
+    expect(l.gross).toBe(50_000);
+    expect(codes(l.validation_results)).toEqual(expect.arrayContaining(['LUMP_SUM_WITHOUT_DIRECTIVE', 'SEVERANCE_CAPTURED_AS_COMPONENT']));
+    expect((await previewRun(f, june)).body.data?.blocker?.code).toBe('lump_sum_without_directive');
+    expect((await approveRun(f, june)).statusCode).toBe(400);
   });
 });

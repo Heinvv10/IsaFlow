@@ -298,4 +298,3 @@ export async function calculatePayrollRun(
   );
   return mapRunRow(updated);
 }
-
