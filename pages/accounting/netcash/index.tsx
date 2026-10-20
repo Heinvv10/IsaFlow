@@ -14,7 +14,7 @@ interface Submission {
   batch_reference: string | null;
   total_amount_cents: number;
   record_count: number;
-  status: 'pending' | 'submitted' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'submitted' | 'processing' | 'completed' | 'failed' | 'unknown';
   submitted_at: string | null;
   created_at: string;
   created_by: string | null;
@@ -26,6 +26,7 @@ const STATUS_BADGE: Record<Submission['status'], string> = {
   processing: 'bg-amber-500/20 text-amber-400',
   completed:  'bg-teal-500/20 text-teal-400',
   failed:     'bg-red-500/20 text-red-400',
+  unknown:    'bg-orange-500/20 text-orange-400',
 };
 
 function formatRands(cents: number): string {
