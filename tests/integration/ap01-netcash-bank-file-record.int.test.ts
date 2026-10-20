@@ -190,4 +190,36 @@ describe('a bank file closes the Netcash channel for its batch (AP-01)', () => {
       expect((await submit(c, b.id)).state.statusCode).toBe(409);
     });
   });
+
+  describe('reading the state (GET eft-file-release, for the batch page)', () => {
+    const state = (user: string, c: string, batchId: string) => callRoute(eftFileRelease, tokens[user]!, c, 'GET', undefined,
+      '/api/accounting/eft-file-release', { batchId });
+
+    it('shows the unreleased file (bank, who, when) to any member, and nothing once released or when there is none', async () => {
+      const { c, b } = await approvedBatch();
+      const none = await state(u.manager, c, b.id);
+      expect(none.state.statusCode, JSON.stringify(none.state.body)).toBe(200);
+      expect((none.state.body as { data: { bankFile: unknown } }).data.bankFile).toBeNull();
+      await file(c, b.id);
+      const open = (await state(u.manager, c, b.id)).state.body as { data: { bankFile: { bank: string; generatedBy: string; generatedAt: string } } };
+      expect(open.data.bankFile).toMatchObject({ bank: 'fnb' });
+      expect(open.data.bankFile.generatedBy).toBeTruthy();
+      expect(open.data.bankFile.generatedAt).toBeTruthy();
+      await release(u.admin, c, { batchId: b.id, reason: 'not used' });
+      expect(((await state(u.manager, c, b.id)).state.body as { data: { bankFile: unknown } }).data.bankFile).toBeNull();
+    });
+
+    it('does not show company A\'s file to a member of both companies asking from company B', async () => {
+      const { c, b } = await approvedBatch();
+      await file(c, b.id);
+      await pool.query("INSERT INTO company_users(company_id, user_id, role) VALUES ($1, $2, 'admin')", [c, u.other]);
+      const { company: other } = await payCompany(pool, [[u.other, 'admin']], companies);
+      expect(((await state(u.other, other, b.id)).state.body as { data: { bankFile: unknown } }).data.bankFile).toBeNull();
+    });
+
+    it('a bad batchId is refused 400', async () => {
+      const { c } = await approvedBatch();
+      expect((await state(u.admin, c, 'nope')).state.statusCode).toBe(400);
+    });
+  });
 });

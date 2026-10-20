@@ -1,4 +1,6 @@
 /**
+ * GET  /api/accounting/eft-file-release?batchId=  { bankFile: { bank, generatedBy, generatedAt } | null } - the newest
+ *      unreleased bank file of the batch, for the batch page. Any member; company-scoped.
  * POST /api/accounting/eft-file-release
  * Say that the bank file(s) generated for a batch were not used, so the batch may go to Netcash (AP-01).
  * Body: { batchId: string; reason: string }. Owner/admin only. Records a release in the audit trail
@@ -13,14 +15,20 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { releaseBankFiles } from '@/modules/accounting/services/ap/batchBankFileRecord';
+import { releaseBankFiles, unreleasedBankFile } from '@/modules/accounting/services/ap/batchBankFileRecord';
 
 type Row = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_REASON = 500;
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
+  if (req.method === 'GET') {
+    const id = req.query.batchId;
+    if (typeof id !== 'string' || !UUID.test(id)) return apiResponse.badRequest(res, 'batchId must be a batch id');
+    const open = await unreleasedBankFile(req.companyId, id);
+    return apiResponse.success(res, { bankFile: open ? { bank: open.bank, generatedBy: open.generatedBy, generatedAt: open.generatedAt } : null });
+  }
+  if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
 
   const { batchId, reason } = (req.body ?? {}) as Record<string, unknown>;
