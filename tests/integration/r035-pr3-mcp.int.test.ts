@@ -52,7 +52,7 @@ const registry = new McpRegistry();
 registry.register(approveCreditNoteTool);
 registry.register(bulkApproveCreditNotesTool);
 const mcp = (c: string, name: string, args: Record<string, unknown>) => asUser(u.a, c, () => registry.call(name, args,
-  { userId: u.a, companyId: c, scopes: ['write:invoices', 'write:post'], tokenJti: 'r035-pr3', oauthAppId: null }));
+  { userId: u.a, companyId: c, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'r035-pr3', oauthAppId: null }));
 const text = (res: { content: { text: string }[] }) => res.content[0]!.text;
 
 /** A (admin) books; B (owner) approves. Owner rule on every note of `type`, enforced. */

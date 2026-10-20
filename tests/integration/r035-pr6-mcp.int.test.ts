@@ -56,7 +56,7 @@ async function asUser<T>(userId: string, companyId: string, fn: () => Promise<T>
 const registry = new McpRegistry();
 for (const tool of [postJournalTool, createDraftJournalTool, postReclassificationBatchTool, setOpeningBalanceTool]) registry.register(tool);
 const mcp = (c: string, name: string, args: Record<string, unknown>) => asUser(u.a, c, () => registry.call(name, args,
-  { userId: u.a, companyId: c, scopes: ['write:journals', 'write:post'], tokenJti: 'r035-pr6', oauthAppId: null }));
+  { userId: u.a, companyId: c, scopes: ['write:journals', 'write:post'], companyRole: 'owner', tokenJti: 'r035-pr6', oauthAppId: null }));
 const text = (res: { content: { text: string }[] }) => res.content[0]!.text;
 const requestsFor = async (id: string) => Number((await pool.query(
   'SELECT count(*)::INT AS n FROM approval_requests WHERE document_id = $1', [id])).rows[0].n);

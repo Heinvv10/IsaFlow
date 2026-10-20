@@ -79,7 +79,7 @@ const registry = new McpRegistry();
 registry.register(approveSupplierInvoiceTool);
 registry.register(bulkApproveSupplierInvoicesTool);
 const mcp = (c: string, name: string, args: Record<string, unknown>) => asUser(u.a, c, () => registry.call(name, args,
-  { userId: u.a, companyId: c, scopes: ['write:invoices', 'write:post'], tokenJti: 'r035-pr2', oauthAppId: null }));
+  { userId: u.a, companyId: c, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'r035-pr2', oauthAppId: null }));
 const text = (res: { content: { text: string }[] }) => res.content[0]!.text;
 
 async function approvedByB(c: string, billId: string): Promise<void> {
@@ -132,7 +132,7 @@ describe('MCP (A4, A5, Q6)', () => {
         { description: 'Line A', quantity: 2, unit_price: 300, tax_rate: 15, gl_account_id: bill.accountB },
         { description: 'Line B', quantity: 1, unit_price: 400, tax_rate: 15, gl_account_id: bill.accountB },
       ],
-    }, { companyId: c, userId: u.a, tokenJti: 'r035' } as never));
+    }, { companyId: c, userId: u.a, companyRole: 'owner', tokenJti: 'r035' } as never));
     expect(edited.isError, JSON.stringify(edited)).toBeFalsy();
     const res = await r.approveBill(u.a, c, bill.id);
     expect(res.state.statusCode).toBe(409);

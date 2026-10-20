@@ -52,7 +52,7 @@ async function approvedNote(): Promise<{ id: string; journal: string }> {
   });
 }
 
-const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, scopes: ['write:invoices', 'write:post'], tokenJti: null, oauthAppId: null });
+const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null });
 
 describeIfDb('D8 round 3: credit-note cancel and bank reversal take a re-reversed journal out at its head', () => {
   beforeAll(async () => {

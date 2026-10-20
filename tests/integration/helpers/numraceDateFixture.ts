@@ -19,5 +19,5 @@ export async function seedDateFixture(prefix: string, databaseUrl: string): Prom
 
 export function toolCtx(c: DateFixture): McpToolContext {
   return { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:bank-tx', 'write:post'],
-    tokenJti: 'numrace', oauthAppId: null };
+    companyRole: 'owner', tokenJti: 'numrace', oauthAppId: null };
 }

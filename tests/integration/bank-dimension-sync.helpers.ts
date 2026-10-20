@@ -36,7 +36,7 @@ export function mcpAs(pool: Pool, scopes = ['write:bank-tx', 'write:post', 'writ
   for (const tool of TOOLS) registry.register(tool);
   return (user: string, company: string, name: string, args: Record<string, unknown>): Promise<McpReply> =>
     asToken(pool, user, company, async () => (await registry.call(name, args,
-      { userId: user, companyId: company, scopes, tokenJti: 'bds', oauthAppId: null })) as McpReply);
+      { userId: user, companyId: company, scopes, companyRole: 'owner', tokenJti: 'bds', oauthAppId: null })) as McpReply);
 }
 
 export const json = <T = Record<string, unknown>>(r: McpReply): T => JSON.parse(r.content[0]!.text) as T;

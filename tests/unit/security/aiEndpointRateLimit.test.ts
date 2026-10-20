@@ -78,7 +78,7 @@ function req(query: Record<string, unknown> = {}): NextApiRequest {
   return {
     method: 'POST', query,
     body: { reportData: {}, question: 'x' },
-    companyId: '11111111-1111-4111-9111-111111111111',
+    companyId: '11111111-1111-4111-9111-111111111111', companyRole: 'owner',
     user: { id: 'u1' },
   } as unknown as NextApiRequest;
 }

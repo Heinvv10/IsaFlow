@@ -85,7 +85,7 @@ describe('D10 O9: a provisional\'s statement line is not reset while its journal
 
   it('MCP reverse_bank_allocation on an un-evidenced provisional\'s line: a refusal-coded throw naming Dismiss', async () => {
     const s = await scenario(false);
-    const ctx = { companyId: company, userId: user, scopes: ['write:bank', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: company, userId: user, scopes: ['write:bank', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     // The tool throws (no catch: the registry's savepoint must see it); the registry answers a refusal-coded throw
     // with its own message, so the agent reads the Dismiss remedy.
     const err = await inTx(() => reverseBankAllocationTool.handler({ transaction_id: s.bt, idempotency_key: crypto.randomUUID() }, ctx as never))

@@ -56,7 +56,7 @@ describe('R-127: the journals holding a settlement up cannot be reversed on thei
 
   it('MCP reverse_journal_entry raises a coded refusal the registry answers with its message', async () => {
     const s = await settled(803.30);
-    const ctx = { companyId: company, userId: user, scopes: ['write:journals', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: company, userId: user, scopes: ['write:journals', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     // The handler does not catch (a mid-write failure must reach the registry's
     // savepoint); the registry answers a refusal-coded throw with its own message.
     const err = await inTx(() => reverseJournalEntryTool.handler(

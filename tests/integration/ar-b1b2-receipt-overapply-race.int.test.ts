@@ -221,7 +221,7 @@ describe('B2: two concurrent settle_by_contra for the full balance', () => {
           registry.call('settle_by_contra', {
             subledger: 'ar', document_id: invoice, contra_account_id: contra, amount: 1000,
             reason: 'B2 contra race', settlement_date: '2026-05-15', idempotency_key: crypto.randomUUID(),
-          }, { userId: fx.user, companyId: fx.company, scopes: ['write:invoices', 'write:post'], tokenJti: 'ar-b2', oauthAppId: null }));
+          }, { userId: fx.user, companyId: fx.company, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'ar-b2', oauthAppId: null }));
         await client.query('COMMIT');
         return res;
       } catch (err) {
