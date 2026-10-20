@@ -11,9 +11,9 @@
 
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { REQUEST_TIMEOUT_MS } from './netcashTimeouts';
 
 const NETCASH_BASE_URL = 'https://api.netcash.co.za';
-const REQUEST_TIMEOUT_MS = 30_000;
 /** The only HTTP statuses that prove Netcash queued nothing: it refused the batch's fields. */
 const REJECTION_STATUSES = new Set([400, 422]);
 
@@ -81,7 +81,7 @@ export async function submitEftBatch(
   payments: NetcashPayment[],
 ): Promise<NetcashSubmitResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
-  if (!serviceKey || !payoutsKey) {
+  if (!serviceKey.trim() || !payoutsKey.trim()) {
     // K-132: a missing secret is an error, never a sandbox - the old mock success recorded a payment run that never
     // left. Nothing is sent, so the refusal is definite.
     log.error('Netcash EFT submit called without API keys - refused', {}, 'netcash');

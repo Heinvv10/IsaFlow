@@ -9,13 +9,15 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { SEND_WINDOW_MS } from './netcashTimeouts';
 
 export type ResolveOutcome = 'failed' | 'submitted';
 
 export type ResolveResult =
   | { kind: 'resolved'; previousStatus: string }
   | { kind: 'not_found' }
-  | { kind: 'not_resolvable'; status: string };
+  | { kind: 'not_resolvable'; status: string }
+  | { kind: 'in_flight' };
 
 export interface ResolveInput {
   companyId: string;
@@ -29,13 +31,16 @@ export interface ResolveInput {
 export async function resolveSubmission(input: ResolveInput): Promise<ResolveResult> {
   const { companyId, submissionId, outcome, note, userId, userEmail } = input;
   const found = (await sql`
-    SELECT id, status, batch_reference /* netcash_resolve_read */
+    SELECT id, status, batch_reference, (EXTRACT(EPOCH FROM (NOW() - created_at)) * 1000)::FLOAT8 AS age_ms /* netcash_resolve_read */
     FROM netcash_submissions
     WHERE id = ${submissionId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!found[0]) return { kind: 'not_found' };
   const previous = String(found[0].status);
   if (previous !== 'pending' && previous !== 'unknown') return { kind: 'not_resolvable', status: previous };
+  // A pending claim younger than the send window is a send still in flight: releasing it would let a second send
+  // through while the first may be accepted. An unknown claim is settled already and resolvable at any age.
+  if (previous === 'pending' && Number(found[0].age_ms) < SEND_WINDOW_MS) return { kind: 'in_flight' };
 
   const resolution = JSON.stringify({ outcome, note, by: userEmail ?? userId, previousStatus: previous, at: new Date().toISOString() });
   const done = (await sql`

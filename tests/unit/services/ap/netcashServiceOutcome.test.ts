@@ -24,7 +24,7 @@ describe('submitEftBatch outcome', () => {
   });
 
   // K-132: a missing secret is an error, never a sandbox. Nothing is sent, so the refusal is definite.
-  it.each([['', ''], ['service-key', ''], ['', 'payouts-key']])('keys (%j, %j): refused, not a mock success, and nothing is sent', async (service, payouts) => {
+  it.each([['', ''], ['service-key', ''], ['', 'payouts-key'], ['  ', 'payouts-key'], ['service-key', ' \t ']])('keys (%j, %j): refused, not a mock success, and nothing is sent', async (service, payouts) => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     expect(await submitEftBatch(service, payouts, PAYMENTS)).toEqual({

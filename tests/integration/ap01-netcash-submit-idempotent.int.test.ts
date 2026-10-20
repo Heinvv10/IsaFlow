@@ -246,6 +246,8 @@ describe('netcash/submit batch idempotency (AP-01)', () => {
       ['no keys at all', 'NULL', 'NULL'],
       ['no payouts key', "'k'", 'NULL'],
       ['an empty service key', "''", "'k'"],
+      ['a whitespace-only service key', "'   '", "'k'"],
+      ['a whitespace-only payouts key', "'k'", "E' \\t '"],
     ])('%s: 400 before the claim, so the batch stays free', async (_n, service, payouts) => {
       const { c, b } = await fixture();
       await pool.query(`UPDATE companies SET netcash_service_key = ${service}, netcash_payouts_key = ${payouts} WHERE id = $1`, [c]);

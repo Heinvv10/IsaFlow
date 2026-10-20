@@ -83,14 +83,30 @@ export function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<string | n
   });
 }
 
-/** Record what Netcash answered on the claim. If this fails the claim stays 'pending', which keeps the batch closed. */
-export function settleClaim(p: ClaimPrincipal, submissionId: string, s: ClaimSettlement): Promise<void> {
-  return committed(p, 'settle', async (client) => {
+/** 'settled', or 'lost': the claim was no longer 'pending' (an operator resolved it while the send ran) - `status` is what it is now. */
+export type SettleResult = { kind: 'settled' } | { kind: 'lost'; status: string };
+
+/**
+ * Record what Netcash answered on the claim - compare-and-set on 'pending': a claim an operator released while the
+ * send was in flight is NOT overwritten (the UPDATE would otherwise put a second live row in the unique index and
+ * fail 23505, or silently re-close a batch the operator freed). Then the answer is kept on the row as
+ * `lateSendResult` for the operator, status untouched. If this throws the claim stays 'pending' and the batch closed.
+ */
+export function settleClaim(p: ClaimPrincipal, submissionId: string, s: ClaimSettlement): Promise<SettleResult> {
+  return committed(p, 'settle', async (client): Promise<SettleResult> => {
     const { rowCount } = await client.query(
       `UPDATE netcash_submissions
        SET status = $3, batch_reference = $4, netcash_response = $5::JSONB, submitted_at = $6
-       WHERE id = $1::UUID AND company_id = $2::UUID`,
+       WHERE id = $1::UUID AND company_id = $2::UUID AND status = 'pending'`,
       [submissionId, p.companyId, s.status, s.batchReference, JSON.stringify(s.netcashResponse), s.submittedAt]);
-    if (rowCount !== 1) throw new Error(`netcash claim ${submissionId} not found for settlement`);
+    if (rowCount === 1) return { kind: 'settled' };
+    const { rows } = await client.query<{ status: string }>(
+      `UPDATE netcash_submissions
+       SET netcash_response = COALESCE(netcash_response, '{}'::JSONB) || jsonb_build_object('lateSendResult', $3::JSONB)
+       WHERE id = $1::UUID AND company_id = $2::UUID
+       RETURNING status`,
+      [submissionId, p.companyId, JSON.stringify({ status: s.status, batchReference: s.batchReference, response: s.netcashResponse })]);
+    if (!rows[0]) throw new Error(`netcash claim ${submissionId} not found for settlement`);
+    return { kind: 'lost', status: rows[0].status };
   });
 }

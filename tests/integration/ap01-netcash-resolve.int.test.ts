@@ -55,11 +55,15 @@ afterAll(async () => {
   await cleanupPr5(pool, companies, Object.values(u));
 });
 
-/** A company with a batch whose submission is 'unknown' (Netcash timed out). */
-async function unknownBatch() {
+async function freshBatch() {
   const { company: c, bank } = await payCompany(pool, [[u.admin, 'admin'], [u.manager, 'manager']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  const b = await plantBatch(pool, c, u.admin, bank);
+  return { c, b: await plantBatch(pool, c, u.admin, bank) };
+}
+
+/** A company with a batch whose submission is 'unknown' (Netcash timed out). */
+async function unknownBatch() {
+  const { c, b } = await freshBatch();
   hold.submitEftBatch.mockResolvedValueOnce(UNKNOWN);
   await submit(c, b.id);
   const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
@@ -150,5 +154,67 @@ describe('netcash/resolve (AP-01)', () => {
     expect((await row(id)).status).toBe('submitted');
     expect((await submit(c, b.id)).state.statusCode).toBe(409);
     expect(hold.submitEftBatch).toHaveBeenCalledTimes(1);
+  });
+
+  describe('a claim whose send is still in flight (round 3)', () => {
+    /** Submit #1 parked inside the sender: its claim is 'pending'. `finish()` lets it answer. */
+    async function inFlight() {
+      const { c, b } = await freshBatch();
+      let finish!: () => void;
+      let entered!: () => void;
+      const inSender = new Promise<void>((r) => { entered = r; });
+      hold.submitEftBatch.mockImplementationOnce(async () => {
+        entered();
+        await new Promise<void>((r) => { finish = r; });
+        return ACCEPTED;
+      });
+      const first = submit(c, b.id);
+      await inSender;
+      const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
+      const age = (minutes: number) => pool.query("UPDATE netcash_submissions SET created_at = NOW() - make_interval(mins => $2) WHERE id = $1", [id, minutes]);
+      return { c, b, id, first, finish: () => finish(), age };
+    }
+
+    it('a young pending claim cannot be resolved: 409 in flight, and a second submit still sends nothing', async () => {
+      const { c, b, id, first, finish } = await inFlight();
+      const res = await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE });
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+      expect(JSON.stringify(res.state.body)).toMatch(/in flight/i);
+      expect((await row(id)).status).toBe('pending');
+      expect((await submit(c, b.id)).state.statusCode).toBe(409);
+      expect(hold.submitEftBatch).toHaveBeenCalledTimes(1);
+      finish();
+      expect((await first).state.statusCode).toBe(200);
+      expect((await row(id)).status).toBe('submitted');
+    });
+
+    it('a pending claim older than the send window can be resolved (the process died)', async () => {
+      const { c, id, first, finish, age } = await inFlight();
+      await age(3);
+      expect((await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(200);
+      finish();
+      await first;
+    });
+
+    it('an unknown claim is resolvable at any age, even just created', async () => {
+      const { c, id } = await unknownBatch();
+      expect((await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(200);
+    });
+
+    it('a settle that finds its claim resolved underneath it reports the conflict (409), never a 500, and keeps the late result', async () => {
+      const { c, b, id, first, finish, age } = await inFlight();
+      await age(3);
+      expect((await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(200);
+      hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
+      expect((await submit(c, b.id)).state.statusCode).toBe(200); // the operator's override let a second send through
+      finish();
+      const res = await first;
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+      expect(JSON.stringify(res.state.body)).toMatch(/resolved by an operator|check Netcash/i);
+      const first_ = await row(id);
+      expect(first_.status).toBe('failed'); // not overwritten
+      expect(JSON.stringify(first_.netcash_response)).toContain('lateSendResult');
+      expect((await pool.query("SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1 AND status <> 'failed'", [c])).rows[0].n).toBe(1);
+    });
   });
 });

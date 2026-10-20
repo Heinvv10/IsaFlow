@@ -13,7 +13,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { validateNetcashPayees } from '@/modules/accounting/services/ap/netcashPayeeValidation';
-import { claimBatch, settleClaim } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
+import { claimBatch, settleClaim, type SettleResult } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
@@ -43,8 +43,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Netcash is not enabled for this company. Enable it in Company Settings.');
   }
 
-  const serviceKey = String(company.netcash_service_key ?? '');
-  const payoutsKey = String(company.netcash_payouts_key ?? '');
+  const serviceKey = String(company.netcash_service_key ?? '').trim();
+  const payoutsKey = String(company.netcash_payouts_key ?? '').trim();
 
   // K-132: refused before the batch is read or claimed. A mock success here would record a payment run that never left
   // and (AP-01) claim the batch for good.
@@ -160,13 +160,24 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Settled in its own committed transaction. If that fails the claim stays 'pending' - the batch stays closed until an
   // operator clears it - and the error answers 500: the request's rollback no longer touches the claim.
+  let settled: SettleResult;
   try {
-    await settleClaim(principal, claimId, { status, batchReference: reference, netcashResponse: result, submittedAt });
+    settled = await settleClaim(principal, claimId, { status, batchReference: reference, netcashResponse: result, submittedAt });
   } catch (err) {
     log.error('Netcash claim not settled; left pending (the batch stays closed until an operator clears it)', {
       submissionId: claimId, outcome: result.outcome, error: err instanceof Error ? err.message : String(err),
     }, 'netcash-api');
     throw err;
+  }
+  if (settled.kind === 'lost') {
+    // An operator resolved the claim while this send was in flight: Netcash's answer is kept on the row, not applied.
+    log.error('Netcash claim was resolved while its send was in flight - answer kept as lateSendResult, row left as is', {
+      submissionId: claimId, outcome: result.outcome, batchReference: result.batchReference, rowStatus: settled.status,
+    }, 'netcash-api');
+    return apiResponse.conflict(res,
+      `This submission was resolved by an operator (now ${settled.status}) while it was being sent, so Netcash's answer `
+      + `(${result.outcome}) was not applied. Check Netcash for this batch before doing anything else.`,
+      { reason: 'CLAIM_RESOLVED_DURING_SEND', submissionId: claimId, status: settled.status, netcashOutcome: result.outcome });
   }
   const submissionId = claimId;
 
