@@ -149,9 +149,10 @@ export async function listSeveranceOnlyRunEmployees(
 }
 
 /**
- * A run other than `runId` that already PAID this employee a lump-sum earning
- * (39xx) under no directive — severance captured by hand, before this run or
- * before P3. "Paid" is runHasPaid's (P4): approved or paid, or reopened with
+ * A run other than `runId` that already PAID this employee severance (3901, the
+ * severance directive's own code) under no directive — captured by hand, before
+ * this run or before P3. Other lump-sum codes (3915, 3920, …) are other
+ * benefits and do not stand in for severance. "Paid" is runHasPaid's (P4): approved or paid, or reopened with
  * its journal still in the ledger. A directive approved afterwards must not pay
  * it a second time (payrollRunTermination, SEVERANCE_CAPTURED_AS_COMPONENT).
  * Unbounded in time on purpose: any such payment blocks every later severance
@@ -172,7 +173,7 @@ export async function findHandMadeLumpSumPaid(
       AND l.employee_id = ${employeeId}::uuid
       AND h.id <> ${runId}::uuid
       AND (h.status IN ('approved', 'paid') OR h.journal_entry_id IS NOT NULL)
-      AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') ~ '^39[0-9]{2}$'
+      AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3901'
       AND item->'directive' IS NULL
     ORDER BY h.period_year, h.period_month
   `) as DbRow[];

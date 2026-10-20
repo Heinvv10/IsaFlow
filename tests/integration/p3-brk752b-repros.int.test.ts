@@ -116,7 +116,7 @@ describe('REPRO 4: a net-negative 3605 for the year breaks the e@syFile footing'
     expect((await runLine(pool, june, f.employee)).gross).toBe(15_000);
     expect((await approveRun(f, june)).statusCode).toBe(200);
     // July: a R10 000 bonus whose code was stored with a leading space (before the
-    // components route trimmed). The year's 3605 nets to +R5 000.
+    // components route normalised codes).
     await component(f, 'Bonus', ' 3605', 10_000, '2026-07-01', '2026-07-31');
     const july = await createRunFor(f, 7);
     await calculateRun(f, july);
@@ -136,8 +136,10 @@ describe('REPRO 4: a net-negative 3605 for the year breaks the e@syFile footing'
     const val = (code: string) => Number((fields.find(x => x.startsWith(`${code},`)) ?? `${code},0`).split(',')[1]);
     const shown = `fields: ${fields.filter(x => /^36/.test(x)).join(' ')}`;
     expect(val('3601') + val('3605'), shown).toBe(45_000);
-    expect(val('3605'), shown).toBe(5_000);
-    expect(val('3601'), shown).toBe(40_000);
+    // Per line, as the calculator taxed it: June's net-negative 3605 was regular pay (3601),
+    // July's bonus is a 3605 of R10 000.
+    expect(val('3605'), shown).toBe(10_000);
+    expect(val('3601'), shown).toBe(35_000);
   });
 });
 
