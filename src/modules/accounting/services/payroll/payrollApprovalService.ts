@@ -98,7 +98,8 @@ export async function approvePayrollRun(
   }
 
   // The two writes a refusal may still follow, in ONE savepoint, so a refusal
-  // from either — a 4xx, which withAuth commits — leaves neither behind:
+  // from either leaves neither behind, whoever catches it (the MCP tool catches
+  // it as a tool error, which releases its savepoint and commits):
   //  - the severance directives the run pays become its own
   //    (payrollRunDirectiveClaim), refused if a peer paid one meanwhile;
   //  - a journal with nothing left in the ledger is unlinked so a fresh one can
