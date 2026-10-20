@@ -1,7 +1,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { listPayrollEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
+import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
@@ -17,6 +17,7 @@ import {
   yearsOfService,
   type TerminationReason,
 } from './payrollTerminationService';
+import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 
@@ -132,7 +133,7 @@ export async function calculatePayrollRun(
   getTaxYearConfig(taxYear);
   const periodDate = new Date(period.year, period.month - 1, 28);
 
-  const employees = await listPayrollEmployees(companyId);
+  const employees = await listPayrollRunEmployees(companyId, period);
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
@@ -166,15 +167,21 @@ export async function calculatePayrollRun(
     officialRate: Number(process.env.SARS_OFFICIAL_RATE ?? 0.085),
     // Only a journal whose amounts are in the ledger blocks loan work (round 5).
     journalEntryId: await journalInForceOrNull(companyId, run.journal_entry_id),
+    // Only the run's own employees: an instalment taken from someone with no
+    // line here would reduce the loan with no deduction on any payslip.
+    employeeIds: new Set(employees.map(e => e.id)),
   });
 
   for (const employee of employees) {
     const components = await getEmployeeComponents(employee.id, companyId, periodDate);
+    const terminationWarnings: ValidationResult[] = [];
     const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
       companyId,
+      runId,
       employee,
       components,
       period,
+      terminationWarnings,
     );
 
     const loanApplications: ApplyLoanResult[] = loansByEmployee.get(employee.id) ?? [];
@@ -214,6 +221,7 @@ export async function calculatePayrollRun(
       componentBreakdown: JSON.stringify(line.componentBreakdown),
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
+        ...terminationWarnings,
       ]),
     });
 
@@ -335,13 +343,17 @@ function safeJsonParse(raw: string): unknown {
  * Append synthetic termination components (leave pay-out, notice pay,
  * severance) when the employee's end_date falls within this payroll period
  * and a termination reason is captured on their profile. Silent no-op
- * otherwise so non-terminating employees are unaffected.
+ * otherwise so non-terminating employees are unaffected. Skipped, with a
+ * warning pushed to `warnings`, when another approved or paid run already paid
+ * them (an end date moved to a later month after the final pay).
  */
 async function appendTerminationIfEndingThisPeriod(
   companyId: string,
+  runId: string,
   employee: { id: string; endDate?: Date; startDate: Date },
   components: EmployeeComponent[],
   period: PayrollPeriod,
+  warnings: ValidationResult[],
 ): Promise<EmployeeComponent[]> {
   const { endDate, startDate } = employee;
   if (!endDate) return components;
@@ -351,6 +363,17 @@ async function appendTerminationIfEndingThisPeriod(
 
   const details = await getTerminationDetails(companyId, employee.id);
   if (!details || !details.reason) return components;
+
+  const paid = await findPaidTerminationRun(companyId, employee.id, runId);
+  if (paid) {
+    warnings.push({
+      code: 'TERMINATION_ALREADY_PAID',
+      severity: 'warning',
+      message: `Leave, notice and severance pay-outs for this employee were already paid in the ${paid.year}-${String(paid.month).padStart(2, '0')} run, `
+        + 'so they are not paid again. If they were re-employed and have left again, the second pay-out must be captured by hand.',
+    });
+    return components;
+  }
 
   const monthlySalary = components
     .filter((c) => c.component.componentType === 'earning')
