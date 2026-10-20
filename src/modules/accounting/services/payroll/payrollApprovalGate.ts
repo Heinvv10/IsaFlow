@@ -232,7 +232,7 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     if (paidTwice.length > 0) {
       return {
         code: 'termination_already_paid',
-        detail: 'Termination pay-outs on this run were already paid in an approved run: '
+        detail: 'Termination pay-outs on this run were already paid in another run (approved, or reopened with its journal posted): '
           + paidTwice.map(p => `${p.employeeNumber} (${p.year}-${String(p.month).padStart(2, '0')})`).join(', ')
           + '. Recalculate this run first; it then leaves them out.',
       };

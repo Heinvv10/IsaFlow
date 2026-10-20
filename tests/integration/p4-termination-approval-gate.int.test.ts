@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { judgePayrollApproval } from '@/modules/accounting/services/payroll/payrollApprovalGate';
+import { findPaidTerminationRun } from '@/modules/accounting/services/payroll/payrollTerminationService';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -18,6 +19,8 @@ const otherCompany = crypto.randomUUID();
 const febRun = crypto.randomUUID();
 const marchRun = crypto.randomUUID();
 const otherFebRun = crypto.randomUUID();
+const reopenedJanRun = crypto.randomUUID();
+const janJournal = crypto.randomUUID();
 const paidTwice = crypto.randomUUID();
 const paidOnce = crypto.randomUUID();
 
@@ -58,8 +61,10 @@ beforeAll(async () => {
 afterAll(async () => {
   const companies = [company, otherCompany];
   try {
-    await pool.query('DELETE FROM payroll_run_lines WHERE run_id=ANY($1::uuid[])', [[febRun, marchRun, otherFebRun]]);
+    await pool.query('DELETE FROM payroll_run_lines WHERE run_id=ANY($1::uuid[])', [[febRun, marchRun, otherFebRun, reopenedJanRun]]);
+    await pool.query('UPDATE payroll_run_headers SET journal_entry_id=NULL WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM payroll_run_headers WHERE company_id=ANY($1::uuid[])', [companies]);
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM payroll_employees WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [companies]);
   } finally {
@@ -93,5 +98,26 @@ describe('P4: the approval gate refuses termination pay-outs already paid', () =
     await addLine(otherFebRun, paidTwice, [SALARY, NOTICE]);
     const gate = await judgePayrollApproval(company, marchRun);
     expect(gate?.blocker?.code).not.toBe('termination_already_paid');
+  });
+
+  it('counts a run reopened with its journal still posted as having paid them', async () => {
+    // February's lines were removed above; January was approved, paid E-TWICE's
+    // notice pay, and was reopened: status back to calculated, journal kept.
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,created_by,status)
+       VALUES($1,$2,DATE '2026-01-31','Payroll January 2026',$3,'posted')`,
+      [janJournal, company, crypto.randomUUID()],
+    );
+    await pool.query(
+      `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,journal_entry_id)
+       VALUES($1,$2,1,2026,'calculated',$3)`,
+      [reopenedJanRun, company, janJournal],
+    );
+    await addLine(reopenedJanRun, paidTwice, [SALARY, NOTICE]);
+    const gate = await judgePayrollApproval(company, marchRun);
+    expect(gate?.blocker?.code).toBe('termination_already_paid');
+    expect(gate?.blocker?.detail).toContain('E-TWICE (2026-01)');
+    // The calculation-time check agrees.
+    expect(await findPaidTerminationRun(company, paidTwice, marchRun)).toEqual({ year: 2026, month: 1 });
   });
 });
