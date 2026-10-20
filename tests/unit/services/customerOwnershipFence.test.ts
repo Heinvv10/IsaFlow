@@ -45,6 +45,11 @@ vi.mock('@/modules/accounting/services/core/companyService', () => ({
 // bank case below reaches the fence. It returns the transaction unchanged, so
 // nothing about the ordering being asserted is faked away.
 const lockBankTransactionForUpdate = vi.hoisted(() => vi.fn());
+// createCustomerPayment locks the invoices it judges (AR audit B2); the bounded lock refuses outside a request
+// transaction, and this file only measures what runs before and after the ownership fence.
+vi.mock('@/modules/accounting/services/ar/customerInvoiceLock', () => ({
+  withCustomerInvoiceLock: <T>(_fn: string, _s: string, run: () => Promise<T>) => run(),
+}));
 vi.mock('@/modules/accounting/services/bank/bankTxLock', () => ({
   lockBankTransactionForUpdate,
   isLockNotAvailable: () => false,

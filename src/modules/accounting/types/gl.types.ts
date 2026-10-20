@@ -31,6 +31,8 @@ export type GLAccountSubtype =
   | 'equity'
   | 'retained_earnings'
   | 'opening_balance_equity'
+  // A dividends paid / declared account: equity, debit by nature, reported on IS484 (afs/dividendsPaid.ts).
+  | 'dividends'
   | 'other_current_asset'
   | 'other_current_liability'
   // Used by seeded/system accounts (2140-2175 payroll, 5810 finance cost, 1130
