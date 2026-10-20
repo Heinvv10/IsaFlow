@@ -86,16 +86,18 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
   });
 
   afterAll(async () => {
-    await sql`DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM customers WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM company_users WHERE company_id = ${COMPANY}::UUID`;
-    await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
-    // users.id is VARCHAR, not UUID — casting the column's side raises 42883.
-    await sql`DELETE FROM users WHERE id = ${USER}`;
-    await restoreAmountPaidCheck();
-    await pool.end();
+    try {
+      await sql`DELETE FROM customer_invoices WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM supplier_invoices WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM customers WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM company_users WHERE company_id = ${COMPANY}::UUID`;
+      await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
+      // users.id is VARCHAR, not UUID — casting the column's side raises 42883.
+      await sql`DELETE FROM users WHERE id = ${USER}`;
+    } finally {
+      try { await restoreAmountPaidCheck(); } finally { await pool.end(); }
+    }
   }, 60000);
 
   it('the customer report shows nothing paid on an unpaid negative-total invoice', async () => {

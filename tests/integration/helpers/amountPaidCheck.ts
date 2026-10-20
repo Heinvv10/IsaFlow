@@ -9,11 +9,18 @@
  * way to write the row is to drop the constraint for the duration of the suite.
  *
  * Safe because each integration shard owns its own cluster and runs one file at a
- * time. `restoreAmountPaidCheck` re-adds the constraint with the definition read
- * back at suspend time (no copy of the predicate to drift) and, being a plain ADD
- * CONSTRAINT, VALIDATES it: call it only after the suite has deleted its rows. A
- * suite that leaves an impossible row behind fails there, loudly, instead of
- * leaving the shard's later suites without the constraint.
+ * time. USE: `suspendAmountPaidCheck()` first in beforeAll; in afterAll put the
+ * suite's own cleanup in a `try` and `restoreAmountPaidCheck()` in its `finally`,
+ * so a cleanup that throws still restores. vitest runs afterAll even when
+ * beforeAll or a case threw.
+ *
+ * Restore is idempotent (a no-op when the constraint is present, so a second call
+ * or a suite that never suspended is harmless) and re-adds with the definition
+ * read back at suspend time (no copy of the predicate to drift). Being a plain
+ * ADD CONSTRAINT it VALIDATES: call it after the suite has deleted its rows. A
+ * suite that leaves an impossible row behind fails there, loudly, rather than
+ * leaving the shard's later suites without the constraint; and it throws unless
+ * the constraint is present and validated afterwards.
  */
 import { Pool } from 'pg';
 
@@ -26,17 +33,22 @@ async function withPool<T>(fn: (pool: Pool) => Promise<T>): Promise<T> {
   try { return await fn(pool); } finally { await pool.end(); }
 }
 
+const lookup = (pool: Pool) => pool.query<{ def: string; ok: boolean }>(
+  `SELECT pg_get_constraintdef(oid) AS def, convalidated AS ok FROM pg_constraint
+    WHERE conname = $1 AND conrelid = 'public.customer_invoices'::regclass`, [NAME]);
+
 export const suspendAmountPaidCheck = () => withPool(async (pool) => {
-  const found = await pool.query(
-    `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
-      WHERE conname = $1 AND conrelid = 'public.customer_invoices'::regclass`, [NAME]);
+  const found = await lookup(pool);
   if (found.rows.length === 0) return;
-  definition = found.rows[0].def as string;
+  definition = found.rows[0]!.def;
   await pool.query(`ALTER TABLE public.customer_invoices DROP CONSTRAINT ${NAME}`);
 });
 
 export const restoreAmountPaidCheck = () => withPool(async (pool) => {
-  if (definition === null) return;
-  await pool.query(`ALTER TABLE public.customer_invoices ADD CONSTRAINT ${NAME} ${definition}`);
-  definition = null;
+  if ((await lookup(pool)).rows.length === 0) {
+    if (definition === null) throw new Error(`${NAME} is missing and was never suspended by this suite`);
+    await pool.query(`ALTER TABLE public.customer_invoices ADD CONSTRAINT ${NAME} ${definition}`);
+  }
+  const after = await lookup(pool);
+  if (after.rows.length !== 1 || !after.rows[0]!.ok) throw new Error(`${NAME} is not present and validated after restore`);
 });

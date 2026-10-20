@@ -37,7 +37,7 @@ const COMPANIES: Array<[string, string]> = [
 
 // 899's CHECK refuses the over-paid invoice the round-4 case plants on purpose.
 beforeAll(async () => { await suspendAmountPaidCheck(); await setupCompanies(COMPANIES); });
-afterAll(async () => { await teardownCompanies(COMPANIES); await restoreAmountPaidCheck(); });
+afterAll(async () => { try { await teardownCompanies(COMPANIES); } finally { await restoreAmountPaidCheck(); } });
 
 describe('R-086 review round 3, MEDIUM: a future-dated posted journal must not desync the GL half from the document half', () => {
   it('AR vs GL passes for a LIVE "sent" invoice whose journal is dated in the future', async () => {

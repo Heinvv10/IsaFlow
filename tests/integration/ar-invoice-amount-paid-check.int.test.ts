@@ -13,6 +13,7 @@ import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, newCompany } from './r035-approval.helpers';
 import { insertPreConstraintRow } from './helpers/preConstraintRow';
+import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -50,7 +51,7 @@ const outcome = async (p: Promise<unknown>) => p.then(() => 'ok', (e: { code?: s
 
 async function invoice(total: number, paid = 0, opts: { preConstraint?: boolean } = {}) {
   const company = await newCompany(pool, [[user, 'admin']], companies);
-  const customer = (await pool.query('INSERT INTO customers(company_id,name) VALUES($1,$2) RETURNING id', [company, 'AP check customer'])).rows[0].id as string;
+  const customer = (await pool.query('INSERT INTO customers(company_id,name) VALUES($1,$2) RETURNING id', [company, 'AR check customer'])).rows[0].id as string;
   const id = crypto.randomUUID();
   const sqlText = `INSERT INTO customer_invoices(id,company_id,client_id,customer_id,invoice_number,invoice_date,due_date,status,total_amount,amount_paid,created_by)
      VALUES($1,$2,$3,$3,'CHK-1','2026-02-01','2026-03-01','approved',$4,$5,$6)`;
@@ -98,6 +99,21 @@ describe('customer_invoices_amount_paid_within_total', () => {
     expect((await pool.query('SELECT status FROM customer_invoices WHERE id = $1', [inv.id])).rows[0].status).toBe('cancelled');
     // ...but a negative total still cannot carry a payment.
     expect(await outcome(pool.query('UPDATE customer_invoices SET amount_paid = 1 WHERE id = $1', [inv.id]))).toBe('23514');
+    expect(await paidOf(inv.id)).toBe(0);
+  });
+
+  it('the suspend/restore helper round-trips, restore is idempotent, and a leftover impossible row makes restore fail', async () => {
+    const inv = await invoice(100, 0);
+    await suspendAmountPaidCheck();
+    try {
+      await pool.query('UPDATE customer_invoices SET amount_paid = 150 WHERE id = $1', [inv.id]);
+      await expect(restoreAmountPaidCheck()).rejects.toMatchObject({ code: '23514' });
+      await pool.query('UPDATE customer_invoices SET amount_paid = 0 WHERE id = $1', [inv.id]);
+    } finally {
+      await restoreAmountPaidCheck();
+    }
+    await restoreAmountPaidCheck();
+    expect(await outcome(pool.query('UPDATE customer_invoices SET amount_paid = 150 WHERE id = $1', [inv.id]))).toBe('23514');
     expect(await paidOf(inv.id)).toBe(0);
   });
 
