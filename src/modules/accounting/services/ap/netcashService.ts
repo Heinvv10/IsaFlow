@@ -61,13 +61,27 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
-/** The response body as a JSON object, or null when it is not one (empty, HTML, a bare array/null). */
-async function readJsonObject(res: Response): Promise<Record<string, unknown> | null> {
+/**
+ * One request to Netcash with a hard timeout over the WHOLE exchange: the timer stays armed until the body has been
+ * read. Clearing it once headers arrived left a stalled body unbounded, so a send could outlast SEND_WINDOW_MS (the
+ * time after which a 'pending' claim is presumed dead and an operator may release it). A body read that times out
+ * throws, which the caller answers as an unknown outcome. `json` is the body as a JSON object, or null when it is not
+ * one (empty, HTML, a bare array/null).
+ */
+async function fetchJsonWithTimeout(url: string, init: RequestInit): Promise<{ res: Response; json: Record<string, unknown> | null }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const parsed: unknown = await res.json();
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
-  } catch {
-    return null; // not JSON: the caller decides what an unreadable answer means
+    const res = await fetch(url, { ...init, signal: controller.signal });
+    const text = await res.text();
+    try {
+      const parsed: unknown = JSON.parse(text);
+      return { res, json: parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null };
+    } catch {
+      return { res, json: null }; // not JSON: the caller decides what an unreadable answer means
+    }
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -101,7 +115,7 @@ export async function submitEftBatch(
   };
 
   try {
-    const res = await fetchWithTimeout(`${NETCASH_BASE_URL}/v1/eft/submit`, {
+    const { res, json } = await fetchJsonWithTimeout(`${NETCASH_BASE_URL}/v1/eft/submit`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -109,8 +123,6 @@ export async function submitEftBatch(
       },
       body: JSON.stringify(body),
     });
-
-    const json = await readJsonObject(res);
 
     if (!res.ok) {
       log.error('Netcash EFT submit failed', { status: res.status, body: json }, 'netcash');
