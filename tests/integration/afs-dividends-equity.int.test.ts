@@ -258,6 +258,43 @@ describe('dividends paid on an equity account mapped to IS484', () => {
     }
   });
 
+  it('a journal that touches retained earnings drops only the clearing CREDIT: a dividend declared or paid in it counts', async () => {
+    const [payable, entry, refund] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level)
+       VALUES($1,$2,'2300','Shareholders for dividend','liability','current_liability','credit',true,false,3)`, [payable, div.company]);
+    await pool.query("INSERT INTO afs_account_mappings(company_id,gl_account_id,afs_line_code) VALUES($1,$2,'BS054')", [div.company, payable]);
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_by,posted_at)
+       VALUES($1,$2,'YEADJ','2025-12-31',$3,'year-end adjustments','manual','posted',$4,$4,now())`, [entry, div.company, div.period.p25, user]);
+    // Final dividend 500 declared, the year's 300 cleared into retained earnings, and a 20 prior-year adjustment
+    // to retained earnings, all in one journal.
+    await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
+       VALUES($1,$2,500,0,'declared',$5),($1,$3,0,500,'declared',$5),($1,$4,300,0,'clear',$5),($1,$2,0,300,'clear',$5),
+             ($1,$4,20,0,'pya',$5),($1,$3,0,20,'pya',$5)`,
+      [entry, dividendsAccount, payable, div.acct.retained, div.company]);
+    // A 100 refund of a dividend in a journal that CREDITS retained earnings (a prior-year adjustment the other
+    // way) is not a clearing entry: it reduces the dividends paid.
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_by,posted_at)
+       VALUES($1,$2,'REFUND','2025-12-20',$3,'dividend refunded','manual','posted',$4,$4,now())`, [refund, div.company, div.period.p25, user]);
+    await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
+       VALUES($1,$2,100,0,'refund',$6),($1,$3,0,100,'refund',$6),($1,$4,20,0,'pya',$6),($1,$5,0,20,'pya',$6)`,
+      [refund, div.acct.bank, dividendsAccount, payable, div.acct.retained, div.company]);
+    try {
+      expect((await generateChangesInEquity(div.company, 2025, 'ifrs_smes')).dataSnapshot.dividendsPaid).toBe(700);
+      const s = await sfpOf(div);
+      expect(s.totalAssets).toBe(s.totalLiabilities + s.totalEquity);
+      expect(s.totalEquity).toBe(EXPECTED.equity25 - 520 + 100 + 20);
+    } finally {
+      await pool.query('DELETE FROM gl_journal_lines WHERE journal_entry_id = ANY($1)', [[entry, refund]]);
+      await pool.query('DELETE FROM gl_journal_entries WHERE id = ANY($1)', [[entry, refund]]);
+      // The mapping stays: unmapped, the account would be auto-mapped by name in the last test.
+    }
+  });
+
   // Last: auto-mapping maps the fixture's unmapped accounts too.
   it('an account created in the app (equity is always credit-normal) with subtype dividends is auto-mapped to IS484 and carried', async () => {
     const created = await createAccount(div.company, {
