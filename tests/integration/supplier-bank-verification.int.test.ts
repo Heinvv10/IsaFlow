@@ -15,7 +15,8 @@ const submitEftBatch = vi.hoisted(() => vi.fn());
 vi.mock('@/modules/accounting/services/ap/netcashService', () => ({ submitEftBatch }));
 
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
+import eftFileRelease from '../../pages/api/accounting/eft-file-release';
 import { dataOf, messageOf } from './r035-pr2.helpers';
 import { cleanupPr5, plantBatch, plantSupplier } from './r035-pr5.helpers';
 import { bankCompany, bankRoutes, submissionsOf, verificationsOf } from './supplier-bank-verification.helpers';
@@ -45,6 +46,11 @@ async function enforcedBatch() {
   expect(on.state.statusCode, JSON.stringify(on.state.body)).toBe(200);
   return { c, bank, batch, s: batch.members[0]!.supplierId };
 }
+
+/** AP-01: a bank file closes the Netcash channel for its batch until an admin releases it as not used. */
+const releaseFile = async (user: string, c: string, batchId: string) => expect((await callRoute(
+  eftFileRelease, tokens[user]!, c, 'POST', { batchId, reason: 'file not uploaded to the bank' }, '/api/accounting/eft-file-release',
+)).state.statusCode).toBe(200);
 
 const RAW = { payments: [{ accountHolder: 'Anyone', bankCode: '250655', accountNumber: '62000000009', amount: 100000, reference: 'x' }] };
 
@@ -98,6 +104,7 @@ describe('switching on', () => {
   it('a baselined batch is sendable: EFT file and Netcash submission go out', async () => {
     const { c, batch } = await enforcedBatch();
     expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);
+    await releaseFile(u.a, c, batch.id);
     const sent = await r.netcash(u.a, c, { batchPaymentId: batch.id });
     expect(sent.state.statusCode, JSON.stringify(sent.state.body)).toBe(200);
     expect(submitEftBatch).toHaveBeenCalledTimes(1);
@@ -249,6 +256,7 @@ describe('enforcement off', () => {
     const s = batch.members[0]!.supplierId;
     await r.changeBank(u.a, c, s, { bankAccountNumber: '62444444444' });
     expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);
+    await releaseFile(u.a, c, batch.id);
     expect((await r.netcash(u.a, c, { batchPaymentId: batch.id })).state.statusCode).toBe(200);
     expect((await r.netcash(u.a, c, RAW)).state.statusCode).toBe(400);
     expect((await r.state(u.c, c, s)).state).toBe('not_enforced');
