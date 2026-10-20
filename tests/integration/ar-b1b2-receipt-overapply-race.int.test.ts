@@ -127,7 +127,7 @@ async function waitsOnLock(table: string): Promise<'waiting'> {
  * Start `first` and park it after its balance check; start `second`; release `first` once `second` has finished
  * or is blocked on the invoice lock. Returns both results.
  */
-async function raceTwo<A, B>(first: () => Promise<A>, second: () => Promise<B>): Promise<[A, B]> {
+async function raceTwo<A, B>(first: () => Promise<A>, second: () => Promise<B>): Promise<{ out: [A, B]; queued: () => void }> {
   let release!: () => void;
   let entered!: () => void;
   const gate: Park = {
@@ -147,8 +147,8 @@ async function raceTwo<A, B>(first: () => Promise<A>, second: () => Promise<B>):
   }
   const out = await Promise.all([firstP, secondP]);
   expect(hooks.fired).toBe(1); // the window really opened — the test is not vacuous
-  expect(state).toBe('waiting'); // the second request queued behind the first's invoice lock
-  return out;
+  // Asserted by the caller AFTER the outcome: the books are the verdict, the queueing only proves the lock path ran.
+  return { out, queued: () => expect(state).toBe('waiting') };
 }
 
 describe('B1: confirming a draft receipt after the invoice was paid another way', () => {
@@ -192,7 +192,7 @@ describe('B2: two concurrent receipts for the full balance', () => {
   it('POST /customer-payments x2, then confirm both: the invoice is paid once', async () => {
     const invoice = await seedInvoice(pool, fx, 1000);
 
-    const [a, b] = await raceTwo(() => createFor(invoice, 1000), () => createFor(invoice, 1000));
+    const { out: [a, b], queued } = await raceTwo(() => createFor(invoice, 1000), () => createFor(invoice, 1000));
     expect([a.status, b.status].filter((s) => s === 201).length).toBeGreaterThanOrEqual(1);
     for (const id of await paymentIds()) await confirm(id);
 
@@ -200,6 +200,7 @@ describe('B2: two concurrent receipts for the full balance', () => {
     expect(await arCredits()).toBe(1000);
     // The loser is refused at CREATE, not left as a second draft that can never be confirmed.
     expect(await paymentIds()).toHaveLength(1);
+    queued(); // the second create queued behind the first's invoice lock
   });
 });
 
@@ -231,10 +232,11 @@ describe('B2: two concurrent settle_by_contra for the full balance', () => {
       }
     };
 
-    const [a, b] = await raceTwo(settle, settle);
+    const { out: [a, b], queued } = await raceTwo(settle, settle);
 
     expect(await amountPaid(invoice)).toBe(1000);
     expect(await arCredits()).toBe(1000);
     expect([a.isError, b.isError].filter((e) => !e).length).toBe(1); // exactly one settlement succeeded
+    queued(); // the second contra queued behind the first's invoice lock
   });
 });
