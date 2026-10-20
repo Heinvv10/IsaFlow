@@ -60,9 +60,6 @@ const EXEMPT: Record<string, string> = {
   // GET routes that write: they sync a provider's status onto the company's own rows.
   'pages/api/accounting/netcash/status.ts': 'GET refreshes netcash_submissions.status from Netcash; idempotent sync, no user input written',
   'pages/api/billing/paystack/mandate/verify.ts': 'GET settles a Paystack verification onto the company\'s own request/mandate rows (audit K-202, open: no role gate, no CSRF)',
-  // OPEN — not in the 2026-10-18 S-01..S-03 brief; listed so the census stays green, each needs a decision.
-  'pages/api/billing/flows/auto-topup.ts': 'OPEN: a viewer can switch auto top-up on (K-200: no token is ever stored, so it cannot charge yet)',
-  'pages/api/billing/flows/purchase.ts': 'OPEN: a viewer can start a Flow bundle checkout, paid on the payer\'s own card',
 };
 
 /** For each `inline:` exemption, the call that does the role check. Its absence from the code fails the census. */

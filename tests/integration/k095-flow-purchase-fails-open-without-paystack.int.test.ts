@@ -119,6 +119,7 @@ describeIfDb('K-095 Flow bundle purchase must not credit without payment', () =>
         headers: {},
         body: { bundleId: BUNDLE },
         companyId: COMPANY,
+        companyRole: 'owner',
         user: { id: 'k095', email: 'k095@example.invalid' },
       } as unknown as NextApiRequest,
       res,

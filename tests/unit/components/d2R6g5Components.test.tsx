@@ -14,6 +14,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock('react-hot-toast', () => ({ default: toast }));
 vi.mock('@/components/billing/TopUpModal', () => ({ TopUpModal: () => null }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner' }) }));
 vi.mock('@/components/billing/UpgradeNudgeBanner', () => ({ UpgradeNudgeBanner: () => null }));
 
 import { FlowWalletWidget } from '@/components/billing/FlowWalletWidget';
