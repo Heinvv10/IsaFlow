@@ -67,6 +67,8 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/ar/*` and `
   a savepoint that silently turns the batch runner's COMMIT into a ROLLBACK. `assertTxUsable` does
   NOT see this — `txUnusable` is set only when a savepoint's own rollback fails.
 
+- **Write-offs are judged against the invoice as it is at approval (AR audit C1/C2, K-055, 2026-10-20).** `approveWriteOff` takes the invoice `FOR UPDATE` (`withCustomerInvoiceLock`), then the write-off row `FOR UPDATE`, then refuses with `WriteOffInvoiceRefusedError` (REST 409, write-off stays `draft` and cancellable, nothing written: `withAuth` COMMITs a 4xx) when the invoice is soft-deleted, has no posted AR (`documentInPopulation`: draft / pending_approval / cancelled) or owes less than the write-off. The `amount_paid` increment carries `amount_paid + x <= total_amount` and a zero-row result throws (5xx, rolls back); status and `paid_at` come from `recomputeInvoiceStatus` (partial -> `partially_paid`, cleared -> `paid`, dated; `disputed` is left alone). `createWriteOff` runs the same refusal up front (400). Lock order is invoice then write-off, the order `customerMergeService` already uses; nothing locks a write-off and then an invoice.
+
 ## Related files
 - `pages/api/accounting/ar/*.ts`, `pages/api/portal/*.ts` — routes.
 - `scripts/migrations/sql/*customer_invoice*`, `*dunning*`, `*sent_mirror*`, `431_*` (PRD-06 Phase 5), `432_*` (Phase 6 planned).

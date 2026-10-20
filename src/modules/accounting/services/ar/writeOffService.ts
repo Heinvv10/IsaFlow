@@ -11,10 +11,15 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
+import { withCustomerInvoiceLock } from './customerInvoiceLock';
+import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
+import { WriteOffInvoiceRefusedError, writeOffInvoiceRefusal } from './writeOffInvoiceRefusal';
 import type { CustomerWriteOff, WriteOffCreateInput } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertStoredDocumentSettleable } from '../shared/documentCurrency';
+
+export { WriteOffInvoiceRefusedError };
 
 type Row = DbRow;
 
@@ -77,16 +82,15 @@ export async function createWriteOff(companyId: string,
   // R-067: only the invoice was read company-scoped; client_id went into the
   // write-off untouched, and every list query joins customers on it.
   await assertCustomerInCompany(companyId, input.clientId);
-  // Validate amount against invoice balance
+  // C2: only an invoice that has posted AR can be written off. This is the early
+  // refusal; approval re-judges it under the invoice's row lock.
   const invRows = (await sql`
-    SELECT total_amount, amount_paid FROM customer_invoices
+    SELECT invoice_number, total_amount, amount_paid, status, deleted_at FROM customer_invoices
     WHERE id = ${input.invoiceId}::UUID AND company_id = ${companyId}
   `) as Row[];
   if (!invRows[0]) throw new Error('Invoice not found');
-  const balance = Number(invRows[0].total_amount) - Number(invRows[0].amount_paid);
-  if (input.amount > balance + 0.01) {
-    throw new Error(`Write-off amount R${input.amount.toFixed(2)} exceeds invoice balance R${balance.toFixed(2)}`);
-  }
+  const refusal = writeOffInvoiceRefusal(invRows[0], input.amount);
+  if (refusal) throw new WriteOffInvoiceRefusedError(refusal);
 
   const rows = (await sql`
     INSERT INTO customer_write_offs (
@@ -127,6 +131,37 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   // FX PR0, before the claim (the first write): a foreign invoice cannot be settled.
   if (woRows[0].invoice_id) await assertStoredDocumentSettleable(companyId, 'customer_invoice', String(woRows[0].invoice_id));
 
+  const wo = woRows[0];
+
+  // C1: judge the invoice AS IT IS NOW, under its row lock. The write-off was
+  // drafted against a balance that a receipt, a credit note or another
+  // write-off may have used since; approving it blind credited AR twice.
+  // Lock order is invoice, THEN write-off (customerMergeService moves invoices
+  // before write-offs, so this is the order nothing inverts). Every refusal
+  // below is raised before the first write: `withAuth` COMMITs a 4xx.
+  const invRows = (await withCustomerInvoiceLock('approveWriteOff', 'The invoice', async () => (await sql`
+    SELECT invoice_number, total_amount, tax_amount, amount_paid, status, deleted_at
+    FROM customer_invoices
+    WHERE id = ${wo.invoice_id}::UUID AND company_id = ${companyId}
+    FOR UPDATE
+  `) as Row[]));
+  const inv = invRows[0];
+  if (!inv) throw new WriteOffInvoiceRefusedError('Invoice not found');
+
+  // The write-off's own row next, so a rival approval of the SAME write-off that
+  // queued on the invoice finds it already approved and is told so, not that
+  // the balance has gone.
+  const locked = await claimUnderLockTimeout('write-off', async () => (await sql`
+    SELECT status, amount FROM customer_write_offs WHERE id = ${id} AND company_id = ${companyId} FOR UPDATE
+  `) as Row[]);
+  if (locked[0]?.status !== 'draft') {
+    throw new WriteOffNotApprovableError(locked[0] ? String(locked[0].status) : 'missing');
+  }
+  // From the locked row, not the unlocked read above: it is what is judged and what posts.
+  const amount = Number(locked[0].amount);
+  const refusal = writeOffInvoiceRefusal(inv, amount);
+  if (refusal) throw new WriteOffInvoiceRefusedError(refusal);
+
   // CLAIM before anything is posted. What this replaced read
   // `woRows[0].status !== 'draft'` and then posted DR Bad Debt / CR AR (plus
   // the §22(3) VAT recovery) and added the write-off amount to the invoice's
@@ -146,16 +181,9 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
     throw new WriteOffNotApprovableError(now[0] ? String(now[0].status) : 'missing');
   }
 
-  const wo = woRows[0];
-  const amount = Number(wo.amount);
-
-  // Fetch invoice VAT details for SA VAT Act §22(3) bad debt VAT recovery
-  const invVatRows = (await sql`
-    SELECT total_amount, tax_amount FROM customer_invoices
-    WHERE id = ${wo.invoice_id}::UUID AND company_id = ${companyId}
-  `) as Row[];
-  const invTotal = Number(invVatRows[0]?.total_amount || 0);
-  const invTaxAmount = Number(invVatRows[0]?.tax_amount || 0);
+  // SA VAT Act §22(3) bad debt VAT recovery, from the locked invoice
+  const invTotal = Number(inv.total_amount || 0);
+  const invTaxAmount = Number(inv.tax_amount || 0);
   const vatRecoverable = invTotal > 0 && invTaxAmount > 0
     ? Math.round((amount / invTotal) * invTaxAmount * 100) / 100
     : 0;
@@ -197,12 +225,18 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   }, userId);
   await postJournalEntry(companyId, je.id, userId);
 
-  await sql`
+  // Belt and braces under the lock: the increment itself refuses to pass total.
+  const moved = (await sql`
     UPDATE customer_invoices
-    SET amount_paid = amount_paid + ${amount},
-        status = CASE WHEN (total_amount - amount_paid - ${amount}) <= 0.01 THEN 'paid' ELSE status END
+    SET amount_paid = amount_paid + ${amount}
     WHERE id = ${wo.invoice_id}::UUID AND company_id = ${companyId}
-  `;
+      AND amount_paid + ${amount} <= total_amount
+    RETURNING id
+  `) as Row[];
+  // Past the journal, so a plain throw: a 5xx rolls the whole approval back.
+  if (moved.length === 0) throw new Error(`Write-off ${id} would take invoice ${wo.invoice_id} past its total`);
+  // C8: one rule for status and paid_at (partially_paid / paid, dated), as receipts use.
+  await recomputeInvoiceStatus(companyId, 'customer', String(wo.invoice_id));
 
   // Only the journal link is left to write — the status, approver and timestamp
   // were set by the claim above.
