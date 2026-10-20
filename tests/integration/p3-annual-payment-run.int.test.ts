@@ -31,8 +31,8 @@ const leaver = crypto.randomUUID();
 
 async function addEmployee(id: string, num: string, endDate: string | null, pay: Array<[string, number]>) {
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,end_date,date_of_birth,status)
-     VALUES($1,$2,$3,'P3',$3,DATE '2020-01-01',$4::date,DATE '1990-01-01','active')`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,end_date,date_of_birth,status,medical_aid_main_member)
+     VALUES($1,$2,$3,'P3',$3,DATE '2020-01-01',$4::date,DATE '1990-01-01','active',false)`,
     [id, company, num, endDate],
   );
   for (const [componentId, amount] of pay) {
