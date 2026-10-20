@@ -46,6 +46,10 @@ import { hasFeature } from '@/modules/admin/services/featureFlagService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
+// The localhost fixture speaks no SSL; scripts/_pg turns it off only on sslmode=disable.
+const SEED_URL = DATABASE_URL && !DATABASE_URL.includes('sslmode=')
+  ? `${DATABASE_URL}${DATABASE_URL.includes('?') ? '&' : '?'}sslmode=disable`
+  : DATABASE_URL;
 
 const SANDBOX = SANDBOX_COMPANY.id;
 const OPERATOR = 'reviewer-sandbox-it-operator';
@@ -59,7 +63,7 @@ function deps(lines: string[]): SandboxDeps {
     env: {
       REVIEWER_SANDBOX_CONFIRM: CONFIRM_VALUE, SANDBOX_OPERATOR_USER_ID: OPERATOR, REVIEWER_SANDBOX_EMAIL: EMAIL,
       REVIEWER_SANDBOX_CREDENTIALS_PATH: credsPath,
-      DATABASE_URL, GOTRUE_URL: 'http://gotrue.invalid', SUPABASE_SERVICE_ROLE_KEY: 'not-used-gotrue-is-mocked',
+      DATABASE_URL: SEED_URL, GOTRUE_URL: 'http://gotrue.invalid', SUPABASE_SERVICE_ROLE_KEY: 'not-used-gotrue-is-mocked',
     },
     today: new Date(),
     repoRoot: process.cwd(),
@@ -67,7 +71,7 @@ function deps(lines: string[]): SandboxDeps {
     load: async () => {
       const identity = await import('../../scripts/sandbox/reviewerSandboxIdentity');
       const books = await import('../../scripts/sandbox/reviewerSandboxBooks');
-      return { sql: createSql(DATABASE_URL), identity, seedBooks: books.seedBooks };
+      return { sql: createSql(SEED_URL), identity, seedBooks: books.seedBooks };
     },
     newPassword: () => `it-${randomUUID()}`,
     writeCredentials: writeCredentialsFile,
