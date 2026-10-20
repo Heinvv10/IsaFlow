@@ -185,7 +185,9 @@ export function skipReasonForInvoice(
   if (state.outstanding <= 0.01) return `invoice ${state.invoiceNumber} is already settled`;
   // The refusal `receiptAllocationLines` raises MID-WRITE, hoisted to a read so
   // the batch can skip around it instead of unwinding on it.
-  if (amount > state.outstanding + 0.01) {
+  // Whole cents, no tolerance (899): the invoice CHECK refuses a cent over, and so does
+  // `receiptAllocationLines` (customer) and `billAllocatable` (supplier).
+  if (Math.round(amount * 100) > Math.round(state.outstanding * 100)) {
     return `R${amount.toFixed(2)} exceeds the R${state.outstanding.toFixed(2)} outstanding on `
       + `invoice ${state.invoiceNumber}`;
   }

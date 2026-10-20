@@ -48,7 +48,7 @@ beforeAll(async () => {
   clearSystemAccountCache();
 });
 beforeEach(() => { h.charged.length = 0; h.verifyTransaction.mockReset(); });
-afterAll(async () => { vi.unstubAllEnvs(); await cleanupCompany(); await restoreAmountPaidCheck(); });
+afterAll(async () => { vi.unstubAllEnvs(); try { await cleanupCompany(); } finally { await restoreAmountPaidCheck(); } });
 
 describe('create charges the link amount, capped at the balance', () => {
   it.each([

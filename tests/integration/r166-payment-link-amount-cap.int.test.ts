@@ -69,9 +69,8 @@ afterAll(async () => {
     }
     await pool.query('DELETE FROM companies WHERE id = $1', [CO]);
     await pool.query('DELETE FROM users WHERE id = $1', [USER]);
-    await restoreAmountPaidCheck();
   } finally {
-    await pool.end();
+    try { await restoreAmountPaidCheck(); } finally { await pool.end(); }
   }
 });
 
