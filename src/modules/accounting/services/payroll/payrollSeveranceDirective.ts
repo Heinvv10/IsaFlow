@@ -167,7 +167,7 @@ export async function findHandMadeLumpSumPaid(
       AND l.employee_id = ${employeeId}::uuid
       AND h.id <> ${runId}::uuid
       AND h.status = ANY(${declarable}::text[])
-      AND btrim(item->>'sarsSourceCode') ~ '^39[0-9]{2}$'
+      AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') ~ '^39[0-9]{2}$'
       AND item->'directive' IS NULL
     ORDER BY h.period_year, h.period_month
     LIMIT 1

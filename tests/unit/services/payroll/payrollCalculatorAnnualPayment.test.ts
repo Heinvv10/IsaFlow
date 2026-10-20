@@ -24,6 +24,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
+import { normaliseSarsCode, payeTreatment } from '@/modules/accounting/services/payroll/payeAnnualPayment';
 import type { EmployeeComponent, PayrollComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 
 const employee = (beneficiaries = 0) => ({
@@ -163,5 +164,19 @@ describe('P3: a leaver paid after leaving earns no ETI', () => {
     expect(eti.monthlyEti).toBe(0);
     expect(eti.isEligible).toBe(false);
     expect(eti.ineligibilityReason).toMatch(/Not employed/);
+  });
+});
+
+describe('P3: SARS codes are classified after stripping ASCII space, tab, CR and LF only', () => {
+  it('strips exactly the set the SQL readers strip', () => {
+    expect(normaliseSarsCode(' 3901\t')).toBe('3901');
+    expect(normaliseSarsCode('\r\n3605 ')).toBe('3605');
+    expect(normaliseSarsCode('3901\u00a0')).toBe('3901\u00a0');
+  });
+
+  it("a padded lump-sum code is a lump sum; one padded with anything else is periodic, on both sides", () => {
+    expect(payeTreatment('3901\t')).toBe('lump_sum');
+    expect(payeTreatment(' 3605')).toBe('annual');
+    expect(payeTreatment('3901\u00a0')).toBe('periodic');
   });
 });

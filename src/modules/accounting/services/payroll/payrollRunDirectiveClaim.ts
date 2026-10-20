@@ -108,13 +108,13 @@ async function readDirectives(q: TxSql | typeof sql, companyId: string, ids: str
  */
 async function lumpSumsWithoutDirective(companyId: string, runId: string): Promise<string[]> {
   const rows = (await sql`
-    SELECT DISTINCT e.employee_number, btrim(item->>'sarsSourceCode') AS code
+    SELECT DISTINCT e.employee_number, regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') AS code
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
     JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
     CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-      AND btrim(item->>'sarsSourceCode') ~ '^39[0-9]{2}$'
+      AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') ~ '^39[0-9]{2}$'
       AND item->'directive' IS NULL
     ORDER BY 1, 2
   `) as DbRow[];
