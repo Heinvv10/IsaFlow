@@ -44,7 +44,7 @@ const OTHER = '99999999-9999-4999-8999-999999999999';
 function ctx(): McpToolContext {
   return {
     userId: '44444444-4444-4444-8444-444444444444',
-    companyId: COMPANY,
+    companyId: COMPANY, companyRole: 'owner',
     scopes: ['write:things', 'write:post'],
     tokenJti: 'jti',
     oauthAppId: null,

@@ -40,7 +40,7 @@ const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
 function ctxWithScopes(scopes: string[]): McpToolContext {
   return {
     userId: 'user-1',
-    companyId: COMPANY_ID,
+    companyId: COMPANY_ID, companyRole: 'owner',
     scopes,
     tokenJti: 'pat-33333333',
     oauthAppId: null,
