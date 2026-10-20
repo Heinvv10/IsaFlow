@@ -99,7 +99,7 @@ describe('P4: two approvals carrying the same termination pay-outs', () => {
     expect(state).toBe('waiting');
     expect(first.statusCode).toBe(200);
     expect(second.statusCode).toBe(400);
-    expect(second.body.error?.message).toMatch(/already paid in an approved run/);
+    expect(second.body.error?.message).toMatch(/already paid in another run/);
     const statuses = (await pool.query(
       'SELECT period_month, status FROM payroll_run_headers WHERE company_id = $1 ORDER BY period_month', [company])).rows;
     expect(statuses).toEqual([{ period_month: 2, status: 'approved' }, { period_month: 3, status: 'calculated' }]);

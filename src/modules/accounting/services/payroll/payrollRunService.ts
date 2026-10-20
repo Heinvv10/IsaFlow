@@ -369,7 +369,8 @@ async function appendTerminationIfEndingThisPeriod(
     warnings.push({
       code: 'TERMINATION_ALREADY_PAID',
       severity: 'warning',
-      message: `Termination pay-outs were already paid in the ${paid.year}-${String(paid.month).padStart(2, '0')} run; not paid again.`,
+      message: `Leave, notice and severance pay-outs for this employee were already paid in the ${paid.year}-${String(paid.month).padStart(2, '0')} run, `
+        + 'so they are not paid again. If they were re-employed and have left again, the second pay-out must be captured by hand.',
     });
     return components;
   }
