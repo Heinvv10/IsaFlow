@@ -132,7 +132,6 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   if (woRows[0].invoice_id) await assertStoredDocumentSettleable(companyId, 'customer_invoice', String(woRows[0].invoice_id));
 
   const wo = woRows[0];
-  const amount = Number(wo.amount);
 
   // C1: judge the invoice AS IT IS NOW, under its row lock. The write-off was
   // drafted against a balance that a receipt, a credit note or another
@@ -153,11 +152,13 @@ export async function approveWriteOff(companyId: string, id: string, userId: str
   // queued on the invoice finds it already approved and is told so, not that
   // the balance has gone.
   const locked = await claimUnderLockTimeout('write-off', async () => (await sql`
-    SELECT status FROM customer_write_offs WHERE id = ${id} AND company_id = ${companyId} FOR UPDATE
+    SELECT status, amount FROM customer_write_offs WHERE id = ${id} AND company_id = ${companyId} FOR UPDATE
   `) as Row[]);
   if (locked[0]?.status !== 'draft') {
     throw new WriteOffNotApprovableError(locked[0] ? String(locked[0].status) : 'missing');
   }
+  // From the locked row, not the unlocked read above: it is what is judged and what posts.
+  const amount = Number(locked[0].amount);
   const refusal = writeOffInvoiceRefusal(inv, amount);
   if (refusal) throw new WriteOffInvoiceRefusedError(refusal);
 

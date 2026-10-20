@@ -2,6 +2,12 @@
  * Whether an invoice can take a write-off (AR audit C1/C2): the one rule
  * `createWriteOff` applies up front and `approveWriteOff` applies again under
  * the invoice's row lock.
+ *
+ * A `disputed` invoice status is NOT refused: no code writes that status (a
+ * dispute is a `customer_invoice_disputes` row and leaves the invoice's status
+ * alone), and no other settlement path (receipts, credit notes, contra) consults
+ * an open dispute either. Writing off debt the customer disputes is a business
+ * decision for the user, not something to block here.
  */
 
 import type { DbRow } from '@/lib/neon';
