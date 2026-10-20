@@ -7,7 +7,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { payrollJournalInForce } from './payrollJournalChain';
+import { readJournalChain } from './payrollJournalChain';
 
 /** A run line that carries a synthetic termination component (see LEAVE_PAY, NOTICE_PAY, SEVERANCE_PAY). */
 const TERMINATION_LINE = '$[*] ? (@.componentId starts with "synthetic:termination:")';
@@ -16,8 +16,10 @@ const TERMINATION_LINE = '$[*] ? (@.componentId starts with "synthetic:terminati
  * Whether a run's pay is out: approved or paid (whose journal cannot be
  * reversed, payrollJournalReversalGuard), or reopened with a journal its
  * reversal chain leaves in the ledger. A link alone is not enough: a reversed
- * journal stays linked (payrollJournalChain). `inForce` caches each journal's
- * chain read for one call: several rows can share a run's journal.
+ * journal stays linked (payrollJournalChain). A linked journal this company
+ * cannot read counts as paid, as the approval gate refuses it
+ * (`posted_journal_not_live`): a broken link must not release a second
+ * pay-out. `inForce` caches each journal's chain read for one call.
  */
 async function runHasPaid(
   companyId: string, status: string, journalId: unknown, inForce: Map<string, Promise<boolean>>,
@@ -25,7 +27,9 @@ async function runHasPaid(
   if (status === 'approved' || status === 'paid') return true;
   if (journalId == null) return false;
   const id = String(journalId);
-  if (!inForce.has(id)) inForce.set(id, payrollJournalInForce(companyId, id));
+  if (!inForce.has(id)) {
+    inForce.set(id, readJournalChain(companyId, id).then(chain => chain == null || chain.state !== 'out'));
+  }
   return inForce.get(id)!;
 }
 
