@@ -91,6 +91,7 @@ describe('both routes run the gate on what they send', () => {
       expect(gate).toBeGreaterThan(0);
       expect(gate).toBeLessThan(t.indexOf('await submitEftBatch('));
       expect(gate).toBeLessThan(t.indexOf('INSERT INTO netcash_submissions'));
+      expect(gate).toBeLessThan(t.indexOf('await claimBatch('));
     }
   });
 });

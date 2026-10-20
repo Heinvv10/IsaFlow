@@ -5,13 +5,17 @@
  * second time.
  *
  * Fixed by a claim row (netcash_submissions.batch_id, partial UNIQUE index over
- * non-failed rows) inserted before the send and finalised after it. Judged by
+ * non-failed rows) COMMITTED in its own transaction before the send and settled
+ * in another after it — not in the request's transaction, which withAuth rolls
+ * back on any >=500 (and a crash). Judged by
  * OUTCOME: how many times Netcash's sender was called and how many non-failed
  * submission rows the batch has — never by an error code.
  *
  * Deterministic: the first request is parked inside the (mocked) sender, the
  * second is started, and the first is released only once the second has either
- * finished (no lock: the defect) or is waiting on a lock over netcash_submissions.
+ * finished or is waiting on a lock over netcash_submissions. The claim is
+ * committed before the send, so the second finishes (refused) while the first
+ * is still parked; waiting on a lock would mean the claim rides the request tx.
  * Everything else is the real chain (withAuth, app_user, RLS, Postgres). Netcash
  * itself is never called. Disposable fixture DB only.
  */
@@ -100,7 +104,7 @@ describe('netcash/submit batch idempotency (AP-01)', () => {
     const { state, first, second } = await race(c, b.id);
     expect(sender.submitEftBatch).toHaveBeenCalledTimes(1);
     expect(await live(c)).toHaveLength(1);
-    expect(state).toBe('waiting'); // the second queued behind the first's claim
+    expect(state).toBe('finished'); // refused at once on the committed claim, while the first is still in the sender
     expect(first.state.statusCode).toBe(200);
     expect(is4xx(second.state.statusCode), JSON.stringify(second.state.body)).toBe(true);
     expect(await rows(c)).toEqual([{ status: 'submitted', batch_reference: 'NC-REF-1' }]);
@@ -132,14 +136,41 @@ describe('netcash/submit batch idempotency (AP-01)', () => {
     expect((await rows(c)).map((r) => r.status)).toEqual(['failed', 'submitted']);
   });
 
-  it('a concurrent submit queued behind a request Netcash rejected goes on to send', async () => {
+  it('a submit that arrives while another is in flight is refused; once that was rejected, a resend is allowed', async () => {
     const { c, b } = await fixture();
     sender.results = [REJECTED, ACCEPTED];
     const { first, second } = await race(c, b.id);
     expect(first.state.statusCode).toBe(400);
-    expect(second.state.statusCode, JSON.stringify(second.state.body)).toBe(200);
+    expect(is4xx(second.state.statusCode) && second.state.statusCode !== 400, JSON.stringify(second.state.body)).toBe(true);
+    expect(sender.submitEftBatch).toHaveBeenCalledTimes(1);
+    expect((await rows(c)).map((r) => r.status)).toEqual(['failed']);
+    expect((await submit(c, b.id)).state.statusCode).toBe(200);
     expect(sender.submitEftBatch).toHaveBeenCalledTimes(2);
-    expect((await rows(c)).map((r) => r.status).sort()).toEqual(['failed', 'submitted']);
+  });
+
+  it('a 500 after the send does not free the batch: the claim was committed on its own', async () => {
+    const { c, b } = await fixture();
+    // Settling the claim fails after Netcash accepted the batch: the request answers 500 and withAuth rolls it back.
+    const fn = `ap01_fail_settle_${c.replace(/-/g, '')}`;
+    await pool.query(`CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN IF NEW.company_id = '${c}' AND NEW.status = 'submitted' THEN RAISE EXCEPTION 'ap01 forced settle failure'; END IF; RETURN NEW; END $f$`);
+    await pool.query(`CREATE TRIGGER ${fn} BEFORE UPDATE ON netcash_submissions FOR EACH ROW EXECUTE FUNCTION ${fn}()`);
+    try {
+      const first = await submit(c, b.id);
+      expect(first.state.statusCode).toBeGreaterThanOrEqual(500);
+      const second = await submit(c, b.id);
+      expect(sender.submitEftBatch).toHaveBeenCalledTimes(1);
+      expect(await live(c)).toHaveLength(1);
+      expect(is4xx(second.state.statusCode), JSON.stringify(second.state.body)).toBe(true);
+      expect((await rows(c)).map((r) => r.status)).toEqual(['pending']);
+      // The operator's way out, once Netcash has been checked: set the row 'failed', and the batch may be sent again.
+      await pool.query("UPDATE netcash_submissions SET status = 'failed' WHERE company_id = $1 AND status = 'pending'", [c]);
+    } finally {
+      await pool.query(`DROP TRIGGER ${fn} ON netcash_submissions`);
+      await pool.query(`DROP FUNCTION ${fn}()`);
+    }
+    expect((await submit(c, b.id)).state.statusCode).toBe(200);
+    expect(sender.submitEftBatch).toHaveBeenCalledTimes(2);
   });
 
   it('a batch already submitted is refused 409 naming the earlier submission, without a send', async () => {
