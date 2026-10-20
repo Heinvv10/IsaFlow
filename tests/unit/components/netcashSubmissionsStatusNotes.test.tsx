@@ -43,15 +43,24 @@ describe('netcash submissions page: rows that hold a batch', () => {
     expect(document.querySelector('a[href*="merchant.netcash.co.za"]')).not.toBeNull();
   });
 
-  it('an admin gets a Resolve control on pending/unknown rows and on a submitted row Netcash reported failed; not on a clean submitted row', async () => {
+  it('an admin gets a Resolve control on every row that holds the batch (pending, unknown, submitted, processing), polled or not; not on completed/failed', async () => {
     route(() => ok({ items: [
       sub('p', 'pending'), sub('u', 'unknown'),
-      { ...sub('f', 'submitted'), netcash_response: { pollFailure: { status: 'rejected' } } },
-      sub('c', 'submitted'),
-    ], total: 4 }));
+      { ...sub('f', 'submitted'), netcash_response: { pollFailure: { status: 'rejected' }, latestPoll: { status: 'rejected' } } },
+      sub('c', 'submitted'), sub('r', 'processing'), sub('d', 'completed'), sub('x', 'failed'),
+    ], total: 7 }));
     render(<NetcashSubmissionsPage />);
     expect(await screen.findByText(/Netcash reported a failure on the last check/)).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: /^Resolve/ })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /^Resolve/ })).toHaveLength(5);
+  });
+
+  it('resolving a submitted row warns about paying twice and shows the last poll answer', async () => {
+    route(() => ok({ items: [{ ...sub('s', 'submitted'), netcash_response: { latestPoll: { status: 'Processing - 0 errors', at: '2026-10-20T10:00:00.000Z' } } }], total: 1 }));
+    render(<NetcashSubmissionsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Resolve/ }));
+    expect(screen.getByText(/paid twice/i)).toBeTruthy();
+    expect(screen.getByText(/Processing - 0 errors/)).toBeTruthy();
+    expect(screen.queryByLabelText(/Netcash has this batch/i)).toBeNull();
   });
 
   it('a manager sees the notes but no Resolve control', async () => {
