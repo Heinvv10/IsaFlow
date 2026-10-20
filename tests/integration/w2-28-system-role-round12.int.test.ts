@@ -76,7 +76,7 @@ describeIfDb('W2-28 round 12', () => {
   it('item 2: a 5-call MCP batch under a held role lock answers in about ONE wait: the first call gets the retry refusal, the rest are skipped, audited and say why — other methods and a malformed call still answer as before', async () => {
     const release = await holdRoleLock();
     const tx = await fx.openTx(drainAfterCommit);
-    h.run = tx.run; h.auth = { user: { id: USER }, companyId: CO, scopes: ['write:accounts'], patId: 'w228r12', authMethod: 'pat' };
+    h.run = tx.run; h.auth = { user: { id: USER }, companyId: CO, scopes: ['write:accounts'], patId: 'w228r12', authMethod: 'pat', companyRole: 'owner' };
     const out = { statusCode: 0, body: undefined as unknown };
     const res = { setHeader: () => res, status: (c: number) => { out.statusCode = c; return res; }, json: (b: unknown) => { out.body = b; return res; }, end: () => res };
     const call = (id: number, name: string) => ({ jsonrpc: '2.0', id, method: 'tools/call',
