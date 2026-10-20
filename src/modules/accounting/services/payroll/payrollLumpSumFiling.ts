@@ -55,7 +55,7 @@ export async function listRunAnnualPayments(
     WHERE h.company_id = ${companyId}::uuid
       AND h.status = ANY(${declarable}::text[])
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
-      AND item->>'sarsSourceCode' = '3605'
+      AND btrim(item->>'sarsSourceCode') = '3605'
       AND (item->>'isTaxable')::boolean
     GROUP BY l.employee_id
   `) as DbRow[];
@@ -71,7 +71,7 @@ export async function listRunLumpSums(
   const { start, end } = bounds;
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
-    SELECT l.employee_id, item->>'sarsSourceCode' AS source_code, d.directive_number, d.effective_date,
+    SELECT l.employee_id, btrim(item->>'sarsSourceCode') AS source_code, d.directive_number, d.effective_date,
            SUM((item->>'amount')::numeric)::numeric AS amount,
            SUM((item->'directive'->>'paye')::numeric)::numeric AS paye
     FROM payroll_run_lines l
@@ -84,7 +84,7 @@ export async function listRunLumpSums(
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${start}::date AND ${end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
       AND item->'directive' IS NOT NULL
-    GROUP BY l.employee_id, item->>'sarsSourceCode', d.id, d.directive_number, d.effective_date
+    GROUP BY l.employee_id, btrim(item->>'sarsSourceCode'), d.id, d.directive_number, d.effective_date
     ORDER BY l.employee_id, d.effective_date, d.id
   `) as DbRow[];
   const out = new Map<string, LumpSumFiling[]>();

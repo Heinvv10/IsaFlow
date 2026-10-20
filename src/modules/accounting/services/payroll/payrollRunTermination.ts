@@ -11,9 +11,10 @@
  *   SEVERANCE_DIRECTIVE_UNPAYABLE an approved directive's tax figure is below nil or above the gross.
  *   SEVERANCE_DIRECTIVE_MISMATCH  the directive's gross differs from the calculated severance;
  *                                 the directive's figures are paid (decided 2026-10-20).
- *   SEVERANCE_CAPTURED_AS_COMPONENT  the line already pays a hand-made 39xx component: the
- *                                 directive's line is not added beside it (no double payment);
- *                                 approval stays refused until that component is removed.
+ *   SEVERANCE_CAPTURED_AS_COMPONENT  the line, or an earlier declarable run, already pays a
+ *                                 hand-made 39xx component: the directive's line is not added
+ *                                 (no double payment); on this line approval stays refused until
+ *                                 that component is removed (lump_sum_without_directive).
  */
 
 import { log } from '@/lib/logger';
@@ -26,7 +27,7 @@ import {
   type TerminationReason,
 } from './payrollTerminationService';
 import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
-import { findSeveranceDirectiveForRun, severanceDirectiveComponent } from './payrollSeveranceDirective';
+import { findHandMadeLumpSumPaid, findSeveranceDirectiveForRun, severanceDirectiveComponent } from './payrollSeveranceDirective';
 import { payeTreatment } from './payeAnnualPayment';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
@@ -97,6 +98,17 @@ async function severanceByDirective(
       message: `${who(employee)} has severance as a pay component (${handMade.component.name}, code ${handMade.component.sarsSourceCode}) `
         + `and an approved SARS directive ${available.number ?? available.id}. The directive is not added beside it; remove the component `
         + 'and recalculate, and the run pays the severance at the directive figures.',
+    });
+    return [];
+  }
+  const paidByHand = available ? await findHandMadeLumpSumPaid(companyId, employee.id, runId) : null;
+  if (available && paidByHand) {
+    warnings.push({
+      code: 'SEVERANCE_CAPTURED_AS_COMPONENT',
+      severity: 'warning',
+      message: `${who(employee)} was already paid ${paidByHand.name} as a pay component in the `
+        + `${paidByHand.year}-${String(paidByHand.month).padStart(2, '0')} run, under no directive. SARS directive `
+        + `${available.number ?? available.id} is not paid on top of it; correct that payment by hand if the directive replaces it.`,
     });
     return [];
   }
