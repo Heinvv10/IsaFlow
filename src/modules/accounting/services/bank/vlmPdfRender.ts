@@ -9,7 +9,10 @@
  * - `-dSAFER` still lets gs write under its temp dir, so it gets a private,
  *   empty TMPDIR and a clean environment. (bubblewrap is not an option: inside
  *   isaflow.service the kernel refuses it a user namespace, "setting up uid
- *   map: Permission denied".)
+ *   map: Permission denied".) In production gs also runs under the AppArmor
+ *   profile GS_APPARMOR_PROFILE names (`isaflow-gs`, scripts/apparmor/isaflow-gs):
+ *   no network, no exec, no files outside its temp dir. A profile that is named
+ *   but cannot be applied fails the render; it never falls back to a bare gs.
  * - one page only, into a fixed-size frame, stdin → stdout, a hard timeout, an
  *   output cap. Output that is not a PNG (an encrypted PDF exits 0 with only a
  *   message) is a failure. Callers bound how many run at once.
@@ -28,6 +31,7 @@ const PDF_MAGIC = '%PDF-';
 const HEADER_SEARCH_BYTES = 1024 + PDF_MAGIC.length - 1;
 /** Kernel limits on gs itself: 512 MB address space; CPU SIGXCPU at 25 s, SIGKILL at 30 s (peak seen: ~40 MB). */
 const LIMIT_ARGS = ['--as=536870912', '--cpu=25:30', '--core=0', '--'];
+const AA_EXEC_REFUSED = /^(\[\d+\] )?aa-exec: ERROR/;
 const gsArgs = (page: number): string[] => [
   '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
   // A fixed 1754x1754 frame with the page scaled to fit, aspect kept: A4 reads
@@ -67,13 +71,40 @@ export async function renderPdfPage(pdfBuffer: Buffer, page: number): Promise<st
   } catch (err) {
     const detail = { page, bytes: pdfBuffer.length, error: err instanceof Error ? err.message : String(err) };
     // No gs/prlimit at all is an outage (every scan falls back), not one bad file.
-    if (err instanceof RenderUnavailable) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
+    if (err instanceof ConfinementUnavailable) {
+      log.error('PDF render unavailable: AppArmor profile could not be applied', { ...detail, profile: err.profile }, 'vlm-pdf-render');
+    } else if (err instanceof RenderUnavailable) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
     else log.warn('PDF render failed', detail, 'vlm-pdf-render');
   }
   return null;
 }
 
 class RenderUnavailable extends Error {}
+class ConfinementUnavailable extends Error {
+  constructor(readonly profile: string, message: string) { super(message); }
+}
+
+let warnedUnconfined = false;
+
+/**
+ * The AppArmor profile gs runs under; '' = unconfined (dev, test, or `none` set on purpose);
+ * null = misconfigured. Anywhere but NODE_ENV development/test (production, or NODE_ENV unset or
+ * overridden) must name one or say `none`: an unset variable must not quietly run gs bare.
+ * `unconfined` is AppArmor's no-op label, so it is refused too.
+ */
+function apparmorProfile(): string | null {
+  const named = process.env.GS_APPARMOR_PROFILE ?? '';
+  if (named === 'unconfined') return null;
+  if (named === 'none') {
+    if (!warnedUnconfined) {
+      warnedUnconfined = true;
+      log.warn('gs runs WITHOUT AppArmor: GS_APPARMOR_PROFILE=none', { nodeEnv: process.env.NODE_ENV }, 'vlm-pdf-render');
+    }
+    return '';
+  }
+  if (named === '') return ['development', 'test'].includes(process.env.NODE_ENV ?? '') ? '' : null;
+  return named;
+}
 
 /** The PATH gs is both looked up on and spawned with. */
 function gsPath(): string {
@@ -103,7 +134,13 @@ function removeTmpDir(dir: string): void {
 }
 
 function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer; stderr: string }> {
-  const absent = ['prlimit', 'gs'].filter((name) => !onPath(name));
+  const profile = apparmorProfile();
+  if (profile === null) {
+    const named = process.env.GS_APPARMOR_PROFILE ?? '';
+    return Promise.reject(new ConfinementUnavailable(named,
+      'GS_APPARMOR_PROFILE must name the AppArmor profile (isaflow-gs) outside development/test, or be none'));
+  }
+  const absent = ['prlimit', 'gs', ...(profile ? ['aa-exec'] : [])].filter((name) => !onPath(name));
   if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
   // gs's own temp dir, one per render: private (0700), empty, removed when gs exits.
   const gsTmpDir = mkdtempSync(join(tmpdir(), 'isaflow-gs-'));
@@ -111,7 +148,8 @@ function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer;
     const env = { NODE_ENV: process.env.NODE_ENV, PATH: gsPath(), TMPDIR: gsTmpDir };
     let gs: ChildProcessWithoutNullStreams;
     try {
-      gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...gsArgs(page)], { stdio: ['pipe', 'pipe', 'pipe'], env });
+      const confine = profile ? ['aa-exec', '-p', profile, '--'] : [];
+      gs = spawn('prlimit', [...LIMIT_ARGS, ...confine, 'gs', ...gsArgs(page)], { stdio: ['pipe', 'pipe', 'pipe'], env });
     } catch (err) {
       removeTmpDir(gsTmpDir);
       reject(err instanceof Error ? err : new Error(String(err)));
@@ -122,8 +160,10 @@ function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer;
     let stderr = '';
     let failure: Error | null = null;
 
+    // Once only: a kill that fails emits 'error' synchronously, which would call fail() again, without end.
     const fail = (err: Error) => {
-      if (!failure) failure = err;
+      if (failure) return;
+      failure = err;
       gs.kill('SIGKILL');
     };
     const timer = setTimeout(() => fail(new Error(`gs timed out after ${RENDER_TIMEOUT_MS} ms`)), RENDER_TIMEOUT_MS);
@@ -146,7 +186,11 @@ function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer;
         : signal === 'SIGKILL' ? ' (prlimit CPU hard cap or OOM killer)' : '';
       if (failure) reject(failure);
       else if (signal) reject(new Error(`gs killed by ${signal}${cpuCap}`));
-      else if (code !== 0) {
+      // aa-exec refusing (profile not loaded, AppArmor off) is an outage, like a missing gs. Its
+      // message is the first thing on stderr ("[pid] aa-exec: ERROR: ..."); gs never ran to print anything.
+      else if (code !== 0 && profile && AA_EXEC_REFUSED.test(stderr)) {
+        reject(new ConfinementUnavailable(profile, `aa-exec exited ${code}: ${stderr.trim()}`));
+      } else if (code !== 0) {
         const cap = /VMerror|out of memory|failed to map|cannot allocate/i.test(stderr) ? ' (prlimit memory cap)' : '';
         reject(new Error(`gs exited ${code}${cap}: ${stderr.trim()}`));
       }
