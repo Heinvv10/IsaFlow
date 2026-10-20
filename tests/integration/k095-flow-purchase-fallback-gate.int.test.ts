@@ -113,6 +113,7 @@ describeIfDb('K-095 unpaid fallback gate', () => {
         headers: {},
         body: { bundleId: BUNDLE },
         companyId,
+        companyRole: 'owner',
         user: { id: 'k095-gate', email: 'k095-gate@example.invalid' },
       } as unknown as NextApiRequest,
       res,
