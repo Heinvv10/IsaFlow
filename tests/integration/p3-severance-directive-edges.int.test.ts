@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
+import taxDirectives from '../../pages/api/accounting/tax-directives';
 import type { Route } from './w3-01-payroll.helpers';
 import { updateTaxDirectiveStatus } from '@/modules/accounting/services/payroll/taxDirectiveService';
 import {
@@ -69,6 +70,19 @@ describe('P3: the directive must be in force on the last day of the run period',
 });
 
 describe('P3: directive figures', () => {
+  it('the tax-directives route refuses a rate outside 0..1 (a fraction: 0.18 = 18%)', async () => {
+    const f = await seed('2026-06-30', 'P3 directive rate bounds');
+    const post = (tax_rate: number) => f.call(taxDirectives as Route, 'POST', '/api/accounting/tax-directives', undefined, {
+      body: { employee_id: f.employee, employee_name: 'Wanda Test', directive_type: 'severance', amount: 10_000, tax_rate, effective_date: '2026-06-01' },
+    });
+    for (const bad of [1.5, -0.1]) {
+      const r = await post(bad);
+      expect(r.statusCode).toBe(400);
+      expect(r.body.error?.message).toMatch(/between 0 and 1/);
+    }
+    expect([200, 201]).toContain((await post(0.18)).statusCode);
+  });
+
   it('a fixed tax amount with no rate is paid as it stands', async () => {
     const f = await seed('2026-06-30', 'P3 fixed-amount directive');
     const d = await approvedDirective(f, 10_000, 0.1, '2026-06-01');
