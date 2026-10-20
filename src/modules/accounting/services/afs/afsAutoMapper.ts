@@ -65,6 +65,8 @@ const NAME_PATTERNS: Array<{
   { pattern: /\bretained (earnings|income|profit)/i, code: 'BS045', confidence: 'high', types: EQ },
   { pattern: /\bshareholder.*loan/i, code: 'BS053', confidence: 'high', types: LIA },
   { pattern: /\bmember.*loan/i, code: 'BS055', confidence: 'high', types: LIA },
+  // The same name on an asset is a loan TO the shareholder or member: suggested, never mapped unasked.
+  { pattern: /\b(shareholder|member).*loan/i, code: 'BS011', confidence: 'medium', types: AST },
   { pattern: /\btrade.*receivable/i, code: 'BS028', confidence: 'high', types: AST },
   { pattern: /\btrade.*payable/i, code: 'BS065', confidence: 'high', types: LIA },
   { pattern: /\bprepayment|prepaid/i, code: 'BS031', confidence: 'medium', types: AST },
