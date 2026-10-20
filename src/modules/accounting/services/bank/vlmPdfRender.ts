@@ -9,7 +9,10 @@
  * - `-dSAFER` still lets gs write under its temp dir, so it gets a private,
  *   empty TMPDIR and a clean environment. (bubblewrap is not an option: inside
  *   isaflow.service the kernel refuses it a user namespace, "setting up uid
- *   map: Permission denied".)
+ *   map: Permission denied".) In production gs also runs under the AppArmor
+ *   profile GS_APPARMOR_PROFILE names (`isaflow-gs`, scripts/apparmor/isaflow-gs):
+ *   no network, no exec, no files outside its temp dir. A profile that is named
+ *   but cannot be applied fails the render; it never falls back to a bare gs.
  * - one page only, into a fixed-size frame, stdin → stdout, a hard timeout, an
  *   output cap. Output that is not a PNG (an encrypted PDF exits 0 with only a
  *   message) is a failure. Callers bound how many run at once.
@@ -67,13 +70,23 @@ export async function renderPdfPage(pdfBuffer: Buffer, page: number): Promise<st
   } catch (err) {
     const detail = { page, bytes: pdfBuffer.length, error: err instanceof Error ? err.message : String(err) };
     // No gs/prlimit at all is an outage (every scan falls back), not one bad file.
-    if (err instanceof RenderUnavailable) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
+    if (err instanceof ConfinementUnavailable) {
+      log.error('PDF render unavailable: AppArmor profile could not be applied', { ...detail, profile: err.profile }, 'vlm-pdf-render');
+    } else if (err instanceof RenderUnavailable) log.error('PDF render unavailable: gs or prlimit not found', detail, 'vlm-pdf-render');
     else log.warn('PDF render failed', detail, 'vlm-pdf-render');
   }
   return null;
 }
 
 class RenderUnavailable extends Error {}
+class ConfinementUnavailable extends Error {
+  constructor(readonly profile: string, message: string) { super(message); }
+}
+
+/** The AppArmor profile gs runs under, or '' (dev, CI: unconfined). */
+function apparmorProfile(): string {
+  return process.env.GS_APPARMOR_PROFILE ?? '';
+}
 
 /** The PATH gs is both looked up on and spawned with. */
 function gsPath(): string {
@@ -103,7 +116,8 @@ function removeTmpDir(dir: string): void {
 }
 
 function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer; stderr: string }> {
-  const absent = ['prlimit', 'gs'].filter((name) => !onPath(name));
+  const profile = apparmorProfile();
+  const absent = ['prlimit', 'gs', ...(profile ? ['aa-exec'] : [])].filter((name) => !onPath(name));
   if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
   // gs's own temp dir, one per render: private (0700), empty, removed when gs exits.
   const gsTmpDir = mkdtempSync(join(tmpdir(), 'isaflow-gs-'));
@@ -111,7 +125,8 @@ function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer;
     const env = { NODE_ENV: process.env.NODE_ENV, PATH: gsPath(), TMPDIR: gsTmpDir };
     let gs: ChildProcessWithoutNullStreams;
     try {
-      gs = spawn('prlimit', [...LIMIT_ARGS, 'gs', ...gsArgs(page)], { stdio: ['pipe', 'pipe', 'pipe'], env });
+      const confine = profile ? ['aa-exec', '-p', profile, '--'] : [];
+      gs = spawn('prlimit', [...LIMIT_ARGS, ...confine, 'gs', ...gsArgs(page)], { stdio: ['pipe', 'pipe', 'pipe'], env });
     } catch (err) {
       removeTmpDir(gsTmpDir);
       reject(err instanceof Error ? err : new Error(String(err)));
@@ -146,6 +161,10 @@ function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer;
         : signal === 'SIGKILL' ? ' (prlimit CPU hard cap or OOM killer)' : '';
       if (failure) reject(failure);
       else if (signal) reject(new Error(`gs killed by ${signal}${cpuCap}`));
+      // aa-exec refusing (profile not loaded, AppArmor off) is an outage, like a missing gs.
+      else if (code !== 0 && profile && stderr.includes('aa-exec: ERROR')) {
+        reject(new ConfinementUnavailable(profile, `aa-exec exited ${code}: ${stderr.trim()}`));
+      }
       else if (code !== 0) {
         const cap = /VMerror|out of memory|failed to map|cannot allocate/i.test(stderr) ? ' (prlimit memory cap)' : '';
         reject(new Error(`gs exited ${code}${cap}: ${stderr.trim()}`));
