@@ -7,6 +7,7 @@
 
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { Pool } from 'pg';
+import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
 import { insertPreConstraintRow } from './helpers/preConstraintRow';
 import { sql } from '@/lib/neon';
 import { validateMigration } from '@/modules/accounting/services/core/migrationValidationService';
@@ -34,8 +35,9 @@ const COMPANIES: Array<[string, string]> = [
   ['00000000-0000-0000-0086-0000000000ad', 'R086 Test Company AR Overpaid'],
 ];
 
-beforeAll(() => setupCompanies(COMPANIES));
-afterAll(() => teardownCompanies(COMPANIES));
+// 899's CHECK refuses the over-paid invoice the round-4 case plants on purpose.
+beforeAll(async () => { await suspendAmountPaidCheck(); await setupCompanies(COMPANIES); });
+afterAll(async () => { await teardownCompanies(COMPANIES); await restoreAmountPaidCheck(); });
 
 describe('R-086 review round 3, MEDIUM: a future-dated posted journal must not desync the GL half from the document half', () => {
   it('AR vs GL passes for a LIVE "sent" invoice whose journal is dated in the future', async () => {
