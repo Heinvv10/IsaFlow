@@ -6,8 +6,8 @@
 // profit. (While the year-end close was read as a posted journal it zeroed those accounts and hid this.) The
 // balance check blocks the export, but says only "out by R x"; this names the accounts, so the user knows why.
 // The reverse, an asset/liability/equity account on an INCOME line, puts a stock on a flow statement, except a
-// debit-normal equity account on IS484 "Dividends paid": the balance sheet and the changes in equity carry it
-// (dividendsPaid.ts). Share capital or a reserve there (credit-normal) is still named.
+// dividends account on IS484 "Dividends paid" (debit-normal, or subtype 'dividends'): the balance sheet and the
+// changes in equity carry it (dividendsPaid.ts). Share capital or a reserve there is still named.
 //
 // It reports. It does not change a mapping.
 
@@ -37,7 +37,7 @@ async function checkAccountsMappedToTheirStatement(companyId: string): Promise<E
       AND sl.is_active = true
       AND ((sl.section = 'balance_sheet' AND ga.account_type IN ('revenue', 'expense'))
         OR (sl.section = 'income_statement' AND ga.account_type IN ('asset', 'liability', 'equity')
-          AND NOT (ga.account_type = 'equity' AND ga.normal_balance = 'debit' AND m.afs_line_code = ${DIVIDENDS_PAID_CODE})))
+          AND NOT (ga.account_type = 'equity' AND (ga.normal_balance = 'debit' OR ga.account_subtype = 'dividends') AND m.afs_line_code = ${DIVIDENDS_PAID_CODE})))
     ORDER BY ga.account_code, m.afs_line_code
   `) as Misplaced[] | undefined;
   if (!Array.isArray(rows) || rows.length === 0) return null;
