@@ -134,6 +134,7 @@ describe('a Netcash poll never decides what resolve allows (AP-01 round 9)', () 
     p.release();
     const res = await resolving;
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+    expect(JSON.stringify(res.state.body)).toMatch(/changed from submitted to completed since you opened it/); // round 10
     expect((await row(id)).status).toBe('completed');
     expect((await submit(c, b.id)).state.statusCode).toBe(409);
     expect(hold.submitEftBatch).toHaveBeenCalledTimes(1);
@@ -168,7 +169,7 @@ describe('the poll answer is a hint, written by merge and never older than what 
         .toEqual({ flagged: false, status: expect.stringMatching(/^(submitted|processing)$/), pollFailure: undefined, latest: said });
     });
 
-  it.each(['Unsuccessful', 'UNSUCCESSFUL', 'Failed', 'Rejected', 'Error'])('"%s" is flagged as a failure and is never completed', async (said) => {
+  it.each(['Unsuccessful', 'UNSUCCESSFUL', 'Failed', 'FAILED', 'Rejected', 'Rejected: invalid account', 'Error'])('"%s" is flagged as a failure and is never completed', async (said) => {
     const { c, id } = await submitted();
     answer(said);
     const r = await poll(c, id);
@@ -177,18 +178,46 @@ describe('the poll answer is a hint, written by merge and never older than what 
       .toEqual({ flagged: true, status: 'submitted', pollFailure: said });
   });
 
-  it.each(['Not successful', 'Completed with errors', 'Success - 2 rejected', 'Batch completed'])('ambiguous "%s" stays processing (not completed, not flagged)', async (said) => {
+  it.each(['Not successful', 'Completed with errors', 'Success - 2 rejected', 'Batch completed', 'Completed - 2 payments unpaid',
+    'Successful (1 returned)', 'Paid with exceptions', 'Success', 'Completed.'])('ambiguous "%s" stays processing (not completed, not flagged)', async (said) => {
     const { c, id } = await submitted();
     answer(said);
     const r = await poll(c, id);
     expect({ flagged: flagged(r), status: (await row(id)).status }).toEqual({ flagged: false, status: 'processing' });
   });
 
-  it.each(['Completed', 'completed', 'Successful', 'Success'])('"%s" completes the submission', async (said) => {
+  it.each(['Completed', 'completed', 'Successful', ' COMPLETE '])('"%s" (exactly a completion word) completes the submission', async (said) => {
     const { c, id } = await submitted();
     answer(said);
     await poll(c, id);
     expect((await row(id)).status).toBe('completed');
+  });
+
+  it('a poll never moves a row backwards: a processing row answered "Submitted" stays processing (round 10)', async () => {
+    const { c, id } = await submitted('processing');
+    answer('Submitted');
+    expect((await poll(c, id)).state.statusCode).toBe(200);
+    const after = await row(id);
+    expect({ status: after.status, latest: after.netcash_response.latestPoll?.status }).toEqual({ status: 'processing', latest: 'Submitted' });
+  });
+
+  it('no service key: nothing is polled or written (no mock answer stands in for Netcash) (round 10)', async () => {
+    const { c, id } = await submitted();
+    await pool.query("UPDATE companies SET netcash_service_key = '' WHERE id = $1", [c]);
+    const real = await vi.importActual<typeof import('@/modules/accounting/services/ap/netcashService')>('@/modules/accounting/services/ap/netcashService');
+    hold.getSubmissionStatus.mockImplementation(real.getSubmissionStatus);
+    const res = await poll(c, id);
+    const after = await row(id);
+    expect({ http: res.state.statusCode, polled: (res.state.body as { data?: { polled?: boolean } }).data?.polled, status: after.status, latest: after.netcash_response.latestPoll })
+      .toEqual({ http: 200, polled: false, status: 'submitted', latest: undefined });
+  });
+
+  it('a manager may poll but not resolve; a poll that completes the row refuses the owner\'s resolve', async () => {
+    const { c, id } = await submitted();
+    expect((await resolve(u.manager, c, id)).state.statusCode).toBe(403);
+    answer('Successful');
+    expect((await callRoute(netcashStatus, tokens[u.manager]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id })).state.statusCode).toBe(200);
+    expect({ status: (await row(id)).status, resolve: (await resolve(u.admin, c, id)).state.statusCode }).toEqual({ status: 'completed', resolve: 409 });
   });
 
   it('overlapping polls: an older failure answer written after a newer clean one changes nothing', async () => {

@@ -47,7 +47,6 @@ export interface NetcashSubmitResult {
 export interface NetcashStatusResult {
   status: string;
   detail: string;
-  mock?: boolean;
 }
 
 /** Wraps fetch with a hard 30-second timeout */
@@ -153,9 +152,11 @@ export async function getSubmissionStatus(
   serviceKey: string,
   batchReference: string,
 ): Promise<NetcashStatusResult> {
+  // No mock answer (AP-01 round 10): a made-up 'processing' moved accepted rows and was stored as Netcash's answer.
+  // netcash/status does not call this without a key; 'unknown' is what an unanswered poll is.
   if (!serviceKey) {
-    log.warn('Netcash status poll called without service key — returning mock', {}, 'netcash');
-    return { status: 'processing', detail: 'Mock status — no API key configured', mock: true };
+    log.warn('Netcash status poll called without service key - nothing polled', {}, 'netcash');
+    return { status: 'unknown', detail: 'Netcash service key is not configured' };
   }
 
   try {

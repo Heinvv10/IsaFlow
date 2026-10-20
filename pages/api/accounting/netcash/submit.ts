@@ -15,7 +15,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { validateNetcashPayees } from '@/modules/accounting/services/ap/netcashPayeeValidation';
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { unreleasedBankFile } from '@/modules/accounting/services/ap/batchBankFileRecord';
-import { claimBatch, settleClaim, type SettleResult } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
+import { claimBatch, type SettleResult } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
@@ -149,48 +149,47 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // not ride in this request's transaction: withAuth rolls that back on any >=500, a crash or a timeout, and the claim
   // of a batch that may already be paid would go with it.
   const principal = { companyId, claims: (req.user?.claims ?? {}) as Record<string, unknown> };
-  const claimId = await claimBatch(principal, {
+  const claim = await claimBatch(principal, {
     batchId: batchPaymentId, batchReference, totalAmountCents,
     recordCount: payments.length, createdBy,
   });
-  if (!claimId) return respondBatchAlreadyClaimed(res, companyId, batchPaymentId);
+  if (!claim) return respondBatchAlreadyClaimed(res, companyId, batchPaymentId);
+  const claimId = claim.id;
 
+  // The claim's connection holds its send lock (ap/netcashSendLock) from before the claim committed until the settle
+  // has: netcash/resolve refuses the claim while this request is alive, however long the send stalls. end() always.
   let result: NetcashSubmitResult;
-  try {
-    result = await submitEftBatch(serviceKey, payoutsKey, payments);
-  } catch (err) {
-    // The service answers every failure itself; a throw here is unexpected, and the request may have left.
-    log.error('Netcash EFT submit threw', { error: err instanceof Error ? err.message : String(err) }, 'netcash-api');
-    result = { success: false, outcome: 'unknown', error: 'Unexpected error while submitting to Netcash' };
-  }
-
-  // 'failed' only when Netcash definitely refused the batch (it may then be sent again); an indeterminate outcome is
-  // 'unknown' and keeps the batch claimed until someone has checked Netcash.
-  const status = result.success ? 'submitted' : result.outcome === 'rejected' ? 'failed' : 'unknown';
-  const reference = result.batchReference ?? batchReference;
-  const submittedAt = result.success ? new Date().toISOString() : null;
-
-  // Settled in its own committed transaction. If that fails the claim stays 'pending' - the batch stays closed until an
-  // operator clears it - and the error answers 500: the request's rollback no longer touches the claim.
+  let status: 'submitted' | 'failed' | 'unknown';
   let settled: SettleResult;
   try {
-    settled = await settleClaim(principal, claimId, { status, batchReference: reference, netcashResponse: result, submittedAt });
-  } catch (err) {
-    log.error('Netcash claim not settled; left pending (the batch stays closed until an operator clears it)', {
-      submissionId: claimId, outcome: result.outcome, error: err instanceof Error ? err.message : String(err),
-    }, 'netcash-api');
-    throw err;
+    try {
+      result = await submitEftBatch(serviceKey, payoutsKey, payments);
+    } catch (err) {
+      // The service answers every failure itself; a throw here is unexpected, and the request may have left.
+      log.error('Netcash EFT submit threw', { error: err instanceof Error ? err.message : String(err) }, 'netcash-api');
+      result = { success: false, outcome: 'unknown', error: 'Unexpected error while submitting to Netcash' };
+    }
+
+    // 'failed' only when Netcash definitely refused the batch (it may then be sent again); an indeterminate outcome is
+    // 'unknown' and keeps the batch claimed until someone has checked Netcash.
+    status = result.success ? 'submitted' : result.outcome === 'rejected' ? 'failed' : 'unknown';
+    const reference = result.batchReference ?? batchReference;
+    const submittedAt = result.success ? new Date().toISOString() : null;
+
+    // Settled in its own committed transaction. If that fails the claim stays 'pending' - the batch stays closed until
+    // an operator clears it - and the error answers 500: the request's rollback no longer touches the claim.
+    try {
+      settled = await claim.settle({ status, batchReference: reference, netcashResponse: result, submittedAt });
+    } catch (err) {
+      log.error('Netcash claim not settled; left pending (the batch stays closed until an operator clears it)', {
+        submissionId: claimId, outcome: result.outcome, error: err instanceof Error ? err.message : String(err),
+      }, 'netcash-api');
+      throw err;
+    }
+  } finally {
+    await claim.end();
   }
-  if (settled.kind === 'lost') {
-    // An operator resolved the claim while this send was in flight: Netcash's answer is kept on the row, not applied.
-    log.error('Netcash claim was resolved while its send was in flight - answer kept as lateSendResult, row left as is', {
-      submissionId: claimId, outcome: result.outcome, batchReference: result.batchReference, rowStatus: settled.status,
-    }, 'netcash-api');
-    return apiResponse.conflict(res,
-      `This submission was resolved by an operator (now ${settled.status}) while it was being sent, so Netcash's answer `
-      + `(${result.outcome}) was not applied. Check Netcash for this batch before doing anything else.`,
-      { reason: 'CLAIM_RESOLVED_DURING_SEND', submissionId: claimId, status: settled.status, netcashOutcome: result.outcome });
-  }
+  if (settled.kind === 'lost') return respondClaimLost(res, claimId, result, settled);
   const submissionId = claimId;
 
   if (status === 'unknown') {
@@ -213,6 +212,33 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     totalAmountCents,
     mock: result.mock ?? false,
   });
+}
+
+/**
+ * The claim was no longer 'pending' when Netcash answered (it was released while the send was in flight): 409. The
+ * answer is on the row as lateSendResult; an accepted/unknown answer put a 'failed' row back (`reopened`), unless a
+ * newer claim already holds the batch - then the batch may be paid twice, and both submissions are named.
+ */
+function respondClaimLost(res: NextApiResponse, claimId: string, result: NetcashSubmitResult,
+  settled: Extract<SettleResult, { kind: 'lost' }>): void {
+  const details = { reason: 'CLAIM_RESOLVED_DURING_SEND', submissionId: claimId, status: settled.status, netcashOutcome: result.outcome,
+    reopened: settled.reopened ?? false, newerSubmissionId: settled.newerSubmissionId ?? null };
+  if (settled.newerSubmissionId !== undefined) {
+    log.error('Netcash accepted a send whose claim was released, and a newer claim already holds the batch - it may be paid twice', {
+      submissionId: claimId, newerSubmissionId: settled.newerSubmissionId, outcome: result.outcome, batchReference: result.batchReference,
+    }, 'netcash-api');
+    return apiResponse.conflict(res,
+      `Netcash answered ${result.outcome} for submission ${claimId} after it was released, and the batch was sent again `
+      + `(submission ${settled.newerSubmissionId ?? 'unknown'}): it may be paid twice. Check Netcash for both now.`, details);
+  }
+  log.error('Netcash claim was released while its send was in flight - answer kept as lateSendResult', {
+    submissionId: claimId, outcome: result.outcome, batchReference: result.batchReference, rowStatus: settled.status, reopened: settled.reopened ?? false,
+  }, 'netcash-api');
+  return apiResponse.conflict(res, settled.reopened
+    ? `This submission was released while it was being sent, but Netcash answered ${result.outcome}: it is ${settled.status} again, so `
+      + 'the batch stays closed. Check Netcash for this batch.'
+    : `This submission was resolved by an operator (now ${settled.status}) while it was being sent, so Netcash's answer `
+      + `(${result.outcome}) was not applied. Check Netcash for this batch before doing anything else.`, details);
 }
 
 /** 409 naming the submission that holds the batch (the live row the claim ran into). */
