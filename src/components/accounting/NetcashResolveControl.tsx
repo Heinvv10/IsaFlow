@@ -1,38 +1,41 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
-import { useCompany } from '@/contexts/CompanyContext';
 
 /** The roles `POST /api/accounting/netcash/resolve` accepts. */
 const RESOLVE_ROLES = ['owner', 'admin'];
 
 type Outcome = 'failed' | 'submitted';
 
-interface Props {
-  submissionId: string;
-  status: string;
-  /** Netcash's latest poll of a submitted/processing row reported a failure (netcash_response.pollFailure). */
-  pollFailed: boolean;
-  onResolved: () => void;
+/** status.ts keeps the last Netcash poll on the row (netcash_response.latestPoll): context for the operator only. */
+export interface LastPoll { status?: string; at?: string }
+
+/** Statuses resolve accepts: every row that holds its batch. A completed or failed row is never resolved. */
+const RESOLVABLE = ['pending', 'unknown', 'submitted', 'processing'];
+/** Netcash accepted these: freeing one can pay the batch twice, so it is offered as "failed" only, with a warning. */
+const accepted = (status: string) => status === 'submitted' || status === 'processing';
+
+/** Whether `role` may resolve a submission in this state (owner/admin; pending, unknown, submitted or processing). */
+export function canResolveSubmission(role: string | null | undefined, status: string): boolean {
+  return RESOLVE_ROLES.includes(role ?? '') && RESOLVABLE.includes(status);
 }
 
-/**
- * Whether `role` may resolve a submission in this state: owner/admin, and only a pending or unknown claim, or a
- * submitted/processing one whose latest poll reported a failure (a polled-failed row is freed as "failed" only).
- */
-export function canResolveSubmission(role: string | null | undefined, status: string, pollFailed: boolean): boolean {
-  if (!RESOLVE_ROLES.includes(role ?? '')) return false;
-  return status === 'pending' || status === 'unknown' || ((status === 'submitted' || status === 'processing') && pollFailed);
+function lastPollText(poll: LastPoll | null | undefined): string {
+  if (!poll?.status) return 'Netcash has not been checked from here yet.';
+  const when = poll.at ? new Date(poll.at).toLocaleString('en-ZA') : '';
+  return `Last Netcash check${when ? ` (${when})` : ''}: "${poll.status}". This is context only - check the Netcash portal.`;
 }
 
 /**
  * The inline resolve form (netcash/resolve): what Netcash shows, a required note typed here, Confirm / Cancel. A
- * polled-failed row (`polledFailed`) is offered "never received" only. The page puts it in a full-width row under the
- * submission so it never squeezes the table's columns.
+ * pending/unknown claim offers both outcomes. A submitted/processing row offers "failed" only, warns that freeing it
+ * can pay the batch twice, and shows the last poll's answer as context (never as the reason it may be freed). The
+ * page puts it in a full-width row under the submission so it never squeezes the table's columns.
  */
-export function NetcashResolveForm({ submissionId, polledFailed, onResolved, onClose }: {
-  submissionId: string; polledFailed: boolean; onResolved: () => void; onClose: () => void;
+export function NetcashResolveForm({ submissionId, status, lastPoll, onResolved, onClose }: {
+  submissionId: string; status: string; lastPoll: LastPoll | null | undefined; onResolved: () => void; onClose: () => void;
 }) {
+  const wasAccepted = accepted(status);
   const [outcome, setOutcome] = useState<Outcome | ''>('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -60,13 +63,24 @@ export function NetcashResolveForm({ submissionId, polledFailed, onResolved, onC
 
   return (
     <div className="max-w-xl space-y-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-3 text-left text-xs">
+      {wasAccepted && (
+        <div className="space-y-1 rounded-md border border-red-500/40 bg-red-500/10 p-2 text-red-400">
+          <p className="font-medium">
+            Netcash accepted this batch. Freeing it lets the batch be sent again: if Netcash has it, the suppliers are paid twice.
+            Only continue once the Netcash portal shows it was rejected or never processed.
+          </p>
+          <p className="text-[var(--ff-text-secondary)]">{lastPollText(lastPoll)}</p>
+        </div>
+      )}
       <fieldset className="space-y-1">
         <legend className="mb-1 font-medium text-[var(--ff-text-primary)]">What does Netcash show?</legend>
         <label className="flex items-start gap-2 text-[var(--ff-text-secondary)]">
           <input type="radio" name={`outcome-${submissionId}`} checked={outcome === 'failed'} onChange={() => setOutcome('failed')} className="mt-0.5" />
-          <span>Netcash never received this batch - allow it to be sent again</span>
+          <span>{wasAccepted
+            ? 'Netcash rejected it or never processed it - allow it to be sent again'
+            : 'Netcash never received this batch - allow it to be sent again'}</span>
         </label>
-        {!polledFailed && (
+        {!wasAccepted && (
           <label className="flex items-start gap-2 text-[var(--ff-text-secondary)]">
             <input type="radio" name={`outcome-${submissionId}`} checked={outcome === 'submitted'} onChange={() => setOutcome('submitted')} className="mt-0.5" />
             <span>Netcash has this batch - keep it closed</span>
@@ -98,19 +112,4 @@ export function NetcashResolveForm({ submissionId, polledFailed, onResolved, onC
       </div>
     </div>
   );
-}
-
-/** Button and form together, for a place that has no table row to put the form in. Renders nothing when not allowed. */
-export function NetcashResolveControl({ submissionId, status, pollFailed, onResolved }: Props) {
-  const role = useCompany().companyRole;
-  const [open, setOpen] = useState(false);
-  if (!canResolveSubmission(role, status, pollFailed)) return null;
-  if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} className="text-xs text-orange-400 hover:text-orange-300">
-        Resolve…
-      </button>
-    );
-  }
-  return <NetcashResolveForm submissionId={submissionId} polledFailed={pollFailed && status !== 'pending' && status !== 'unknown'} onResolved={onResolved} onClose={() => setOpen(false)} />;
 }

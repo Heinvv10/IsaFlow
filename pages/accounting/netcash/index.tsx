@@ -7,7 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, RefreshCw, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
-import { canResolveSubmission, NetcashResolveForm } from '@/components/accounting/NetcashResolveControl';
+import { canResolveSubmission, NetcashResolveForm, type LastPoll } from '@/components/accounting/NetcashResolveControl';
 
 interface Submission {
   id: string;
@@ -19,8 +19,8 @@ interface Submission {
   submitted_at: string | null;
   created_at: string;
   created_by: string | null;
-  /** status.ts keeps a poll that reported a failure as `pollFailure`; a clean poll removes it. */
-  netcash_response?: { pollFailure?: unknown } | null;
+  /** status.ts keeps the last poll (`latestPoll`) and, while it reads as a failure, `pollFailure`: display hints only. */
+  netcash_response?: { pollFailure?: unknown; latestPoll?: LastPoll } | null;
 }
 
 const STATUS_BADGE: Record<Submission['status'], string> = {
@@ -40,7 +40,7 @@ const HOLDING_NOTE: Partial<Record<Submission['status'], string>> = {
 
 const POLL_FAILED_NOTE = 'Netcash reported a failure on the last check. Check Netcash, then resolve it.';
 
-/** Netcash's last poll of a submitted/processing row reported a failure. */
+/** Netcash's last poll of a submitted/processing row read as a failure (a hint for the note; resolve never reads it). */
 const pollFailed = (s: Submission) => (s.status === 'submitted' || s.status === 'processing') && Boolean(s.netcash_response?.pollFailure);
 
 function formatRands(cents: number): string {
@@ -169,7 +169,7 @@ export default function NetcashSubmissionsPage() {
                         {(HOLDING_NOTE[s.status] ?? (pollFailed(s) ? POLL_FAILED_NOTE : undefined)) && (
                           <span className="text-xs text-orange-400 text-right max-w-[16rem]">{HOLDING_NOTE[s.status] ?? POLL_FAILED_NOTE}</span>
                         )}
-                        {canResolveSubmission(companyRole, s.status, pollFailed(s)) && (
+                        {canResolveSubmission(companyRole, s.status) && (
                           <button onClick={() => setResolvingId(s.id)} className="text-xs text-orange-400 hover:text-orange-300">Resolve…</button>
                         )}
                         {(s.status === 'submitted' || s.status === 'processing') && (
@@ -200,7 +200,8 @@ export default function NetcashSubmissionsPage() {
                       <td colSpan={7} className="px-4 pb-4">
                         <NetcashResolveForm
                           submissionId={s.id}
-                          polledFailed={pollFailed(s)}
+                          status={s.status}
+                          lastPoll={s.netcash_response?.latestPoll}
                           onResolved={() => void fetchSubmissions()}
                           onClose={() => setResolvingId(null)}
                         />
