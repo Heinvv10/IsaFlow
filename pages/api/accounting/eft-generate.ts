@@ -48,9 +48,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Get batch details — scoped to company
   // batch_date::text: pg hands a DATE back as a Date at local midnight, which toISOString() shifts a day in SAST.
+  // FOR SHARE, held to the end of the request: the status judged below stays true until the file is built —
+  // cancelBatch / processBatch (UPDATE / FOR UPDATE on this row) wait for it, or this reads what they left (AP-10).
+  // The row first, then the payees (batchBankFileGate), the order processBatch takes them in.
   const batches = await sql`
     SELECT id, batch_number, status, bank_account_id, batch_date::text AS batch_date
     FROM supplier_payment_batches WHERE id = ${batchId} AND company_id = ${companyId}::UUID
+    FOR SHARE
   ` as Row[];
   if (!batches[0]) return apiResponse.notFound(res, 'Batch', batchId);
   // R-035 PR5: a bank file is money leaving, so under payment_batch
