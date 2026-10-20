@@ -259,3 +259,44 @@ describe('buildCertificateNumber', () => {
     expect(() => buildCertificateNumber('7123456789', 2026, 2, 'A'.repeat(15))).toThrow(UsageError);
   });
 });
+
+// ─── Audit 2026-10-18 P3: annual payments and lump sums under a directive ────
+
+describe('buildEmployeeRecord — 3605 and directive lump sums', () => {
+  const withLumpSum: EmployeeInput = {
+    ...validEmployee,
+    grossSalary3601: 20000,
+    annualPayments3605: 14800,
+    paye4102: 2115,
+    lumpSums: [{ sourceCode: '3901', directiveNumber: '9876543210', directiveIssuedDate: '20260505', amount: 30000.4, paye: 3000 }],
+  };
+
+  it('emits the directive group before the income codes, then 3601, 3605, 3901, 4102, 4115', () => {
+    const lines = buildEmployeeRecord(withLumpSum);
+    const at = (field: string) => lines.indexOf(field);
+    for (const f of ['3230,"9876543210"', '3231,20260505', '3232,3901', '3233,30000', '3601,20000', '3605,14800',
+      '3901,30000', '4102,2115.00', '4115,3000.00']) {
+      expect(lines, f).toContain(f);
+    }
+    expect(at('3233,30000')).toBeLessThan(at('3601,20000'));
+    expect(at('3601,20000')).toBeLessThan(at('3605,14800'));
+    expect(at('3605,14800')).toBeLessThan(at('3901,30000'));
+    expect(at('4102,2115.00')).toBeLessThan(at('4115,3000.00'));
+  });
+
+  it('a lump sum alone is a valid certificate (no 3601)', () => {
+    const lines = buildEmployeeRecord({ ...withLumpSum, grossSalary3601: 0, annualPayments3605: 0 });
+    expect(lines.some(l => l.startsWith('3601,'))).toBe(false);
+    expect(lines).toContain('3901,30000');
+  });
+
+  it('no lump sums: no 4115 and no directive group', () => {
+    const lines = buildEmployeeRecord(validEmployee);
+    expect(lines.some(l => /^(4115|3230|3231|3232|3233),/.test(l))).toBe(false);
+  });
+
+  it.each([['ABC123'], [''], ['000000'], ['1234567890123456']])('refuses directive number %j, naming the employee', (n) => {
+    expect(() => buildEmployeeRecord({ ...withLumpSum, lumpSums: [{ ...withLumpSum.lumpSums![0]!, directiveNumber: n }] }))
+      .toThrow(new RegExp(`${validEmployee.surname}.*certificate ${validEmployee.certificateNumber}`));
+  });
+});

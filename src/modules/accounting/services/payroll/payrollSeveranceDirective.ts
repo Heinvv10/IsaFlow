@@ -100,7 +100,9 @@ export async function findSeveranceDirectiveForRun(
  * available to it: the first run after the directive is approved pays them the
  * severance line alone (decided 2026-10-20). Disjoint from
  * listPayrollRunEmployees, which takes nobody whose end_date is before the
- * period.
+ * period. Availability is findSeveranceDirectiveForRun's, the one statement of
+ * it; this query only narrows the leavers to those with an approved severance
+ * directive at all.
  */
 export async function listSeveranceOnlyRunEmployees(
   companyId: string,
@@ -108,28 +110,22 @@ export async function listSeveranceOnlyRunEmployees(
   period: PayrollPeriod,
 ): Promise<PayrollEmployee[]> {
   const rows = (await sql`
-    WITH p AS (
-      SELECT make_date(${period.year}::int, ${period.month}::int, 1) AS start,
-             (make_date(${period.year}::int, ${period.month}::int, 1) + INTERVAL '1 month - 1 day')::date AS last_day
-    )
-    SELECT e.* FROM payroll_employees e, p
+    SELECT e.* FROM payroll_employees e
     WHERE e.company_id = ${companyId}::uuid
-      AND e.end_date < p.start
+      AND e.end_date < make_date(${period.year}::int, ${period.month}::int, 1)
       AND EXISTS (
         SELECT 1 FROM tax_directives d
-        LEFT JOIN tax_directive_payments tdp ON tdp.tax_directive_id = d.id AND tdp.company_id = d.company_id
-        WHERE d.company_id = e.company_id
-          AND d.employee_id = e.id
-          AND d.directive_type = 'severance'
-          AND d.status = 'approved'
-          AND d.effective_date <= p.last_day
-          AND (d.expiry_date IS NULL OR d.expiry_date >= p.last_day)
-          AND (d.tax_rate IS NOT NULL OR d.tax_amount IS NOT NULL)
-          AND (tdp.id IS NULL OR tdp.payroll_run_id = ${runId}::uuid)
+        WHERE d.company_id = e.company_id AND d.employee_id = e.id
+          AND d.directive_type = 'severance' AND d.status = 'approved'
       )
     ORDER BY e.last_name, e.first_name
   `) as DbRow[];
-  return rows.map(mapPayrollEmployeeRow);
+  const out: PayrollEmployee[] = [];
+  for (const row of rows) {
+    const employee = mapPayrollEmployeeRow(row);
+    if ((await findSeveranceDirectiveForRun(companyId, employee.id, runId, period)).available) out.push(employee);
+  }
+  return out;
 }
 
 /** The run line component that pays `d`: code 3901, not UIF- or SDL-leviable, PAYE as on the directive. */

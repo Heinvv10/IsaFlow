@@ -7,6 +7,11 @@
  * journal is still in the ledger), and approving it again refreshes the claim
  * or, when the line has gone, releases it.
  *
+ * The gate also refuses a run that pays a lump sum (39xx) under no directive
+ * (`lump_sum_without_directive`): the calculator deducts no PAYE from one
+ * (payeTreatment), and paragraph 9(3) of the Fourth Schedule requires the
+ * directive before it is paid (SARS PAYE-GEN-01-G21 (2027) p. 22).
+ *
  * Refused (PayrollApprovalRefusedError, nothing written) when a line's
  * directive is no longer approved, no longer carries the figures the line was
  * calculated with, or was paid by something else: the stand-alone payment
@@ -96,8 +101,33 @@ async function readDirectives(q: TxSql | typeof sql, companyId: string, ids: str
   return new Map(rows.map(r => [String(r.id), r]));
 }
 
-/** The approval gate's blocker for the run's directive lines, or null. Read-only. */
+/** Employee numbers and codes of taxable lump sums (39xx) the run pays with no directive. */
+async function lumpSumsWithoutDirective(companyId: string, runId: string): Promise<string[]> {
+  const rows = (await sql`
+    SELECT DISTINCT e.employee_number, item->>'sarsSourceCode' AS code
+    FROM payroll_run_lines l
+    JOIN payroll_run_headers h ON h.id = l.run_id
+    JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+    CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
+    WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+      AND item->>'sarsSourceCode' ~ '^39[0-9]{2}$'
+      AND (item->>'isTaxable')::boolean
+      AND item->'directive' IS NULL
+    ORDER BY 1, 2
+  `) as DbRow[];
+  return rows.map(r => `${String(r.employee_number)} (${String(r.code)})`);
+}
+
+/** The approval gate's blocker for the run's lump-sum and directive lines, or null. Read-only. */
 export async function judgeRunDirectives(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
+  const undirected = await lumpSumsWithoutDirective(companyId, runId);
+  if (undirected.length > 0) {
+    return {
+      code: 'lump_sum_without_directive',
+      detail: `This run pays lump sums with no SARS tax directive, so no PAYE was deducted from them: ${undirected.join(', ')}. `
+        + 'SARS requires the directive before a lump sum is paid. Remove the component, or pay it under an approved directive.',
+    };
+  }
   const lines = await directiveLines(sql, companyId, runId);
   if (lines.length === 0) return null;
   const dirs = await readDirectives(sql, companyId, lines.map(l => l.directiveId), false);
@@ -119,6 +149,9 @@ export async function claimRunSeveranceDirectives(companyId: string, runId: stri
       const why = refusal(l, dirs.get(l.directiveId), runId);
       if (why) throw new PayrollApprovalRefusedError(`Cannot approve: ${why}`);
     }
+    // Release this run's claims on directives its lines no longer carry. With
+    // no lines, ANY of the empty array is false for every row, so NOT(...)
+    // releases all of them.
     await tx`
       DELETE FROM tax_directive_payments
       WHERE company_id = ${companyId}::uuid AND payroll_run_id = ${runId}::uuid

@@ -7,7 +7,9 @@
  * MVP scope:
  *   - IRP5 certificates only (no IT3(a), no ITREG)
  *   - Natural persons with valid RSA ID (nature-of-person A)
- *   - Income code 3601 (gross salary/wages)
+ *   - Income code 3601 (gross salary/wages), and 3605 annual payments (bonus,
+ *     leave pay on resignation, notice pay — SARS PAYE-GEN-01-G21 (2027) p. 33:
+ *     "Reflect under code 3605"), which 3601 then excludes
  *   - Lump sums paid under a SARS directive (audit 2026-10-18 P3): the income
  *     code on the directive (3901 severance) with its PAYE under 4115, and the
  *     lump-sum directive group 3230 number, 3231 issued date, 3232 income
@@ -31,16 +33,16 @@
  *     (tax_directive_payments with no payroll run)
  *   - The BRS rule that a 3901-only certificate with 4102 = 0 needs 4115 > 0
  *     or a 4150 reason: a directive with nil tax fails e@syFile's validation
- *   - Fringe benefits, allowances, annual payments (codes 3605, 3701-3713,
- *     3801-3815): 3605 is still reported inside 3601
+ *   - Fringe benefits and allowances (codes 3701-3713, 3801-3815)
  *   - Non-natural persons / directors / asylum seekers
  *
  * The service throws UsageError on missing employer data so the caller can
  * surface a clear remediation message to the user.
  */
 
-export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
+
+export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,6 +82,8 @@ export interface EmployeeInput {
   uifEmployee: number;            // part of 4141 (total UIF) — cents kept
   uifEmployer: number;            // part of 4141 (total UIF) — cents kept
   sdl4142: number;                // 4142 (SDL) — cents kept
+  /** Annual payments (3605), NOT included in grossSalary3601. Their PAYE stays in 4102. */
+  annualPayments3605?: number;
   /** Lump sums paid under a directive, NOT included in grossSalary3601 / paye4102. */
   lumpSums?: LumpSumInput[];
 }
@@ -186,15 +190,18 @@ function validateEmployee(emp: EmployeeInput): void {
     throw new UsageError('Periods in year of assessment (code 3215) must be 0..12');
   }
   const lumpSums = emp.lumpSums ?? [];
-  if (emp.grossSalary3601 <= 0 && !lumpSums.some(l => l.amount > 0)) {
-    throw new UsageError('At least one income code must be greater than zero — 3601 (gross salary) or a lump sum must be > 0 for an IRP5');
+  if (emp.grossSalary3601 <= 0 && (emp.annualPayments3605 ?? 0) <= 0 && !lumpSums.some(l => l.amount > 0)) {
+    throw new UsageError('At least one income code must be greater than zero — 3601 (gross salary), 3605 or a lump sum must be > 0 for an IRP5');
   }
+  const who = `${emp.surname} (certificate ${emp.certificateNumber})`;
   for (const l of lumpSums) {
+    // BRS V25.2.0 code 3230: AN15; numeric only for a 3901 directive; not zeros.
     if (!/^\d{1,15}$/.test(l.directiveNumber) || /^0+$/.test(l.directiveNumber)) {
-      throw new UsageError(`Directive number (code 3230) for lump sum ${l.sourceCode} must be up to 15 digits and not zeros: "${l.directiveNumber}"`);
+      throw new UsageError(`Directive number (code 3230) of the ${l.sourceCode} lump sum for ${who} must be up to 15 digits and not zeros: `
+        + `"${l.directiveNumber}". Correct the number on the tax directive.`);
     }
     if (!/^\d{8}$/.test(l.directiveIssuedDate)) {
-      throw new UsageError('Directive issued date (code 3231) must be CCYYMMDD');
+      throw new UsageError(`Directive issued date (code 3231) of the ${l.sourceCode} lump sum for ${who} must be CCYYMMDD`);
     }
   }
 }
@@ -230,6 +237,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
       formatField(3233, l.amount, 'N'),
     ]),
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
+    formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
     ...lumpIncome(lumpSums),
     formatField(4102, emp.paye4102, 'N_CENTS'),
     lumpSums.length > 0

@@ -134,6 +134,11 @@ export interface PayrollLineInput {
    */
   annualPayrollEstimate: number | 'defer';
   priorPeriodCumulativePaye?: number;
+  /**
+   * True for a leaver paid after leaving (the severance-only line of a later
+   * run): no hours employed in the period, so no ETI (see payrollCalculator).
+   */
+  notEmployedInPeriod?: boolean;
 }
 
 export interface ComponentBreakdownItem {

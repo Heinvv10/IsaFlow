@@ -118,3 +118,44 @@ describe('P3: a lump sum (39xx) is never taxed by the tables', () => {
     expect(item?.directive).toEqual({ id: 'd1', number: '1234567', paye: 9_000 });
   });
 });
+
+describe('P3: taxable deductions and the split', () => {
+  it('a taxable deduction larger than regular pay comes off the annual payment', () => {
+    // Regular 5 000 − 8 000 deduction → 0; the 3 000 excess comes off the 130 000 bonus.
+    // tax(127 000) = 22 860 − 17 820 = 5 040.
+    const l = line([
+      { component: comp('3601'), amount: 5_000 },
+      { component: comp('4001', { componentType: 'deduction' }), amount: 8_000 },
+      { component: comp('3605'), amount: 130_000 },
+    ]);
+    expect(l.payeSplit).toEqual({ regular: 0, annualPayment: 5040, directive: 0 });
+    expect(l.taxableIncome).toBe(127_000);
+  });
+});
+
+describe('P3: a leaver paid after leaving earns no ETI', () => {
+  // 23 years old, R5 000, in the second 12 months employed (from January 2025):
+  // the April 2025 table gives R750 (etiTables.ts).
+  const young = {
+    id: 'emp-2', dateOfBirth: new Date(2003, 0, 1), startDate: new Date(2025, 0, 1),
+    uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
+  } as unknown as PayrollEmployee;
+  const severance: EmployeeComponent = {
+    component: comp('3901'), amount: 5_000, directive: { id: 'd2', number: '1', paye: 0 },
+  };
+  const run = (notEmployedInPeriod: boolean) => calculatePayrollLine({
+    employee: young, components: [severance], period: { month: 6, year: 2026 }, taxYear: 2027,
+    annualPayrollEstimate: 'defer', notEmployedInPeriod,
+  });
+
+  it('is employed in the month: ETI as the table gives it', () => {
+    expect(run(false).eti.monthlyEti).toBe(750);
+  });
+
+  it('is not employed in the month: nil, and says so', () => {
+    const eti = run(true).eti;
+    expect(eti.monthlyEti).toBe(0);
+    expect(eti.isEligible).toBe(false);
+    expect(eti.ineligibilityReason).toMatch(/Not employed/);
+  });
+});

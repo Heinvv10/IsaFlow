@@ -4,7 +4,8 @@
  * 2026-10-18 P3.
  *
  * Read from the run lines, so a certificate carries exactly what the declared
- * runs paid: the directive line's amount and PAYE (they are in the line's
+ * runs paid: every breakdown item paid under a directive (`directive` set, which
+ * only a lump sum carries; the approval gate refuses a lump sum without one): the directive line's amount and PAYE (they are in the line's
  * gross_pay and paye, which therefore include them), and the directive's
  * number from the directive row. Declarable runs only, in the SA tax year, as
  * irp5DataService and EMP201 count them.
@@ -22,7 +23,6 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
-import { SEVERANCE_DIRECTIVE_COMPONENT_ID } from './payrollSeveranceDirective';
 
 export interface LumpSumFiling {
   /** SARS income source code, e.g. '3901'. */
@@ -35,6 +35,32 @@ export interface LumpSumFiling {
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * Annual payments (3605) the declared runs paid, by employee id, for the
+ * e@syFile 3605 field (SARS PAYE-GEN-01-G21 (2027) p. 33). Their PAYE stays in
+ * 4102: the SARS annual-payment method is employees' tax, not a lump-sum tax.
+ */
+export async function listRunAnnualPayments(
+  companyId: string,
+  bounds: { start: string; end: string },
+): Promise<Map<string, number>> {
+  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  const rows = (await sql`
+    SELECT l.employee_id, SUM((item->>'amount')::numeric)::numeric AS amount
+    FROM payroll_run_lines l
+    JOIN payroll_run_headers h ON h.id = l.run_id
+    JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+    CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
+    WHERE h.company_id = ${companyId}::uuid
+      AND h.status = ANY(${declarable}::text[])
+      AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
+      AND item->>'sarsSourceCode' = '3605'
+      AND (item->>'isTaxable')::boolean
+    GROUP BY l.employee_id
+  `) as DbRow[];
+  return new Map(rows.map(r => [String(r.employee_id), round2(Number(r.amount))]));
+}
 
 /** By employee id. `bounds` is the tax year (saTaxYearBounds). */
 export async function listRunLumpSums(
@@ -57,7 +83,7 @@ export async function listRunLumpSums(
       AND h.status = ANY(${declarable}::text[])
       AND make_date(h.period_year, h.period_month, 1) BETWEEN ${start}::date AND ${end}::date
       AND (${employeeId}::uuid IS NULL OR l.employee_id = ${employeeId}::uuid)
-      AND item->>'componentId' = ${SEVERANCE_DIRECTIVE_COMPONENT_ID}
+      AND item->'directive' IS NOT NULL
     GROUP BY l.employee_id, item->>'sarsSourceCode', d.id, d.directive_number, d.effective_date
     ORDER BY l.employee_id, d.effective_date, d.id
   `) as DbRow[];
