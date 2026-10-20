@@ -160,17 +160,17 @@ export async function getSubmissionStatus(
 
   try {
     const url = `${NETCASH_BASE_URL}/v1/eft/status?batchReference=${encodeURIComponent(batchReference)}`;
-    const res = await fetchWithTimeout(url, {
+    // Bounded through the body, like the submit: a poll that stalls must not hold a request (and its row) open.
+    const { res, json } = await fetchJsonWithTimeout(url, {
       method: 'GET',
       headers: { 'X-ServiceKey': serviceKey },
     });
 
-    const json = await res.json() as Record<string, unknown>;
-
     if (!res.ok) {
       log.error('Netcash status poll failed', { status: res.status, batchReference }, 'netcash');
-      return { status: 'unknown', detail: String(json.message ?? 'Status poll failed') };
+      return { status: 'unknown', detail: String(json?.message ?? 'Status poll failed') };
     }
+    if (!json) return { status: 'unknown', detail: 'Netcash answered but the response could not be read' };
 
     return {
       status: String(json.status ?? 'unknown'),
