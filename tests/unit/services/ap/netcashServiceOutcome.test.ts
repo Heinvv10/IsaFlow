@@ -23,8 +23,14 @@ describe('submitEftBatch outcome', () => {
     expect(await send()).toMatchObject({ success: true, outcome: 'accepted', batchReference: 'NC-1' });
   });
 
-  it('no API keys: the mock answer is accepted', async () => {
-    expect(await submitEftBatch('', '', PAYMENTS)).toMatchObject({ success: true, outcome: 'accepted', mock: true });
+  // K-132: a missing secret is an error, never a sandbox. Nothing is sent, so the refusal is definite.
+  it.each([['', ''], ['service-key', ''], ['', 'payouts-key']])('keys (%j, %j): refused, not a mock success, and nothing is sent', async (service, payouts) => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    expect(await submitEftBatch(service, payouts, PAYMENTS)).toEqual({
+      success: false, outcome: 'rejected', error: 'Netcash credentials are not configured',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it.each([400, 422])('a %i JSON answer (field validation) is a definite rejection, carrying Netcash\'s message', async (status) => {

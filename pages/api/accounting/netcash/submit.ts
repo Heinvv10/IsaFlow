@@ -46,6 +46,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const serviceKey = String(company.netcash_service_key ?? '');
   const payoutsKey = String(company.netcash_payouts_key ?? '');
 
+  // K-132: refused before the batch is read or claimed. A mock success here would record a payment run that never left
+  // and (AP-01) claim the batch for good.
+  if (!serviceKey || !payoutsKey) {
+    return apiResponse.badRequest(res, 'Netcash credentials are not configured for this company. Add the service key and payouts key in Company Settings.');
+  }
+
   let payments: NetcashPayment[];
   let batchReference: string | undefined;
 

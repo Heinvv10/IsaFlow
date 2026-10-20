@@ -5,7 +5,7 @@
  * Auth: ServiceKey header
  *
  * NOTE: This service requires valid Netcash API credentials.
- * Without credentials it returns structured mock responses.
+ * submitEftBatch refuses without credentials (K-132); the status poll and connection test still answer a mock when no key is set.
  * Register at https://www.netcash.co.za to obtain keys.
  */
 
@@ -73,7 +73,7 @@ async function readJsonObject(res: Response): Promise<Record<string, unknown> | 
 
 /**
  * Submit an EFT batch payment to Netcash.
- * Returns a mock response when API keys are absent (sandbox/dev mode).
+ * Refuses (nothing sent) when either API key is absent.
  */
 export async function submitEftBatch(
   serviceKey: string,
@@ -82,13 +82,10 @@ export async function submitEftBatch(
 ): Promise<NetcashSubmitResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   if (!serviceKey || !payoutsKey) {
-    log.warn('Netcash EFT submit called without API keys — returning mock response', {}, 'netcash');
-    return {
-      success: true,
-      outcome: 'accepted',
-      batchReference: `MOCK-${Date.now()}`,
-      mock: true,
-    };
+    // K-132: a missing secret is an error, never a sandbox - the old mock success recorded a payment run that never
+    // left. Nothing is sent, so the refusal is definite.
+    log.error('Netcash EFT submit called without API keys - refused', {}, 'netcash');
+    return { success: false, outcome: 'rejected', error: 'Netcash credentials are not configured' };
   }
 
   const body = {

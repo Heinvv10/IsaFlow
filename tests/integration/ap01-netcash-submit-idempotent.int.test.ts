@@ -240,4 +240,20 @@ describe('netcash/submit batch idempotency (AP-01)', () => {
       expect(await rows(c)).toEqual([]);
     });
   });
+
+  describe('Netcash credentials missing (K-132): nothing is claimed, nothing is "sent"', () => {
+    it.each([
+      ['no keys at all', 'NULL', 'NULL'],
+      ['no payouts key', "'k'", 'NULL'],
+      ['an empty service key', "''", "'k'"],
+    ])('%s: 400 before the claim, so the batch stays free', async (_n, service, payouts) => {
+      const { c, b } = await fixture();
+      await pool.query(`UPDATE companies SET netcash_service_key = ${service}, netcash_payouts_key = ${payouts} WHERE id = $1`, [c]);
+      const res = await submit(c, b.id);
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+      expect(JSON.stringify(res.state.body)).toMatch(/credentials/i);
+      expect(sender.submitEftBatch).not.toHaveBeenCalled();
+      expect(await rows(c)).toEqual([]);
+    });
+  });
 });
