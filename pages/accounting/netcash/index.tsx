@@ -29,6 +29,12 @@ const STATUS_BADGE: Record<Submission['status'], string> = {
   unknown:    'bg-orange-500/20 text-orange-400',
 };
 
+/** Rows that keep their batch closed until someone has checked Netcash (netcash/submit, AP-01). */
+const HOLDING_NOTE: Partial<Record<Submission['status'], string>> = {
+  pending: 'In flight, or its outcome was not recorded. Check Netcash before resubmitting.',
+  unknown: 'Netcash gave no definite answer. Check Netcash before resubmitting.',
+};
+
 function formatRands(cents: number): string {
   return `R ${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 }
@@ -150,6 +156,9 @@ export default function NetcashSubmissionsPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {HOLDING_NOTE[s.status] && (
+                          <span className="text-xs text-orange-400 text-right max-w-[16rem]">{HOLDING_NOTE[s.status]}</span>
+                        )}
                         {(s.status === 'submitted' || s.status === 'processing') && (
                           <button
                             onClick={() => void handlePollStatus(s.id)}
@@ -160,7 +169,7 @@ export default function NetcashSubmissionsPage() {
                             Check status
                           </button>
                         )}
-                        {s.batch_reference && (
+                        {s.batch_reference && !HOLDING_NOTE[s.status] && (
                           <a
                             href={`https://merchant.netcash.co.za/batch/${s.batch_reference}`}
                             target="_blank"
