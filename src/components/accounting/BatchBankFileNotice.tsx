@@ -62,7 +62,7 @@ export function BatchBankFileNotice({ batchId }: { batchId: string }) {
           <p className="flex items-start gap-2 text-[var(--ff-text-primary)]">
             <AlertCircle className="h-4 w-4 mt-0.5 shrink-0 text-amber-500" />
             <span>
-              A {file.bank ? `${file.bank.toUpperCase()} ` : ''}bank file was generated for this batch by {file.generatedBy} on{' '}
+              A bank file{file.bank ? ` (${file.bank.toUpperCase()})` : ''} was generated for this batch by {file.generatedBy} on{' '}
               {formatDate(file.generatedAt)}. Sending it to Netcash too would pay it twice, so Netcash is blocked until the file is released.
             </span>
           </p>
