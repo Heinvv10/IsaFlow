@@ -63,6 +63,15 @@ describe('netcash submissions page: rows that hold a batch', () => {
     expect(screen.queryByLabelText(/Netcash has this batch/i)).toBeNull();
   });
 
+  it('a row Netcash answered after it was resolved says so (lateSendResult)', async () => {
+    route(() => ok({ items: [
+      { ...sub('l', 'failed'), netcash_response: { lateSendResult: { status: 'submitted' } } }, sub('q', 'failed'),
+    ], total: 2 }));
+    render(<NetcashSubmissionsPage />);
+    expect(await screen.findByText(/Netcash answered this send \(submitted\) after it was resolved/)).toBeTruthy();
+    expect(screen.getAllByText(/after it was resolved/)).toHaveLength(1);
+  });
+
   it('a manager sees the notes but no Resolve control', async () => {
     company.companyRole = 'manager';
     route(() => ok({ items: [sub('p', 'pending')], total: 1 }));

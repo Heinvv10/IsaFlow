@@ -20,7 +20,7 @@ interface Submission {
   created_at: string;
   created_by: string | null;
   /** status.ts keeps the last poll (`latestPoll`) and, while it reads as a failure, `pollFailure`: display hints only. */
-  netcash_response?: { pollFailure?: unknown; latestPoll?: LastPoll } | null;
+  netcash_response?: { pollFailure?: unknown; latestPoll?: LastPoll; lateSendResult?: { status?: string } } | null;
 }
 
 const STATUS_BADGE: Record<Submission['status'], string> = {
@@ -39,6 +39,11 @@ const HOLDING_NOTE: Partial<Record<Submission['status'], string>> = {
 };
 
 const POLL_FAILED_NOTE = 'Netcash reported a failure on the last check. Check Netcash, then resolve it.';
+
+/** Netcash answered a send after its claim was released (submit.ts keeps it as lateSendResult): the batch may be held twice. */
+const lateNote = (s: Submission) => s.netcash_response?.lateSendResult
+  ? `Netcash answered this send (${s.netcash_response.lateSendResult.status ?? 'unknown'}) after it was resolved. Check Netcash for this batch.`
+  : undefined;
 
 /** Netcash's last poll of a submitted/processing row read as a failure (a hint for the note; resolve never reads it). */
 const pollFailed = (s: Submission) => (s.status === 'submitted' || s.status === 'processing') && Boolean(s.netcash_response?.pollFailure);
@@ -166,6 +171,7 @@ export default function NetcashSubmissionsPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {lateNote(s) && <span className="text-xs text-red-400 text-right max-w-[16rem]">{lateNote(s)}</span>}
                         {(HOLDING_NOTE[s.status] ?? (pollFailed(s) ? POLL_FAILED_NOTE : undefined)) && (
                           <span className="text-xs text-orange-400 text-right max-w-[16rem]">{HOLDING_NOTE[s.status] ?? POLL_FAILED_NOTE}</span>
                         )}
