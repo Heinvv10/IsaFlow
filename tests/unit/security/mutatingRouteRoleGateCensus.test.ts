@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join, relative } from 'path';
-import { walk, defaultExport, isMutating, isGated, OTHER_AUTH_WRAPPER } from './routeRoleGateCensus.helpers';
+import { walk, defaultExport, isMutating, isGated, stripComments, OTHER_AUTH_WRAPPER } from './routeRoleGateCensus.helpers';
 
 const ROOT = join(__dirname, '../../..');
 const API = join(ROOT, 'pages/api');
@@ -63,6 +63,23 @@ const EXEMPT: Record<string, string> = {
   // OPEN — not in the 2026-10-18 S-01..S-03 brief; listed so the census stays green, each needs a decision.
   'pages/api/billing/flows/auto-topup.ts': 'OPEN: a viewer can switch auto top-up on (K-200: no token is ever stored, so it cannot charge yet)',
   'pages/api/billing/flows/purchase.ts': 'OPEN: a viewer can start a Flow bundle checkout, paid on the payer\'s own card',
+};
+
+/** For each `inline:` exemption, the call that does the role check. Its absence from the code fails the census. */
+const INLINE_CHECK: Record<string, string> = {
+  'pages/api/accounting/audit-check-runs.ts': 'mayTakeAudit(companyRole)',
+  'pages/api/accounting/audit-snapshots.ts': 'mayTakeAudit(',
+  'pages/api/accounting/entity-changes-reveal.ts': 'isHistoryAdmin(companyRole)',
+  'pages/api/accounting/companies.ts': "['owner', 'admin'].includes(membership.role)",
+  'pages/api/accounting/company-documents.ts': 'canWrite(String(rows[0]!.role))',
+  'pages/api/accounting/company-logo.ts': "['owner', 'admin'].includes(String(membership[0]!.role))",
+  'pages/api/accounting/company-groups.ts': 'userCanWriteCompany(userId, companyId)',
+  'pages/api/accounting/intercompany-transactions.ts': 'userCanWriteGroup(userId,',
+  'pages/api/accounting/consolidated-reports.ts': 'userCanWriteGroup(userId, gId)',
+  'pages/api/accounting/supplier-rules/index.ts': 'return withWriteAccess(handler',
+  'pages/api/accounting/supplier-rules/[supplierId].ts': 'return withWriteAccess(handler',
+  'pages/api/invitations/index.ts': "['owner', 'admin'].includes(companyRole)",
+  'pages/api/invitations/revoke/[id].ts': "['owner', 'admin'].includes(request.companyRole)",
 };
 
 /** Not company-scoped, or authenticated some other way; a prefix ending in '/' covers the directory. */
@@ -120,6 +137,13 @@ describe('mutating withAuth route role-gate census', () => {
   it('every exemption is still a live, ungated, mutating route (no stale entries)', () => {
     const stale = Object.keys(EXEMPT).filter((p) => !UNGATED.includes(p));
     expect(stale).toEqual([]);
+  });
+
+  it('every inline exemption still contains its role check (comments do not count)', () => {
+    const inline = Object.entries(EXEMPT).filter(([, why]) => why.startsWith('inline:')).map(([p]) => p).sort();
+    expect(inline).toEqual(Object.keys(INLINE_CHECK).sort());
+    const lost = inline.filter((p) => !stripComments(FILES.find((f) => f.path === p)?.src ?? '').includes(INLINE_CHECK[p]!));
+    expect(lost).toEqual([]);
   });
 
   it('every OTHER_ENTRY file still exists and is still not a withAuth route', () => {
