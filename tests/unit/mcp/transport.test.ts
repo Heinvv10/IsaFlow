@@ -305,7 +305,11 @@ describe('/api/mcp transport', () => {
       await route(makeReq('POST', rpc(method, { name: 'echo_ctx' })) as never, res);
       const err = (res.body as { error: { code: number; message: string } }).error;
       expect(err.code).toBe(-32001);
-      expect(err.message).toBe('MCP connector not enabled for this company');
+      // G3: names who can switch it on, never an upgrade.
+      expect(err.message).toBe(
+        'MCP connector not enabled for this company. Contact ISAFlow support to have it switched on.',
+      );
+      expect(err.message).not.toMatch(/upgrade|plan|subscri/i);
       // The request's id, not null: a null-id reply to a request that carried
       // an id is shown by MCP clients as a malformed result, hiding the message.
       expect((res.body as { id: unknown }).id).toBe(1);
