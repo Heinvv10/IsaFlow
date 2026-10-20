@@ -86,8 +86,11 @@ export async function calculateRun(f: SeveranceFixture, id: string) {
   return r;
 }
 
+/** The approval preview (GET …/journal-plan): plan, blocker and hash. */
+export const previewRun = (f: SeveranceFixture, id: string) => f.call(journalPlan as Route, 'GET', url(id, 'journal-plan'), id);
+
 export async function approveRun(f: SeveranceFixture, id: string) {
-  const plan = await f.call(journalPlan as Route, 'GET', url(id, 'journal-plan'), id);
+  const plan = await previewRun(f, id);
   return f.call(approve as Route, 'POST', url(id, 'approve'), id, { body: { expectedPlanHash: plan.body.data?.planHash } });
 }
 

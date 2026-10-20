@@ -14,9 +14,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { updateTaxDirectiveStatus } from '@/modules/accounting/services/payroll/taxDirectiveService';
 import {
   applyStandalone, approvedDirective, approveRun, calculatedSeverance, calculateRun, cleanSeveranceFixtures, codes,
-  createRunFor, directivePayments, reopenRun, runLine, seedRetrenchedEmployee, SALARY_PAYE, type SeveranceFixture,
+  createRunFor, directivePayments, previewRun, reopenRun, runLine, seedRetrenchedEmployee, SALARY_PAYE, type SeveranceFixture,
 } from './p3-severance.helpers';
 
 assertDisposable();
@@ -27,6 +28,7 @@ beforeAll(async () => {
   fixtures.push(await seedRetrenchedEmployee(pool, '2026-04-30', 'P3 no directive yet'));
   fixtures.push(await seedRetrenchedEmployee(pool, '2026-07-31', 'P3 directive in the final run'));
   fixtures.push(await seedRetrenchedEmployee(pool, '2026-08-31', 'P3 paid outside payroll'));
+  fixtures.push(await seedRetrenchedEmployee(pool, '2026-10-31', 'P3 directive cancelled'));
 });
 
 afterAll(async () => {
@@ -135,5 +137,28 @@ describe('P3: the directive is paid outside payroll', () => {
     const paid = await directivePayments(pool, directive);
     expect(paid).toHaveLength(1);
     expect(paid[0]!.payroll_run_id).toBeNull();
+  });
+});
+
+describe('P3: the directive changes after the run is calculated', () => {
+  it('approval is refused and writes nothing; recalculating leaves the severance out and says why', async () => {
+    const f = fixtures[3]!;
+    const directive = await approvedDirective(f, 25_000, 0.2, '2026-10-01');
+    const oct = await createRunFor(f, 10);
+    await calculateRun(f, oct);
+    expect((await runLine(pool, oct, f.employee)).gross).toBe(45_000);
+    await updateTaxDirectiveStatus(f.company, directive, 'cancelled', f.admin);
+    // The confirmation a person reads before approving names it too.
+    expect((await previewRun(f, oct)).body.data?.blocker?.code).toBe('severance_directive_unavailable');
+    const refused = await approveRun(f, oct);
+    expect(refused.statusCode).toBe(400);
+    expect(refused.body.error?.message).toMatch(/no longer approved/);
+    expect(await directivePayments(pool, directive)).toEqual([]);
+    expect((await pool.query('SELECT status FROM payroll_run_headers WHERE id = $1', [oct])).rows[0]!.status).toBe('calculated');
+
+    await calculateRun(f, oct);
+    const l = await runLine(pool, oct, f.employee);
+    expect(l.gross).toBe(20_000);
+    expect(codes(l.validation_results)).toContain('SEVERANCE_AWAITING_DIRECTIVE');
   });
 });
