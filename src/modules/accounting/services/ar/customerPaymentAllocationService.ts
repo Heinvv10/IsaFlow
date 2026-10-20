@@ -15,6 +15,8 @@ import { getSystemAccount } from '../gl/systemAccountResolver';
 import { lockCustomerPaymentForUpdate } from '../core/paymentLock';
 import { assertSameJournal, lockJournalAndUnmatch, voidViaBankAllocation } from '../ap/paymentJournalReversal';
 import { lockReceiptBankLeg } from './receiptBankLeg';
+import { ReceiptRefusal } from './receiptRefusal';
+import { assertWithinOutstanding, cents, lockReceiptInvoices } from './receiptInvoiceLock';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -73,6 +75,21 @@ async function confirmCustomerPaymentInner(
     if (!payment) throw new Error(`Payment ${id} not found`);
     if (payment.status !== 'draft') throw new Error(`Cannot confirm payment with status: ${payment.status}`);
 
+    // AR audit B1: the draft's allocations were stored when it was created; the invoices have moved since
+    // (a bank-line match, an unapplied receipt or FIFO all ignore drafts). Lock them (ascending id, payment
+    // already held: payment-then-invoice) and refuse the WHOLE confirm if any allocation no longer fits what
+    // is outstanding NOW — before the journal or any balance is written. A cancelled or deleted invoice takes nothing.
+    const locked = await lockReceiptInvoices(companyId, payment.allocations.map((a) => a.invoiceId));
+    for (const alloc of payment.allocations) {
+      const invoice = locked.get(alloc.invoiceId);
+      if (!invoice) throw new ReceiptRefusal(`Invoice ${alloc.invoiceId} not found`);
+      if (invoice.deleted || invoice.status === 'cancelled') {
+        throw new ReceiptRefusal(`Invoice ${invoice.invoiceNumber} is ${invoice.deleted ? 'deleted' : 'cancelled'} and cannot take this receipt`);
+      }
+      assertWithinOutstanding(invoice, cents(alloc.amountAllocated), 0,
+        '. The invoice was paid or changed since this receipt was drafted — cancel the draft and re-apply the receipt.');
+    }
+
     // Auto-post GL: DR Bank, CR Accounts Receivable
     const arAccount = await getSystemAccount('receivable', companyId);
     const bankAccount = payment.bankAccountId
@@ -100,20 +117,27 @@ async function confirmCustomerPaymentInner(
     // INVOICE ID so two confirms sharing two invoices cannot deadlock.
     for (const alloc of byInvoiceId(payment.allocations)) {
       const newPaid = alloc.amountAllocated;
-      await sql`
+      // Second line behind the re-check above: the guard in the WHERE refuses a write that would take
+      // amount_paid past total_amount, and no row back means it did not apply.
+      const applied = (await sql`
         UPDATE customer_invoices
-        SET amount_paid = amount_paid + ${newPaid},
+        SET amount_paid = COALESCE(amount_paid, 0) + ${newPaid},
             status = CASE
-              WHEN (total_amount - (amount_paid + ${newPaid})) <= 0.01 THEN 'paid'
-              WHEN (amount_paid + ${newPaid}) > 0 THEN 'partially_paid'
+              WHEN (total_amount - (COALESCE(amount_paid, 0) + ${newPaid})) <= 0.01 THEN 'paid'
+              WHEN (COALESCE(amount_paid, 0) + ${newPaid}) > 0 THEN 'partially_paid'
               ELSE status
             END,
             paid_at = CASE
-              WHEN (total_amount - (amount_paid + ${newPaid})) <= 0.01 THEN NOW()
+              WHEN (total_amount - (COALESCE(amount_paid, 0) + ${newPaid})) <= 0.01 THEN NOW()
               ELSE paid_at
             END
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
-      `;
+          AND COALESCE(amount_paid, 0) + ${newPaid} <= total_amount
+        RETURNING id
+      `) as Row[];
+      if (applied.length !== 1) {
+        throw new ReceiptRefusal(`Invoice ${alloc.invoiceNumber ?? alloc.invoiceId} can no longer take R${newPaid.toFixed(2)} of this receipt`);
+      }
     }
 
     const updatedRows = (await sql`
