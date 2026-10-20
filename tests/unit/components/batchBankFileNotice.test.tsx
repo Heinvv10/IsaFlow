@@ -38,17 +38,24 @@ describe('BatchBankFileNotice', () => {
       return ok({ bankFile: released ? null : FILE });
     });
     render(<BatchBankFileNotice batchId="b1" />);
-    expect(await screen.findByText(/bank file was generated/i)).toBeTruthy();
+    expect(await screen.findByText(/bank file.*was generated/i)).toBeTruthy();
     expect(screen.getByText(/ann@example.test/)).toBeTruthy();
+    expect(document.body.textContent).toContain('A bank file (FNB) was generated for this batch by ann@example.test');
     const button = screen.getByRole('button', { name: /Release bank file/ }) as HTMLButtonElement;
     expect(button.disabled).toBe(true); // no reason yet
     fireEvent.change(screen.getByLabelText(/Why was the file not used/i), { target: { value: 'Never uploaded to the bank' } });
     expect(button.disabled).toBe(false);
     fireEvent.click(button);
-    await waitFor(() => expect(screen.queryByText(/bank file was generated/i)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/bank file.*was generated/i)).toBeNull());
     const [url, init] = posts()[0]!;
     expect(String(url)).toBe('/api/accounting/eft-file-release');
     expect(JSON.parse(String(init?.body))).toEqual({ batchId: 'b1', reason: 'Never uploaded to the bank' });
+  });
+
+  it('without a bank on the record it reads "A bank file was generated"', async () => {
+    route(() => ok({ bankFile: { ...FILE, bank: null } }));
+    render(<BatchBankFileNotice batchId="b1" />);
+    expect(await screen.findByText(/A bank file was generated for this batch by ann@example.test/)).toBeTruthy();
   });
 
   it.each([['owner', true], ['admin', true], ['manager', false], ['bookkeeper', false], [null, false]])(
@@ -56,7 +63,7 @@ describe('BatchBankFileNotice', () => {
       company.companyRole = role;
       route(() => ok({ bankFile: FILE }));
       render(<BatchBankFileNotice batchId="b1" />);
-      expect(await screen.findByText(/bank file was generated/i)).toBeTruthy();
+      expect(await screen.findByText(/bank file.*was generated/i)).toBeTruthy();
       expect(screen.queryByRole('button', { name: /Release bank file/ }) !== null).toBe(canRelease);
       if (!canRelease) expect(screen.getByText(/owner or admin/i)).toBeTruthy();
     });
@@ -68,7 +75,7 @@ describe('BatchBankFileNotice', () => {
       fireEvent.change(await screen.findByLabelText(/Why was the file not used/i), { target: { value: 'a reason' } });
       fireEvent.click(screen.getByRole('button', { name: /Release bank file/ }));
       expect(await screen.findByText(shown)).toBeTruthy();
-      expect(screen.getByText(/bank file was generated/i)).toBeTruthy();
+      expect(screen.getByText(/bank file.*was generated/i)).toBeTruthy();
       expect(noRawText()).toBe(true);
     });
 });
