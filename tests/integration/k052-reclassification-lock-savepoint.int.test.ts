@@ -34,7 +34,7 @@ const equity = crypto.randomUUID(), lineTarget = crypto.randomUUID();
 const CTX = {
   companyId: company, userId: user,
   scopes: ['read:reports', 'write:journals', 'write:post'],
-  tokenJti: 'jti-1', oauthAppId: null,
+  companyRole: 'owner', tokenJti: 'jti-1', oauthAppId: null,
 } as unknown as McpToolContext;
 
 beforeAll(async () => {

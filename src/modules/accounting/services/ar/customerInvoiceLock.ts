@@ -25,6 +25,12 @@
  * journal row when it reaches an invoice is `cancelCreditNote`, and the journal
  * it holds is the NOTE's, never the invoice's. The rule to keep is the narrow
  * one: never take a note or payment lock while holding an invoice lock.
+ * Write-off approval (`approveWriteOff`, AR audit C1) takes invoice, THEN the write-off row, THEN
+ * the journal-number lock inside `createJournalEntry`. The write-off row is nobody's first lock
+ * (only `customerMergeService`, invoices before write-offs, and `cancelWriteOff`, which holds
+ * nothing else, touch it), so that is acyclic. A receipt confirm must therefore also take its
+ * invoice BEFORE the journal-number lock (payment, invoice, journal), or a confirm and an approval
+ * on one invoice deadlock; the receipts branch (fix/ar-b1b2-receipt-overapply-race) does that.
  * One exception (R-181, Paystack settlement): `confirmCustomerPayment` locks the
  * settlement's OWN new, uncommitted payment row while the invoice is held. Safe:
  * that row is invisible to every other transaction, so nothing holds or waits on it.

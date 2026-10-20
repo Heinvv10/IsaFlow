@@ -27,6 +27,13 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
+// AR audit B2: create locks the invoices (FOR UPDATE) before it judges them. The bounded lock refuses outside a
+// request transaction, so it is passed through here; its own contract is covered in
+// tests/integration/ar-b1b2-receipt-overapply-race.int.test.ts against a real database.
+vi.mock('@/modules/accounting/services/ar/customerInvoiceLock', () => ({
+  withCustomerInvoiceLock: <T>(_fn: string, _s: string, run: () => Promise<T>) => run(),
+}));
+
 // R-067 added a tenant fence on the caller-supplied customer id. These tests
 // pin behaviour AFTER that check, so it is stubbed here; the fence itself is
 // covered by tests/unit/services/assertCustomerInCompany.test.ts and
@@ -68,6 +75,12 @@ const USER_ID    = 'user-0000-0000-0000-000000000001';
 const CLIENT_ID  = 'clie-0000-0000-0000-000000000001';
 const INVOICE_ID = 'inv0-0000-0000-0000-000000000001';
 const PAYMENT_ID = 'pay0-0000-0000-0000-000000000001';
+
+/** The locked invoice rows `lockReceiptInvoices` reads (one statement for every invoice of the receipt). */
+const lockRow = (id: string, total: string, paid: string) => ({
+  id, invoice_number: `INV-${id.slice(0, 4)}`, currency_code: 'ZAR', status: 'approved', deleted_at: null,
+  total_amount: total, amount_paid: paid,
+});
 
 /** A minimal DB row returned by INSERT … RETURNING * */
 const samplePaymentRow = {
@@ -195,7 +208,7 @@ describe('createCustomerPayment — allocation validation', () => {
 
   it('rejects when allocation exceeds invoice balance', async () => {
     // Invoice has total_amount=1000, amount_paid=900 → balance=100
-    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '900.00' }])
+    mockSql.mockResolvedValueOnce([lockRow(INVOICE_ID, '1000.00', '900.00')]);
     mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     const input: CustomerPaymentCreateInput = {
@@ -208,9 +221,27 @@ describe('createCustomerPayment — allocation validation', () => {
       .rejects.toThrow(/exceeds invoice balance/i);
   });
 
+  it('locks the invoices FOR UPDATE, ascending id, before it reads the pending drafts (AR audit B2)', async () => {
+    const texts: string[] = [];
+    mockSql.mockImplementation(((strings: TemplateStringsArray) => {
+      const text = (strings as unknown as string[]).join('?');
+      texts.push(text);
+      return Promise.resolve(/FOR UPDATE OF ci/.test(text) ? [lockRow(INVOICE_ID, '100.00', '0')] : [{ pending: '0' }]);
+    }) as never);
+
+    await expect(createCustomerPayment(COMPANY_ID, {
+      ...validInput, totalAmount: 200, allocations: [{ invoiceId: INVOICE_ID, amount: 200 }],
+    }, USER_ID)).rejects.toThrow(/exceeds invoice balance R100\.00/);
+
+    const lock = texts.findIndex((t) => /FROM customer_invoices[\s\S]*ORDER BY ci\.id[\s\S]*FOR UPDATE OF ci/.test(t));
+    const pending = texts.findIndex((t) => /customer_payment_allocations/.test(t));
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(pending).toBeGreaterThan(lock);
+  });
+
   it('rejects when allocation total does not match payment total', async () => {
     // Invoice has enough balance (1000 unpaid)
-    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([lockRow(INVOICE_ID, '1000.00', '0')]);
     mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     const input: CustomerPaymentCreateInput = {
@@ -224,7 +255,7 @@ describe('createCustomerPayment — allocation validation', () => {
   });
 
   it('rejects when invoice is not found', async () => {
-    mockSql.mockResolvedValueOnce([]); // no rows → invoice not found
+    mockSql.mockResolvedValueOnce([]); // lock read returns no rows → invoice not found
 
     await expect(createCustomerPayment(COMPANY_ID, validInput, USER_ID))
       .rejects.toThrow(/not found/i);
@@ -242,7 +273,7 @@ describe('createCustomerPayment — allocation validation', () => {
 
   it('creates payment and allocations when validation passes', async () => {
     // Invoice balance check: fully unpaid
-    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([lockRow(INVOICE_ID, '1150.00', '0')]);
     mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     // withTransaction resolves with inserted payment row
@@ -261,25 +292,28 @@ describe('createCustomerPayment — allocation validation', () => {
     expect(payment.paymentMethod).toBe('eft');
   });
 
-  it('allows allocation within tolerance (≤ 0.01 over balance)', async () => {
-    // Balance = 1150.00, allocation = 1150.005 — within 0.01 tolerance
-    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }])
-    mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
+  it('refuses an allocation a whole cent over the balance', async () => {
+    mockSql.mockResolvedValueOnce([lockRow(INVOICE_ID, '1150.00', '0')]);
+    mockSql.mockResolvedValueOnce([{ pending: '0' }]);
 
-    mockWithTransaction.mockImplementation(async (fn) => {
-      const fakeTx = vi.fn().mockResolvedValue([samplePaymentRow]) as unknown as typeof sql;
-      return fn(fakeTx);
-    });
-    mockSql.mockResolvedValueOnce([samplePaymentRow]);
+    await expect(createCustomerPayment(COMPANY_ID, {
+      ...validInput, totalAmount: 1150.01, allocations: [{ invoiceId: INVOICE_ID, amount: 1150.01 }],
+    }, USER_ID)).rejects.toThrow(/exceeds invoice balance R1150\.00/);
+  });
 
-    const input: CustomerPaymentCreateInput = {
-      ...validInput,
-      totalAmount: 1150.005,
-      allocations: [{ invoiceId: INVOICE_ID, amount: 1150.005 }],
-    };
+  it('refuses a sub-cent allocation up front, before it locks or reads anything', async () => {
+    await expect(createCustomerPayment(COMPANY_ID, {
+      ...validInput, totalAmount: 1150.005, allocations: [{ invoiceId: INVOICE_ID, amount: 1150.005 }],
+    }, USER_ID)).rejects.toThrow(/whole number of cents/);
+    expect(mockSql).not.toHaveBeenCalled();
+  });
 
-    // Should not throw — tolerance allows up to 0.01 over balance
-    await expect(createCustomerPayment(COMPANY_ID, input, USER_ID)).resolves.toBeDefined();
+  it('refuses the same invoice twice in one receipt, before it locks or reads anything', async () => {
+    await expect(createCustomerPayment(COMPANY_ID, {
+      ...validInput, totalAmount: 1150,
+      allocations: [{ invoiceId: INVOICE_ID, amount: 150 }, { invoiceId: INVOICE_ID, amount: 1000 }],
+    }, USER_ID)).rejects.toThrow(/more than once/);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 });
 
@@ -289,7 +323,7 @@ describe('createCustomerPayment — edge cases', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('rejects a payment of zero amount (allocations sum to 0)', async () => {
-    mockSql.mockResolvedValueOnce([{ total_amount: '1000.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([lockRow(INVOICE_ID, '1000.00', '0')]);
     mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     const input: CustomerPaymentCreateInput = {
@@ -314,11 +348,10 @@ describe('createCustomerPayment — edge cases', () => {
   it('handles multiple allocations across different invoices', async () => {
     const INVOICE_ID_2 = 'inv1-0000-0000-0000-000000000002';
 
-    // Two balance checks, one per allocation
+    // One lock read for both invoices, then a pending-drafts check per allocation
     mockSql
-      .mockResolvedValueOnce([{ total_amount: '600.00', amount_paid: '0' }])
+      .mockResolvedValueOnce([lockRow(INVOICE_ID, '600.00', '0'), lockRow(INVOICE_ID_2, '550.00', '0')])
       .mockResolvedValueOnce([{ pending: '0' }]) // W3: draft-pending check per allocation
-      .mockResolvedValueOnce([{ total_amount: '550.00', amount_paid: '0' }])
       .mockResolvedValueOnce([{ pending: '0' }]);
 
     mockWithTransaction.mockImplementation(async (fn) => {
@@ -342,7 +375,7 @@ describe('createCustomerPayment — edge cases', () => {
   });
 
   it('defaults paymentMethod to eft when not supplied', async () => {
-    mockSql.mockResolvedValueOnce([{ total_amount: '1150.00', amount_paid: '0' }])
+    mockSql.mockResolvedValueOnce([lockRow(INVOICE_ID, '1150.00', '0')]);
     mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
 
     mockWithTransaction.mockImplementation(async (fn) => {

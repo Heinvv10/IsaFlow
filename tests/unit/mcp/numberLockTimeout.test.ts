@@ -33,7 +33,7 @@ import { resetSqlMock } from '../auth/helpers';
 
 const numberLockTimeout = () => Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' });
 const ctx: McpToolContext = {
-  userId: 'user-1', companyId: '22222222-2222-2222-2222-222222222222', scopes: ['write:bank-tx'],
+  userId: 'user-1', companyId: '22222222-2222-2222-2222-222222222222', companyRole: 'owner', scopes: ['write:bank-tx'],
   tokenJti: 'pat-33333333', oauthAppId: null,
 };
 const RETRY = 'locked by another request — retry';

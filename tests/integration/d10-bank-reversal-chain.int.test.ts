@@ -89,7 +89,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D10 O1/O1
   for (const side of SIDES) {
     it(`MCP reverse_bank_allocation, ${side} k=2 head line: the same end state`, async () => {
       const d = await chainDoc(c, side, 2, [2]);
-      const ctx = { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:bank', 'write:post'], tokenJti: null, oauthAppId: null };
+      const ctx = { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:bank', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
       const out = await inTx(c.fx, () => reverseBankAllocationTool.handler(
         { transaction_id: d.lines.get(2)!, idempotency_key: crypto.randomUUID() }, ctx as never));
       expect(out.isError ?? false, JSON.stringify(out)).toBe(false);

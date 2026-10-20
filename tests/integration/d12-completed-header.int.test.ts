@@ -29,7 +29,7 @@ let rec = '';
 let docs: Record<'ap' | 'ar' | 'batch', ChainDoc>;
 const REFUSAL = /is completed — reopen it first/;
 const mcpCtx = () => ({ companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:invoices', 'write:post', 'write:bank-tx'],
-  tokenJti: null, oauthAppId: null });
+  companyRole: 'owner', tokenJti: null, oauthAppId: null });
 const lineOfDoc = (d: ChainDoc) => d.lines.get(0)!;
 
 describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12: a completed reconciliation\'s header and cash', () => {
