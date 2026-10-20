@@ -151,9 +151,12 @@ describe('renderPdfFirstPage under AppArmor', () => {
       expect.objectContaining({ error: 'not on PATH: aa-exec' }), 'vlm-pdf-render');
   }, 30_000);
 
-  it.each([[undefined], [''], ['  '], ['unconfined']])(
-    'in production, GS_APPARMOR_PROFILE=%j refuses the render as an outage: gs never runs bare by omission', async (named) => {
-      process.env.NODE_ENV = 'production';
+  it.each([
+    ['production', undefined], ['production', ''], ['production', '  '], ['production', 'unconfined'],
+    [undefined, undefined], ['staging', undefined], ['development', 'unconfined'],
+  ])('NODE_ENV=%j with GS_APPARMOR_PROFILE=%j refuses the render as an outage: gs never runs bare by omission', async (nodeEnv, named) => {
+      if (nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = nodeEnv;
       if (named === undefined) delete process.env.GS_APPARMOR_PROFILE;
       else process.env.GS_APPARMOR_PROFILE = named;
       const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
@@ -168,10 +171,15 @@ describe('renderPdfFirstPage under AppArmor', () => {
     const bin = mkdtempSync(join(tmpdir(), 'vlm-render-bin-'));
     for (const name of ['gs', 'prlimit']) symlinkSync(execFileSync('which', [name]).toString().trim(), join(bin, name));
     process.env.PATH = bin;   // no aa-exec: none is not a profile name
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     expect(await renderPdfFirstPage(onePagePdf('NONE'))).not.toBeNull();
+    expect(await renderPdfFirstPage(onePagePdf('NONE'))).not.toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);   // said once per process, not per render
+    expect(warn).toHaveBeenCalledWith('gs runs WITHOUT AppArmor: GS_APPARMOR_PROFILE=none', expect.anything(), 'vlm-pdf-render');
   }, 30_000);
 
-  it('still renders unconfined when no profile is named (dev, CI)', async () => {
+  it.each([['development'], ['test']])('NODE_ENV=%s still renders unconfined when no profile is named', async (nodeEnv) => {
+    process.env.NODE_ENV = nodeEnv;
     delete process.env.GS_APPARMOR_PROFILE;
     const bin = mkdtempSync(join(tmpdir(), 'vlm-render-bin-'));
     for (const name of ['gs', 'prlimit']) symlinkSync(execFileSync('which', [name]).toString().trim(), join(bin, name));
