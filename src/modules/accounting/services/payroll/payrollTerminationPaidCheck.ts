@@ -9,7 +9,15 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { readJournalChain } from './payrollJournalChain';
 
-/** A run line that carries a synthetic termination component (see LEAVE_PAY, NOTICE_PAY, SEVERANCE_PAY). */
+/**
+ * A run line that carries a synthetic termination component (see LEAVE_PAY,
+ * NOTICE_PAY, SEVERANCE_PAY). Severance paid under a SARS directive
+ * (SEVERANCE_DIRECTIVE_COMPONENT_ID, audit 2026-10-18 P3) is deliberately not
+ * one: its second payment is refused by the directive's own claim
+ * (payrollRunDirectiveClaim), and counting it here would make the approved
+ * severance-only run after a final pay strip the leave and notice pay from that
+ * final run when it is reopened and recalculated.
+ */
 const TERMINATION_LINE = '$[*] ? (@.componentId starts with "synthetic:termination:")';
 
 /**

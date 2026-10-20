@@ -14,6 +14,7 @@ import { PayrollApprovalConflictError, PayrollApprovalRefusedError } from './pay
 import type { PayrollJournalNote, PayrollJournalPlan } from './payrollJournalBuilder';
 import { judgePayrollApproval, type PayrollApprovalGate } from './payrollApprovalGate';
 import { lockCompanyPayrollApprovals, lockPayrollRunHeader, lockRunJournalForApproval } from './payrollRunLock';
+import { claimRunSeveranceDirectives } from './payrollRunDirectiveClaim';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
@@ -95,6 +96,10 @@ export async function approvePayrollRun(
   if (opts?.expectedPlanHash !== undefined && opts.expectedPlanHash !== gate.planHash) {
     throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
+
+  // The severance directives the run pays become its own, before any write the
+  // refusal would have to undo (payrollRunDirectiveClaim).
+  await claimRunSeveranceDirectives(companyId, runId, userId);
 
   // A journal with nothing left in the ledger is unlinked so a fresh one can
   // post. The header and the whole chain are locked and the gate judged the
