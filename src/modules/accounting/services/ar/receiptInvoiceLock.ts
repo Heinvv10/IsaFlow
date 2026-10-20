@@ -12,7 +12,7 @@
  */
 import { sql } from '@/lib/neon';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
-import { hasWholeCents } from '@/lib/mcp/tools/toolHelpers';
+import { hasWholeCents } from '@/lib/money/wholeCents';
 import { documentInPopulation } from '../shared/documentPopulation';
 import { ReceiptRefusal } from './receiptRefusal';
 
