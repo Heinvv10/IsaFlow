@@ -286,6 +286,25 @@ describe('EFT Batch Validation', () => {
     expect(eftTruncationWarnings('fnb', sampleHeader, samplePayments)).toEqual([]);
   });
 
+  it.each([
+    ['standard_bank', generateStandardBankACB],
+    ['fnb', generateFNBEFT],
+    ['absa', generateABSAEFT],
+    ['nedbank', generateNedbankEFT],
+  ] as const)('%s: the file cuts name and reference at exactly the widths the warnings report', (bank, generate) => {
+    const long = { ...samplePayments[0]!, beneficiaryName: 'n'.repeat(60), reference: 'r'.repeat(60) };
+    const header = { ...sampleHeader, companyName: 'c'.repeat(60), batchReference: 'b'.repeat(60) };
+    const widthOf = (what: string) => Number(
+      eftTruncationWarnings(bank, header, [long]).find((w) => w.includes(what))!.match(/cut to (\d+) characters/)![1]);
+    const [head, txn] = generate(header, [long]).split('\n');
+    // Lower case: the record prefixes (EFT, STD, TXN, HDR…) are upper case.
+    const count = (line: string | undefined, ch: string) => (line!.match(new RegExp(ch, 'g')) ?? []).length;
+    expect(count(head, 'c')).toBe(widthOf('Company name'));
+    expect(count(head, 'b')).toBe(widthOf('Batch reference'));
+    expect(count(txn, 'n')).toBe(widthOf('beneficiary name'));
+    expect(count(txn, 'r')).toBe(widthOf('Payment 1 reference'));
+  });
+
   it('calculates correct batch total', () => {
     const result = validateEFTBatch(sampleHeader, samplePayments);
     expect(result.totalAmount).toBe(23250.50);

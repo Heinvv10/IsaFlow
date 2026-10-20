@@ -115,8 +115,11 @@ export function validateEFTBatch(header: EFTBatchHeader, payments: EFTPayment[])
   return { valid: errors.length === 0, errors, totalAmount, paymentCount: payments.length };
 }
 
-/** Text widths per format (padRight cuts the rest); Capitec is delimited and cuts nothing. */
-const TEXT_WIDTHS: Record<string, { name: number; reference: number } | undefined> = {
+/**
+ * Text widths per format, the ONE source: the generators pad with these and eftTruncationWarnings reports against them.
+ * Capitec is delimited and cuts nothing.
+ */
+const TEXT_WIDTHS: Record<'standard_bank' | 'fnb' | 'absa' | 'nedbank', { name: number; reference: number }> = {
   standard_bank: { name: 30, reference: 20 },
   fnb: { name: 30, reference: 12 },
   absa: { name: 30, reference: 12 },
@@ -128,7 +131,7 @@ const TEXT_WIDTHS: Record<string, { name: number; reference: number } | undefine
  * format-defined, not an error, so it is reported (one sentence each) for the caller to show.
  */
 export function eftTruncationWarnings(bank: string, header: EFTBatchHeader, payments: EFTPayment[]): string[] {
-  const w = TEXT_WIDTHS[bank];
+  const w = (TEXT_WIDTHS as Record<string, { name: number; reference: number } | undefined>)[bank];
   if (!w) return [];
   const warnings: string[] = [];
   const cut = (what: string, value: string, width: number) => {
@@ -149,6 +152,7 @@ export function eftTruncationWarnings(bank: string, header: EFTBatchHeader, paym
 
 export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
+  const w = TEXT_WIDTHS.standard_bank;
   const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
@@ -157,9 +161,9 @@ export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPay
     'H' +
     padLeft(header.branchCode, 6) +
     padLeft(header.bankAccountNumber, 11) +
-    padRight(header.companyName, 30) +
+    padRight(header.companyName, w.name) +
     date +
-    padRight(header.batchReference, 20) +
+    padRight(header.batchReference, w.reference) +
     padLeft(String(payments.length), 6)
   );
 
@@ -171,8 +175,8 @@ export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPay
       padLeft(p.beneficiaryAccountNumber, 11) +
       accountTypeCode(p.beneficiaryAccountType) +
       padLeft(formatEFTAmount(p.amount), 11) +
-      padRight(p.beneficiaryName, 30) +
-      padRight(p.reference, 20)
+      padRight(p.beneficiaryName, w.name) +
+      padRight(p.reference, w.reference)
     );
   }
 
@@ -193,6 +197,7 @@ export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPay
 
 export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
+  const w = TEXT_WIDTHS.fnb;
   const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
@@ -202,8 +207,8 @@ export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): 
     padLeft(header.branchCode, 6) +
     padLeft(header.bankAccountNumber, 11) +
     date +
-    padRight(header.companyName, 30) +
-    padRight(header.batchReference, 12)
+    padRight(header.companyName, w.name) +
+    padRight(header.batchReference, w.reference)
   );
 
   // Transactions
@@ -214,8 +219,8 @@ export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): 
       padLeft(p.beneficiaryAccountNumber, 11) +
       accountTypeCode(p.beneficiaryAccountType) +
       padLeft(formatEFTAmount(p.amount), 11) +
-      padRight(p.beneficiaryName, 30) +
-      padRight(p.reference, 12)
+      padRight(p.beneficiaryName, w.name) +
+      padRight(p.reference, w.reference)
     );
   }
 
@@ -236,6 +241,7 @@ export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): 
 
 export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
+  const w = TEXT_WIDTHS.absa;
   const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
@@ -243,8 +249,8 @@ export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]):
     '04' + date +
     padLeft(header.branchCode, 6) +
     padLeft(header.bankAccountNumber, 11) +
-    padRight(header.companyName, 30) +
-    padRight(header.batchReference, 12)
+    padRight(header.companyName, w.name) +
+    padRight(header.batchReference, w.reference)
   );
 
   for (const p of payments) {
@@ -254,8 +260,8 @@ export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]):
       padLeft(p.beneficiaryAccountNumber, 11) +
       accountTypeCode(p.beneficiaryAccountType) +
       padLeft(formatEFTAmount(p.amount), 11) +
-      padRight(p.beneficiaryName, 30) +
-      padRight(p.reference, 12)
+      padRight(p.beneficiaryName, w.name) +
+      padRight(p.reference, w.reference)
     );
   }
 
@@ -275,6 +281,7 @@ export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]):
 
 export function generateNedbankEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
+  const w = TEXT_WIDTHS.nedbank;
   const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
@@ -283,8 +290,8 @@ export function generateNedbankEFT(header: EFTBatchHeader, payments: EFTPayment[
     date +
     padLeft(header.branchCode, 6) +
     padLeft(header.bankAccountNumber, 11) +
-    padRight(header.companyName, 30) +
-    padRight(header.batchReference, 12)
+    padRight(header.companyName, w.name) +
+    padRight(header.batchReference, w.reference)
   );
 
   for (const p of payments) {
@@ -294,8 +301,8 @@ export function generateNedbankEFT(header: EFTBatchHeader, payments: EFTPayment[
       padLeft(p.beneficiaryAccountNumber, 11) +
       accountTypeCode(p.beneficiaryAccountType) +
       padLeft(formatEFTAmount(p.amount), 11) +
-      padRight(p.beneficiaryName, 30) +
-      padRight(p.reference, 12)
+      padRight(p.beneficiaryName, w.name) +
+      padRight(p.reference, w.reference)
     );
   }
 
