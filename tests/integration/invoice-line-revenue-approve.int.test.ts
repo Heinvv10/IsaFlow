@@ -45,7 +45,7 @@ const revenue = async (je: string) => (await sql`
   { code: string; credit: number; project: string | null }[];
 const finalize = (ids: string[], dry = false) => inTx(f.fx, async () => JSON.parse((await bulkFinalizeInvoicesTool.handler(
   { invoice_ids: ids, idempotency_key: `k-${Math.random()}`, ...(dry ? { dry_run: true } : {}) },
-  { companyId: f.fx.companyId, userId: f.fx.userId, scopes: ['write:invoices', 'write:post'], tokenJti: 'j', oauthAppId: null } as McpToolContext,
+  { companyId: f.fx.companyId, userId: f.fx.userId, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'j', oauthAppId: null } as McpToolContext,
 ) as { content: { text: string }[] }).content[0]!.text) as Record<string, unknown>);
 // The lines of a draft made to disagree with its own subtotal, as a legacy import can leave them.
 const skew = (id: string) => sql`UPDATE customer_invoice_items SET amount = amount + 7 WHERE invoice_id = ${id}::UUID`;

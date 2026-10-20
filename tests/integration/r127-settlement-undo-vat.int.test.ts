@@ -32,7 +32,7 @@ describe('R-127: the undo reports both contras\' VAT-lock rolls', () => {
        VALUES($1,$2,$3,0,15,-15,NOW(),$4,'human')`,
       [company, monthStart, monthEnd, user]);
 
-    const ctx = { companyId: company, userId: user, scopes: ['write:invoices', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: company, userId: user, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     const out = await inTx(() => voidPaymentTool.handler(
       { payment_id: p!.id, idempotency_key: crypto.randomUUID() }, ctx as never));
     expect(out.isError ?? false).toBe(false);

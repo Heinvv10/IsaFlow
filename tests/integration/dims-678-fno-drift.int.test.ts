@@ -244,7 +244,7 @@ describe('project_fno_mismatch — document lines', () => {
   });
 
   it('reaches the MCP data_integrity_checks tool', async () => {
-    const ctx = { companyId: company, userId: user, scopes: ['read:reports'], tokenJti: 'j', oauthAppId: null } as unknown as McpToolContext;
+    const ctx = { companyId: company, userId: user, scopes: ['read:reports'], companyRole: 'owner', tokenJti: 'j', oauthAppId: null } as unknown as McpToolContext;
     const out = await inRequest(pool, b, () => dataIntegrityChecksTool.handler({ checks: ['project_fno_mismatch'], as_at: AS_AT }, ctx));
     expect(out.isError).toBeFalsy();
     const body = JSON.parse(out.content[0]!.text) as { rows: { id: string; count: number }[] };

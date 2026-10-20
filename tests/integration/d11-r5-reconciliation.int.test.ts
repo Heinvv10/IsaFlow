@@ -58,7 +58,7 @@ async function holdLine(id: string) {
   let done = false;
   return async () => { if (done) return; done = true; clearTimeout(timer); await h.query('ROLLBACK').catch(() => undefined); h.release(); };
 }
-const mcpCtx = () => ({ userId: c.fx.userId, companyId: c.fx.companyId, scopes: ['write:bank-tx'], tokenJti: null, oauthAppId: null });
+const mcpCtx = () => ({ userId: c.fx.userId, companyId: c.fx.companyId, scopes: ['write:bank-tx'], companyRole: 'owner', tokenJti: null, oauthAppId: null });
 const startBody = () => ({ bankAccountId: c.fx.bankAccountId, statementDate: '2026-06-30', statementBalance: 0 });
 async function cleanSessions() {
   await sql`UPDATE bank_transactions SET reconciliation_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;

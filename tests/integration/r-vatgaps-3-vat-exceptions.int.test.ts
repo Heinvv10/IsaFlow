@@ -25,7 +25,7 @@ const PERIOD_START = '2026-07-01';
 const PERIOD_END = '2026-08-31';
 
 function ctxFor(fx: Fixture): McpToolContext {
-  return { userId: fx.userId, companyId: fx.companyId, scopes: ['read:vat'], tokenJti: 'jti', oauthAppId: null };
+  return { userId: fx.userId, companyId: fx.companyId, scopes: ['read:vat'], companyRole: 'owner', tokenJti: 'jti', oauthAppId: null };
 }
 
 function body(result: McpToolResult): Record<string, unknown> {

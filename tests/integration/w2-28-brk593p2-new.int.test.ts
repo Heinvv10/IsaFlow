@@ -25,7 +25,7 @@ const AR = '00000000-0000-4000-8000-' + randomUUID().slice(-12);
 const BANK = '11111111-1111-4111-8111-' + randomUUID().slice(-12);
 const X = 'ffffffff-ffff-4fff-bfff-' + randomUUID().slice(-12);
 const RE = randomUUID();
-const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'write:post', 'write:journals', 'read:accounts'], tokenJti: 'brk593', oauthAppId: null }) as never;
+const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'write:post', 'write:journals', 'read:accounts'], companyRole: 'owner', tokenJti: 'brk593', oauthAppId: null }) as never;
 const registry = new McpRegistry();
 for (const t of [updateGlAccountTool, createGlAccountTool, mergeGlAccountsTool]) registry.register(t);
 const resolve = (key: string) => getSystemAccount(key as never, CO)

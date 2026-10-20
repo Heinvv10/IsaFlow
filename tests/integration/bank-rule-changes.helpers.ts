@@ -105,7 +105,7 @@ export function mcpRules(pool: Pool) {
       await client.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
       const out = await als.run({ client, userId: user, companyId: c, claims, afterCommit: [] } as never, () => registry.call(name,
         { idempotency_key: crypto.randomUUID(), ...args },
-        { userId: user, companyId: c, scopes: ['write:bank-tx'], tokenJti: 'brc', oauthAppId: null }));
+        { userId: user, companyId: c, scopes: ['write:bank-tx'], companyRole: 'owner', tokenJti: 'brc', oauthAppId: null }));
       await client.query('COMMIT');
       return out as { isError?: boolean; content: { text: string }[] };
     } catch (err) {
