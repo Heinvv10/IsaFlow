@@ -100,7 +100,9 @@ describe('netcash/submit against a cancel of the same batch (AP-01)', () => {
     expect(state).toBe('waiting'); // the cancel queued behind the submit's lock on the batch row
     expect(submit.state.statusCode, JSON.stringify(submit.state.body)).toBe(200);
     expect(statusWhenSent).toEqual(['approved']);
-    expect(cancel.state.statusCode, JSON.stringify(cancel.state.body)).toBe(200);
+    // The cancel queued behind the submit, then found the batch sent to Netcash and was refused (netcashBatchGuard).
+    expect(cancel.state.statusCode, JSON.stringify(cancel.state.body)).toBeGreaterThanOrEqual(400);
+    expect((await pool.query('SELECT status FROM supplier_payment_batches WHERE id = $1', [b.id])).rows[0].status).toBe('approved');
   });
 
   it('a batch cancelled before the submit reads it is refused without a send', async () => {
