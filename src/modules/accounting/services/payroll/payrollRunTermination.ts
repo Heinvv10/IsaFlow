@@ -28,7 +28,7 @@ import {
 } from './payrollTerminationService';
 import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
 import { findHandMadeLumpSumPaid, findSeveranceDirectiveForRun, severanceDirectiveComponent } from './payrollSeveranceDirective';
-import { payeTreatment } from './payeAnnualPayment';
+import { normaliseSarsCode } from './payeAnnualPayment';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 const SYNTHETIC_SEVERANCE_ID = 'synthetic:termination:severance';
@@ -90,7 +90,9 @@ async function severanceByDirective(
   components: EmployeeComponent[] = [],
 ): Promise<EmployeeComponent[]> {
   const { available, paidElsewhere, unpayable } = await findSeveranceDirectiveForRun(companyId, employee.id, runId, period);
-  const handMade = components.find(c => c.component.componentType === 'earning' && payeTreatment(c.component.sarsSourceCode) === 'lump_sum');
+  // Severance captured by hand is a 3901, the directive's own code (as findHandMadeLumpSumPaid);
+  // another lump sum (3915, 3920, …) is a different benefit and is refused by the gate on its own.
+  const handMade = components.find(c => c.component.componentType === 'earning' && normaliseSarsCode(c.component.sarsSourceCode) === '3901');
   if (available && handMade) {
     warnings.push({
       code: 'SEVERANCE_CAPTURED_AS_COMPONENT',
