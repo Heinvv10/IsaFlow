@@ -93,6 +93,21 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
 }
 
 /**
+ * Serialise this company's payroll approvals until the caller's transaction
+ * ends (a transaction-scoped advisory lock, bounded like the row locks). The
+ * gate's termination_already_paid check reads OTHER runs, which the header
+ * lock does not cover: two runs carrying the same employee's termination
+ * pay-outs, approved at once, would both pass it. Taken by approvePayrollRun
+ * only, before the header lock, so it cannot form a cycle with calculate or
+ * the generic reversal (neither takes it).
+ */
+export async function lockCompanyPayrollApprovals(runId: string, companyId: string): Promise<void> {
+  await withBoundedLockWait(runId, (tx) => tx`
+    SELECT pg_advisory_xact_lock(hashtextextended(${`payroll_approval:${companyId}`}, 0))
+  `);
+}
+
+/**
  * Lock the journal a run links and its whole reversal chain, so approval
  * judges it on rows no one can change under it. Call under the header lock and
  * BEFORE the gate reads the chain. Order and reasoning: payrollJournalChain.
