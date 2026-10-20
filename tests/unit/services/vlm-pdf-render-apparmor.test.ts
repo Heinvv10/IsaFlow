@@ -44,7 +44,9 @@ function profileLoaded(): boolean {
 
 const originalProfile = process.env.GS_APPARMOR_PROFILE;
 const originalPath = process.env.PATH;
+const originalNodeEnv = process.env.NODE_ENV;
 afterEach(() => {
+  process.env.NODE_ENV = originalNodeEnv;
   if (originalProfile === undefined) delete process.env.GS_APPARMOR_PROFILE;
   else process.env.GS_APPARMOR_PROFILE = originalProfile;
   process.env.PATH = originalPath;
@@ -146,6 +148,26 @@ describe('renderPdfFirstPage under AppArmor', () => {
     expect(await renderPdfFirstPage(onePagePdf('NO AA-EXEC'))).toBeNull();
     expect(error).toHaveBeenCalledWith('PDF render unavailable: gs or prlimit not found',
       expect.objectContaining({ error: 'not on PATH: aa-exec' }), 'vlm-pdf-render');
+  }, 30_000);
+
+  it.each([[undefined], [''], ['  '], ['unconfined']])(
+    'in production, GS_APPARMOR_PROFILE=%j refuses the render as an outage: gs never runs bare by omission', async (named) => {
+      process.env.NODE_ENV = 'production';
+      if (named === undefined) delete process.env.GS_APPARMOR_PROFILE;
+      else process.env.GS_APPARMOR_PROFILE = named;
+      const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+      expect(await renderPdfFirstPage(onePagePdf('PROD'))).toBeNull();
+      expect(error).toHaveBeenCalledWith('PDF render unavailable: AppArmor profile could not be applied',
+        expect.anything(), 'vlm-pdf-render');
+    }, 30_000);
+
+  it('in production, GS_APPARMOR_PROFILE=none runs gs unconfined on purpose', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.GS_APPARMOR_PROFILE = 'none';
+    const bin = mkdtempSync(join(tmpdir(), 'vlm-render-bin-'));
+    for (const name of ['gs', 'prlimit']) symlinkSync(execFileSync('which', [name]).toString().trim(), join(bin, name));
+    process.env.PATH = bin;   // no aa-exec: none is not a profile name
+    expect(await renderPdfFirstPage(onePagePdf('NONE'))).not.toBeNull();
   }, 30_000);
 
   it('still renders unconfined when no profile is named (dev, CI)', async () => {

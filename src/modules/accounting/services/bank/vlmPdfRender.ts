@@ -84,9 +84,17 @@ class ConfinementUnavailable extends Error {
   constructor(readonly profile: string, message: string) { super(message); }
 }
 
-/** The AppArmor profile gs runs under, or '' (dev, CI: unconfined). */
-function apparmorProfile(): string {
-  return process.env.GS_APPARMOR_PROFILE ?? '';
+/**
+ * The AppArmor profile gs runs under; '' = unconfined (dev, CI, or `none` set on purpose);
+ * null = misconfigured. Production must name one, or say `none`: an unset or mistyped-empty
+ * variable must not quietly run gs bare. `unconfined` is AppArmor's no-op label, so refused too.
+ */
+function apparmorProfile(): string | null {
+  const named = process.env.GS_APPARMOR_PROFILE ?? '';
+  if (named === 'none') return '';
+  if (named === 'unconfined') return null;
+  if (named === '') return process.env.NODE_ENV === 'production' ? null : '';
+  return named;
 }
 
 /** The PATH gs is both looked up on and spawned with. */
@@ -118,6 +126,11 @@ function removeTmpDir(dir: string): void {
 
 function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer; stderr: string }> {
   const profile = apparmorProfile();
+  if (profile === null) {
+    const named = process.env.GS_APPARMOR_PROFILE ?? '';
+    return Promise.reject(new ConfinementUnavailable(named,
+      'GS_APPARMOR_PROFILE must name the AppArmor profile (isaflow-gs) in production, or be none'));
+  }
   const absent = ['prlimit', 'gs', ...(profile ? ['aa-exec'] : [])].filter((name) => !onPath(name));
   if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
   // gs's own temp dir, one per render: private (0700), empty, removed when gs exits.
