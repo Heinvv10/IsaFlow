@@ -13,6 +13,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { validateNetcashPayees } from '@/modules/accounting/services/ap/netcashPayeeValidation';
+import { unreleasedBankFile } from '@/modules/accounting/services/ap/batchBankFileRecord';
 import { claimBatch, settleClaim, type SettleResult } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
@@ -81,6 +82,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       throw err;
     }
     batchReference = String(batch[0].batch_number ?? batchPaymentId);
+
+    // AP-01: a batch with a bank file is paid by that file, not also by Netcash - unless the file was released as not
+    // used (eft-file-release). Read under the batch FOR SHARE above, which eft-generate's FOR NO KEY UPDATE conflicts
+    // with: a file in progress is waited for, and every committed export is seen.
+    const bankFile = await unreleasedBankFile(companyId, batchPaymentId);
+    if (bankFile) {
+      return apiResponse.conflict(res,
+        `A bank file was generated for this batch (${bankFile.bank ?? 'bank'} file by ${bankFile.generatedBy} at ${bankFile.generatedAt}), `
+        + 'so sending it to Netcash too would pay it twice. If the file was not used, an owner or admin can release it first.',
+        { reason: 'BATCH_BANK_FILE_GENERATED', generatedBy: bankFile.generatedBy, generatedAt: bankFile.generatedAt });
+    }
 
     // total_amount: `amount` is no column, so this mode failed (500) for every batch (R-035 PR5 round 1 LOW e).
     // bank_fingerprint: of the five bank columns as read here (account and branch sent as digits, as it normalises them).

@@ -15,6 +15,7 @@ import {
   type EFTBatchHeader, type EFTPayment,
 } from '@/modules/accounting/services/ap/eftService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { recordBankFileGenerated } from '@/modules/accounting/services/ap/batchBankFileRecord';
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
@@ -149,6 +150,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Validate
   const validation = validateEFTBatch(header, eftPayments);
   if (!validation.valid) return apiResponse.badRequest(res, 'EFT validation failed (the paying bank account is set on Bank Accounts)', validation.errors);
+
+  // AP-01: the file is a way of paying, so its generation is recorded (who, which bank) in this same transaction and
+  // under the batch lock held above, before the file is served: no file without its record. netcash/submit refuses a
+  // batch with an unreleased record (eft-file-release frees it). A failure here answers 500 and no file leaves.
+  await recordBankFileGenerated({
+    companyId, batchId: String(batches[0].id), batchNumber: String(batches[0].batch_number ?? ''), bank,
+    userId: req.user.id, userEmail: req.user.email,
+  });
 
   // Generate
   const generator = GENERATORS[bank]!;

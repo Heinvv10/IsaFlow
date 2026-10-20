@@ -70,7 +70,10 @@ describe('batch status, enforcement off', () => {
     const file = await eft(c, batch.id);
     expect(file.state.statusCode, JSON.stringify(file.state.body)).toBe(200);
     expect(records(dataOf<{ content: string }>(file).content)).toHaveLength(2);
-    expect((await netcash(c, batch.id)).state.statusCode).toBe(200);
+    // AP-01: a batch with a bank file is not also sent to Netcash - the other channel is its own batch.
+    const other = await fixture();
+    await pool.query('UPDATE supplier_payment_batches SET status = $2 WHERE id = $1', [other.batch.id, status]);
+    expect((await netcash(other.c, other.batch.id)).state.statusCode).toBe(200);
     expect(submitEftBatch).toHaveBeenCalledTimes(1);
   });
 });
