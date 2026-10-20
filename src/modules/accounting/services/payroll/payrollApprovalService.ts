@@ -97,10 +97,6 @@ export async function approvePayrollRun(
     throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
 
-  // The severance directives the run pays become its own, before any write the
-  // refusal would have to undo (payrollRunDirectiveClaim).
-  await claimRunSeveranceDirectives(companyId, runId, userId);
-
   // A journal with nothing left in the ledger is unlinked so a fresh one can
   // post. The header and the whole chain are locked and the gate judged the
   // chain inside those locks, so this cannot have changed; the predicate only
@@ -115,6 +111,11 @@ export async function approvePayrollRun(
     `) as Row[];
     if (!unlinked[0]) throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
+
+  // The severance directives the run pays become its own (payrollRunDirectiveClaim):
+  // after the last refusal above, so a 4xx — which withAuth commits — never
+  // leaves a claim behind, and before the status write.
+  await claimRunSeveranceDirectives(companyId, runId, userId);
 
   // lines_confirmed_at is the CLOCK, not the transaction's start (rounds 6–7,
   // breaker P2-A): the moment the run's lines were last confirmed to match its

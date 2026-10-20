@@ -28,7 +28,7 @@ import {
 } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
-import { listRunLumpSums } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
+import { listRunAnnualPayments, listRunLumpSums } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 
 function firstTwoNames(fullFirst: string): string {
   return fullFirst.trim().split(/\s+/).slice(0, 2).join(' ');
@@ -78,10 +78,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // cancelled run declared here would over-state remuneration to SARS.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
-  // Severance paid in a run under its directive: reported under its own code
-  // and 4115, so taken out of 3601 and 4102 below (audit 2026-10-18 P3).
-  const lumpSumsByEmployee = await listRunLumpSums(companyId, saTaxYearBounds(taxYear));
-  const [companyRows, empRows, aggRows] = await Promise.all([
+  // Severance paid in a run under its directive (own code, PAYE under 4115) and
+  // annual payments (3605): reported apart, so taken out of 3601 (and the lump
+  // sums' PAYE out of 4102) below (audit 2026-10-18 P3).
+  const bounds = saTaxYearBounds(taxYear);
+  const [companyRows, empRows, aggRows, lumpSumsByEmployee, annualByEmployee] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -118,6 +119,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         )
       GROUP BY prl.employee_id
     ` as Promise<DbRow[]>,
+    listRunLumpSums(companyId, bounds),
+    listRunAnnualPayments(companyId, bounds),
   ]);
 
   const company = companyRows[0];
@@ -162,6 +165,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const lumpSums = lumpSumsByEmployee.get(String(row.id)) ?? [];
     const lumpGross = lumpSums.reduce((t, l) => t + l.amount, 0);
     const lumpPaye = lumpSums.reduce((t, l) => t + l.paye, 0);
+    const annual3605 = annualByEmployee.get(String(row.id)) ?? 0;
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
@@ -179,7 +183,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentStartDate: certStartDate,
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
-      grossSalary3601: Math.round((gross - lumpGross) * 100) / 100,
+      grossSalary3601: Math.round((gross - lumpGross - annual3605) * 100) / 100,
+      annualPayments3605: annual3605,
       paye4102: Math.round((Number(agg.total_paye ?? 0) - lumpPaye) * 100) / 100,
       lumpSums: lumpSums.map(l => ({
         sourceCode: l.sourceCode,

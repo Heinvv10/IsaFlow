@@ -116,13 +116,22 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // paid or payable in the month (SARS Guide to the Employment Tax Incentive,
   // Issue 5, §2.4 "Monthly remuneration",
   // https://www.sars.gov.za/wp-content/uploads/Ops/Guides/LAPD-ETI-G01-Guide-to-the-Employment-Tax-Incentive.pdf).
-  const etiRaw: EtiResult = resolveEtiForEmployee({
+  const resolved: EtiResult = resolveEtiForEmployee({
     dateOfBirth: employee.dateOfBirth,
     employmentStartDate: employee.startDate,
     periodDate,
     monthlyRemuneration: grossPay,
     isUifExcluded: employee.uifExcluded,
   }, taxYear);
+  // A leaver paid after leaving worked no hours in the period, and ETI is
+  // apportioned by hours employed and paid for out of 160 (section 7(5); same
+  // guide, §2.4 and §5.3 "Employee employed for part of a month"): nil.
+  const etiRaw: EtiResult = input.notEmployedInPeriod
+    ? {
+      ...resolved, isEligible: false, isDeterminable: true, missingInputs: [], monthlyEti: 0,
+      ineligibilityReason: 'Not employed in this period (paid after leaving): ETI is apportioned by hours employed, none here.',
+    }
+    : resolved;
 
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,

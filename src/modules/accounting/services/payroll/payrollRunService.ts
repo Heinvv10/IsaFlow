@@ -198,6 +198,7 @@ export async function calculatePayrollRun(
       period,
       taxYear,
       annualPayrollEstimate: 'defer',
+      notEmployedInPeriod: onlySeverance,
     });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
