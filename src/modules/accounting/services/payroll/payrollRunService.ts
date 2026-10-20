@@ -1,7 +1,7 @@
 import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { listPayrollEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
+import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
@@ -132,7 +132,7 @@ export async function calculatePayrollRun(
   getTaxYearConfig(taxYear);
   const periodDate = new Date(period.year, period.month - 1, 28);
 
-  const employees = await listPayrollEmployees(companyId);
+  const employees = await listPayrollRunEmployees(companyId, period);
   const allTaxNumbers = await listTaxNumbersForCompany(companyId);
 
   let totalGross = 0;
