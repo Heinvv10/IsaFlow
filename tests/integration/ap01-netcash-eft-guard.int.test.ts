@@ -112,6 +112,28 @@ describe('eft-generate against a Netcash submission (AP-01)', () => {
     expect(produced.state.statusCode, JSON.stringify(produced.state.body)).toBe(409);
     expect(state).toBe('waiting'); // the file request queued behind the submit's lock on the batch row, then found the claim
   });
+
+  it('a bank file requested while a submit is mid-send (claimed, inside the sender) waits for it, then is refused', async () => {
+    const { c, b } = await approvedBatch();
+    let finish!: () => void;
+    let inSender!: () => void;
+    const sending = new Promise<void>((res) => { inSender = res; });
+    sender.submitEftBatch.mockImplementationOnce(async () => {
+      inSender();
+      await new Promise<void>((res) => { finish = res; });
+      return ACCEPTED;
+    });
+    const submitP = submit(c, b.id);
+    await sending; // the claim is committed ('pending') and the send has not answered
+    const fileP = file(c, b.id);
+    const state = await Promise.race([fileP.then(() => 'finished' as const), waitsOnBatchLock()]);
+    finish();
+    const [sent, produced] = await Promise.all([submitP, fileP]);
+    expect(sent.state.statusCode, JSON.stringify(sent.state.body)).toBe(200);
+    expect(produced.state.statusCode, JSON.stringify(produced.state.body)).toBe(409);
+    expect(JSON.stringify(produced.state.body)).toContain('submitted'); // it saw the SETTLED claim, not the pending one
+    expect(state).toBe('waiting');
+  });
 });
 
 async function waitsOnBatchLock(): Promise<'waiting'> {
