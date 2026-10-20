@@ -1,11 +1,13 @@
 /**
- * Releasing a Netcash claim that holds a batch (AP-01). A 'pending' or 'unknown' submission keeps its batch closed
- * until someone has checked Netcash (a 'submitted'/'processing' one whose latest poll reported a failure too, as
- * 'failed' only); this records what they found:
- *   'failed'    Netcash never got the batch - the claim leaves the unique index and the batch may be sent again.
- *   'submitted' Netcash has the batch - the claim stays live and the batch stays closed.
- * Company-scoped, allowed only while the row is still pending/unknown (compare-and-set on the status that was read, so
- * a settle that lands in between is never overwritten), and audit-logged in the same transaction.
+ * Releasing a Netcash claim that holds a batch (AP-01). A 'pending', 'unknown', 'submitted' or 'processing' submission
+ * keeps its batch closed until an owner/admin has checked Netcash; this records what they found:
+ *   'failed'    Netcash never got the batch, or rejected it - the claim leaves the unique index and the batch may be
+ *               sent again. Allowed from all four statuses.
+ *   'submitted' Netcash has the batch - the claim stays live and the batch stays closed. pending/unknown only.
+ * The operator's attestation (a required note) is the only evidence: a status poll never is - status.ts reads free
+ * text ("Processing - 0 errors"), and freeing a batch Netcash accepted pays it twice. A 'completed' or 'failed' row is
+ * never resolved. Company-scoped, compare-and-set on the status that was read (a settle or a poll that moves the row
+ * in between is never overwritten), and audit-logged in the same transaction.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
@@ -32,19 +34,17 @@ export interface ResolveInput {
 export async function resolveSubmission(input: ResolveInput): Promise<ResolveResult> {
   const { companyId, submissionId, outcome, note, userId, userEmail } = input;
   const found = (await sql`
-    SELECT id, status, batch_reference, (EXTRACT(EPOCH FROM (NOW() - created_at)) * 1000)::FLOAT8 AS age_ms,
-           (netcash_response -> 'pollFailure') IS NOT NULL AS poll_failed /* netcash_resolve_read */
+    SELECT id, status, batch_reference, (EXTRACT(EPOCH FROM (NOW() - created_at)) * 1000)::FLOAT8 AS age_ms /* netcash_resolve_read */
     FROM netcash_submissions
     WHERE id = ${submissionId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!found[0]) return { kind: 'not_found' };
   const previous = String(found[0].status);
-  // pending/unknown hold a batch until someone has checked Netcash. A submitted/processing row is Netcash's to settle,
-  // and may be freed ONLY as 'failed' and ONLY while Netcash's latest poll reported a failure (status.ts keeps that as
-  // netcash_response.pollFailure): otherwise Netcash has the batch, and freeing it would pay it twice.
+  // pending/unknown: either outcome. submitted/processing (Netcash accepted it): 'failed' only, on the operator's word -
+  // whatever the last poll said, which is a display hint and never consulted here.
   const heldOpen = previous === 'pending' || previous === 'unknown';
-  const polledFailed = (previous === 'submitted' || previous === 'processing') && outcome === 'failed' && found[0].poll_failed === true;
-  if (!heldOpen && !polledFailed) return { kind: 'not_resolvable', status: previous };
+  const accepted = (previous === 'submitted' || previous === 'processing') && outcome === 'failed';
+  if (!heldOpen && !accepted) return { kind: 'not_resolvable', status: previous };
   // A pending claim younger than the send window is a send still in flight: releasing it would let a second send
   // through while the first may be accepted. An unknown claim is settled already and resolvable at any age.
   if (previous === 'pending' && Number(found[0].age_ms) < SEND_WINDOW_MS) return { kind: 'in_flight' };

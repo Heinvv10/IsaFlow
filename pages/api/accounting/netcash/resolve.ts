@@ -1,9 +1,10 @@
 /**
  * POST /api/accounting/netcash/resolve
- * Release a Netcash claim that holds a batch ('pending' or 'unknown') once Netcash has been checked.
- * Body: { submissionId: string; outcome: 'failed' | 'submitted'; note: string }
- *   failed    - Netcash never got the batch: it may be sent again.
- *   submitted - Netcash has the batch: it stays closed.
+ * Release a Netcash claim that holds a batch ('pending', 'unknown', 'submitted' or 'processing') once Netcash has been
+ * checked. Body: { submissionId: string; outcome: 'failed' | 'submitted'; note: string }
+ *   failed    - Netcash never got the batch, or rejected it: it may be sent again. Any of the four statuses.
+ *   submitted - Netcash has the batch: it stays closed. pending/unknown only.
+ * The operator's note is the evidence; a status poll never is.
  * Owner/admin only. See services/ap/netcashSubmissionResolve.
  */
 
@@ -39,7 +40,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       { reason: 'IN_FLIGHT' });
   }
   if (result.kind === 'not_resolvable') {
-    return apiResponse.conflict(res, `This submission is ${result.status}: only a pending or unknown submission can be resolved (or a submitted or processing one whose latest Netcash poll reported a failure, as failed).`,
+    return apiResponse.conflict(res, `This submission is ${result.status}: a pending or unknown submission can be resolved either way, a submitted or processing one as failed only, and a completed or failed one not at all.`,
       { reason: 'NOT_RESOLVABLE', status: result.status });
   }
   log.info('Netcash submission resolved', { submissionId, outcome, previousStatus: result.previousStatus, userId: req.user.id }, 'netcash-api');

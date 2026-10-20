@@ -17,6 +17,7 @@ import supplierCreditNotes from '../../pages/api/accounting/supplier-credit-note
 import batchPaymentsAction from '../../pages/api/accounting/batch-payments-action';
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import netcashResolve from '../../pages/api/accounting/netcash/resolve';
+import netcashStatus from '../../pages/api/accounting/netcash/status';
 import eftFileRelease from '../../pages/api/accounting/eft-file-release';
 import eftGenerate from '../../pages/api/accounting/eft-generate';
 import closeRunDecide from '../../pages/api/accounting/close-run/decide';
@@ -75,6 +76,8 @@ const CASES: Case[] = [
   { name: 'EFT bank file generation', handler: eftGenerate, call: { body: { batchId: missing, bank: 'fnb' } } },
   { name: 'EFT bank file release', handler: eftFileRelease, call: { body: { batchId: missing, reason: 'r032' } } },
   { name: 'Netcash claim resolve', handler: netcashResolve, call: { body: { submissionId: missing, outcome: 'failed', note: 'r032' } } },
+  // A poll calls Netcash and writes the row (a GET, so no write wrapper): refused like its siblings.
+  { name: 'Netcash status poll', handler: netcashStatus, call: { method: 'GET', query: { submissionId: missing } } },
   { name: 'close-run proposal approve', handler: closeRunDecide,
     call: { body: { runId: missing, proposalId: other, decision: 'approve' } } },
   { name: 'close-run proposal reject', handler: closeRunDecide,
