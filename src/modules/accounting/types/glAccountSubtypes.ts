@@ -36,7 +36,7 @@ export const GL_ACCOUNT_SUBTYPES_BY_TYPE = {
     'payable', 'tax', 'vat_output', 'payroll_liability', 'current_liability',
     'other_current_liability', 'long_term_liability', 'other',
   ],
-  equity: ['equity', 'retained_earnings', 'opening_balance_equity', 'other'],
+  equity: ['equity', 'retained_earnings', 'opening_balance_equity', 'dividends', 'other'],
   revenue: ['revenue', 'default_revenue', 'other_income', 'disposal_profit_loss', 'other'],
   // finance_cost: interest and bank charges (5810), banded below operating profit.
   expense: [
