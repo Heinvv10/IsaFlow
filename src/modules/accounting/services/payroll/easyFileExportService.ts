@@ -43,6 +43,7 @@
 import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
+export { splitCertificateIncome } from './payrollLumpSumFiling';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -204,22 +205,6 @@ function validateEmployee(emp: EmployeeInput): void {
       throw new UsageError(`Directive issued date (code 3231) of the ${l.sourceCode} lump sum for ${who} must be CCYYMMDD`);
     }
   }
-}
-
-/**
- * A certificate's income and PAYE split from the run totals: lump sums under
- * their own code (PAYE to 4115), annual payments under 3605, the rest 3601 /
- * 4102. A tax year whose 3605 nets negative (a clawback) stays in 3601, as the
- * calculator taxes it.
- */
-export function splitCertificateIncome(t: {
-  gross: number; paye: number; annualPayments: number; lumpSums: Array<{ amount: number; paye: number }>;
-}): { grossSalary3601: number; annualPayments3605: number; paye4102: number } {
-  const r2 = (n: number): number => Math.round(n * 100) / 100;
-  const annual = Math.max(0, t.annualPayments);
-  const lumpGross = t.lumpSums.reduce((s, l) => s + l.amount, 0);
-  const lumpPaye = t.lumpSums.reduce((s, l) => s + l.paye, 0);
-  return { grossSalary3601: r2(t.gross - lumpGross - annual), annualPayments3605: r2(annual), paye4102: r2(t.paye - lumpPaye) };
 }
 
 /** One income line per lump-sum source code, in code order, amounts summed. */

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import easyfile from '../../pages/api/payroll/irp5/easyfile-export';
+import componentsRoute from '../../pages/api/payroll/components';
 import type { Route } from './w3-01-payroll.helpers';
 import {
   approvedDirective, approveRun, calculateRun, cleanSeveranceFixtures, codes,
@@ -74,16 +75,8 @@ describe('REPRO 2: non-taxable hand-made 3901 + directive in the same month → 
     await calculateRun(f, june);
     const jl = await runLine(pool, june, f.employee);
     expect(codes(jl.validation_results)).toContain('SEVERANCE_CAPTURED_AS_COMPONENT');
-    const ja = await approveRun(f, june);
-    // Comment in payrollRunTermination: "approval stays refused until that component is removed".
-    if (ja.statusCode === 200) {
-      const july = await createRunFor(f, 7);
-      await calculateRun(f, july);
-      const l = await runLine(pool, july, f.employee);
-      expect(l?.gross ?? 0, 'severance paid a second time in July').toBe(0);
-    } else {
-      expect(ja.statusCode).toBe(400);
-    }
+    // The hand-made 39xx has no directive: approval stays refused until it is removed.
+    expect((await approveRun(f, june)).statusCode).toBe(400);
   });
 });
 
@@ -145,5 +138,42 @@ describe('REPRO 4: a net-negative 3605 for the year breaks the e@syFile footing'
     expect(val('3601') + val('3605'), shown).toBe(45_000);
     expect(val('3605'), shown).toBe(5_000);
     expect(val('3601'), shown).toBe(40_000);
+  });
+});
+
+describe('round 2 (fix review): a hand-made lump sum on a reopened run whose journal is in force', () => {
+  it('counts as paid, so a later directive is not paid on top of it', async () => {
+    const { reopenRun } = await import('./p3-severance.helpers');
+    const f = await seedRetrenchedEmployee(pool, '2026-06-30', 'BRK752b-5 reopened in force');
+    fixtures.push(f);
+    const june = await createRunFor(f, 6);
+    await calculateRun(f, june);
+    expect((await approveRun(f, june)).statusCode).toBe(200);
+    // A pre-P3 run: its posted line carried severance as a hand-made 3901 (no directive).
+    await pool.query(
+      `UPDATE payroll_run_lines SET component_breakdown = component_breakdown || $2::jsonb WHERE run_id = $1`,
+      [june, JSON.stringify([{ componentId: crypto.randomUUID(), componentName: 'Severance (captured)', sarsSourceCode: '3901', amount: 30000, isTaxable: true, isUifApplicable: false }])]);
+    expect((await reopenRun(f, june)).statusCode).toBe(200); // 'calculated', journal still in the ledger
+    const d = await approvedDirective(f, 30_000, 0.1, '2026-07-02');
+    const july = await createRunFor(f, 7);
+    await calculateRun(f, july);
+    expect(await runLine(pool, july, f.employee)).toBeUndefined();
+    expect(await directivePayments(pool, d)).toEqual([]);
+  });
+});
+
+describe('round 2 (fix review): the components route', () => {
+  it('refuses a SARS code that normalises to nothing', async () => {
+    const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'BRK752b-6 blank code');
+    fixtures.push(f);
+    const r = await f.call(componentsRoute as Route, 'POST', '/api/payroll/components', undefined, {
+      body: { name: 'Blank', sarsSourceCode: ' \t ', componentType: 'earning' },
+    });
+    expect(r.statusCode).toBe(400);
+    const ok = await f.call(componentsRoute as Route, 'POST', '/api/payroll/components', undefined, {
+      body: { name: 'Bonus', sarsSourceCode: ' 3605\t', componentType: 'earning' },
+    });
+    expect(ok.statusCode).toBe(201);
+    expect((await pool.query("SELECT sars_source_code FROM payroll_components WHERE company_id = $1 AND name = 'Bonus'", [f.company])).rows[0]!.sars_source_code).toBe('3605');
   });
 });
