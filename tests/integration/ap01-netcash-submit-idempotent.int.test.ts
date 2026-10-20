@@ -223,17 +223,21 @@ describe('netcash/submit batch idempotency (AP-01)', () => {
       expect(sent.every((x) => /^\d{1,11}$/.test(x.accountNumber))).toBe(true);
     });
 
+  });
+
+  describe('a raw payments[] list is refused outright (no batch to approve or claim)', () => {
+    const RAW_OK = { accountHolder: 'Raw', bankCode: '250655', accountNumber: '62000000001', amount: 10000, reference: 'R' };
     it.each([
-      ['letters in the account', { accountNumber: '62A00000001' }],
-      ['an over-long account', { accountNumber: '620000000012' }],
-      ['a short branch code', { bankCode: '2506' }],
-      ['an empty account', { accountNumber: '' }],
-    ])('raw mode: %s is refused 400, nothing sent', async (_name, change) => {
+      ['a well-formed list', [RAW_OK]],
+      ['a list with a string amount (NaN total)', [{ ...RAW_OK, amount: '100.50' }]],
+      ['a list with a fractional amount', [{ ...RAW_OK, amount: 10.5 }]],
+      ['a malformed account', [{ ...RAW_OK, accountNumber: '62A00000001' }]],
+    ])('%s: 400, nothing claimed, nothing sent', async (_name, payments) => {
       const { c } = await fixture();
-      const res = await rawSubmit(c, { ...RAW_OK, ...change });
+      const res = await callRoute(netcashSubmit, tokens[user]!, c, 'POST', { payments }, '/api/accounting/netcash/submit');
       expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
-      expect(JSON.stringify(res.state.body)).toMatch(/Payment 2/);
-      await nothingHappened(c);
+      expect(sender.submitEftBatch).not.toHaveBeenCalled();
+      expect(await rows(c)).toEqual([]);
     });
   });
 });

@@ -1,12 +1,12 @@
 /**
  * POST /api/accounting/netcash/submit
  * Submit an EFT batch to Netcash.
- * Body: { batchPaymentId?: string; payments?: NetcashPayment[] }
+ * Body: { batchPaymentId: string } - an approved supplier payment batch. A raw payments[] list is refused (400).
  */
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
@@ -17,10 +17,7 @@ import { claimBatch, settleClaim } from '@/modules/accounting/services/ap/netcas
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
-import { isEnforced } from '@/modules/accounting/services/gl/approvalEnforcement';
-import {
-  assertRawPaymentListAllowed, assertSuppliersBankVerified, respondIfBankDetailsUnverified,
-} from '@/modules/accounting/services/ap/supplierBankVerificationGate';
+import { assertSuppliersBankVerified, respondIfBankDetailsUnverified } from '@/modules/accounting/services/ap/supplierBankVerificationGate';
 
 type Row = Record<string, unknown>;
 
@@ -28,6 +25,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
   const { companyId } = req;
+
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write; nothing is claimed for a Login-as session
 
   // Load company to get Netcash credentials
   const companies = await sql`
@@ -50,12 +49,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   let payments: NetcashPayment[];
   let batchReference: string | undefined;
 
-  const { batchPaymentId, payments: rawPayments } = req.body as {
-    batchPaymentId?: string;
-    payments?: NetcashPayment[];
-  };
+  const { batchPaymentId } = req.body as { batchPaymentId?: string };
 
-  if (batchPaymentId) {
+  if (typeof batchPaymentId === 'string' && batchPaymentId !== '') {
     // Load from existing batch — validate company ownership. FOR SHARE, FIRST (the batch row, then the gate's payee
     // lock: the order processBatch uses): a cancelBatch committing between this read and the send would otherwise
     // let a cancelled batch be sent. The cancel's UPDATE waits for this transaction. The claim and settle below run
@@ -116,25 +112,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       amount: Math.round(Number(r.amount ?? 0) * 100),   // rands → cents
       reference: String(r.reference ?? ''),
     }));
-  } else if (Array.isArray(rawPayments) && rawPayments.length > 0) {
-    // R-035 PR5: a raw list names payees, accounts and amounts no document
-    // carries, so nothing can approve it. Under either payment type's
-    // enforcement it is refused before anything is sent.
-    if (await isEnforced(companyId, 'supplier_payment') || await isEnforced(companyId, 'payment_batch')) {
-      return apiResponse.error(res, ErrorCode.FORBIDDEN,
-        'Supplier payment approvals are enforced, and a raw payment list cannot be approved — submit an approved batch.',
-        { reason: 'APPROVAL_REQUIRED' });
-    }
-    // …and under supplier bank verification, whether or not payments are approved (decision 8): 403.
-    try {
-      await assertRawPaymentListAllowed(companyId);
-    } catch (err) {
-      if (respondIfBankDetailsUnverified(res, err)) return;
-      throw err;
-    }
-    payments = rawPayments;
   } else {
-    return apiResponse.badRequest(res, 'Provide batchPaymentId or payments array');
+    // A raw payments[] list names no batch, so nothing can approve it, claim it or make it idempotent, and it has no
+    // production caller (AP-01). Refused outright; the payments of an approved batch are the only way to send.
+    return apiResponse.badRequest(res, 'Provide batchPaymentId: a raw payment list cannot be approved or claimed — submit an approved batch.');
   }
 
   // Refused before anything is claimed or sent: a malformed or over-long account would otherwise reach Netcash as-is.
@@ -148,18 +129,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // send (ap/netcashSubmissionClaim); the partial UNIQUE index (migration 898) admits one non-failed row per batch, so
   // a second or concurrent request finds the batch claimed and is refused 409 without calling Netcash. The claim must
   // not ride in this request's transaction: withAuth rolls that back on any >=500, a crash or a timeout, and the claim
-  // of a batch that may already be paid would go with it. Raw payment lists name no batch and are not claimed.
-  // Login-as is refused here, before the claim: nothing may be claimed on behalf of an impersonated session.
-  await assertNotImpersonating();
+  // of a batch that may already be paid would go with it.
   const principal = { companyId, claims: (req.user?.claims ?? {}) as Record<string, unknown> };
-  let claimId: string | null = null;
-  if (batchPaymentId) {
-    claimId = await claimBatch(principal, {
-      batchId: batchPaymentId, batchReference: batchReference ?? null, totalAmountCents,
-      recordCount: payments.length, createdBy,
-    });
-    if (!claimId) return respondBatchAlreadyClaimed(res, companyId, batchPaymentId);
-  }
+  const claimId = await claimBatch(principal, {
+    batchId: batchPaymentId, batchReference: batchReference ?? null, totalAmountCents,
+    recordCount: payments.length, createdBy,
+  });
+  if (!claimId) return respondBatchAlreadyClaimed(res, companyId, batchPaymentId);
 
   let result: NetcashSubmitResult;
   try {
@@ -176,33 +152,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const reference = result.batchReference ?? batchReference ?? null;
   const submittedAt = result.success ? new Date().toISOString() : null;
 
-  let submissionId: string;
-  if (claimId) {
-    // Its own committed transaction. If it fails the claim stays 'pending' — the batch stays closed — and the error
-    // answers 500: the request's rollback no longer touches the claim.
-    try {
-      await settleClaim(principal, claimId, { status, batchReference: reference, netcashResponse: result, submittedAt });
-    } catch (err) {
-      log.error('Netcash claim not settled; left pending (the batch stays closed until an operator clears it)', {
-        submissionId: claimId, outcome: result.outcome, error: err instanceof Error ? err.message : String(err),
-      }, 'netcash-api');
-      throw err;
-    }
-    submissionId = claimId;
-  } else {
-    const inserted = await sql`
-      INSERT INTO netcash_submissions (
-        company_id, submission_type, batch_reference,
-        total_amount_cents, record_count, status,
-        netcash_response, submitted_at, created_by
-      ) VALUES (
-        ${companyId}::UUID, 'eft_payment', ${reference}, ${totalAmountCents}, ${payments.length},
-        ${status}, ${JSON.stringify(result)}::JSONB, ${submittedAt}, ${createdBy}
-      )
-      RETURNING id
-    ` as Row[];
-    submissionId = String((inserted[0] as Row).id);
+  // Settled in its own committed transaction. If that fails the claim stays 'pending' - the batch stays closed until an
+  // operator clears it - and the error answers 500: the request's rollback no longer touches the claim.
+  try {
+    await settleClaim(principal, claimId, { status, batchReference: reference, netcashResponse: result, submittedAt });
+  } catch (err) {
+    log.error('Netcash claim not settled; left pending (the batch stays closed until an operator clears it)', {
+      submissionId: claimId, outcome: result.outcome, error: err instanceof Error ? err.message : String(err),
+    }, 'netcash-api');
+    throw err;
   }
+  const submissionId = claimId;
 
   if (status === 'unknown') {
     log.error('Netcash EFT submit outcome unknown', { error: result.error, submissionId }, 'netcash-api');
