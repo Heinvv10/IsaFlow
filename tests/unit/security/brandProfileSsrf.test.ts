@@ -46,7 +46,7 @@ type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 function makeReq(body: Record<string, unknown>): NextApiRequest {
   return {
     method: 'PUT', query: {}, body,
-    companyId: '11111111-1111-4111-9111-111111111111',
+    companyId: '11111111-1111-4111-9111-111111111111', companyRole: 'owner',
   } as unknown as NextApiRequest;
 }
 function makeRes(): NextApiResponse {
