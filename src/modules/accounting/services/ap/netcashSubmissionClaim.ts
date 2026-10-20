@@ -14,9 +14,9 @@
  *
  * A claim left 'pending' (the process died between the send and the settle, or
  * the settle failed) blocks resubmission exactly like 'unknown': it is in the
- * partial unique index. An operator clears it once Netcash has been checked:
- *   UPDATE netcash_submissions SET status = 'failed'    WHERE id = <id>;  -- Netcash never got it: allows a resend
- *   UPDATE netcash_submissions SET status = 'submitted' WHERE id = <id>;  -- Netcash has it: keeps the batch closed
+ * partial unique index. An owner/admin clears it once Netcash has been checked, with POST /api/accounting/netcash/resolve
+ * (services/ap/netcashSubmissionResolve: 'failed' = Netcash never got it, the batch may be sent again; 'submitted' =
+ * Netcash has it, the batch stays closed; a note is required, compare-and-set, audit-logged) - not by raw UPDATE.
  */
 import type { PoolClient } from 'pg';
 import { getPool } from '@/lib/neon';

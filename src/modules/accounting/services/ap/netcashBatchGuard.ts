@@ -2,13 +2,16 @@
  * A batch Netcash may hold is not undone (AP-01). Cancelling it, or reversing it, puts its bills back in the
  * payable pool, where a new batch pays them again while the first file is still with Netcash. So both refuse while
  * the batch has a netcash_submissions row that is not 'failed' (submitted, processing, completed, pending or
- * unknown): only a DEFINITE rejection frees the batch. The operator who has checked Netcash and knows the batch was
- * not paid sets the row 'failed' (pages/api/accounting/netcash/.claude.md).
+ * unknown): only a DEFINITE rejection frees the batch. An owner/admin who has checked Netcash and knows the batch was
+ * not paid releases the row with POST /api/accounting/netcash/resolve (pages/api/accounting/netcash/.claude.md).
  *
  * Call it with the batch row ALREADY locked by this transaction (cancelBatch: FOR NO KEY UPDATE; the reversal: FOR
  * UPDATE). netcash/submit holds that row FOR SHARE from before it claims until it commits, so a submit in flight is
  * waited for and its claim is visible here; one that starts later waits on this lock and then reads the new status.
  * The submission row is read FOR SHARE so its settle (an UPDATE on the claim connection) cannot change it under us.
+ * Same-connection precondition: the batch lock and this read must share the request transaction (cancelBatch's
+ * withTransaction joins withAuth's, the reversal runs in it); outside a request context this read is on another
+ * autocommit connection, holds nothing, and still sees every committed claim.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
