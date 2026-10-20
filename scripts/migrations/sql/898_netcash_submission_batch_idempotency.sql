@@ -26,6 +26,10 @@
 --   ALTER TABLE public.netcash_submissions DROP COLUMN IF EXISTS batch_id;
 -- Locks: ACCESS EXCLUSIVE on netcash_submissions (a small table) for the column, the CHECK swap and the index;
 -- SHARE ROW EXCLUSIVE on supplier_payment_batches for the foreign key. All catalogue-fast: the column is empty.
+-- Bounded below: a request holding either table's rows for long makes this fail in 5 s instead of queueing every
+-- netcash/submit and batch action behind its ACCESS EXCLUSIVE.
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
 
 ALTER TABLE public.netcash_submissions
   ADD COLUMN IF NOT EXISTS batch_id UUID REFERENCES public.supplier_payment_batches(id);
