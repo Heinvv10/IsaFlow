@@ -39,7 +39,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       { reason: 'IN_FLIGHT' });
   }
   if (result.kind === 'not_resolvable') {
-    return apiResponse.conflict(res, `This submission is ${result.status}: only a pending or unknown submission can be resolved.`,
+    return apiResponse.conflict(res, `This submission is ${result.status}: only a pending or unknown submission can be resolved (or a submitted or processing one whose latest Netcash poll reported a failure, as failed).`,
       { reason: 'NOT_RESOLVABLE', status: result.status });
   }
   log.info('Netcash submission resolved', { submissionId, outcome, previousStatus: result.previousStatus, userId: req.user.id }, 'netcash-api');
