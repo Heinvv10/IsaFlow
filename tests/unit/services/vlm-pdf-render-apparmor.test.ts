@@ -46,7 +46,8 @@ const originalProfile = process.env.GS_APPARMOR_PROFILE;
 const originalPath = process.env.PATH;
 const originalNodeEnv = process.env.NODE_ENV;
 afterEach(() => {
-  process.env.NODE_ENV = originalNodeEnv;
+  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = originalNodeEnv;
   if (originalProfile === undefined) delete process.env.GS_APPARMOR_PROFILE;
   else process.env.GS_APPARMOR_PROFILE = originalProfile;
   process.env.PATH = originalPath;
