@@ -5,7 +5,7 @@
  * Separated from payrollRunService.ts to keep files under 300 lines.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mapRunRow, type PayrollRunSummary } from './payrollRunService';
@@ -97,25 +97,27 @@ export async function approvePayrollRun(
     throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
   }
 
-  // A journal with nothing left in the ledger is unlinked so a fresh one can
-  // post. The header and the whole chain are locked and the gate judged the
-  // chain inside those locks, so this cannot have changed; the predicate only
-  // refuses to drop a link other than the one judged.
-  if (gate.replaces) {
-    const unlinked = (await sql`
-      UPDATE payroll_run_headers
-      SET journal_entry_id = NULL
-      WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
-        AND journal_entry_id = ${gate.replaces.journalEntryId}::uuid
-      RETURNING id
-    `) as Row[];
-    if (!unlinked[0]) throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
-  }
-
-  // The severance directives the run pays become its own (payrollRunDirectiveClaim):
-  // after the last refusal above, so a 4xx — which withAuth commits — never
-  // leaves a claim behind, and before the status write.
-  await claimRunSeveranceDirectives(companyId, runId, userId);
+  // The two writes a refusal may still follow, in ONE savepoint, so a refusal
+  // from either — a 4xx, which withAuth commits — leaves neither behind:
+  //  - the severance directives the run pays become its own
+  //    (payrollRunDirectiveClaim), refused if a peer paid one meanwhile;
+  //  - a journal with nothing left in the ledger is unlinked so a fresh one can
+  //    post. The header and the whole chain are locked and the gate judged the
+  //    chain inside those locks, so this cannot have changed; the predicate
+  //    only refuses to drop a link other than the one judged.
+  await withTransaction(async (tx) => {
+    await claimRunSeveranceDirectives(companyId, runId, userId);
+    if (gate.replaces) {
+      const unlinked = (await tx`
+        UPDATE payroll_run_headers
+        SET journal_entry_id = NULL
+        WHERE id = ${runId}::uuid AND company_id = ${companyId}::uuid
+          AND journal_entry_id = ${gate.replaces.journalEntryId}::uuid
+        RETURNING id
+      `) as Row[];
+      if (!unlinked[0]) throw new PayrollApprovalConflictError('Payroll run changed while you were reviewing it');
+    }
+  });
 
   // lines_confirmed_at is the CLOCK, not the transaction's start (rounds 6–7,
   // breaker P2-A): the moment the run's lines were last confirmed to match its
