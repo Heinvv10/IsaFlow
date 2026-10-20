@@ -107,7 +107,8 @@ export async function confirmCustomerInvoiceMatch(
   // A caller that HANDS IN its allocations may leave a remainder; this screen
   // derives them from the single invoice the user picked, so a remainder here
   // is a mis-match rather than an instruction.
-  if (paymentAmount > outstanding + EPS) {
+  // Whole cents, no tolerance (899): buildLine refuses a cent over, so the pre-screen says so first.
+  if (round2(paymentAmount) > outstanding) {
     return {
       ok: false,
       kind: 'refused',
