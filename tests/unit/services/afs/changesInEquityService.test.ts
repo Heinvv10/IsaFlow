@@ -116,6 +116,20 @@ describe('changesInEquityService', () => {
     expect(result.totalOtherMovements).toBeCloseTo(400, 2);
   });
 
+  it('reports a movement on an IS484 dividends account as dividends out of retained earnings, whatever its subtype', async () => {
+    arrange(OPENING_ROWS, [
+      ...MOVEMENTS_ROWS,
+      { account_subtype: 'dividends', is_dividends: true, amount: -300 },
+    ]);
+
+    const result = await getChangesInEquity(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(result.columns.map(c => c.subtype)).not.toContain('dividends');
+    const re = result.columns.find(c => c.subtype === 'retained_earnings')!;
+    expect(re.dividends).toBeCloseTo(-8300, 2);
+    expect(result.totalOtherMovements).toBeCloseTo(0, 2);
+  });
+
   it('every column closes on opening plus its own movements', async () => {
     arrange();
 

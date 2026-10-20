@@ -91,19 +91,18 @@ describe('a revenue account mapped to a balance-sheet line', () => {
     await pool.query("UPDATE afs_account_mappings SET afs_line_code='BS054' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.loan]);
   });
 
-  it('and an equity account mapped to IS484 Dividends paid gets the dividends advice, not "remap"', async () => {
+  it('but an equity account mapped to IS484 Dividends paid is not named (the SFP and SOCE carry it)', async () => {
     await pool.query("UPDATE afs_account_mappings SET afs_line_code='IS484' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.capital]);
-    const detail = (await runPreExportChecks(t.doc, t.company, 'ifrs_smes')).find((c) => c.label === LABEL)!.detail;
-    expect(detail).toMatch(/3000 Share capital \(equity\) is mapped to IS484, an income statement line/);
-    expect(detail).toContain("Dividends paid is shown on the income statement; this version doesn't yet carry it into balance-sheet equity, so the balance sheet may not balance.");
-    expect(detail).not.toMatch(/[Rr]emap/);
-    await pool.query("UPDATE afs_account_mappings SET afs_line_code='IS002' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.loan]);
-    const both = (await runPreExportChecks(t.doc, t.company, 'ifrs_smes')).find((c) => c.label === LABEL)!.detail;
-    expect(both).toMatch(/Remap each to a line of its own statement/);
-    expect(both).toMatch(/a balance shown as a period movement and missing from the balance sheet/);
-    expect(both).toContain('Dividends paid is shown on the income statement');
-    await pool.query("UPDATE afs_account_mappings SET afs_line_code='BS054' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.loan]);
-    await pool.query("UPDATE afs_account_mappings SET afs_line_code='BS043' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.capital]);
+    try {
+      expect((await runPreExportChecks(t.doc, t.company, 'ifrs_smes')).find((c) => c.label === LABEL)).toBeUndefined();
+      await pool.query("UPDATE afs_account_mappings SET afs_line_code='IS002' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.loan]);
+      const detail = (await runPreExportChecks(t.doc, t.company, 'ifrs_smes')).find((c) => c.label === LABEL)!.detail;
+      expect(detail).toMatch(/2000 Loan \(liability\) is mapped to IS002/);
+      expect(detail).not.toMatch(/3000 Share capital/);
+    } finally {
+      await pool.query("UPDATE afs_account_mappings SET afs_line_code='BS054' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.loan]);
+      await pool.query("UPDATE afs_account_mappings SET afs_line_code='BS043' WHERE company_id=$1 AND gl_account_id=$2", [t.company, t.acct.capital]);
+    }
   });
 });
 

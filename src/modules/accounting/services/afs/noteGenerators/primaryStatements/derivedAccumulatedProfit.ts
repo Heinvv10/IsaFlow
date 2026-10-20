@@ -8,6 +8,9 @@
  * the same function, on the same "Accumulated profit (loss)" line the retained-earnings account is
  * mapped to, so the two statements cannot name different equity.
  *
+ * Dividends paid on an equity account mapped to IS484 (dividendsPaid.ts) are on no balance-sheet line, so
+ * they come off the same line: accumulated profit is profit to date less dividends to date.
+ *
  * Amounts are raw debit-minus-credit like every other SFP line, so a profit is negative.
  *
  * The income statement's twin lives below: `addDerivedOpeningAccumulatedIncome` (the "beginning of year"
@@ -18,10 +21,11 @@ import { sql } from '@/lib/neon';
 import { getRetainedEarningsBroughtForward } from '@/modules/accounting/services/gl/trialBalanceBasis';
 import { calculateRetainedEarnings } from '@/modules/accounting/services/reports/balanceSheetService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { DIVIDENDS_PAID_CODE, fetchDividendsPaid } from './dividendsPaid';
 import type { SectionLine } from './_helpers';
 
 /** The taxonomy's "Accumulated profit (loss)" line and its parent header. */
-const ACCUMULATED_PROFIT_CODE = 'BS045';
+export const ACCUMULATED_PROFIT_CODE = 'BS045';
 const CAPITAL_AND_RESERVES_CODE = 'BS041';
 const TOTAL_EQUITY_CODE = 'BS048';
 /** Code of the derived line, for a taxonomy without BS045. */
@@ -33,9 +37,16 @@ export async function addDerivedAccumulatedProfit(
   end: string,
   priorEnd: string | null,
 ): Promise<SectionLine[]> {
+  // Credit-positive: profit to date less dividends paid to date.
+  const accumulatedTo = async (date: string): Promise<number> => {
+    const [profit, dividends] = await Promise.all([
+      calculateRetainedEarnings(companyId, date), fetchDividendsPaid(companyId, null, date),
+    ]);
+    return profit - dividends;
+  };
   const [current, prior] = await Promise.all([
-    calculateRetainedEarnings(companyId, end),
-    priorEnd === null ? Promise.resolve(0) : calculateRetainedEarnings(companyId, priorEnd),
+    accumulatedTo(end),
+    priorEnd === null ? Promise.resolve(0) : accumulatedTo(priorEnd),
   ]);
   const target = lines.find((l) => l.code === ACCUMULATED_PROFIT_CODE);
   if (target) {
@@ -78,8 +89,10 @@ const ACCUMULATED_EOY_CODE = 'IS485';
 
 /**
  * Accumulated income at the start of a period: what has been posted to equity
- * retained-earnings accounts, plus every prior year's result as the ledger's
- * revenue and expense accounts still carry it.
+ * retained-earnings accounts and to equity accounts mapped to IS484 "Dividends
+ * paid" (earlier years' dividends; an account is read once whichever it is),
+ * plus every prior year's result as the ledger's revenue and expense accounts
+ * still carry it.
  *
  * Both halves are needed for the same reason the balance sheet needs both. The
  * posted year-end close (source 'year_end') is skipped on BOTH halves
@@ -103,7 +116,11 @@ async function fetchOpeningAccumulatedIncome(
         AND jl.company_id = ${companyId}::uuid
         AND ga.company_id = ${companyId}::uuid
         AND ga.account_type = 'equity'
-        AND ga.account_subtype = 'retained_earnings'
+        AND (ga.account_subtype = 'retained_earnings' OR EXISTS (
+          SELECT 1 FROM afs_account_mappings am
+          JOIN afs_statement_lines sl ON sl.code = am.afs_line_code AND sl.company_id = am.company_id
+          WHERE am.company_id = ${companyId}::uuid AND am.gl_account_id = ga.id
+            AND am.afs_line_code = ${DIVIDENDS_PAID_CODE} AND sl.is_active = true))
         AND je.entry_date < ${beforeDate}::date
     ` as unknown as Promise<Array<{ balance: string | number }>>,
     getRetainedEarningsBroughtForward(companyId, beforeDate),
