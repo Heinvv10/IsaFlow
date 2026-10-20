@@ -80,11 +80,18 @@ export function validateEFTBatch(header: EFTBatchHeader, payments: EFTPayment[])
     return { valid: false, errors, totalAmount: 0, paymentCount: 0 };
   }
 
+  // The originating account: a file from nowhere (zeros, a blank branch) must never reach a bank.
+  const origin = validateBankAccount(header.bankAccountNumber, header.branchCode);
+  if (!origin.valid) errors.push(`Originating account: ${origin.error}`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(header.actionDate)) errors.push('Action date must be YYYY-MM-DD');
+
   let totalAmount = 0;
   for (let i = 0; i < payments.length; i++) {
     const p = payments[i]!;
     if (!p.beneficiaryName || p.beneficiaryName.trim() === '') errors.push(`Payment ${i + 1}: Beneficiary name is required`);
     if (!p.beneficiaryAccountNumber || p.beneficiaryAccountNumber.trim() === '') errors.push(`Payment ${i + 1}: Account number is required`);
+    // A blank branch is padded to 000000 by padLeft, which is no branch at all (AP-36).
+    if (!/^\d{6}$/.test(p.beneficiaryBranchCode ?? '')) errors.push(`Payment ${i + 1}: Branch code must be exactly 6 digits`);
     if (!p.amount || p.amount <= 0) errors.push(`Payment ${i + 1}: Amount must be greater than zero`);
     totalAmount += p.amount || 0;
   }

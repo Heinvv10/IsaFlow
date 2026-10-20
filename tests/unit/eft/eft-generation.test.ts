@@ -240,6 +240,24 @@ describe('EFT Batch Validation', () => {
     expect(result.valid).toBe(false);
   });
 
+  it('rejects a header with no originating account or branch (AP-02: never zeros)', () => {
+    expect(validateEFTBatch({ ...sampleHeader, bankAccountNumber: '' }, samplePayments).valid).toBe(false);
+    expect(validateEFTBatch({ ...sampleHeader, branchCode: '' }, samplePayments).valid).toBe(false);
+    expect(validateEFTBatch({ ...sampleHeader, branchCode: '2506' }, samplePayments).valid).toBe(false);
+  });
+
+  it('rejects a header whose action date is not YYYY-MM-DD', () => {
+    expect(validateEFTBatch({ ...sampleHeader, actionDate: 'Tue Sep 01 2026' }, samplePayments).valid).toBe(false);
+  });
+
+  it('rejects a payee with a blank or malformed branch code instead of padding it to 000000 (AP-36)', () => {
+    for (const branch of ['', '  ', '25065', '25065a']) {
+      const result = validateEFTBatch(sampleHeader, [{ ...samplePayments[0]!, beneficiaryBranchCode: branch }]);
+      expect(result.valid, branch).toBe(false);
+      expect(result.errors.join()).toMatch(/Branch code/);
+    }
+  });
+
   it('calculates correct batch total', () => {
     const result = validateEFTBatch(sampleHeader, samplePayments);
     expect(result.totalAmount).toBe(23250.50);
