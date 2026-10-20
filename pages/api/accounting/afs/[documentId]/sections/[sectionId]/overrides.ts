@@ -5,6 +5,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { requireUuidParam } from '@/lib/schemas/common';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
@@ -76,4 +77,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, { sectionId, version: versionEntry }, 'Overrides applied');
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler as never)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));

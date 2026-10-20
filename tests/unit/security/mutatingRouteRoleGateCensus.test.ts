@@ -1,0 +1,118 @@
+/**
+ * Census (audit 2026-10-18 S-02/S-03/S-05): every company-scoped API route that accepts a write method
+ * carries a role gate. A viewer reached AFS sign-off, portal contacts and fiscal-period creation because
+ * nothing failed when a mutating `withAuth` route shipped without one.
+ *
+ * Census unit: each file under pages/api whose default export goes through `withAuth`. It is MUTATING
+ * unless it is GET-only (no write-method literal, and a `req.method` check against 'GET'). It is GATED when
+ * its default export composes withWriteAccess (not `allowedRoles: null`), withRole('manager'|'admin'|'owner'),
+ * withPayrollDetailAccess or withPlatformAdmin. Anything else must be in EXEMPT, with the reason it is safe:
+ * the route checks the role itself, writes only the caller's own state, or computes without writing.
+ * Files are read from disk (not `git ls-files`), so an untracked new route is counted too.
+ */
+import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync, statSync } from 'fs';
+import { join, relative } from 'path';
+
+const ROOT = join(__dirname, '../../..');
+const API = join(ROOT, 'pages/api');
+
+const EXEMPT: Record<string, string> = {
+  // Checks the role inline.
+  'pages/api/accounting/audit-check-runs.ts': 'inline: mayTakeAudit (owner/admin) on POST',
+  'pages/api/accounting/audit-snapshots.ts': 'inline: mayTakeAudit (owner/admin) in post()',
+  'pages/api/accounting/entity-changes-reveal.ts': 'inline: isHistoryAdmin (owner/admin)',
+  'pages/api/accounting/companies.ts': 'inline: PUT needs owner/admin of the named company; POST set-default is the user\'s own default',
+  'pages/api/accounting/company-documents.ts': 'inline: canWrite on the named company\'s role before POST/DELETE',
+  'pages/api/accounting/company-logo.ts': 'inline: owner/admin membership probe before the write',
+  'pages/api/accounting/company-groups.ts': 'inline: group write role and company write role (D4 round 9)',
+  'pages/api/accounting/intercompany-transactions.ts': 'inline: group write role on POST',
+  'pages/api/accounting/consolidated-reports.ts': 'inline: group write role on every POST action',
+  'pages/api/accounting/supplier-rules/index.ts': 'inline: routedHandler wraps every non-GET in withWriteAccess',
+  'pages/api/accounting/supplier-rules/[supplierId].ts': 'inline: routedHandler wraps every non-GET in withWriteAccess',
+  'pages/api/invitations/index.ts': 'inline: owner/admin',
+  'pages/api/invitations/revoke/[id].ts': 'inline: owner/admin',
+  // Writes only the caller's own state, not the company's.
+  'pages/api/accounting/page-visits.ts': 'the caller\'s own page-visit trail (allowedRoles: null)',
+  'pages/api/auth/preferences.ts': 'the caller\'s own preferences',
+  'pages/api/auth/profile.ts': 'the caller\'s own profile',
+  'pages/api/auth/personal-tokens/index.ts': 'the caller\'s own tokens; write scopes refused to a non-writing role (scopesRoleMayNotHold)',
+  'pages/api/auth/personal-tokens/[id].ts': 'revokes the caller\'s own token',
+  'pages/api/oauth/consent.ts': 'the caller\'s own grant; write scopes dropped for a non-writing role in the target company',
+  'pages/api/oauth/authorisations/[id].ts': 'revokes the caller\'s own OAuth grant',
+  'pages/api/developer/oauth-apps/index.ts': 'the caller\'s own developer app registration',
+  'pages/api/developer/oauth-apps/[id].ts': 'the caller\'s own developer app registration',
+  'pages/api/onboarding/complete-setup.ts': 'creates the caller\'s new company (they become its owner)',
+  'pages/api/onboarding/complete.ts': 'onboarding of the caller\'s new company',
+  // Computes and returns; writes nothing.
+  'pages/api/accounting/afs/[documentId]/compliance-check.ts': 'read-only IFRS checks over POST',
+  'pages/api/accounting/exchange-rate-convert.ts': 'read-only conversion over POST',
+  'pages/api/accounting/ar/dunning/templates/[id]/preview.ts': 'renders a preview, sends nothing',
+  'pages/api/accounting/netcash/test-connection.ts': 'probes the Netcash API with a key in the body; stores nothing',
+  'pages/api/onboarding/extract.ts': 'VLM extraction of an uploaded document; stores nothing',
+  'pages/api/onboarding/extract-id.ts': 'VLM extraction of an uploaded ID; stores nothing',
+  'pages/api/onboarding/validate-directors.ts': 'validation only',
+  // OPEN — not in the 2026-10-18 S-01..S-03 brief; listed so the census stays green, each needs a decision.
+  'pages/api/billing/flows/auto-topup.ts': 'OPEN: a viewer can switch auto top-up on (K-200: no token is ever stored, so it cannot charge yet)',
+  'pages/api/billing/flows/purchase.ts': 'OPEN: a viewer can start a Flow bundle checkout, paid on the payer\'s own card',
+};
+
+function walk(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) return walk(p);
+    return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [p] : [];
+  });
+}
+
+/** The `export default …;` statement, comments stripped, so a mention in a doc comment does not count. */
+function defaultExport(src: string): string {
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const at = code.search(/^export default /m);
+  if (at < 0) return '';
+  const end = code.indexOf(';', at);
+  return code.slice(at, end < 0 ? undefined : end);
+}
+
+const WRITE_LITERAL = /['"](POST|PUT|PATCH|DELETE)['"]/;
+const GET_ONLY_CHECK = /req\.method\s*(!==|===)\s*['"]GET['"]/;
+const GATE = /withWriteAccess\(|withRole\(\s*['"](manager|admin|owner)['"]\s*\)|withPayrollDetailAccess\(|withPlatformAdmin\(/;
+
+interface Route { path: string; mutating: boolean; gated: boolean }
+const ROUTES: Route[] = walk(API).flatMap((file) => {
+  const src = readFileSync(file, 'utf8');
+  const exp = defaultExport(src);
+  if (!/\bwithAuth\(/.test(exp)) return [];
+  const mutating = WRITE_LITERAL.test(src) || !GET_ONLY_CHECK.test(src);
+  const gated = GATE.test(exp) && !/allowedRoles:\s*null/.test(exp);
+  return [{ path: relative(ROOT, file), mutating, gated }];
+});
+const UNGATED = ROUTES.filter((r) => r.mutating && !r.gated).map((r) => r.path).sort();
+
+describe('mutating withAuth route role-gate census', () => {
+  it('sees the route tree (a bad path would pass every assertion vacuously)', () => {
+    expect(ROUTES.length).toBeGreaterThan(600);
+    expect(ROUTES.filter((r) => r.mutating && r.gated).length).toBeGreaterThan(300);
+  });
+
+  it('every mutating route has a role gate or a stated exemption', () => {
+    const missing = UNGATED.filter((p) => !(p in EXEMPT));
+    expect(missing, 'Add withWriteAccess (or a stricter gate) to these routes, or an EXEMPT entry saying why a viewer may call them').toEqual([]);
+  });
+
+  it('every exemption is still a live, ungated, mutating route (no stale entries)', () => {
+    const stale = Object.keys(EXEMPT).filter((p) => !UNGATED.includes(p));
+    expect(stale).toEqual([]);
+  });
+
+  it('the detector catches the S-03 shape and accepts the gated one', () => {
+    const ungated = "export default withAuth(withErrorHandler(withCsrf(handler as never)));";
+    const gated = "export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));";
+    const optOut = "export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: null }))));";
+    const isGated = (s: string) => GATE.test(defaultExport(s)) && !/allowedRoles:\s*null/.test(defaultExport(s));
+    expect(isGated(ungated)).toBe(false);
+    expect(isGated(gated)).toBe(true);
+    expect(isGated(optOut)).toBe(false);
+    expect(isGated(`/** withWriteAccess( in a comment */\n${ungated}`)).toBe(false);
+  });
+});
