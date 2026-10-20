@@ -192,4 +192,48 @@ describe('netcash/submit batch idempotency (AP-01)', () => {
     expect((await submit(c, other.id)).state.statusCode).toBe(200);
     expect(sender.submitEftBatch).toHaveBeenCalledTimes(2);
   });
+
+  describe('payee account and branch are validated before anything is claimed or sent', () => {
+    const RAW_OK = { accountHolder: 'Raw', bankCode: '250655', accountNumber: '62000000001', amount: 10000, reference: 'R' };
+    const rawSubmit = (c: string, p: Record<string, unknown>) => callRoute(netcashSubmit, tokens[user]!, c, 'POST',
+      { payments: [RAW_OK, p] }, '/api/accounting/netcash/submit');
+    const nothingHappened = async (c: string) => {
+      expect(sender.submitEftBatch).not.toHaveBeenCalled();
+      expect(await rows(c)).toEqual([]);
+    };
+
+    it.each([
+      ['an account longer than 11 digits', { bank_account_number: '123456789012' }],
+      ['a branch code that is not 6 digits', { bank_branch_code: '25065' }],
+      ['an account with no digits left once punctuation is stripped', { bank_account_number: '---' }],
+    ])('batch mode: %s is refused 400, nothing claimed, nothing sent', async (_name, change) => {
+      const { c, b } = await fixture();
+      const [col, val] = Object.entries(change)[0]!;
+      await pool.query(`UPDATE suppliers SET ${col} = $1 WHERE id = $2`, [val, b.members[0]!.supplierId]);
+      const res = await submit(c, b.id);
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+      await nothingHappened(c);
+    });
+
+    it('batch mode: an account written with spaces and dashes is sent as digits', async () => {
+      const { c, b } = await fixture();
+      await pool.query('UPDATE suppliers SET bank_account_number = $1 WHERE id = $2', ['6200 0000-001', b.members[0]!.supplierId]);
+      expect((await submit(c, b.id)).state.statusCode).toBe(200);
+      const sent = sender.submitEftBatch.mock.calls[0]![2] as { accountNumber: string }[];
+      expect(sent.every((x) => /^\d{1,11}$/.test(x.accountNumber))).toBe(true);
+    });
+
+    it.each([
+      ['letters in the account', { accountNumber: '62A00000001' }],
+      ['an over-long account', { accountNumber: '620000000012' }],
+      ['a short branch code', { bankCode: '2506' }],
+      ['an empty account', { accountNumber: '' }],
+    ])('raw mode: %s is refused 400, nothing sent', async (_name, change) => {
+      const { c } = await fixture();
+      const res = await rawSubmit(c, { ...RAW_OK, ...change });
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+      expect(JSON.stringify(res.state.body)).toMatch(/Payment 2/);
+      await nothingHappened(c);
+    });
+  });
 });

@@ -12,6 +12,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { validateNetcashPayees } from '@/modules/accounting/services/ap/netcashPayeeValidation';
 import { claimBatch, settleClaim } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
@@ -130,6 +131,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   } else {
     return apiResponse.badRequest(res, 'Provide batchPaymentId or payments array');
   }
+
+  // Refused before anything is claimed or sent: a malformed or over-long account would otherwise reach Netcash as-is.
+  const payeeErrors = validateNetcashPayees(payments);
+  if (payeeErrors.length > 0) return apiResponse.badRequest(res, payeeErrors.join('; '), { errors: payeeErrors });
 
   const totalAmountCents = payments.reduce((s, p) => s + p.amount, 0);
   const createdBy = req.user?.email ?? 'system';
