@@ -16,6 +16,7 @@ import {
 } from '@/modules/accounting/services/ap/eftService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { recordBankFileGenerated } from '@/modules/accounting/services/ap/batchBankFileRecord';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
@@ -24,6 +25,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierBankVerificationGate';
 
 type Row = Record<string, unknown>;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type EFTAccountType = EFTPayment['beneficiaryAccountType'];
 
 function toEFTAccountType(value: unknown): EFTAccountType {
@@ -42,11 +44,14 @@ const GENERATORS: Record<string, typeof generateStandardBankACB> = {
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write (a file is a way of paying)
 
   const { companyId } = req;
-  const { batchId, bank } = req.body;
+  const { batchId, bank } = req.body as { batchId?: unknown; bank?: unknown };
   if (!batchId) return apiResponse.badRequest(res, 'batchId is required');
-  if (!bank || !GENERATORS[bank]) return apiResponse.badRequest(res, `Invalid bank. Supported: ${Object.keys(GENERATORS).join(', ')}`);
+  if (typeof batchId !== 'string' || !UUID.test(batchId)) return apiResponse.badRequest(res, 'batchId must be a batch id');
+  // Object.hasOwn: 'constructor' / 'toString' are on every object and are not banks.
+  if (typeof bank !== 'string' || !Object.hasOwn(GENERATORS, bank)) return apiResponse.badRequest(res, `Invalid bank. Supported: ${Object.keys(GENERATORS).join(', ')}`);
 
   // Get batch details — scoped to company
   // batch_date::text: pg hands a DATE back as a Date at local midnight, which toISOString() shifts a day in SAST.
@@ -176,4 +181,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// Owner/admin only (AP-01 review): a bank file blocks Netcash for its batch until an owner/admin releases it, so a role
+// that cannot release must not be able to generate one.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

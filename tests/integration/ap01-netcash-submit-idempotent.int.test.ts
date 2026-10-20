@@ -194,9 +194,6 @@ describe('netcash/submit batch idempotency (AP-01)', () => {
   });
 
   describe('payee account and branch are validated before anything is claimed or sent', () => {
-    const RAW_OK = { accountHolder: 'Raw', bankCode: '250655', accountNumber: '62000000001', amount: 10000, reference: 'R' };
-    const rawSubmit = (c: string, p: Record<string, unknown>) => callRoute(netcashSubmit, tokens[user]!, c, 'POST',
-      { payments: [RAW_OK, p] }, '/api/accounting/netcash/submit');
     const nothingHappened = async (c: string) => {
       expect(sender.submitEftBatch).not.toHaveBeenCalled();
       expect(await rows(c)).toEqual([]);
