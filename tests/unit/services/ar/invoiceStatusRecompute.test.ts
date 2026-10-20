@@ -47,7 +47,15 @@ describe.each([
     // The same threshold that decides status 'paid' must decide the date, or
     // the two disagree on the same row.
     expect(sqlText()).toMatch(/paid_at\s*=\s*CASE/);
-    expect(sqlText()).toMatch(/amount_paid >= total_amount - 0\.01[\s\S]*COALESCE\(paid_at, NOW\(\)\)/);
+    const threshold = kind === 'customer' ? 'amount_paid >= total_amount' : 'amount_paid >= total_amount - 0\\.01';
+    expect(sqlText()).toMatch(new RegExp(`${threshold}[\\s\\S]*COALESCE\\(paid_at, NOW\\(\\)\\)`));
+  });
+
+  it('judges the customer balance in exact cents; the supplier side keeps its one-cent tolerance', async () => {
+    // Customer invoices have a CHECK (amount_paid <= total) and every writer is exact-cents; supplier invoices do not.
+    await recomputeInvoiceStatus(COMPANY, kind, INVOICE);
+    if (kind === 'customer') expect(sqlText()).not.toContain('0.01');
+    else expect(sqlText()).toContain('amount_paid > 0.01');
   });
 
   it('clears paid_at when a payment is undone and the invoice reopens', async () => {
