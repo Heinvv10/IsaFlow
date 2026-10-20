@@ -258,6 +258,8 @@ export const SUBTYPE_TO_AFS_CODE: Record<string, string> = {
   // Equity
   equity:                     'BS043',
   retained_earnings:          'BS045',
+  // Dividends paid: on the income statement below profit, and carried into equity (afs/dividendsPaid.ts).
+  dividends:                  'IS484',
   // Opening Balance Equity is a CLEARING account: it nets to zero once the
   // opening trial balance is complete, and a residual is a signal that
   // something is missing, not a reserve anyone intends to report. There is no
