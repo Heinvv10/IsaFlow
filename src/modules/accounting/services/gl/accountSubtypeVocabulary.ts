@@ -34,6 +34,7 @@ export type CanonicalSubtype =
   | 'equity'
   | 'retained_earnings'
   | 'opening_balance_equity'
+  | 'dividends'
   // revenue
   | 'revenue'
   | 'sales'
@@ -120,6 +121,7 @@ export const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   share_capital: 'equity',
   retained_earnings: 'retained_earnings',
   opening_balance_equity: 'opening_balance_equity',
+  dividends: 'dividends',
 
   // --- revenue ---
   revenue: 'revenue',
