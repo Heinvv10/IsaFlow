@@ -222,4 +222,45 @@ describe('a bank file closes the Netcash channel for its batch (AP-01)', () => {
       expect((await state(u.admin, c, 'nope')).state.statusCode).toBe(400);
     });
   });
+
+  describe('who may generate a file or send to Netcash, and what they may name (review LOWs/MEDIUMs)', () => {
+    const asManager = (handler: Parameters<typeof callRoute>[0], c: string, body: Record<string, unknown>, url: string) =>
+      callRoute(handler, tokens[u.manager]!, c, 'POST', body, url);
+
+    it('a manager (write access, below owner/admin) cannot generate a file: 403 and no export row, so they cannot block Netcash', async () => {
+      const { c, b } = await approvedBatch();
+      const res = await asManager(eftGenerate, c, { batchId: b.id, bank: 'fnb' }, '/api/accounting/eft-generate');
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(403);
+      expect(await exportRows(c, b.id)).toHaveLength(0);
+      expect((await submit(c, b.id)).state.statusCode).toBe(200); // Netcash is still open to the owner/admin
+    });
+
+    it('a manager cannot send to Netcash either: 403, sender not called, nothing claimed', async () => {
+      const { c, b } = await approvedBatch();
+      const res = await asManager(netcashSubmit, c, { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(403);
+      expect(sender.submitEftBatch).not.toHaveBeenCalled();
+      expect((await pool.query('SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].n).toBe(0);
+    });
+
+    it.each([['constructor'], ['toString'], ['__proto__'], ['nope']])('eft-generate: bank %j is not a bank: 400, no export row', async (bank) => {
+      const { c, b } = await approvedBatch();
+      const res = await callRoute(eftGenerate, tokens[u.admin]!, c, 'POST', { batchId: b.id, bank }, '/api/accounting/eft-generate');
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+      expect(await exportRows(c, b.id)).toHaveLength(0);
+    });
+
+    it.each([['not-a-uuid'], ['123'], [{ $ne: 1 }]])('eft-generate: batchId %j is refused 400, not a database error', async (batchId) => {
+      const { c } = await approvedBatch();
+      const res = await callRoute(eftGenerate, tokens[u.admin]!, c, 'POST', { batchId, bank: 'fnb' }, '/api/accounting/eft-generate');
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    });
+
+    it('netcash/submit: a non-uuid batchPaymentId is refused 400, not a database error', async () => {
+      const { c } = await approvedBatch();
+      const res = await callRoute(netcashSubmit, tokens[u.admin]!, c, 'POST', { batchPaymentId: 'not-a-uuid' }, '/api/accounting/netcash/submit');
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+      expect(sender.submitEftBatch).not.toHaveBeenCalled();
+    });
+  });
 });

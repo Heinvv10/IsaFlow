@@ -15,6 +15,8 @@ export function validateNetcashPayees(payments: NetcashPayment[]): string[] {
     const branch = typeof p.bankCode === 'string' ? p.bankCode : '';
     const checked = validateBankAccount(account, branch);
     if (!checked.valid) errors.push(`Payment ${i + 1}: ${checked.error}`);
+    // Whole cents, more than zero: a zero, negative or fractional amount is not a payment.
+    if (!Number.isSafeInteger(p.amount) || p.amount <= 0) errors.push(`Payment ${i + 1}: Amount must be greater than zero`);
   });
   return errors;
 }

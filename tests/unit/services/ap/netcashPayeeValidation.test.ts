@@ -33,4 +33,8 @@ describe('validateNetcashPayees', () => {
     expect(errorsFor({ accountNumber: 62000000001 as unknown as string })).toHaveLength(1);
     expect(errorsFor({ bankCode: null as unknown as string })).toEqual(['Payment 2: Branch code is required']);
   });
+
+  it.each([[0], [-1], [10.5], [Number.NaN], ['100' as unknown as number]])('refuses amount %j (whole cents above zero only)', (amount) => {
+    expect(errorsFor({ amount })).toEqual(['Payment 2: Amount must be greater than zero']);
+  });
 });
