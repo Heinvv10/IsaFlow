@@ -68,8 +68,7 @@ const CASES: Case[] = [
     lineItems: [{ description: 'R032', quantity: 1, unitPrice: 100, vatType: 'standard' }] } } },
   { name: 'batch payment approve', handler: batchPaymentsAction, call: { body: { action: 'approve', id: missing } } },
   { name: 'batch payment process', handler: batchPaymentsAction, call: { body: { action: 'process', id: missing } } },
-  { name: 'Netcash EFT submit', handler: netcashSubmit, call: { body: { payments: [
-    { accountHolder: 'R032', bankCode: '250655', accountNumber: '62000000000', amount: 100, reference: 'r032' }] } } },
+  { name: 'Netcash EFT submit', handler: netcashSubmit, call: { body: { batchPaymentId: missing } } },
   { name: 'close-run proposal approve', handler: closeRunDecide,
     call: { body: { runId: missing, proposalId: other, decision: 'approve' } } },
   { name: 'close-run proposal reject', handler: closeRunDecide,
