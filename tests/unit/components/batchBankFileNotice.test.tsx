@@ -78,4 +78,12 @@ describe('BatchBankFileNotice', () => {
       expect(screen.getByText(/bank file.*was generated/i)).toBeTruthy();
       expect(noRawText()).toBe(true);
     });
+
+  it('an error from one batch does not outlive a successful load of the next', async () => {
+    route((url) => (url.includes('batchId=b1') ? empty500() : ok({ bankFile: null })));
+    const { container, rerender } = render(<BatchBankFileNotice batchId="b1" />);
+    expect(await screen.findByText(/Could not check the batch's bank file - try again/)).toBeTruthy();
+    rerender(<BatchBankFileNotice batchId="b2" />);
+    await waitFor(() => expect(container.textContent).toBe(''));
+  });
 });

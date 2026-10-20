@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, RefreshCw, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
+import { NetcashResolveControl } from '@/components/accounting/NetcashResolveControl';
 
 interface Submission {
   id: string;
@@ -18,6 +19,8 @@ interface Submission {
   submitted_at: string | null;
   created_at: string;
   created_by: string | null;
+  /** status.ts keeps a poll that reported a failure as `pollFailure`; a clean poll removes it. */
+  netcash_response?: { pollFailure?: unknown } | null;
 }
 
 const STATUS_BADGE: Record<Submission['status'], string> = {
@@ -34,6 +37,11 @@ const HOLDING_NOTE: Partial<Record<Submission['status'], string>> = {
   pending: 'In flight, or its outcome was not recorded. Check Netcash before resubmitting.',
   unknown: 'Netcash gave no definite answer. Check Netcash before resubmitting.',
 };
+
+const POLL_FAILED_NOTE = 'Netcash reported a failure on the last check. Check Netcash, then resolve it.';
+
+/** Netcash's last poll of a submitted/processing row reported a failure. */
+const pollFailed = (s: Submission) => (s.status === 'submitted' || s.status === 'processing') && Boolean(s.netcash_response?.pollFailure);
 
 function formatRands(cents: number): string {
   return `R ${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
@@ -156,9 +164,10 @@ export default function NetcashSubmissionsPage() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {HOLDING_NOTE[s.status] && (
-                          <span className="text-xs text-orange-400 text-right max-w-[16rem]">{HOLDING_NOTE[s.status]}</span>
+                        {(HOLDING_NOTE[s.status] ?? (pollFailed(s) ? POLL_FAILED_NOTE : undefined)) && (
+                          <span className="text-xs text-orange-400 text-right max-w-[16rem]">{HOLDING_NOTE[s.status] ?? POLL_FAILED_NOTE}</span>
                         )}
+                        <NetcashResolveControl submissionId={s.id} status={s.status} pollFailed={pollFailed(s)} onResolved={() => void fetchSubmissions()} />
                         {(s.status === 'submitted' || s.status === 'processing') && (
                           <button
                             onClick={() => void handlePollStatus(s.id)}
