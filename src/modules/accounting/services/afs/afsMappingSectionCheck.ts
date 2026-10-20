@@ -5,24 +5,19 @@
 // account mapped to a BALANCE-SHEET line is therefore counted twice: once as itself, once inside the derived
 // profit. (While the year-end close was read as a posted journal it zeroed those accounts and hid this.) The
 // balance check blocks the export, but says only "out by R x"; this names the accounts, so the user knows why.
-// The reverse, an asset/liability/equity account on an INCOME line, puts a stock on a flow statement.
+// The reverse, an asset/liability/equity account on an INCOME line, puts a stock on a flow statement, except an
+// equity account on IS484 "Dividends paid": the balance sheet and the changes in equity carry it (dividendsPaid.ts).
 //
 // It reports. It does not change a mapping.
 
 import { sql } from '@/lib/neon';
 import type { ExportCheck } from './afsPreExportChecks';
+import { DIVIDENDS_PAID_CODE } from './noteGenerators/primaryStatements/dividendsPaid';
 
 interface Misplaced { account_code: string; account_name: string; account_type: string; afs_line_code: string; section: string }
 
 const SHOWN = 10;
 
-// An equity account mapped to IS484 "Dividends paid" is a deliberate mapping, not a slip: the income statement
-// shows the dividend, but the balance sheet's equity does not yet take it from the accumulated profit. Remapping
-// it would not help, so it gets its own advice.
-const DIVIDENDS_LINE = 'IS484';
-const isDividends = (r: Misplaced): boolean => r.account_type === 'equity' && r.afs_line_code === DIVIDENDS_LINE;
-const DIVIDENDS_ADVICE = 'Dividends paid is shown on the income statement; this version doesn\'t yet carry it into '
-  + 'balance-sheet equity, so the balance sheet may not balance.';
 const REMAP = 'Remap each to a line of its own statement.';
 // Revenue or expense on a balance-sheet line: the balance sheet also adds the profit to date, which holds the same figure.
 const TWICE_ADVICE = 'A revenue or expense account on a balance sheet line is counted twice (again inside the '
@@ -40,7 +35,8 @@ async function checkAccountsMappedToTheirStatement(companyId: string): Promise<E
     WHERE m.company_id = ${companyId}::UUID
       AND sl.is_active = true
       AND ((sl.section = 'balance_sheet' AND ga.account_type IN ('revenue', 'expense'))
-        OR (sl.section = 'income_statement' AND ga.account_type IN ('asset', 'liability', 'equity')))
+        OR (sl.section = 'income_statement' AND ga.account_type IN ('asset', 'liability', 'equity')
+          AND NOT (ga.account_type = 'equity' AND m.afs_line_code = ${DIVIDENDS_PAID_CODE})))
     ORDER BY ga.account_code, m.afs_line_code
   `) as Misplaced[] | undefined;
   if (!Array.isArray(rows) || rows.length === 0) return null;
@@ -51,8 +47,7 @@ async function checkAccountsMappedToTheirStatement(companyId: string): Promise<E
   const more = rows.length > SHOWN ? `; and ${rows.length - SHOWN} more` : '';
   const advice = [
     rows.some((r) => r.section === 'balance_sheet') ? TWICE_ADVICE : null,
-    rows.some((r) => r.section === 'income_statement' && !isDividends(r)) ? STOCK_ADVICE : null,
-    rows.some(isDividends) ? DIVIDENDS_ADVICE : null,
+    rows.some((r) => r.section === 'income_statement') ? STOCK_ADVICE : null,
   ].filter((a): a is string => a !== null);
   return {
     label: 'Every mapped account is on the right statement',
