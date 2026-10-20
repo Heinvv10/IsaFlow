@@ -34,7 +34,7 @@ import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
-import { findTerminationsPaidElsewhere } from './payrollTerminationService';
+import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,

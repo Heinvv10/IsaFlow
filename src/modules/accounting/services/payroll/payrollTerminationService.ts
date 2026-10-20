@@ -204,69 +204,6 @@ export async function setTerminationDetails(
   `;
 }
 
-/** A run line that carries a synthetic termination component (see LEAVE_PAY, NOTICE_PAY, SEVERANCE_PAY). */
-const TERMINATION_LINE = '$[*] ? (@.componentId starts with "synthetic:termination:")';
-
-/**
- * The period of another run that already paid this employee's termination
- * components, or null: approved or paid, or reopened with its journal still
- * linked (reopen keeps `journal_entry_id`; the pay-out is in the ledger). An end date moved into a later month after
- * the final pay went out must not pay leave, notice and severance again.
- * Nothing reinstates or re-hires a terminated employee today; a re-hire path
- * would need this to ignore runs before the re-hire.
- */
-export async function findPaidTerminationRun(
-  companyId: string,
-  employeeId: string,
-  runId: string,
-): Promise<{ year: number; month: number } | null> {
-  const rows = (await sql`
-    SELECT h.period_year, h.period_month
-    FROM   payroll_run_lines   l
-    JOIN   payroll_run_headers h ON h.id = l.run_id
-    WHERE  h.company_id  = ${companyId}::uuid
-      AND  l.employee_id = ${employeeId}::uuid
-      AND  h.id         <> ${runId}::uuid
-      AND  (h.status IN ('approved', 'paid') OR h.journal_entry_id IS NOT NULL)
-      AND  jsonb_path_exists(l.component_breakdown, ${TERMINATION_LINE}::jsonpath)
-    ORDER BY h.period_year, h.period_month
-    LIMIT 1
-  `) as DbRow[];
-  const row = rows[0];
-  return row ? { year: Number(row.period_year), month: Number(row.period_month) } : null;
-}
-
-/**
- * Lines of `runId` paying termination components that another run has already
- * paid (approved, paid, or reopened with its journal linked): two runs calculated before either was approved both
- * carry them, and the calculation-time check (findPaidTerminationRun) saw
- * neither. The approval gate refuses such a run until it is recalculated.
- */
-export async function findTerminationsPaidElsewhere(
-  companyId: string,
-  runId: string,
-): Promise<Array<{ employeeNumber: string; year: number; month: number }>> {
-  const rows = (await sql`
-    SELECT DISTINCT e.employee_number, h2.period_year, h2.period_month
-    FROM   payroll_run_lines   l
-    JOIN   payroll_run_headers h  ON h.id  = l.run_id
-    JOIN   payroll_employees   e  ON e.id  = l.employee_id AND e.company_id = h.company_id
-    JOIN   payroll_run_lines   l2 ON l2.employee_id = l.employee_id AND l2.run_id <> l.run_id
-    JOIN   payroll_run_headers h2 ON h2.id = l2.run_id AND h2.company_id = h.company_id
-    WHERE  h.id = ${runId}::uuid
-      AND  h.company_id = ${companyId}::uuid
-      AND  (h2.status IN ('approved', 'paid') OR h2.journal_entry_id IS NOT NULL)
-      AND  jsonb_path_exists(l.component_breakdown,  ${TERMINATION_LINE}::jsonpath)
-      AND  jsonb_path_exists(l2.component_breakdown, ${TERMINATION_LINE}::jsonpath)
-    ORDER BY 1, 2, 3
-  `) as DbRow[];
-  return rows.map(r => ({
-    employeeNumber: String(r.employee_number),
-    year: Number(r.period_year),
-    month: Number(r.period_month),
-  }));
-}
-
 /**
  * Fetch the accrued-minus-taken balance for the annual-leave type for
  * (employeeId, balanceYear). Returns 0 when no balance row exists.
