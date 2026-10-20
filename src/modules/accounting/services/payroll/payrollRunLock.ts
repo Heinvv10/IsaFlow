@@ -99,7 +99,12 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
  * lock does not cover: two runs carrying the same employee's termination
  * pay-outs, approved at once, would both pass it. Taken by approvePayrollRun
  * only, before the header lock, so it cannot form a cycle with calculate or
- * the generic reversal (neither takes it).
+ * the generic reversal (neither takes it). Two limits, both bounded by the 5s
+ * wait rather than hanging: a caller that locked another run's header earlier
+ * in the same transaction and then approves takes the locks in the opposite
+ * order to a peer (no route or MCP tool does both in one transaction); and a
+ * caller with no outer transaction (a script) holds this lock, like the header
+ * lock, only for withTransaction's own block, so it serialises nothing there.
  */
 export async function lockCompanyPayrollApprovals(runId: string, companyId: string): Promise<void> {
   await withBoundedLockWait(runId, (tx) => tx`
