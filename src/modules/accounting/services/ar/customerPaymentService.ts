@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { invoicesPayable } from './invoicesPayable';
-import { assertWithinOutstanding, cents, lockReceiptInvoices } from './receiptInvoiceLock';
+import { assertAllocationShape, assertInvoiceTakesReceipts, assertWithinOutstanding, cents, lockReceiptInvoices } from './receiptInvoiceLock';
 import type {
   CustomerPayment,
   CustomerPaymentAllocation,
@@ -119,10 +119,12 @@ export async function createCustomerPayment(companyId: string,
     // are locked (FOR UPDATE, ascending id) BEFORE the balance and pending
     // reads and held to the end of the request transaction. A concurrent
     // create waits here and then sees this receipt's draft as pending.
+    assertAllocationShape(input.allocations);
     const locked = await lockReceiptInvoices(companyId, input.allocations.map((a) => a.invoiceId));
     for (const alloc of input.allocations) {
       const invoice = locked.get(alloc.invoiceId);
       if (!invoice) throw new Error(`Invoice ${alloc.invoiceId} not found`);
+      assertInvoiceTakesReceipts(invoice);
       await invoicesPayable(companyId, [{ invoice_number: invoice.invoiceNumber, currency_code: invoice.currencyCode }]); // FX PR0: pre-write, a 400 not the trigger's message
       const pendingRows = (await sql`
         SELECT COALESCE(SUM(cpa.amount_allocated), 0) AS pending

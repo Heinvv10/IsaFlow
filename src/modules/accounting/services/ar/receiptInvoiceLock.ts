@@ -12,6 +12,8 @@
  */
 import { sql } from '@/lib/neon';
 import { withCustomerInvoiceLock } from './customerInvoiceLock';
+import { hasWholeCents } from '@/lib/mcp/tools/toolHelpers';
+import { documentInPopulation } from '../shared/documentPopulation';
 import { ReceiptRefusal } from './receiptRefusal';
 
 export interface LockedReceiptInvoice {
@@ -72,5 +74,35 @@ export function assertWithinOutstanding(
     `Allocation R${rand(claimCents)} exceeds invoice balance R${rand(Math.max(0, outstanding))} (${invoice.invoiceNumber})`
     + (pendingCents > 0 ? ` (R${rand(pendingCents)} already pending on draft payments)` : '')
     + hint,
+  );
+}
+
+/**
+ * Refuse, before any lock or write, the shapes of allocation list the books cannot hold: an amount that is not a
+ * whole number of cents (create and confirm compare in cents, so a sub-cent amount would be judged one way by each),
+ * and one invoice named twice (the (payment_id, invoice_id) unique constraint would answer it with raw constraint text).
+ */
+export function assertAllocationShape(allocs: readonly { invoiceId: string; amount: number }[]): void {
+  const seen = new Set<string>();
+  for (const a of allocs) {
+    if (!hasWholeCents(a.amount)) {
+      throw new ReceiptRefusal(`Allocation amount ${a.amount} is not a whole number of cents — amounts are stored to the cent.`);
+    }
+    if (seen.has(a.invoiceId)) {
+      throw new ReceiptRefusal(`Invoice ${a.invoiceId} appears more than once in this receipt — combine its allocations into one line.`);
+    }
+    seen.add(a.invoiceId);
+  }
+}
+
+/**
+ * Refuse an invoice the ledger does not carry: soft-deleted, or a status that has posted no AR (draft, pending approval,
+ * cancelled — `documentInPopulation`, the one definition the ageing and the gateway settlement review share).
+ */
+export function assertInvoiceTakesReceipts(invoice: LockedReceiptInvoice): void {
+  if (!invoice.deleted && documentInPopulation(invoice.status)) return;
+  throw new ReceiptRefusal(
+    `Invoice ${invoice.invoiceNumber} is ${invoice.deleted ? 'deleted' : invoice.status} and cannot take this receipt`
+    + ' — it has no receivable posted to settle.',
   );
 }
