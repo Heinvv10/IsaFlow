@@ -24,17 +24,18 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
 let user = '';
+let viewer = '';
 
-beforeAll(async () => { user = await createUser(pool, tokens); });
+beforeAll(async () => { user = await createUser(pool, tokens); viewer = await createUser(pool, tokens); });
 beforeEach(() => {
   netcash.submitEftBatch.mockReset();
   netcash.getSubmissionStatus.mockReset();
   netcash.submitEftBatch.mockResolvedValue({ success: true, outcome: 'accepted', batchReference: 'NC-POLL' });
 });
-afterAll(() => cleanupPr5(pool, companies, [user]));
+afterAll(() => cleanupPr5(pool, companies, [user, viewer]));
 
 async function submittedBatch() {
-  const { company: c, bank } = await payCompany(pool, [[user, 'admin']], companies);
+  const { company: c, bank } = await payCompany(pool, [[user, 'admin'], [viewer, 'viewer']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
   const b = await plantBatch(pool, c, user, bank);
   const res = await callRoute(netcashSubmit, tokens[user]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
@@ -96,5 +97,32 @@ describe('netcash/status never frees a live batch (AP-01)', () => {
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect((await stored(id)).status).toBe('completed'); // not moved back to 'processing'
     expect(JSON.stringify(res.state.body)).toContain('completed');
+  });
+
+  describe('who may poll, and what an answer leaves on the row (review)', () => {
+    it('a read-only member gets the stored status and triggers neither an outbound call nor a write', async () => {
+      const { c, id } = await submittedBatch();
+      netcash.getSubmissionStatus.mockResolvedValue({ status: 'completed', detail: 'from netcash' });
+      const res = await callRoute(netcashStatus, tokens[viewer]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id });
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+      expect(netcash.getSubmissionStatus).not.toHaveBeenCalled();
+      expect(JSON.stringify(res.state.body)).toContain('submitted');
+      expect((await stored(id)).status).toBe('submitted');
+    });
+
+    it.each([['not-a-uuid'], ['123']])('submissionId %j is refused 400', async (submissionId) => {
+      const { c } = await submittedBatch();
+      const res = await callRoute(netcashStatus, tokens[user]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId });
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    });
+
+    it('a poll that reports a failure stores it as evidence (pollFailure); a later clean poll removes it', async () => {
+      const { c, id } = await submittedBatch();
+      await poll(c, id, 'rejected by bank');
+      const failed = (await stored(id)).netcash_response as { pollFailure?: { status: string } };
+      expect(failed.pollFailure?.status).toBe('rejected by bank');
+      await poll(c, id, 'processing');
+      expect(((await stored(id)).netcash_response as { pollFailure?: unknown }).pollFailure).toBeUndefined();
+    });
   });
 });

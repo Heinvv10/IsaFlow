@@ -8,11 +8,13 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { canWrite } from '@/lib/auth/writeRoles';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSubmissionStatus } from '@/modules/accounting/services/ap/netcashService';
 
 type Row = Record<string, unknown>;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed']);
 
@@ -32,6 +34,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
   const { submissionId } = req.query;
   if (!submissionId) return apiResponse.badRequest(res, 'submissionId query param is required');
+  if (typeof submissionId !== 'string' || !UUID.test(submissionId)) return apiResponse.badRequest(res, 'submissionId must be a submission id');
 
   // Load submission — company-scoped
   const submissions = await sql`
@@ -74,6 +77,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     });
   }
 
+  // A poll calls Netcash and writes the row: write-access roles only. A read-only member (this is a GET, so
+  // withWriteAccess does not apply) is shown what is stored.
+  if (!canWrite(req.companyRole)) {
+    return apiResponse.success(res, {
+      submissionId,
+      status: submission.status,
+      detail: 'Checking Netcash needs write access; the stored status is shown',
+      polled: false,
+    });
+  }
+
   // Load company credentials
   const companies = await sql`
     SELECT netcash_service_key FROM companies WHERE id = ${companyId}::UUID LIMIT 1
@@ -94,12 +108,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }, 'netcash-api');
   }
 
+  // The latest poll's verdict, kept as evidence beside it: netcash/resolve may free a submitted/processing row only
+  // while Netcash's LATEST poll reported a failure (a clean poll removes it).
+  const response: Record<string, unknown> = { ...((submission.netcash_response as Record<string, unknown>) ?? {}), latestPoll: pollResult };
+  if (flagged) response.pollFailure = { status: pollResult.status, detail: pollResult.detail, at: new Date().toISOString() };
+  else delete response.pollFailure;
+
   // Persist updated status. Compare-and-set on the status read above: a poll that was waiting on Netcash must not
   // overwrite what settled meanwhile (a second poll's 'completed', an operator's resolution). 0 rows is a no-op.
   const written = await sql`
     UPDATE netcash_submissions
     SET status = ${newStatus},
-        netcash_response = ${JSON.stringify({ ...((submission.netcash_response as Record<string, unknown>) ?? {}), latestPoll: pollResult })}::JSONB
+        netcash_response = ${JSON.stringify(response)}::JSONB
     WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID AND status = ${String(submission.status)}
     RETURNING id
   ` as Row[];
