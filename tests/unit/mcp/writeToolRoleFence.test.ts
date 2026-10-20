@@ -75,6 +75,13 @@ describe('MCP write-tool role fence (S-01)', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('census: a tool named like a write is declared write: true (the fence keys off `write`)', () => {
+    // Verbs every current write tool starts with. A read tool may not take one; suggest_/propose_ return a plan.
+    const WRITE_VERB = /^(allocate|apply|approve|assign|attach|auto|bulk|calculate|cancel|close|create|deactivate|delete|disable|end|finalize|import|link|lock|log|mark|merge|perform|post|reopen|reverse|run|set|settle|split|submit|sync|tag|take|unapply|undo|update|void|year|add|remove|send|write|record|clear|reset|restore|archive|edit|change|move|pay|issue|generate)_/;
+    const misdeclared = ALL.filter((t) => !t.write && WRITE_VERB.test(t.name)).map((t) => t.name);
+    expect(misdeclared).toEqual([]);
+  });
+
   it('census: a tool that needs a write scope or write:post is declared write: true', () => {
     const needsWrite = (t: McpTool) =>
       Boolean(t.requiresPost) || [t.scope, t.requiresScope].some((s) => typeof s === 'string' && s.startsWith('write:'));

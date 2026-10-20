@@ -105,7 +105,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (withheld.length > 0) {
     log.info('OAuth consent: write scopes withheld for role', { userId: req.user.id, targetCompanyId, role: targetRole, withheld }, 'oauth');
   }
-  if (grantedScopes.length === 0) {
+  if (withheld.length > 0 && grantedScopes.length === 0) {
     return apiResponse.error(res, ErrorCode.FORBIDDEN, `Your role (${targetRole ?? 'unknown'}) in this company cannot grant ${withheld.join(', ')}.`);
   }
 

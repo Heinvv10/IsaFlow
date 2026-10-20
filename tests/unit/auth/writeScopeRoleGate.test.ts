@@ -122,6 +122,13 @@ describe('POST /api/oauth/consent — role gate on granted scopes', () => {
     expect(createAuthorisationCode).not.toHaveBeenCalled();
   });
 
+  it('leaves a writing role\'s empty grant as it was (nothing withheld, no 403)', async () => {
+    const res = makeRes();
+    await (consentHandler as H)(consentReq('manager', { scopes: ['write:post'], optInConfirmed: [] }), res);
+    expect(res.statusCode).toBe(200);
+    expect(granted()).toEqual([]);
+  });
+
   it('grants a manager every requested scope it ticked', async () => {
     const res = makeRes();
     await (consentHandler as H)(consentReq('manager'), res);

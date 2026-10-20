@@ -3,16 +3,19 @@
  * carries a role gate. A viewer reached AFS sign-off, portal contacts and fiscal-period creation because
  * nothing failed when a mutating `withAuth` route shipped without one.
  *
- * Census unit: each file under pages/api whose default export goes through `withAuth`. It is MUTATING
- * unless it is GET-only (no write-method literal, and a `req.method` check against 'GET'). It is GATED when
- * its default export composes withWriteAccess (not `allowedRoles: null`), withRole('manager'|'admin'|'owner'),
- * withPayrollDetailAccess or withPlatformAdmin. Anything else must be in EXEMPT, with the reason it is safe:
- * the route checks the role itself, writes only the caller's own state, or computes without writing.
- * Files are read from disk (not `git ls-files`), so an untracked new route is counted too.
+ * Every file under pages/api is accounted for. Its default export (a `const` it names is resolved) either
+ * goes through `withAuth` — a COMPANY route — or through another authentication (admin host, user session,
+ * portal, invite or extension token), or the file is listed in OTHER_ENTRY with how it authenticates.
+ * A company route is MUTATING unless it refuses every method but GET and names no write method. It is
+ * GATED when its default export composes withWriteAccess (no allowedRoles, or only owner/admin/manager),
+ * withRole('manager'|'admin'|'owner'), withPayrollDetailAccess or withPlatformAdmin. Any other mutating
+ * company route must be in EXEMPT, with the reason a non-writing role may call it. Files are read from
+ * disk (not `git ls-files`), so an untracked new route is counted too. Named limits: routeRoleGateCensus.helpers.ts.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join, relative } from 'path';
+import { walk, defaultExport, isMutating, isGated, OTHER_AUTH_WRAPPER } from './routeRoleGateCensus.helpers';
 
 const ROOT = join(__dirname, '../../..');
 const API = join(ROOT, 'pages/api');
@@ -52,50 +55,61 @@ const EXEMPT: Record<string, string> = {
   'pages/api/onboarding/extract.ts': 'VLM extraction of an uploaded document; stores nothing',
   'pages/api/onboarding/extract-id.ts': 'VLM extraction of an uploaded ID; stores nothing',
   'pages/api/onboarding/validate-directors.ts': 'validation only',
+  // GET-only, but in a shape the detector cannot prove (a GET branch, then a non-405 refusal).
+  'pages/api/accounting/loans/portfolio/summary.ts': 'reads only; every other method answers 400',
   // OPEN — not in the 2026-10-18 S-01..S-03 brief; listed so the census stays green, each needs a decision.
   'pages/api/billing/flows/auto-topup.ts': 'OPEN: a viewer can switch auto top-up on (K-200: no token is ever stored, so it cannot charge yet)',
   'pages/api/billing/flows/purchase.ts': 'OPEN: a viewer can start a Flow bundle checkout, paid on the payer\'s own card',
 };
 
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) return walk(p);
-    return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [p] : [];
-  });
-}
+/** Not company-scoped, or authenticated some other way; a prefix ending in '/' covers the directory. */
+const OTHER_ENTRY: Record<string, string> = {
+  'pages/api/auth/': 'login, session, MFA and the caller\'s own account',
+  'pages/api/oauth/': 'OAuth metadata, registration and token exchange (consent is a withAuth route)',
+  'pages/api/portal/': 'AR customer portal: invoice tokens and the portal session',
+  'pages/api/accounting/portal/': 'AFS portal contacts: magic link and portal JWT',
+  'pages/api/health/': 'health checks, read-only',
+  'pages/api/cron/': 'CRON_SECRET, timing-safe',
+  'pages/api/accounting/afs/cron/': 'CRON_SECRET, timing-safe',
+  'pages/api/webhooks/': 'provider HMAC / secret',
+  'pages/api/accounting/capture/upload.ts': 'capture API key, else withAuth(withWriteAccess) inside authAndHandle',
+  'pages/api/accounting/capture/inbound-email.ts': 'inbound mail webhook secret',
+  'pages/api/accounting/capture/inbound/whatsapp.ts': 'Twilio signature',
+  'pages/api/audit-portal/download.ts': 'audit-portal share token',
+  'pages/api/mcp/index.ts': 'PAT/OAuth bearer; every write tool is role-fenced in the registry (roleFence.ts)',
+  'pages/api/invite/[token].ts': 'public GET by token; POST withUserAuth with an email match',
+  'pages/api/contact.ts': 'public contact form, rate-limited',
+  'pages/api/waitlist.ts': 'public waitlist form',
+  'pages/api/landing-stats.ts': 'public aggregate (audit S-12)',
+  'pages/api/track/event.ts': 'public analytics beacon',
+};
+const otherEntry = (path: string) =>
+  Object.keys(OTHER_ENTRY).some((k) => (k.endsWith('/') ? path.startsWith(k) || path.includes(`/${k.slice('pages/api/'.length)}`) : path === k));
 
-/** The `export default …;` statement, comments stripped, so a mention in a doc comment does not count. */
-function defaultExport(src: string): string {
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  const at = code.search(/^export default /m);
-  if (at < 0) return '';
-  const end = code.indexOf(';', at);
-  return code.slice(at, end < 0 ? undefined : end);
-}
-
-const WRITE_LITERAL = /['"](POST|PUT|PATCH|DELETE)['"]/;
-const GET_ONLY_CHECK = /req\.method\s*(!==|===)\s*['"]GET['"]/;
-const GATE = /withWriteAccess\(|withRole\(\s*['"](manager|admin|owner)['"]\s*\)|withPayrollDetailAccess\(|withPlatformAdmin\(/;
-
-interface Route { path: string; mutating: boolean; gated: boolean }
-const ROUTES: Route[] = walk(API).flatMap((file) => {
+interface Route { path: string; exp: string; src: string }
+const FILES: Route[] = walk(API).map((file) => {
   const src = readFileSync(file, 'utf8');
-  const exp = defaultExport(src);
-  if (!/\bwithAuth\(/.test(exp)) return [];
-  const mutating = WRITE_LITERAL.test(src) || !GET_ONLY_CHECK.test(src);
-  const gated = GATE.test(exp) && !/allowedRoles:\s*null/.test(exp);
-  return [{ path: relative(ROOT, file), mutating, gated }];
+  return { path: relative(ROOT, file), exp: defaultExport(src), src };
 });
-const UNGATED = ROUTES.filter((r) => r.mutating && !r.gated).map((r) => r.path).sort();
+const COMPANY = FILES.filter((f) => /\bwithAuth\(/.test(f.exp));
+const UNGATED = COMPANY.filter((r) => isMutating(r.src) && !isGated(r.exp)).map((r) => r.path).sort();
+
+const exp = (body: string) => `export default ${body};`;
 
 describe('mutating withAuth route role-gate census', () => {
   it('sees the route tree (a bad path would pass every assertion vacuously)', () => {
-    expect(ROUTES.length).toBeGreaterThan(600);
-    expect(ROUTES.filter((r) => r.mutating && r.gated).length).toBeGreaterThan(300);
+    expect(COMPANY.length).toBeGreaterThan(600);
+    expect(COMPANY.filter((r) => isMutating(r.src) && isGated(r.exp)).length).toBeGreaterThan(300);
   });
 
-  it('every mutating route has a role gate or a stated exemption', () => {
+  it('every pages/api file is a company route, another authentication, or a listed entry point', () => {
+    const unknown = FILES
+      .filter((f) => !/\bwithAuth\(/.test(f.exp) && !OTHER_AUTH_WRAPPER.test(f.exp) && !otherEntry(f.path))
+      .map((f) => f.path);
+    expect(unknown, 'A route whose default export is not withAuth(...) must say how it authenticates in OTHER_ENTRY').toEqual([]);
+  });
+
+  it('every mutating company route has a role gate or a stated exemption', () => {
     const missing = UNGATED.filter((p) => !(p in EXEMPT));
     expect(missing, 'Add withWriteAccess (or a stricter gate) to these routes, or an EXEMPT entry saying why a viewer may call them').toEqual([]);
   });
@@ -105,14 +119,42 @@ describe('mutating withAuth route role-gate census', () => {
     expect(stale).toEqual([]);
   });
 
-  it('the detector catches the S-03 shape and accepts the gated one', () => {
-    const ungated = "export default withAuth(withErrorHandler(withCsrf(handler as never)));";
-    const gated = "export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));";
-    const optOut = "export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: null }))));";
-    const isGated = (s: string) => GATE.test(defaultExport(s)) && !/allowedRoles:\s*null/.test(defaultExport(s));
-    expect(isGated(ungated)).toBe(false);
-    expect(isGated(gated)).toBe(true);
-    expect(isGated(optOut)).toBe(false);
-    expect(isGated(`/** withWriteAccess( in a comment */\n${ungated}`)).toBe(false);
+  it('every OTHER_ENTRY file still exists and is still not a withAuth route', () => {
+    const files = Object.keys(OTHER_ENTRY).filter((k) => !k.endsWith('/'));
+    const stale = files.filter((k) => !FILES.some((f) => f.path === k && !/\bwithAuth\(/.test(f.exp)));
+    expect(stale).toEqual([]);
+  });
+});
+
+describe('the detector', () => {
+  const gated = (s: string) => isGated(defaultExport(s));
+
+  it('catches the S-03 shape and accepts the gated one', () => {
+    expect(gated(exp('withAuth(withErrorHandler(withCsrf(handler as never)))'))).toBe(false);
+    expect(gated(exp('withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))))'))).toBe(true);
+    expect(gated(exp("withAuth(withRole('admin')(withErrorHandler(handler)))"))).toBe(true);
+    expect(gated(`/** withWriteAccess( in a comment */\n${exp('withAuth(handler)')}`)).toBe(false);
+  });
+
+  it('refuses an allowedRoles that lets a non-writing role through', () => {
+    expect(gated(exp('withAuth(withWriteAccess(handler, { allowedRoles: null }))'))).toBe(false);
+    expect(gated(exp("withAuth(withWriteAccess(handler, { allowedRoles: ['owner', 'viewer'] }))"))).toBe(false);
+    expect(gated(exp("withAuth(withWriteAccess(handler, { allowedRoles: ['storeman'] }))"))).toBe(false);
+    expect(gated(exp('withAuth(withWriteAccess(handler, { allowedRoles: ROLES }))'))).toBe(false);
+    expect(gated(exp("withAuth(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))"))).toBe(true);
+    expect(gated(exp("withAuth(withRole('viewer')(handler))"))).toBe(false);
+  });
+
+  it('resolves `export default x` and reads a multi-statement export to its end', () => {
+    expect(defaultExport('const x = withAuth(withCsrf(handler));\nexport default x;')).toMatch(/^withAuth\(/);
+    expect(gated('const x = withAuth(withWriteAccess(handler));\nexport default x;')).toBe(true);
+    expect(gated(exp('withAuth(async (req, res) => { const a = 1; return withWriteAccess(h)(req, res); })'))).toBe(true);
+    expect(defaultExport('export default async function router(req, res) {}')).toBe('function');
+  });
+
+  it('a GET early-return with a write path is still mutating', () => {
+    expect(isMutating("if (req.method === 'GET') return list(); await sql`DELETE FROM x`;")).toBe(true);
+    expect(isMutating("if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method, ['GET']);")).toBe(false);
+    expect(isMutating("if (req.method === 'GET') { return x; } if (req.method === 'POST') {}")).toBe(true);
   });
 });

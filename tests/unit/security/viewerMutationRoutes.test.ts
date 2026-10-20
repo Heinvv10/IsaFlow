@@ -20,6 +20,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/lib/auth', async (orig) => ({ ...(await orig<typeof import('@/lib/auth')>()), withAuth: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+vi.mock('@/lib/rateLimit', async (orig) => ({ ...(await orig<typeof import('@/lib/rateLimit')>()), checkRateLimit: vi.fn(async () => true) }));
+vi.mock('@/modules/accounting/services/bank/vlmService', () => ({ isVlmAvailable: () => false, extractStatutoryDocWithVlm: vi.fn() }));
 
 import { sql } from '@/lib/neon';
 
@@ -79,7 +81,8 @@ function makeReq(method: string, companyRole: string): NextApiRequest {
 const roleRefusal = (res: ReturnType<typeof makeRes>) =>
   res.statusCode === 403 && /does not allow this action/.test(res.body?.error?.message ?? '');
 
-beforeEach(() => vi.clearAllMocks());
+// mockReset, not clearAllMocks: a refused case leaves its unconsumed mockResolvedValueOnce rows queued.
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(sql).mockReset().mockImplementation((async () => []) as never); });
 
 describe('viewer refused on every mutating AFS / period / reporting-group route', () => {
   it.each(CASES)('%s %s: a viewer gets 403 before any query', async (route, method) => {
@@ -96,9 +99,10 @@ describe('viewer refused on every mutating AFS / period / reporting-group route'
     const handler = await load(route);
     for (const role of ['owner', 'admin', 'manager']) {
       const res = makeRes();
-      // Past the gate the handler runs against an empty mocked DB; it may 400/404 or throw. Only the role refusal matters.
+      // Past the gate the handler runs against an empty mocked DB: it may answer 400/404, or throw on a
+      // missing row (withErrorHandler is mocked away). It may not answer 403 for any reason.
       await handler(makeReq(method, role), res as unknown as NextApiResponse).catch(() => undefined);
-      expect(roleRefusal(res), `${role} was refused`).toBe(false);
+      expect(res.statusCode, `${role}: ${JSON.stringify(res.body)}`).not.toBe(403);
     }
   });
 });
@@ -115,6 +119,28 @@ describe('company-documents: the named company\'s role must allow writing', () =
   it('refuses a viewer of that company (no soft delete), whatever their role in the active company', async () => {
     const res = await run('viewer');
     expect(res.statusCode).toBe(403);
+    expect(sql).toHaveBeenCalledTimes(2);
+  });
+
+  // POST: 1) the caller's role in the named company, 2) the INSERT. A 1 KB PDF passes the magic-byte and size checks.
+  const pdf = `data:application/pdf;base64,${Buffer.from(`%PDF-1.4\n${'x'.repeat(1100)}`).toString('base64')}`;
+  const upload = async (role: string) => {
+    vi.mocked(sql).mockResolvedValueOnce([{ role }] as never).mockResolvedValueOnce([{ id: ID }] as never);
+    const res = makeRes();
+    const body = { companyId: ID, documentType: 'cipc', documentName: 'cert.pdf', fileData: pdf, mimeType: 'application/pdf' };
+    await (await load('company-documents'))({ ...makeReq('POST', 'owner'), body } as NextApiRequest, res as unknown as NextApiResponse);
+    return res;
+  };
+
+  it('refuses an upload by a viewer of that company (no INSERT)', async () => {
+    const res = await upload('viewer');
+    expect(res.statusCode).toBe(403);
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a manager of that company upload', async () => {
+    const res = await upload('manager');
+    expect(res.statusCode).toBe(201);
     expect(sql).toHaveBeenCalledTimes(2);
   });
 
