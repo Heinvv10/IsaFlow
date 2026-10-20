@@ -16,6 +16,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { setTerminationDetails } from '@/modules/accounting/services/payroll/payrollTerminationService';
+import { runHasLoanWork } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -28,6 +29,7 @@ const marchRun = crypto.randomUUID();
 const febRun = crypto.randomUUID();
 const janRun = crypto.randomUUID();
 const loan = crypto.randomUUID();
+const journal = crypto.randomUUID();
 
 const stayer = crypto.randomUUID();
 const futureStarter = crypto.randomUUID();
@@ -143,7 +145,9 @@ afterAll(async () => {
     await pool.query('DELETE FROM payroll_loan_schedule WHERE loan_id=$1', [loan]);
     await pool.query('DELETE FROM payroll_loans WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM payroll_run_lines WHERE run_id=ANY($1::uuid[])', [[marchRun, febRun, janRun]]);
+    await pool.query('UPDATE payroll_run_headers SET journal_entry_id=NULL WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM payroll_run_headers WHERE company_id=ANY($1::uuid[])', [companies]);
+    await pool.query('DELETE FROM gl_journal_entries WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query(
       `DELETE FROM payroll_employee_components WHERE employee_id IN (
          SELECT id FROM payroll_employees WHERE company_id=ANY($1::uuid[]))`,
@@ -213,5 +217,25 @@ describe('P4 edges: December → January', () => {
     await calculatePayrollRun(janRun, janCompany);
     expect(await line(janRun, leftJan1)).toBeDefined();
     expect(await line(janRun, leftDec31)).toBeUndefined();
+  });
+});
+
+describe('P4 edges: a posted journal and a loan outside the run', () => {
+  // Runs last: it gives the March run a posted journal.
+  it("does not refuse a recalculation over an instalment of someone not in the run", async () => {
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,created_by,status)
+       VALUES($1,$2,DATE '2026-03-31','Payroll March 2026',$3,'posted')`,
+      [journal, company, crypto.randomUUID()],
+    );
+    await pool.query(
+      "UPDATE payroll_run_headers SET status='calculated', journal_entry_id=$2 WHERE id=$1",
+      [marchRun, journal],
+    );
+    // The MCP dry run and the live path read the same loan work.
+    expect(await runHasLoanWork(company, marchRun, 2026, 3)).toBe(false);
+    await expect(calculatePayrollRun(marchRun, company)).resolves.toBeDefined();
+    const { rows } = await pool.query('SELECT outstanding_balance FROM payroll_loans WHERE id=$1', [loan]);
+    expect(Number(rows[0].outstanding_balance)).toBe(1000);
   });
 });
