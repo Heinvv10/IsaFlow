@@ -24,7 +24,11 @@
  * The annual equivalent is this month's regular remuneration ×12, the basis
  * calculatePAYE has always used: the run keeps no year-to-date figures
  * (PayrollLineInput.priorPeriodCumulativePaye is unread), so a month of
- * irregular regular pay is annualised as it stands.
+ * irregular regular pay is annualised as it stands. For the same reason each
+ * month's annual payments are taxed on top of the annual equivalent only, not
+ * on top of 3605 payments earlier in the tax year: a second bonus can land in
+ * a lower bracket than a cumulative calculation would put it. G21 does not
+ * address a second annual payment; known limitation, corrected on assessment.
  */
 
 import { annualTaxAfterCredits, calculatePAYE } from './payeEngine';
