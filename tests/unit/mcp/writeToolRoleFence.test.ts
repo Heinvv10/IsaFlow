@@ -75,6 +75,37 @@ describe('MCP write-tool role fence (S-01)', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('census: every write: false tool is a READ someone has looked at (the fence trusts the flag)', () => {
+    // The fence cannot see what a handler does. A new tool declared write: false is unfenced, so it must be
+    // added here by hand: check its handler writes nothing before you do.
+    const READ_TOOLS = new Set([
+    'aged_creditors', 'aged_debtors', 'asset_register', 'audit_snapshots',
+    'audit_trail', 'balance_sheet', 'bank_accounts_status', 'bank_statement_coverage',
+    'budget_variance', 'chart_of_accounts_health', 'company_profile', 'compare_audit_snapshot',
+    'customer_statement', 'data_integrity_checks', 'emp201_status', 'entity_history',
+    'export_gl_lines', 'general_ledger', 'get_bank_rule', 'get_credit_note',
+    'get_document', 'get_employee', 'get_fiscal_period', 'get_invoice',
+    'get_match_candidates', 'get_opening_balances', 'get_supplier_invoice', 'irp5_data',
+    'job_cost_report', 'list_agent_postings', 'list_bank_reconciliations', 'list_bank_rules',
+    'list_bank_transactions', 'list_business_units', 'list_companies', 'list_cost_centres',
+    'list_credit_notes', 'list_customers', 'list_documents', 'list_employee_components',
+    'list_employees', 'list_fiscal_periods', 'list_fixed_assets', 'list_gl_accounts',
+    'list_import_batches', 'list_invoices', 'list_items', 'list_job_categories',
+    'list_journals', 'list_payroll_components', 'list_pay_runs', 'list_practice_clients',
+    'list_quotes', 'list_supplier_invoices', 'list_supplier_payments', 'list_suppliers',
+    'list_time_entries', 'list_unapplied_payments', 'list_unapplied_receipts', 'list_unsupported_transactions',
+    'list_work_items', 'period_close_checklist', 'profit_and_loss', 'project_profitability',
+    'propose_reclassification', 'reconcile_fixed_assets', 'reconcile_subledger', 'search_gl',
+    'stock_valuation', 'suggest_receipt_matches', 'supplier_statement', 'trial_balance',
+    'vat201_export', 'vat_exceptions', 'vat_reconciliation', 'vat_status',
+    'wip_report',
+    ]);
+    const unlisted = ALL.filter((t) => !t.write && !READ_TOOLS.has(t.name)).map((t) => t.name);
+    expect(unlisted).toEqual([]);
+    const stale = [...READ_TOOLS].filter((n) => !ALL.some((t) => t.name === n && !t.write));
+    expect(stale).toEqual([]);
+  });
+
   it('census: a tool named like a write is declared write: true (the fence keys off `write`)', () => {
     // Verbs every current write tool starts with. A read tool may not take one; suggest_/propose_ return a plan.
     const WRITE_VERB = /^(allocate|apply|approve|assign|attach|auto|bulk|calculate|cancel|close|create|deactivate|delete|disable|end|finalize|import|link|lock|log|mark|merge|perform|post|reopen|reverse|run|set|settle|split|submit|sync|tag|take|unapply|undo|update|void|year|add|remove|send|write|record|clear|reset|restore|archive|edit|change|move|pay|issue|generate)_/;

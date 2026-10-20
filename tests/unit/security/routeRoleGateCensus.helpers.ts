@@ -1,7 +1,8 @@
 /**
  * Detector for mutatingRouteRoleGateCensus.test.ts — reads a route file's TEXT, so it has named limits:
  * a method literal assembled at runtime, or a gate applied inside the handler, is invisible to it.
- * Those routes are listed by hand in the census's EXEMPT, with the reason.
+ * Those routes are listed by hand in the census's EXEMPT, with the reason. withWriteAccess passes every
+ * GET, so a gated route that writes from its GET branch counts as gated: also beyond a text census.
  */
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
@@ -53,10 +54,16 @@ const WRITE_LITERAL = /['"`](POST|PUT|PATCH|DELETE)['"`]/;
 /** A guard that refuses every method but GET: `req.method !== 'GET'`, or a 405 listing GET alone. */
 const GET_ONLY_GUARD = /req\.method\s*!==?\s*['"]GET['"]|methodNotAllowed\([^)]*\[\s*['"]GET['"]\s*\]\s*\)/;
 
-/** A route is GET-only when it refuses every other method and names no write method anywhere. */
+/** Inline SQL that writes. A GET handler can write too, and withWriteAccess lets every GET through. */
+const WRITE_SQL = /\b(INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+[a-z_][\w.]*\s+SET)\b/;
+
+/**
+ * A route is GET-only when it refuses every other method, names no write method and writes no inline
+ * SQL. A write reached through a service from a GET is beyond a text census.
+ */
 export function isMutating(src: string): boolean {
   const code = stripComments(src);
-  return WRITE_LITERAL.test(code) || !GET_ONLY_GUARD.test(code);
+  return WRITE_LITERAL.test(code) || WRITE_SQL.test(code) || !GET_ONLY_GUARD.test(code);
 }
 
 const WRITE_ROLES = new Set(['owner', 'admin', 'manager']);
