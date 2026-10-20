@@ -23,7 +23,7 @@ PAYG Flow wallet, subscription billing, and Stitch Express payments. Owns mutati
 - Wrapped metered API routes call `getFlowCost(code)` from `flowOperationCatalog` — NEVER hard-code Flow integers in route handlers.
 - Wallet mutations always take `companyId` first; routes live under `pages/api/billing/`.
 - Admin routes for plan/invoice/PAYG management live under `pages/api/admin/billing/`.
-- Buying Flows (`POST /api/billing/flows/purchase`) and auto top-up (`PATCH /api/billing/flows/auto-topup`) are owner/admin only: `withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] })`, as the Paystack mandate routes. The Flows page and `FlowWalletWidget` disable their controls for other roles; the 403 is the control.
+- Buying Flows (`POST /api/billing/flows/purchase`) and auto top-up (`PATCH /api/billing/flows/auto-topup`) are owner/admin only: `withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] })`: the company roles the mandate routes' `withRole('admin')` admits, without that hierarchy's `system`/`super_admin`. The Flows page and `FlowWalletWidget` disable their controls for other roles; the 403 is the control.
 
 ## Main function signatures (verified against source)
 - `getWallet(companyId) → FlowWallet | null`

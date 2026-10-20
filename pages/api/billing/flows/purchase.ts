@@ -161,5 +161,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 }
 
-// Owner and admin only, like the Paystack mandate routes: a viewer must not start a paid checkout.
+// Owner and admin only (the owner/admin that the mandate routes' withRole('admin') admits, without its system/super_admin):
+// a viewer must not start a paid checkout.
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));
