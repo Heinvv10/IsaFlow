@@ -35,7 +35,9 @@ import { log } from '@/lib/logger';
 import { withBoundedLockWait } from './payrollRunLock';
 import { PayrollApprovalRefusedError } from './payrollApprovalRefusal';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
-import { directivePaye, SEVERANCE_DIRECTIVE_COMPONENT_ID } from './payrollSeveranceDirective';
+import {
+  directivePaye, findHandMadeLumpSumPaid, findSeveranceDirectiveForRun, SEVERANCE_DIRECTIVE_COMPONENT_ID,
+} from './payrollSeveranceDirective';
 
 interface DirectiveLine {
   employeeNumber: string;
@@ -183,4 +185,47 @@ export async function claimRunSeveranceDirectives(companyId: string, runId: stri
     }
     if (lines.length > 0) log.info('Severance directives claimed by payroll run', { companyId, runId, directives: ids }, 'payrollRunDirectiveClaim');
   });
+}
+
+/**
+ * Leavers from earlier periods with an approved severance directive this run
+ * does NOT pay, and why — an advisory on the approval preview (non-blocking:
+ * one stuck leaver must not stop every later payroll). Calculation skips such a
+ * leaver, so no line carries a warning; this is where a person sees that the
+ * directive needs correcting, or that severance was paid by hand already.
+ */
+export async function unpaidLeaverDirectiveNotes(companyId: string, runId: string): Promise<PayrollJournalNote[]> {
+  const rows = (await sql`
+    SELECT DISTINCT e.id, e.employee_number, h.period_year, h.period_month
+    FROM payroll_run_headers h
+    JOIN payroll_employees e ON e.company_id = h.company_id
+    JOIN tax_directives d ON d.company_id = e.company_id AND d.employee_id = e.id
+    WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+      AND e.end_date < make_date(h.period_year, h.period_month, 1)
+      AND d.directive_type = 'severance' AND d.status = 'approved'
+      AND NOT EXISTS (SELECT 1 FROM tax_directive_payments p WHERE p.company_id = d.company_id AND p.tax_directive_id = d.id)
+      AND NOT EXISTS (SELECT 1 FROM payroll_run_lines l WHERE l.run_id = h.id AND l.employee_id = e.id)
+    ORDER BY e.employee_number
+  `) as DbRow[];
+  const notes: PayrollJournalNote[] = [];
+  for (const r of rows) {
+    const period = { year: Number(r.period_year), month: Number(r.period_month) };
+    const { available, unpayable } = await findSeveranceDirectiveForRun(companyId, String(r.id), runId, period);
+    const byHand = available ? await findHandMadeLumpSumPaid(companyId, String(r.id), runId) : null;
+    if (byHand) {
+      notes.push({
+        code: 'severance_directive_not_paid',
+        detail: `${String(r.employee_number)}: SARS directive ${available!.number ?? available!.id} is not paid, because severance `
+          + `(${byHand.name}) was already paid by hand in the ${byHand.year}-${String(byHand.month).padStart(2, '0')} run. `
+          + 'Correct that payment by hand if the directive replaces it.',
+      });
+    } else if (!available && unpayable) {
+      notes.push({
+        code: 'severance_directive_not_paid',
+        detail: `${String(r.employee_number)}: SARS directive ${unpayable.number ?? unpayable.id} is not paid, because its tax figure `
+          + 'is below nil or above the gross. Correct the directive.',
+      });
+    }
+  }
+  return notes;
 }

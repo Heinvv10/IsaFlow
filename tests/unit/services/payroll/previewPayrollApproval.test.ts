@@ -17,6 +17,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollTerminationPaidCheck', () 
 // Likewise (p3-severance-directive-run): no severance paid by directive.
 vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveClaim', () => ({
   judgeRunDirectives: vi.fn(async () => null), claimRunSeveranceDirectives: vi.fn(async () => undefined),
+  unpaidLeaverDirectiveNotes: vi.fn(async () => []),
 }));
 // Every sql call answers this row: the approve path's FOR UPDATE, and the posted journal's
 // head (a live journal with no lines, matching the empty plans below).

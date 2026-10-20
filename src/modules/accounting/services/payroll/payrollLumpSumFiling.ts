@@ -46,18 +46,24 @@ export async function listRunAnnualPayments(
   bounds: { start: string; end: string },
 ): Promise<Map<string, number>> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // Netted per run LINE and floored at nil there, as the calculator does: a line
+  // whose 3605 nets negative was taxed as regular pay, so it stays in 3601.
   const rows = (await sql`
-    SELECT l.employee_id, SUM((item->>'amount')::numeric)::numeric AS amount
-    FROM payroll_run_lines l
-    JOIN payroll_run_headers h ON h.id = l.run_id
-    JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
-    CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
-    WHERE h.company_id = ${companyId}::uuid
-      AND h.status = ANY(${declarable}::text[])
-      AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
-      AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
-      AND (item->>'isTaxable')::boolean
-    GROUP BY l.employee_id
+    SELECT per_line.employee_id, SUM(GREATEST(per_line.amount, 0))::numeric AS amount
+    FROM (
+      SELECT l.id, l.employee_id, SUM((item->>'amount')::numeric) AS amount
+      FROM payroll_run_lines l
+      JOIN payroll_run_headers h ON h.id = l.run_id
+      JOIN payroll_employees e ON e.id = l.employee_id AND e.company_id = h.company_id
+      CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
+      WHERE h.company_id = ${companyId}::uuid
+        AND h.status = ANY(${declarable}::text[])
+        AND make_date(h.period_year, h.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
+        AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
+        AND (item->>'isTaxable')::boolean
+      GROUP BY l.id, l.employee_id
+    ) per_line
+    GROUP BY per_line.employee_id
   `) as DbRow[];
   return new Map(rows.map(r => [String(r.employee_id), round2(Number(r.amount))]));
 }

@@ -38,7 +38,7 @@ import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
-import { judgeRunDirectives } from './payrollRunDirectiveClaim';
+import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
 import {
   buildPayrollJournalPlan,
@@ -202,7 +202,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const out = chain?.state === 'out';
   const replaces = out ? linked : null;
   const posted = out ? null : linked;
-  const plan = out && chain ? await datedForReplacement(companyId, built, chain) : built;
+  const dated = out && chain ? await datedForReplacement(companyId, built, chain) : built;
+  // Leavers whose approved severance directive this run does not pay, and why (P3); not in the hash.
+  const plan = { ...dated, advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId)] };
 
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
     const statusRefusal = approvalStatusRefusal(plan.status, linkedId);
