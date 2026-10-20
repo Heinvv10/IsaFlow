@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import paymentLink from '../../pages/api/portal/payment-link';
-import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
+import { liftAmountPaidCheck, restoreAmountPaidCheck } from './helpers/amountPaidCheck';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -26,11 +26,13 @@ let jwt = '';
 /** An approved invoice for R115.00, with `paid` already received (null leaves the column NULL). */
 async function invoice(paid: number | null): Promise<string> {
   const id = randomUUID();
-  await pool.query(
+  // 899's CHECK refuses an overpaid row, which the cases plant on purpose: lifted for the seed only.
+  const seed = (paid ?? 0) > 115 ? liftAmountPaidCheck : <T,>(fn: () => Promise<T>) => fn();
+  await seed(() => pool.query(
     `INSERT INTO customer_invoices (id, company_id, invoice_number, customer_id, client_id, invoice_date,
        subtotal, tax_amount, total_amount, amount_paid, status, created_by)
      VALUES ($1, $2, $3, $4, $4, CURRENT_DATE, 100, 15, 115, $5, 'approved', $6)`,
-    [id, CO, `R166-${id.slice(0, 8)}`, CUSTOMER, paid, USER]);
+    [id, CO, `R166-${id.slice(0, 8)}`, CUSTOMER, paid, USER]));
   return id;
 }
 
@@ -48,8 +50,6 @@ const links = async (invoiceId: string) => (await pool.query(
   .rows.map((r: { amount: string }) => r.amount);
 
 beforeAll(async () => {
-  // 899's CHECK refuses the overpaid and NaN rows below, which are the point of the cases.
-  await suspendAmountPaidCheck();
   await pool.query('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [CO, 'R166 amount cap']);
   await pool.query('INSERT INTO customers (id, company_id, name) VALUES ($1, $2, $3)', [CUSTOMER, CO, 'R166 customer']);
   await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)",
@@ -124,7 +124,7 @@ it('a negative amount_paid counts as nothing paid, so the cap never exceeds the 
 
 it('a NaN balance is refused, not treated as unlimited', async () => {
   const id = await invoice(0);
-  await pool.query("UPDATE customer_invoices SET amount_paid = 'NaN' WHERE id = $1", [id]);
+  await liftAmountPaidCheck(() => pool.query("UPDATE customer_invoices SET amount_paid = 'NaN' WHERE id = $1", [id]));
   const r = await post(id, 0.01);
   expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
   expect(r.body.error?.message).toBe('the invoice has no outstanding balance');

@@ -20,7 +20,7 @@ import {
   seedCompany, verify,
 } from './r167-portal-links.helpers';
 import { spendPaymentLinkOfRequest } from '@/modules/accounting/services/ar/portalLinkCharge';
-import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
+import { restoreAmountPaidCheck } from './helpers/amountPaidCheck';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -42,8 +42,6 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
 beforeAll(async () => {
   vi.stubEnv('PAYSTACK_SECRET_KEY', SECRET);
   vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.r167.test');
-  // 899's CHECK refuses the NaN / overpaid invoices these cases plant on purpose.
-  await suspendAmountPaidCheck();
   await seedCompany();
   clearSystemAccountCache();
 });

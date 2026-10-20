@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { CO, CUSTOMER, SECRET, USER, addLink, cleanupCompany, create, pool, requests, seedCompany } from './r167-portal-links.helpers';
 import { enableOnlinePayment, enableRoute, invoice, links, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
-import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
+import { restoreAmountPaidCheck } from './helpers/amountPaidCheck';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -28,8 +28,6 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
 beforeAll(async () => {
   vi.stubEnv('PAYSTACK_SECRET_KEY', SECRET);
   vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.r177.test');
-  // 899's CHECK refuses the NaN / overpaid invoices these cases plant on purpose.
-  await suspendAmountPaidCheck();
   await seedCompany();
   clearSystemAccountCache();
   await signIn();
