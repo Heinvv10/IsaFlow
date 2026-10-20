@@ -16,11 +16,17 @@ const TERMINATION_LINE = '$[*] ? (@.componentId starts with "synthetic:terminati
  * Whether a run's pay is out: approved or paid (whose journal cannot be
  * reversed, payrollJournalReversalGuard), or reopened with a journal its
  * reversal chain leaves in the ledger. A link alone is not enough: a reversed
- * journal stays linked (payrollJournalChain).
+ * journal stays linked (payrollJournalChain). `inForce` caches each journal's
+ * chain read for one call: several rows can share a run's journal.
  */
-async function runHasPaid(companyId: string, status: string, journalId: unknown): Promise<boolean> {
+async function runHasPaid(
+  companyId: string, status: string, journalId: unknown, inForce: Map<string, Promise<boolean>>,
+): Promise<boolean> {
   if (status === 'approved' || status === 'paid') return true;
-  return journalId != null && payrollJournalInForce(companyId, String(journalId));
+  if (journalId == null) return false;
+  const id = String(journalId);
+  if (!inForce.has(id)) inForce.set(id, payrollJournalInForce(companyId, id));
+  return inForce.get(id)!;
 }
 
 /**
@@ -46,8 +52,9 @@ export async function findPaidTerminationRun(
       AND  jsonb_path_exists(l.component_breakdown, ${TERMINATION_LINE}::jsonpath)
     ORDER BY h.period_year, h.period_month
   `) as DbRow[];
+  const inForce = new Map<string, Promise<boolean>>();
   for (const row of rows) {
-    if (await runHasPaid(companyId, String(row.status), row.journal_entry_id)) {
+    if (await runHasPaid(companyId, String(row.status), row.journal_entry_id, inForce)) {
       return { year: Number(row.period_year), month: Number(row.period_month) };
     }
   }
@@ -79,8 +86,9 @@ export async function findTerminationsPaidElsewhere(
     ORDER BY 1, 2, 3
   `) as DbRow[];
   const out: Array<{ employeeNumber: string; year: number; month: number }> = [];
+  const inForce = new Map<string, Promise<boolean>>();
   for (const r of rows) {
-    if (!await runHasPaid(companyId, String(r.status), r.journal_entry_id)) continue;
+    if (!await runHasPaid(companyId, String(r.status), r.journal_entry_id, inForce)) continue;
     const paid = { employeeNumber: String(r.employee_number), year: Number(r.period_year), month: Number(r.period_month) };
     if (!out.some(o => o.employeeNumber === paid.employeeNumber && o.year === paid.year && o.month === paid.month)) out.push(paid);
   }
