@@ -159,7 +159,7 @@ describeIfDisposable('flat GL-line export on a real ledger', () => {
   });
 
   it('export_gl_lines: counterparties need read:contacts; lines carry the summary on page 1 only', async () => {
-    const ctx = { userId: f.user, companyId: f.a, scopes: ['read:reports'], tokenJti: null, oauthAppId: null } as McpToolContext;
+    const ctx = { userId: f.user, companyId: f.a, scopes: ['read:reports'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as McpToolContext;
     await expect(exportGlLinesTool.handler({ table: 'counterparties' }, ctx)).rejects.toBeInstanceOf(GlExportScopeRefusal);
     const withContacts = JSON.parse((await exportGlLinesTool.handler(
       { table: 'counterparties' }, { ...ctx, scopes: ['read:reports', 'read:contacts'] },
@@ -230,7 +230,7 @@ describeIfDisposable('flat GL-line export on a real ledger', () => {
       const c2 = rows.filter((r) => r.Line_Description === 'c2');
       expect(c2.map((r) => [r.Document_No, r.Linked_Document_Count])).toEqual([['INV-9', 4], ['INV-9', 4]]);
 
-      const ctx = { userId: f.user, companyId: c, scopes: ['read:reports', 'read:contacts'], tokenJti: null, oauthAppId: null } as McpToolContext;
+      const ctx = { userId: f.user, companyId: c, scopes: ['read:reports', 'read:contacts'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as McpToolContext;
       const names: string[] = [];
       let cursor: string | null = null;
       for (let i = 0; i < 10; i++) {

@@ -76,7 +76,7 @@ async function postedJournal(date: string): Promise<string> {
 
 const entryCount = async (): Promise<number> => Number(((await sql`
   SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id = ${fx.companyId}::UUID`) as Row[])[0]!.n);
-const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-r012', scopes: [] }) as unknown as McpToolContext;
+const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-r012', scopes: [] }) as unknown as McpToolContext;
 
 describeIfDb('R-012: the default reversal date', () => {
   beforeAll(async () => {
@@ -228,7 +228,7 @@ describeIfDb('R-012: the MCP reverse tool and an uncreatable missing period', ()
       INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
       VALUES (${fx2.companyId}::UUID, ${je}::UUID, ${expense}::UUID, 100, 0, 'exp'),
              (${fx2.companyId}::UUID, ${je}::UUID, ${ap}::UUID, 0, 100, 'ap')`;
-    const ctx2 = { companyId: fx2.companyId, userId: fx2.userId, tokenJti: 'jti-r012g', scopes: [] } as unknown as McpToolContext;
+    const ctx2 = { companyId: fx2.companyId, userId: fx2.userId, companyRole: 'owner', tokenJti: 'jti-r012g', scopes: [] } as unknown as McpToolContext;
     for (const dryRun of [true, false]) {
       const out = await inTx(fx2, () => reverseJournalEntryTool.handler(
         { journal_entry_id: je, dry_run: dryRun, idempotency_key: `r012g-${dryRun}-${fx2.tag}` }, ctx2));

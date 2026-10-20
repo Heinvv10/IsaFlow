@@ -47,7 +47,7 @@ async function run(): Promise<{ used: number; threw: boolean }> {
   const res = { status() { return res; }, json() { return res; } } as unknown as NextApiResponse;
   let threw = false;
   await als.run(ctx, async () => {
-    await (route as unknown as H)({ method: 'POST', query: { documentId: DOC }, body: { signerContactIds: [ID] }, companyId: 'c', user: { id: 'u1' } } as unknown as NextApiRequest, res);
+    await (route as unknown as H)({ method: 'POST', query: { documentId: DOC }, body: { signerContactIds: [ID] }, companyId: 'c', companyRole: 'owner', user: { id: 'u1' } } as unknown as NextApiRequest, res);
   }).catch(() => { threw = true; });
   return { used: ctx.quotaCharges![0]!.used, threw };
 }

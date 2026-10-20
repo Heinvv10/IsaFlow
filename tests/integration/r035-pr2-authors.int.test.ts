@@ -114,7 +114,7 @@ describe('the content author may not approve', () => {
   it('an MCP update_supplier_invoice line edit makes its caller the author', async () => {
     const { c, bill } = await fixture();
     const requestId = await raise(u.a, c, bill.id);
-    const ctx = { companyId: c, userId: u.b, tokenJti: 'jti-r035' } as unknown as McpToolContext;
+    const ctx = { companyId: c, userId: u.b, companyRole: 'owner', tokenJti: 'jti-r035' } as unknown as McpToolContext;
     const edited = await asUser(u.b, c, () => updateSupplierInvoiceTool.handler({
       invoice_id: bill.id, idempotency_key: `r035-${bill.id}`,
       // Same figures, recoded: a pending request pins the total, not the accounts.

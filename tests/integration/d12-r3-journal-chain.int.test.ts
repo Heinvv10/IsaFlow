@@ -197,7 +197,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     const rec = await startSession(c, token, bank);
     await matchInto(c, token, rec, p);
     expect((await call(c, token, routes.recon, { action: 'complete', reconciliationId: rec })).status).toBe(200);
-    const ctx = { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:journals', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:journals', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     let err: unknown = null;
     try { await inTx(c.fx, () => reverseJournalEntryTool.handler({ journal_entry_id: head, dry_run: true, idempotency_key: randomUUID() }, ctx as never)); }
     catch (e) { err = e; }

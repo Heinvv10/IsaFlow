@@ -32,7 +32,7 @@ let expenseAccount: string;
 let seq = 0;
 
 type Row = Record<string, unknown>;
-const ctxOf = (f: Fixture) => ({ companyId: f.companyId, userId: f.userId, tokenJti: 'jti-u' }) as unknown as McpToolContext;
+const ctxOf = (f: Fixture) => ({ companyId: f.companyId, userId: f.userId, companyRole: 'owner', tokenJti: 'jti-u' }) as unknown as McpToolContext;
 const key = () => ({ idempotency_key: `k-${++seq}` });
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 

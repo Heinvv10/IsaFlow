@@ -5,8 +5,9 @@
  *    straight to paid / partially_paid with no status guard, so on a DRAFT
  *    invoice they skip approval. Under enforcement the backstop refuses them
  *    (a raised error the caller rolls back: a 500 through a route), and with
- *    enforcement off they behave as they always did. Neither service is
- *    otherwise changed.
+ *    enforcement off they behave as they always did. approveWriteOff no longer
+ *    reaches the backstop for a draft: it refuses an invoice with no posted AR
+ *    itself (AR audit C2), enforcement or not; the backstop is the second line.
  *  - The request INSERT guard (862) now binds customer_invoice requests: an
  *    app_user session can neither plant an already-approved request nor one
  *    raised in someone else's name; a pending request of its own still goes in.
@@ -15,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { als } from '../../src/lib/als';
 import { confirmCustomerPayment } from '../../src/modules/accounting/services/ar/customerPaymentAllocationService';
-import { approveWriteOff } from '../../src/modules/accounting/services/ar/writeOffService';
+import { approveWriteOff, WriteOffInvoiceRefusedError } from '../../src/modules/accounting/services/ar/writeOffService';
 import { clearSystemAccountCache } from '../../src/modules/accounting/services/gl/systemAccountResolver';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, plantRule } from './r035-approval.helpers';
@@ -107,7 +108,7 @@ describe('services that move a DRAFT invoice into the population without approvi
     const c = await company();
     const inv = await plantInvoice(pool, c, u.a);
     const writeOff = await draftWriteOff(c, inv.id, inv.customerId, 1150);
-    await expect(inTx(c, () => approveWriteOff(c, writeOff, u.b))).rejects.toThrow(/R035_APPROVAL_REQUIRED/);
+    await expect(inTx(c, () => approveWriteOff(c, writeOff, u.b))).rejects.toBeInstanceOf(WriteOffInvoiceRefusedError);
     expect((await invoiceState(pool, inv.id)).status).toBe('draft');
     expect(await journalsOf(c)).toBe(0);
     expect((await pool.query('SELECT status FROM customer_write_offs WHERE id = $1', [writeOff])).rows[0].status).toBe('draft');
@@ -119,7 +120,13 @@ describe('services that move a DRAFT invoice into the population without approvi
     const payment = await draftPayment(c, paid.id, paid.customerId, 1150);
     await inTx(c, () => confirmCustomerPayment(c, payment, u.a));
     expect((await invoiceState(pool, paid.id)).status).toBe('paid');
+    // A write-off needs an issued invoice (C2): a draft is refused whatever the enforcement setting.
+    const draft = await plantInvoice(pool, c, u.a);
+    const draftWo = await draftWriteOff(c, draft.id, draft.customerId, 1150);
+    await expect(inTx(c, () => approveWriteOff(c, draftWo, u.b))).rejects.toBeInstanceOf(WriteOffInvoiceRefusedError);
+    expect((await invoiceState(pool, draft.id)).status).toBe('draft');
     const writtenOff = await plantInvoice(pool, c, u.a);
+    await pool.query("UPDATE customer_invoices SET status = 'approved' WHERE id = $1", [writtenOff.id]);
     const writeOff = await draftWriteOff(c, writtenOff.id, writtenOff.customerId, 1150);
     await inTx(c, () => approveWriteOff(c, writeOff, u.b));
     expect((await invoiceState(pool, writtenOff.id)).status).toBe('paid');

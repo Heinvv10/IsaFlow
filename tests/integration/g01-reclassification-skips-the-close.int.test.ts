@@ -30,7 +30,7 @@ const company = crypto.randomUUID();
 const [bank, retained, revenue, rev2, p25, p26] = Array.from({ length: 6 }, () => crypto.randomUUID());
 const ctx = {
   companyId: company, userId: user, scopes: ['read:reports', 'write:journals', 'write:post'],
-  tokenJti: 'jti-g01', oauthAppId: null,
+  companyRole: 'owner', tokenJti: 'jti-g01', oauthAppId: null,
 } as unknown as McpToolContext;
 const args = {
   source_account_id: revenue, target_account_id: rev2,

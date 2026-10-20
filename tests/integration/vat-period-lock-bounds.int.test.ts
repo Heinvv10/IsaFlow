@@ -100,7 +100,7 @@ describeIfDb('VAT period lock bounds, lock timeout and preview locking', () => {
   });
 
   it('the MCP dry run refuses the same periods before writing anything', async () => {
-    const ctx = { companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-b', scopes: [] } as unknown as McpToolContext;
+    const ctx = { companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-b', scopes: [] } as unknown as McpToolContext;
     const r = await inTx(fx, () => lockVatPeriodTool.handler(
       { period_start: '2021-01-01', period_end: '2022-06-30', dry_run: true, idempotency_key: 'k-b1' }, ctx));
     expect(r.isError).toBe(true);

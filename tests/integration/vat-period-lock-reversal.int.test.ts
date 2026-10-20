@@ -59,7 +59,7 @@ const contraOf = async (je: string) => ((await sql`
   SELECT id, entry_date::TEXT AS d FROM gl_journal_entries
   WHERE company_id = ${fx.companyId}::UUID AND reversal_of_id = ${je}::UUID`) as Row[])[0];
 
-const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-r', scopes: [] }) as unknown as McpToolContext;
+const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-r', scopes: [] }) as unknown as McpToolContext;
 
 describeIfDb('reversals into a locked VAT period', () => {
   beforeAll(async () => {

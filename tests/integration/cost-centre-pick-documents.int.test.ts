@@ -128,7 +128,7 @@ describeIfDb('cost-centre picks on stored documents and templates', () => {
     const posted = await callRoute(fx, p.token, supplierInvoicesBulkAction, { action: 'post_gl', invoiceIds: [b.id] });
     expect(dataOf<{ results: Array<{ ok: boolean; warnings?: string[] }> }>(posted).results).toMatchObject([{ ok: true, warnings: [INACTIVE] }]);
 
-    const ctx = { companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-ccd', scopes: [] } as unknown as McpToolContext;
+    const ctx = { companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-ccd', scopes: [] } as unknown as McpToolContext;
     const text = (out: unknown) => (out as { content: Array<{ text: string }> }).content[0]!.text;
     const one = await inTx(fx, () => approveSupplierInvoiceTool.handler({ invoice_id: c.id, idempotency_key: `ccd-${c.id}` }, ctx));
     expect((JSON.parse(text(one)) as { warnings?: string[] }).warnings).toEqual([INACTIVE]);
