@@ -77,4 +77,24 @@ describe('netcash/status never frees a live batch (AP-01)', () => {
     await poll(c, id, 'completed');
     expect((await stored(id)).status).toBe('completed');
   });
+
+  it('compare-and-set: a poll that read an older status does not overwrite what settled underneath it', async () => {
+    const { c, id } = await submittedBatch();
+    let release!: () => void;
+    let entered!: () => void;
+    const inPoll = new Promise<void>((res) => { entered = res; });
+    netcash.getSubmissionStatus.mockImplementation(async () => {
+      entered();
+      await new Promise<void>((res) => { release = res; });
+      return { status: 'processing', detail: 'stale answer' };
+    });
+    const pollP = callRoute(netcashStatus, tokens[user]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id });
+    await inPoll; // the poll has read 'submitted' and is waiting on Netcash
+    await pool.query("UPDATE netcash_submissions SET status = 'completed' WHERE id = $1", [id]); // a second poll got there first
+    release();
+    const res = await pollP;
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect((await stored(id)).status).toBe('completed'); // not moved back to 'processing'
+    expect(JSON.stringify(res.state.body)).toContain('completed');
+  });
 });
