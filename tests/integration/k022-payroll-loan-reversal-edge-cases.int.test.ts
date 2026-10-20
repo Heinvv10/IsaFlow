@@ -253,6 +253,7 @@ describe('K-022 loan reversal edge cases', () => {
       periodMonth: 3,
       officialRate: 0.085,
       journalEntryId: null,
+      employeeIds: new Set([t.employee]),
     };
     const first = await pool.connect();
     const second = await pool.connect();
@@ -337,6 +338,7 @@ describe('K-022 loan reversal edge cases', () => {
           periodMonth: 3,
           officialRate: 0.085,
           journalEntryId: null,
+          employeeIds: new Set([t.employee]),
         }),
       ).then(() => null, (e: unknown) => e);
 
@@ -427,6 +429,7 @@ describe('K-022 loan reversal edge cases', () => {
           periodMonth: 3,
           officialRate: 0.085,
           journalEntryId: null,
+          employeeIds: new Set([t.employee]),
         }),
       );
 
