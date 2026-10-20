@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { CO, CUSTOMER, SECRET, USER, addLink, cleanupCompany, create, pool, requests, seedCompany } from './r167-portal-links.helpers';
 import { enableOnlinePayment, enableRoute, invoice, links, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
+import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -27,12 +28,14 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
 beforeAll(async () => {
   vi.stubEnv('PAYSTACK_SECRET_KEY', SECRET);
   vi.stubEnv('NEXT_PUBLIC_APP_URL', 'https://app.r177.test');
+  // 899's CHECK refuses the NaN / overpaid invoices these cases plant on purpose.
+  await suspendAmountPaidCheck();
   await seedCompany();
   clearSystemAccountCache();
   await signIn();
 });
 beforeEach(() => { h.charged.length = 0; h.verifyTransaction.mockReset(); });
-afterAll(async () => { vi.unstubAllEnvs(); await cleanupCompany(); });
+afterAll(async () => { vi.unstubAllEnvs(); await cleanupCompany(); await restoreAmountPaidCheck(); });
 
 describe('R-177: Pay Now hands out the standing link and never calls the gateway itself', () => {
   it('answers with the link and its token; no gateway call and no payment request in its transaction', async () => {

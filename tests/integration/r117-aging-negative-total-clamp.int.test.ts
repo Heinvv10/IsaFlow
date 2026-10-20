@@ -21,6 +21,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { insertPreConstraintRow } from './helpers/preConstraintRow';
+import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
 import { getCustomerReport, getSupplierReport } from '@/modules/accounting/services/reports/transactionReportingService';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
@@ -49,6 +50,8 @@ async function seedNegative(table: 'customer_invoices' | 'supplier_invoices', te
 describeIfDb('R-117 a negative-total document reports nothing settled, not its own total', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: DATABASE_URL, max: 2 });
+    // 899's CHECK refuses the wrong-signed and over-paid rows below, which are the point of the cases.
+    await suspendAmountPaidCheck();
     await sql`
       INSERT INTO companies (id, name, registration_number, created_at)
       VALUES (${COMPANY}::UUID, ${'R117 ' + COMPANY.slice(0, 8)}, 'R117-TEST', NOW())`;
@@ -91,6 +94,7 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     await sql`DELETE FROM companies WHERE id = ${COMPANY}::UUID`;
     // users.id is VARCHAR, not UUID — casting the column's side raises 42883.
     await sql`DELETE FROM users WHERE id = ${USER}`;
+    await restoreAmountPaidCheck();
     await pool.end();
   }, 60000);
 

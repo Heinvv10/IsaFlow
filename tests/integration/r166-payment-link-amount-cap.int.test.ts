@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import paymentLink from '../../pages/api/portal/payment-link';
+import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -47,6 +48,8 @@ const links = async (invoiceId: string) => (await pool.query(
   .rows.map((r: { amount: string }) => r.amount);
 
 beforeAll(async () => {
+  // 899's CHECK refuses the overpaid and NaN rows below, which are the point of the cases.
+  await suspendAmountPaidCheck();
   await pool.query('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [CO, 'R166 amount cap']);
   await pool.query('INSERT INTO customers (id, company_id, name) VALUES ($1, $2, $3)', [CUSTOMER, CO, 'R166 customer']);
   await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)",
@@ -66,6 +69,7 @@ afterAll(async () => {
     }
     await pool.query('DELETE FROM companies WHERE id = $1', [CO]);
     await pool.query('DELETE FROM users WHERE id = $1', [USER]);
+    await restoreAmountPaidCheck();
   } finally {
     await pool.end();
   }
