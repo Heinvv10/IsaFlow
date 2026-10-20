@@ -84,16 +84,25 @@ class ConfinementUnavailable extends Error {
   constructor(readonly profile: string, message: string) { super(message); }
 }
 
+let warnedUnconfined = false;
+
 /**
- * The AppArmor profile gs runs under; '' = unconfined (dev, CI, or `none` set on purpose);
- * null = misconfigured. Production must name one, or say `none`: an unset or mistyped-empty
- * variable must not quietly run gs bare. `unconfined` is AppArmor's no-op label, so refused too.
+ * The AppArmor profile gs runs under; '' = unconfined (dev, test, or `none` set on purpose);
+ * null = misconfigured. Anywhere but NODE_ENV development/test (production, or NODE_ENV unset or
+ * overridden) must name one or say `none`: an unset variable must not quietly run gs bare.
+ * `unconfined` is AppArmor's no-op label, so it is refused too.
  */
 function apparmorProfile(): string | null {
   const named = process.env.GS_APPARMOR_PROFILE ?? '';
-  if (named === 'none') return '';
   if (named === 'unconfined') return null;
-  if (named === '') return process.env.NODE_ENV === 'production' ? null : '';
+  if (named === 'none') {
+    if (!warnedUnconfined) {
+      warnedUnconfined = true;
+      log.warn('gs runs WITHOUT AppArmor: GS_APPARMOR_PROFILE=none', { nodeEnv: process.env.NODE_ENV }, 'vlm-pdf-render');
+    }
+    return '';
+  }
+  if (named === '') return ['development', 'test'].includes(process.env.NODE_ENV ?? '') ? '' : null;
   return named;
 }
 
@@ -129,7 +138,7 @@ function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer;
   if (profile === null) {
     const named = process.env.GS_APPARMOR_PROFILE ?? '';
     return Promise.reject(new ConfinementUnavailable(named,
-      'GS_APPARMOR_PROFILE must name the AppArmor profile (isaflow-gs) in production, or be none'));
+      'GS_APPARMOR_PROFILE must name the AppArmor profile (isaflow-gs) outside development/test, or be none'));
   }
   const absent = ['prlimit', 'gs', ...(profile ? ['aa-exec'] : [])].filter((name) => !onPath(name));
   if (absent.length > 0) return Promise.reject(new RenderUnavailable(`not on PATH: ${absent.join(', ')}`));
