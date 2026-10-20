@@ -34,14 +34,17 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
  * The PAYE a directive prescribes on its gross: the rate when one is set, else
- * the fixed amount; null when it carries neither. The one rule for both the
+ * the fixed amount; null when it carries neither, or a figure below nil or
+ * above the gross (the directive is then not payable). The one rule for both the
  * run and the stand-alone payment, so the two cannot pay different tax.
  */
 export function directivePaye(row: DbRow): number | null {
   const gross = round2(Number(row.amount));
-  if (row.tax_rate != null) return round2(gross * Number(row.tax_rate));
-  if (row.tax_amount != null) return round2(Number(row.tax_amount));
-  return null;
+  const paye = row.tax_rate != null ? round2(gross * Number(row.tax_rate))
+    : row.tax_amount != null ? round2(Number(row.tax_amount))
+    : null;
+  // A tax figure outside 0..gross is not a directive anyone can pay: nil net or negative tax.
+  return paye == null || paye < 0 || paye > gross ? null : paye;
 }
 
 export interface SeveranceDirective {
@@ -57,7 +60,7 @@ function mapDirective(r: DbRow): SeveranceDirective {
     id: String(r.id),
     number: r.directive_number == null ? null : String(r.directive_number),
     gross: round2(Number(r.amount)),
-    paye: directivePaye(r) ?? 0,
+    paye: directivePaye(r)!, // callers pass only payable rows (findSeveranceDirectiveForRun)
     effectiveDate: fmtDate(r.effective_date),
   };
 }
@@ -91,7 +94,7 @@ export async function findSeveranceDirectiveForRun(
       AND (d.tax_rate IS NOT NULL OR d.tax_amount IS NOT NULL)
     ORDER BY d.effective_date, d.created_at, d.id
   `) as DbRow[];
-  const free = rows.find(r => r.paid_elsewhere !== true);
+  const free = rows.find(r => r.paid_elsewhere !== true && directivePaye(r) != null);
   return { available: free ? mapDirective(free) : null, paidElsewhere: rows.some(r => r.paid_elsewhere === true) };
 }
 

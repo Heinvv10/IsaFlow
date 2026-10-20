@@ -77,8 +77,13 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     }
   }
 
-  // Taxable deductions come off regular pay first; any excess off the annual
-  // payments, so the taxed total is what it was before the split.
+  // A net negative annual payment (a bonus clawback) reduces regular pay, as it
+  // did before the split. Taxable deductions come off regular pay first, any
+  // excess off the annual payments, so the taxed total is unchanged by the split.
+  if (annualPayments < 0) {
+    periodicTaxable += annualPayments;
+    annualPayments = 0;
+  }
   const regularTaxable = Math.max(0, periodicTaxable - taxableDeductions);
   const annualTaxable = Math.max(0, annualPayments - Math.max(0, taxableDeductions - periodicTaxable));
   const taxableIncome = regularTaxable + annualTaxable;

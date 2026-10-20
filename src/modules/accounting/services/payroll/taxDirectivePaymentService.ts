@@ -138,7 +138,7 @@ export async function applyTaxDirective(
   const paye = directivePaye(dir);
   if (paye == null) {
     throw new Error(
-      `Directive ${directiveId} has no tax_rate or tax_amount — set the SARS directive rate before applying`,
+      `Directive ${directiveId} has no payable tax figure (no tax_rate or tax_amount, or one below nil or above the gross) — correct the SARS directive rate before applying`,
     );
   }
 

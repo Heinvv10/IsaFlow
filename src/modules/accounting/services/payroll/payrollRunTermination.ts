@@ -10,6 +10,9 @@
  *   SEVERANCE_PAID_BY_DIRECTIVE   the directive was paid elsewhere: not paid again.
  *   SEVERANCE_DIRECTIVE_MISMATCH  the directive's gross differs from the calculated severance;
  *                                 the directive's figures are paid (decided 2026-10-20).
+ *   SEVERANCE_CAPTURED_AS_COMPONENT  the line already pays a hand-made 39xx component: the
+ *                                 directive's line is not added beside it (no double payment);
+ *                                 approval stays refused until that component is removed.
  */
 
 import { log } from '@/lib/logger';
@@ -23,6 +26,7 @@ import {
 } from './payrollTerminationService';
 import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
 import { findSeveranceDirectiveForRun, severanceDirectiveComponent } from './payrollSeveranceDirective';
+import { payeTreatment } from './payeAnnualPayment';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 const SYNTHETIC_SEVERANCE_ID = 'synthetic:termination:severance';
@@ -81,8 +85,20 @@ async function severanceByDirective(
   period: PayrollPeriod,
   calculated: number | null,
   warnings: ValidationResult[],
+  components: EmployeeComponent[] = [],
 ): Promise<EmployeeComponent[]> {
   const { available, paidElsewhere } = await findSeveranceDirectiveForRun(companyId, employee.id, runId, period);
+  const handMade = components.find(c => c.component.componentType === 'earning' && payeTreatment(c.component.sarsSourceCode) === 'lump_sum');
+  if (available && handMade) {
+    warnings.push({
+      code: 'SEVERANCE_CAPTURED_AS_COMPONENT',
+      severity: 'warning',
+      message: `${who(employee)} has severance as a pay component (${handMade.component.name}, code ${handMade.component.sarsSourceCode}) `
+        + `and an approved SARS directive ${available.number ?? available.id}. The directive is not added beside it; remove the component `
+        + 'and recalculate, and the run pays the severance at the directive figures.',
+    });
+    return [];
+  }
   if (available) {
     if (calculated != null && Math.abs(available.gross - calculated) >= 0.005) {
       warnings.push({
@@ -146,7 +162,7 @@ export async function appendTerminationIfEndingThisPeriod(
     payouts = t?.payouts ?? [];
     calculated = t?.severance ?? 0;
   }
-  const severance = await severanceByDirective(companyId, runId, employee, period, calculated, warnings);
+  const severance = await severanceByDirective(companyId, runId, employee, period, calculated, warnings, components);
   const termination = [...payouts, ...severance];
   if (termination.length > 0) {
     log.info('Termination components injected into payroll run', {
