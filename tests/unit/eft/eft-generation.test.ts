@@ -12,6 +12,7 @@ import {
   generateCapitecEFT,
   validateBankAccount,
   validateEFTBatch,
+  eftTruncationWarnings,
   formatEFTAmount,
   padRight,
   padLeft,
@@ -238,6 +239,70 @@ describe('EFT Batch Validation', () => {
   it('rejects payment with missing account number', () => {
     const result = validateEFTBatch(sampleHeader, [{ ...samplePayments[0]!, beneficiaryAccountNumber: '' }]);
     expect(result.valid).toBe(false);
+  });
+
+  it('rejects a header with no originating account or branch (AP-02: never zeros)', () => {
+    expect(validateEFTBatch({ ...sampleHeader, bankAccountNumber: '' }, samplePayments).valid).toBe(false);
+    expect(validateEFTBatch({ ...sampleHeader, branchCode: '' }, samplePayments).valid).toBe(false);
+    expect(validateEFTBatch({ ...sampleHeader, branchCode: '2506' }, samplePayments).valid).toBe(false);
+  });
+
+  it('rejects a header whose action date is not YYYY-MM-DD', () => {
+    expect(validateEFTBatch({ ...sampleHeader, actionDate: 'Tue Sep 01 2026' }, samplePayments).valid).toBe(false);
+  });
+
+  it('rejects a payee with a blank or malformed branch code instead of padding it to 000000 (AP-36)', () => {
+    for (const branch of ['', '  ', '25065', '25065a']) {
+      const result = validateEFTBatch(sampleHeader, [{ ...samplePayments[0]!, beneficiaryBranchCode: branch }]);
+      expect(result.valid, branch).toBe(false);
+      expect(result.errors.join()).toMatch(/Branch code/);
+    }
+  });
+
+  it('rejects a payee account longer than 11 digits (padLeft would keep the last 11) or with non-digits', () => {
+    for (const account of ['123456789012', '12-3456']) {
+      const result = validateEFTBatch(sampleHeader, [{ ...samplePayments[0]!, beneficiaryAccountNumber: account }]);
+      expect(result.valid, account).toBe(false);
+    }
+  });
+
+  it('rejects an originating account longer than 11 digits', () => {
+    expect(validateEFTBatch({ ...sampleHeader, bankAccountNumber: '123456789012' }, samplePayments).valid).toBe(false);
+    expect(validateBankAccount('123456789012', '250655').valid).toBe(false);
+  });
+
+  it('rejects an amount or total that overflows its field, and takes the largest that fits', () => {
+    const pay = (amount: number) => ({ ...samplePayments[0]!, amount });
+    expect(validateEFTBatch(sampleHeader, [pay(1_000_000_000)]).valid).toBe(false);
+    expect(validateEFTBatch(sampleHeader, [pay(999_999_999.99)]).valid).toBe(true);
+    expect(validateEFTBatch(sampleHeader, Array.from({ length: 11 }, () => pay(999_999_999.99))).valid).toBe(false);
+  });
+
+  it('reports the text each format cuts, and nothing for Capitec', () => {
+    const long = { ...samplePayments[0]!, beneficiaryName: 'N'.repeat(31), reference: 'R'.repeat(13) };
+    expect(eftTruncationWarnings('fnb', sampleHeader, [long])).toHaveLength(2);
+    expect(eftTruncationWarnings('standard_bank', sampleHeader, [long])).toHaveLength(1);
+    expect(eftTruncationWarnings('capitec', sampleHeader, [long])).toEqual([]);
+    expect(eftTruncationWarnings('fnb', sampleHeader, samplePayments)).toEqual([]);
+  });
+
+  it.each([
+    ['standard_bank', generateStandardBankACB],
+    ['fnb', generateFNBEFT],
+    ['absa', generateABSAEFT],
+    ['nedbank', generateNedbankEFT],
+  ] as const)('%s: the file cuts name and reference at exactly the widths the warnings report', (bank, generate) => {
+    const long = { ...samplePayments[0]!, beneficiaryName: 'n'.repeat(60), reference: 'r'.repeat(60) };
+    const header = { ...sampleHeader, companyName: 'c'.repeat(60), batchReference: 'b'.repeat(60) };
+    const widthOf = (what: string) => Number(
+      eftTruncationWarnings(bank, header, [long]).find((w) => w.includes(what))!.match(/cut to (\d+) characters/)![1]);
+    const [head, txn] = generate(header, [long]).split('\n');
+    // Lower case: the record prefixes (EFT, STD, TXN, HDR…) are upper case.
+    const count = (line: string | undefined, ch: string) => (line!.match(new RegExp(ch, 'g')) ?? []).length;
+    expect(count(head, 'c')).toBe(widthOf('Company name'));
+    expect(count(head, 'b')).toBe(widthOf('Batch reference'));
+    expect(count(txn, 'n')).toBe(widthOf('beneficiary name'));
+    expect(count(txn, 'r')).toBe(widthOf('Payment 1 reference'));
   });
 
   it('calculates correct batch total', () => {
