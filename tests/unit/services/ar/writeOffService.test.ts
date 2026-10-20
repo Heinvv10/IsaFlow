@@ -35,6 +35,9 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   createJournalEntry: vi.fn(),
   postJournalEntry: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
+  assertCustomerInCompany: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));
@@ -46,7 +49,7 @@ import {
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { approveWriteOff } from '@/modules/accounting/services/ar/writeOffService';
+import { approveWriteOff, createWriteOff, WriteOffInvoiceRefusedError } from '@/modules/accounting/services/ar/writeOffService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockCreateJournalEntry = createJournalEntry as unknown as MockedFunction<typeof createJournalEntry>;
@@ -98,6 +101,14 @@ function writeOffRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** The invoice as `approveWriteOff` reads it under FOR UPDATE: 1000 + VAT, nothing paid. */
+function lockedInvoice(overrides: Record<string, unknown> = {}) {
+  return {
+    invoice_number: 'INV-001', total_amount: 1000, tax_amount: 130.43, amount_paid: 0,
+    status: 'approved', deleted_at: null, ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSystemAccount.mockImplementation(async (key: string) => ({
@@ -125,9 +136,11 @@ describe('approveWriteOff — no sourceDocumentId, linked via gl_journal_entry_i
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
     mockSql
       .mockResolvedValueOnce([writeOffRow()]) // SELECT customer_write_offs JOIN customer_invoices
+      .mockResolvedValueOnce([lockedInvoice()]) // SELECT customer_invoices ... FOR UPDATE
+      .mockResolvedValueOnce([{ status: 'draft', amount: 500 }]) // SELECT customer_write_offs ... FOR UPDATE
       .mockResolvedValueOnce([{ id: WO_ID }]) // the status-predicated CLAIM, one row = won
-      .mockResolvedValueOnce([{ total_amount: 1000, tax_amount: 130.43 }]) // SELECT invoice VAT details
-      .mockResolvedValueOnce([]) // UPDATE customer_invoices
+      .mockResolvedValueOnce([{ id: INVOICE_ID }]) // UPDATE customer_invoices (amount_paid), one row = moved
+      .mockResolvedValueOnce([]) // recomputeInvoiceStatus
       .mockResolvedValueOnce([writeOffRow({ status: 'approved', gl_journal_entry_id: JE_ID })]); // UPDATE ... RETURNING *
 
     await inRequestTx(() => approveWriteOff(COMPANY_ID, WO_ID, USER_ID));
@@ -140,15 +153,78 @@ describe('approveWriteOff — no sourceDocumentId, linked via gl_journal_entry_i
   it('persists gl_journal_entry_id on the write-off when approving', async () => {
     mockSql
       .mockResolvedValueOnce([writeOffRow()])
+      .mockResolvedValueOnce([lockedInvoice()])
+      .mockResolvedValueOnce([{ status: 'draft', amount: 500 }])
       .mockResolvedValueOnce([{ id: WO_ID }]) // CLAIM
-      .mockResolvedValueOnce([{ total_amount: 1000, tax_amount: 130.43 }])
+      .mockResolvedValueOnce([{ id: INVOICE_ID }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([writeOffRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
     const result = await inRequestTx(() => approveWriteOff(COMPANY_ID, WO_ID, USER_ID));
 
     expect(result.glJournalEntryId).toBe(JE_ID);
-    const updateCall = mockSql.mock.calls[4]!;
+    const updateCall = mockSql.mock.calls[6]!;
     expect(sqlCallTouches(updateCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
+  });
+});
+
+describe('approveWriteOff — judged against the locked invoice, before any write', () => {
+  const approve = () => inRequestTx(() => approveWriteOff(COMPANY_ID, WO_ID, USER_ID));
+  /** read, invoice lock, write-off lock: the only statements a refusal may issue. */
+  const refusedAt3 = async (invoice: Record<string, unknown> | null, locked = { status: 'draft', amount: 500 }) => {
+    mockSql
+      .mockResolvedValueOnce([writeOffRow()])
+      .mockResolvedValueOnce(invoice ? [invoice] : [])
+      .mockResolvedValueOnce([locked]);
+    await expect(approve()).rejects.toBeInstanceOf(WriteOffInvoiceRefusedError);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
+    expect(mockSql).toHaveBeenCalledTimes(3); // no claim, no UPDATE
+  };
+
+  it('refuses when the invoice no longer owes the write-off', async () => {
+    await refusedAt3(lockedInvoice({ amount_paid: 700 })); // 300 owing < 500
+  });
+  it('refuses a soft-deleted invoice', async () => {
+    await refusedAt3(lockedInvoice({ deleted_at: new Date() }));
+  });
+  it.each(['draft', 'pending_approval', 'cancelled'])('refuses a %s invoice (no posted AR)', async (status) => {
+    await refusedAt3(lockedInvoice({ status }));
+  });
+  it('refuses when the invoice is gone', async () => {
+    mockSql.mockResolvedValueOnce([writeOffRow()]).mockResolvedValueOnce([]);
+    await expect(approve()).rejects.toBeInstanceOf(WriteOffInvoiceRefusedError);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('judges the amount on the LOCKED write-off row, not the unlocked read', async () => {
+    // The unlocked read says 500; the locked row says 900 against 800 owing.
+    await refusedAt3(lockedInvoice({ total_amount: 1000, amount_paid: 200 }), { status: 'draft', amount: 900 });
+  });
+
+  it('a guarded amount_paid UPDATE that moves no row throws and writes nothing after it', async () => {
+    mockSql
+      .mockResolvedValueOnce([writeOffRow()])
+      .mockResolvedValueOnce([lockedInvoice()]) // the re-check passes
+      .mockResolvedValueOnce([{ status: 'draft', amount: 500 }])
+      .mockResolvedValueOnce([{ id: WO_ID }]) // CLAIM
+      .mockResolvedValueOnce([]); // UPDATE customer_invoices ... amount_paid + x <= total: 0 rows
+
+    await expect(approve()).rejects.toThrow(/past its total/);
+
+    // Nothing after the guard: no status recompute, no journal link on the write-off.
+    expect(mockSql).toHaveBeenCalledTimes(5);
+    expect(mockSql.mock.calls.some((c) => sqlCallTouches(c, 'gl_journal_entry_id', JE_ID))).toBe(false);
+  });
+});
+
+describe('createWriteOff — refuses an invoice with no posted AR up front (C2)', () => {
+  const CLIENT = '66666666-6666-6666-6666-666666666666';
+  const create = (amount = 500) => createWriteOff(COMPANY_ID,
+    { clientId: CLIENT, invoiceId: INVOICE_ID, amount, reason: 'x', writeOffDate: '2026-07-04' }, USER_ID);
+
+  it.each([['a draft invoice', 'draft', null], ['a soft-deleted invoice', 'approved', '2026-07-01']])('refuses %s without inserting', async (_name, status, deleted_at) => {
+    mockSql.mockResolvedValueOnce([lockedInvoice({ status, deleted_at })]);
+    await expect(create()).rejects.toBeInstanceOf(WriteOffInvoiceRefusedError);
+    expect(mockSql).toHaveBeenCalledTimes(1); // the read only — no INSERT
   });
 });
