@@ -91,7 +91,7 @@ describe('REPRO 3: severance paid as a non-taxable 3901 component, directive app
 });
 
 describe('REPRO 4: a net-negative 3605 for the year breaks the e@syFile footing', () => {
-  it('3601 + 3605 on the certificate equals the gross paid', async () => {
+  it('3601 + 3605 on the certificate equals the gross paid, a clawback and a space-padded code included', async () => {
     const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'BRK752b-4 negative 3605 filing');
     fixtures.push(f);
     await pool.query(
@@ -104,6 +104,12 @@ describe('REPRO 4: a net-negative 3605 for the year breaks the e@syFile footing'
     await calculateRun(f, june);
     expect((await runLine(pool, june, f.employee)).gross).toBe(15_000);
     expect((await approveRun(f, june)).statusCode).toBe(200);
+    // July: a R10 000 bonus whose code was stored with a leading space (before the
+    // components route trimmed). The year's 3605 nets to +R5 000.
+    await component(f, 'Bonus', ' 3605', 10_000, '2026-07-01', '2026-07-31');
+    const july = await createRunFor(f, 7);
+    await calculateRun(f, july);
+    expect((await approveRun(f, july)).statusCode).toBe(200);
 
     const req = request({ 'sb-access-token': f.token, active_company_id: f.company }, 'GET') as unknown as {
       url: string; query: Record<string, unknown>;
@@ -117,6 +123,9 @@ describe('REPRO 4: a net-negative 3605 for the year breaks the e@syFile footing'
     expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
     const fields = file.split(/\r\n/);
     const val = (code: string) => Number((fields.find(x => x.startsWith(`${code},`)) ?? `${code},0`).split(',')[1]);
-    expect(val('3601') + val('3605'), `fields: ${fields.filter(x => /^36/.test(x)).join(' ')}`).toBe(15_000);
+    const shown = `fields: ${fields.filter(x => /^36/.test(x)).join(' ')}`;
+    expect(val('3601') + val('3605'), shown).toBe(45_000);
+    expect(val('3605'), shown).toBe(5_000);
+    expect(val('3601'), shown).toBe(40_000);
   });
 });
