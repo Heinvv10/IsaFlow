@@ -77,23 +77,28 @@ async function committed<T>(conn: ClaimConnection, p: ClaimPrincipal, label: str
   }
 }
 
-/** Release the send lock and give the connection back; destroyed if the lock cannot be released. Never throws. */
+/**
+ * Release the send lock and give the connection back. Destroyed instead (a session lock must never go back to the
+ * pool) when a ROLLBACK on it failed (`unusable`, from rollbackFailed in committed()), when the lock was taken but the
+ * claim did not commit, or when the unlock failed or found no lock. Never throws.
+ */
 async function endClaim(conn: ClaimConnection, submissionId: string | null): Promise<void> {
   if (conn.ended) return;
   conn.ended = true;
-  let destroy = conn.unusable;
-  if (conn.locked && !destroy && submissionId) {
-    destroy = await conn.client.query<{ ok: boolean }>(
-      'SELECT pg_advisory_unlock($1::INT4, hashtext($2::UUID::TEXT)) AS ok', [NETCASH_SEND_LOCK_CLASS, submissionId])
-      .then((r) => r.rows[0]?.ok !== true, (e: unknown) => {
-        log.error('netcash send lock not released - connection destroyed', { submissionId, error: String(e) }, 'netcash');
-        return true;
-      });
-  } else if (conn.locked) {
-    destroy = true;
+  const { client } = conn;
+  let unlockFailed: unknown = null;
+  if (conn.locked && !conn.unusable && submissionId) {
+    try {
+      const { rows } = await client.query<{ ok: boolean }>(
+        'SELECT pg_advisory_unlock($1::INT4, hashtext($2::UUID::TEXT)) AS ok', [NETCASH_SEND_LOCK_CLASS, submissionId]);
+      if (rows[0]?.ok !== true) unlockFailed = new Error('send lock was not held');
+    } catch (err) {
+      unlockFailed = err;
+    }
+    if (unlockFailed) log.error('netcash send lock not released - connection destroyed', { submissionId, error: String(unlockFailed) }, 'netcash');
   }
-  conn.client.removeListener('error', conn.onError);
-  conn.client.release(destroy);
+  client.removeListener('error', conn.onError);
+  client.release(conn.unusable || (conn.locked && !submissionId) || Boolean(unlockFailed));
 }
 
 /** A claim whose connection holds its send lock until `end()`. */
