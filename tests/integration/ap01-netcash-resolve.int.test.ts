@@ -157,6 +157,7 @@ describe('netcash/resolve (AP-01)', () => {
     release();
     const res = await resolveP;
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+    expect(JSON.stringify(res.state.body)).toMatch(/changed from unknown to submitted since you opened it/);
     expect((await row(id)).status).toBe('submitted');
     expect((await submit(c, b.id)).state.statusCode).toBe(409);
     expect(hold.submitEftBatch).toHaveBeenCalledTimes(1);
@@ -194,33 +195,19 @@ describe('netcash/resolve (AP-01)', () => {
       expect((await row(id)).status).toBe('submitted');
     });
 
-    it('a pending claim older than the send window can be resolved (the process died)', async () => {
+    it('a pending claim past the send window is still refused while its sender holds the send lock (round 10)', async () => {
       const { c, id, first, finish, age } = await inFlight();
       await age(3);
-      expect((await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(200);
+      expect((await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(409);
       finish();
-      await first;
+      expect((await first).state.statusCode).toBe(200);
+      // A dead sender (its lock gone) past the window: ap01-netcash-send-liveness.int.test.ts.
     });
 
     it('an unknown claim is resolvable at any age, even just created', async () => {
       const { c, id } = await unknownBatch();
       expect((await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(200);
     });
-
-    it('a settle that finds its claim resolved underneath it reports the conflict (409), never a 500, and keeps the late result', async () => {
-      const { c, b, id, first, finish, age } = await inFlight();
-      await age(3);
-      expect((await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(200);
-      hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
-      expect((await submit(c, b.id)).state.statusCode).toBe(200); // the operator's override let a second send through
-      finish();
-      const res = await first;
-      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
-      expect(JSON.stringify(res.state.body)).toMatch(/resolved by an operator|check Netcash/i);
-      const first_ = await row(id);
-      expect(first_.status).toBe('failed'); // not overwritten
-      expect(JSON.stringify(first_.netcash_response)).toContain('lateSendResult');
-      expect((await pool.query("SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1 AND status <> 'failed'", [c])).rows[0].n).toBe(1);
-    });
+    // A settle that finds its row failed underneath it: ap01-netcash-send-liveness.int.test.ts.
   });
 });

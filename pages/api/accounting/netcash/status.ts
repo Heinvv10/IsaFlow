@@ -22,20 +22,22 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TERMINAL_STATUSES = new Set(['completed', 'failed']);
 
 const FAILURE_LEAD = new Set(['unsuccessful', 'fail', 'failed', 'failure', 'reject', 'rejected', 'error', 'errored', 'declined']);
-const COMPLETED_LEAD = new Set(['complete', 'completed', 'success', 'successful']);
-const FAILURE_ANYWHERE = /unsuccess|not\s+success|fail|reject|error|declin/;
+/** The whole answer, exactly: "Completed - 2 payments unpaid" or "Successful (1 returned)" is not a completion. */
+const COMPLETED_EXACT = new Set(['complete', 'completed', 'successful']);
+/** A poll moves a row forwards only: an answer that would move it back keeps the row where it is. */
+const PROGRESS: Record<string, number> = { submitted: 0, processing: 1, completed: 2 };
 
 /**
- * Map Netcash's free-text status to our enum by its LEADING word, never a substring anywhere ("Processing - 0 errors"
- * is processing, not a failure). Failure words are checked before success ("Unsuccessful" is not completed), a
- * completion that mentions a failure anywhere ("Completed with errors") is ambiguous, and anything ambiguous stays
- * 'processing' - a live row the operator can poll again or resolve.
+ * Map Netcash's free-text status to our enum. A failure by its LEADING word, checked first ("Processing - 0 errors"
+ * is not one, "Unsuccessful" and "Rejected: invalid account" are); 'completed' only on an exact completion word with
+ * nothing after it; 'submitted' by its leading word; anything else is ambiguous and stays 'processing' - a live row
+ * the operator can poll again or resolve.
  */
 function mapNetcashStatus(raw: string): string {
   const s = raw.trim().toLowerCase();
   const lead = /^[a-z]+/.exec(s)?.[0] ?? '';
   if (FAILURE_LEAD.has(lead)) return 'failed';
-  if (COMPLETED_LEAD.has(lead)) return FAILURE_ANYWHERE.test(s) ? 'processing' : 'completed';
+  if (COMPLETED_EXACT.has(s)) return 'completed';
   if (lead === 'submitted') return 'submitted';
   return 'processing';
 }
@@ -105,7 +107,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const companies = await sql`
     SELECT netcash_service_key FROM companies WHERE id = ${companyId}::UUID LIMIT 1
   ` as Row[];
-  const serviceKey = String(companies[0]?.netcash_service_key ?? '');
+  const serviceKey = String(companies[0]?.netcash_service_key ?? '').trim();
+  // No key, no poll and no write: nothing stands in for Netcash's answer (AP-01 round 10).
+  if (!serviceKey) {
+    return apiResponse.success(res, {
+      submissionId,
+      status: submission.status,
+      detail: 'Netcash credentials are not configured for this company; the stored status is shown',
+      polled: false,
+    });
+  }
 
   const pollResult = await getSubmissionStatus(serviceKey, String(submission.batch_reference));
   const answeredAt = new Date().toISOString(); // when Netcash answered: orders this poll against an overlapping one
@@ -115,7 +126,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // (migration 898), and free text does not prove Netcash dropped what it accepted. The row stays as it is, the poll
   // is kept as a hint, and an operator checks Netcash and resolves it (netcash/resolve, see .claude.md).
   const flagged = mapped === 'failed';
-  const newStatus = flagged ? String(submission.status) : mapped;
+  const current = String(submission.status);
+  const newStatus = flagged || (PROGRESS[mapped] ?? 0) < (PROGRESS[current] ?? 0) ? current : mapped;
   if (flagged) {
     log.error('Netcash status poll reports a failure for a live submission - left as is, operator must check Netcash', {
       submissionId, status: newStatus, netcashStatus: pollResult.status, detail: pollResult.detail,
@@ -162,7 +174,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       : pollResult.detail,
     needsAttention: flagged,
     polled: true,
-    mock: pollResult.mock ?? false,
   });
 }
 
