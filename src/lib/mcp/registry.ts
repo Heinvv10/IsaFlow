@@ -13,6 +13,7 @@ import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { roleFenceRefusal } from './roleFence';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
+import { insufficientFlowsText } from './flowRefusal';
 import { insufficientScopeMessage } from './scopeRemediation';
 import { thrownToolErrorText } from './thrownToolErrorText';
 
@@ -207,7 +208,9 @@ export class McpRegistry {
     // Also deliberately AFTER the replay check — a retried idempotent call
     // returns the stored result without re-running the handler, so charging it
     // again would bill twice for one operation.
-    const debit = await debitForTool(ctx.companyId, name, args);
+    // ctx.oauthAppId: calls through a marketplace (dynamically registered)
+    // OAuth client are not billed (flowMetering.ts, FB-6).
+    const debit = await debitForTool(ctx.companyId, name, args, ctx.oauthAppId);
     if (!debit.ok) {
       // Audited WITHOUT the idempotency key, deliberately. The partial unique
       // index is (company_id, tool, idempotency_key) with no status column, and
@@ -217,10 +220,9 @@ export class McpRegistry {
       // status='ok') would never see it again: every retry of that key would
       // re-run the handler, creating duplicate documents and duplicate debits.
       // Running out of Flows must not burn the key.
-      return reject(
-        `Insufficient Flows: ${name} costs ${debit.required} and the wallet holds ${debit.balance}. Top up to continue.`,
-        null,
-      );
+      // A plain statement of what is missing, never a sales line: it reaches
+      // the user through whatever client relays it (FB-6, Publisher Terms).
+      return reject(insufficientFlowsText(name, debit.required, debit.balance), null);
     }
 
     try {
