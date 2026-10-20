@@ -35,6 +35,7 @@ import {
   reverseLoanApplicationsForRun,
   type ReversibleLoanPayment,
 } from './payrollLoanReversal';
+import { listPayrollRunEmployees } from './payrollEmployeeService';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -79,7 +80,7 @@ export async function setLocalLockTimeout(tx: TxSql, value: string): Promise<str
 export interface RunLoanWork {
   /** Payments this run would undo, including any reclaimed from a deleted run. */
   reversible: ReversibleLoanPayment[];
-  /** Active loans with an instalment scheduled this period, ignoring paid_flag. */
+  /** The run's employees' active loans with an instalment scheduled this period, ignoring paid_flag. */
   dueThisPeriod: Array<{ loanId: string; employeeId: string }>;
   /** True when either side has something, i.e. a live GL journal must block. */
   hasWork: boolean;
@@ -102,14 +103,16 @@ export async function readRunLoanWork(
   runId: string,
   periodYear: number,
   periodMonth: number,
+  employeeIds: ReadonlySet<string>,
   db: TxSql = sql,
 ): Promise<RunLoanWork> {
   const reversible = await listReversibleLoanPayments(
     companyId, runId, periodYear, periodMonth, db,
   );
-  const dueThisPeriod = await listLoansWithInstalmentDue(
+  // Only instalments applyRunLoans would take: the run's own employees'.
+  const dueThisPeriod = (await listLoansWithInstalmentDue(
     companyId, periodYear, periodMonth, db,
-  );
+  )).filter(l => employeeIds.has(l.employeeId));
   return {
     reversible,
     dueThisPeriod,
@@ -125,7 +128,9 @@ export async function runHasLoanWork(
   periodMonth: number,
   db: TxSql = sql,
 ): Promise<boolean> {
-  return (await readRunLoanWork(companyId, runId, periodYear, periodMonth, db)).hasWork;
+  const employees = await listPayrollRunEmployees(companyId, { year: periodYear, month: periodMonth });
+  const employeeIds = new Set(employees.map(e => e.id));
+  return (await readRunLoanWork(companyId, runId, periodYear, periodMonth, employeeIds, db)).hasWork;
 }
 
 export interface RunLoanInput {
@@ -136,6 +141,8 @@ export interface RunLoanInput {
   officialRate: number;
   /** `payroll_run_headers.journal_entry_id` — non-null means the GL entry is live. */
   journalEntryId: string | null;
+  /** The run's employees. A due instalment of anyone else is not taken. */
+  employeeIds: ReadonlySet<string>;
 }
 
 /**
@@ -206,7 +213,7 @@ export async function applyRunLoans(
     // work being guarded. Same helper the dry run calls, so the two cannot
     // drift apart.
     const work = await readRunLoanWork(
-      input.companyId, input.runId, input.periodYear, input.periodMonth, tx,
+      input.companyId, input.runId, input.periodYear, input.periodMonth, input.employeeIds, tx,
     );
     if (input.journalEntryId != null && work.hasWork) {
       throw new PayrollRunJournalPostedError(input.runId);
@@ -220,6 +227,7 @@ export async function applyRunLoans(
 
     const byEmployee = new Map<string, ApplyLoanResult[]>();
     for (const row of active) {
+      if (!input.employeeIds.has(row.employeeId)) continue;
       const applied = await applyLoanToRun({
         loanId: row.loanId,
         companyId: input.companyId,
