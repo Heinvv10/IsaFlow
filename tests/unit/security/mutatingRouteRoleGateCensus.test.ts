@@ -179,6 +179,14 @@ describe('the detector', () => {
     expect(gated(exp('withAuth(withWriteAccess(withFlowMeter(a, b)(handler) as never))'))).toBe(true);
   });
 
+  it('refuses an allowedRoles array it cannot read element by element (REPRO 9); a regex apostrophe holds no string open (REPRO 10)', () => {
+    expect(gated(exp("withAuth(withWriteAccess(handler, { allowedRoles: ['owner'].concat(['viewer']) }))"))).toBe(false);
+    expect(gated(exp("withAuth(withWriteAccess(handler, { allowedRoles: ['owner', VIEWER] }))"))).toBe(false);
+    expect(gated(exp("withAuth(withWriteAccess(handler, { allowedRoles: ['owner', ...MORE] }))"))).toBe(false);
+    expect(gated(exp("withAuth(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'], other: 1 }))"))).toBe(true);
+    expect(gated("const re = /don't/;\nexport default withAuth(handler /* withWriteAccess(h) */);")).toBe(false);
+  });
+
   it('reads write SQL in any case and with a quoted table; a // inside a string is not a comment (REPRO 6, 7)', () => {
     const guard = "if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method, ['GET']);\n";
     expect(isMutating(`${guard}await sql\`update invoices set status = 'void'\`;`)).toBe(true);
