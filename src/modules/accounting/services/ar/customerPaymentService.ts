@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { invoicesPayable } from './invoicesPayable';
+import { assertWithinOutstanding, cents, lockReceiptInvoices } from './receiptInvoiceLock';
 import type {
   CustomerPayment,
   CustomerPaymentAllocation,
@@ -113,14 +114,16 @@ export async function createCustomerPayment(companyId: string,
     // Validate allocations against invoice balances. W3 (P2.1): amount_paid
     // only reflects CONFIRMED payments — without counting other DRAFT
     // payments' pending allocations, two drafts could each claim the full
-    // balance and both confirm into an over-payment.
+    // balance and both confirm into an over-payment. AR audit B2: that read
+    // is only true while nobody else is creating a receipt, so the invoices
+    // are locked (FOR UPDATE, ascending id) BEFORE the balance and pending
+    // reads and held to the end of the request transaction. A concurrent
+    // create waits here and then sees this receipt's draft as pending.
+    const locked = await lockReceiptInvoices(companyId, input.allocations.map((a) => a.invoiceId));
     for (const alloc of input.allocations) {
-      const invRows = (await sql`
-        SELECT total_amount, amount_paid, invoice_number, currency_code FROM customer_invoices
-        WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
-      `) as Row[];
-      if (invRows.length === 0) throw new Error(`Invoice ${alloc.invoiceId} not found`);
-      await invoicesPayable(companyId, invRows); // FX PR0: pre-write, a 400 not the trigger's message
+      const invoice = locked.get(alloc.invoiceId);
+      if (!invoice) throw new Error(`Invoice ${alloc.invoiceId} not found`);
+      await invoicesPayable(companyId, [{ invoice_number: invoice.invoiceNumber, currency_code: invoice.currencyCode }]); // FX PR0: pre-write, a 400 not the trigger's message
       const pendingRows = (await sql`
         SELECT COALESCE(SUM(cpa.amount_allocated), 0) AS pending
         FROM customer_payment_allocations cpa
@@ -129,15 +132,7 @@ export async function createCustomerPayment(companyId: string,
           AND cp.company_id = ${companyId}::UUID
           AND cp.status = 'draft'
       `) as Row[];
-      const pending = Number(pendingRows[0]?.pending ?? 0);
-      const balance =
-        Number(invRows[0]!.total_amount) - Number(invRows[0]!.amount_paid) - pending;
-      if (alloc.amount > balance + 0.01) {
-        throw new Error(
-          `Allocation R${alloc.amount.toFixed(2)} exceeds invoice balance R${balance.toFixed(2)}` +
-            (pending > 0 ? ` (R${pending.toFixed(2)} already pending on draft payments)` : ''),
-        );
-      }
+      assertWithinOutstanding(invoice, cents(alloc.amount), cents(pendingRows[0]?.pending as string | null));
     }
 
     const totalAllocated = input.allocations.reduce((s, a) => s + a.amount, 0);

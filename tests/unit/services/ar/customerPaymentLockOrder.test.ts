@@ -76,7 +76,7 @@ vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
 }));
 
 import { sql, withSavepoint } from '@/lib/neon';
-import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
+import { createJournalEntry, reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getCustomerPaymentById } from '@/modules/accounting/services/ar/customerPaymentService';
 import { lockReceiptBankLeg } from '@/modules/accounting/services/ar/receiptBankLeg';
 import {
@@ -110,12 +110,20 @@ function payment(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** The receipt-invoice lock read (AR audit B1): every invoice open for R1 000, as locked. */
+const lockedInvoices = () => [LOW_INVOICE, HIGH_INVOICE].map((id) => ({
+  id, invoice_number: `INV-${id.slice(0, 2)}`, currency_code: 'ZAR', status: 'approved', deleted_at: null,
+  total_amount: '1000.00', amount_paid: '0.00',
+}));
+const isInvoiceLock = (text: string) => /FROM customer_invoices[\s\S]*FOR UPDATE OF ci/i.test(text);
+
 /** Statement texts in the order the service issued them. */
 function recordSql(): string[] {
   const texts: string[] = [];
   mockSql.mockImplementation((strings: TemplateStringsArray) => {
-    texts.push((strings as unknown as string[]).join('?'));
-    return Promise.resolve([{ id: PAYMENT_ID, status: 'x' }]);
+    const text = (strings as unknown as string[]).join('?');
+    texts.push(text);
+    return Promise.resolve(isInvoiceLock(text) ? lockedInvoices() : [{ id: PAYMENT_ID, status: 'x' }]);
   });
   return texts;
 }
@@ -205,18 +213,55 @@ describe('confirmCustomerPayment — canonical lock order', () => {
     mockSql.mockResolvedValue([{ id: PAYMENT_ID, status: 'confirmed' }]);
   });
 
-  it('locks the receipt before it touches customer_invoices', async () => {
+  it('locks the receipt, then the invoices (FOR UPDATE, ascending id), before it writes any of them', async () => {
     mockGetPayment.mockResolvedValue(payment({ status: 'draft' }));
     const texts = recordSql();
 
     await confirmCustomerPayment(COMPANY_ID, PAYMENT_ID, USER_ID);
 
     const lock = indexOf(texts, PAYMENT_LOCK);
+    const invoiceLock = indexOf(texts, /FROM customer_invoices[\s\S]*ORDER BY ci\.id[\s\S]*FOR UPDATE OF ci/i);
     const invoices = indexOf(texts, /UPDATE customer_invoices/i);
     const flip = indexOf(texts, /UPDATE customer_payments\s*\?*\s*SET status = 'confirmed'/i);
     expect(lock).toBeGreaterThanOrEqual(0);
-    expect(invoices).toBeGreaterThan(lock);
+    expect(invoiceLock).toBeGreaterThan(lock);
+    expect(invoices).toBeGreaterThan(invoiceLock);
     expect(flip).toBeGreaterThan(invoices);
+  });
+
+  it('refuses the whole confirm, before the journal or any write, when an allocation exceeds what is outstanding now', async () => {
+    mockGetPayment.mockResolvedValue(payment({ status: 'draft', totalAmount: 100 }));
+    mockSql.mockImplementation((strings: TemplateStringsArray) => Promise.resolve(
+      isInvoiceLock((strings as unknown as string[]).join('?'))
+        ? [{ ...lockedInvoices()[0]!, amount_paid: '950.00' }] // R50 left; the draft claims R100
+        : [{ id: PAYMENT_ID, status: 'x' }]));
+
+    await expect(confirmCustomerPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toThrow(/exceeds invoice balance R50\.00/);
+    expect(createJournalEntry).not.toHaveBeenCalled();
+    expect(mockSql.mock.calls.map((c) => (c[0] as unknown as string[]).join('?')).filter((t) => /UPDATE customer_invoices/i.test(t))).toEqual([]);
+  });
+
+  it('refuses a receipt whose invoice was cancelled or deleted since the draft', async () => {
+    mockGetPayment.mockResolvedValue(payment({ status: 'draft' }));
+    for (const patch of [{ status: 'cancelled' }, { deleted_at: '2026-05-02' }]) {
+      mockSql.mockImplementation((strings: TemplateStringsArray) => Promise.resolve(
+        isInvoiceLock((strings as unknown as string[]).join('?'))
+          ? [{ ...lockedInvoices()[0]!, ...patch }]
+          : [{ id: PAYMENT_ID, status: 'x' }]));
+      await expect(confirmCustomerPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toThrow(/cannot take this receipt/);
+    }
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the guarded balance write touches no row (the second line behind the re-check)', async () => {
+    mockGetPayment.mockResolvedValue(payment({ status: 'draft' }));
+    mockSql.mockImplementation((strings: TemplateStringsArray) => {
+      const text = (strings as unknown as string[]).join('?');
+      if (isInvoiceLock(text)) return Promise.resolve(lockedInvoices());
+      return Promise.resolve(/UPDATE customer_invoices/i.test(text) ? [] : [{ id: PAYMENT_ID, status: 'x' }]);
+    });
+
+    await expect(confirmCustomerPayment(COMPANY_ID, PAYMENT_ID, USER_ID)).rejects.toThrow(/can no longer take R100\.00/);
   });
 
   it('applies invoices in ascending id, not capture order', async () => {
@@ -230,7 +275,8 @@ describe('confirmCustomerPayment — canonical lock order', () => {
     const seen: string[] = [];
     mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
-      if (/UPDATE customer_invoices/i.test(text)) seen.push(String(values[values.length - 2]));
+      if (isInvoiceLock(text)) return Promise.resolve(lockedInvoices());
+      if (/UPDATE customer_invoices/i.test(text)) seen.push(String(values[values.length - 3]));
       return Promise.resolve([{ id: PAYMENT_ID, status: 'confirmed' }]);
     });
 
