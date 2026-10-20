@@ -23,8 +23,18 @@ export interface NetcashPayment {
   reference: string;
 }
 
+/**
+ * What is known about a submission once the request is out:
+ *  - accepted: Netcash answered 2xx with a JSON body.
+ *  - rejected: Netcash definitely refused it (a 4xx JSON answer, not 408) — nothing was queued, resubmitting is safe.
+ *  - unknown:  indeterminate — timeout/abort, network error, an unparseable answer or a 5xx. The batch may have been
+ *              accepted, so it must NOT be resubmitted until Netcash has been checked.
+ */
+export type NetcashSubmitOutcome = 'accepted' | 'rejected' | 'unknown';
+
 export interface NetcashSubmitResult {
   success: boolean;
+  outcome: NetcashSubmitOutcome;
   batchReference?: string;
   error?: string;
   mock?: boolean;
@@ -47,6 +57,16 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
+/** The response body as a JSON object, or null when it is not one (empty, HTML, a bare array/null). */
+async function readJsonObject(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const parsed: unknown = await res.json();
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null; // not JSON: the caller decides what an unreadable answer means
+  }
+}
+
 /**
  * Submit an EFT batch payment to Netcash.
  * Returns a mock response when API keys are absent (sandbox/dev mode).
@@ -61,6 +81,7 @@ export async function submitEftBatch(
     log.warn('Netcash EFT submit called without API keys — returning mock response', {}, 'netcash');
     return {
       success: true,
+      outcome: 'accepted',
       batchReference: `MOCK-${Date.now()}`,
       mock: true,
     };
@@ -88,19 +109,27 @@ export async function submitEftBatch(
       body: JSON.stringify(body),
     });
 
-    const json = await res.json() as Record<string, unknown>;
+    const json = await readJsonObject(res);
 
     if (!res.ok) {
       log.error('Netcash EFT submit failed', { status: res.status, body: json }, 'netcash');
-      return { success: false, error: String(json.message ?? 'Netcash API error') };
+      if (json && res.status >= 400 && res.status < 500 && res.status !== 408) {
+        return { success: false, outcome: 'rejected', error: String(json.message ?? 'Netcash API error') };
+      }
+      return { success: false, outcome: 'unknown', error: String(json?.message ?? `Netcash answered HTTP ${res.status}`) };
+    }
+    if (!json) {
+      log.error('Netcash EFT submit answered 2xx with an unreadable body', { status: res.status }, 'netcash');
+      return { success: false, outcome: 'unknown', error: 'Netcash answered but the response could not be read' };
     }
 
     log.info('Netcash EFT batch submitted', { batchReference: json.batchReference, count: payments.length }, 'netcash');
-    return { success: true, batchReference: String(json.batchReference ?? '') };
+    return { success: true, outcome: 'accepted', batchReference: String(json.batchReference ?? '') };
   } catch (err) {
+    // The request may already have left (timeout/abort, reset connection): the outcome is not known.
     const msg = err instanceof Error ? err.message : 'Network error';
     log.error('Netcash EFT submit exception', { error: msg }, 'netcash');
-    return { success: false, error: msg };
+    return { success: false, outcome: 'unknown', error: msg };
   }
 }
 

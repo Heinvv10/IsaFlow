@@ -54,6 +54,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     });
   }
 
+  // 'unknown' (submit.ts): Netcash never gave a reference, so there is nothing of ours to poll. The batch stays
+  // claimed until someone has checked Netcash.
+  if (submission.status === 'unknown') {
+    return apiResponse.success(res, {
+      submissionId,
+      status: submission.status,
+      detail: 'Outcome unknown - check Netcash before resubmitting',
+      polled: false,
+    });
+  }
+
   if (!submission.batch_reference) {
     return apiResponse.success(res, {
       submissionId,
