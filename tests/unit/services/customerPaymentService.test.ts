@@ -301,26 +301,19 @@ describe('createCustomerPayment — allocation validation', () => {
     }, USER_ID)).rejects.toThrow(/exceeds invoice balance R1150\.00/);
   });
 
-  it('allows float noise on the allocation (compared in whole cents)', async () => {
-    // Balance = 1150.00, allocation = 1150.0000000001 — float noise, the same cent
-    mockSql.mockResolvedValueOnce([lockRow(INVOICE_ID, '1150.00', '0')]);
-    mockSql.mockResolvedValueOnce([{ pending: '0' }]); // W3: draft-pending check
+  it('refuses a sub-cent allocation up front, before it locks or reads anything', async () => {
+    await expect(createCustomerPayment(COMPANY_ID, {
+      ...validInput, totalAmount: 1150.005, allocations: [{ invoiceId: INVOICE_ID, amount: 1150.005 }],
+    }, USER_ID)).rejects.toThrow(/whole number of cents/);
+    expect(mockSql).not.toHaveBeenCalled();
+  });
 
-    mockWithTransaction.mockImplementation(async (fn) => {
-      const fakeTx = vi.fn().mockResolvedValue([samplePaymentRow]) as unknown as typeof sql;
-      return fn(fakeTx);
-    });
-    mockSql.mockResolvedValueOnce([samplePaymentRow]);
-
-    const input: CustomerPaymentCreateInput = {
-      ...validInput,
-      totalAmount: 1150.0000000001,
-      allocations: [{ invoiceId: INVOICE_ID, amount: 1150.0000000001 }],
-    };
-
-    // Should not throw — AR audit B1/B2 compares in whole cents, so noise below a cent is not an over-allocation;
-    // a whole cent over IS refused (it would be refused at confirm anyway)
-    await expect(createCustomerPayment(COMPANY_ID, input, USER_ID)).resolves.toBeDefined();
+  it('refuses the same invoice twice in one receipt, before it locks or reads anything', async () => {
+    await expect(createCustomerPayment(COMPANY_ID, {
+      ...validInput, totalAmount: 1150,
+      allocations: [{ invoiceId: INVOICE_ID, amount: 150 }, { invoiceId: INVOICE_ID, amount: 1000 }],
+    }, USER_ID)).rejects.toThrow(/more than once/);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 });
 
