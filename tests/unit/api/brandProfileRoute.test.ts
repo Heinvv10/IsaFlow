@@ -40,7 +40,7 @@ function mockRes() {
 function putReq(body: Record<string, unknown>) {
   return {
     method: 'PUT', query: {}, url: '/api/accounting/afs/brand-profile',
-    headers: {}, body, companyId: COMPANY, user: { id: 'u1' },
+    headers: {}, body, companyId: COMPANY, companyRole: 'owner', user: { id: 'u1' },
   } as unknown as NextApiRequest;
 }
 

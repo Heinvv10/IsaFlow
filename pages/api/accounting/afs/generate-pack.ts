@@ -5,6 +5,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
@@ -48,6 +49,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
 export default withAuth(
   withErrorHandler(
-    withCsrf(withFlowMeter('afs.generate', getFlowCost('afs.generate'))(handler) as never),
+    withCsrf(withWriteAccess(withFlowMeter('afs.generate', getFlowCost('afs.generate'))(handler) as never)),
   ),
 );

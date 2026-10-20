@@ -218,7 +218,7 @@ describeIfDb('R-082 statements exclude drafts', () => {
 
   it('MCP customer_statement tool: excludedRows names P (pending_approval), rows carry only A and N', async () => {
     const { customerStatementTool } = await import('../../src/lib/mcp/tools/domainReports');
-    const ctx = { userId: USER, companyId: COMPANY, scopes: ['read:reports'], tokenJti: 't', oauthAppId: null };
+    const ctx = { userId: USER, companyId: COMPANY, scopes: ['read:reports'], companyRole: 'owner', tokenJti: 't', oauthAppId: null };
     const result = await customerStatementTool.handler({ customer_id: customerId, as_at: TODAY }, ctx);
     const env = JSON.parse(result.content[0]!.text) as {
       rows: { type: string; reference: string }[];
@@ -232,7 +232,7 @@ describeIfDb('R-082 statements exclude drafts', () => {
 
   it('MCP supplier_statement tool: excludedRows names P (pending_approval), rows carry only A and N', async () => {
     const { supplierStatementTool } = await import('../../src/lib/mcp/tools/inventoryAndAp');
-    const ctx = { userId: USER, companyId: COMPANY, scopes: ['read:reports'], tokenJti: 't', oauthAppId: null };
+    const ctx = { userId: USER, companyId: COMPANY, scopes: ['read:reports'], companyRole: 'owner', tokenJti: 't', oauthAppId: null };
     const result = await supplierStatementTool.handler({ supplier_id: supplierId, as_at: TODAY }, ctx);
     const env = JSON.parse(result.content[0]!.text) as {
       rows: { type: string; reference: string }[];

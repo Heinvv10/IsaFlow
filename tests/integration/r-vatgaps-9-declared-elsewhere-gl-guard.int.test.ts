@@ -124,7 +124,7 @@ describeIfDb('VAT-gaps breaker fix: mark-declared-elsewhere GL guard', () => {
         await withVat(table, docId);
         await postAndLink(kind, docId);
 
-        const ctx: McpToolContext = { userId: fx.userId, companyId: fx.companyId, scopes: ['read:vat', 'write:vat'], tokenJti: 'tok-1', oauthAppId: null };
+        const ctx: McpToolContext = { userId: fx.userId, companyId: fx.companyId, scopes: ['read:vat', 'write:vat'], companyRole: 'owner', tokenJti: 'tok-1', oauthAppId: null };
         const result = await inTx(fx, () => markVatDeclaredElsewhereTool.handler({
           action: 'mark', kind, invoice_ids: [docId], reason: 'Historical import', idempotency_key: randomUUID(),
         }, ctx));

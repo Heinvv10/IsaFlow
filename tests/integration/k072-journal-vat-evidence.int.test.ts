@@ -26,7 +26,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const company = crypto.randomUUID();
 const admin = crypto.randomUUID();
-const ctx = { userId: admin, companyId: company, scopes: ['write:journals', 'write:post'], tokenJti: 'jti', oauthAppId: null } as McpToolContext;
+const ctx = { userId: admin, companyId: company, scopes: ['write:journals', 'write:post'], companyRole: 'owner', tokenJti: 'jti', oauthAppId: null } as McpToolContext;
 const A: Record<string, string> = {};
 
 const NO_TAX_TEXT = 'K072 Garden\nGarden service 1000.00\nAmount Due 1000.00';

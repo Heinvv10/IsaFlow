@@ -57,7 +57,7 @@ function makeReq(method: 'POST' | 'PUT' = 'POST'): NextApiRequest {
     method,
     query:     { documentId: DOCUMENT_ID, sectionId: SECTION_ID },
     body:      {},
-    companyId: COMPANY_ID,
+    companyId: COMPANY_ID, companyRole: 'owner',
   } as unknown as NextApiRequest;
 }
 

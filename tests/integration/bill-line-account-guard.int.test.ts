@@ -32,7 +32,7 @@ let other: Fixture;
 let seq = 0;
 const acc: Record<string, string> = {};
 
-const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-b' }) as unknown as McpToolContext;
+const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-b' }) as unknown as McpToolContext;
 const text = (r: { content: { text: string }[] }) => r.content[0]!.text;
 const num = () => `BLA${++seq}-${fx.tag}`.slice(0, 50);
 

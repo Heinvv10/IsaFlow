@@ -134,7 +134,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
       ys.push(id);
     }
     const dl0 = await deadlocks();
-    const ctx = { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:bank-tx', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:bank-tx', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     const allocations = [...ys, xId].map((id) => ({ transaction_id: id, alloc_type: 'account', contra_account_id: c.acct.expense, vat_code: 'none' }));
     const pB = inTx(c.fx, () => bulkAllocateBankTransactionsTool.handler({ allocations, idempotency_key: randomUUID() }, ctx as never))
       .then((r) => ({ ok: true as const, r }), (e: unknown) => ({ ok: false as const, e }));
@@ -198,7 +198,7 @@ describe.skipIf(!process.env.DATABASE_URL || !process.env.JWT_SECRET)('D12 round
     const s = await completedSession(c, token, { matched: 1 });
     const line = s.matched[0]!;
     const before = await snapshot(c, s.bank, s.rec);
-    const ctx = { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:journals', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:journals', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     let err: unknown = null;
     try { await inTx(c.fx, () => reverseJournalEntryTool.handler({ journal_entry_id: line.je, idempotency_key: randomUUID() }, ctx as never)); }
     catch (e) { err = e; }

@@ -34,7 +34,7 @@ const admin = crypto.randomUUID();
 const supplier = crypto.randomUUID();
 const A: Record<string, string> = {};
 let token = '';
-const ctx = { userId: admin, companyId: company, scopes: ['write:invoices', 'write:journals', 'write:post'], tokenJti: 'jti', oauthAppId: null } as McpToolContext;
+const ctx = { userId: admin, companyId: company, scopes: ['write:invoices', 'write:journals', 'write:post'], companyRole: 'owner', tokenJti: 'jti', oauthAppId: null } as McpToolContext;
 const UNEVIDENCED = /not the VAT read off the captured document/;
 
 async function seed(text: string, vendorName: string, type: 'invoice' | 'receipt'): Promise<string> {

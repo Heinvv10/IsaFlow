@@ -14,6 +14,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { createPat, listPats, PAT_SCOPES } from '@/lib/auth/personalAccessTokens';
+import { scopesRoleMayNotHold } from '@/lib/auth/writeRoles';
 
 const VALID_SCOPES = new Set<string>(PAT_SCOPES);
 const MAX_NAME_LEN = 80;
@@ -22,7 +23,7 @@ const MAX_DAYS = 365;
 const DEFAULT_DAYS = 90;
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
-  const { user, companyId } = req;
+  const { user, companyId, companyRole } = req;
   const userId = user.id;
 
   if (req.method === 'GET') {
@@ -55,6 +56,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     if (scopes.length === 0) {
       return apiResponse.badRequest(res, 'at least one scope is required');
+    }
+    // A role that cannot write may not mint a token that can (audit 2026-10-18 S-01).
+    const refused = scopesRoleMayNotHold(companyRole, scopes);
+    if (refused.length > 0) {
+      return apiResponse.forbidden(res, `Your role (${companyRole ?? 'unknown'}) cannot grant ${refused.join(', ')}. Choose read scopes only.`);
     }
 
     const result = await createPat({ userId, companyId, name, scopes, expiresInDays });

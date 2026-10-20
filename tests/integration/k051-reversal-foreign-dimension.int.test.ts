@@ -285,7 +285,7 @@ it('says the same thing in the MCP dry run as the live call, and writes nothing'
   const seen = await inRequestTx(async (client) => {
     const result = await reverseJournalEntryTool.handler(
       { journal_entry_id: dryEntry, idempotency_key: crypto.randomUUID(), dry_run: true },
-      { userId: user, companyId: company, scopes: ['write:journals'], tokenJti: null, oauthAppId: null },
+      { userId: user, companyId: company, scopes: ['write:journals'], companyRole: 'owner', tokenJti: null, oauthAppId: null },
     );
     const { rows } = await client.query(
       'SELECT COUNT(*)::int AS n, MAX(reversed_at::text) AS reversed FROM gl_journal_entries WHERE company_id = $1',
@@ -309,7 +309,7 @@ it('renders the same warning on the LIVE MCP call, which really does write the c
   const seen = await inRequestTx(async (client) => {
     const result = await reverseJournalEntryTool.handler(
       { journal_entry_id: dryEntry, idempotency_key: crypto.randomUUID() },
-      { userId: user, companyId: company, scopes: ['write:journals'], tokenJti: null, oauthAppId: null },
+      { userId: user, companyId: company, scopes: ['write:journals'], companyRole: 'owner', tokenJti: null, oauthAppId: null },
     );
     const payload = JSON.parse(result.content[0]!.text) as {
       reversal_entry_id: string; warnings: { code: string }[];
