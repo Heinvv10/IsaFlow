@@ -54,7 +54,7 @@ function makeReq(overrides: Partial<NextApiRequest> = {}): NextApiRequest {
     method:    'POST',
     query:     { documentId: DOCUMENT_ID, sectionId: SECTION_ID },
     body:      { fiscalYear: 2025, framework: 'full_ifrs' },
-    companyId: COMPANY_ID,
+    companyId: COMPANY_ID, companyRole: 'owner',
     ...overrides,
   } as unknown as NextApiRequest;
 }

@@ -35,7 +35,7 @@ describeIfDb('reconciled cash is locked on every caller of bank reverse', () => 
     JOIN supplier_payments sp ON sp.gl_journal_entry_id = r.reversal_of_id WHERE sp.id = $1`, [paymentId])).rows[0].n);
 
   const mcpCtx = (scopes: string[]) => ({
-    userId: ids.USER, companyId: ids.A, scopes, tokenJti: 'k064', oauthAppId: null,
+    userId: ids.USER, companyId: ids.A, scopes, companyRole: 'owner', tokenJti: 'k064', oauthAppId: null,
   }) as never;
 
   async function inRequest<T>(fn: () => Promise<T>): Promise<T> {

@@ -28,7 +28,7 @@ import { clearSystemAccountCache } from '@/modules/accounting/services/gl/system
 const fx = brkFixture('BRK593P4I');
 const { CO, USER, ins } = fx;
 const BANK = randomUUID(); const X = randomUUID(); const B2 = randomUUID();
-const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'write:post'], tokenJti: 'brk593', oauthAppId: null }) as never;
+const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'write:post'], companyRole: 'owner', tokenJti: 'brk593', oauthAppId: null }) as never;
 const registry = new McpRegistry();
 for (const t of [updateGlAccountTool, createGlAccountTool, deactivateGlAccountTool]) registry.register(t);
 

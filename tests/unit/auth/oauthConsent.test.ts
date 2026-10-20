@@ -65,6 +65,7 @@ function makeReq(extra: Record<string, unknown> = {}): Record<string, unknown> {
     url: '/api/oauth/consent',
     user: { id: USER_ID, claims: {} },
     companyId: HOME_COMPANY,
+    companyRole: 'owner',
     body: {
       clientId: 'client_abc',
       redirectUri: 'https://claude.ai/cb',
@@ -134,7 +135,7 @@ describe('POST /api/oauth/consent — company membership gate', () => {
   });
 
   it('allows a companyId the user IS a member of (multi-company user)', async () => {
-    mockSqlOnce([{ ok: 1 }]); // membership probe: row exists
+    mockSqlOnce([{ role: 'owner' }]); // membership probe: row exists
     const res = makeRes();
     await (handler as (req: unknown, res: unknown) => Promise<void>)(
       makeReq({ companyId: OTHER_COMPANY }), res,

@@ -119,7 +119,7 @@ describe('the bank-details setter is an author of payments created after the cha
     registry.register(updateSupplierTool);
     const res = await inRequest(pool, u.b, c, () => registry.call('update_supplier',
       { supplier_id: s, bank_branch_code: '470010', idempotency_key: crypto.randomUUID() },
-      { userId: u.b, companyId: c, scopes: ['write:contacts'], tokenJti: 'r035-pr5', oauthAppId: null }));
+      { userId: u.b, companyId: c, scopes: ['write:contacts'], companyRole: 'owner', tokenJti: 'r035-pr5', oauthAppId: null }));
     expect(res.isError, JSON.stringify(res)).toBeFalsy();
     expect(await settersOf(s)).toEqual([u.b]);
     expect(await decideNewPayment(c, bank, s, u.b)).toBe(403);

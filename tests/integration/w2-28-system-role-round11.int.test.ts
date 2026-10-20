@@ -154,7 +154,7 @@ describeIfDb('W2-28 round 11', () => {
       await roleLock.query("SELECT pg_advisory_xact_lock(hashtextextended($1::TEXT, 0))", [`default-accounts:${CO}`]);
       const calling = tx.run(() => registry.call('set_opening_balance',
         { bank_account_id: BANK, contra_account_id: OLD, as_at: '2026-03-01', amount: 100, idempotency_key: randomUUID() },
-        { userId: USER, companyId: CO, scopes: ['write:journals', 'write:post', 'write:accounts'], tokenJti: 'w228r11', oauthAppId: null } as never))
+        { userId: USER, companyId: CO, scopes: ['write:journals', 'write:post', 'write:accounts'], companyRole: 'owner', tokenJti: 'w228r11', oauthAppId: null } as never))
         .then((r) => JSON.stringify(r), (e: Error & { code?: string }) => `thrown ${e.code}`);
       let waiting = false;
       for (let i = 0; i < 80 && !waiting; i++) {
