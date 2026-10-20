@@ -31,6 +31,7 @@ const PDF_MAGIC = '%PDF-';
 const HEADER_SEARCH_BYTES = 1024 + PDF_MAGIC.length - 1;
 /** Kernel limits on gs itself: 512 MB address space; CPU SIGXCPU at 25 s, SIGKILL at 30 s (peak seen: ~40 MB). */
 const LIMIT_ARGS = ['--as=536870912', '--cpu=25:30', '--core=0', '--'];
+const AA_EXEC_REFUSED = /^(\[\d+\] )?aa-exec: ERROR/;
 const gsArgs = (page: number): string[] => [
   '-q', '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dNOPROMPT',
   // A fixed 1754x1754 frame with the page scaled to fit, aspect kept: A4 reads
@@ -137,8 +138,10 @@ function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer;
     let stderr = '';
     let failure: Error | null = null;
 
+    // Once only: a kill that fails emits 'error' synchronously, which would call fail() again, without end.
     const fail = (err: Error) => {
-      if (!failure) failure = err;
+      if (failure) return;
+      failure = err;
       gs.kill('SIGKILL');
     };
     const timer = setTimeout(() => fail(new Error(`gs timed out after ${RENDER_TIMEOUT_MS} ms`)), RENDER_TIMEOUT_MS);
@@ -161,11 +164,11 @@ function runGhostscript(pdfBuffer: Buffer, page: number): Promise<{ png: Buffer;
         : signal === 'SIGKILL' ? ' (prlimit CPU hard cap or OOM killer)' : '';
       if (failure) reject(failure);
       else if (signal) reject(new Error(`gs killed by ${signal}${cpuCap}`));
-      // aa-exec refusing (profile not loaded, AppArmor off) is an outage, like a missing gs.
-      else if (code !== 0 && profile && stderr.includes('aa-exec: ERROR')) {
+      // aa-exec refusing (profile not loaded, AppArmor off) is an outage, like a missing gs. Its
+      // message is the first thing on stderr ("[pid] aa-exec: ERROR: ..."); gs never ran to print anything.
+      else if (code !== 0 && profile && AA_EXEC_REFUSED.test(stderr)) {
         reject(new ConfinementUnavailable(profile, `aa-exec exited ${code}: ${stderr.trim()}`));
-      }
-      else if (code !== 0) {
+      } else if (code !== 0) {
         const cap = /VMerror|out of memory|failed to map|cannot allocate/i.test(stderr) ? ' (prlimit memory cap)' : '';
         reject(new Error(`gs exited ${code}${cap}: ${stderr.trim()}`));
       }

@@ -4,7 +4,8 @@
  * runs gs as `aa-exec -p <profile> -- gs`. A profile that is named but cannot
  * be applied fails the render; it never falls back to an unconfined gs.
  */
-import { execFileSync } from 'child_process';
+import { ChildProcess, execFileSync, spawn } from 'child_process';
+import { once } from 'events';
 import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -74,6 +75,58 @@ describe('renderPdfFirstPage under AppArmor', () => {
     process.env.GS_APPARMOR_PROFILE = 'isaflow-gs';
     expect(await renderPdfFirstPage(onePagePdf('CONFINED'))).toBeNull();
     expect(existsSync(marker)).toBe(false);
+  }, 30_000);
+
+  // The 30 s timeout and the 20 MB cap both end gs with a SIGKILL from the service. A profile
+  // without `signal (receive)` refuses it (EACCES), and gs would run on until the CPU cap.
+  it.skipIf(!profileLoaded())('the service can still kill a confined gs (timeout, output cap)', async () => {
+    const gs = spawn('aa-exec', ['-p', 'isaflow-gs', '--', 'gs', '-q', '-dNODISPLAY', '-dBATCH', '-c', '{} loop']);
+    try {
+      await new Promise((r) => setTimeout(r, 300));   // gs is up and spinning
+      expect(gs.exitCode).toBeNull();
+      expect(gs.kill('SIGKILL')).toBe(true);
+      const [, signal] = await once(gs, 'close');
+      expect(signal).toBe('SIGKILL');
+    } finally {
+      if (gs.exitCode === null && gs.signalCode === null) execFileSync('kill', ['-9', String(gs.pid)], { stdio: 'ignore' });
+    }
+  }, 30_000);
+
+  it('a kill that fails is tried once: its error event does not re-enter the kill without end', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const kill = vi.spyOn(ChildProcess.prototype, 'kill').mockImplementation(function (this: ChildProcess) {
+        this.emit('error', Object.assign(new Error('kill EACCES'), { code: 'EACCES' }));
+        return false;
+      });
+      vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+      delete process.env.GS_APPARMOR_PROFILE;
+      const render = renderPdfFirstPage(onePagePdf('UNKILLABLE'));
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1), { interval: 5 });
+      vi.advanceTimersByTime(30_000);
+      expect(await render).toBeNull();   // gs ends on its own; the render still reports the timeout
+      expect(kill).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 30_000);
+
+  // A stand-in aa-exec on PATH: what it prints decides the classification, nothing else does.
+  it.each([
+    ['[123] aa-exec: ERROR: profile \'x\' does not exist', 'error'],
+    ['aa-exec: ERROR: profile \'x\' does not exist', 'error'],
+    ['Error: /undefined in (aa-exec: ERROR) -- text from the PDF', 'warn'],
+  ])('stderr %j that exits 1 is logged as %s', async (stderrText, level) => {
+    const bin = mkdtempSync(join(tmpdir(), 'vlm-render-bin-'));
+    for (const name of ['gs', 'prlimit']) symlinkSync(execFileSync('which', [name]).toString().trim(), join(bin, name));
+    writeFileSync(join(bin, 'aa-exec'), `#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' "${stderrText.replace(/'/g, "'\\''")}" >&2\nexit 1\n`, { mode: 0o755 });
+    process.env.PATH = `${bin}:/usr/bin:/bin`;
+    process.env.GS_APPARMOR_PROFILE = 'isaflow-gs';
+    const error = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    expect(await renderPdfFirstPage(onePagePdf('X'))).toBeNull();
+    expect((level === 'error' ? error : warn)).toHaveBeenCalledTimes(1);
+    expect((level === 'error' ? warn : error)).not.toHaveBeenCalled();
   }, 30_000);
 
   it('fails the render, as an outage, when the named profile does not exist: never an unconfined gs', async () => {

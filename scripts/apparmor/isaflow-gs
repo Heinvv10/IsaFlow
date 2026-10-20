@@ -25,6 +25,9 @@ profile isaflow-gs {
   /tmp/isaflow-gs-*/ rw,
   /tmp/isaflow-gs-*/** rwk,
 
+  # The service must be able to kill it (timeout, output cap); gs itself may signal no one.
+  signal (receive),
+
   deny network,
   deny capability,
   deny @{HOME}/** rwx,
