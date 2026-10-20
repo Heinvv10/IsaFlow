@@ -94,13 +94,29 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }, 'netcash-api');
   }
 
-  // Persist updated status
-  await sql`
+  // Persist updated status. Compare-and-set on the status read above: a poll that was waiting on Netcash must not
+  // overwrite what settled meanwhile (a second poll's 'completed', an operator's resolution). 0 rows is a no-op.
+  const written = await sql`
     UPDATE netcash_submissions
     SET status = ${newStatus},
         netcash_response = ${JSON.stringify({ ...((submission.netcash_response as Record<string, unknown>) ?? {}), latestPoll: pollResult })}::JSONB
-    WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID
-  `;
+    WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID AND status = ${String(submission.status)}
+    RETURNING id
+  ` as Row[];
+  if (written.length === 0) {
+    const now = await sql`
+      SELECT status FROM netcash_submissions WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID
+    ` as Row[];
+    log.info('Netcash status poll skipped: the submission changed while it was being checked', {
+      submissionId, read: submission.status, now: now[0]?.status,
+    }, 'netcash-api');
+    return apiResponse.success(res, {
+      submissionId,
+      status: now[0]?.status ?? submission.status,
+      detail: 'The submission changed while it was being checked; its current status is shown.',
+      polled: false,
+    });
+  }
 
   log.info('Netcash status polled', { submissionId, newStatus, detail: pollResult.detail }, 'netcash-api');
 
