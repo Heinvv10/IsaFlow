@@ -59,7 +59,7 @@ const CASES = ROUTES.flatMap(([route, methods]) => methods.map((m) => [route, m]
 const ID = '33333333-3333-4333-8333-333333333333';
 
 async function load(route: string): Promise<H> {
-  return (await import(`../../../pages/api/accounting/${route}`)).default as H;
+  return (await import(/* @vite-ignore */ `../../../pages/api/accounting/${route}`)).default as H;
 }
 function makeRes() {
   const res = {

@@ -19,7 +19,8 @@ export function walk(dir: string): string[] {
 
 /**
  * Source with comments removed, so a gate named in a doc comment does not count. String-aware: a `//`
- * inside a quoted string or a template literal (a URL, `'a//b'`) is text, not a comment.
+ * inside a quoted string or a template literal (a URL, `'a//b'`) is text, not a comment. A ' or " string
+ * ends at a newline, so an apostrophe in a regex literal (`/don't/`) cannot hold one open past its line.
  */
 export function stripComments(src: string): string {
   let out = '';
@@ -28,7 +29,7 @@ export function stripComments(src: string): string {
     const c = src[i]!;
     if (quote) {
       out += c;
-      if (c === '\\') { out += src[i + 1] ?? ''; i++; } else if (c === quote) quote = null;
+      if (c === '\\') { out += src[i + 1] ?? ''; i++; } else if (c === quote || (c === '\n' && quote !== '`')) quote = null;
       continue;
     }
     if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; out += '\n'; continue; }
@@ -112,11 +113,17 @@ function writeAccessGates(expr: string): boolean {
     const [, opts] = callArgs(expr, m.index! + m[0].length - 1);
     if (opts === undefined) return true;
     if (!/^\{[\s\S]*\}$/.test(opts) || opts.includes('...')) return false;
-    const roles = /allowedRoles\s*:\s*(\[[^\]]*\]|DEFAULT_WRITE_ROLES)/.exec(opts)?.[1];
-    if (/allowedRoles/.test(opts) && !roles) return false;
-    if (!roles || roles === 'DEFAULT_WRITE_ROLES') return true;
-    const named = [...roles.matchAll(/['"]([a-z_]+)['"]/g)].map((r) => r[1]!);
-    return named.length > 0 && named.every((r) => WRITE_ROLES.has(r));
+    if (!/allowedRoles/.test(opts)) return true;
+    // Only `allowedRoles: DEFAULT_WRITE_ROLES` or an array of quoted role names, followed by `,` or `}`:
+    // a `.concat(…)`, an identifier element or a spread inside the array is unreadable, so not a gate.
+    const roles = /allowedRoles\s*:\s*(\[[^\]]*\]|DEFAULT_WRITE_ROLES)\s*[,}]/.exec(opts)?.[1];
+    if (!roles) return false;
+    if (roles === 'DEFAULT_WRITE_ROLES') return true;
+    const elements = roles.slice(1, -1).split(',').map((e) => e.trim()).filter(Boolean);
+    return elements.length > 0 && elements.every((e) => {
+      const name = /^['"]([a-z_]+)['"]$/.exec(e)?.[1];
+      return name !== undefined && WRITE_ROLES.has(name);
+    });
   });
 }
 
