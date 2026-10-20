@@ -98,9 +98,9 @@ function movementRowFor(rawSubtype: string): MovementRow {
 async function fetchOpeningBalances(companyId: string, beforeDate: string): Promise<Map<string, number>> {
   const rows = (await sql`
     SELECT
-      -- A debit-normal equity account on IS484 "Dividends paid" (dividendsPaid.ts) is a distribution out of retained
+      -- A dividends account on IS484 "Dividends paid" (dividendsPaid.ts) is a distribution out of retained
       -- earnings, so its balance is reported in that column whatever its subtype.
-      CASE WHEN ga.normal_balance = 'debit' AND EXISTS (
+      CASE WHEN (ga.normal_balance = 'debit' OR ga.account_subtype = 'dividends') AND EXISTS (
         SELECT 1 FROM afs_account_mappings am
         WHERE am.company_id = ${companyId}::UUID AND am.gl_account_id = ga.id
           AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}) THEN ${RETAINED_EARNINGS}
@@ -139,8 +139,8 @@ async function fetchMovements(
   const rows = (await sql`
     SELECT
       COALESCE(ga.account_subtype, ${RETAINED_EARNINGS}) AS account_subtype,
-      -- A debit-normal equity account on IS484 "Dividends paid": its movements are dividends (see fetchOpeningBalances).
-      ga.normal_balance = 'debit' AND EXISTS (
+      -- A dividends account on IS484 "Dividends paid": its movements are dividends (see fetchOpeningBalances).
+      (ga.normal_balance = 'debit' OR ga.account_subtype = 'dividends') AND EXISTS (
         SELECT 1 FROM afs_account_mappings am
         WHERE am.company_id = ${companyId}::UUID AND am.gl_account_id = ga.id
           AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}) AS is_dividends,

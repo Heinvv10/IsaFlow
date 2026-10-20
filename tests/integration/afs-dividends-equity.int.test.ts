@@ -24,6 +24,8 @@ import { generateIncomeStatement } from '../../src/modules/accounting/services/a
 import { getChangesInEquity } from '../../src/modules/accounting/services/afs/changesInEquityService';
 import { runPreExportChecks } from '../../src/modules/accounting/services/afs/afsPreExportChecks';
 import { fmt } from '../../src/modules/accounting/services/afs/noteGenerators/noteHelpers';
+import { createAccount } from '../../src/modules/accounting/services/gl/chartOfAccountsService';
+import { autoMapAccounts } from '../../src/modules/accounting/services/afs/afsAutoMapper';
 
 assertDisposable();
 
@@ -180,23 +182,25 @@ describe('dividends paid on an equity account mapped to IS484', () => {
     }
   });
 
-  it('clearing the dividends account into retained earnings is not a distribution: the SOCE still shows the 300 paid', async () => {
+  it('clearing the dividends account into retained earnings, inside a larger adjusting journal, is not a distribution', async () => {
     const clearing = crypto.randomUUID();
     await pool.query(
       `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_by,posted_at)
-       VALUES($1,$2,'CLR25','2025-12-31',$3,'clear dividends','manual','posted',$4,$4,now())`, [clearing, div.company, div.period.p25, user]);
+       VALUES($1,$2,'CLR25','2025-12-31',$3,'year-end adjustments','manual','posted',$4,$4,now())`, [clearing, div.company, div.period.p25, user]);
+    // The clearing pair, plus a 10 rent accrual in the same journal (so the journal is not equity-only).
     await pool.query(
       `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
-       VALUES($1,$2,300,0,'clear',$4),($1,$3,0,300,'clear',$4)`, [clearing, div.acct.retained, dividendsAccount, div.company]);
+       VALUES($1,$2,300,0,'clear',$6),($1,$3,0,300,'clear',$6),($1,$4,10,0,'rent',$6),($1,$5,0,10,'rent',$6)`,
+      [clearing, div.acct.retained, dividendsAccount, div.acct.expense, div.acct.bank, div.company]);
     try {
       const s = await sfpOf(div);
-      expect(s.totalEquity).toBe(EXPECTED.equity25);
+      expect(s.totalEquity).toBe(EXPECTED.equity25 - 10);
       expect(s.totalAssets).toBe(s.totalLiabilities + s.totalEquity);
       const soce = await generateChangesInEquity(div.company, 2025, 'ifrs_smes');
       expect(soce.dataSnapshot.dividendsPaid).toBe(300);
-      expect(soce.dataSnapshot.closingTotalEquity).toBe(EXPECTED.equity25);
+      expect(soce.dataSnapshot.closingTotalEquity).toBe(EXPECTED.equity25 - 10);
       const table = soce.content.blocks.find((x) => x.type === 'table') as { headers: string[]; rows: string[][] };
-      expect(table.rows.find((r) => r[0] === 'Accumulated profit (loss)')!.slice(1)).toEqual([fmt(300), fmt(-300), fmt(1100), fmt(1100)]);
+      expect(table.rows.find((r) => r[0] === 'Accumulated profit (loss)')!.slice(1)).toEqual([fmt(300), fmt(-300), fmt(1090), fmt(1090)]);
       expect((await getChangesInEquity(div.company, '2025-01-01', '2025-12-31')).totalDividends).toBe(-250);
     } finally {
       await pool.query('DELETE FROM gl_journal_lines WHERE journal_entry_id=$1', [clearing]);
@@ -212,8 +216,63 @@ describe('dividends paid on an equity account mapped to IS484', () => {
       expect(s.totalAssets).toBe(s.totalLiabilities + s.totalEquity);
       expect((await generateChangesInEquity(div.company, 2025, 'ifrs_smes')).dataSnapshot.dividendsPaid).toBe(300);
       expect((await getChangesInEquity(div.company, '2025-01-01', '2025-12-31')).totalClosing).toBe(EXPECTED.equity25);
+      // The income statement drops a deactivated line, so the account is reported as unmapped, not passed silently.
+      const unmapped = (await runPreExportChecks(div.doc, div.company, 'ifrs_smes')).find((c) => c.label === 'Every ledger account reaches the statements');
+      expect(unmapped?.passed).toBe(false);
     } finally {
       await pool.query("UPDATE afs_statement_lines SET is_active=true WHERE company_id=$1 AND code='IS484'", [div.company]);
     }
+  });
+
+  it('a distribution credited to another equity account (a members\' current account) is still a dividend paid', async () => {
+    const members = crypto.randomUUID();
+    const entry = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account,level)
+       VALUES($1,$2,'3500','Members current account','equity','equity','credit',true,false,3)`, [members, div.company]);
+    await pool.query("INSERT INTO afs_account_mappings(company_id,gl_account_id,afs_line_code) VALUES($1,$2,'BS044')", [div.company, members]);
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_by,posted_at)
+       VALUES($1,$2,'DISTM','2025-10-15',$3,'distribution','manual','posted',$4,$4,now())`, [entry, div.company, div.period.p25, user]);
+    await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
+       VALUES($1,$2,40,0,'d',$4),($1,$3,0,40,'d',$4)`, [entry, dividendsAccount, members, div.company]);
+    try {
+      expect((await generateChangesInEquity(div.company, 2025, 'ifrs_smes')).dataSnapshot.dividendsPaid).toBe(340);
+      const s = await sfpOf(div);
+      expect(s.totalEquity).toBe(EXPECTED.equity25);
+    } finally {
+      await pool.query('DELETE FROM gl_journal_lines WHERE journal_entry_id=$1', [entry]);
+      await pool.query('DELETE FROM gl_journal_entries WHERE id=$1', [entry]);
+      await pool.query('DELETE FROM afs_account_mappings WHERE gl_account_id=$1', [members]);
+    }
+  });
+
+  it('a dividends account carrying the retained_earnings subtype is not read as its own clearing journal', async () => {
+    await pool.query("UPDATE gl_accounts SET account_subtype='retained_earnings' WHERE id=$1", [dividendsAccount]);
+    try {
+      expect((await generateChangesInEquity(div.company, 2025, 'ifrs_smes')).dataSnapshot.dividendsPaid).toBe(300);
+      expect((await sfpOf(div)).totalEquity).toBe(EXPECTED.equity25);
+    } finally {
+      await pool.query("UPDATE gl_accounts SET account_subtype='dividends' WHERE id=$1", [dividendsAccount]);
+    }
+  });
+
+  // Last: auto-mapping maps the fixture's unmapped accounts too.
+  it('an account created in the app (equity is always credit-normal) with subtype dividends is auto-mapped to IS484 and carried', async () => {
+    const created = await createAccount(div.company, {
+      accountCode: '3450', accountName: 'Dividends declared', accountType: 'equity', accountSubtype: 'dividends', normalBalance: 'credit',
+    });
+    expect(created.normalBalance).toBe('credit');
+    await autoMapAccounts(div.company);
+    const mapped = await pool.query('SELECT afs_line_code FROM afs_account_mappings WHERE company_id=$1 AND gl_account_id=$2', [div.company, created.id]);
+    expect(mapped.rows[0]?.afs_line_code).toBe('IS484');
+    await pay(div, created.id, 'DIV25B', '2025-10-01', div.period.p25, 50);
+    const s = await sfpOf(div);
+    expect(s.totalEquity).toBe(EXPECTED.equity25 - 50);
+    expect(s.totalAssets).toBe(s.totalLiabilities + s.totalEquity);
+    expect((await generateChangesInEquity(div.company, 2025, 'ifrs_smes')).dataSnapshot.dividendsPaid).toBe(350);
+    expect((await getChangesInEquity(div.company, '2025-01-01', '2025-12-31')).totalDividends).toBe(-300);
+    expect((await runPreExportChecks(div.doc, div.company, 'ifrs_smes')).find((c) => c.label === MAPPING_LABEL)).toBeUndefined();
   });
 });

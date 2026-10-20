@@ -1,13 +1,16 @@
 /**
- * Dividends paid on DEBIT-NORMAL equity accounts mapped to IS484 "Dividends paid".
+ * Dividends paid on dividends accounts mapped to IS484 "Dividends paid".
  *
- * Such an account (a "Dividends paid / declared" equity account) is mapped to an income-statement line, so no
- * balance-sheet line reads it. Its balance is a distribution out of accumulated profit, so the
- * Statement of Financial Position takes it off the derived accumulated profit, and the statement of changes in
- * equity shows the year's movement as dividends. Only a debit-normal equity account is one: share capital, retained
- * earnings or a reserve on IS484 (credit-normal) is misplaced, as is an asset or liability, and afsMappingSectionCheck
- * names it; a revenue or expense account is already inside the derived profit. The line's is_active is not read: a deactivated line does not take a live
- * balance out of equity (scripts/ci/check-is-active-in-balances.sh).
+ * A dividends account is an equity account that is debit-normal (an imported "Dividends declared") or carries the
+ * subtype 'dividends' (the app creates every equity account credit-normal, so a user picks the subtype). Share
+ * capital, retained earnings or a reserve on IS484 is none of these: it is misplaced, as is an asset or liability,
+ * and afsMappingSectionCheck names it; a revenue or expense account is already inside the derived profit.
+ *
+ * Mapped to an income-statement line, a dividends account is on no balance-sheet line. Its balance is a
+ * distribution out of accumulated profit, so the Statement of Financial Position takes it off the derived
+ * accumulated profit, and the statement of changes in equity shows the year's movement as dividends. The line's
+ * is_active is not read: a deactivated line does not take a live balance out of equity
+ * (scripts/ci/check-is-active-in-balances.sh; the unmapped-value pre-export check names the account instead).
  *
  * Amounts are raw debit-minus-credit, so a dividend paid is positive. The posted year-end close is skipped
  * (YEAR_END_JOURNAL_SOURCE), as by every AFS reader.
@@ -22,10 +25,11 @@ export const DIVIDENDS_PAID_CODE = 'IS484';
 /**
  * Dividends paid with an entry date from `from` (inclusive; null = inception) to `through` (inclusive).
  *
- * `paidOnly` leaves out journals that touch equity accounts alone (clearing the dividends account into retained
- * earnings, say): for the statement of changes in equity, where such a transfer is not a distribution and must not
- * cancel the dividends paid. Never for the SFP, which needs the account's real balance (the retained-earnings side
- * of the transfer is read on its own balance-sheet line).
+ * `paidOnly` leaves out a dividends-account line whose journal also posts to a retained-earnings account
+ * (clearing the dividends account into retained earnings, alone or inside a larger adjusting journal): for the
+ * statement of changes in equity, where that transfer is not a distribution and must not cancel the dividends
+ * paid. A distribution credited to any other account, a members' current account included, still counts. Never
+ * for the SFP, which needs the account's real balance (the retained-earnings side is read on its own line).
  */
 export async function fetchDividendsPaid(
   companyId: string, from: string | null, through: string, paidOnly = false,
@@ -40,13 +44,14 @@ export async function fetchDividendsPaid(
       AND je.company_id = ${companyId}::uuid
       AND jl.company_id = ${companyId}::uuid
       AND ga.company_id = ${companyId}::uuid
-      AND ga.account_type = 'equity' AND ga.normal_balance = 'debit'
+      AND ga.account_type = 'equity' AND (ga.normal_balance = 'debit' OR ga.account_subtype = 'dividends')
       AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}
       AND (${from}::date IS NULL OR je.entry_date >= ${from}::date)
       AND je.entry_date <= ${through}::date
-      AND (NOT ${paidOnly}::boolean OR EXISTS (
+      AND (NOT ${paidOnly}::boolean OR NOT EXISTS (
         SELECT 1 FROM gl_journal_lines o JOIN gl_accounts oa ON oa.id = o.gl_account_id AND oa.company_id = ${companyId}::uuid
-        WHERE o.journal_entry_id = je.id AND o.company_id = ${companyId}::uuid AND oa.account_type <> 'equity'))
+        WHERE o.journal_entry_id = je.id AND o.company_id = ${companyId}::uuid AND o.gl_account_id <> jl.gl_account_id
+          AND oa.account_type = 'equity' AND oa.account_subtype = 'retained_earnings'))
   `) as Array<{ amount: string | number }>;
   return Number(rows[0]?.amount ?? 0);
 }
