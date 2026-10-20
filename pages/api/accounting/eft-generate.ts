@@ -11,9 +11,10 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
   generateStandardBankACB, generateFNBEFT, generateABSAEFT,
-  generateNedbankEFT, generateCapitecEFT, validateBankAccount, validateEFTBatch,
+  generateNedbankEFT, generateCapitecEFT, eftTruncationWarnings, validateEFTBatch,
   type EFTBatchHeader, type EFTPayment,
 } from '@/modules/accounting/services/ap/eftService';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
@@ -74,6 +75,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     FROM supplier_payments sp
     JOIN suppliers s ON sp.supplier_id = s.id
     WHERE sp.batch_id = ${batchId} AND sp.company_id = ${companyId}::UUID
+      AND sp.status IS DISTINCT FROM 'cancelled'   -- a cancelled member (cancelBatch) is no payee
     ORDER BY sp.created_at
   ` as Row[];
 
@@ -94,14 +96,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Build EFT header and payments. The originating account is the batch's paying bank account (gl_accounts, as the
   // Bank Accounts page edits it) — a file with no real originator is refused, never sent as zeros (AP-02).
+  // Its number and branch are judged once, by validateEFTBatch below.
   const originator = (await sql`
     SELECT c.name AS company_name, ga.id AS bank_gl_id, ga.bank_account_number, ga.bank_branch_code
     FROM companies c
     LEFT JOIN gl_accounts ga ON ga.id = ${batches[0].bank_account_id as string | null}::UUID AND ga.company_id = c.id
+      AND ga.is_active AND ga.account_subtype = ANY(${BANK_SUBTYPES as string[]})
     WHERE c.id = ${companyId}::UUID
   ` as Row[])[0];
   if (!originator?.bank_gl_id) {
-    return apiResponse.badRequest(res, 'Batch has no paying bank account in this company: choose one before generating the EFT file');
+    return apiResponse.badRequest(res, 'Batch has no active paying bank account in this company: choose one before generating the EFT file');
   }
   const header: EFTBatchHeader = {
     companyName: String(originator.company_name),
@@ -111,10 +115,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     batchReference: String(batches[0].batch_number || batchId),
     actionDate: String(batches[0].batch_date),
   };
-  const origin = validateBankAccount(header.bankAccountNumber, header.branchCode);
-  if (!origin.valid) {
-    return apiResponse.badRequest(res, `The paying bank account cannot originate an EFT file. ${origin.error} (set it on Bank Accounts)`);
-  }
 
   const eftPayments: EFTPayment[] = payments.map((p: Row) => ({
     beneficiaryName: String(p.supplier_name || ''),
@@ -130,7 +130,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Validate
   const validation = validateEFTBatch(header, eftPayments);
-  if (!validation.valid) return apiResponse.badRequest(res, 'EFT validation failed', validation.errors);
+  if (!validation.valid) return apiResponse.badRequest(res, 'EFT validation failed (the paying bank account is set on Bank Accounts)', validation.errors);
 
   // Generate
   const generator = GENERATORS[bank]!;
@@ -145,6 +145,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     bank,
     paymentCount: validation.paymentCount,
     totalAmount: validation.totalAmount,
+    warnings: eftTruncationWarnings(bank, header, eftPayments),
   });
 }
 

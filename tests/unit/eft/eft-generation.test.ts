@@ -12,6 +12,7 @@ import {
   generateCapitecEFT,
   validateBankAccount,
   validateEFTBatch,
+  eftTruncationWarnings,
   formatEFTAmount,
   padRight,
   padLeft,
@@ -256,6 +257,33 @@ describe('EFT Batch Validation', () => {
       expect(result.valid, branch).toBe(false);
       expect(result.errors.join()).toMatch(/Branch code/);
     }
+  });
+
+  it('rejects a payee account longer than 11 digits (padLeft would keep the last 11) or with non-digits', () => {
+    for (const account of ['123456789012', '12-3456']) {
+      const result = validateEFTBatch(sampleHeader, [{ ...samplePayments[0]!, beneficiaryAccountNumber: account }]);
+      expect(result.valid, account).toBe(false);
+    }
+  });
+
+  it('rejects an originating account longer than 11 digits', () => {
+    expect(validateEFTBatch({ ...sampleHeader, bankAccountNumber: '123456789012' }, samplePayments).valid).toBe(false);
+    expect(validateBankAccount('123456789012', '250655').valid).toBe(false);
+  });
+
+  it('rejects an amount or total that overflows its field, and takes the largest that fits', () => {
+    const pay = (amount: number) => ({ ...samplePayments[0]!, amount });
+    expect(validateEFTBatch(sampleHeader, [pay(1_000_000_000)]).valid).toBe(false);
+    expect(validateEFTBatch(sampleHeader, [pay(999_999_999.99)]).valid).toBe(true);
+    expect(validateEFTBatch(sampleHeader, Array.from({ length: 11 }, () => pay(999_999_999.99))).valid).toBe(false);
+  });
+
+  it('reports the text each format cuts, and nothing for Capitec', () => {
+    const long = { ...samplePayments[0]!, beneficiaryName: 'N'.repeat(31), reference: 'R'.repeat(13) };
+    expect(eftTruncationWarnings('fnb', sampleHeader, [long])).toHaveLength(2);
+    expect(eftTruncationWarnings('standard_bank', sampleHeader, [long])).toHaveLength(1);
+    expect(eftTruncationWarnings('capitec', sampleHeader, [long])).toEqual([]);
+    expect(eftTruncationWarnings('fnb', sampleHeader, samplePayments)).toEqual([]);
   });
 
   it('calculates correct batch total', () => {

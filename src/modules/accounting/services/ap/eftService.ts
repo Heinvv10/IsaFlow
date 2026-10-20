@@ -64,10 +64,19 @@ function accountTypeCode(type: string): string {
 // VALIDATION
 // ═════════════════════���═════════════════════════════════════════════════════
 
+// Field widths of the fixed-width formats (the trailer's total is padLeft 12, the amount padLeft 11, the count padLeft 6).
+// padLeft cuts from the left, so an overflowing number is silently a DIFFERENT number: validateEFTBatch refuses it.
+const MAX_ACCOUNT_DIGITS = 11;
+const MAX_AMOUNT_CENTS = 99_999_999_999;
+const MAX_TOTAL_CENTS = 999_999_999_999;
+const MAX_PAYMENTS = 999_999;
+
 export function validateBankAccount(accountNumber: string, branchCode: string): { valid: boolean; error?: string } {
   if (!accountNumber || accountNumber.trim() === '') return { valid: false, error: 'Account number is required' };
   if (!branchCode || branchCode.trim() === '') return { valid: false, error: 'Branch code is required' };
   if (!/^\d+$/.test(accountNumber)) return { valid: false, error: 'Account number must contain only digits' };
+  // padLeft keeps the LAST 11 digits of a longer number: a different account, not an error.
+  if (accountNumber.length > MAX_ACCOUNT_DIGITS) return { valid: false, error: `Account number must be at most ${MAX_ACCOUNT_DIGITS} digits` };
   if (!/^\d{6}$/.test(branchCode)) return { valid: false, error: 'Branch code must be exactly 6 digits' };
   return { valid: true };
 }
@@ -90,14 +99,48 @@ export function validateEFTBatch(header: EFTBatchHeader, payments: EFTPayment[])
     const p = payments[i]!;
     if (!p.beneficiaryName || p.beneficiaryName.trim() === '') errors.push(`Payment ${i + 1}: Beneficiary name is required`);
     if (!p.beneficiaryAccountNumber || p.beneficiaryAccountNumber.trim() === '') errors.push(`Payment ${i + 1}: Account number is required`);
+    else if (!/^\d{1,11}$/.test(p.beneficiaryAccountNumber)) {
+      errors.push(`Payment ${i + 1}: Account number must be 1 to ${MAX_ACCOUNT_DIGITS} digits`);
+    }
     // A blank branch is padded to 000000 by padLeft, which is no branch at all (AP-36).
     if (!/^\d{6}$/.test(p.beneficiaryBranchCode ?? '')) errors.push(`Payment ${i + 1}: Branch code must be exactly 6 digits`);
     if (!p.amount || p.amount <= 0) errors.push(`Payment ${i + 1}: Amount must be greater than zero`);
+    if (Math.round((p.amount || 0) * 100) > MAX_AMOUNT_CENTS) errors.push(`Payment ${i + 1}: Amount is too large for the bank file's amount field`);
     totalAmount += p.amount || 0;
   }
+  if (payments.length > MAX_PAYMENTS) errors.push(`A bank file holds at most ${MAX_PAYMENTS} payments`);
+  if (Math.round(totalAmount * 100) > MAX_TOTAL_CENTS) errors.push("Batch total is too large for the bank file's trailer");
 
   totalAmount = Math.round(totalAmount * 100) / 100;
   return { valid: errors.length === 0, errors, totalAmount, paymentCount: payments.length };
+}
+
+/** Text widths per format (padRight cuts the rest); Capitec is delimited and cuts nothing. */
+const TEXT_WIDTHS: Record<string, { name: number; reference: number } | undefined> = {
+  standard_bank: { name: 30, reference: 20 },
+  fnb: { name: 30, reference: 12 },
+  absa: { name: 30, reference: 12 },
+  nedbank: { name: 30, reference: 12 },
+};
+
+/**
+ * What the format cuts silently: the company name, the batch reference, each payee's name and reference. A cut is
+ * format-defined, not an error, so it is reported (one sentence each) for the caller to show.
+ */
+export function eftTruncationWarnings(bank: string, header: EFTBatchHeader, payments: EFTPayment[]): string[] {
+  const w = TEXT_WIDTHS[bank];
+  if (!w) return [];
+  const warnings: string[] = [];
+  const cut = (what: string, value: string, width: number) => {
+    if (value.length > width) warnings.push(`${what} "${value}" is cut to ${width} characters in the ${bank} file`);
+  };
+  cut('Company name', header.companyName, w.name);
+  cut('Batch reference', header.batchReference, w.reference);
+  payments.forEach((p, n) => {
+    cut(`Payment ${n + 1} beneficiary name`, p.beneficiaryName, w.name);
+    cut(`Payment ${n + 1} reference`, p.reference, w.reference);
+  });
+  return warnings;
 }
 
 // ═════════════════════════════════════════════════════���═════════════════════

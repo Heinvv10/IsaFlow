@@ -37,12 +37,14 @@ beforeAll(async () => {
 });
 afterAll(() => cleanupPr5(pool, companies, [user])); // ends the pool
 
-async function fixture(bankDetails: { number: string | null; branch: string | null } = { number: ACCOUNT, branch: BRANCH }) {
+async function fixture(
+  bankDetails: { number: string | null; branch: string | null } = { number: ACCOUNT, branch: BRANCH }, amounts?: number[],
+) {
   const { company: c, bank } = await payCompany(pool, [[user, 'admin']], companies);
   await pool.query('UPDATE companies SET name = $2 WHERE id = $1', [c, NAME]);
   await pool.query('UPDATE gl_accounts SET bank_account_number = $2, bank_branch_code = $3 WHERE id = $1',
     [bank, bankDetails.number, bankDetails.branch]);
-  return { c, bank, batch: await plantBatch(pool, c, user, bank) };
+  return { c, bank, batch: await plantBatch(pool, c, user, bank, amounts) };
 }
 
 const generate = (c: string, batchId: string, bank = 'fnb') =>
@@ -132,5 +134,83 @@ describe('eft-generate payee branch (AP-36)', () => {
     const res = await generate(c, batch.id, 'standard_bank');
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(dataOf<{ content: string }>(res).content).toContain('T250655');
+  });
+});
+
+describe('eft-generate field widths (K-067 / AP-03)', () => {
+  const refused = async (c: string, batchId: string) => {
+    const res = await generate(c, batchId);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(JSON.stringify(res.state.body)).not.toContain('"content"');
+  };
+
+  it('refuses a payee account of more than 11 digits instead of sending its last 11', async () => {
+    const { c, batch } = await fixture();
+    await pool.query("UPDATE suppliers SET bank_account_number = '123456789012345' WHERE id = $1", [batch.members[0]!.supplierId]);
+    await refused(c, batch.id);
+  });
+
+  it('refuses an originating account of more than 11 digits', async () => {
+    const { c, batch } = await fixture({ number: '123456789012', branch: BRANCH });
+    await refused(c, batch.id);
+  });
+
+  it('refuses a payment too large for the 11-digit cents field (R1 000 000 000.00)', async () => {
+    const { c, batch } = await fixture();
+    await pool.query('UPDATE supplier_payments SET total_amount = 1000000000 WHERE id = $1', [batch.members[0]!.id]);
+    await refused(c, batch.id);
+  });
+
+  it('accepts the largest payment the field holds (R999 999 999.99)', async () => {
+    const { c, batch } = await fixture();
+    await pool.query('UPDATE supplier_payments SET total_amount = 999999999.99 WHERE id = $1', [batch.members[0]!.id]);
+    const res = await generate(c, batch.id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(dataOf<{ content: string }>(res).content).toContain('99999999999');
+  });
+
+  it('refuses a batch whose total overflows the 12-digit trailer (11 payments of R999 999 999.99)', async () => {
+    const { c, batch } = await fixture(undefined, Array(11).fill(999999999.99));
+    await refused(c, batch.id);
+  });
+});
+
+describe('eft-generate originating account must be an active bank account', () => {
+  it('refuses a paying account that has been deactivated', async () => {
+    const { c, bank, batch } = await fixture();
+    await pool.query('UPDATE gl_accounts SET is_active = false WHERE id = $1', [bank]);
+    const res = await generate(c, batch.id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(JSON.stringify(res.state.body)).not.toContain('"content"');
+  });
+
+  it('refuses a paying account that is not a bank account, though it carries a number', async () => {
+    const { c, bank, batch } = await fixture();
+    await pool.query("UPDATE gl_accounts SET account_subtype = 'payable' WHERE id = $1", [bank]);
+    const res = await generate(c, batch.id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
+    expect(JSON.stringify(res.state.body)).not.toContain('"content"');
+  });
+});
+
+describe('eft-generate truncation warnings', () => {
+  it('names a payee whose name or reference the bank format cuts, and says nothing otherwise', async () => {
+    const { c, batch } = await fixture();
+    const clean = await generate(c, batch.id, 'standard_bank');
+    expect(dataOf<{ warnings?: string[] }>(clean).warnings ?? []).toEqual([]);
+    const long = 'A supplier name that is well over thirty characters';
+    await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [batch.members[0]!.supplierId, long]);
+    await pool.query("UPDATE supplier_payments SET reference = 'INV-0000000000001-LONG' WHERE id = $1", [batch.members[1]!.id]);
+    const res = await generate(c, batch.id, 'standard_bank');
+    const warnings = dataOf<{ warnings: string[] }>(res).warnings;
+    expect(warnings).toHaveLength(2);
+    expect(warnings.join('\n')).toContain(long);
+    expect(warnings.join('\n')).toContain('INV-0000000000001-LONG');
+  });
+
+  it('fnb cuts the batch reference to 12, and says so', async () => {
+    const { c, batch } = await fixture();
+    const warnings = dataOf<{ warnings: string[] }>(await generate(c, batch.id, 'fnb')).warnings;
+    expect(warnings).toEqual([expect.stringContaining(batch.number)]);
   });
 });
