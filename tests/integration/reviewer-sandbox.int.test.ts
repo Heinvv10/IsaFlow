@@ -52,7 +52,8 @@ const SEED_URL = DATABASE_URL && !DATABASE_URL.includes('sslmode=')
   : DATABASE_URL;
 
 const SANDBOX = SANDBOX_COMPANY.id;
-const OPERATOR = 'reviewer-sandbox-it-operator';
+// A GoTrue-shaped (uuid) id: company_feature_overrides.set_by is uuid.
+const OPERATOR = '7e5a1d00-0000-4000-8000-00000000a11d';
 const EMAIL = 'reviewer-sandbox-it@example.com';
 
 let pool: pg.Pool;
@@ -98,6 +99,17 @@ describeIfDb('reviewer sandbox seed (scripts/sandbox/reviewer-sandbox.ts)', () =
       `INSERT INTO users (id, email, first_name, last_name, is_active, role)
        VALUES ($1, 'reviewer-sandbox-it-operator@example.com', 'Demo', 'Operator', true, 'super_admin')
        ON CONFLICT (id) DO UPDATE SET role = 'super_admin', is_active = true`, [OPERATOR]);
+    // The CI fixture is schema-only, so the plan and the dark feature flag the
+    // seed requires (migrations 261, 506) are arranged here; both codes are
+    // unique, so an existing row (dev, a sibling suite) wins.
+    await pool.query(
+      `INSERT INTO plans (code, name, monthly_price_cents, annual_price_cents, is_active)
+       VALUES ($1, 'Professional', 59900, 0, true)
+       ON CONFLICT (code) DO NOTHING`, [SANDBOX_COMPANY.planCode]);
+    await pool.query(
+      `INSERT INTO feature_flags (code, name, is_global)
+       VALUES ('mcp_connector', 'MCP Connector (AI agents)', false)
+       ON CONFLICT (code) DO NOTHING`);
   }, 120000);
 
   afterAll(async () => {
