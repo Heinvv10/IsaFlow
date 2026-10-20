@@ -14,7 +14,8 @@ import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
-import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
+import { getOauthAppByClientId } from '@/lib/auth/oauth';
+import { resolveAuthorizeScopes } from '@/lib/auth/authorizeScopes';
 import { ConsentScopeList } from '@/components/oauth/ConsentScopeList';
 import { ConsentCompanyPicker } from '@/components/oauth/ConsentCompanyPicker';
 import { ConsentRejected } from '@/components/oauth/ConsentRejected';
@@ -225,8 +226,6 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   );
 }
 
-const VALID_SCOPES = new Set<string>(OAUTH_SCOPES);
-
 export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async (ctx) => {
   // Auth gate — if the user has no valid session cookie, bounce to /login
   // with a returnTo so they come straight back here after signing in.
@@ -264,21 +263,21 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
     return { props: { ok: false, error: 'redirect_uri is not registered for this app' } };
   }
 
-  const scopes = scopeStr.split(/[\s,]+/).filter(Boolean);
-  for (const s of scopes) {
-    if (!VALID_SCOPES.has(s)) {
-      // The token goes to the log, never to the page — see consentRejection.ts.
-      // BOTH values are truncated: each is attacker-chosen and neither is
-      // length-capped on the way in (clientId comes straight off q.client_id).
-      log.warn(
-        'OAuth consent: unknown scope requested',
-        { clientId: clientId.slice(0, 120), scope: s.slice(0, 120) },
-        'oauth',
-      );
-      return { props: { ok: false, error: rejectionForUnknownScope(s) } };
-    }
+  // Absent/empty scope → the read-only default; openid/profile/email dropped;
+  // any other unknown scope refuses (authorizeScopes.ts).
+  const resolved = resolveAuthorizeScopes(scopeStr);
+  if (!resolved.ok) {
+    // The token goes to the log, never to the page — see consentRejection.ts.
+    // BOTH values are truncated: each is attacker-chosen and neither is
+    // length-capped on the way in (clientId comes straight off q.client_id).
+    log.warn(
+      'OAuth consent: unknown scope requested',
+      { clientId: clientId.slice(0, 120), scope: resolved.unknownScope.slice(0, 120) },
+      'oauth',
+    );
+    return { props: { ok: false, error: rejectionForUnknownScope(resolved.unknownScope) } };
   }
-  if (scopes.length === 0) return { props: { ok: false, error: 'At least one scope must be requested' } };
+  const scopes = resolved.scopes;
 
   // The grant is pinned to ONE company for the life of the token, so the user
   // has to see (and for a multi-company user, choose) which one. Options come
