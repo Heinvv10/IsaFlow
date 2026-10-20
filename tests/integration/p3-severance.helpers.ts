@@ -1,6 +1,7 @@
 /**
  * Audit 2026-10-18 P3 fixtures: a company with one retrenched employee (the
- * W3-01 employee, R20 000 a month, born 1980, started 2020-01-01), its admin,
+ * W3-01 employee, R20 000 a month, born 1980, started 2020-01-01, no medical aid),
+ * its admin,
  * and the real routes that create, calculate, approve and reopen runs and pay
  * a directive outside payroll. Directives are made by taxDirectiveService, as
  * the tax-directives routes make them.
@@ -36,7 +37,8 @@ export async function seedRetrenchedEmployee(pool: Pool, endDate: string, name: 
   await seedPayrollCompany(pool, company, MONTHLY);
   const employee = String((await pool.query('SELECT id FROM payroll_employees WHERE company_id = $1', [company])).rows[0]!.id);
   await pool.query(
-    `UPDATE payroll_employees SET end_date = $2::date, status = 'terminated', id_number = '8001015009087' WHERE id = $1`,
+    `UPDATE payroll_employees SET end_date = $2::date, status = 'terminated', id_number = '8001015009087',
+           medical_aid_main_member = false WHERE id = $1`,
     [employee, endDate]);
   await setTerminationDetails(company, employee, {
     reason: 'retrenchment', noticePeriodDays: 30, servedNoticeDays: 30, severanceWeeksPerYear: 1, includeLeavePayout: false,
@@ -46,7 +48,7 @@ export async function seedRetrenchedEmployee(pool: Pool, endDate: string, name: 
   const tokens: Record<string, string> = {};
   tokens[admin] = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
-  return { company, employee, admin, token: tokens[admin], call: routeCaller(tokens, { user: admin, company }) };
+  return { company, employee, admin, token: tokens[admin]!, call: routeCaller(tokens, { user: admin, company }) };
 }
 
 /** The severance the termination flow calculates for this employee leaving on `endDate`. */
