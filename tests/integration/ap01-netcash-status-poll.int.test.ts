@@ -116,7 +116,7 @@ describe('netcash/status never frees a live batch (AP-01)', () => {
       expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(400);
     });
 
-    it('a poll that reports a failure stores it as evidence (pollFailure); a later clean poll removes it', async () => {
+    it('a poll that reports a failure keeps it as a display hint (pollFailure); a later clean poll removes it', async () => {
       const { c, id } = await submittedBatch();
       await poll(c, id, 'rejected by bank');
       const failed = (await stored(id)).netcash_response as { pollFailure?: { status: string } };

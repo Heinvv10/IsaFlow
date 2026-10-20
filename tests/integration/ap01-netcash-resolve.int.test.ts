@@ -3,8 +3,10 @@
  * production SQL was the only way out. POST /api/accounting/netcash/resolve
  * lets an owner or admin record what they found at Netcash: 'failed' (it never
  * got the batch - the batch may be sent again) or 'submitted' (it has the batch
- * - the batch stays closed). Company-scoped, role-gated, refused unless the row
- * is still pending/unknown (compare-and-set), and audit-logged.
+ * - the batch stays closed). Company-scoped, role-gated, compare-and-set on the
+ * status read, and audit-logged. A submitted/processing row may be freed as
+ * 'failed' too, on the operator's attestation alone (never on a poll): that is
+ * ap01-netcash-poll-not-evidence.int.test.ts.
  *
  * The CAS race is made deterministic: the resolve is parked just after it read
  * the row, the row is settled underneath it, and it is released. Netcash is
@@ -38,7 +40,6 @@ vi.mock('@/lib/neon', async (importOriginal) => {
 
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import netcashResolve from '../../pages/api/accounting/netcash/resolve';
-import netcashStatus from '../../pages/api/accounting/netcash/status';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
@@ -123,10 +124,11 @@ describe('netcash/resolve (AP-01)', () => {
     expect((await row(id)).status).toBe('unknown');
   });
 
-  it.each([['submitted'], ['failed'], ['completed']])('a %s submission is refused 409: only pending/unknown can be resolved', async (status) => {
+  it.each([['failed', 'failed'], ['completed', 'failed'], ['completed', 'submitted'], ['submitted', 'submitted']])(
+    'a %s submission resolved as %s is refused 409 (submitted/processing -> failed is in ap01-netcash-poll-not-evidence)', async (status, outcome) => {
     const { c, id } = await unknownBatch();
     await pool.query('UPDATE netcash_submissions SET status = $2 WHERE id = $1', [id, status]);
-    const res = await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE });
+    const res = await resolve(u.admin, c, { submissionId: id, outcome, note: NOTE });
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
     expect((await row(id)).status).toBe(status);
   });
@@ -219,53 +221,6 @@ describe('netcash/resolve (AP-01)', () => {
       expect(first_.status).toBe('failed'); // not overwritten
       expect(JSON.stringify(first_.netcash_response)).toContain('lateSendResult');
       expect((await pool.query("SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1 AND status <> 'failed'", [c])).rows[0].n).toBe(1);
-    });
-  });
-
-  describe('a submission Netcash accepted and then reported failed (review): resolvable only on that evidence', () => {
-    /** A submitted batch, optionally polled so Netcash reports `answer`. */
-    async function submittedBatch(answer?: string, status: 'submitted' | 'processing' | 'completed' = 'submitted') {
-      const { c, b } = await freshBatch();
-      hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
-      await submit(c, b.id);
-      const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
-      if (answer) {
-        hold.getSubmissionStatus.mockResolvedValue({ status: answer, detail: 'from netcash' });
-        await callRoute(netcashStatus, tokens[u.admin]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id });
-      }
-      if (status !== 'submitted') await pool.query('UPDATE netcash_submissions SET status = $2 WHERE id = $1', [id, status]);
-      return { c, b, id };
-    }
-
-    it.each([['submitted'], ['processing']] as const)('a %s row whose poll reported a failure is resolvable to failed: the batch may be sent again', async (status) => {
-      const { c, b, id } = await submittedBatch('error: rejected by bank', status);
-      const res = await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE });
-      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-      expect((await row(id)).status).toBe('failed');
-      hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
-      expect((await submit(c, b.id)).state.statusCode).toBe(200);
-    });
-
-    it('a submitted row with no reported failure is refused 409: Netcash has it', async () => {
-      const { c, id } = await submittedBatch();
-      const res = await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE });
-      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
-      expect((await row(id)).status).toBe('submitted');
-    });
-
-    it('a failure the latest poll no longer reports is not evidence', async () => {
-      const { c, id } = await submittedBatch('error');
-      hold.getSubmissionStatus.mockResolvedValue({ status: 'processing', detail: 'back' });
-      await callRoute(netcashStatus, tokens[u.admin]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id });
-      expect((await resolve(u.admin, c, { submissionId: id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(409);
-    });
-
-    it('resolving a polled-failed row to submitted is refused (it is already submitted), and a completed row is never resolvable', async () => {
-      const { c, id } = await submittedBatch('error');
-      expect((await resolve(u.admin, c, { submissionId: id, outcome: 'submitted', note: NOTE })).state.statusCode).toBe(409);
-      const done = await submittedBatch('error', 'completed');
-      expect((await resolve(u.admin, done.c, { submissionId: done.id, outcome: 'failed', note: NOTE })).state.statusCode).toBe(409);
-      expect((await row(done.id)).status).toBe('completed');
     });
   });
 });

@@ -1,7 +1,9 @@
 /**
  * GET /api/accounting/netcash/status?submissionId=
  * Poll Netcash for the current status of a submission.
- * Updates the record in netcash_submissions when a terminal state is returned.
+ * Moves a live row between submitted / processing / completed. The answer itself is kept on the row as a display hint
+ * (netcash_response.latestPoll, and pollFailure while it reads as a failure) - never as evidence for freeing a batch
+ * (netcash/resolve does not read it). Owner/admin/write roles only, and never from a Login-as session.
  */
 
 import type { NextApiResponse } from 'next';
@@ -9,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { canWrite } from '@/lib/auth/writeRoles';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSubmissionStatus } from '@/modules/accounting/services/ap/netcashService';
@@ -18,18 +21,28 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed']);
 
-/** Map Netcash status strings to our internal enum values */
+const FAILURE_LEAD = new Set(['unsuccessful', 'fail', 'failed', 'failure', 'reject', 'rejected', 'error', 'errored', 'declined']);
+const COMPLETED_LEAD = new Set(['complete', 'completed', 'success', 'successful']);
+const FAILURE_ANYWHERE = /unsuccess|not\s+success|fail|reject|error|declin/;
+
+/**
+ * Map Netcash's free-text status to our enum by its LEADING word, never a substring anywhere ("Processing - 0 errors"
+ * is processing, not a failure). Failure words are checked before success ("Unsuccessful" is not completed), a
+ * completion that mentions a failure anywhere ("Completed with errors") is ambiguous, and anything ambiguous stays
+ * 'processing' - a live row the operator can poll again or resolve.
+ */
 function mapNetcashStatus(raw: string): string {
-  const s = raw.toLowerCase();
-  if (s.includes('complete') || s.includes('success')) return 'completed';
-  if (s.includes('fail') || s.includes('error') || s.includes('reject')) return 'failed';
-  if (s.includes('process')) return 'processing';
-  if (s.includes('submit')) return 'submitted';
+  const s = raw.trim().toLowerCase();
+  const lead = /^[a-z]+/.exec(s)?.[0] ?? '';
+  if (FAILURE_LEAD.has(lead)) return 'failed';
+  if (COMPLETED_LEAD.has(lead)) return FAILURE_ANYWHERE.test(s) ? 'processing' : 'completed';
+  if (lead === 'submitted') return 'submitted';
   return 'processing';
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
+  await assertNotImpersonating(); // R-032 L5: a poll calls Netcash and writes the row; first, before any read or write
 
   const { companyId } = req;
   const { submissionId } = req.query;
@@ -38,7 +51,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Load submission — company-scoped
   const submissions = await sql`
-    SELECT id, batch_reference, status, netcash_response
+    SELECT id, batch_reference, status
     FROM netcash_submissions
     WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID
     LIMIT 1
@@ -95,11 +108,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const serviceKey = String(companies[0]?.netcash_service_key ?? '');
 
   const pollResult = await getSubmissionStatus(serviceKey, String(submission.batch_reference));
+  const answeredAt = new Date().toISOString(); // when Netcash answered: orders this poll against an overlapping one
   const mapped = mapNetcashStatus(pollResult.status);
 
   // AP-01: a poll never moves a live submission to 'failed'. 'failed' leaves the unique index that closes the batch
-  // (migration 898), and "error"/"fail"/"reject" in free text does not prove Netcash dropped what it accepted. The
-  // row stays as it is, the poll is kept in netcash_response, and an operator checks Netcash (see .claude.md).
+  // (migration 898), and free text does not prove Netcash dropped what it accepted. The row stays as it is, the poll
+  // is kept as a hint, and an operator checks Netcash and resolves it (netcash/resolve, see .claude.md).
   const flagged = mapped === 'failed';
   const newStatus = flagged ? String(submission.status) : mapped;
   if (flagged) {
@@ -108,32 +122,32 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }, 'netcash-api');
   }
 
-  // The latest poll's verdict, kept as evidence beside it: netcash/resolve may free a submitted/processing row only
-  // while Netcash's LATEST poll reported a failure (a clean poll removes it).
-  const response: Record<string, unknown> = { ...((submission.netcash_response as Record<string, unknown>) ?? {}), latestPoll: pollResult };
-  if (flagged) response.pollFailure = { status: pollResult.status, detail: pollResult.detail, at: new Date().toISOString() };
-  else delete response.pollFailure;
-
-  // Persist updated status. Compare-and-set on the status read above: a poll that was waiting on Netcash must not
-  // overwrite what settled meanwhile (a second poll's 'completed', an operator's resolution). 0 rows is a no-op.
+  // The answer is a display hint only (nothing gates on it). It is MERGED into netcash_response (keys written since
+  // the read above - lateSendResult, resolved - survive), pollFailure is dropped unless this answer reads as one, and
+  // the write is compare-and-set twice: on the status read above (a settle, a resolution or another poll's move is
+  // never overwritten), and on the stored answer being older than this one (an overlapping poll that Netcash answered
+  // earlier but that writes later changes nothing). Both answers are timed by this host's clock. 0 rows is a no-op.
+  const hint: Record<string, unknown> = { latestPoll: { ...pollResult, at: answeredAt } };
+  if (flagged) hint.pollFailure = { status: pollResult.status, detail: pollResult.detail, at: answeredAt };
   const written = await sql`
     UPDATE netcash_submissions
     SET status = ${newStatus},
-        netcash_response = ${JSON.stringify(response)}::JSONB
+        netcash_response = (COALESCE(netcash_response, '{}'::JSONB) - 'pollFailure') || ${JSON.stringify(hint)}::JSONB
     WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID AND status = ${String(submission.status)}
+      AND COALESCE((netcash_response -> 'latestPoll' ->> 'at')::TIMESTAMPTZ, '-infinity'::TIMESTAMPTZ) < ${answeredAt}::TIMESTAMPTZ
     RETURNING id
   ` as Row[];
   if (written.length === 0) {
     const now = await sql`
       SELECT status FROM netcash_submissions WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID
     ` as Row[];
-    log.info('Netcash status poll skipped: the submission changed while it was being checked', {
+    log.info('Netcash status poll skipped: the submission changed, or a newer answer was stored, while it was being checked', {
       submissionId, read: submission.status, now: now[0]?.status,
     }, 'netcash-api');
     return apiResponse.success(res, {
       submissionId,
       status: now[0]?.status ?? submission.status,
-      detail: 'The submission changed while it was being checked; its current status is shown.',
+      detail: 'The submission changed, or a newer check was recorded, while this one waited on Netcash; its current status is shown.',
       polled: false,
     });
   }
