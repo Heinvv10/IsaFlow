@@ -22,6 +22,13 @@ describe('directivePaye', () => {
     expect(directivePaye({ amount: '10000.00', tax_rate: '0.2000', tax_amount: '999.00' })).toBe(2000);
   });
 
+  it('a figure above the gross or below nil: null, not payable', () => {
+    expect(directivePaye({ amount: '10000.00', tax_rate: '1.5000', tax_amount: '15000.00' })).toBeNull();
+    expect(directivePaye({ amount: '10000.00', tax_rate: null, tax_amount: '10000.01' })).toBeNull();
+    expect(directivePaye({ amount: '10000.00', tax_rate: null, tax_amount: '-1.00' })).toBeNull();
+    expect(directivePaye({ amount: '10000.00', tax_rate: '1.0000', tax_amount: null })).toBe(10000);
+  });
+
   it('neither: null, so the directive is not payable', () => {
     expect(directivePaye({ amount: '10000.00', tax_rate: null, tax_amount: null })).toBeNull();
   });
