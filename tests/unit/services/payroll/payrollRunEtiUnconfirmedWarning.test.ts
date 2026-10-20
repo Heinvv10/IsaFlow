@@ -40,7 +40,7 @@ vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   applySdlToLines: vi.fn(() => 0),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
-  listPayrollEmployees: vi.fn(async () => [{
+  listPayrollRunEmployees: vi.fn(async () => [{
     id: 'e1', firstName: 'Thandi', lastName: 'Mokoena', employeeNumber: 'E1',
     dateOfBirth: new Date(2000, 0, 1), startDate: new Date(2026, 0, 1),
     uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
@@ -50,6 +50,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
 
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
+import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 const codesWritten = (): string[] =>
   (JSON.parse(String(inserts[0]!.at(-1))) as Array<{ code: string }>).map((w) => w.code);
@@ -72,5 +73,12 @@ describe('calculatePayrollRun - unconfirmed ETI table warning', () => {
   it('writes nothing of the kind for March 2026', async () => {
     await calculate(3, 2026);
     expect(codesWritten()).not.toContain('ETI_TABLE_UNCONFIRMED');
+  });
+
+  it("reads the employees of the run's own company and period", async () => {
+    await calculate(6, 2026);
+    expect(listPayrollRunEmployees).toHaveBeenLastCalledWith(
+      '11111111-1111-4111-8111-111111111111', { month: 6, year: 2026 },
+    );
   });
 });
