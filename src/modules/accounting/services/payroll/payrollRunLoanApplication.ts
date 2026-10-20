@@ -136,6 +136,8 @@ export interface RunLoanInput {
   officialRate: number;
   /** `payroll_run_headers.journal_entry_id` — non-null means the GL entry is live. */
   journalEntryId: string | null;
+  /** The run's employees. A due instalment of anyone else is not taken. */
+  employeeIds: ReadonlySet<string>;
 }
 
 /**
@@ -220,6 +222,7 @@ export async function applyRunLoans(
 
     const byEmployee = new Map<string, ApplyLoanResult[]>();
     for (const row of active) {
+      if (!input.employeeIds.has(row.employeeId)) continue;
       const applied = await applyLoanToRun({
         loanId: row.loanId,
         companyId: input.companyId,

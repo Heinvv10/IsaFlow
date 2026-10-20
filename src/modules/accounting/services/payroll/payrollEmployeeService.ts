@@ -42,7 +42,8 @@ export async function listPayrollEmployees(companyId: string): Promise<PayrollEm
  * The employees a run for (year, month) pays: every employee whose end_date
  * falls in the month, whatever their status (updatePayrollEmployee terminates
  * on an end date of today or earlier, and the final pay is still due), plus
- * active employees who have not left before the month. Audit 2026-10-18 P4.
+ * active employees who have not left before the month. Nobody who starts after
+ * the month. Audit 2026-10-18 P4.
  */
 export async function listPayrollRunEmployees(
   companyId: string,
@@ -52,6 +53,7 @@ export async function listPayrollRunEmployees(
     WITH p AS (SELECT make_date(${period.year}::int, ${period.month}::int, 1) AS start)
     SELECT e.* FROM payroll_employees e, p
     WHERE e.company_id = ${companyId}::uuid
+      AND e.start_date < p.start + INTERVAL '1 month'
       AND (
         (e.end_date >= p.start AND e.end_date < p.start + INTERVAL '1 month')
         OR (e.status = 'active' AND (e.end_date IS NULL OR e.end_date >= p.start))

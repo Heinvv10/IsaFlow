@@ -205,6 +205,35 @@ export async function setTerminationDetails(
 }
 
 /**
+ * The period of another approved or paid run that already paid this employee's
+ * termination components, or null. An end date moved into a later month after
+ * the final pay went out must not pay leave, notice and severance again.
+ */
+export async function findPaidTerminationRun(
+  companyId: string,
+  employeeId: string,
+  runId: string,
+): Promise<{ year: number; month: number } | null> {
+  const rows = (await sql`
+    SELECT h.period_year, h.period_month
+    FROM   payroll_run_lines   l
+    JOIN   payroll_run_headers h ON h.id = l.run_id
+    WHERE  h.company_id  = ${companyId}::uuid
+      AND  l.employee_id = ${employeeId}::uuid
+      AND  h.id         <> ${runId}::uuid
+      AND  h.status IN ('approved', 'paid')
+      AND  jsonb_path_exists(
+             l.component_breakdown,
+             '$[*] ? (@.componentId starts with "synthetic:termination:")'
+           )
+    ORDER BY h.period_year, h.period_month
+    LIMIT 1
+  `) as DbRow[];
+  const row = rows[0];
+  return row ? { year: Number(row.period_year), month: Number(row.period_month) } : null;
+}
+
+/**
  * Fetch the accrued-minus-taken balance for the annual-leave type for
  * (employeeId, balanceYear). Returns 0 when no balance row exists.
  */
