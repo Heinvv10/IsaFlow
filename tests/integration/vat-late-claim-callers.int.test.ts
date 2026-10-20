@@ -37,7 +37,7 @@ let reimbursementId = '';
 const employeeId = randomUUID();
 let seq = 0;
 const textOf = (out: unknown) => (out as { content: { text: string }[] }).content[0]!.text;
-const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-vlc', scopes: [] }) as unknown as McpToolContext;
+const ctx = () => ({ companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-vlc', scopes: [] }) as unknown as McpToolContext;
 
 describeIfDb('late input VAT claim: the human-initiated callers opt in', () => {
   beforeAll(async () => {

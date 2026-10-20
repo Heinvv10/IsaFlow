@@ -8,7 +8,7 @@
  * it still carried the journal approve had posted for the old ones.
  *
  * The breaker's interleaving, made deterministic: calculate is parked right
- * after its status check (inside listPayrollEmployees), a real approve is
+ * after its status check (inside listPayrollRunEmployees), a real approve is
  * started, and calculate is released only once that approve has either
  * finished or is waiting on the run's row lock. Everything else is the real
  * chain (withAuth, app_user, RLS, Postgres). Disposable fixture DB only.
@@ -22,9 +22,9 @@ vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', async (o
   const actual = await orig<typeof import('@/modules/accounting/services/payroll/payrollEmployeeService')>();
   return {
     ...actual,
-    listPayrollEmployees: async (...a: Parameters<typeof actual.listPayrollEmployees>) => {
+    listPayrollRunEmployees: async (...a: Parameters<typeof actual.listPayrollRunEmployees>) => {
       if (gate.hold) { const hold = gate.hold; gate.hold = null; gate.entered?.(); await hold; }
-      return actual.listPayrollEmployees(...a);
+      return actual.listPayrollRunEmployees(...a);
     },
   };
 });

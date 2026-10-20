@@ -32,7 +32,7 @@ const company = crypto.randomUUID();
 const admin = crypto.randomUUID();
 const A: Record<string, string> = {};
 let token = '';
-const ctx = { userId: admin, companyId: company, scopes: ['write:invoices', 'write:journals', 'write:post'], tokenJti: 'jti', oauthAppId: null } as McpToolContext;
+const ctx = { userId: admin, companyId: company, scopes: ['write:invoices', 'write:journals', 'write:post'], companyRole: 'owner', tokenJti: 'jti', oauthAppId: null } as McpToolContext;
 const HELD = /held for a person/;
 const today = new Date().toISOString().slice(0, 10);
 

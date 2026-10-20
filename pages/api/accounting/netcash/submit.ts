@@ -83,7 +83,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
                                        s.bank_account_holder) AS bank_fingerprint
       FROM supplier_payments sp
       JOIN suppliers s ON sp.supplier_id = s.id
-      WHERE sp.batch_id = ${batchPaymentId} AND sp.company_id = ${companyId}::UUID
+      WHERE sp.batch_id = ${batchPaymentId} AND sp.company_id = ${companyId}::UUID AND sp.status IS DISTINCT FROM 'cancelled'
       ORDER BY sp.created_at
     ` as Row[];
 

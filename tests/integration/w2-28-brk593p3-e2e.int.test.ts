@@ -29,7 +29,7 @@ for (const template of ['isaflow_standard', 'xero_compatible', 'sage_compatible'
     const { CO, USER } = fx;
     const registry = new McpRegistry();
     for (const t of [mergeGlAccountsTool, setOpeningBalanceTool]) registry.register(t);
-    const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'write:post', 'write:journals'], tokenJti: 'brk593', oauthAppId: null }) as never;
+    const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'write:post', 'write:journals'], companyRole: 'owner', tokenJti: 'brk593', oauthAppId: null }) as never;
     const mcp = async (name: string, args: Record<string, unknown>) => {
       const tx = await fx.openTx(drainAfterCommit);
       const r = await tx.run(() => registry.call(name, { ...args, idempotency_key: randomUUID() }, ctx()))

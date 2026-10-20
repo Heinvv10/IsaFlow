@@ -65,7 +65,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/suppress', () => {
       method:    'POST',
       query:     { documentId: DOCUMENT_ID, sectionId: SECTION_ID },
       body,
-      companyId: COMPANY_ID,
+      companyId: COMPANY_ID, companyRole: 'owner',
     } as unknown as NextApiRequest;
   }
 
@@ -118,7 +118,7 @@ describe('POST /afs/[documentId]/sections/[sectionId]/suppress', () => {
       method:    'POST',
       query:     { documentId: 'not-a-uuid', sectionId: SECTION_ID },
       body:      { suppress: false },
-      companyId: COMPANY_ID,
+      companyId: COMPANY_ID, companyRole: 'owner',
     } as unknown as NextApiRequest;
     const res = makeRes();
     await (suppressHandler as unknown as Handler)(req, res);
@@ -175,7 +175,7 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
       method:    'PUT',
       query:     { documentId: DOCUMENT_ID },
       body,
-      companyId: COMPANY_ID,
+      companyId: COMPANY_ID, companyRole: 'owner',
     } as unknown as NextApiRequest;
   }
 
@@ -268,7 +268,7 @@ describe('PUT /afs/[documentId]/sections/reorder', () => {
       method:    'PUT',
       query:     { documentId: 'not-a-uuid' },
       body:      { sections: [{ id: SECT_A, newSortOrder: 1 }] },
-      companyId: COMPANY_ID,
+      companyId: COMPANY_ID, companyRole: 'owner',
     } as unknown as NextApiRequest;
     const res = makeRes();
     await (reorderHandler as unknown as Handler)(req, res);

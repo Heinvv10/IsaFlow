@@ -98,7 +98,7 @@ describe('R-127: voiding a fully unapplied settlement undoes it', () => {
   it('through MCP void_payment: the same undo', async () => {
     const s = await settled(902.70);
     await inTx(() => unapplySupplierPayment(company, { paymentId: s.paymentId }, user));
-    const ctx = { companyId: company, userId: user, scopes: ['write:invoices', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: company, userId: user, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     const out = await inTx(() => voidPaymentTool.handler(
       { payment_id: s.paymentId, idempotency_key: crypto.randomUUID() }, ctx as never));
     expect(out.isError ?? false).toBe(false);

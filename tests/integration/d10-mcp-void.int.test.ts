@@ -24,7 +24,7 @@ import { hunt } from './d10-interleave';
 
 let c: Ctx;
 let admin: Pool;
-const ctx = () => ({ companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:invoices', 'write:post'], tokenJti: null, oauthAppId: null });
+const ctx = () => ({ companyId: c.fx.companyId, userId: c.fx.userId, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null });
 const textOf = (out: { content: { text: string }[] }) => out.content.map((x) => x.text).join(' ');
 
 /** Run `fn` in a request transaction; right after the first statement matching `at` returns, run `between` to commit. */

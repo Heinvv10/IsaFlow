@@ -40,7 +40,7 @@ const employee = crypto.randomUUID();
 let token = '';
 let vatInput = '';
 let bank = '';
-const ctx = { userId: admin, companyId: company, scopes: ['write:journals', 'write:post'], tokenJti: 'jti', oauthAppId: null } as McpToolContext;
+const ctx = { userId: admin, companyId: company, scopes: ['write:journals', 'write:post'], companyRole: 'owner', tokenJti: 'jti', oauthAppId: null } as McpToolContext;
 
 const SLIP = (tag: string, vat: Record<string, unknown>) => ({
   documentType: 'receipt', vendorName: `K072 Garden ${tag}`, date: '2026-04-10', referenceNumber: `K072-R-${tag}`,

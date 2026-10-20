@@ -6,6 +6,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { BrandPrimaryError } from '@/lib/brand/contrast';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { log } from '@/lib/logger';
 import { checkPublicUrl } from '@/lib/safeFetch';
 import {
@@ -80,4 +81,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler as never)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));

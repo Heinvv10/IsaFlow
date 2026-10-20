@@ -86,7 +86,7 @@ describe('R-127: a settlement payment cannot be voided — every void path refus
     const s = await settled(502.55);
     const before = await snapshot(s);
 
-    const ctx = { companyId: company, userId: user, scopes: ['write:invoices', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: company, userId: user, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     const err = await inTx(() => voidPaymentTool.handler(
       { payment_id: s.paymentId, idempotency_key: crypto.randomUUID() }, ctx as never,
     )).then(() => null, (e: unknown) => e);

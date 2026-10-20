@@ -59,7 +59,7 @@ export async function seedSupplierDefaultsFixture(prefix: string, databaseUrl: s
       FROM supplier_invoice_items WHERE supplier_invoice_id = ${billId}::UUID`) as Row[])[0] as never,
     ruleCount: async (supplierId) => Number(((await sql`
       SELECT COUNT(*) AS c FROM supplier_coding_rules WHERE supplier_id = ${supplierId}::UUID`) as Row[])[0]!.c),
-    ctx: () => ({ companyId: c, userId: p.fx.userId, tokenJti: `jti-${prefix}`, scopes: [] }) as unknown as McpToolContext,
+    ctx: () => ({ companyId: c, userId: p.fx.userId, companyRole: 'owner', tokenJti: `jti-${prefix}`, scopes: [] }) as unknown as McpToolContext,
   };
 }
 

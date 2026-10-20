@@ -13,7 +13,7 @@ import { postPayrollRunJournal } from './payrollJournalPostingService';
 import { PayrollApprovalConflictError, PayrollApprovalRefusedError } from './payrollApprovalRefusal';
 import type { PayrollJournalNote, PayrollJournalPlan } from './payrollJournalBuilder';
 import { judgePayrollApproval, type PayrollApprovalGate } from './payrollApprovalGate';
-import { lockPayrollRunHeader, lockRunJournalForApproval } from './payrollRunLock';
+import { lockCompanyPayrollApprovals, lockPayrollRunHeader, lockRunJournalForApproval } from './payrollRunLock';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 type Row = DbRow;
@@ -76,10 +76,13 @@ export async function approvePayrollRun(
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   log.info('Approving payroll run', { companyId, runId }, 'payrollApproval');
 
-  // Header first, then the journal it links and that journal's whole reversal
-  // chain — in that order, each with a 5s wait (payrollJournalChain). The gate
-  // below reads them inside these locks, so what it judges cannot change
-  // before the writes, and the generic reversal takes the same locks.
+  // The company's approval lock (other runs' termination pay-outs, which the
+  // gate reads), then the header, then the journal it links and that journal's
+  // whole reversal chain — in that order, each with a 5s wait
+  // (payrollJournalChain). The gate below reads them inside these locks, so
+  // what it judges cannot change before the writes, and the generic reversal
+  // takes the same row locks.
+  await lockCompanyPayrollApprovals(runId, companyId);
   const locked = await lockPayrollRunHeader(runId, companyId);
   if (!locked) throw new PayrollApprovalRefusedError('Payroll run not found');
   if (locked.journal_entry_id != null) {

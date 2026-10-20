@@ -40,7 +40,7 @@ const tag = (f: SyncFixture, lines: Record<string, unknown>[], key = newKey('tag
 const reverse = (f: SyncFixture, batch: string, dry: boolean) =>
   mcp(f.user, f.c, 'reverse_dimension_tag_batch', { batch_id: batch, dry_run: dry, idempotency_key: newKey('rev') });
 const callHandler = (f: SyncFixture, args: Record<string, unknown>) => asToken(pool, f.user, f.c, () => syncBankDimensionsTool.handler(
-  args, { userId: f.user, companyId: f.c, scopes: ['write:journals'], tokenJti: 'bds', oauthAppId: null }));
+  args, { userId: f.user, companyId: f.c, scopes: ['write:journals'], companyRole: 'owner', tokenJti: 'bds', oauthAppId: null }));
 
 describe('reverse_dimension_tag_batch counts and restores the bank rows (blind MEDIUM 3)', () => {
   it('a tag batch: lines and bank rows, dry run and live', async () => {
