@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@/modules/accounting/services/ap/netcashTimeouts', () => ({ REQUEST_TIMEOUT_MS: 100, SEND_WINDOW_MS: 120_000 }));
 
-import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/services/ap/netcashService';
+import { getSubmissionStatus, submitEftBatch, type NetcashPayment } from '@/modules/accounting/services/ap/netcashService';
 
 const PAYMENTS: NetcashPayment[] = [
   { accountHolder: 'Acme', bankCode: '250655', accountNumber: '62000000001', amount: 115000, reference: 'R1' },
@@ -32,6 +32,16 @@ describe('submitEftBatch: a stalled response body', () => {
     const started = Date.now();
     const result = await submitEftBatch('service-key', 'payouts-key', PAYMENTS);
     expect(result).toMatchObject({ success: false, outcome: 'unknown' });
+    expect(Date.now() - started).toBeLessThan(3000);
+  }, 5000);
+});
+
+describe('getSubmissionStatus: a stalled response body', () => {
+  it.each([200, 500])('headers %i then a stalled body: status unknown within the timeout, never a hang', async (status) => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => stalledBody(status, init)));
+    const started = Date.now();
+    const result = await getSubmissionStatus('service-key', 'NC-REF');
+    expect(result.status).toBe('unknown');
     expect(Date.now() - started).toBeLessThan(3000);
   }, 5000);
 });
