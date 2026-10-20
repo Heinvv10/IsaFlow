@@ -50,6 +50,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - JE posting: do NOT include `runId` inside `sourceDocumentId` (2026-04-24 fix — FK is to `documents`).
 - Leave accrual INSERTs supply `company_id` for RLS (2026-04-24 fix); EXCLUDED out of scope in RETURNING clause (same-day fix).
 - Employee active-check uses `payroll_employees.status`, NOT `is_active` column (2026-04-24 fix).
+- **Run population is by end date, not status (audit 2026-10-18 P4).** `calculatePayrollRun` reads `listPayrollRunEmployees(companyId, period)`: every employee whose `end_date` falls in the run's month, whatever their status, plus active employees with no `end_date` or one not before the month. `updatePayrollEmployee` still sets `terminated` on an end date of today or earlier; that no longer hides the leaver's final pay, leave pay-out and notice pay. `listPayrollEmployees` (active only) is the employee list, not the run. Test: `tests/integration/p4-leaver-in-final-run.int.test.ts`.
 - Leave approver is the session user, never a request field (R-135). Every leave write route is `withWriteAccess` (R-136).
 - VIP-parity foundations (2026-04-24): SARS codes table, bureau mode, period lock, variance engine.
 - Cash-pay register, IRP5 certificate validation, e@syFile EMP501 CSV — SARS compliance export paths.

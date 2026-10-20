@@ -40,7 +40,7 @@ vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   applySdlToLines: vi.fn(() => 0),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
-  listPayrollEmployees: vi.fn(async () => [{
+  listPayrollRunEmployees: vi.fn(async () => [{
     id: 'e1', firstName: 'Thandi', lastName: 'Mokoena', employeeNumber: 'E1',
     dateOfBirth: new Date(2000, 0, 1), startDate: new Date(2026, 0, 1),
     uifExcluded: false, medicalAidMainMember: false, medicalAidDependantsCount: 0,
