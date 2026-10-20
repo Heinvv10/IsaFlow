@@ -58,7 +58,7 @@ function byTransaction(lines: ReportedLine[]): Record<string, unknown> {
 function ctxFor(): McpToolContext {
   return {
     userId: fx.userId, companyId: fx.companyId, scopes: ['write:bank-tx'],
-    tokenJti: null, oauthAppId: null,
+    companyRole: 'owner', tokenJti: null, oauthAppId: null,
   };
 }
 

@@ -47,7 +47,7 @@ describeIfDb('W2-28 deactivate_gl_account and the role post-condition', () => {
     registry.register(deactivateGlAccountTool);
     const tx = await fx.openTx(drainAfterCommit);
     const out = await tx.run(() => registry.call('deactivate_gl_account', { account_id: A, idempotency_key: randomUUID() },
-      { userId: fx.USER, companyId: fx.CO, scopes: ['write:accounts'], tokenJti: 'w228r9m', oauthAppId: null } as never));
+      { userId: fx.USER, companyId: fx.CO, scopes: ['write:accounts'], companyRole: 'owner', tokenJti: 'w228r9m', oauthAppId: null } as never));
     await tx.commit();
     const active = (await fx.query('SELECT is_active FROM gl_accounts WHERE id = $1', [A])).rows[0].is_active;
     expect({ isError: (out as { isError?: boolean }).isError, text: JSON.stringify(out), active })
@@ -69,7 +69,7 @@ describeIfDb('W2-28 deactivate_gl_account and the role post-condition', () => {
       await holder.run(() => lockSystemRoleWrites(fx.CO));
       const { tool, args } = build(P);
       const out = await batch.run(() => registry.call(tool, { ...args, idempotency_key: randomUUID() },
-        { userId: fx.USER, companyId: fx.CO, scopes: ['write:accounts', 'write:post', 'write:journals', 'read:accounts'], tokenJti: 'w228r9m', oauthAppId: null } as never)
+        { userId: fx.USER, companyId: fx.CO, scopes: ['write:accounts', 'write:post', 'write:journals', 'read:accounts'], companyRole: 'owner', tokenJti: 'w228r9m', oauthAppId: null } as never)
         .then((r) => JSON.stringify(r), (e: Error) => `thrown: ${e.message}`));
       // The registry rolled its savepoint back: the next statement of the same transaction works.
       if (!/retry/.test(out)) process.stdout.write(`\nW228R9M ${tool}: ${out}\n`);

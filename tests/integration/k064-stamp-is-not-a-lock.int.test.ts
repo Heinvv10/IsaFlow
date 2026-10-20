@@ -132,7 +132,7 @@ describeIfDb('K-064 final — a reconciliation stamp on an allocated line is not
     registry.register(voidPaymentTool);
     const result = await inRequest(() => registry.call('void_payment',
       { payment_id: a.paymentId, idempotency_key: randomUUID() },
-      { userId: ids.USER, companyId: ids.A, scopes: ['write:invoices', 'write:post'], tokenJti: 'k064', oauthAppId: null } as never));
+      { userId: ids.USER, companyId: ids.A, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'k064', oauthAppId: null } as never));
     expect(result.isError, JSON.stringify(result)).toBeFalsy();
     await freed(a);
   });

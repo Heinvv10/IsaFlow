@@ -48,7 +48,7 @@ const statusOf = async (id: string) => ((await sql`SELECT status FROM customer_i
 const journalCount = async () => Number(((await sql`SELECT count(*) AS n FROM gl_journal_entries WHERE company_id = ${f.fx.companyId}::UUID`) as { n: string }[])[0]!.n);
 const finalizeDry = (ids: string[]) => inTx(f.fx, async () => JSON.parse((await bulkFinalizeInvoicesTool.handler(
   { invoice_ids: ids, idempotency_key: `k-${Math.random()}`, dry_run: true },
-  { companyId: f.fx.companyId, userId: f.fx.userId, scopes: ['write:invoices', 'write:post'], tokenJti: 'j', oauthAppId: null } as McpToolContext,
+  { companyId: f.fx.companyId, userId: f.fx.userId, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'j', oauthAppId: null } as McpToolContext,
 ) as { content: { text: string }[] }).content[0]!.text) as Record<string, unknown>);
 const note = async (subtotal: number, customerInvoiceId?: string) => {
   const { id } = await inTx(f.fx, () => createCreditNote(f.fx.companyId, {

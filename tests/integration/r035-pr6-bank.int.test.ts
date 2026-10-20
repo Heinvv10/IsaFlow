@@ -139,7 +139,7 @@ describe('H2: a hand-keyed bank line to a GL account', () => {
       try {
         await client.query('BEGIN');
         const out = await als.run({ client, userId: a, companyId: f.c, claims: { sub: a } } as never, () => registry.call(name, args,
-          { userId: a, companyId: f.c, scopes: ['write:bank-tx', 'write:post'], tokenJti: 'r035-pr6', oauthAppId: null }));
+          { userId: a, companyId: f.c, scopes: ['write:bank-tx', 'write:post'], companyRole: 'owner', tokenJti: 'r035-pr6', oauthAppId: null }));
         await client.query('COMMIT');
         return out as { isError?: boolean; content: { text: string }[] };
       } finally { client.release(); }
