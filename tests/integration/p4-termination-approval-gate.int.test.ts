@@ -23,6 +23,8 @@ const reopenedJanRun = crypto.randomUUID();
 const janJournal = crypto.randomUUID();
 const janReversal = crypto.randomUUID();
 const marchJournal = crypto.randomUUID();
+const foreignJournal = crypto.randomUUID();
+const brokenDecRun = crypto.randomUUID();
 const paidTwice = crypto.randomUUID();
 const paidOnce = crypto.randomUUID();
 
@@ -63,7 +65,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const companies = [company, otherCompany];
   try {
-    await pool.query('DELETE FROM payroll_run_lines WHERE run_id=ANY($1::uuid[])', [[febRun, marchRun, otherFebRun, reopenedJanRun]]);
+    await pool.query('DELETE FROM payroll_run_lines WHERE run_id=ANY($1::uuid[])', [[febRun, marchRun, otherFebRun, reopenedJanRun, brokenDecRun]]);
     await pool.query('UPDATE payroll_run_headers SET journal_entry_id=NULL WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('DELETE FROM payroll_run_headers WHERE company_id=ANY($1::uuid[])', [companies]);
     await pool.query('UPDATE gl_journal_entries SET reversal_of_id=NULL WHERE company_id=ANY($1::uuid[])', [companies]);
@@ -148,5 +150,24 @@ describe('P4: the approval gate refuses termination pay-outs already paid', () =
     const gate = await judgePayrollApproval(company, marchRun);
     expect(gate?.blocker?.code).not.toBe('termination_already_paid');
     expect(await findPaidTerminationRun(company, paidTwice, marchRun)).toBeNull();
+  });
+
+  it('counts a run whose linked journal this company cannot read as having paid (fails closed)', async () => {
+    // Bad data: December links a journal of another company. The approval gate
+    // refuses such a run (posted_journal_not_live); it must not release a
+    // second pay-out either.
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_date,description,created_by,status)
+       VALUES($1,$2,DATE '2025-12-31','Payroll December 2025',$3,'posted')`,
+      [foreignJournal, otherCompany, crypto.randomUUID()],
+    );
+    await pool.query(
+      `INSERT INTO payroll_run_headers(id,company_id,period_month,period_year,status,journal_entry_id)
+       VALUES($1,$2,12,2025,'calculated',$3)`,
+      [brokenDecRun, company, foreignJournal],
+    );
+    await addLine(brokenDecRun, paidTwice, [SALARY, NOTICE]);
+    expect(await findPaidTerminationRun(company, paidTwice, marchRun)).toEqual({ year: 2025, month: 12 });
+    expect((await judgePayrollApproval(company, marchRun))?.blocker?.code).toBe('termination_already_paid');
   });
 });
