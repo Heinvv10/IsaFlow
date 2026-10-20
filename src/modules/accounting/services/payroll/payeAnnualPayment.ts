@@ -81,8 +81,20 @@ export function calculateAnnualPaymentPaye(input: AnnualPaymentPayeInput): Annua
  */
 export type PayeTreatment = 'periodic' | 'annual' | 'lump_sum';
 
+/**
+ * A SARS source code as PAYE classifies it: ASCII space, tab, CR and LF stripped
+ * from both ends, nothing else. The SQL readers that classify stored breakdowns
+ * (payrollRunDirectiveClaim, payrollSeveranceDirective, payrollLumpSumFiling)
+ * strip exactly the same set — regexp_replace(code, '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g')
+ * — so the calculator and the approval gate can never disagree about a code.
+ * (String.prototype.trim strips every Unicode space and SQL btrim only ' '.)
+ */
+export function normaliseSarsCode(code: string | null | undefined): string {
+  return (code ?? '').replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
+}
+
 export function payeTreatment(sarsSourceCode: string | null | undefined): PayeTreatment {
-  const code = (sarsSourceCode ?? '').trim();
+  const code = normaliseSarsCode(sarsSourceCode);
   if (code === '3605') return 'annual';
   if (/^39\d\d$/.test(code)) return 'lump_sum';
   return 'periodic';

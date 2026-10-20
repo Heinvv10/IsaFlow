@@ -7,6 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { normaliseSarsCode } from '@/modules/accounting/services/payroll/payeAnnualPayment';
 import {
   withAuth,
   type AuthenticatedNextApiRequest,
@@ -41,8 +42,8 @@ async function handler(
 
     const data: Omit<PayrollComponent, 'id'> = {
       name: String(name),
-      // Trimmed: PAYE classifies by code (payeTreatment), and '3901 ' must be a lump sum everywhere.
-      sarsSourceCode: String(sarsSourceCode).trim(),
+      // Normalised as PAYE classifies it (normaliseSarsCode), so the stored code is the one every reader sees.
+      sarsSourceCode: normaliseSarsCode(String(sarsSourceCode)),
       componentType: String(componentType) as PayrollComponent['componentType'],
       isTaxable: isTaxable !== false,
       isUifApplicable: isUifApplicable !== false,

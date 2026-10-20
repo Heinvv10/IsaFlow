@@ -31,6 +31,24 @@ async function component(f: SeveranceFixture, name: string, code: string, amount
 }
 
 describe('REPRO 1: lump-sum code with surrounding whitespace bypasses lump_sum_without_directive', () => {
+  it('a tab-padded "3901" is blocked too, and an NBSP-padded one is taxed as periodic pay — never nil PAYE and approvable', async () => {
+    const tab = await seedRetrenchedEmployee(pool, '2026-12-31', 'BRK752b-1 tab code');
+    fixtures.push(tab);
+    await component(tab, 'Gratuity (tab)', '3901\t', 50_000, '2026-06-01', '2026-06-30');
+    const j1 = await createRunFor(tab, 6);
+    await calculateRun(tab, j1);
+    expect((await runLine(pool, j1, tab.employee)).paye).toBe(SALARY_PAYE);
+    expect((await approveRun(tab, j1)).statusCode).toBe(400);
+
+    const nbsp = await seedRetrenchedEmployee(pool, '2026-12-31', 'BRK752b-1 nbsp code');
+    fixtures.push(nbsp);
+    await component(nbsp, 'Gratuity (nbsp)', '3901\u00a0', 50_000, '2026-06-01', '2026-06-30');
+    const j2 = await createRunFor(nbsp, 6);
+    await calculateRun(nbsp, j2);
+    expect((await runLine(pool, j2, nbsp.employee)).paye).toBeGreaterThan(SALARY_PAYE);
+    expect(codes((await runLine(pool, j2, nbsp.employee)).validation_results)).not.toContain('LUMP_SUM_WITHOUT_DIRECTIVE');
+  });
+
   it('a taxable "3901 " component with no directive is not approvable', async () => {
     const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'BRK752b-1 code whitespace');
     fixtures.push(f);
