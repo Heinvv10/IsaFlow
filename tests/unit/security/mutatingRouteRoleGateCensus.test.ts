@@ -172,6 +172,21 @@ describe('the detector', () => {
     expect(gated(exp("withAuth(withRole('viewer')(handler))"))).toBe(false);
   });
 
+  it('refuses options it cannot read: a variable or a spread (breaker REPRO 5)', () => {
+    expect(gated("const opts = { allowedRoles: ['viewer'] };\nexport default withAuth(withWriteAccess(handler, opts));")).toBe(false);
+    expect(gated(exp('withAuth(withWriteAccess(handler, { ...OPEN }))'))).toBe(false);
+    expect(gated(exp('withAuth(withWriteAccess(handler, { allowedRoles: DEFAULT_WRITE_ROLES }))'))).toBe(true);
+    expect(gated(exp('withAuth(withWriteAccess(withFlowMeter(a, b)(handler) as never))'))).toBe(true);
+  });
+
+  it('reads write SQL in any case and with a quoted table; a // inside a string is not a comment (REPRO 6, 7)', () => {
+    const guard = "if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method, ['GET']);\n";
+    expect(isMutating(`${guard}await sql\`update invoices set status = 'void'\`;`)).toBe(true);
+    expect(isMutating(`${guard}await sql\`UPDATE "Invoices" SET x = 1\`;`)).toBe(true);
+    expect(isMutating(`${guard}const base = 'a//b'; await sql\`DELETE FROM t\`;`)).toBe(true);
+    expect(stripComments("const u = 'https://x'; // gone\n/* gone */ y")).toBe("const u = 'https://x'; \n y");
+  });
+
   it('resolves `export default x` and reads a multi-statement export to its end', () => {
     expect(defaultExport('const x = withAuth(withCsrf(handler));\nexport default x;')).toMatch(/^withAuth\(/);
     expect(gated('const x = withAuth(withWriteAccess(handler));\nexport default x;')).toBe(true);
