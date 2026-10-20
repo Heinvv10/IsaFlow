@@ -13,7 +13,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollJournalBuilder', () => ({ 
 vi.mock('@/modules/accounting/services/payroll/payrollJournalPostingService', () => ({ postPayrollRunJournal: vi.fn() }));
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: async () => undefined }));
 // Its own integration test (p4-termination-approval-gate); here, no duplicate pay-outs.
-vi.mock('@/modules/accounting/services/payroll/payrollTerminationService', () => ({ findTerminationsPaidElsewhere: vi.fn(async () => []) }));
+vi.mock('@/modules/accounting/services/payroll/payrollTerminationPaidCheck', () => ({ findTerminationsPaidElsewhere: vi.fn(async () => []) }));
 // Every sql call answers this row: the approve path's FOR UPDATE, and the posted journal's
 // head (a live journal with no lines, matching the empty plans below).
 const headerRow = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));

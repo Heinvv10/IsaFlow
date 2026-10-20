@@ -14,10 +14,10 @@ import {
   buildTerminationComponents,
   getTerminationDetails,
   getAnnualLeaveBalance,
-  findPaidTerminationRun,
   yearsOfService,
   type TerminationReason,
 } from './payrollTerminationService';
+import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
 
