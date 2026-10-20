@@ -64,6 +64,23 @@ describe('REPRO 5: an earlier hand-made lump sum and a later severance directive
   });
 });
 
+describe('round 3 (fix review): a hand-made lump sum other than severance beside a directive in the final month', () => {
+  it('does not hold the directive back: the severance is on the line, and the run waits only on the other lump sum', async () => {
+    const f = await seedRetrenchedEmployee(pool, '2026-06-30', 'BRK752c-6 3920 beside directive');
+    fixtures.push(f);
+    await component(f, 'Retirement lump sum (manual)', '3920', 2_000, '2026-06-01', '2026-06-30');
+    await approvedDirective(f, 30_000, 0.1, '2026-06-01');
+    const june = await createRunFor(f, 6);
+    await calculateRun(f, june);
+    const l = await runLine(pool, june, f.employee);
+    expect(l.gross).toBe(52_000);
+    const codesOn = (l.validation_results as Array<{ code: string }>).map(v => v.code);
+    expect(codesOn).toContain('LUMP_SUM_WITHOUT_DIRECTIVE');
+    expect(codesOn).not.toContain('SEVERANCE_CAPTURED_AS_COMPONENT');
+    expect((await previewRun(f, june)).body.data?.blocker?.code).toBe('lump_sum_without_directive');
+  });
+});
+
 describe('REPRO 4 (original, kept): a year whose only 3605 is a clawback', () => {
   it('3601 + 3605 equals the gross paid', async () => {
     const f = await seedRetrenchedEmployee(pool, '2026-12-31', 'BRK752c-4 negative 3605 only');
