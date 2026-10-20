@@ -21,7 +21,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunLoanApplication', () =>
   applyRunLoans: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
-  listPayrollEmployees: vi.fn(async () => []),
+  listPayrollRunEmployees: vi.fn(async () => []),
   listTaxNumbersForCompany: vi.fn(async () => []),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollJournalChain', () => ({
@@ -32,7 +32,7 @@ import { sql, withTransaction } from '@/lib/neon';
 import { calculatePayrollRun } from '@/modules/accounting/services/payroll/payrollRunService';
 import { lockPayrollRunHeader } from '@/modules/accounting/services/payroll/payrollRunLock';
 import { applyRunLoans } from '@/modules/accounting/services/payroll/payrollRunLoanApplication';
-import { listPayrollEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { listPayrollRunEmployees } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 import { UnsupportedTaxYearError } from '@/modules/accounting/services/payroll/taxTables';
 
 const RUN = '22222222-2222-4222-8222-222222222222';
@@ -53,7 +53,7 @@ describe('calculatePayrollRun - tax year not loaded', () => {
     await expect(calculatePayrollRun(RUN, CO)).rejects.toBeInstanceOf(UnsupportedTaxYearError);
 
     expect(applyRunLoans).not.toHaveBeenCalled();
-    expect(listPayrollEmployees).not.toHaveBeenCalled();
+    expect(listPayrollRunEmployees).not.toHaveBeenCalled();
     expect(withTransaction).not.toHaveBeenCalled();
     expect(sql).not.toHaveBeenCalled();
   });
