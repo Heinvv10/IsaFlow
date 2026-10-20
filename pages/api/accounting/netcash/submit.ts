@@ -56,11 +56,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   };
 
   if (batchPaymentId) {
-    // Load from existing batch — validate company ownership
+    // Load from existing batch — validate company ownership. FOR SHARE, FIRST (the batch row, then the gate's payee
+    // lock: the order processBatch uses): a cancelBatch committing between this read and the send would otherwise
+    // let a cancelled batch be sent. The cancel's UPDATE waits for this transaction. The claim and settle below run
+    // on their own connections and take only FOR KEY SHARE (the batch_id foreign key), which FOR SHARE and a
+    // waiting cancel (FOR NO KEY UPDATE) do not conflict with, so they never wait on this lock.
     const batch = await sql`
       SELECT id, batch_number, status FROM supplier_payment_batches
       WHERE id = ${batchPaymentId} AND company_id = ${companyId}::UUID
       LIMIT 1
+      FOR SHARE
     ` as Row[];
     if (!batch[0]) return apiResponse.notFound(res, 'Batch', batchPaymentId);
     // R-035 PR5: under payment_batch enforcement only an approved batch the
