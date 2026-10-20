@@ -89,7 +89,7 @@ const vatOutput = randomUUID();
 const vatInput = randomUUID();
 
 const CTX = { userId: USER, companyId: COMPANY, scopes: ['read:reports'],
-  tokenJti: 'jti', oauthAppId: 'app' } as McpToolContext;
+  companyRole: 'owner', tokenJti: 'jti', oauthAppId: 'app' } as McpToolContext;
 
 let customer: string;
 let supplier: string;

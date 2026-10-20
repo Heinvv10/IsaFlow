@@ -60,7 +60,7 @@ describe('the R-127 settlement undo reverses a provisional bank allocation aroun
 
   it('an agent voids it through MCP void_payment (expected refused under enforcement)', async () => {
     const s = await unappliedSettlement(612.40);
-    const ctx = { companyId: company, userId: other, scopes: ['write:invoices', 'write:post'], tokenJti: null, oauthAppId: null };
+    const ctx = { companyId: company, userId: other, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
     const out = await inTx(() => voidPaymentTool.handler({ payment_id: s.paymentId, idempotency_key: crypto.randomUUID() }, ctx as never))
       .then((o) => ({ isError: o.isError === true }), () => ({ isError: true }));
     expect({ ...out, provisionalReversed: (await jeState(s.je)).reversed_at != null, audits: await reverses() })

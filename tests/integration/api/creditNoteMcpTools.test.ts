@@ -37,7 +37,7 @@ let siblingCustomer: string;
 const TAG = `CNMCP-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 const ctx = (companyId = COMPANY): McpToolContext =>
-  ({ userId: USER, companyId, scopes: ['write:invoices', 'write:post'], tokenJti: 'jti', oauthAppId: null }) as McpToolContext;
+  ({ userId: USER, companyId, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'jti', oauthAppId: null }) as McpToolContext;
 const J = (r: { content: { text: string }[] }) => JSON.parse(r.content[0]!.text);
 
 let pool: Pool;

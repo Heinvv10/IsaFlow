@@ -54,7 +54,7 @@ const reversedAt = async (journalId: string) => (await pool.query('SELECT revers
 
 let key = 0;
 async function mcpReverse(journalId: string) {
-  const ctx = { userId: admin, companyId: company, scopes: ['write:journals', 'read:journals', 'write:post', 'write:payroll'], tokenJti: null, oauthAppId: null };
+  const ctx = { userId: admin, companyId: company, scopes: ['write:journals', 'read:journals', 'write:post', 'write:payroll'], companyRole: 'owner', tokenJti: null, oauthAppId: null };
   key += 1;
   try {
     const res = await withAlsTransaction({ userId: admin, companyId: company },

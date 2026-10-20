@@ -221,7 +221,7 @@ it('carries the flag out to the report\'s only consumer, the MCP coverage tool',
   // only caller, so a flag it does not project reaches nobody.
   const result = await bankStatementCoverageTool.handler(
     { as_at: '2026-12-31' },
-    { userId: 'k091b', companyId: company, scopes: ['read:bank-tx'], tokenJti: null, oauthAppId: null },
+    { userId: 'k091b', companyId: company, scopes: ['read:bank-tx'], companyRole: 'owner', tokenJti: null, oauthAppId: null },
   );
   const payload = JSON.parse(result.content[0]!.text) as {
     rows: Array<{ account_code: string; misclassified: boolean; gl_balance: number; statement_balance: number }>;

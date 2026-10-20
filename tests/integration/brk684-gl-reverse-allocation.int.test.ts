@@ -36,7 +36,7 @@ const registry = new McpRegistry();
 registry.register(reverseJournalEntryTool);
 /** The token holds write:journals — the tool's own scope (a token an accountant's agent would carry). */
 const mcp = (user: string, c: string, name: string, args: Record<string, unknown>) => asToken(pool, user, c, async () =>
-  (await registry.call(name, args, { userId: user, companyId: c, scopes: ['write:journals', 'write:bank-tx', 'write:post'], tokenJti: 'brk684',
+  (await registry.call(name, args, { userId: user, companyId: c, scopes: ['write:journals', 'write:bank-tx', 'write:post'], companyRole: 'owner', tokenJti: 'brk684',
     oauthAppId: null })) as McpReply);
 
 beforeAll(async () => { a = await createUser(pool, tokens); b = await createUser(pool, tokens); act = actionRoute(tokens); });

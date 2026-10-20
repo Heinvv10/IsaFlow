@@ -92,7 +92,7 @@ async function seed(t: Tenant, name: string) {
 /** Every number a reader derives for the two years, as plain data. */
 async function figures(t: Tenant) {
   const mcp = await profitAndLossTool.handler({ period_start: FY25[0], period_end: FY25[1] },
-    { userId: user, companyId: t.company, scopes: ['read:reports'], tokenJti: null, oauthAppId: null } as McpToolContext);
+    { userId: user, companyId: t.company, scopes: ['read:reports'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as McpToolContext);
   const tb = async (period: string) => (await getTrialBalanceReport(t.company, period)).rows
     .map((r) => [r.accountCode, r.debitBalance, r.creditBalance]);
   const bs = async (d: string) => { const r = await getBalanceSheet(t.company, d); return [r.totalAssets, r.totalLiabilities, r.totalEquity]; };
