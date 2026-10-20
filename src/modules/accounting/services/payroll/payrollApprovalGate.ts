@@ -17,7 +17,9 @@
  *                   journal and posts a FRESH one (`replaces`), dated by
  *                   `datedForReplacement`;
  *        unclear  → refused, naming the journals (`posted_journal_not_live`);
- *   3. for a fresh journal, every journal-plan blocker except
+ *   3. for a fresh journal, termination pay-outs another approved or paid run
+ *      already paid (`termination_already_paid`, audit 2026-10-18 P4), then
+ *      every journal-plan blocker except
  *      'run_not_approved', which approval itself resolves, and
  *      'already_posted', which names the journal being replaced.
  *
@@ -32,6 +34,7 @@ import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
+import { findTerminationsPaidElsewhere } from './payrollTerminationService';
 import {
   buildPayrollJournalPlan,
   type PayrollJournalNote,
@@ -225,6 +228,15 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
       return null;
     }
     // Nothing posted, or a journal to replace: the plan must be postable.
+    const paidTwice = await findTerminationsPaidElsewhere(companyId, runId);
+    if (paidTwice.length > 0) {
+      return {
+        code: 'termination_already_paid',
+        detail: 'Termination pay-outs on this run were already paid in an approved run: '
+          + paidTwice.map(p => `${p.employeeNumber} (${p.year}-${String(p.month).padStart(2, '0')})`).join(', ')
+          + '. Recalculate this run first; it then leaves them out.',
+      };
+    }
     return plan.blockers.find((b) => b.code !== 'run_not_approved' && b.code !== 'already_posted') ?? null;
   })();
 
