@@ -2,7 +2,9 @@
  * Detector for mutatingRouteRoleGateCensus.test.ts — reads a route file's TEXT, so it has named limits:
  * a method literal assembled at runtime, or a gate applied inside the handler, is invisible to it.
  * Those routes are listed by hand in the census's EXEMPT, with the reason. withWriteAccess passes every
- * GET, so a gated route that writes from its GET branch counts as gated: also beyond a text census.
+ * GET, so a gated route that writes from its GET branch counts as gated, as does a gate applied on the
+ * wrong branch of a conditional; and an inline exemption's role call is matched as text, not as reached
+ * on the write path. All beyond a text census.
  */
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
@@ -15,9 +17,26 @@ export function walk(dir: string): string[] {
   });
 }
 
-/** Source with comments removed, so a gate named in a doc comment does not count. */
+/**
+ * Source with comments removed, so a gate named in a doc comment does not count. String-aware: a `//`
+ * inside a quoted string or a template literal (a URL, `'a//b'`) is text, not a comment.
+ */
 export function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
+  let out = '';
+  let quote: string | null = null;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]!;
+    if (quote) {
+      out += c;
+      if (c === '\\') { out += src[i + 1] ?? ''; i++; } else if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; out += '\n'; continue; }
+    if (c === '/' && src[i + 1] === '*') { const end = src.indexOf('*/', i + 2); i = end < 0 ? src.length : end + 1; continue; }
+    if (c === "'" || c === '"' || c === '`') quote = c;
+    out += c;
+  }
+  return out;
 }
 
 /** The expression starting at `from`, up to the first `;` or newline at bracket depth 0. */
@@ -55,7 +74,7 @@ const WRITE_LITERAL = /['"`](POST|PUT|PATCH|DELETE)['"`]/;
 const GET_ONLY_GUARD = /req\.method\s*!==?\s*['"]GET['"]|methodNotAllowed\([^)]*\[\s*['"]GET['"]\s*\]\s*\)/;
 
 /** Inline SQL that writes. A GET handler can write too, and withWriteAccess lets every GET through. */
-const WRITE_SQL = /\b(INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+[a-z_][\w.]*\s+SET)\b/;
+const WRITE_SQL = /\b(INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+["\w.]+\s+SET)\b/i;
 
 /**
  * A route is GET-only when it refuses every other method, names no write method and writes no inline
@@ -68,15 +87,36 @@ export function isMutating(src: string): boolean {
 
 const WRITE_ROLES = new Set(['owner', 'admin', 'manager']);
 
-/** withWriteAccess with no options, or allowedRoles naming only writing roles. */
+/** The arguments of the call whose `(` is at `open`, split at depth-0 commas. */
+function callArgs(expr: string, open: number): string[] {
+  const args: string[] = [];
+  let depth = 0;
+  let start = open + 1;
+  for (let i = open; i < expr.length; i++) {
+    const c = expr[i]!;
+    if ('([{'.includes(c)) depth++;
+    else if (')]}'.includes(c)) { depth--; if (depth === 0) { args.push(expr.slice(start, i)); break; } }
+    else if (c === ',' && depth === 1) { args.push(expr.slice(start, i)); start = i + 1; }
+  }
+  return args.map((a) => a.trim()).filter(Boolean);
+}
+
+/**
+ * Every withWriteAccess call takes the handler alone, or an object LITERAL whose allowedRoles names only
+ * writing roles. Options from a variable or a spread cannot be read, so they do not count as a gate.
+ */
 function writeAccessGates(expr: string): boolean {
-  const calls = expr.match(/withWriteAccess\(/g)?.length ?? 0;
-  if (calls === 0) return false;
-  const opts = [...expr.matchAll(/allowedRoles\s*:\s*(null|\[[^\]]*\]|[A-Za-z_$][\w$.]*)/g)].map((m) => m[1]!);
-  return opts.every((o) => {
-    if (!o.startsWith('[')) return o === 'DEFAULT_WRITE_ROLES';
-    const roles = [...o.matchAll(/['"]([a-z_]+)['"]/g)].map((r) => r[1]!);
-    return roles.length > 0 && roles.every((r) => WRITE_ROLES.has(r));
+  const calls = [...expr.matchAll(/withWriteAccess\(/g)];
+  if (calls.length === 0) return false;
+  return calls.every((m) => {
+    const [, opts] = callArgs(expr, m.index! + m[0].length - 1);
+    if (opts === undefined) return true;
+    if (!/^\{[\s\S]*\}$/.test(opts) || opts.includes('...')) return false;
+    const roles = /allowedRoles\s*:\s*(\[[^\]]*\]|DEFAULT_WRITE_ROLES)/.exec(opts)?.[1];
+    if (/allowedRoles/.test(opts) && !roles) return false;
+    if (!roles || roles === 'DEFAULT_WRITE_ROLES') return true;
+    const named = [...roles.matchAll(/['"]([a-z_]+)['"]/g)].map((r) => r[1]!);
+    return named.length > 0 && named.every((r) => WRITE_ROLES.has(r));
   });
 }
 
