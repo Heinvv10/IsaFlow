@@ -27,9 +27,16 @@ describe('submitEftBatch outcome', () => {
     expect(await submitEftBatch('', '', PAYMENTS)).toMatchObject({ success: true, outcome: 'accepted', mock: true });
   });
 
-  it('a 4xx JSON answer is a definite rejection, carrying Netcash\'s message', async () => {
-    vi.stubGlobal('fetch', reply(400, '{"message":"Invalid account number"}'));
+  it.each([400, 422])('a %i JSON answer (field validation) is a definite rejection, carrying Netcash\'s message', async (status) => {
+    vi.stubGlobal('fetch', reply(status, '{"message":"Invalid account number"}'));
     expect(await send()).toEqual({ success: false, outcome: 'rejected', error: 'Invalid account number' });
+  });
+
+  // Only a validation refusal proves nothing was queued. Auth, routing, conflict, throttling and gateway-style 4xx
+  // do not: a 409 may mean "already received", a 408/429 says nothing of the batch.
+  it.each([401, 403, 404, 405, 408, 409, 413, 425, 429, 499])('a %i JSON answer is unknown, not a rejection', async (status) => {
+    vi.stubGlobal('fetch', reply(status, '{"message":"nope"}'));
+    expect(await send()).toMatchObject({ success: false, outcome: 'unknown', error: 'nope' });
   });
 
   it('a 2xx answer that is not JSON is unknown, not a failure', async () => {
