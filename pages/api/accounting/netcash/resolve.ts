@@ -34,6 +34,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     userId: req.user.id, userEmail: req.user.email ?? null,
   });
   if (result.kind === 'not_found') return apiResponse.notFound(res, 'Submission', submissionId);
+  if (result.kind === 'in_flight') {
+    return apiResponse.conflict(res, 'This submission is still in flight (its send has not finished). Try again in a few minutes.',
+      { reason: 'IN_FLIGHT' });
+  }
   if (result.kind === 'not_resolvable') {
     return apiResponse.conflict(res, `This submission is ${result.status}: only a pending or unknown submission can be resolved.`,
       { reason: 'NOT_RESOLVABLE', status: result.status });
