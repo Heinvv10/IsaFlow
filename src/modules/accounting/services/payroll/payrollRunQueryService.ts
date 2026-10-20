@@ -4,11 +4,10 @@
  *
  * WHY THESE ARE NOT `listPayrollRuns` / `listPayrollEmployees`. Those two return
  * a bare array with no total, no cursor and no `posted_through`, and
- * `listPayrollEmployees` filters `status = 'active'` — which is correct for the
- * calculator that consumes it (you do not pay a terminated employee) and wrong
- * for a listing that has to state its own completeness. Widening them in place
- * would change what `calculatePayrollRun` pays. So these are additions; the
- * originals are untouched and still own their callers.
+ * `listPayrollEmployees` filters `status = 'active'`, which is wrong for a
+ * listing that has to state its own completeness. (The run no longer reads it:
+ * `calculatePayrollRun` uses `listPayrollRunEmployees`, by end date.) So these
+ * are additions; the originals are untouched and still own their callers.
  *
  * `universeTotal` is the count BEFORE the status filter, so
  * `rowsTotal + excludedRows === universeTotal` is arithmetic a reader can check
