@@ -212,6 +212,44 @@ describe('header accounts that carry their own posted lines', () => {
   });
 });
 
+describe('glTotals.accountCount: leaves, plus any header with posted activity', () => {
+  it('counts a level-3 account with no lines, not a level-1 one with none, nor a header whose only line is a draft', async () => {
+    const count = async () => (await generateComparison(t.company, user)).glTotals.accountCount;
+    const base = await count();
+    const [emptyHeader, emptyLeaf, draftHeader, entry] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
+       VALUES($1,$2,'1970','Empty level one','asset','debit',1,true)`, [emptyHeader, t.company]);
+    expect(await count()).toBe(base);
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
+       VALUES($1,$2,'1971','Empty level three','asset','debit',3,true)`, [emptyLeaf, t.company]);
+    expect(await count()).toBe(base + 1);
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
+       VALUES($1,$2,'1972','Draft-only level two','asset','debit',2,true)`, [draftHeader, t.company]);
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by)
+       VALUES($1,$2,'DRAFT-HDR','2026-03-02',$3,'draft','manual','draft',$4)`, [entry, t.company, t.period.p26, user]);
+    await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
+       VALUES($1,$2,9,0,'d',$4),($1,$3,0,9,'d',$4)`, [entry, draftHeader, t.acct.bank, t.company]);
+    expect(await count()).toBe(base + 1);
+    // Once a level-1 account carries a posted line it counts, whichever side the line is on.
+    const [posted1, debitHeader] = [crypto.randomUUID(), crypto.randomUUID()];
+    await pool.query(
+      `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,normal_balance,level,is_active)
+       VALUES($1,$2,'1973','Debited level one','asset','debit',1,true)`, [debitHeader, t.company]);
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_by,posted_at)
+       VALUES($1,$2,'HDR-2','2026-03-03',$3,'header line','manual','posted',$4,$4,now())`, [posted1, t.company, t.period.p26, user]);
+    await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
+       VALUES($1,$2,6,0,'h',$4),($1,$3,0,6,'h',$4)`, [posted1, debitHeader, emptyHeader, t.company]);
+    expect(await count()).toBe(base + 3);
+  });
+});
+
 describe('the edges of what the mapping can point at', () => {
   const foreignCompany = crypto.randomUUID();
   const foreignGl = crypto.randomUUID();

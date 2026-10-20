@@ -64,10 +64,19 @@ function accountTypeCode(type: string): string {
 // VALIDATION
 // ═════════════════════���═════════════════════════════════════════════════════
 
+// Field widths of the fixed-width formats (the trailer's total is padLeft 12, the amount padLeft 11, the count padLeft 6).
+// padLeft cuts from the left, so an overflowing number is silently a DIFFERENT number: validateEFTBatch refuses it.
+const MAX_ACCOUNT_DIGITS = 11;
+const MAX_AMOUNT_CENTS = 99_999_999_999;
+const MAX_TOTAL_CENTS = 999_999_999_999;
+const MAX_PAYMENTS = 999_999;
+
 export function validateBankAccount(accountNumber: string, branchCode: string): { valid: boolean; error?: string } {
   if (!accountNumber || accountNumber.trim() === '') return { valid: false, error: 'Account number is required' };
   if (!branchCode || branchCode.trim() === '') return { valid: false, error: 'Branch code is required' };
   if (!/^\d+$/.test(accountNumber)) return { valid: false, error: 'Account number must contain only digits' };
+  // padLeft keeps the LAST 11 digits of a longer number: a different account, not an error.
+  if (accountNumber.length > MAX_ACCOUNT_DIGITS) return { valid: false, error: `Account number must be at most ${MAX_ACCOUNT_DIGITS} digits` };
   if (!/^\d{6}$/.test(branchCode)) return { valid: false, error: 'Branch code must be exactly 6 digits' };
   return { valid: true };
 }
@@ -80,17 +89,61 @@ export function validateEFTBatch(header: EFTBatchHeader, payments: EFTPayment[])
     return { valid: false, errors, totalAmount: 0, paymentCount: 0 };
   }
 
+  // The originating account: a file from nowhere (zeros, a blank branch) must never reach a bank.
+  const origin = validateBankAccount(header.bankAccountNumber, header.branchCode);
+  if (!origin.valid) errors.push(`Originating account: ${origin.error}`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(header.actionDate)) errors.push('Action date must be YYYY-MM-DD');
+
   let totalAmount = 0;
   for (let i = 0; i < payments.length; i++) {
     const p = payments[i]!;
     if (!p.beneficiaryName || p.beneficiaryName.trim() === '') errors.push(`Payment ${i + 1}: Beneficiary name is required`);
     if (!p.beneficiaryAccountNumber || p.beneficiaryAccountNumber.trim() === '') errors.push(`Payment ${i + 1}: Account number is required`);
+    else if (!/^\d{1,11}$/.test(p.beneficiaryAccountNumber)) {
+      errors.push(`Payment ${i + 1}: Account number must be 1 to ${MAX_ACCOUNT_DIGITS} digits`);
+    }
+    // A blank branch is padded to 000000 by padLeft, which is no branch at all (AP-36).
+    if (!/^\d{6}$/.test(p.beneficiaryBranchCode ?? '')) errors.push(`Payment ${i + 1}: Branch code must be exactly 6 digits`);
     if (!p.amount || p.amount <= 0) errors.push(`Payment ${i + 1}: Amount must be greater than zero`);
+    if (Math.round((p.amount || 0) * 100) > MAX_AMOUNT_CENTS) errors.push(`Payment ${i + 1}: Amount is too large for the bank file's amount field`);
     totalAmount += p.amount || 0;
   }
+  if (payments.length > MAX_PAYMENTS) errors.push(`A bank file holds at most ${MAX_PAYMENTS} payments`);
+  if (Math.round(totalAmount * 100) > MAX_TOTAL_CENTS) errors.push("Batch total is too large for the bank file's trailer");
 
   totalAmount = Math.round(totalAmount * 100) / 100;
   return { valid: errors.length === 0, errors, totalAmount, paymentCount: payments.length };
+}
+
+/**
+ * Text widths per format, the ONE source: the generators pad with these and eftTruncationWarnings reports against them.
+ * Capitec is delimited and cuts nothing.
+ */
+const TEXT_WIDTHS: Record<'standard_bank' | 'fnb' | 'absa' | 'nedbank', { name: number; reference: number }> = {
+  standard_bank: { name: 30, reference: 20 },
+  fnb: { name: 30, reference: 12 },
+  absa: { name: 30, reference: 12 },
+  nedbank: { name: 30, reference: 12 },
+};
+
+/**
+ * What the format cuts silently: the company name, the batch reference, each payee's name and reference. A cut is
+ * format-defined, not an error, so it is reported (one sentence each) for the caller to show.
+ */
+export function eftTruncationWarnings(bank: string, header: EFTBatchHeader, payments: EFTPayment[]): string[] {
+  const w = (TEXT_WIDTHS as Record<string, { name: number; reference: number } | undefined>)[bank];
+  if (!w) return [];
+  const warnings: string[] = [];
+  const cut = (what: string, value: string, width: number) => {
+    if (value.length > width) warnings.push(`${what} "${value}" is cut to ${width} characters in the ${bank} file`);
+  };
+  cut('Company name', header.companyName, w.name);
+  cut('Batch reference', header.batchReference, w.reference);
+  payments.forEach((p, n) => {
+    cut(`Payment ${n + 1} beneficiary name`, p.beneficiaryName, w.name);
+    cut(`Payment ${n + 1} reference`, p.reference, w.reference);
+  });
+  return warnings;
 }
 
 // ═════════════════════════════════════════════════════���═════════════════════
@@ -99,6 +152,7 @@ export function validateEFTBatch(header: EFTBatchHeader, payments: EFTPayment[])
 
 export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
+  const w = TEXT_WIDTHS.standard_bank;
   const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
@@ -107,9 +161,9 @@ export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPay
     'H' +
     padLeft(header.branchCode, 6) +
     padLeft(header.bankAccountNumber, 11) +
-    padRight(header.companyName, 30) +
+    padRight(header.companyName, w.name) +
     date +
-    padRight(header.batchReference, 20) +
+    padRight(header.batchReference, w.reference) +
     padLeft(String(payments.length), 6)
   );
 
@@ -121,8 +175,8 @@ export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPay
       padLeft(p.beneficiaryAccountNumber, 11) +
       accountTypeCode(p.beneficiaryAccountType) +
       padLeft(formatEFTAmount(p.amount), 11) +
-      padRight(p.beneficiaryName, 30) +
-      padRight(p.reference, 20)
+      padRight(p.beneficiaryName, w.name) +
+      padRight(p.reference, w.reference)
     );
   }
 
@@ -143,6 +197,7 @@ export function generateStandardBankACB(header: EFTBatchHeader, payments: EFTPay
 
 export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
+  const w = TEXT_WIDTHS.fnb;
   const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
@@ -152,8 +207,8 @@ export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): 
     padLeft(header.branchCode, 6) +
     padLeft(header.bankAccountNumber, 11) +
     date +
-    padRight(header.companyName, 30) +
-    padRight(header.batchReference, 12)
+    padRight(header.companyName, w.name) +
+    padRight(header.batchReference, w.reference)
   );
 
   // Transactions
@@ -164,8 +219,8 @@ export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): 
       padLeft(p.beneficiaryAccountNumber, 11) +
       accountTypeCode(p.beneficiaryAccountType) +
       padLeft(formatEFTAmount(p.amount), 11) +
-      padRight(p.beneficiaryName, 30) +
-      padRight(p.reference, 12)
+      padRight(p.beneficiaryName, w.name) +
+      padRight(p.reference, w.reference)
     );
   }
 
@@ -186,6 +241,7 @@ export function generateFNBEFT(header: EFTBatchHeader, payments: EFTPayment[]): 
 
 export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
+  const w = TEXT_WIDTHS.absa;
   const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
@@ -193,8 +249,8 @@ export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]):
     '04' + date +
     padLeft(header.branchCode, 6) +
     padLeft(header.bankAccountNumber, 11) +
-    padRight(header.companyName, 30) +
-    padRight(header.batchReference, 12)
+    padRight(header.companyName, w.name) +
+    padRight(header.batchReference, w.reference)
   );
 
   for (const p of payments) {
@@ -204,8 +260,8 @@ export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]):
       padLeft(p.beneficiaryAccountNumber, 11) +
       accountTypeCode(p.beneficiaryAccountType) +
       padLeft(formatEFTAmount(p.amount), 11) +
-      padRight(p.beneficiaryName, 30) +
-      padRight(p.reference, 12)
+      padRight(p.beneficiaryName, w.name) +
+      padRight(p.reference, w.reference)
     );
   }
 
@@ -225,6 +281,7 @@ export function generateABSAEFT(header: EFTBatchHeader, payments: EFTPayment[]):
 
 export function generateNedbankEFT(header: EFTBatchHeader, payments: EFTPayment[]): string {
   const lines: string[] = [];
+  const w = TEXT_WIDTHS.nedbank;
   const date = formatEFTDate(header.actionDate);
   const totalCents = payments.reduce((s, p) => s + Math.round(p.amount * 100), 0);
 
@@ -233,8 +290,8 @@ export function generateNedbankEFT(header: EFTBatchHeader, payments: EFTPayment[
     date +
     padLeft(header.branchCode, 6) +
     padLeft(header.bankAccountNumber, 11) +
-    padRight(header.companyName, 30) +
-    padRight(header.batchReference, 12)
+    padRight(header.companyName, w.name) +
+    padRight(header.batchReference, w.reference)
   );
 
   for (const p of payments) {
@@ -244,8 +301,8 @@ export function generateNedbankEFT(header: EFTBatchHeader, payments: EFTPayment[
       padLeft(p.beneficiaryAccountNumber, 11) +
       accountTypeCode(p.beneficiaryAccountType) +
       padLeft(formatEFTAmount(p.amount), 11) +
-      padRight(p.beneficiaryName, 30) +
-      padRight(p.reference, 12)
+      padRight(p.beneficiaryName, w.name) +
+      padRight(p.reference, w.reference)
     );
   }
 
