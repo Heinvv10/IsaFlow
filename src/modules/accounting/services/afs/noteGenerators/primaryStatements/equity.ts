@@ -32,7 +32,8 @@ export async function generateChangesInEquity(
   const { start: fyStart, end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
   const [lines, dividendsPaid] = await Promise.all([
     fetchSectionLines(companyId, 'balance_sheet', fiscalYear, fiscalYear - 1),
-    fetchDividendsPaid(companyId, fyStart, fyEnd),
+    // Paid only: clearing the dividends account into retained earnings is not a distribution.
+    fetchDividendsPaid(companyId, fyStart, fyEnd, true),
   ]);
   const equityLines = lines.filter((l) => EQUITY_CODES.has(l.code));
 

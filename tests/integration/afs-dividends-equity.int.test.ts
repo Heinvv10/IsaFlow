@@ -157,6 +157,53 @@ describe('dividends paid on an equity account mapped to IS484', () => {
     }
   });
 
+  it('a CREDIT-normal equity account on IS484 (share capital) is not a dividends account: named, never carried', async () => {
+    const before = line((await sfpOf(div)).lines, 'BS045');
+    await pool.query("UPDATE afs_account_mappings SET afs_line_code='IS484' WHERE company_id=$1 AND gl_account_id=$2", [div.company, div.acct.capital]);
+    try {
+      const s = await sfpOf(div);
+      expect(line(s.lines, 'BS045')).toMatchObject({ currentAmount: before.currentAmount, priorAmount: before.priorAmount });
+      // Off its own line and not carried: the balance-sheet blocker sees the gap, and the mapping check names why.
+      expect(s.totalAssets).not.toBe(s.totalLiabilities + s.totalEquity);
+      const finding = (await runPreExportChecks(div.doc, div.company, 'ifrs_smes')).find((c) => c.label === MAPPING_LABEL);
+      expect(finding?.detail).toMatch(/3000 Share capital \(equity\) is mapped to IS484/);
+      expect((await generateChangesInEquity(div.company, 2025, 'ifrs_smes')).dataSnapshot.dividendsPaid).toBe(300);
+      // The report SOCE keeps share capital in its own column with its own movements, and accumulated income does
+      // not take its 10000 in as an earlier year's dividend.
+      const report = await getChangesInEquity(div.company, '2025-01-01', '2025-12-31');
+      expect(report.columns.find((c) => c.subtype === 'share_capital')).toMatchObject({ opening: 10000, shareIssue: -50 });
+      expect(report.totalDividends).toBe(-250);
+      const is = (await generateIncomeStatement(div.company, 2025, 'ifrs_smes')).dataSnapshot.lines as Line[];
+      expect(line(is, 'ISACCBF').currentAmount).toBe(-300);
+    } finally {
+      await pool.query("UPDATE afs_account_mappings SET afs_line_code='BS043' WHERE company_id=$1 AND gl_account_id=$2", [div.company, div.acct.capital]);
+    }
+  });
+
+  it('clearing the dividends account into retained earnings is not a distribution: the SOCE still shows the 300 paid', async () => {
+    const clearing = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by,posted_by,posted_at)
+       VALUES($1,$2,'CLR25','2025-12-31',$3,'clear dividends','manual','posted',$4,$4,now())`, [clearing, div.company, div.period.p25, user]);
+    await pool.query(
+      `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
+       VALUES($1,$2,300,0,'clear',$4),($1,$3,0,300,'clear',$4)`, [clearing, div.acct.retained, dividendsAccount, div.company]);
+    try {
+      const s = await sfpOf(div);
+      expect(s.totalEquity).toBe(EXPECTED.equity25);
+      expect(s.totalAssets).toBe(s.totalLiabilities + s.totalEquity);
+      const soce = await generateChangesInEquity(div.company, 2025, 'ifrs_smes');
+      expect(soce.dataSnapshot.dividendsPaid).toBe(300);
+      expect(soce.dataSnapshot.closingTotalEquity).toBe(EXPECTED.equity25);
+      const table = soce.content.blocks.find((x) => x.type === 'table') as { headers: string[]; rows: string[][] };
+      expect(table.rows.find((r) => r[0] === 'Accumulated profit (loss)')!.slice(1)).toEqual([fmt(300), fmt(-300), fmt(1100), fmt(1100)]);
+      expect((await getChangesInEquity(div.company, '2025-01-01', '2025-12-31')).totalDividends).toBe(-250);
+    } finally {
+      await pool.query('DELETE FROM gl_journal_lines WHERE journal_entry_id=$1', [clearing]);
+      await pool.query('DELETE FROM gl_journal_entries WHERE id=$1', [clearing]);
+    }
+  });
+
   it('a deactivated IS484 line still carries the dividends: is_active does not take a live balance out of equity', async () => {
     await pool.query("UPDATE afs_statement_lines SET is_active=false WHERE company_id=$1 AND code='IS484'", [div.company]);
     try {

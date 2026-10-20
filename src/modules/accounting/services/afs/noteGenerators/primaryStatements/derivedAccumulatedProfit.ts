@@ -8,7 +8,7 @@
  * the same function, on the same "Accumulated profit (loss)" line the retained-earnings account is
  * mapped to, so the two statements cannot name different equity.
  *
- * Dividends paid on an equity account mapped to IS484 (dividendsPaid.ts) are on no balance-sheet line, so
+ * Dividends paid on a debit-normal equity account mapped to IS484 (dividendsPaid.ts) are on no balance-sheet line, so
  * they come off the same line: accumulated profit is profit to date less dividends to date.
  *
  * Amounts are raw debit-minus-credit like every other SFP line, so a profit is negative.
@@ -89,8 +89,8 @@ const ACCUMULATED_EOY_CODE = 'IS485';
 
 /**
  * Accumulated income at the start of a period: what has been posted to equity
- * retained-earnings accounts and to equity accounts mapped to IS484 "Dividends
- * paid" (earlier years' dividends; an account is read once whichever it is),
+ * retained-earnings accounts and to debit-normal equity accounts mapped to
+ * IS484 "Dividends paid" (earlier years' dividends; an account is read once whichever it is),
  * plus every prior year's result as the ledger's revenue and expense accounts
  * still carry it.
  *
@@ -116,10 +116,10 @@ async function fetchOpeningAccumulatedIncome(
         AND jl.company_id = ${companyId}::uuid
         AND ga.company_id = ${companyId}::uuid
         AND ga.account_type = 'equity'
-        AND (ga.account_subtype = 'retained_earnings' OR EXISTS (
+        AND (ga.account_subtype = 'retained_earnings' OR (ga.normal_balance = 'debit' AND EXISTS (
           SELECT 1 FROM afs_account_mappings am
           WHERE am.company_id = ${companyId}::uuid AND am.gl_account_id = ga.id
-            AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}))
+            AND am.afs_line_code = ${DIVIDENDS_PAID_CODE})))
         AND je.entry_date < ${beforeDate}::date
     ` as unknown as Promise<Array<{ balance: string | number }>>,
     getRetainedEarningsBroughtForward(companyId, beforeDate),
