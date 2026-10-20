@@ -26,6 +26,7 @@ import {
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 let f: SeveranceFixture;
+const APRIL_PAYE = SALARY_PAYE + 2192;
 
 beforeAll(async () => {
   f = await seedRetrenchedEmployee(pool, '2026-04-30', 'P3 filing');
@@ -34,6 +35,14 @@ beforeAll(async () => {
        sars_contact_last_name = 'Payroll', sars_contact_telephone = '0115550000',
        physical_address_line1 = '1 Main Road', physical_city = 'Pretoria', physical_postal_code = '0181'
      WHERE id = $1`, [f.company]);
+  // An April bonus (3605): 20 000 × 12 = 240 000 → 25 380; + 10 000 = 250 000 →
+  // 44 118 + 0.26 × 4 900 − 17 820 = 27 572; bonus PAYE 2 192 (2027 tables).
+  const bonus = (await pool.query(
+    `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
+     VALUES ($1, 'Bonus', '3605', 'earning') RETURNING id`, [f.company])).rows[0]!.id;
+  await pool.query(
+    `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
+     VALUES ($1, $2, 10000, '2026-04-01', '2026-04-30')`, [f.employee, bonus]);
   const april = await createRunFor(f, 4);
   await calculateRun(f, april);
   expect((await approveRun(f, april)).statusCode).toBe(200);
@@ -52,21 +61,21 @@ describe('P3: filing carries severance paid by directive in the run', () => {
     const may = await generateEMP201(f.company, '2026-05-01', '2026-05-31');
     expect(may.totalPAYE).toBe(3_000);
     const april = await generateEMP201(f.company, '2026-04-01', '2026-04-30');
-    expect(april.totalPAYE).toBe(SALARY_PAYE);
+    expect(april.totalPAYE).toBe(APRIL_PAYE);
   });
 
   it('the IRP5 data shows 3901 at the directive gross, its number, and PAYE including it', async () => {
     const data = await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee });
     expect(data.rows).toHaveLength(1);
     const row = data.rows[0]!;
-    expect(row.paye).toBe(SALARY_PAYE + 3_000);
-    expect(row.grossSalary).toBe(50_000);
+    expect(row.paye).toBe(APRIL_PAYE + 3_000);
+    expect(row.grossSalary).toBe(60_000);
     expect(row.lumpSums).toEqual([
       { sourceCode: '3901', directiveNumber: '9876543210', directiveIssuedDate: '2026-05-05', amount: 30_000, paye: 3_000 },
     ]);
   });
 
-  it('the e@syFile file splits 3601/4102 from 3901/4115 and carries the directive group', async () => {
+  it('the e@syFile file splits 3601 from 3605, 3601/4102 from 3901/4115, and carries the directive group', async () => {
     // The route answers with res.end(file), which the shared response() drops.
     const req = request({ 'sb-access-token': f.token, active_company_id: f.company }, 'GET') as unknown as {
       url: string; query: Record<string, unknown>;
@@ -79,7 +88,7 @@ describe('P3: filing carries severance paid by directive in the run', () => {
     await (easyfile as Route)(req as never, out.res as never);
     expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
     const fields = file.split(/\r\n/);
-    for (const want of ['3601,20000', '4102,2115.00', '3901,30000', '4115,3000.00',
+    for (const want of ['3601,20000', '3605,10000', '4102,4307.00', '3901,30000', '4115,3000.00',
       '3230,"9876543210"', '3231,20260505', '3232,3901', '3233,30000']) {
       expect(fields, want).toContain(want);
     }
