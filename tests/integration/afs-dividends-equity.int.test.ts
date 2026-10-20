@@ -157,13 +157,14 @@ describe('dividends paid on an equity account mapped to IS484', () => {
     }
   });
 
-  it('a deactivated IS484 line carries nothing (the account is then unmapped, as on any inactive line)', async () => {
+  it('a deactivated IS484 line still carries the dividends: is_active does not take a live balance out of equity', async () => {
     await pool.query("UPDATE afs_statement_lines SET is_active=false WHERE company_id=$1 AND code='IS484'", [div.company]);
     try {
       const s = await sfpOf(div);
-      // The account is then on no statement, so equity is overstated by the 400 paid, as for any unmapped account.
-      expect(s.totalEquity).toBe(EXPECTED.equity25 + 400);
-      expect((await generateChangesInEquity(div.company, 2025, 'ifrs_smes')).dataSnapshot.dividendsPaid).toBe(0);
+      expect(s.totalEquity).toBe(EXPECTED.equity25);
+      expect(s.totalAssets).toBe(s.totalLiabilities + s.totalEquity);
+      expect((await generateChangesInEquity(div.company, 2025, 'ifrs_smes')).dataSnapshot.dividendsPaid).toBe(300);
+      expect((await getChangesInEquity(div.company, '2025-01-01', '2025-12-31')).totalClosing).toBe(EXPECTED.equity25);
     } finally {
       await pool.query("UPDATE afs_statement_lines SET is_active=true WHERE company_id=$1 AND code='IS484'", [div.company]);
     }

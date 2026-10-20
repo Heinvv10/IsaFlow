@@ -118,9 +118,8 @@ async function fetchOpeningAccumulatedIncome(
         AND ga.account_type = 'equity'
         AND (ga.account_subtype = 'retained_earnings' OR EXISTS (
           SELECT 1 FROM afs_account_mappings am
-          JOIN afs_statement_lines sl ON sl.code = am.afs_line_code AND sl.company_id = am.company_id
           WHERE am.company_id = ${companyId}::uuid AND am.gl_account_id = ga.id
-            AND am.afs_line_code = ${DIVIDENDS_PAID_CODE} AND sl.is_active = true))
+            AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}))
         AND je.entry_date < ${beforeDate}::date
     ` as unknown as Promise<Array<{ balance: string | number }>>,
     getRetainedEarningsBroughtForward(companyId, beforeDate),
