@@ -29,7 +29,7 @@ const TERMINATION_LINE = '$[*] ? (@.componentId starts with "synthetic:terminati
  * (`posted_journal_not_live`): a broken link must not release a second
  * pay-out. `inForce` caches each journal's chain read for one call.
  */
-async function runHasPaid(
+export async function runHasPaid(
   companyId: string, status: string, journalId: unknown, inForce: Map<string, Promise<boolean>>,
 ): Promise<boolean> {
   if (status === 'approved' || status === 'paid') return true;

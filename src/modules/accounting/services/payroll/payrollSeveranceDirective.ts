@@ -24,7 +24,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { runHasPaid } from './payrollTerminationPaidCheck';
 import { mapPayrollEmployeeRow } from './payrollEmployeeService';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod } from './payrollTypes';
 
@@ -141,39 +141,48 @@ export async function listSeveranceOnlyRunEmployees(
   const out: PayrollEmployee[] = [];
   for (const row of rows) {
     const employee = mapPayrollEmployeeRow(row);
-    if ((await findSeveranceDirectiveForRun(companyId, employee.id, runId, period)).available) out.push(employee);
+    // An unpayable directive too, so its warning is raised (payrollRunTermination.severanceOnlyComponents).
+    const { available, unpayable } = await findSeveranceDirectiveForRun(companyId, employee.id, runId, period);
+    if (available || unpayable) out.push(employee);
   }
   return out;
 }
 
 /**
- * A declarable run other than `runId` that already paid this employee a
- * lump-sum earning (39xx) under no directive — severance captured by hand,
- * before this run or before P3. A directive approved afterwards must not pay
+ * A run other than `runId` that already PAID this employee a lump-sum earning
+ * (39xx) under no directive — severance captured by hand, before this run or
+ * before P3. "Paid" is runHasPaid's (P4): approved or paid, or reopened with
+ * its journal still in the ledger. A directive approved afterwards must not pay
  * it a second time (payrollRunTermination, SEVERANCE_CAPTURED_AS_COMPONENT).
+ * Unbounded in time on purpose: any such payment blocks every later severance
+ * directive for the employee, and the warning says which run, so a human
+ * decides whether the directive replaces it.
  */
 export async function findHandMadeLumpSumPaid(
   companyId: string,
   employeeId: string,
   runId: string,
 ): Promise<{ year: number; month: number; name: string } | null> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
-    SELECT h.period_year, h.period_month, item->>'componentName' AS name
+    SELECT h.period_year, h.period_month, h.status, h.journal_entry_id, item->>'componentName' AS name
     FROM payroll_run_lines l
     JOIN payroll_run_headers h ON h.id = l.run_id
     CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
     WHERE h.company_id = ${companyId}::uuid
       AND l.employee_id = ${employeeId}::uuid
       AND h.id <> ${runId}::uuid
-      AND h.status = ANY(${declarable}::text[])
+      AND (h.status IN ('approved', 'paid') OR h.journal_entry_id IS NOT NULL)
       AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') ~ '^39[0-9]{2}$'
       AND item->'directive' IS NULL
     ORDER BY h.period_year, h.period_month
-    LIMIT 1
   `) as DbRow[];
-  const r = rows[0];
-  return r ? { year: Number(r.period_year), month: Number(r.period_month), name: String(r.name) } : null;
+  const inForce = new Map<string, Promise<boolean>>();
+  for (const r of rows) {
+    if (await runHasPaid(companyId, String(r.status), r.journal_entry_id, inForce)) {
+      return { year: Number(r.period_year), month: Number(r.period_month), name: String(r.name) };
+    }
+  }
+  return null;
 }
 
 /** The run line component that pays `d`: code 3901, not UIF- or SDL-leviable, PAYE as on the directive. */

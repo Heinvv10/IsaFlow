@@ -195,7 +195,8 @@ export async function appendTerminationIfEndingThisPeriod(
 /**
  * The line of an employee who left before this period and whose severance
  * directive is available to it: the severance alone, no salary, no recurring
- * component (listSeveranceOnlyRunEmployees). The mismatch warning compares the
+ * component (listSeveranceOnlyRunEmployees). Empty, with the reason logged,
+ * when the directive is unpayable or the severance was paid by hand already. The mismatch warning compares the
  * directive with the severance calculated on the pay they left on.
  */
 export async function severanceOnlyComponents(
@@ -207,5 +208,13 @@ export async function severanceOnlyComponents(
 ): Promise<EmployeeComponent[]> {
   const salaryAtExit = employee.endDate ? await getEmployeeComponents(employee.id, companyId, employee.endDate) : [];
   const t = await terminationPayouts(companyId, employee, salaryAtExit, null);
-  return severanceByDirective(companyId, runId, employee, period, t?.severance ?? 0, warnings);
+  const line = await severanceByDirective(companyId, runId, employee, period, t?.severance ?? 0, warnings);
+  // No line, so no line warning to carry it (the run skips the leaver): a run
+  // has nowhere else to show why an approved directive was not paid, so log it.
+  if (line.length === 0 && warnings.length > 0) {
+    log.warn('Severance directive not paid for a leaver', {
+      companyId, runId, employeeId: employee.id, codes: warnings.map(w => w.code),
+    }, 'payrollRunTermination');
+  }
+  return line;
 }
