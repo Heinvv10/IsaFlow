@@ -13,7 +13,7 @@ import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, newCompany } from './r035-approval.helpers';
 import { insertPreConstraintRow } from './helpers/preConstraintRow';
-import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
+import { liftAmountPaidCheck, restoreAmountPaidCheck } from './helpers/amountPaidCheck';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -102,19 +102,27 @@ describe('customer_invoices_amount_paid_within_total', () => {
     expect(await paidOf(inv.id)).toBe(0);
   });
 
-  it('the suspend/restore helper round-trips, restore is idempotent, and a leftover impossible row makes restore fail', async () => {
-    const inv = await invoice(100, 0);
-    await suspendAmountPaidCheck();
+  it('the lift helper drops the CHECK only around the seed: a later write is still refused, restore validates and is idempotent', async () => {
+    const seeded = await invoice(100, 0);
+    const other = await invoice(100, 0);
     try {
-      await pool.query('UPDATE customer_invoices SET amount_paid = 150 WHERE id = $1', [inv.id]);
+      await liftAmountPaidCheck(() => pool.query('UPDATE customer_invoices SET amount_paid = 150 WHERE id = $1', [seeded.id]));
+      expect(await paidOf(seeded.id)).toBe(150);
+      // Back on, NOT VALID: the real write paths a suite then drives are still guarded.
+      const state = await pool.query("SELECT convalidated FROM pg_constraint WHERE conname = 'customer_invoices_amount_paid_within_total'");
+      expect(state.rows).toEqual([{ convalidated: false }]);
+      expect(await outcome(pool.query('UPDATE customer_invoices SET amount_paid = 150 WHERE id = $1', [other.id]))).toBe('23514');
+      expect(await paidOf(other.id)).toBe(0);
+      // The impossible row left behind makes the validating restore fail loudly...
       await expect(restoreAmountPaidCheck()).rejects.toMatchObject({ code: '23514' });
-      await pool.query('UPDATE customer_invoices SET amount_paid = 0 WHERE id = $1', [inv.id]);
+      // ...even when a seed throws, the constraint is put back.
+      await expect(liftAmountPaidCheck(async () => { throw new Error('seed failed'); })).rejects.toThrow('seed failed');
     } finally {
+      await pool.query('DELETE FROM customer_invoices WHERE id = ANY($1)', [[seeded.id]]);
       await restoreAmountPaidCheck();
     }
     await restoreAmountPaidCheck();
-    expect(await outcome(pool.query('UPDATE customer_invoices SET amount_paid = 150 WHERE id = $1', [inv.id]))).toBe('23514');
-    expect(await paidOf(inv.id)).toBe(0);
+    expect(await outcome(pool.query('UPDATE customer_invoices SET amount_paid = 150 WHERE id = $1', [other.id]))).toBe('23514');
   });
 
   it('the constraint is validated (900 ran) so it also covers rows that existed before 899', async () => {

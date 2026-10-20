@@ -36,6 +36,14 @@
 -- Rollback: ALTER TABLE customer_invoices
 --             DROP CONSTRAINT IF EXISTS customer_invoices_amount_paid_within_total;
 
+-- ADD CONSTRAINT takes ACCESS EXCLUSIVE on customer_invoices for a catalogue-only
+-- change (NOT VALID: no scan), so it is milliseconds ONCE ACQUIRED. The risk is the
+-- WAIT: queued behind one long transaction on the table it blocks every read and
+-- write behind it. Fail the migration instead of stalling AR (as 717). SET LOCAL
+-- holds because the runner (scripts/lib/migrationFiles.ts applyOne) wraps each file
+-- in one BEGIN/COMMIT. A failed 899 is re-run; nothing is half-applied.
+SET LOCAL lock_timeout = '5s';
+
 DO $$
 BEGIN
   IF NOT EXISTS (

@@ -14,6 +14,10 @@
 --
 -- Its own transaction/file so VALIDATE's scan runs under SHARE UPDATE
 -- EXCLUSIVE and never holds 899's ACCESS EXCLUSIVE ADD CONSTRAINT lock.
+-- No lock_timeout here, deliberately: SHARE UPDATE EXCLUSIVE does not conflict with
+-- the ROW EXCLUSIVE lock INSERT/UPDATE/DELETE take, so nothing queued behind it
+-- blocks AR writes; it only waits on another DDL/VACUUM of the table, and failing
+-- on that would just force a re-run of a scan-only step.
 -- VALIDATE on an already-validated constraint is a no-op, so re-running is safe.
 
 ALTER TABLE public.customer_invoices

@@ -21,7 +21,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { sql } from '@/lib/neon';
 import { insertPreConstraintRow } from './helpers/preConstraintRow';
-import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
+import { liftAmountPaidCheck, restoreAmountPaidCheck } from './helpers/amountPaidCheck';
 import { getCustomerReport, getSupplierReport } from '@/modules/accounting/services/reports/transactionReportingService';
 import { SignJWT } from 'jose';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
@@ -50,8 +50,6 @@ async function seedNegative(table: 'customer_invoices' | 'supplier_invoices', te
 describeIfDb('R-117 a negative-total document reports nothing settled, not its own total', () => {
   beforeAll(async () => {
     pool = new Pool({ connectionString: DATABASE_URL, max: 2 });
-    // 899's CHECK refuses the wrong-signed and over-paid rows below, which are the point of the cases.
-    await suspendAmountPaidCheck();
     await sql`
       INSERT INTO companies (id, name, registration_number, created_at)
       VALUES (${COMPANY}::UUID, ${'R117 ' + COMPANY.slice(0, 8)}, 'R117-TEST', NOW())`;
@@ -130,20 +128,22 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
     const isolated = ((await sql`
       INSERT INTO customers (name, company_id) VALUES (${'R117 iso ' + paid}, ${COMPANY}::UUID)
       RETURNING id`) as { id: string }[])[0]!.id;
-    await seedNegative('customer_invoices', `
+    // 899's CHECK refuses the wrong-signed payment (500 on a -1150 document): lifted for the seed only.
+    await liftAmountPaidCheck(() => seedNegative('customer_invoices', `
       INSERT INTO customer_invoices (
         company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
         subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, created_by
       ) VALUES ($1::UUID, $2, $3::UUID, $3::UUID, $4::DATE, $4::DATE,
         -1000.00, 15.00, -150.00, -1150.00, $5, 'sent', $6)`,
-      [COMPANY, `R117-ISO-${paid}`, isolated, PERIOD_END, paid, USER]);
+      [COMPANY, `R117-ISO-${paid}`, isolated, PERIOD_END, paid, USER]));
     const rows = await getCustomerReport(COMPANY, PERIOD_START, PERIOD_END);
     const row = rows.find((r) => r.clientId === isolated);
     expect(Number(row!.totalPaid)).toBe(expected);
   });
 
   it('a positive document is unaffected: an overpayment still clamps to the total', async () => {
-    await sql`
+    // 899's CHECK refuses the overpayment (1200 on 1150): lifted for the seed only.
+    await liftAmountPaidCheck(() => sql`
       INSERT INTO customer_invoices (
         company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
         subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, created_by
@@ -151,7 +151,7 @@ describeIfDb('R-117 a negative-total document reports nothing settled, not its o
         ${COMPANY}::UUID, 'R117-CI-2', ${customerId}::UUID, ${customerId}::UUID,
         ${PERIOD_END}::DATE, ${PERIOD_END}::DATE,
         1000.00, 15.00, 150.00, 1150.00, 1200.00, 'sent', ${USER}::UUID
-      )`;
+      )`);
     const rows = await getCustomerReport(COMPANY, PERIOD_START, PERIOD_END);
     const row = rows.find((r) => r.clientId === customerId);
     // -1150 + 1150 invoiced; paid 0 on the credit and 1150 (not 1200) on the invoice.

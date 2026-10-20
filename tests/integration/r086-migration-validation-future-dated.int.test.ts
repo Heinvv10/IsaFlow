@@ -7,7 +7,7 @@
 
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { Pool } from 'pg';
-import { restoreAmountPaidCheck, suspendAmountPaidCheck } from './helpers/amountPaidCheck';
+import { liftAmountPaidCheck, restoreAmountPaidCheck } from './helpers/amountPaidCheck';
 import { insertPreConstraintRow } from './helpers/preConstraintRow';
 import { sql } from '@/lib/neon';
 import { validateMigration } from '@/modules/accounting/services/core/migrationValidationService';
@@ -35,8 +35,7 @@ const COMPANIES: Array<[string, string]> = [
   ['00000000-0000-0000-0086-0000000000ad', 'R086 Test Company AR Overpaid'],
 ];
 
-// 899's CHECK refuses the over-paid invoice the round-4 case plants on purpose.
-beforeAll(async () => { await suspendAmountPaidCheck(); await setupCompanies(COMPANIES); });
+beforeAll(() => setupCompanies(COMPANIES));
 afterAll(async () => { try { await teardownCompanies(COMPANIES); } finally { await restoreAmountPaidCheck(); } });
 
 describe('R-086 review round 3, MEDIUM: a future-dated posted journal must not desync the GL half from the document half', () => {
@@ -261,7 +260,8 @@ describe('R-086 review round 4, LOW: a paid document with amount_paid above its 
     // The receipt settles the control account in full; the document carries
     // an over-written amount_paid, as bank-match-confirm leaves behind.
     await postJournal(COMPANY_AR_PAID, bankId, receivableId, 1150.00, 'R086OP-JE-2');
-    await sql`
+    // 899's CHECK refuses the overpayment (1200 on 1150): lifted for the seed only.
+    await liftAmountPaidCheck(() => sql`
       INSERT INTO customer_invoices (
         company_id, invoice_number, customer_id, client_id, invoice_date, due_date,
         subtotal, tax_rate, tax_amount, total_amount, amount_paid, status, gl_journal_entry_id, created_by
@@ -269,7 +269,7 @@ describe('R-086 review round 4, LOW: a paid document with amount_paid above its 
         ${COMPANY_AR_PAID}::UUID, 'R086OP-CI-1', ${customer.id}::UUID, ${customer.id}::UUID, CURRENT_DATE, CURRENT_DATE,
         1000.00, 15.00, 150.00, 1150.00, 1200.00, 'paid', ${jeId}::UUID, ${USER_ID}::UUID
       )
-    `;
+    `);
     const results = await validateMigration(COMPANY_AR_PAID, 'r086-overpaid-ar');
     const ar = results.find(r => r.check === 'AR vs GL');
     expect(ar?.status).toBe('pass');
