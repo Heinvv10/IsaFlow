@@ -165,6 +165,8 @@ describe('renderPdfFirstPage under AppArmor', () => {
         expect.anything(), 'vlm-pdf-render');
     }, 30_000);
 
+  // The `none` warning is once per PROCESS (module state), so this must stay the only test in
+  // the file that renders with `none`; a second one needs vi.resetModules() and a fresh import.
   it('in production, GS_APPARMOR_PROFILE=none runs gs unconfined on purpose', async () => {
     process.env.NODE_ENV = 'production';
     process.env.GS_APPARMOR_PROFILE = 'none';
