@@ -27,10 +27,11 @@ async function runHasPaid(
   if (status === 'approved' || status === 'paid') return true;
   if (journalId == null) return false;
   const id = String(journalId);
-  if (!inForce.has(id)) {
-    inForce.set(id, readJournalChain(companyId, id).then(chain => chain == null || chain.state !== 'out'));
-  }
-  return inForce.get(id)!;
+  const cached = inForce.get(id);
+  if (cached) return cached;
+  const read = readJournalChain(companyId, id).then(chain => chain == null || chain.state !== 'out');
+  inForce.set(id, read);
+  return read;
 }
 
 /**
