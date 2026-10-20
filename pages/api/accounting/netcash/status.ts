@@ -54,13 +54,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     });
   }
 
-  // 'unknown' (submit.ts): Netcash never gave a reference, so there is nothing of ours to poll. The batch stays
-  // claimed until someone has checked Netcash.
-  if (submission.status === 'unknown') {
+  // 'unknown' / 'pending' (submit.ts): Netcash never gave a reference (batch_reference is our own batch number), so
+  // there is nothing to poll. The batch stays claimed until someone has checked Netcash.
+  if (submission.status === 'unknown' || submission.status === 'pending') {
     return apiResponse.success(res, {
       submissionId,
       status: submission.status,
-      detail: 'Outcome unknown - check Netcash before resubmitting',
+      detail: 'Outcome not recorded - check Netcash before resubmitting',
       polled: false,
     });
   }
