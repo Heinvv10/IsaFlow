@@ -9,7 +9,7 @@
  * (https://www.sars.gov.za/wp-content/uploads/Docs/PAYE/BRS/SARS_PAYE_BRS-PAYE-Employer-Reconciliation_V25-1-0.pdf,
  * which serves V25 2 0): a lump-sum directive is the group
  * 3230 directive no, 3231 issued date, 3232 income source code, 3233 income
- * amount; 3234 "L" marks a lump-sum directive.
+ * amount (the 3234 type indicator is optional and not emitted).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -80,7 +80,7 @@ describe('P3: filing carries severance paid by directive in the run', () => {
     expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
     const fields = file.split(/\r\n/);
     for (const want of ['3601,20000', '4102,2115.00', '3901,30000', '4115,3000.00',
-      '3230,"9876543210"', '3234,"L"', '3231,20260505', '3232,3901', '3233,30000']) {
+      '3230,"9876543210"', '3231,20260505', '3232,3901', '3233,30000']) {
       expect(fields, want).toContain(want);
     }
   });

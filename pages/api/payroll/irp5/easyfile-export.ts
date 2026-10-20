@@ -27,6 +27,8 @@ import {
   type EmployeeInput,
 } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
+import { listRunLumpSums } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 
 function firstTwoNames(fullFirst: string): string {
   return fullFirst.trim().split(/\s+/).slice(0, 2).join(' ');
@@ -76,6 +78,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // cancelled run declared here would over-state remuneration to SARS.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
+  // Severance paid in a run under its directive: reported under its own code
+  // and 4115, so taken out of 3601 and 4102 below (audit 2026-10-18 P3).
+  const lumpSumsByEmployee = await listRunLumpSums(companyId, saTaxYearBounds(taxYear));
   const [companyRows, empRows, aggRows] = await Promise.all([
     sql`
       SELECT
@@ -154,6 +159,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     const gross = Number(agg.total_gross ?? 0);
     if (gross <= 0) continue; // skip non-active employees
 
+    const lumpSums = lumpSumsByEmployee.get(String(row.id)) ?? [];
+    const lumpGross = lumpSums.reduce((t, l) => t + l.amount, 0);
+    const lumpPaye = lumpSums.reduce((t, l) => t + l.paye, 0);
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
@@ -171,8 +179,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentStartDate: certStartDate,
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
-      grossSalary3601: gross,
-      paye4102: Number(agg.total_paye ?? 0),
+      grossSalary3601: Math.round((gross - lumpGross) * 100) / 100,
+      paye4102: Math.round((Number(agg.total_paye ?? 0) - lumpPaye) * 100) / 100,
+      lumpSums: lumpSums.map(l => ({
+        sourceCode: l.sourceCode,
+        directiveNumber: l.directiveNumber ?? '',
+        directiveIssuedDate: l.directiveIssuedDate.replace(/-/g, ''),
+        amount: l.amount,
+        paye: l.paye,
+      })),
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),
