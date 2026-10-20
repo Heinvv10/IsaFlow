@@ -41,7 +41,8 @@ async function handler(
 
     const data: Omit<PayrollComponent, 'id'> = {
       name: String(name),
-      sarsSourceCode: String(sarsSourceCode),
+      // Trimmed: PAYE classifies by code (payeTreatment), and '3901 ' must be a lump sum everywhere.
+      sarsSourceCode: String(sarsSourceCode).trim(),
       componentType: String(componentType) as PayrollComponent['componentType'],
       isTaxable: isTaxable !== false,
       isUifApplicable: isUifApplicable !== false,

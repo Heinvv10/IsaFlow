@@ -24,6 +24,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { mapPayrollEmployeeRow } from './payrollEmployeeService';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod } from './payrollTypes';
 
@@ -143,6 +144,36 @@ export async function listSeveranceOnlyRunEmployees(
     if ((await findSeveranceDirectiveForRun(companyId, employee.id, runId, period)).available) out.push(employee);
   }
   return out;
+}
+
+/**
+ * A declarable run other than `runId` that already paid this employee a
+ * lump-sum earning (39xx) under no directive — severance captured by hand,
+ * before this run or before P3. A directive approved afterwards must not pay
+ * it a second time (payrollRunTermination, SEVERANCE_CAPTURED_AS_COMPONENT).
+ */
+export async function findHandMadeLumpSumPaid(
+  companyId: string,
+  employeeId: string,
+  runId: string,
+): Promise<{ year: number; month: number; name: string } | null> {
+  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  const rows = (await sql`
+    SELECT h.period_year, h.period_month, item->>'componentName' AS name
+    FROM payroll_run_lines l
+    JOIN payroll_run_headers h ON h.id = l.run_id
+    CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
+    WHERE h.company_id = ${companyId}::uuid
+      AND l.employee_id = ${employeeId}::uuid
+      AND h.id <> ${runId}::uuid
+      AND h.status = ANY(${declarable}::text[])
+      AND btrim(item->>'sarsSourceCode') ~ '^39[0-9]{2}$'
+      AND item->'directive' IS NULL
+    ORDER BY h.period_year, h.period_month
+    LIMIT 1
+  `) as DbRow[];
+  const r = rows[0];
+  return r ? { year: Number(r.period_year), month: Number(r.period_month), name: String(r.name) } : null;
 }
 
 /** The run line component that pays `d`: code 3901, not UIF- or SDL-leviable, PAYE as on the directive. */
