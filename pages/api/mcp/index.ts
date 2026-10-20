@@ -4,11 +4,14 @@
  *
  * Methods: initialize, notifications/initialized, ping, tools/list,
  * tools/call — the complete set Claude Code / Desktop / claude.ai / Codex
- * use today. Single requests and batch arrays supported.
+ * use today — plus server/discover for 2026-07-28 clients (lists only the
+ * legacy version, so they fall back to initialize). Single requests and
+ * batch arrays supported.
  *
  * Auth: POST is Bearer-only via withBearerAuth (401 + WWW-Authenticate
  * challenge; cookies never accepted — CSRF posture). GET serves an
- * UNAUTHENTICATED server-info document; OPTIONS handles CORS preflight.
+ * UNAUTHENTICATED server-info document, except that a GET asking for
+ * text/event-stream is 405 (no SSE stream); OPTIONS handles CORS preflight.
  * (Plan wrapped the whole route in withBearerAuth; GET/OPTIONS must stay
  * open for client discovery, so only POST is wrapped.)
  *
@@ -39,17 +42,9 @@ import {
 } from '@/lib/mcp/transportRefusals';
 import { skippedForRoleLock } from '@/lib/mcp/batchSkip';
 import { isRoleLockRefusal } from '@/modules/accounting/services/gl/systemRoleWriteLock';
+import { discoverResult, initializeResult, serverInfoDocument } from '@/lib/mcp/serverInfo';
+import { setMcpCors } from '@/lib/mcp/httpCors';
 import {
-  CLIENT_MCP_TOOL_NAMES,
-  appOrigin,
-  serverIcons,
-  MCP_AUTH_SERVER_METADATA_PATH,
-  MCP_PATH,
-  MCP_PROD_ENDPOINT,
-  MCP_PROTECTED_RESOURCE_METADATA_PATH,
-} from '@/lib/mcp/clientMetadata';
-import {
-  MCP_PROTOCOL_VERSION,
   RPC_CODES,
   isNotification,
   rpcError,
@@ -82,12 +77,6 @@ export const config = {
   api: { bodyParser: { sizeLimit: '3mb' } },
 };
 
-function setCors(res: NextApiResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-}
-
 async function handleRpc(
   rpc: JsonRpcRequest,
   ctx: McpToolContext,
@@ -98,16 +87,13 @@ async function handleRpc(
 
   switch (rpc.method) {
     case 'initialize':
-      return rpcResult(rpc.id, {
-        protocolVersion: MCP_PROTOCOL_VERSION,
-        serverInfo: {
-          name: 'isaflow',
-          version: '1.0.0',
-          title: 'IsaFlow Accounting',
-          icons: serverIcons(),
-        },
-        capabilities: { tools: { listChanged: false } },
-      });
+      return rpcResult(rpc.id, initializeResult());
+
+    case 'server/discover':
+      // 2026-07-28 probe: lists only the legacy version, so a dual-era client
+      // falls back to `initialize` (src/lib/mcp/serverInfo.ts). Behind
+      // withBearerAuth like every POST; a 401 + challenge is a valid answer.
+      return rpcResult(rpc.id, discoverResult());
 
     case 'notifications/initialized':
       // Pure notification — acknowledged with no response entry.
@@ -146,7 +132,7 @@ async function handleRpc(
 }
 
 const postHandler = async (req: BearerAuthedRequest, res: NextApiResponse): Promise<void> => {
-  setCors(res);
+  setMcpCors(res);
 
   const enabled = await hasFeature(req.companyId, 'mcp_connector');
   if (!enabled) {
@@ -226,7 +212,7 @@ const authedPost = withBearerAuth(
 
 const route: NextApiHandler = async (req: NextApiRequest, res: NextApiResponse) => {
   if (req.method === 'OPTIONS') {
-    setCors(res);
+    setMcpCors(res);
     res.setHeader('Allow', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '86400');
     res.status(204).end();
@@ -234,25 +220,21 @@ const route: NextApiHandler = async (req: NextApiRequest, res: NextApiResponse) 
   }
 
   if (req.method === 'GET') {
-    // Unauthenticated server-info advertisement (MCP spec allows GET).
-    setCors(res);
-    const origin = appOrigin();
-    res.status(200).json({
-      name: 'isaflow',
-      version: '1.0.0',
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      transport: 'http-jsonrpc',
-      endpoint: `${origin}${MCP_PATH}`,
-      productionEndpoint: MCP_PROD_ENDPOINT,
-      auth: {
-        type: 'bearer',
-        description:
-          'Connect with the browser OAuth flow (recommended) or a personal access token (pat_...).',
-        authorizationServer: `${origin}${MCP_AUTH_SERVER_METADATA_PATH}`,
-        protectedResource: `${origin}${MCP_PROTECTED_RESOURCE_METADATA_PATH}`,
-      },
-      tools: CLIENT_MCP_TOOL_NAMES,
-    });
+    setMcpCors(res);
+    // An MCP client's GET asks for a server-to-client SSE stream (Streamable
+    // HTTP 2025-06-18/11-25: answer text/event-stream or 405). We open none,
+    // so 405. A GET without that Accept (a person, a docs link) still gets
+    // the server-info document.
+    const accept = String(req.headers.accept ?? '');
+    if (accept.toLowerCase().includes('text/event-stream')) {
+      res.setHeader('Allow', 'GET, POST, OPTIONS');
+      res.status(405).json({
+        success: false,
+        error: { code: 'METHOD_NOT_ALLOWED', message: 'No SSE stream on GET; use POST for JSON-RPC' },
+      });
+      return;
+    }
+    res.status(200).json(serverInfoDocument());
     return;
   }
 
@@ -267,7 +249,7 @@ const route: NextApiHandler = async (req: NextApiRequest, res: NextApiResponse) 
   // tokens, each costing a token-hash DB lookup. Bounds that before auth.
   const ip = getClientIp(req);
   if (!(await checkRateLimit(`mcp-ip:${ip}`, { max: 300, windowSecs: 60 }))) {
-    setCors(res);
+    setMcpCors(res);
     res.status(429).json(ipThrottled(req.body));
     return;
   }

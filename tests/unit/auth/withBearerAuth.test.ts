@@ -212,6 +212,17 @@ describe('withBearerAuth — strict Bearer only', () => {
     expect(res.headers['www-authenticate']).toBeUndefined();
   });
 
+  // FB-3: a browser client must be able to read the challenge.
+  it('401 carries CORS headers and exposes WWW-Authenticate', async () => {
+    for (const headers of [{}, { authorization: 'Bearer tok_nope' }]) {
+      const res = makeRes();
+      await withBearerAuth(vi.fn())(makeReq(headers) as never, res);
+      expect(res.statusCode).toBe(401);
+      expect(res.headers['access-control-allow-origin']).toBe('*');
+      expect(String(res.headers['access-control-expose-headers'])).toContain('WWW-Authenticate');
+    }
+  });
+
   it('challenge origin follows NEXT_PUBLIC_APP_URL', async () => {
     process.env.NEXT_PUBLIC_APP_URL = 'http://localhost:3200';
     const res = makeRes();
