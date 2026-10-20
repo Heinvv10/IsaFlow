@@ -4,7 +4,7 @@
  * batch_reference is our own batch number (Netcash never gave one).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, configure, render, screen } from '@testing-library/react';
+import { cleanup, configure, fireEvent, render, screen } from '@testing-library/react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, route } from '../helpers/d2R3a1Serve';
 
@@ -60,5 +60,17 @@ describe('netcash submissions page: rows that hold a batch', () => {
     render(<NetcashSubmissionsPage />);
     expect(await screen.findByText(/in flight|not recorded/i)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Resolve/ })).toBeNull();
+  });
+
+  it('opening Resolve puts the form in its own full-width row, not in the Actions cell (it must not squeeze the columns)', async () => {
+    route(() => ok({ items: [sub('u', 'unknown')], total: 1 }));
+    render(<NetcashSubmissionsPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^Resolve/ }));
+    const note = screen.getByLabelText(/What did you find at Netcash/i);
+    const cell = note.closest('td')!;
+    expect(cell.getAttribute('colspan')).toBe('7');
+    expect(cell.closest('tr')!.querySelectorAll('td')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: /Cancel/ }));
+    expect(screen.queryByLabelText(/What did you find at Netcash/i)).toBeNull();
   });
 });

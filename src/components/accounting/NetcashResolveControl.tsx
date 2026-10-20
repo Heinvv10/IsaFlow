@@ -17,21 +17,26 @@ interface Props {
 }
 
 /**
- * Releases a Netcash submission that holds its batch, once Netcash has been checked (netcash/resolve): a pending or
- * unknown claim either way, a submitted/processing one only as "failed" and only while its last poll reported a
- * failure. Owner/admin only; the note is required and typed inline. Renders nothing for anyone or anything else.
+ * Whether `role` may resolve a submission in this state: owner/admin, and only a pending or unknown claim, or a
+ * submitted/processing one whose latest poll reported a failure (a polled-failed row is freed as "failed" only).
  */
-export function NetcashResolveControl({ submissionId, status, pollFailed, onResolved }: Props) {
-  const canResolve = RESOLVE_ROLES.includes(useCompany().companyRole ?? '');
-  const heldOpen = status === 'pending' || status === 'unknown';
-  const polledFailed = (status === 'submitted' || status === 'processing') && pollFailed;
-  const [open, setOpen] = useState(false);
+export function canResolveSubmission(role: string | null | undefined, status: string, pollFailed: boolean): boolean {
+  if (!RESOLVE_ROLES.includes(role ?? '')) return false;
+  return status === 'pending' || status === 'unknown' || ((status === 'submitted' || status === 'processing') && pollFailed);
+}
+
+/**
+ * The inline resolve form (netcash/resolve): what Netcash shows, a required note typed here, Confirm / Cancel. A
+ * polled-failed row (`polledFailed`) is offered "never received" only. The page puts it in a full-width row under the
+ * submission so it never squeezes the table's columns.
+ */
+export function NetcashResolveForm({ submissionId, polledFailed, onResolved, onClose }: {
+  submissionId: string; polledFailed: boolean; onResolved: () => void; onClose: () => void;
+}) {
   const [outcome, setOutcome] = useState<Outcome | ''>('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-
-  if (!canResolve || !(heldOpen || polledFailed)) return null;
 
   async function confirm() {
     if (!outcome) return;
@@ -44,9 +49,7 @@ export function NetcashResolveControl({ submissionId, status, pollFailed, onReso
         body: JSON.stringify({ submissionId, outcome, note: note.trim() }),
       });
       await assertOk(res, 'Could not resolve the submission - try again');
-      setOpen(false);
-      setOutcome('');
-      setNote('');
+      onClose();
       onResolved();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not resolve the submission - try again'));
@@ -55,16 +58,8 @@ export function NetcashResolveControl({ submissionId, status, pollFailed, onReso
     }
   }
 
-  if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} className="text-xs text-orange-400 hover:text-orange-300">
-        Resolve…
-      </button>
-    );
-  }
-
   return (
-    <div className="w-72 space-y-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-3 text-left text-xs">
+    <div className="max-w-xl space-y-2 rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] p-3 text-left text-xs">
       <fieldset className="space-y-1">
         <legend className="mb-1 font-medium text-[var(--ff-text-primary)]">What does Netcash show?</legend>
         <label className="flex items-start gap-2 text-[var(--ff-text-secondary)]">
@@ -89,7 +84,7 @@ export function NetcashResolveControl({ submissionId, status, pollFailed, onReso
       </label>
       {error && <p className="text-red-500">{error}</p>}
       <div className="flex justify-end gap-2">
-        <button onClick={() => { setOpen(false); setError(''); }} disabled={busy} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
+        <button onClick={onClose} disabled={busy} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]">
           Cancel
         </button>
         <button
@@ -103,4 +98,19 @@ export function NetcashResolveControl({ submissionId, status, pollFailed, onReso
       </div>
     </div>
   );
+}
+
+/** Button and form together, for a place that has no table row to put the form in. Renders nothing when not allowed. */
+export function NetcashResolveControl({ submissionId, status, pollFailed, onResolved }: Props) {
+  const role = useCompany().companyRole;
+  const [open, setOpen] = useState(false);
+  if (!canResolveSubmission(role, status, pollFailed)) return null;
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="text-xs text-orange-400 hover:text-orange-300">
+        Resolve…
+      </button>
+    );
+  }
+  return <NetcashResolveForm submissionId={submissionId} polledFailed={pollFailed && status !== 'pending' && status !== 'unknown'} onResolved={onResolved} onClose={() => setOpen(false)} />;
 }

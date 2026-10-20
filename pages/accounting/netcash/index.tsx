@@ -2,12 +2,12 @@
  * Netcash Submissions — list all EFT/debit order submissions for this company.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Banknote, RefreshCw, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
-import { NetcashResolveControl } from '@/components/accounting/NetcashResolveControl';
+import { canResolveSubmission, NetcashResolveForm } from '@/components/accounting/NetcashResolveControl';
 
 interface Submission {
   id: string;
@@ -54,12 +54,13 @@ function formatDate(val: string | null): string {
 }
 
 export default function NetcashSubmissionsPage() {
-  const { activeCompany } = useCompany();
+  const { activeCompany, companyRole } = useCompany();
   const [items, setItems] = useState<Submission[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [pollingId, setPollingId] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const fetchSubmissions = useCallback(async () => {
     if (!activeCompany?.id) return;
@@ -145,7 +146,8 @@ export default function NetcashSubmissionsPage() {
               </thead>
               <tbody className="divide-y divide-[var(--ff-border-primary)]">
                 {items.map(s => (
-                  <tr key={s.id} className="hover:bg-[var(--ff-bg-secondary)]/50 transition-colors">
+                  <Fragment key={s.id}>
+                  <tr className="hover:bg-[var(--ff-bg-secondary)]/50 transition-colors">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDate(s.submitted_at ?? s.created_at)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">
                       {s.submission_type === 'eft_payment' ? 'EFT Payment' : 'Debit Order'}
@@ -167,7 +169,9 @@ export default function NetcashSubmissionsPage() {
                         {(HOLDING_NOTE[s.status] ?? (pollFailed(s) ? POLL_FAILED_NOTE : undefined)) && (
                           <span className="text-xs text-orange-400 text-right max-w-[16rem]">{HOLDING_NOTE[s.status] ?? POLL_FAILED_NOTE}</span>
                         )}
-                        <NetcashResolveControl submissionId={s.id} status={s.status} pollFailed={pollFailed(s)} onResolved={() => void fetchSubmissions()} />
+                        {canResolveSubmission(companyRole, s.status, pollFailed(s)) && (
+                          <button onClick={() => setResolvingId(s.id)} className="text-xs text-orange-400 hover:text-orange-300">Resolve…</button>
+                        )}
                         {(s.status === 'submitted' || s.status === 'processing') && (
                           <button
                             onClick={() => void handlePollStatus(s.id)}
@@ -191,6 +195,19 @@ export default function NetcashSubmissionsPage() {
                       </div>
                     </td>
                   </tr>
+                  {resolvingId === s.id && (
+                    <tr>
+                      <td colSpan={7} className="px-4 pb-4">
+                        <NetcashResolveForm
+                          submissionId={s.id}
+                          polledFailed={pollFailed(s)}
+                          onResolved={() => void fetchSubmissions()}
+                          onClose={() => setResolvingId(null)}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
