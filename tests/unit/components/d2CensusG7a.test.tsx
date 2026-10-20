@@ -13,6 +13,7 @@ vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNod
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
 vi.mock('@/components/assets/AssetDualTrackPanel', () => ({ AssetDualTrackPanel: () => null }));
 const route = { query: {} as Record<string, string>, push: vi.fn(), isReady: true };
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', activeCompany: { id: 'c1' } }) })); // BatchBankFileNotice reads the role
 vi.mock('next/router', () => ({ useRouter: () => route }));
 
 import AssetDetailPage from '../../../pages/accounting/assets/[assetId]';
