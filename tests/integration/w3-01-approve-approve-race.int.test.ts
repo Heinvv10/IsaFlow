@@ -46,18 +46,21 @@ const admin = crypto.randomUUID();
 const tokens: Record<string, string> = {};
 const call = routeCaller(tokens, { user: admin, company });
 
-/** 'waiting' once a backend of this database waits on a lock while running a statement over `table`. */
-async function waitsOnLock(table: string): Promise<'waiting'> {
+/** 'waiting' once a backend of this database waits on a lock while running a statement over any of `tables`. */
+async function waitsOnLock(...tables: string[]): Promise<'waiting'> {
   for (let i = 0; i < 500; i += 1) {
     const r = await pool.query(
       `SELECT 1 FROM pg_stat_activity
-       WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE $1`, [`%${table}%`]);
+       WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE ANY($1)`,
+      [tables.map((t) => `%${t}%`)]);
     if (r.rowCount) return 'waiting';
     await new Promise((res) => setTimeout(res, 20));
   }
-  throw new Error(`nothing finished and nothing waited on a ${table} lock`);
+  throw new Error(`nothing finished and nothing waited on a ${tables.join(' / ')} lock`);
 }
-const waitsOnRunLock = () => waitsOnLock('payroll_run_headers');
+// A second approval now waits first on the company's approval lock
+// (lockCompanyPayrollApprovals, P4), which is taken before the header's.
+const waitsOnRunLock = () => waitsOnLock('payroll_run_headers', 'pg_advisory_xact_lock');
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'W301 approve race']);

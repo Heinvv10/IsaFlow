@@ -46,6 +46,7 @@ Raw-ledger views keep the close visible: journal list and detail (`journalEntryL
 | `src/modules/accounting/services/afs/afsMappingQueries.ts` | AFS mapped-account balances (current, prior), mapping coverage | n/a: per mapped account, mapping screen | exclude |
 | `src/modules/accounting/services/afs/afsPreExportChecks.ts` | AFS pre-export checks: cash tie, unmapped value | via the SFP snapshot (fixed below); cash tie and unmapped value read no equity total | exclude |
 | `src/modules/accounting/services/afs/changesInEquityService.ts` | statement of changes in equity (opening, movements, closing) | yes: opening and profit derived; closing ties to the balance sheet (integration test) | exclude |
+| `src/modules/accounting/services/afs/noteGenerators/primaryStatements/dividendsPaid.ts` | dividends paid on equity accounts mapped to IS484 (SFP accumulated profit, AFS SOCE) | n/a: the close never posts to a dividends account (equivalent mutant) | exclude |
 | `src/modules/accounting/services/afs/managementPackGeneratorService.ts` | management pack revenue/profit/top lines | n/a: no equity read | exclude |
 | `src/modules/accounting/services/afs/pisCalculatorService.ts` | provisional / PIS turnover and liabilities tests | n/a: no equity read | exclude |
 | `src/modules/accounting/services/afs/noteGenerators/noteHelpers.ts` | AFS note balances by mapped line | n/a: `fetchBalancesBy*` have no caller | exclude |

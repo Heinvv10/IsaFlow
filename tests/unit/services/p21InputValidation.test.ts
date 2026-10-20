@@ -180,7 +180,11 @@ describe('W3 — draft payment allocations count pending drafts', () => {
     mockByText({
       // R-067 fences the caller-supplied clientId before any of this runs.
       'FROM customers': [{ ok: 1 }],
-      'SELECT total_amount, amount_paid': [{ total_amount: '115.00', amount_paid: '0.00' }],
+      // AR audit B2: the invoice is read under the receipt-invoice lock.
+      'FOR UPDATE OF ci': [{
+        id: ENTITY_ID, invoice_number: 'INV-1', currency_code: 'ZAR', status: 'approved', deleted_at: null,
+        total_amount: '115.00', amount_paid: '0.00',
+      }],
       'customer_payment_allocations': [{ pending: '115.00' }],
     });
 

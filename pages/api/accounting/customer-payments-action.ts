@@ -66,6 +66,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // R-035 PR4 (review F3): the receipt settles a DRAFT invoice an enforced
     // approval rule governs — the backstop refused it, and confirm's own
     // savepoint has rolled the whole confirm back, so the 409 commits nothing.
+    // `createCustomerPayment` now refuses a draft or pending-approval invoice, so this is reached only when the
+    // receipt was drafted while the invoice was approved and the invoice has since gone back to draft.
     if (respondIfBackstopRefused(res, err, 'This receipt settles a draft invoice that needs approval before it can '
       + 'enter accounts receivable. Have the invoice approved and posted first, then confirm the receipt.')) return;
     const message = err instanceof Error ? err.message : 'Action failed';
