@@ -22,6 +22,7 @@ import {
   OAUTH_SCOPES,
 } from '@/lib/auth/oauth';
 import { partitionRequestedScopes, buildGrantedScopes } from '@/lib/auth/consentScopes';
+import { checkResourceIndicator, oauthIssuer } from '@/lib/auth/oauthResource';
 
 const VALID_SCOPES = new Set<string>(OAUTH_SCOPES);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,6 +54,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (!app.redirectUris.includes(redirectUri)) {
     return apiResponse.badRequest(res, 'redirectUri is not registered for this app');
+  }
+
+  // RFC 8707, re-checked here: /oauth/authorize validated it, but this body is
+  // the client's to send (oauthResource.ts). Nothing is stored.
+  if (!checkResourceIndicator(body.resource).ok) {
+    return apiResponse.badRequest(res, 'invalid_target: resource must be this server\'s MCP endpoint');
   }
 
   const scopes: string[] = [];
@@ -112,6 +119,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const url = new URL(redirectUri);
   url.searchParams.set('code', code);
   if (state) url.searchParams.set('state', state);
+  // RFC 9207: the issuer, identical to the metadata document's, so a client
+  // talking to several authorization servers can tell which one answered.
+  url.searchParams.set('iss', oauthIssuer());
 
   return apiResponse.success(res, { redirectTo: url.toString() });
 }

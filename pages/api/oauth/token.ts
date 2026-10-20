@@ -25,6 +25,7 @@ import {
   getOauthAppByClientId,
   OauthExchangeError,
 } from '@/lib/auth/oauth';
+import { checkResourceIndicator } from '@/lib/auth/oauthResource';
 
 // Disable Next's default body parser when the body is form-encoded — we want
 // to parse it ourselves so we can read raw bytes deterministically.
@@ -44,6 +45,8 @@ interface TokenRequest {
   redirect_uri?: string;
   code_verifier?: string;
   refresh_token?: string;
+  /** RFC 8707; may repeat, so a form body can carry several. */
+  resource?: string | string[];
 }
 
 function parseBody(req: NextApiRequest): TokenRequest {
@@ -66,6 +69,8 @@ function parseBody(req: NextApiRequest): TokenRequest {
       const v = body[k];
       if (typeof v === 'string') out[k] = v;
     }
+    const resource = body.resource;
+    if (typeof resource === 'string' || Array.isArray(resource)) out.resource = resource as string | string[];
     return out;
   }
 
@@ -94,6 +99,20 @@ const handler: NextApiHandler = async (req, res) => {
     log.warn('OAuth token: unknown client_id', { clientId }, 'oauth');
     res.setHeader('WWW-Authenticate', 'Basic realm="ISAFlow"');
     return res.status(401).json({ error: 'invalid_client', error_description: 'Unknown client' });
+  }
+
+  // RFC 8707: a token is only ever for /api/mcp. Naming any other resource is
+  // invalid_target; naming none is fine (oauthResource.ts).
+  const resource = checkResourceIndicator(body.resource);
+  if (!resource.ok) {
+    log.warn('OAuth token: invalid resource indicator', { clientId }, 'oauth');
+    return res.status(400).json({
+      error: 'invalid_target',
+      error_description: 'resource must be this server\'s MCP endpoint',
+    });
+  }
+  if (resource.bareOrigin) {
+    log.warn('OAuth token: resource sent as the bare origin, accepted', { clientId }, 'oauth');
   }
 
   try {
