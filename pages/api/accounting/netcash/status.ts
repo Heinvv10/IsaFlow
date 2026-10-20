@@ -81,7 +81,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const serviceKey = String(companies[0]?.netcash_service_key ?? '');
 
   const pollResult = await getSubmissionStatus(serviceKey, String(submission.batch_reference));
-  const newStatus = mapNetcashStatus(pollResult.status);
+  const mapped = mapNetcashStatus(pollResult.status);
+
+  // AP-01: a poll never moves a live submission to 'failed'. 'failed' leaves the unique index that closes the batch
+  // (migration 898), and "error"/"fail"/"reject" in free text does not prove Netcash dropped what it accepted. The
+  // row stays as it is, the poll is kept in netcash_response, and an operator checks Netcash (see .claude.md).
+  const flagged = mapped === 'failed';
+  const newStatus = flagged ? String(submission.status) : mapped;
+  if (flagged) {
+    log.error('Netcash status poll reports a failure for a live submission - left as is, operator must check Netcash', {
+      submissionId, status: newStatus, netcashStatus: pollResult.status, detail: pollResult.detail,
+    }, 'netcash-api');
+  }
 
   // Persist updated status
   await sql`
@@ -96,7 +107,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, {
     submissionId,
     status: newStatus,
-    detail: pollResult.detail,
+    detail: flagged
+      ? `Netcash reports a failure (${pollResult.status}). The batch stays closed: check Netcash before it is released.`
+      : pollResult.detail,
+    needsAttention: flagged,
     polled: true,
     mock: pollResult.mock ?? false,
   });
