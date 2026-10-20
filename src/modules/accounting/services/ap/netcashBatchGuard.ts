@@ -14,6 +14,16 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
+/** The batch's live (non-failed) Netcash submission, if any - read without a lock. */
+export async function liveNetcashSubmission(companyId: string, batchId: string): Promise<{ id: string; status: string } | null> {
+  const held = (await sql`
+    SELECT id, status FROM netcash_submissions
+    WHERE company_id = ${companyId}::UUID AND batch_id = ${batchId}::UUID AND status <> 'failed'
+    ORDER BY created_at LIMIT 1
+  `) as DbRow[];
+  return held[0] ? { id: String(held[0].id), status: String(held[0].status) } : null;
+}
+
 export async function assertBatchNotSentToNetcash(
   companyId: string, batchId: string, batchNumber: string, action: 'cancelled' | 'reversed',
 ): Promise<void> {

@@ -113,4 +113,48 @@ describe('netcash/submit against a cancel of the same batch (AP-01)', () => {
     expect(mocks.submitEftBatch).not.toHaveBeenCalled();
     expect((await pool.query('SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].n).toBe(0);
   });
+
+  // Enforcement OFF (no approval rule): the batch status is judged by batchBankFileGate's dead-status check alone (AP-10).
+  describe('enforcement off: never a live submission on a cancelled batch', () => {
+    async function plainBatch() {
+      const { company: c, bank } = await payCompany(pool, [[u.a, 'admin']], companies);
+      await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
+      const b = await plantBatch(pool, c, u.a, bank);
+      expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(200);
+      return { c, b };
+    }
+    const liveOnCancelled = async (c: string) => (await pool.query(
+      `SELECT count(*)::INT AS n FROM netcash_submissions ns JOIN supplier_payment_batches b ON b.id = ns.batch_id
+       WHERE ns.company_id = $1 AND ns.status <> 'failed' AND b.status = 'cancelled'`, [c])).rows[0].n as number;
+
+    it('cancel committed first: the submit is refused, nothing is sent or claimed', async () => {
+      const { c, b } = await plainBatch();
+      expect((await r.batch(u.a, c, 'cancel', b.id)).state.statusCode).toBe(200);
+      const res = await callRoute(netcashSubmit, tokens[u.a]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+      expect(mocks.submitEftBatch).not.toHaveBeenCalled();
+      expect(await liveOnCancelled(c)).toBe(0);
+      expect((await pool.query('SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].n).toBe(0);
+    });
+
+    it('submit first, cancel started while it is parked: the cancel waits, is refused, and the batch is not left cancelled', async () => {
+      const { c, b } = await plainBatch();
+      mocks.submitEftBatch.mockResolvedValue({ success: true, outcome: 'accepted', batchReference: 'NC-PLAIN' });
+      let release!: () => void;
+      let entered!: () => void;
+      const inGate = new Promise<void>((res) => { entered = res; });
+      mocks.park = { entered, hold: new Promise<void>((res) => { release = res; }) };
+      const submitP = callRoute(netcashSubmit, tokens[u.a]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
+      await inGate;
+      const cancelP = r.batch(u.a, c, 'cancel', b.id);
+      const state = await Promise.race([cancelP.then(() => 'finished' as const), waitsOnBatchLock()]);
+      release();
+      const [sent, cancelled] = await Promise.all([submitP, cancelP]);
+      expect(state).toBe('waiting');
+      expect(sent.state.statusCode, JSON.stringify(sent.state.body)).toBe(200);
+      expect(cancelled.state.statusCode).toBeGreaterThanOrEqual(400);
+      expect(await liveOnCancelled(c)).toBe(0);
+      expect((await pool.query('SELECT status FROM supplier_payment_batches WHERE id = $1', [b.id])).rows[0].status).toBe('approved');
+    });
+  });
 });

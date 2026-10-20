@@ -15,6 +15,7 @@ import {
   type EFTBatchHeader, type EFTPayment,
 } from '@/modules/accounting/services/ap/eftService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
@@ -67,6 +68,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (respondIfApprovalRequired(res, err)) return;
     if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message);
     throw err;
+  }
+
+  // AP-01: a batch Netcash holds (submitted, pending, unknown...) is not paid a second time by bank file. Only a
+  // definitely rejected submission ('failed') frees it. A plain read: a pending claim mid-send must not stall this.
+  const heldByNetcash = await liveNetcashSubmission(companyId, String(batches[0].id));
+  if (heldByNetcash) {
+    return apiResponse.conflict(res,
+      `Batch ${String(batches[0].batch_number)} was sent to Netcash (submission ${heldByNetcash.id}, status ${heldByNetcash.status}), `
+      + 'so a bank file would pay it a second time. Check Netcash first; only a rejected submission frees the batch.',
+      { reason: 'BATCH_SENT_TO_NETCASH', submissionId: heldByNetcash.id, status: heldByNetcash.status });
   }
 
   // Get payments in batch — scoped to company via batch ownership already validated above.
