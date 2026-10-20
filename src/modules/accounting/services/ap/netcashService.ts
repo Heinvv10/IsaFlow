@@ -14,6 +14,8 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 
 const NETCASH_BASE_URL = 'https://api.netcash.co.za';
 const REQUEST_TIMEOUT_MS = 30_000;
+/** The only HTTP statuses that prove Netcash queued nothing: it refused the batch's fields. */
+const REJECTION_STATUSES = new Set([400, 422]);
 
 export interface NetcashPayment {
   accountHolder: string;
@@ -26,7 +28,9 @@ export interface NetcashPayment {
 /**
  * What is known about a submission once the request is out:
  *  - accepted: Netcash answered 2xx with a JSON body.
- *  - rejected: Netcash definitely refused it (a 4xx JSON answer, not 408) — nothing was queued, resubmitting is safe.
+ *  - rejected: Netcash definitely refused it: a 400 or 422 JSON answer (field validation) — nothing was queued,
+ *              resubmitting is safe. No other status proves that (409 may mean "already received"; 401/403/404/429
+ *              and the rest say nothing of the batch), and Netcash's documented status semantics are not in this repo.
  *  - unknown:  indeterminate — timeout/abort, network error, an unparseable answer or a 5xx. The batch may have been
  *              accepted, so it must NOT be resubmitted until Netcash has been checked.
  */
@@ -113,7 +117,7 @@ export async function submitEftBatch(
 
     if (!res.ok) {
       log.error('Netcash EFT submit failed', { status: res.status, body: json }, 'netcash');
-      if (json && res.status >= 400 && res.status < 500 && res.status !== 408) {
+      if (json && REJECTION_STATUSES.has(res.status)) {
         return { success: false, outcome: 'rejected', error: String(json.message ?? 'Netcash API error') };
       }
       return { success: false, outcome: 'unknown', error: String(json?.message ?? `Netcash answered HTTP ${res.status}`) };
