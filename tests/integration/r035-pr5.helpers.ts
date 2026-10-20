@@ -31,8 +31,9 @@ export async function payCompany(pool: Pool, members: [string, string][], compan
     `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,is_system_account,account_subtype)
      VALUES ($1,$2,'R035 AP','liability','credit',true,true,'payable')`, [company, `AP${tag}`]);
   const bank = (await pool.query(
-    `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype)
-     VALUES ($1,$2,'R035 Bank','asset','debit',true,'bank') RETURNING id`, [company, `BK${tag}`])).rows[0].id as string;
+    `INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,is_active,account_subtype,
+       bank_account_number,bank_branch_code)
+     VALUES ($1,$2,'R035 Bank','asset','debit',true,'bank','40000000001','250655') RETURNING id`, [company, `BK${tag}`])).rows[0].id as string;
   await pool.query(
     `INSERT INTO fiscal_periods(company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
      VALUES($1,'R035 2026',1,2026,'2026-01-01','2026-12-31','open')`, [company]);
