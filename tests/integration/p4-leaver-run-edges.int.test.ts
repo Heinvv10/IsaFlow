@@ -7,7 +7,9 @@
  *     carry the deduction);
  *   - an end date moved into a later month after an approved run paid the
  *     termination pay-outs does not pay them a second time;
- *   - December → January: the month boundary of the population query.
+ *   - month boundaries: an end date on the 1st, one in the next month for an
+ *     active, terminated (run recalculated after they left) or inactive
+ *     employee, and December → January.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -31,6 +33,10 @@ const stayer = crypto.randomUUID();
 const futureStarter = crypto.randomUUID();
 const staleWithLoan = crypto.randomUUID();
 const movedEnd = crypto.randomUUID();
+const leftFirst = crypto.randomUUID();
+const leftInApril = crypto.randomUUID();
+const leavingApril1 = crypto.randomUUID();
+const inactiveLater = crypto.randomUUID();
 const leftDec31 = crypto.randomUUID();
 const leftJan1 = crypto.randomUUID();
 
@@ -114,6 +120,12 @@ beforeAll(async () => {
     ])],
   );
 
+  await addEmployee(leftFirst, company, 'E-FIRST', '2020-01-01', '2026-03-01', 'terminated');
+  // The March run recalculated in April, after updatePayrollEmployee terminated them.
+  await addEmployee(leftInApril, company, 'E-APR5', '2020-01-01', '2026-04-05', 'terminated');
+  await addEmployee(leavingApril1, company, 'E-APR1', '2020-01-01', '2026-04-01', 'active');
+  await addEmployee(inactiveLater, company, 'E-INACTIVE', '2020-01-01', '2026-05-31', 'inactive');
+
   await addEmployee(leftDec31, janCompany, 'E-DEC31', '2020-01-01', '2026-12-31', 'terminated');
   await addEmployee(leftJan1, janCompany, 'E-JAN1', '2020-01-01', '2027-01-01', 'terminated');
   await pool.query(
@@ -169,6 +181,30 @@ describe('P4 edges: the March 2026 run', () => {
     expect(paid, 'March leaver missing from the run').toBeDefined();
     expect(paid!.component_breakdown.map(c => c.componentId)).toEqual([salary]);
     expect(paid!.validation_results.map(v => v.code)).toContain('TERMINATION_ALREADY_PAID');
+  });
+});
+
+describe('P4 edges: month boundaries', () => {
+  it('the March run pays a 1 March leaver', async () => {
+    await calculatePayrollRun(marchRun, company);
+    expect(await line(marchRun, leftFirst)).toBeDefined();
+  });
+
+  it('the March run, recalculated after a 5 April leaver was terminated, still pays their March salary', async () => {
+    await calculatePayrollRun(marchRun, company);
+    const paid = await line(marchRun, leftInApril);
+    expect(paid, 'April leaver dropped from the March run').toBeDefined();
+    expect(paid!.component_breakdown.map(c => c.componentId)).toEqual([salary]);
+  });
+
+  it('the March run pays an active employee leaving on 1 April', async () => {
+    await calculatePayrollRun(marchRun, company);
+    expect(await line(marchRun, leavingApril1)).toBeDefined();
+  });
+
+  it('the March run still leaves out an inactive employee whose end date is in May', async () => {
+    await calculatePayrollRun(marchRun, company);
+    expect(await line(marchRun, inactiveLater)).toBeUndefined();
   });
 });
 
