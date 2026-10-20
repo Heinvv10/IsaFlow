@@ -44,7 +44,7 @@ import type { McpTool, McpToolContext } from '@/lib/mcp/types';
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
 const ctx: McpToolContext = {
   userId: 'user-1',
-  companyId: COMPANY_ID,
+  companyId: COMPANY_ID, companyRole: 'owner',
   scopes: ['read:reports', 'write:bank-tx'],
   tokenJti: 'pat-1',
   oauthAppId: null,

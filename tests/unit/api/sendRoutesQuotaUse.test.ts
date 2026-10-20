@@ -109,7 +109,7 @@ async function unitsUsed(route: (typeof ROUTES)[number], shape: 'ok' | 'malforme
     quotaCharges: [{ kind: 'send', key: `send:${route.name}:co:${COMPANY}:day`, charged: 1, used: 0, windowStart: null }],
   };
   await als.run(ctx, async () => {
-    await route.handler({ query: {}, ...route[shape], companyId: COMPANY, user } as unknown as NextApiRequest, res());
+    await route.handler({ query: {}, companyRole: 'owner', ...route[shape], companyId: COMPANY, user } as unknown as NextApiRequest, res());
   });
   return ctx.quotaCharges![0]!.used;
 }
@@ -240,7 +240,7 @@ it('send-for-signing charges the company bucket after the document and signer ch
   const fs = (await import('fs/promises')).default;
 
   await (sendForSigningRoute as unknown as H)(
-    { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] }, companyId: COMPANY, user } as unknown as NextApiRequest,
+    { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] }, companyId: COMPANY, companyRole: 'owner', user } as unknown as NextApiRequest,
     res(),
   );
 
@@ -282,7 +282,7 @@ it('send-for-signing: a document with no rendered HTML leaves the company bucket
   const badRequest = vi.spyOn(apiResponse, 'badRequest');
 
   await (sendForSigningRoute as unknown as H)(
-    { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] }, companyId: COMPANY, user } as unknown as NextApiRequest,
+    { method: 'POST', query: { documentId: ID(3) }, body: { signerContactIds: [ID(4)] }, companyId: COMPANY, companyRole: 'owner', user } as unknown as NextApiRequest,
     res(),
   );
 

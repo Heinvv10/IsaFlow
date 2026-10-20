@@ -149,7 +149,7 @@ describe('MCP delete_cost_centre (L1)', () => {
   it('answers an FK-held delete with the refusal and leaves the transaction usable', async () => {
     const cc = await costCentre(pool, company, 'R-MCP');
     await journalLine(pool, ob, 'cc1_id', cc); // another tenant: only the FK sees it
-    const ctx = { companyId: company, userId: user, scopes: ['write:accounts'], tokenJti: 'j', oauthAppId: null } as unknown as McpToolContext;
+    const ctx = { companyId: company, userId: user, scopes: ['write:accounts'], companyRole: 'owner', tokenJti: 'j', oauthAppId: null } as unknown as McpToolContext;
     const out = await inRequest(pool, b, async (c) => ({
       result: await deleteCostCentreTool.handler({ cost_centre: cc, idempotency_key: 'k' }, ctx),
       after: (await c.query('SELECT 1 AS ok')).rows[0].ok,
@@ -160,7 +160,7 @@ describe('MCP delete_cost_centre (L1)', () => {
   });
 
   it('dry_run meets the same FK the live delete meets, and keeps everything (#683 round 2)', async () => {
-    const ctx = { companyId: company, userId: user, scopes: ['write:accounts'], tokenJti: 'j', oauthAppId: null } as unknown as McpToolContext;
+    const ctx = { companyId: company, userId: user, scopes: ['write:accounts'], companyRole: 'owner', tokenJti: 'j', oauthAppId: null } as unknown as McpToolContext;
     const held = await costCentre(pool, company, 'R-DRY-HELD');
     await journalLine(pool, ob, 'cc2_id', held);
     const free = await costCentre(pool, company, 'R-DRY-FREE');

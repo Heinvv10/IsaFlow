@@ -137,7 +137,7 @@ describeIfDb('late input VAT claim: reversal and cancel', () => {
 
   it('MCP cancel_supplier_invoice names the late claim it reverses, in the dry run and the live result', async () => {
     const { billId, companionId } = await lateBill();
-    const ctx = { companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-vlv', scopes: [] } as unknown as McpToolContext;
+    const ctx = { companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-vlv', scopes: [] } as unknown as McpToolContext;
     const text = (out: unknown) => (out as { content: { text: string }[] }).content[0]!.text;
     const dry = JSON.parse(text(await inTx(fx, () => cancelSupplierInvoiceTool.handler(
       { invoice_id: billId, idempotency_key: `dry-${companionId}`, dry_run: true }, ctx))));

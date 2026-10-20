@@ -36,7 +36,7 @@ const settle = (c: string, documentId: string, contra: string, amount: number, e
   inRequest(pool, a, c, () => registry.call('settle_by_contra', {
     subledger: 'ap', document_id: documentId, contra_account_id: contra, amount, reason: 'R035 netted',
     settlement_date: '2026-09-01', idempotency_key: crypto.randomUUID(), ...extra,
-  }, { userId: a, companyId: c, scopes: ['write:invoices', 'write:post'], tokenJti: 'r035-pr5', oauthAppId: null }));
+  }, { userId: a, companyId: c, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'r035-pr5', oauthAppId: null }));
 const text = (res: { content: { text: string }[] }) => res.content[0]!.text;
 
 async function fixture(opts: { enforced?: boolean; over?: number } = {}) {
@@ -97,7 +97,7 @@ describe('allocate_bank_transaction (D2)', () => {
        VALUES($1,$2,DATE '2026-09-01',-5000,'keyed','imported') RETURNING id`, [c, bank])).rows[0].id;
     const res = await inRequest(pool, a, c, () => registry.call('allocate_bank_transaction', {
       transaction_id: line, alloc_type: 'supplier', entity_id: supplierId, idempotency_key: crypto.randomUUID(),
-    }, { userId: a, companyId: c, scopes: ['write:bank-tx', 'write:post'], tokenJti: 'r035-pr5', oauthAppId: null }));
+    }, { userId: a, companyId: c, scopes: ['write:bank-tx', 'write:post'], companyRole: 'owner', tokenJti: 'r035-pr5', oauthAppId: null }));
     expect(res.isError).toBe(true);
     expect(text(res)).toMatch(/a bank line keyed by hand is no evidence the money left/);
     expect({ payments: await payments(c), journals: await journals(c) }).toEqual({ payments: 0, journals: 0 });
@@ -120,7 +120,7 @@ describe('apply_payment_to_supplier_invoice from a bank line (D2; round 2 advers
     'apply_payment_to_supplier_invoice', {
       bank_transaction_id: line, allocations: [{ invoice_id: bill, amount: 5000 }], dry_run: dry,
       idempotency_key: crypto.randomUUID(),
-    }, { userId: a, companyId: c, scopes: ['write:invoices', 'write:post'], tokenJti: 'r035-pr5', oauthAppId: null }));
+    }, { userId: a, companyId: c, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'r035-pr5', oauthAppId: null }));
 
   it('a hand-keyed line: the dry run refuses with the live call\'s own words, and nothing is written', async () => {
     const { c, bill, line } = await lineAndBill('manual');

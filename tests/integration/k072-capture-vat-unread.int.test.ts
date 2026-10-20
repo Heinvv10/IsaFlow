@@ -37,7 +37,7 @@ const company = crypto.randomUUID();
 const admin = crypto.randomUUID();
 const supplier = crypto.randomUUID();
 let adminToken = '';
-const ctx = { userId: admin, companyId: company, scopes: ['write:invoices', 'write:post'], tokenJti: 'jti', oauthAppId: null } as McpToolContext;
+const ctx = { userId: admin, companyId: company, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'jti', oauthAppId: null } as McpToolContext;
 
 /** A non-VAT vendor's bill: the model read no VAT, because none is printed — and (r34) the bill SAYS so. */
 const NO_VAT = {

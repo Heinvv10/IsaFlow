@@ -112,7 +112,7 @@ describeIfDisposable('P&L by dimension on a real ledger', () => {
   });
 
   it('profit_and_loss restricts by business_unit_id and cost_centre_id', async () => {
-    const ctx = { userId: f.user, companyId: f.a, scopes: ['read:reports'], tokenJti: null, oauthAppId: null } as McpToolContext;
+    const ctx = { userId: f.user, companyId: f.a, scopes: ['read:reports'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as McpToolContext;
     const call = async (args: Record<string, unknown>) => JSON.parse(
       (await profitAndLossTool.handler({ period_start: FROM, period_end: TO, ...args }, ctx)).content[0]!.text,
     ) as Record<string, unknown>;

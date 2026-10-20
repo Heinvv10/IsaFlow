@@ -22,6 +22,7 @@ import {
   OAUTH_SCOPES,
 } from '@/lib/auth/oauth';
 import { partitionRequestedScopes, buildGrantedScopes } from '@/lib/auth/consentScopes';
+import { scopesRoleMayNotHold } from '@/lib/auth/writeRoles';
 
 const VALID_SCOPES = new Set<string>(OAUTH_SCOPES);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -74,24 +75,38 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { autoGranted, optIn } = partitionRequestedScopes(scopes);
   const checked: Record<string, boolean> = {};
   for (const s of optInConfirmed) checked[s] = true;
-  const grantedScopes = buildGrantedScopes(autoGranted, optIn, checked);
+  const requestedGrant = buildGrantedScopes(autoGranted, optIn, checked);
 
   // Membership gate: never mint a code for a company the consenting user does
   // not belong to. body.companyId is client-supplied; withAuth only validated
   // req.companyId. (Defence-in-depth — the Bearer wrapper re-checks at use.)
+  let targetRole: string | null | undefined = req.companyRole;
   if (targetCompanyId !== req.companyId) {
     const member = (await sql`
-      SELECT 1 FROM company_users
+      SELECT role FROM company_users
       WHERE user_id = ${req.user.id}
         AND company_id = ${targetCompanyId}::uuid
       LIMIT 1
-    `) as unknown[];
+    `) as { role: string | null }[];
     if (member.length === 0) {
       log.warn('OAuth consent: companyId outside membership rejected', {
         userId: req.user.id, targetCompanyId,
       }, 'oauth');
       return apiResponse.error(res, ErrorCode.FORBIDDEN, 'Not a member of this company');
     }
+    targetRole = member[0]!.role;
+  }
+
+  // Role gate (audit 2026-10-18 S-01): a role that cannot write in the target company is granted the
+  // read scopes only. A client asks for everything, so dropping (not refusing) keeps a viewer able to
+  // connect read-only; the MCP registry judges the role again on every call.
+  const withheld = scopesRoleMayNotHold(targetRole, requestedGrant);
+  const grantedScopes = requestedGrant.filter((s) => !withheld.includes(s));
+  if (withheld.length > 0) {
+    log.info('OAuth consent: write scopes withheld for role', { userId: req.user.id, targetCompanyId, role: targetRole, withheld }, 'oauth');
+  }
+  if (withheld.length > 0 && grantedScopes.length === 0) {
+    return apiResponse.error(res, ErrorCode.FORBIDDEN, `Your role (${targetRole ?? 'unknown'}) in this company cannot grant ${withheld.join(', ')}.`);
   }
 
   const code = await createAuthorisationCode({
