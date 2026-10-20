@@ -41,9 +41,10 @@ export async function listPayrollEmployees(companyId: string): Promise<PayrollEm
 /**
  * The employees a run for (year, month) pays: every employee whose end_date
  * falls in the month, whatever their status (updatePayrollEmployee terminates
- * on an end date of today or earlier, and the final pay is still due), plus
- * active employees who have not left before the month. Nobody who starts after
- * the month. Audit 2026-10-18 P4.
+ * on an end date of today or earlier, and the final pay is still due); an
+ * active or terminated employee whose end_date is after the month (a run
+ * recalculated after they left); and active employees with no end_date.
+ * Nobody who starts after the month. Audit 2026-10-18 P4.
  */
 export async function listPayrollRunEmployees(
   companyId: string,
@@ -56,7 +57,8 @@ export async function listPayrollRunEmployees(
       AND e.start_date < p.start + INTERVAL '1 month'
       AND (
         (e.end_date >= p.start AND e.end_date < p.start + INTERVAL '1 month')
-        OR (e.status = 'active' AND (e.end_date IS NULL OR e.end_date >= p.start))
+        OR (e.end_date >= p.start + INTERVAL '1 month' AND e.status IN ('active', 'terminated'))
+        OR (e.end_date IS NULL AND e.status = 'active')
       )
     ORDER BY e.last_name, e.first_name
   `) as Row[];
