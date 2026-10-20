@@ -279,6 +279,43 @@ describe('C1 — approval judges the invoice as it is now', () => {
     expect(state).toBe('waiting');
   });
 
+  it('a write-off approved first leaves a draft receipt for the same balance refused at confirm', async () => {
+    const inv = await seedInvoice();
+    const wo = await draftWo(inv);
+    const receipt = await draftReceipt(inv);
+    expect((await act('approve', wo)).statusCode).toBe(200);
+    const before = await arCredited();
+
+    const refused = await confirmReceipt(receipt);
+
+    expect(refused.statusCode).toBe(400);
+    expect((await invoice(inv)).paid).toBe(TOTAL);
+    expect(await arCredited() - before).toBe(0);
+    expect(String((await pool.query('SELECT status FROM customer_payments WHERE id=$1', [receipt])).rows[0].status)).toBe('draft');
+  });
+
+  it('a receipt confirm that queues behind a parked approval neither deadlocks nor times out: one settles, one is refused', async () => {
+    const inv = await seedInvoice();
+    const wo = await draftWo(inv);
+    const receipt = await draftReceipt(inv);
+    const before = await arCredited();
+
+    const held = park('receivable-lookup');
+    const approveP = act('approve', wo); // holds the invoice row, parks before it posts
+    await held.entered;
+    const confirmP = confirmReceipt(receipt);
+    const state = await Promise.race([confirmP.then(() => 'finished' as const), waitsOnLock('')]);
+    held.release();
+    const [approved, confirmed] = await Promise.all([approveP, confirmP]);
+
+    expect((await invoice(inv)).paid).toBe(TOTAL);
+    expect(await arCredited() - before).toBe(TOTAL); // exactly one settlement posted
+    expect(approved.statusCode).toBe(200);
+    expect(confirmed.statusCode).toBe(400); // refused, not 503 (lock timeout) or 500 (deadlock)
+    expect(await woJournals(wo)).toBe(1);
+    expect(state).toBe('waiting');
+  });
+
   it('still approves a valid write-off: full balance -> paid and dated, part -> partially_paid', async () => {
     const full = await seedInvoice();
     const fullWo = await draftWo(full);
