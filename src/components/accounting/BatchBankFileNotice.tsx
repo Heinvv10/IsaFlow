@@ -27,6 +27,7 @@ export function BatchBankFileNotice({ batchId }: { batchId: string }) {
       await assertOk(res, 'Could not check the batch\'s bank file - try again');
       const json = await res.json() as { data?: { bankFile?: BankFile | null } };
       setFile(json.data?.bankFile ?? null);
+      setError(''); // a good read supersedes an earlier failure
     } catch (err) {
       setFile(null);
       setError(apiErrorMessage(err, 'Could not check the batch\'s bank file - try again'));
