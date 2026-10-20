@@ -48,8 +48,9 @@ afterAll(async () => {
 });
 
 describe('P3: a refused claim on the replace path', () => {
-  it('leaves the reversed journal linked, the run unapproved and the claim as it was', async () => {
-    const d = await approvedDirective(f, 10_000, 0.1, '2026-06-01');
+  it('leaves the reversed journal linked, the run unapproved and no claim', async () => {
+    // June is approved with no directive (severance awaiting), reopened and its journal reversed; the
+    // directive is approved after, so the recalculated June line carries it and approval makes a FRESH claim.
     const june = await createRunFor(f, 6);
     await calculateRun(f, june);
     expect((await approveRun(f, june)).statusCode).toBe(200);
@@ -57,7 +58,9 @@ describe('P3: a refused claim on the replace path', () => {
     const journal = String((await pool.query('SELECT journal_entry_id FROM payroll_run_headers WHERE id = $1', [june])).rows[0]!.journal_entry_id);
     const reversed = await f.call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { body: { id: journal, action: 'reverse' } });
     expect(reversed.statusCode).toBe(200);
-    const claimBefore = await directivePayments(pool, d);
+    const d = await approvedDirective(f, 10_000, 0.1, '2026-06-01');
+    await calculateRun(f, june);
+    expect(await directivePayments(pool, d)).toEqual([]);
 
     refuse.on = true;
     const outcome = await withAlsTransaction({ companyId: f.company, userId: f.admin }, async () => {
@@ -73,11 +76,12 @@ describe('P3: a refused claim on the replace path', () => {
     expect(outcome).toMatch(/^refused: .*meanwhile/);
     const header = (await pool.query('SELECT status, journal_entry_id FROM payroll_run_headers WHERE id = $1', [june])).rows[0];
     expect(header).toEqual({ status: 'calculated', journal_entry_id: journal });
-    expect(await directivePayments(pool, d)).toEqual(claimBefore);
+    expect(await directivePayments(pool, d)).toEqual([]); // the claim made before the refusal is undone
 
     // Not refused: the same approval goes through onto a fresh journal.
     expect((await approveRun(f, june)).statusCode).toBe(200);
     const after = (await pool.query('SELECT journal_entry_id FROM payroll_run_headers WHERE id = $1', [june])).rows[0]!.journal_entry_id;
     expect(after).not.toBe(journal);
+    expect(await directivePayments(pool, d)).toHaveLength(1);
   });
 });

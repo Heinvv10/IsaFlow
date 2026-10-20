@@ -53,19 +53,20 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
       grossPay += amount;
       if (component.isUifApplicable) uifLeviable += amount;
       if (component.isSdlApplicable) sdlLeviable += amount;
-      if (!component.isTaxable) continue;
       const treatment = payeTreatment(component.sarsSourceCode);
+      // Any lump-sum earning, taxable flag or not: para 9(3) of the Fourth
+      // Schedule requires the directive before a lump sum is paid at all.
+      if (treatment === 'lump_sum' && !directive) {
+        warnings.push({
+          code: 'LUMP_SUM_WITHOUT_DIRECTIVE',
+          severity: 'warning',
+          message: `${component.name} (code ${component.sarsSourceCode}, R ${amount.toFixed(2)}) is a lump sum, which SARS taxes only at the figures on a tax directive, `
+            + 'so no PAYE was deducted from it. Obtain the directive before paying it.',
+        });
+      }
+      if (!component.isTaxable) continue;
       if (treatment === 'lump_sum') {
-        if (directive) {
-          directivePaye += directive.paye;
-        } else {
-          warnings.push({
-            code: 'LUMP_SUM_WITHOUT_DIRECTIVE',
-            severity: 'warning',
-            message: `${component.name} (code ${component.sarsSourceCode}, R ${amount.toFixed(2)}) is a lump sum, which SARS taxes only at the figures on a tax directive, `
-              + 'so no PAYE was deducted from it. Obtain the directive before paying it.',
-          });
-        }
+        if (directive) directivePaye += directive.paye;
       } else if (treatment === 'annual') {
         annualPayments += amount;
       } else {

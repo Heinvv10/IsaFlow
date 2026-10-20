@@ -8,6 +8,7 @@
  *   TERMINATION_ALREADY_PAID      another approved or paid run paid the pay-outs (P4).
  *   SEVERANCE_AWAITING_DIRECTIVE  severance is due and no directive is approved: left out.
  *   SEVERANCE_PAID_BY_DIRECTIVE   the directive was paid elsewhere: not paid again.
+ *   SEVERANCE_DIRECTIVE_UNPAYABLE an approved directive's tax figure is below nil or above the gross.
  *   SEVERANCE_DIRECTIVE_MISMATCH  the directive's gross differs from the calculated severance;
  *                                 the directive's figures are paid (decided 2026-10-20).
  *   SEVERANCE_CAPTURED_AS_COMPONENT  the line already pays a hand-made 39xx component: the
@@ -87,7 +88,7 @@ async function severanceByDirective(
   warnings: ValidationResult[],
   components: EmployeeComponent[] = [],
 ): Promise<EmployeeComponent[]> {
-  const { available, paidElsewhere } = await findSeveranceDirectiveForRun(companyId, employee.id, runId, period);
+  const { available, paidElsewhere, unpayable } = await findSeveranceDirectiveForRun(companyId, employee.id, runId, period);
   const handMade = components.find(c => c.component.componentType === 'earning' && payeTreatment(c.component.sarsSourceCode) === 'lump_sum');
   if (available && handMade) {
     warnings.push({
@@ -110,7 +111,14 @@ async function severanceByDirective(
     }
     return [severanceDirectiveComponent(available)];
   }
-  if (paidElsewhere) {
+  if (unpayable) {
+    warnings.push({
+      code: 'SEVERANCE_DIRECTIVE_UNPAYABLE',
+      severity: 'warning',
+      message: `Severance for ${who(employee)} is not paid: its approved SARS directive ${unpayable.number ?? unpayable.id} carries a tax figure `
+        + 'below nil or above the gross. Correct the directive; the first run after that pays the severance.',
+    });
+  } else if (paidElsewhere) {
     warnings.push({
       code: 'SEVERANCE_PAID_BY_DIRECTIVE',
       severity: 'warning',

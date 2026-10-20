@@ -105,6 +105,12 @@ describe('P3: a lump sum (39xx) is never taxed by the tables', () => {
     expect(l.validationResults.map(v => v.code)).toContain('LUMP_SUM_WITHOUT_DIRECTIVE');
   });
 
+  it('flagged not taxable, it still warns: a lump sum needs a directive before it is paid at all', () => {
+    const l = line([{ component: comp('3601'), amount: 20_000 }, { component: comp('3901', { isTaxable: false }), amount: 50_000 }]);
+    expect(l.validationResults.map(v => v.code)).toContain('LUMP_SUM_WITHOUT_DIRECTIVE');
+    expect(l.payeSplit.directive).toBe(0);
+  });
+
   it("with a directive it carries the directive's PAYE, untouched", () => {
     const l = line([
       { component: comp('3601'), amount: 20_000 },

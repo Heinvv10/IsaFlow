@@ -101,7 +101,11 @@ async function readDirectives(q: TxSql | typeof sql, companyId: string, ids: str
   return new Map(rows.map(r => [String(r.id), r]));
 }
 
-/** Employee numbers and codes of taxable lump sums (39xx) the run pays with no directive. */
+/**
+ * Employee numbers and codes of lump sums (39xx, income codes only) the run pays
+ * with no directive, taxable flag or not — the same rule as the calculator's
+ * LUMP_SUM_WITHOUT_DIRECTIVE and payrollRunTermination's hand-made check.
+ */
 async function lumpSumsWithoutDirective(companyId: string, runId: string): Promise<string[]> {
   const rows = (await sql`
     SELECT DISTINCT e.employee_number, item->>'sarsSourceCode' AS code
@@ -111,7 +115,6 @@ async function lumpSumsWithoutDirective(companyId: string, runId: string): Promi
     CROSS JOIN LATERAL jsonb_array_elements(l.component_breakdown) AS item
     WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
       AND item->>'sarsSourceCode' ~ '^39[0-9]{2}$'
-      AND (item->>'isTaxable')::boolean
       AND item->'directive' IS NULL
     ORDER BY 1, 2
   `) as DbRow[];

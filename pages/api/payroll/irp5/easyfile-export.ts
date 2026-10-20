@@ -22,6 +22,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import {
   buildIrp5File,
   buildCertificateNumber,
+  splitCertificateIncome,
   UsageError,
   type EmployerInput,
   type EmployeeInput,
@@ -163,9 +164,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     if (gross <= 0) continue; // skip non-active employees
 
     const lumpSums = lumpSumsByEmployee.get(String(row.id)) ?? [];
-    const lumpGross = lumpSums.reduce((t, l) => t + l.amount, 0);
-    const lumpPaye = lumpSums.reduce((t, l) => t + l.paye, 0);
-    const annual3605 = annualByEmployee.get(String(row.id)) ?? 0;
+    const split = splitCertificateIncome({
+      gross, paye: Number(agg.total_paye ?? 0), annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums,
+    });
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
@@ -183,9 +184,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentStartDate: certStartDate,
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
-      grossSalary3601: Math.round((gross - lumpGross - annual3605) * 100) / 100,
-      annualPayments3605: annual3605,
-      paye4102: Math.round((Number(agg.total_paye ?? 0) - lumpPaye) * 100) / 100,
+      ...split,
       lumpSums: lumpSums.map(l => ({
         sourceCode: l.sourceCode,
         directiveNumber: l.directiveNumber ?? '',
