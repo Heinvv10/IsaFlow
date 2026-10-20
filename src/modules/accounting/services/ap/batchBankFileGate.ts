@@ -1,8 +1,8 @@
 /**
  * The approval gate in front of a batch's BANK FILE (R-035 PR5): the EFT file
  * (eft-generate) and the Netcash submission (netcash/submit) are money
- * leaving, and neither checked the batch at all. Enforcement off: unchanged,
- * no lock taken.
+ * leaving, and neither checked the batch at all. Enforcement off: no lock
+ * taken, and only a cancelled or reversed batch is refused (AP-10).
  *
  * Under payment_batch enforcement a batch is sent only when (round 1 LOW f)
  * its status says it was approved (approved, or processed — its file may be
@@ -17,17 +17,25 @@ import { sql } from '@/lib/neon';
 import { isEnforced } from '../gl/approvalEnforcement';
 import { assertApprovalCleared } from '../gl/approvalGate';
 
+/** Statuses of a batch that was called off: never sent, whatever the enforcement switch says. */
+const DEAD_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'reversed']);
+
 /** A batch whose status says nobody approved it, under enforcement. Routes answer 409; raised before any write. */
 export class BatchNotSendableError extends Error {
   readonly code = 'BATCH_NOT_SENDABLE';
   constructor(readonly batchStatus: string) {
-    super(`Batch is ${batchStatus}, so it cannot be sent to the bank: approve it first.`);
+    super(DEAD_STATUSES.has(batchStatus)
+      ? `Batch is ${batchStatus}, so it cannot be sent to the bank.`
+      : `Batch is ${batchStatus}, so it cannot be sent to the bank: approve it first.`);
     this.name = 'BatchNotSendableError';
   }
 }
 
 /** Throws BatchNotSendableError or ApprovalRequiredError unless the batch may be sent to the bank now. */
 export async function assertBatchMayBeSent(companyId: string, batchId: string, batchStatus: string): Promise<void> {
+  // AP-10: before the enforcement early-return. A cancelled batch's payments are cancelled and its bills freed; a
+  // reversed one was paid and its journal undone — sending either to the bank pays money no ledger records.
+  if (DEAD_STATUSES.has(batchStatus)) throw new BatchNotSendableError(batchStatus);
   if (!(await isEnforced(companyId, 'payment_batch'))) return;
   // FOR SHARE, in id order, held to the end of the request: a bank-detail edit
   // (updateSupplier locks the supplier FOR UPDATE) waits for the file, or the
