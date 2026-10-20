@@ -102,9 +102,8 @@ async function fetchOpeningBalances(companyId: string, beforeDate: string): Prom
       -- earnings, so its balance is reported in that column whatever its subtype.
       CASE WHEN EXISTS (
         SELECT 1 FROM afs_account_mappings am
-        JOIN afs_statement_lines sl ON sl.code = am.afs_line_code AND sl.company_id = am.company_id
         WHERE am.company_id = ${companyId}::UUID AND am.gl_account_id = ga.id
-          AND am.afs_line_code = ${DIVIDENDS_PAID_CODE} AND sl.is_active = true) THEN ${RETAINED_EARNINGS}
+          AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}) THEN ${RETAINED_EARNINGS}
         ELSE COALESCE(ga.account_subtype, ${RETAINED_EARNINGS}) END AS account_subtype,
       COALESCE(SUM(jl.credit - jl.debit), 0)::numeric  AS balance
     FROM gl_journal_lines jl
@@ -143,9 +142,8 @@ async function fetchMovements(
       -- An equity account on IS484 "Dividends paid": its movements are dividends (see fetchOpeningBalances).
       EXISTS (
         SELECT 1 FROM afs_account_mappings am
-        JOIN afs_statement_lines sl ON sl.code = am.afs_line_code AND sl.company_id = am.company_id
         WHERE am.company_id = ${companyId}::UUID AND am.gl_account_id = ga.id
-          AND am.afs_line_code = ${DIVIDENDS_PAID_CODE} AND sl.is_active = true) AS is_dividends,
+          AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}) AS is_dividends,
       COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS amount
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id

@@ -38,9 +38,12 @@ export async function generateChangesInEquity(
 
   // Credit-positive like the other columns, so a dividend paid reduces equity. The derived profit lands on
   // BS045, or on BSACCPL when the taxonomy has no BS045 (derivedAccumulatedProfit), and so do the dividends.
-  const showDividends = dividendsPaid !== 0;
-  const dividendsOn = (l: SectionLine): number =>
-    (l.code === ACCUMULATED_PROFIT_CODE || l.code === DERIVED_ACCUMULATED_PROFIT_CODE ? -dividendsPaid : 0);
+  const isAccumulated = (l: SectionLine): boolean =>
+    l.code === ACCUMULATED_PROFIT_CODE || l.code === DERIVED_ACCUMULATED_PROFIT_CODE;
+  // No accumulated-profit row (a taxonomy with neither BS045 nor a total equity line): the SFP carries neither the
+  // derived profit nor the dividends, so the column is not shown rather than shown as zeros.
+  const showDividends = dividendsPaid !== 0 && equityLines.some(isAccumulated);
+  const dividendsOn = (l: SectionLine): number => (isAccumulated(l) ? -dividendsPaid : 0);
   const rows: string[][] = equityLines.map((l) => [
     l.label,
     fmt(-l.priorAmount),
