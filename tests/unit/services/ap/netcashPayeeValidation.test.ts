@@ -15,7 +15,7 @@ describe('validateNetcashPayees', () => {
   });
 
   it('refuses an account over 11 digits, naming the payment', () => {
-    expect(errorsFor({ accountNumber: '123456789012' })).toEqual(['Payment 2: Account number must be 1 to 11 digits']);
+    expect(errorsFor({ accountNumber: '123456789012' })).toEqual(['Payment 2: Account number must be at most 11 digits']);
   });
 
   it('refuses non-digits and empty values', () => {
