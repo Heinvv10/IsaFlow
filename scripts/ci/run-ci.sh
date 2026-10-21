@@ -40,6 +40,9 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${GITHUB_EVENT_NAME:-}" = "push" ] &
     exit 0
   fi
 fi
+# Only the merge check needs the API token; no gate below (PR-authored tests
+# included) sees it.
+unset CI_READ_TOKEN
 run_step "type-check"        bun run type-check
 # `tsconfig.json` excludes `tests/**`, so a FIXTURE may omit a required field
 # of the model it claims to be and neither `tsc --noEmit` nor vitest notices.

@@ -11,6 +11,7 @@ const P1 = '1'.repeat(40);
 const P2 = '2'.repeat(40);
 const HEAD = '3'.repeat(40);
 const REPO = 'Heinvv10/IsaFlow';
+const BRANCH = 'fix/s06-capture-key-standing-20261021';
 const ENV = { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/master', GITHUB_REPOSITORY: REPO };
 const EVENT = { before: P1, after: HEAD, forced: false };
 
@@ -39,8 +40,8 @@ function fakeGit(over: Partial<GitState> = {}): Git {
 const greenJobs = REQUIRED_JOBS.map((name) => ({ name, status: 'completed', conclusion: 'success', head_sha: P2 }));
 type ApiState = { pr: Record<string, unknown>; runs: Array<Record<string, unknown>>; jobs: Record<string, Array<Record<string, unknown>>> };
 const GOOD_API: ApiState = {
-  pr: { merged: true, merge_commit_sha: HEAD, head: { sha: P2 }, base: { ref: 'master' } },
-  runs: [{ id: 7, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2 }],
+  pr: { merged: true, merge_commit_sha: HEAD, head: { sha: P2, ref: BRANCH }, base: { ref: 'master' } },
+  runs: [{ id: 7, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH }],
   jobs: { 7: greenJobs },
 };
 
@@ -63,7 +64,7 @@ describe('decide', () => {
   });
 
   it('a rerun attempt counts: a later run of the same head can carry the green jobs', async () => {
-    const runs = [{ id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2 }, ...GOOD_API.runs];
+    const runs = [{ id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH }, ...GOOD_API.runs];
     expect((await decide(ENV, EVENT, fakeGit(), fakeApi({ runs, jobs: { 8: [greenJobs[0]!], 7: greenJobs } }))).tested).toBe(true);
   });
 
@@ -82,6 +83,10 @@ describe('decide', () => {
     ['a hand-made merge subject', () => decide(ENV, EVENT, fakeGit({ subject: "Merge branch 'x'" }), fakeApi()), /is not "Merge pull request/],
     ['the PR is not merged', () => decide(ENV, EVENT, fakeGit(), fakeApi({ pr: { ...GOOD_API.pr, merged: false } })), /not merged/],
     ['the PR targeted another base', () => decide(ENV, EVENT, fakeGit(), fakeApi({ pr: { ...GOOD_API.pr, base: { ref: 'dev' } } })), /not merged into master/],
+    ['the PR has no head branch', () => decide(ENV, EVENT, fakeGit(), fakeApi({ pr: { ...GOOD_API.pr, head: { sha: P2 } } })), /no head branch/],
+    ['a green run of the same sha from another branch (another PR, another base)', () => decide(ENV, EVENT, fakeGit(), fakeApi({
+      runs: [{ ...GOOD_API.runs[0], head_branch: 'feat/stacked' }],
+    })), /no pull_request CI run for .* from fix\/s06/],
     ['the PR head is not the second parent', () => decide(ENV, EVENT, fakeGit(), fakeApi({ pr: { ...GOOD_API.pr, head: { sha: P1 } } })), /is not the second parent/],
     ['the PR merge commit is not HEAD', () => decide(ENV, EVENT, fakeGit(), fakeApi({ pr: { ...GOOD_API.pr, merge_commit_sha: P1 } })), /is not HEAD/],
     ['no pull_request run at all', () => decide(ENV, EVENT, fakeGit(), fakeApi({ runs: [] })), /no pull_request CI run/],
@@ -90,7 +95,7 @@ describe('decide', () => {
     ['quality still running', () => decide(ENV, EVENT, fakeGit(), fakeApi({ jobs: { 7: [{ ...greenJobs[0]!, status: 'in_progress', conclusion: null }, greenJobs[1]!] } })), /green/],
     ['quality failed', () => decide(ENV, EVENT, fakeGit(), fakeApi({ jobs: { 7: [{ ...greenJobs[0]!, conclusion: 'failure' }, greenJobs[1]!] } })), /green/],
     ['required jobs green in different runs only', () => decide(ENV, EVENT, fakeGit(), fakeApi({
-      runs: [...GOOD_API.runs, { id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2 }],
+      runs: [...GOOD_API.runs, { id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH }],
       jobs: { 7: [greenJobs[0]!], 8: [greenJobs[1]!] },
     })), /green/],
     ['jobs for another sha', () => decide(ENV, EVENT, fakeGit(), fakeApi({ jobs: { 7: greenJobs.map((j) => ({ ...j, head_sha: P1 })) } })), /green/],
@@ -118,6 +123,10 @@ describe('main (fail safe)', () => {
   it.each([
     ['an API error', fakeGit(), (async () => { throw new Error('GET x: HTTP 403'); }) as Api, event],
     ['a git error', (() => { throw new Error('fatal: bad revision'); }) as Git, fakeApi(), event],
+    ['merge-base failing other than "not an ancestor" (shallow clone, exit 128)', ((args: string[]) => {
+      if (args[0] === 'merge-base') throw Object.assign(new Error('fatal: no merge base'), { status: 128 });
+      return fakeGit()(args);
+    }) as Git, fakeApi(), event],
     ['an unreadable event', fakeGit(), fakeApi(), () => { throw new Error('ENOENT'); }],
     ['an event that is not JSON', fakeGit(), fakeApi(), () => '{'],
   ])('runs everything on %s', async (_label, git, api, readEvent) => {
