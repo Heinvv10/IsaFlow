@@ -37,4 +37,7 @@ async function main(): Promise<void> {
   process.exit(failed ? 1 : 0);
 }
 
-void main();
+main().catch((err: unknown) => {
+  process.stderr.write(`live check failed: ${err instanceof Error ? err.stack : String(err)}\n`);
+  process.exit(2);
+});
