@@ -50,7 +50,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
-import { EPS, planGreedyAllocations, round2 } from './autoAllocateStrategy';
+import { EPS, invoiceFloor, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import {
   UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate,
   undoApplication, writeApplication,
@@ -76,7 +76,8 @@ export function deriveCreditNoteStatus(
   appliedAmount: number,
   totalAmount: number,
 ): 'approved' | 'partially_applied' | 'applied' {
-  if (appliedAmount <= EPS) return 'approved';
+  // A note that consumed a whole cent is not 'approved'.
+  if (round2(appliedAmount) <= 0) return 'approved';
   if (appliedAmount >= round2(totalAmount) - EPS) return 'applied';
   return 'partially_applied';
 }
@@ -182,7 +183,7 @@ export async function applyCreditNote(args: {
     const amount = linkedIsApplicable
       ? round2(Math.min(totalAmount, linked.outstanding))
       : 0;
-    if (amount > EPS) {
+    if (amount > invoiceFloor(side)) {
       lines.push({ invoiceId: linkedInvoiceId, amount });
       consumed = amount;
     } else if (!linkedIsApplicable) {

@@ -116,6 +116,11 @@ describe('skipReasonForInvoice', () => {
     expect(skipReasonForInvoice(open, INV_OK, 250)).toBeNull();
   });
 
+  it('a cent still owing is not settled: the invoice takes that cent; nothing owing is settled', () => {
+    expect(skipReasonForInvoice({ ...open, outstanding: 0.01 }, INV_OK, 0.01)).toBeNull();
+    expect(skipReasonForInvoice({ ...open, outstanding: 0 }, INV_OK, 0.01)).toMatch(/already settled/);
+  });
+
   it('refuses an over-allocation, quoting both figures', () => {
     const r = skipReasonForInvoice(open, INV_OK, 600);
     expect(r).toMatch(/R600\.00 exceeds the R500\.00 outstanding on invoice INV-1/);

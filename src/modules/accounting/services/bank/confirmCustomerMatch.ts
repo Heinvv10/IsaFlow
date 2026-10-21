@@ -36,7 +36,7 @@ import {
   confirmReceiptMatch,
   validateBankReceiptApplication,
 } from '../ar/receiptMatchConfirmService';
-import { EPS, round2 } from '../ar/receiptAllocationLines';
+import { round2 } from '../ar/receiptAllocationLines';
 import { isReceiptHeldRow, isReceiptRefusal, isRetryableReceiptRefusal } from '../ar/receiptRefusal';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { refuseLineOfCompletedReconciliation } from './reconciledCash';
@@ -91,7 +91,8 @@ export async function confirmCustomerInvoiceMatch(
 
   const inv = invRows[0]!;
   const outstanding = round2(Number(inv.total_amount) - Number(inv.amount_paid || 0));
-  if (outstanding <= EPS) {
+  // Whole cents (outstanding is round2'd): an invoice owing one cent is 'partially_paid' and still takes cash.
+  if (outstanding <= 0) {
     return { ok: false, kind: 'refused', message: 'This customer invoice is already fully paid.' };
   }
 

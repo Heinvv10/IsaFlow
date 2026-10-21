@@ -25,6 +25,15 @@
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
 export const EPS = 0.01;
 
+/**
+ * The amount at or below which an INVOICE has nothing to take, and a credit-note line is not written. Customer
+ * invoices are exact: a CHECK caps `amount_paid`, and a cent owing reads 'partially_paid', so a note may clear it.
+ * Supplier bills keep the cent tolerance: no CHECK, and `recomputeInvoiceStatus` still reads a cent owing as settled.
+ */
+export function invoiceFloor(side: 'customer' | 'supplier'): number {
+  return side === 'customer' ? 0 : EPS;
+}
+
 export const AUTO_ALLOCATE_STRATEGIES = ['off', 'oldest', 'newest'] as const;
 export type AutoAllocateStrategy = (typeof AUTO_ALLOCATE_STRATEGIES)[number];
 
