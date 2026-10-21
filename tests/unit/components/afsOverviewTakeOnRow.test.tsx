@@ -1,8 +1,8 @@
 /**
  * PR #768 rounds 5-6: the SOCE's "Balances taken on" row is shown only for a
  * period a take-on posted in — at least a cent, since summed postings leave
- * float residue (1e-12) that is not a take-on — and the Opening Balance Equity
- * column carries its name, not its subtype key.
+ * float residue (1e-12) that is not a take-on. The column labels come from
+ * the service and are tested there (changesInEquityTakeOn.test.ts).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -31,12 +31,10 @@ const report = (columns: ReturnType<typeof column>[]) => ({
 const serve = (r: ReturnType<typeof report>) => script((u) => (u.includes('changes-in-equity') ? ok({ report: r }) : new Response('', { status: 500 })));
 
 describe('AFS overview: changes in equity', () => {
-  it('shows the take-on row, and the OBE column by name, when a take-on posted', async () => {
+  it('shows the take-on row when a take-on posted', async () => {
     serve(report([column('retained_earnings', 'Retained Earnings', 23000), column('opening_balance_equity', 'Opening Balance Equity', 2000)]));
     render(<AfsOverviewTab documentId="d1" periodStart="2026-01-01" periodEnd="2026-12-31" />);
     expect(await screen.findByText('Balances taken on')).toBeTruthy();
-    expect(screen.getByText('Opening Balance Equity')).toBeTruthy();
-    expect(screen.queryByText('opening_balance_equity')).toBeNull();
   });
 
   it('hides the row for float residue below a cent', async () => {

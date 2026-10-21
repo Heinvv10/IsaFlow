@@ -73,6 +73,16 @@ describe('the review', () => {
     expect(review.profitAndLossNote).toMatch(/October 2026/);
   });
 
+  // Round 7 (Hein): dividends in the take-on are a balance carried in, on both paths.
+  it.each([
+    ['years matching', emptyCompany],
+    ['years apart', { ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } }],
+  ])('with the %s, the note says dividends before the cut-over come across as a balance, and this year\'s AFS needs them from Sage', (_n, ctx) => {
+    const note = toReview(buildSageTakeOn(sageFixture(), ctx)).profitAndLossNote;
+    expect(note).toMatch(/Dividends paid before 2026-10-21 come across as a balance taken on/);
+    expect(note).toMatch(/annual financial statements need them from Sage/);
+  });
+
   it('with the years apart, the note says this year\'s profit to date goes into equity', () => {
     const folded = toReview(buildSageTakeOn(sageFixture(), { ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } }));
     expect(folded.profitAndLossNote).toMatch(/profit to date of R38\D000\D00 .*Retained Earnings/);

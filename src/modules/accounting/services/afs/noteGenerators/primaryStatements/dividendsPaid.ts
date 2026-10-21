@@ -18,6 +18,7 @@
 
 import { sql } from '@/lib/neon';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { TAKE_ON_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/takeOnJournalSource';
 
 /** The taxonomy's "Dividends paid" line. */
 export const DIVIDENDS_PAID_CODE = 'IS484';
@@ -28,7 +29,7 @@ export const DIVIDENDS_PAID_CODE = 'IS484';
  * `paidOnly` leaves out a CREDIT to a dividends account whose journal also DEBITS a retained-earnings account:
  * clearing the dividends account into retained earnings, alone or inside a larger adjusting journal. That is for
  * the statement of changes in equity, where the transfer is not a distribution and must not cancel the dividends
- * paid. Every debit counts (a dividend declared in the same year-end journal), and so does a distribution
+ * paid; and it leaves out a take-on journal's postings (gl/takeOnJournalSource), a balance carried in. Every debit counts (a dividend declared in the same year-end journal), and so does a distribution
  * credited to any other account, a members' current account included. Never for the SFP, which needs the
  * account's real balance (the retained-earnings side is read on its own line). Named limit: a dividend REVERSED
  * in a journal that also debits retained earnings is read as clearing.
@@ -50,6 +51,10 @@ export async function fetchDividendsPaid(
       AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}
       AND (${from}::date IS NULL OR je.entry_date >= ${from}::date)
       AND je.entry_date <= ${through}::date
+      -- Dividends PAID in the period: a take-on journal carries them in as a balance, not as this period's
+      -- distribution (gl/takeOnJournalSource; the report SOCE shows them as taken on). The SFP (paidOnly false)
+      -- needs the balance, whatever posted it.
+      AND (NOT ${paidOnly}::boolean OR je.source IS DISTINCT FROM ${TAKE_ON_JOURNAL_SOURCE})
       AND (NOT ${paidOnly}::boolean OR jl.credit = 0 OR NOT EXISTS (
         SELECT 1 FROM gl_journal_lines o JOIN gl_accounts oa ON oa.id = o.gl_account_id AND oa.company_id = ${companyId}::uuid
         WHERE o.journal_entry_id = je.id AND o.company_id = ${companyId}::uuid
