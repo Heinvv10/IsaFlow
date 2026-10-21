@@ -27,6 +27,7 @@ type PortalHandler = (req: any, res: NextApiResponse<any>) => any;
  * On failure: returns 401 with PORTAL_AUTH_REQUIRED, or PORTAL_AUTH_INVALID
  * for a bad token AND for a session whose company is no longer live or whose
  * contact was deactivated since sign-in (the JWT lasts 8 hours; audit S-08).
+ * The attached session carries the contact's CURRENT role.
  */
 export function withPortalAuth(handler: PortalHandler): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse) => {
@@ -49,7 +50,8 @@ export function withPortalAuth(handler: PortalHandler): NextApiHandler {
         });
       }
 
-      if (!(await isPortalSessionInStanding(session))) {
+      const liveRole = await portalSessionStanding(session);
+      if (!liveRole) {
         log.warn('Portal auth: company not live or contact inactive', {
           url: req.url, companyId: session.companyId, contactId: session.contactId,
         }, 'portalAuth');
@@ -59,7 +61,8 @@ export function withPortalAuth(handler: PortalHandler): NextApiHandler {
         });
       }
 
-      (req as PortalApiRequest).portalSession = session;
+      // The contact's role as it is now, not as it was at sign-in.
+      (req as PortalApiRequest).portalSession = { ...session, role: liveRole };
       return handler(req, res);
     } catch (err) {
       log.error(
@@ -76,12 +79,12 @@ export function withPortalAuth(handler: PortalHandler): NextApiHandler {
 }
 
 // The same live-company test sign-in applies, re-read on every request, and
-// the contact still active on that company.
-async function isPortalSessionInStanding(session: PortalSession): Promise<boolean> {
-  if ((await listLiveCompanies([session.companyId])).length === 0) return false;
+// the contact still active on that company: its current role, or null.
+async function portalSessionStanding(session: PortalSession): Promise<PortalSession['role'] | null> {
+  if ((await listLiveCompanies([session.companyId])).length === 0) return null;
   const rows = (await sql`
-    SELECT 1 AS ok FROM portal_contacts
+    SELECT role FROM portal_contacts
     WHERE id = ${session.contactId}::UUID AND company_id = ${session.companyId}::UUID AND active = true
-  `) as Record<string, unknown>[];
-  return rows.length > 0;
+  `) as Array<{ role: PortalSession['role'] }>;
+  return rows[0]?.role ?? null;
 }
