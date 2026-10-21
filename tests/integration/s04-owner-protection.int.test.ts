@@ -144,7 +144,7 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
           bHoldsLock();
           await held; // B holds the owner lock, A's demotion uncommitted
         }, cb);
-        await locked;
+        await Promise.race([locked, demoteA]); // a throwing holder fails here, not at the timeout
         const aActs = asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', OWNER_A), ca);
         await aWaits();
         commitDemotion();
@@ -205,7 +205,7 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
           promoted();
           await held; // keep the promotion uncommitted while the admin starts
         }, co);
-        await written;
+        await Promise.race([written, promotion]); // a throwing holder fails here, not at the timeout
         const demotion = asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', ADMIN), ca);
         await adminWaits();
         commitPromotion();
