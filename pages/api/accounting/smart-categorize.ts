@@ -19,6 +19,7 @@ import {
   smartCategorizeForAccount,
   learnFromAllocation,
 } from '@/modules/accounting/services/core/smartCategorizationService';
+import { categorizeSweepScope } from '@/modules/accounting/services/core/categorizeSweepScope';
 import { sweep, getAutoPostSettings } from '@/modules/accounting/services/bank/autoPostGateService';
 import { sql } from '@/lib/neon';
 import { runAfterCommit } from '@/lib/afterCommit';
@@ -86,14 +87,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           if (bankAccountId) {
             const result = await smartCategorizeForAccount(companyId, bankAccountId);
 
-            // Derive affected tx ids for the residual pass
-            const acctRows = (await sql`
-              SELECT id FROM bank_transactions
-              WHERE company_id = ${companyId}::UUID
-                AND bank_account_id = ${bankAccountId}::UUID
-                AND status = 'imported'
-            `) as Array<{ id: string }>;
-            const affectedTxIds = acctRows.map((r) => r.id);
+            // The residual pass looks only at the lines this sweep took (categorizeSweepScope.ts), never the
+            // whole account.
+            const affectedTxIds = result.results.map((r) => r.transactionId);
 
             const candidateRows = (await sql`
               SELECT id, status,
@@ -123,6 +119,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           // Otherwise, categorize specific transaction IDs
           if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
             return apiResponse.badRequest(res, 'transactionIds array or bankAccountId required');
+          }
+          const { maxLines } = categorizeSweepScope();
+          if (transactionIds.length > maxLines) {
+            return apiResponse.badRequest(res, `At most ${maxLines} transactionIds per request`);
           }
           const result = await bulkCategorize(companyId, transactionIds);
           const categorizedIds = result.results.filter((r) => r.result).map((r) => r.transactionId);
