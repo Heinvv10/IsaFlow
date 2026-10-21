@@ -124,9 +124,10 @@ async function lockTargetRole(
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`company_owners:${companyId}`}, 0))`;
   const actor = (await sql`
     SELECT role FROM company_users
-    WHERE company_id = ${companyId}::UUID AND user_id = ${actorUserId}
+    WHERE company_id = ${companyId}::UUID AND lower(user_id) = lower(${actorUserId})
   `) as DbRow[];
-  if (actor[0]?.role !== 'owner') throw new OwnerProtectedError();
+  // By person, as the member role guard counts owners (lower-cased ids).
+  if (!actor.some((r) => r.role === 'owner')) throw new OwnerProtectedError();
   return role;
 }
 

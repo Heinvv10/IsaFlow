@@ -117,6 +117,11 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
     expect(await roleOf(OWNER_B)).toBe('admin');
   });
 
+  it("recognises the caller as owner whatever the case of their id, as the member guard does", async () => {
+    await asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_B, 'admin', OWNER_A.toUpperCase()));
+    expect(await roleOf(OWNER_B)).toBe('admin');
+  });
+
   it('lets an owner remove another owner when two exist', async () => {
     await asMember(OWNER_A, () => removeCompanyUser(COMPANY, OWNER_B, OWNER_A));
     expect(await roleOf(OWNER_B)).toBeNull();
