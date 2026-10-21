@@ -100,7 +100,10 @@ describe('BureauSharingConsent', () => {
     expect(screen.getByText(SHARING_CONSENT_STATUS_LABEL)).toBeTruthy();
     expect(screen.getByText(/appear at 5 or more ISAFlow client companies/)).toBeTruthy();
     expect(screen.getByText(/past and future coding/)).toBeTruthy();
-    expect(screen.getByText(/never posts them automatically/)).toBeTruthy();
+    expect(screen.getByText(/will never post them automatically/)).toBeTruthy();
+    // Nothing pools until PR 2: the intro says what will happen, not what does.
+    expect(screen.getByText(/When pooled suggestions are available/)).toBeTruthy();
+    expect(screen.getByText(/Nothing is pooled yet/)).toBeTruthy();
   });
 
   it('the owner can switch it on', () => {
@@ -108,6 +111,16 @@ describe('BureauSharingConsent', () => {
     render(<BureauSharingConsent {...base} canEdit onChange={onChange} />);
     fireEvent.click(screen.getByRole('switch'));
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it('each change names who made it, keyed by its row (two changes in one second both render)', () => {
+    const at = '2026-10-21T08:00:00.000Z';
+    render(<BureauSharingConsent {...base} canEdit history={[
+      { id: 'a1', changedAt: at, actorName: 'Thandi Mokoena', oldValue: true, newValue: false },
+      { id: 'a2', changedAt: at, actorName: null, oldValue: false, newValue: true },
+    ]} />);
+    expect(screen.getByText(/switched on to off by Thandi Mokoena/)).toBeTruthy();
+    expect(screen.getByText(/switched off to on by a user no longer on ISAFlow/)).toBeTruthy();
   });
 
   it('anyone else sees a disabled switch and why', () => {

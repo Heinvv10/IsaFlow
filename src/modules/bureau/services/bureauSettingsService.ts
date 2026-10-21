@@ -4,19 +4,22 @@
  *
  * Runs on the RLS-bypassing pool like every bureau service (no company context; bureau_audit_log is
  * deny-all to app_user by design, see 904's header). Authority:
- *   - read: any bureau member (the route checks bureau_users first);
- *   - change: the bureau OWNER only — bureau_users.role = 'owner', re-checked INSIDE the write transaction
- *     with the bureau row locked, so a role removed between the route's check and the write cannot slip a
- *     change through, and two owners toggling at once serialize and each audit row reads the true old value.
+ *   - read: any bureau member (the route checks bureauService.getBureauRole first);
+ *   - change: the bureau OWNER only — bureaus.owner_user_id (getBureauRole explains why that column),
+ *     re-checked INSIDE the write transaction with the bureau row locked, so an ownership change between the
+ *     route's check and the write cannot slip a change through, and two toggles at once serialize and each
+ *     audit row reads the true old value.
  * A no-op change (same value) writes nothing and is reported `changed: false`.
  */
 
 import { sql, withTransaction } from '@/lib/neon';
-import type { BureauRole } from './bureauService';
 
 export interface BureauSettingChange {
+  id: string;
   changedAt: string;
   actorUserId: string;
+  /** The actor's name, else email; null when the user no longer exists. Shown to bureau members only. */
+  actorName: string | null;
   oldValue: boolean | null;
   newValue: boolean;
 }
@@ -30,14 +33,6 @@ export type SetSharingResult =
   | { kind: 'forbidden' }
   | { kind: 'ok'; changed: boolean; oldValue: boolean; newValue: boolean };
 
-/** The caller's role in the bureau, or null when not a member. */
-export async function getBureauRole(userId: string, bureauId: string): Promise<BureauRole | null> {
-  const rows = (await sql`
-    SELECT role FROM bureau_users WHERE bureau_id = ${bureauId}::UUID AND user_id = ${userId} LIMIT 1
-  `) as Array<{ role: BureauRole }>;
-  return rows[0]?.role ?? null;
-}
-
 const asBool = (v: unknown): boolean | null => (v === true ? true : v === false ? false : null);
 
 export async function getBureauSharingSetting(bureauId: string, historyLimit = 10): Promise<BureauSharingSetting | null> {
@@ -46,16 +41,24 @@ export async function getBureauSharingSetting(bureauId: string, historyLimit = 1
   `) as Array<{ share_merchant_patterns: boolean }>;
   if (rows.length === 0) return null;
   const history = (await sql`
-    SELECT created_at, actor_user_id, old_value, new_value FROM bureau_audit_log
-    WHERE bureau_id = ${bureauId}::UUID AND setting = 'share_merchant_patterns'
-    ORDER BY created_at DESC, id DESC
+    SELECT a.id, a.created_at, a.actor_user_id, a.old_value, a.new_value,
+           COALESCE(NULLIF(btrim(concat_ws(' ', u.first_name, u.last_name)), ''), u.email) AS actor_name
+    FROM bureau_audit_log a
+    LEFT JOIN users u ON u.id = a.actor_user_id
+    WHERE a.bureau_id = ${bureauId}::UUID AND a.setting = 'share_merchant_patterns'
+    ORDER BY a.created_at DESC, a.id DESC
     LIMIT ${historyLimit}
-  `) as Array<{ created_at: Date | string; actor_user_id: string; old_value: unknown; new_value: unknown }>;
+  `) as Array<{
+    id: string; created_at: Date | string; actor_user_id: string; old_value: unknown; new_value: unknown;
+    actor_name: string | null;
+  }>;
   return {
     shareMerchantPatterns: rows[0]!.share_merchant_patterns === true,
     history: history.map((h) => ({
+      id: String(h.id),
       changedAt: new Date(h.created_at).toISOString(),
       actorUserId: String(h.actor_user_id),
+      actorName: h.actor_name ?? null,
       oldValue: asBool(h.old_value),
       newValue: asBool(h.new_value) ?? false,
     })),
@@ -70,9 +73,8 @@ export async function setBureauSharingSetting(opts: {
     const rows = (await tx`
       SELECT b.share_merchant_patterns
       FROM bureaus b
-      JOIN bureau_users bu ON bu.bureau_id = b.id AND bu.user_id = ${opts.actorUserId} AND bu.role = 'owner'
-      WHERE b.id = ${opts.bureauId}::UUID
-      FOR UPDATE OF b
+      WHERE b.id = ${opts.bureauId}::UUID AND b.owner_user_id = ${opts.actorUserId}
+      FOR UPDATE
     `) as Array<{ share_merchant_patterns: boolean }>;
     if (rows.length === 0) return { kind: 'forbidden' } as const;
     const oldValue = rows[0]!.share_merchant_patterns === true;

@@ -1,13 +1,15 @@
 /**
  * Migration 904: bureau_audit_log is deny-all to app_user (no policy, no privilege) and append-only for
- * every role; bureaus.share_merchant_patterns defaults to off; the owner-only toggle writes exactly one
- * audit row per change and refuses accountants and viewers in the database join; pool eligibility follows
- * decision 3 (no bureau -> out; every linked bureau must opt in).
+ * every role, and outlives its bureau (the consent record); bureaus.share_merchant_patterns defaults to off;
+ * the owner-only toggle (owner = bureaus.owner_user_id) writes exactly one audit row per change and refuses
+ * accountants, viewers and a stale bureau_users 'owner' row; pool eligibility follows decision 3 (no bureau
+ * -> out; every linked bureau must opt in).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asUser, pool, seedCompany, seedUser, teardownCompanies, type Co } from './learning-loop.helpers';
-import { setBureauSharingSetting } from '../../src/modules/bureau/services/bureauSettingsService';
+import { getBureauSharingSetting, setBureauSharingSetting } from '../../src/modules/bureau/services/bureauSettingsService';
+import { getBureauRole } from '../../src/modules/bureau/services/bureauService';
 import {
   listPoolEligibleCompanyIds, loadCompanyPoolEligibility,
 } from '../../src/modules/bureau/services/poolEligibility';
@@ -21,8 +23,11 @@ let owner = '';
 let accountant = '';
 let viewer = '';
 let owner2 = '';
+let staleOwner = '';
+let rowlessOwner = '';
 const bureau1 = crypto.randomUUID();
 const bureau2 = crypto.randomUUID();
+const bureau3 = crypto.randomUUID(); // its owner has no bureau_users row
 
 async function auditRows(bureauId: string) {
   return (await pool.query<{ actor_user_id: string; old_value: boolean; new_value: boolean }>(
@@ -37,20 +42,25 @@ beforeAll(async () => {
   accountant = await seedUser([]);
   viewer = await seedUser([]);
   owner2 = await seedUser([]);
-  await pool.query('INSERT INTO bureaus (id, name, owner_user_id) VALUES ($1, $2, $3), ($4, $5, $6)',
-    [bureau1, '904 Bureau One', owner, bureau2, '904 Bureau Two', owner2]);
+  staleOwner = await seedUser([]);
+  rowlessOwner = await seedUser([]);
+  await pool.query('INSERT INTO bureaus (id, name, owner_user_id) VALUES ($1, $2, $3), ($4, $5, $6), ($7, $8, $9)',
+    [bureau1, '904 Bureau One', owner, bureau2, '904 Bureau Two', owner2, bureau3, '904 Bureau Three', rowlessOwner]);
+  // staleOwner: an 'owner' row in bureau_users that is not bureaus.owner_user_id (a hand-made transfer).
   await pool.query(
     `INSERT INTO bureau_users (bureau_id, user_id, role) VALUES
-       ($1, $2, 'owner'), ($1, $3, 'accountant'), ($1, $4, 'viewer'), ($5, $6, 'owner')`,
-    [bureau1, owner, accountant, viewer, bureau2, owner2]);
+       ($1, $2, 'owner'), ($1, $3, 'accountant'), ($1, $4, 'viewer'), ($5, $6, 'owner'), ($1, $7, 'owner')`,
+    [bureau1, owner, accountant, viewer, bureau2, owner2, staleOwner]);
   await pool.query('INSERT INTO bureau_companies (bureau_id, company_id) VALUES ($1, $2), ($1, $3), ($4, $3)',
     [bureau1, co.id, shared.id, bureau2]);
 });
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM bureaus WHERE id = ANY($1::uuid[])', [[bureau1, bureau2]]); // cascades its audit rows
-    await teardownCompanies([co.id, solo.id, shared.id], [owner, accountant, viewer, owner2]);
+    // The audit rows stay: append-only for every role and no FK to cascade (the consent record outlives the
+    // bureau). This is a disposable fixture database.
+    await pool.query('DELETE FROM bureaus WHERE id = ANY($1::uuid[])', [[bureau1, bureau2, bureau3]]);
+    await teardownCompanies([co.id, solo.id, shared.id], [owner, accountant, viewer, owner2, staleOwner, rowlessOwner]);
   } finally {
     await pool.end();
   }
@@ -69,6 +79,19 @@ describe('setBureauSharingSetting (real owner join)', () => {
     expect(await auditRows(bureau1)).toEqual([]);
   });
 
+  it('a stale bureau_users "owner" row (not bureaus.owner_user_id) is refused, and reads as accountant', async () => {
+    expect(await setBureauSharingSetting({ bureauId: bureau1, actorUserId: staleOwner, value: true })).toEqual({ kind: 'forbidden' });
+    expect(await getBureauRole(staleOwner, bureau1)).toBe('accountant');
+    expect(await auditRows(bureau1)).toEqual([]);
+  });
+  it('bureaus.owner_user_id with no bureau_users row is the owner, not locked out', async () => {
+    expect(await getBureauRole(rowlessOwner, bureau3)).toBe('owner');
+    expect(await setBureauSharingSetting({ bureauId: bureau3, actorUserId: rowlessOwner, value: true }))
+      .toMatchObject({ kind: 'ok', changed: true });
+    expect(await getBureauRole(owner, bureau3)).toBeNull();
+    expect(await getBureauRole(accountant, bureau1)).toBe('accountant');
+    expect(await getBureauRole(owner, bureau1)).toBe('owner');
+  });
   it('the owner of another bureau is refused here', async () => {
     expect(await setBureauSharingSetting({ bureauId: bureau1, actorUserId: owner2, value: true })).toEqual({ kind: 'forbidden' });
   });
@@ -79,6 +102,12 @@ describe('setBureauSharingSetting (real owner join)', () => {
     expect(await setBureauSharingSetting({ bureauId: bureau1, actorUserId: owner, value: true }))
       .toMatchObject({ kind: 'ok', changed: false });
     expect(await auditRows(bureau1)).toEqual([{ actor_user_id: owner, old_value: false, new_value: true }]);
+  });
+  it('the history names each change by its row id and its actor', async () => {
+    const setting = await getBureauSharingSetting(bureau1);
+    expect(setting!.history).toHaveLength(1);
+    expect(setting!.history[0]).toMatchObject({ actorUserId: owner, actorName: `${owner}@test.local`, newValue: true });
+    expect(setting!.history[0]!.id).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
 
@@ -101,14 +130,14 @@ describe('bureau_audit_log: append-only for every role', () => {
     expect(await auditRows(bureau1)).toHaveLength(1);
   });
 
-  it('a deleted bureau takes its history with it', async () => {
+  it('the consent record outlives a deleted bureau, and still cannot be deleted', async () => {
     const temp = crypto.randomUUID();
     await pool.query('INSERT INTO bureaus (id, name, owner_user_id) VALUES ($1, $2, $3)', [temp, '904 temp', owner]);
     await pool.query("INSERT INTO bureau_users (bureau_id, user_id, role) VALUES ($1, $2, 'owner')", [temp, owner]);
     await setBureauSharingSetting({ bureauId: temp, actorUserId: owner, value: true });
-    expect(await auditRows(temp)).toHaveLength(1);
     await pool.query('DELETE FROM bureaus WHERE id = $1', [temp]);
-    expect(await auditRows(temp)).toEqual([]);
+    expect(await auditRows(temp)).toEqual([{ actor_user_id: owner, old_value: false, new_value: true }]);
+    await expect(pool.query('DELETE FROM bureau_audit_log WHERE bureau_id = $1', [temp])).rejects.toMatchObject({ code: '42501' });
   });
 });
 

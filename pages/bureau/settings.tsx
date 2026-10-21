@@ -13,7 +13,9 @@ import { ArrowLeft, Briefcase, Loader2, AlertCircle } from 'lucide-react';
 import { BureauSharingConsent } from '@/components/bureau/BureauSharingConsent';
 
 interface BureauRef { id: string; name: string; role: 'owner' | 'accountant' | 'viewer' }
-interface SettingChange { changedAt: string; actorUserId: string; oldValue: boolean | null; newValue: boolean }
+interface SettingChange {
+  id: string; changedAt: string; actorUserId: string; actorName: string | null; oldValue: boolean | null; newValue: boolean;
+}
 interface BureauSettings { shareMerchantPatterns: boolean; canEdit: boolean; history: SettingChange[] }
 
 export default function BureauSettingsPage() {
