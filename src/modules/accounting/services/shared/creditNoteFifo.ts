@@ -206,7 +206,7 @@ export async function applyCreditNote(args: {
     const rest = candidates
       .filter((id) => id !== linkedInvoiceId && locked.has(id))
       .map((id) => ({ invoiceId: id, outstanding: locked.get(id)!.outstanding }));
-    for (const planned of planGreedyAllocations(remaining, rest)) {
+    for (const planned of planGreedyAllocations(remaining, rest, invoiceFloor(side))) {
       lines.push({ invoiceId: planned.invoiceId, amount: planned.amount });
       consumed = round2(consumed + planned.amount);
     }
