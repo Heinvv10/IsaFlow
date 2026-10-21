@@ -198,9 +198,6 @@ export interface ContraDocument {
   status: string;
 }
 
-/** A cent. */
-const EPS = 0.01;
-
 const UNSETTLEABLE = new Set(['cancelled', 'draft']);
 
 /**
@@ -253,7 +250,9 @@ export async function loadContraDocument(
   const totalAmount = Number(row.total_amount);
   const amountPaid = Number(row.amount_paid ?? 0);
   const outstanding = round2(totalAmount - amountPaid);
-  if (amount > outstanding + EPS) {
+  // Whole cents, no tolerance (899): a cent through here is a 23514 on
+  // customer_invoices_amount_paid_within_total once the receipt is confirmed.
+  if (round2(amount) > outstanding) {
     throw new Error(
       `R${amount.toFixed(2)} exceeds the R${outstanding.toFixed(2)} outstanding on invoice `
       + `${number}.`,

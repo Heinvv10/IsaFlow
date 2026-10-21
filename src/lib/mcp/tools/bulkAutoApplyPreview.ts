@@ -34,6 +34,7 @@ import {
   type SimulationLine,
 } from '@/modules/accounting/services/shared/autoApplySimulation';
 import type { ResolvedLine } from './bulkAllocationPrepare';
+import { invoiceFloor } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 
 type EntityKind = 'supplier' | 'customer';
 
@@ -164,6 +165,7 @@ export async function previewBatchApplications(
       cash: Math.abs(line.signedAmount ?? 0),
       oldestFirst: oldestFirstByEntity.get(key) ?? true,
       documentId: target.documentId,
+      floor: invoiceFloor(target.kind),
     });
   }
 

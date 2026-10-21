@@ -181,3 +181,42 @@ describe('importARInvoices — R-119: a swapped LEG passes the drift check and m
     expect(mockCreateJournalEntry).not.toHaveBeenCalled();
   });
 });
+
+describe('importARInvoices — 899: a take-on row may not be paid beyond its total', () => {
+  it('refuses amountPaid above totalAmount by file row, before the INSERT, and says where the excess belongs', async () => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: CUSTOMER_ID, name: 'Acme Corp' }])
+      .mockResolvedValueOnce([{ source_system: 'sage' }]);
+
+    const result = await importARInvoices(
+      COMPANY_ID, SESSION_ID, [{ ...invoiceRow, amountPaid: 1150.01 }], USER_ID,
+    );
+
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.errors.map((e) => e.message).join(' ')).toMatch(/paid .* exceeds .*total/i);
+    expect(result.errors[0]!.row).toBe(0);
+    expect(mockCreateJournalEntry).not.toHaveBeenCalled();
+    const insertCalls = mockSql.mock.calls.filter((c) =>
+      String((c as [readonly string[]])[0]?.join?.('') ?? '').includes('INSERT INTO customer_invoices'));
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it('still imports a row paid exactly to its total', async () => {
+    mockSql
+      .mockResolvedValueOnce([]) // pg_advisory_xact_lock
+      .mockResolvedValueOnce([]) // steps_completed
+      .mockResolvedValueOnce([{ id: CUSTOMER_ID, name: 'Acme Corp' }])
+      .mockResolvedValueOnce([{ source_system: 'sage' }])
+      .mockResolvedValueOnce([{ id: INVOICE_ID }]);
+
+    const result = await importARInvoices(
+      COMPANY_ID, SESSION_ID, [{ ...invoiceRow, amountPaid: 1150 }], USER_ID,
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.imported).toBe(1);
+  });
+});

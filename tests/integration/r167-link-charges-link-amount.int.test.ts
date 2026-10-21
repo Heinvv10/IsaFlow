@@ -20,6 +20,7 @@ import {
   seedCompany, verify,
 } from './r167-portal-links.helpers';
 import { spendPaymentLinkOfRequest } from '@/modules/accounting/services/ar/portalLinkCharge';
+import { restoreAmountPaidCheck } from './helpers/amountPaidCheck';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -45,7 +46,7 @@ beforeAll(async () => {
   clearSystemAccountCache();
 });
 beforeEach(() => { h.charged.length = 0; h.verifyTransaction.mockReset(); });
-afterAll(async () => { vi.unstubAllEnvs(); await cleanupCompany(); });
+afterAll(async () => { vi.unstubAllEnvs(); try { await cleanupCompany(); } finally { await restoreAmountPaidCheck(); } });
 
 describe('create charges the link amount, capped at the balance', () => {
   it.each([
