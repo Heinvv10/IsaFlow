@@ -128,7 +128,13 @@ beforeEach(() => {
   });
 });
 
-const CHALLENGE_RE = /^Bearer realm="IsaFlow MCP", resource_metadata="https:\/\/app\.isaflow\.co\.za\/\.well-known\/oauth-protected-resource"$/;
+// FB-2: the challenge carries the read-only default scope set (MCP 2025-11-25
+// SHOULD), after realm and resource_metadata, which stay as they were.
+const CHALLENGE_RE = new RegExp(
+  '^Bearer realm="IsaFlow MCP", ' +
+  'resource_metadata="https://app\\.isaflow\\.co\\.za/\\.well-known/oauth-protected-resource", ' +
+  'scope="read:reports read:invoices read:contacts read:bank-tx read:vat read:payroll read:practice offline_access"$',
+);
 
 describe('withBearerAuth — strict Bearer only', () => {
   it('no Authorization header → 401 with the WWW-Authenticate challenge', async () => {
@@ -204,6 +210,17 @@ describe('withBearerAuth — strict Bearer only', () => {
     expect(res.statusCode).toBe(403);
     expect(handler).not.toHaveBeenCalled();
     expect(res.headers['www-authenticate']).toBeUndefined();
+  });
+
+  // FB-3: a browser client must be able to read the challenge.
+  it('401 carries CORS headers and exposes WWW-Authenticate', async () => {
+    for (const headers of [{}, { authorization: 'Bearer tok_nope' }]) {
+      const res = makeRes();
+      await withBearerAuth(vi.fn())(makeReq(headers) as never, res);
+      expect(res.statusCode).toBe(401);
+      expect(res.headers['access-control-allow-origin']).toBe('*');
+      expect(String(res.headers['access-control-expose-headers'])).toContain('WWW-Authenticate');
+    }
   });
 
   it('challenge origin follows NEXT_PUBLIC_APP_URL', async () => {

@@ -93,6 +93,7 @@ describe('customer-invoice writers', () => {
   it('approveCustomerInvoice — the gated posting path — is called by exactly the classified callers', () => {
     expect(matching(/\bapproveCustomerInvoice\(/)).toEqual([
       'pages/api/accounting/customer-invoices-detail.ts', // POST approve: 409 via respondIfApprovalRequired
+      'scripts/sandbox/reviewerSandboxBooks.ts', // the fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
       'src/lib/mcp/tools/writeBulkFinalizeInvoices.ts', // bulk: pre-read skip + racedReason approval_required
       'src/lib/mcp/tools/writeInvoices.ts', // finalize_invoice: pre-read refusal (Q6)
       'src/modules/accounting/services/ar/customerInvoiceApprovalService.ts', // the definition: assertApprovalCleared under the lock

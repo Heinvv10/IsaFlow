@@ -26,6 +26,10 @@ export function ConsentRedirectTarget({ redirectUri }: { redirectUri: string }) 
         */}
         {target.kind === 'web' ? (
           <span className="font-medium text-slate-200 break-all">{target.host}</span>
+        ) : target.kind === 'native' ? (
+          <span className="font-medium text-slate-200">
+            {target.appLabel} ({target.target})
+          </span>
         ) : (
           <span className="font-medium text-slate-200">
             a program on this computer — IsaFlow cannot tell you which one

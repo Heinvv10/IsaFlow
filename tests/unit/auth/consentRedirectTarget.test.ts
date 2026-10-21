@@ -56,12 +56,25 @@ describe('describeRedirectTarget', () => {
     }
   });
 
+  // FB-1: the one native-app URI registration accepts is named, because the
+  // allowlist says which app it belongs to.
+  it('names the app for an allowlisted native redirect', () => {
+    expect(describeRedirectTarget('cursor://anysphere.cursor-mcp/oauth/callback')).toEqual({
+      kind: 'native',
+      appLabel: 'the Cursor app on this computer',
+      target: 'cursor://anysphere.cursor-mcp',
+    });
+  });
+
   // Registration refuses these, so they cannot come from a registered app.
   // Saying nothing is the safe rendering.
   it('says nothing for anything else', () => {
     for (const uri of [
       'http://evil.example/cb', // plain http, non-loopback
       'ftp://example.com/cb',
+      'myapp://cb', // unlisted custom scheme
+      'cursor://evil/oauth/callback', // listed scheme, unlisted authority
+      'cursor://anysphere.cursor-mcp/oauth/callback?x=1',
       'javascript:alert(1)',
       'not a url',
       '',

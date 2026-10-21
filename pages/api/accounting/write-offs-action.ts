@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDate';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
@@ -15,6 +16,7 @@ import { UUID } from '@/lib/schemas/common';
 import {
   approveWriteOff,
   cancelWriteOff,
+  WriteOffInvoiceRefusedError,
   WriteOffNotApprovableError,
 } from '@/modules/accounting/services/ar/writeOffService';
 import { DocumentCurrencyError } from '@/modules/accounting/services/shared/documentCurrency';
@@ -50,12 +52,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, { status: 'cancelled' });
     }
   } catch (err) {
+    // The invoice or write-off row is held past the 5s budget: 503 (rolls back), not the generic 500.
+    if (respondIfLockTimeout(res, err)) return;
     log.error('Write-off action failed', { error: err }, 'accounting-api');
     // Only refusals raised BEFORE the first posting may be answered with a 4xx:
     // `withAuth` COMMITs anything below 500, so the blanket badRequestFromError
     // this replaced committed a half-approved write-off — a posted journal with
     // the invoice not updated — and reported it as a 400.
-    if (err instanceof WriteOffNotApprovableError) {
+    if (err instanceof WriteOffNotApprovableError || err instanceof WriteOffInvoiceRefusedError) {
       return apiResponse.conflict(res, err.message);
     }
     // FX PR0: a foreign invoice, refused before the claim.
