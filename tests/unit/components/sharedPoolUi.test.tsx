@@ -43,7 +43,12 @@ describe('Merchant Categories page', () => {
     { code: 'fuel', label: 'Fuel', poolable: true, mapping: { glAccountId: 'a1', accountCode: '6100', accountName: 'Fuel', source: 'auto' } },
     { code: 'salaries', label: 'Salaries & wages', poolable: false, mapping: null },
   ];
-  const accounts = [{ id: 'a1', accountCode: '6100', accountName: 'Fuel' }, { id: 'a2', accountCode: '6200', accountName: 'Telephone' }];
+  const accounts = [
+    { id: 'a1', accountCode: '6100', accountName: 'Fuel' }, { id: 'a2', accountCode: '6200', accountName: 'Telephone' },
+    { id: 'h1', accountCode: '6000', accountName: 'Operating Expenses' },
+    { id: 'a3', accountCode: '6010', accountName: 'Old Sub', parentAccountId: 'h1', isActive: false },
+    { id: 'a4', accountCode: '6300', accountName: 'Closed', isActive: false },
+  ];
 
   function serve() {
     apiFetch.mockImplementation(async (url: string, init?: { body?: string }) => {
@@ -59,6 +64,31 @@ describe('Merchant Categories page', () => {
     expect(await screen.findByText('Auto-mapped by account name')).toBeTruthy();
     expect(screen.getByText('Never shared with other clients')).toBeTruthy();
     expect((screen.getByLabelText('Fuel') as HTMLSelectElement).value).toBe('a1');
+  });
+
+  it('offers active posting accounts only: no header (even one whose children are all inactive), no inactive account', async () => {
+    serve();
+    render(<MerchantCategoriesPage />);
+    const options = [...(await screen.findByLabelText('Fuel') as HTMLSelectElement).options].map((o) => o.value);
+    expect(options).toEqual(['', 'a1', 'a2']);
+  });
+
+  it('says that mapped coding counts toward other clients\' suggestions when the bureau shares', async () => {
+    serve();
+    render(<MerchantCategoriesPage />);
+    expect(await screen.findByText(/your coding on mapped accounts also counts \(anonymously\) toward these suggestions for other ISAFlow clients/)).toBeTruthy();
+  });
+
+  it('flags an account two categories map to as not shared', async () => {
+    const both = [
+      { code: 'telephone', label: 'Telephone', poolable: true, mapping: { glAccountId: 'a2', accountCode: '6200', accountName: 'Telephone', source: 'auto' } },
+      { code: 'internet', label: 'Internet', poolable: true, mapping: { glAccountId: 'a2', accountCode: '6200', accountName: 'Telephone', source: 'manual' } },
+      ...categories,
+    ];
+    apiFetch.mockImplementation(async (url: string) => (url.startsWith('/api/accounting/chart-of-accounts') ? ok(accounts) : ok({ listVersion: 1, categories: both })));
+    render(<MerchantCategoriesPage />);
+    expect(await screen.findAllByText('Not shared: this account is mapped to more than one category')).toHaveLength(2);
+    expect(screen.getByText('Auto-mapped by account name')).toBeTruthy(); // fuel, on its own account
   });
 
   it('saves a pick for one category', async () => {
