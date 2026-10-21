@@ -6,7 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
@@ -149,11 +149,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // not ride in this request's transaction: withAuth rolls that back on any >=500, a crash or a timeout, and the claim
   // of a batch that may already be paid would go with it.
   const principal = { companyId, claims: (req.user?.claims ?? {}) as Record<string, unknown> };
-  const claim = await claimBatch(principal, {
+  const claimed = await claimBatch(principal, {
     batchId: batchPaymentId, batchReference, totalAmountCents,
     recordCount: payments.length, createdBy,
   });
-  if (!claim) return respondBatchAlreadyClaimed(res, companyId, batchPaymentId);
+  if (claimed.kind === 'held') return respondBatchAlreadyClaimed(res, companyId, batchPaymentId);
+  if (claimed.kind === 'busy') return respondSendBusy(res, claimed.reason);
+  const { claim } = claimed;
   const claimId = claim.id;
 
   // The claim's connection holds its send lock (ap/netcashSendLock) from before the claim committed until the settle
@@ -239,6 +241,17 @@ function respondClaimLost(res: NextApiResponse, claimId: string, result: Netcash
       + 'the batch stays closed. Check Netcash for this batch.'
     : `This submission was resolved by an operator (now ${settled.status}) while it was being sent, so Netcash's answer `
       + `(${result.outcome}) was not applied. Check Netcash for this batch before doing anything else.`, details);
+}
+
+/** Refused before anything was claimed or sent (ap/netcashSendCapacity, the send lock): safe to try again. */
+function respondSendBusy(res: NextApiResponse, reason: 'sends' | 'connection' | 'lock'): void {
+  if (reason === 'lock') {
+    return apiResponse.conflict(res, 'Another Netcash send is in progress on this server. Nothing was sent - try again in a moment.',
+      { reason: 'NETCASH_SEND_LOCK_BUSY' });
+  }
+  return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE,
+    'Another Netcash send is in progress, or the server is busy. Nothing was sent - try again in a moment.',
+    { reason: reason === 'sends' ? 'NETCASH_SENDS_BUSY' : 'NETCASH_CONNECTION_BUSY' });
 }
 
 /** 409 naming the submission that holds the batch (the live row the claim ran into). */

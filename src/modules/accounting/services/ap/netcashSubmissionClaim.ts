@@ -16,8 +16,10 @@
  * commits and released after the settle: netcash/resolve refuses while it is
  * held, so a stalled or paused sender keeps its claim. It costs one connection
  * per send in flight for up to the send timeout - the claim and settle used one
- * each before. A connection that cannot be unlocked is destroyed, never pooled
- * with the lock on it; a dead process or connection drops the lock by itself.
+ * each before - so sends are capped and the checkout bounded (netcashSendCapacity:
+ * refused before anything is claimed). A connection that cannot be unlocked is
+ * destroyed, never pooled with the lock on it; a dead process or connection drops
+ * the lock by itself.
  *
  * A claim left 'pending' (the process died between the send and the settle, or
  * the settle failed) blocks resubmission exactly like 'unknown': it is in the
@@ -30,6 +32,8 @@ import { getPool } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { NETCASH_SEND_LOCK_CLASS } from './netcashSendLock';
+import { connectWithin, takeSendSlot } from './netcashSendCapacity';
+import { CLAIM_CONNECTION_TIMEOUT_MS } from './netcashTimeouts';
 
 export interface ClaimPrincipal {
   companyId: string;
@@ -53,7 +57,9 @@ export interface ClaimSettlement {
 }
 
 /** The claim's connection: whether it holds the send lock, and whether it must be destroyed rather than pooled. */
-interface ClaimConnection { client: PoolClient; locked: boolean; unusable: boolean; ended: boolean; onError: (err: Error) => void }
+interface ClaimConnection {
+  client: PoolClient; locked: boolean; unusable: boolean; ended: boolean; onError: (err: Error) => void; freeSlot: () => void;
+}
 
 /** One committed transaction on the claim's connection, as app_user in the caller's company. */
 async function committed<T>(conn: ClaimConnection, p: ClaimPrincipal, label: string, fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -99,6 +105,7 @@ async function endClaim(conn: ClaimConnection, submissionId: string | null): Pro
   }
   client.removeListener('error', conn.onError);
   client.release(conn.unusable || (conn.locked && !submissionId) || Boolean(unlockFailed));
+  conn.freeSlot();
 }
 
 /** A claim whose connection holds its send lock until `end()`. */
@@ -111,16 +118,41 @@ export interface HeldClaim {
 }
 
 /**
- * Claim the batch and take its send lock: the claim, or null when a live (non-failed) submission already holds it.
- * The caller MUST call `end()` once the send is settled (try/finally).
+ * What a claim attempt came to. `held`: a live (non-failed) submission already holds the batch. `busy`: refused
+ * before anything was claimed or sent - `sends` (the in-process cap is reached), `connection` (no claim connection
+ * within CLAIM_CONNECTION_TIMEOUT_MS) or `lock` (the send lock's key is held: a hashtext collision with a live send;
+ * the claim was rolled back).
  */
-export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<HeldClaim | null> {
-  const client = await getPool().connect();
+export type ClaimOutcome =
+  | { kind: 'claimed'; claim: HeldClaim }
+  | { kind: 'held' }
+  | { kind: 'busy'; reason: 'sends' | 'connection' | 'lock' };
+
+class SendLockBusy extends Error {}
+
+/**
+ * Claim the batch and take its send lock. On `claimed` the caller MUST call `claim.end()` once the send is settled
+ * (try/finally); every other outcome has already given everything back.
+ */
+export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<ClaimOutcome> {
+  const freeSlot = takeSendSlot();
+  if (!freeSlot) return { kind: 'busy', reason: 'sends' };
+  let client: PoolClient | null;
+  try {
+    client = await connectWithin(getPool(), CLAIM_CONNECTION_TIMEOUT_MS);
+  } catch (err) {
+    freeSlot();
+    throw err;
+  }
+  if (!client) {
+    freeSlot();
+    return { kind: 'busy', reason: 'connection' };
+  }
   // A checked-out client has no 'error' listener (pg-pool removes its own): a backend that dies during the send
   // would otherwise crash the process. The settle then fails on it and the claim stays 'pending'.
   const onError = (err: Error) => log.error('netcash send connection lost', { companyId: p.companyId, error: err.message }, 'netcash');
   client.on('error', onError);
-  const conn: ClaimConnection = { client, locked: false, unusable: false, ended: false, onError };
+  const conn: ClaimConnection = { client, locked: false, unusable: false, ended: false, onError, freeSlot };
   let id: string | null;
   try {
     id = await committed(conn, p, 'claim', async (tx) => {
@@ -132,10 +164,14 @@ export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<Held
          RETURNING id`,
         [p.companyId, c.batchReference, c.totalAmountCents, c.recordCount, c.createdBy, c.batchId]);
       const claimed = rows[0]?.id ?? null;
-      // Before COMMIT: nobody can see this 'pending' row without its sender holding the lock. A session lock - it
-      // outlives the transaction - on a key no one else holds (a new id), so it does not wait.
+      // Before COMMIT: nobody can see this 'pending' row without its sender holding the lock. A SESSION lock (it
+      // outlives the transaction), TRY-locked: the key is a 32-bit hash of a new id, so it is free unless it collides
+      // with a live send's; waiting would hold this uncommitted claim open for that whole send. A collision rolls the
+      // claim back (SendLockBusy) and the submit is refused, to be tried again.
       if (claimed) {
-        await tx.query('SELECT pg_advisory_lock($1::INT4, hashtext($2::UUID::TEXT))', [NETCASH_SEND_LOCK_CLASS, claimed]);
+        const { rows: got } = await tx.query<{ ok: boolean }>(
+          'SELECT pg_try_advisory_lock($1::INT4, hashtext($2::UUID::TEXT)) AS ok', [NETCASH_SEND_LOCK_CLASS, claimed]);
+        if (got[0]?.ok !== true) throw new SendLockBusy(`send lock key of ${claimed} is held`);
         conn.locked = true;
       }
       return claimed;
@@ -143,14 +179,15 @@ export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<Held
   } catch (err) {
     // A claim that failed after the lock keeps it on this session: the connection is destroyed, not pooled.
     await endClaim(conn, null);
+    if (err instanceof SendLockBusy) return { kind: 'busy', reason: 'lock' };
     throw err;
   }
   if (!id) {
     await endClaim(conn, null);
-    return null;
+    return { kind: 'held' };
   }
   const claimId = id;
-  return { id: claimId, settle: (s) => settleOn(conn, p, claimId, s), end: () => endClaim(conn, claimId) };
+  return { kind: 'claimed', claim: { id: claimId, settle: (s) => settleOn(conn, p, claimId, s), end: () => endClaim(conn, claimId) } };
 }
 
 /**
