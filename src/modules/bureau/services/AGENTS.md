@@ -49,6 +49,7 @@ These services run on the RLS-bypassing `@/lib/neon` pool (no `SET LOCAL ROLE ap
 `ownerCashPositionService.ts` — answers "can I pay salaries / who owes me / VAT set-aside" for the direct-client /home page. Three fail-soft sections (payroll, debtors, VAT), each degrades to null/empty on error. Deliberate exception: this is the only bureau service importing from accounting services (debtors/VAT) — it composes the owner /home payload; if a second such service appears, move the cluster to accounting/home.
 
 ## Recent changes
+- 2026-10-21 (learning loop PR 1): `bureauSettingsService` — `bureaus.share_merchant_patterns` (mig 904, default off), owner-only (`bureau_users.role = 'owner'`, re-checked inside the write transaction with the bureau row locked), one `bureau_audit_log` row per real change. `bureau_audit_log` is deny-all to app_user (FORCE RLS, no policy, no grants) and append-only; only this service writes it, on the pool. `poolEligibility` — `isCompanyPoolEligible` (no bureau -> false; every linked bureau must opt in) + SQL helpers for PR 2. `sharingConsentCopy` — the POPIA wording, DRAFT [VERIFY]. Routes: `pages/api/bureau/settings.ts`, `pages/api/bureau/coding-metrics.ts` (viewer: per-client only, no total). Tests: `tests/unit/bureau/{poolEligibility,bureauSettings}.test.ts`, `tests/integration/bureau-audit-log-rls.int.test.ts`.
 - 2026-06-11: Workstream G — ownerCashPositionService; payroll fail-soft test; cross-year VAT label test (PR #168 review batch).
 
 ## Tests
