@@ -207,7 +207,7 @@ async function authAndHandle(req: NextApiRequest, res: NextApiResponse) {
     // Attach context so handler body can access companyId, user.id, and channel flag
     const authedReq = req as CompanyAuthedRequest & { _apiKeyId?: string };
     authedReq.companyId = ctx.companyId;
-    authedReq.companyRole = 'manager'; // API keys get write access
+    authedReq.companyRole = ctx.role; // the creator's current role; 'manager' for a legacy key
     authedReq.user = { id: '', claims: {} };
     authedReq._apiKeyId = ctx.keyId;
     return handler(authedReq, res);

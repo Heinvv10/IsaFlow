@@ -5,19 +5,33 @@
  */
 
 import { createHash, randomBytes } from 'crypto';
-import { sql, getPool } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getCompanyMembership } from './companyMembership';
-import { isActiveUserAccount } from './userAccountStatus';
+import { LIVE_COMPANY_SQL } from './companyMembership';
+import { isActiveUserAccount, type UserAccountRow } from './userAccountStatus';
 import { canWrite } from './writeRoles';
 
-type Row = Record<string, unknown>;
+/** The role a legacy key (no recorded creator) acts with. */
+const LEGACY_KEY_ROLE = 'manager';
 
 export interface ApiKeyContext {
   companyId: string;
   keyId: string;
   label: string;
+  /** The creator's CURRENT role in the company, or 'manager' for a legacy key with no creator. */
+  role: string;
 }
+
+type KeyRow = UserAccountRow & {
+  id: string;
+  company_id: string;
+  label: string;
+  key_prefix: string;
+  created_by: string | null;
+  company_live: boolean;
+  role: string | null;
+  account_user_id: string | null;
+};
 
 /**
  * Generate a new raw key, its SHA-256 hash, and the display prefix.
@@ -33,50 +47,55 @@ export function generateCaptureApiKey(): { raw: string; hash: string; prefix: st
 }
 
 /**
- * Why a stored key no longer speaks for its company, or null when it still
- * does. A key is a standing credential that bypasses withAuth, so it holds
- * only while what withAuth would demand of its creator still holds (S-06):
- * the company in good standing and the creator a current owner, admin or
- * manager of it, with an account in good standing. Standing comes from
- * getCompanyMembership, the one rule withAuth applies, not a copy of it.
- *
- * Runs on the app pool with no request transaction: like the key lookup,
- * it relies on that role bypassing RLS (no claims are set here).
+ * Why a stored key may no longer act for its company, or null when it may.
+ * A key is a standing credential that bypasses withAuth, so it holds only
+ * while what withAuth would demand of its creator still holds (S-06): the
+ * company live (LIVE_COMPANY_SQL, the predicate getCompanyMembership uses)
+ * and the creator a current member who can write, with an account in good
+ * standing. A legacy key with no creator answers to company standing only.
  */
-async function keyRefusal(companyId: string, createdBy: string | null): Promise<string | null> {
-  if (!createdBy) return 'key has no recorded creator';
-  const client = await getPool().connect();
-  let membership: Awaited<ReturnType<typeof getCompanyMembership>>;
-  try {
-    membership = await getCompanyMembership(client, createdBy, companyId);
-  } finally {
-    client.release();
-  }
-  const member = membership.rows[0];
-  if (!member) return 'creator is not a member of the company, or the company is suspended or deleted';
-  if (!canWrite(member.role)) return 'creator is no longer an owner, admin or manager of the company';
-  if (member.account_user_id === null || !isActiveUserAccount(member)) return 'creator account is not in good standing';
+function keyRefusal(row: KeyRow): string | null {
+  if (!row.company_live) return 'company is suspended or deleted';
+  if (row.created_by === null) return null;
+  if (row.role === null) return 'creator is not a member of the company';
+  if (!canWrite(row.role)) return 'creator is no longer an owner, admin or manager of the company';
+  if (row.account_user_id === null) return 'creator has no users profile';
+  if (!isActiveUserAccount(row)) return 'creator account is not in good standing';
   return null;
 }
 
 /**
  * Validate a raw API key from an incoming request.
  * Returns null if the key is unknown, revoked, or malformed, or if its company
- * or creator is no longer in standing (keyRefusal).
+ * or creator is no longer in standing (keyRefusal). The context carries the
+ * role the key acts with.
  * Updates last_used_at fire-and-forget so the hot path is not blocked.
+ *
+ * Runs on the app pool with no request transaction and no claims, so it
+ * relies on that role bypassing RLS, as the pre-auth reads in liveCompanies.ts do.
  */
 export async function validateCaptureApiKey(rawKey: string): Promise<ApiKeyContext | null> {
   if (!rawKey.startsWith('isa_live_')) return null;
 
   const hash = createHash('sha256').update(rawKey).digest('hex');
 
-  const rows = await sql`
-    SELECT id, company_id, label, created_by
-    FROM capture_api_keys
-    WHERE key_hash = ${hash}
-      AND is_active = true
+  // company_users.user_id, users.id and created_by are all TEXT: no casts.
+  const rows = await sql<KeyRow>`
+    SELECT k.id, k.company_id, k.label, k.key_prefix, k.created_by,
+           (${sql.unsafe(LIVE_COMPANY_SQL)}) AS company_live,
+           cu.role,
+           u.id AS account_user_id,
+           u.is_active,
+           u.status,
+           u.suspended_at
+    FROM capture_api_keys k
+    JOIN companies c ON c.id = k.company_id
+    LEFT JOIN company_users cu ON cu.company_id = k.company_id AND cu.user_id = k.created_by
+    LEFT JOIN users u ON u.id = cu.user_id
+    WHERE k.key_hash = ${hash}
+      AND k.is_active = true
     LIMIT 1
-  ` as Row[];
+  `;
 
   if (rows.length === 0) {
     log.warn('captureApiKey: invalid or revoked key presented', {}, 'capture-api-key');
@@ -84,20 +103,25 @@ export async function validateCaptureApiKey(rawKey: string): Promise<ApiKeyConte
   }
 
   const row = rows[0]!;
-  const keyId = row.id as string;
-  const companyId = row.company_id as string;
-
-  const reason = await keyRefusal(companyId, (row.created_by as string | null) ?? null);
+  const reason = keyRefusal(row);
   if (reason) {
-    log.warn('captureApiKey: key refused', { keyId, companyId, reason }, 'capture-api-key');
+    log.warn('captureApiKey: key refused', { keyId: row.id, companyId: row.company_id, reason }, 'capture-api-key');
     return null;
+  }
+  if (row.created_by === null) {
+    // The prefix (shown in the keys list) identifies the key; the secret is never logged.
+    log.warn(
+      'captureApiKey: legacy key with no creator used; it acts as manager until re-issued',
+      { keyId: row.id, keyPrefix: row.key_prefix },
+      'capture-api-key',
+    );
   }
 
   // Fire-and-forget — do not block the upload on a timestamp update
   sql`
     UPDATE capture_api_keys
     SET last_used_at = NOW()
-    WHERE id = ${keyId}::uuid
+    WHERE id = ${row.id}::uuid
   `.catch((err: unknown) =>
     log.warn(
       'captureApiKey: failed to update last_used_at',
@@ -107,9 +131,10 @@ export async function validateCaptureApiKey(rawKey: string): Promise<ApiKeyConte
   );
 
   return {
-    companyId,
-    keyId,
-    label: row.label as string,
+    companyId: row.company_id,
+    keyId: row.id,
+    label: row.label,
+    role: row.role ?? LEGACY_KEY_ROLE,
   };
 }
 
