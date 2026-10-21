@@ -94,6 +94,7 @@ export async function validateCaptureApiKey(rawKey: string): Promise<ApiKeyConte
     LEFT JOIN users u ON u.id = cu.user_id
     WHERE k.key_hash = ${hash}
       AND k.is_active = true
+      AND k.revoked_at IS NULL
     LIMIT 1
   `;
 

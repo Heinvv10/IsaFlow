@@ -19,7 +19,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { mockRes, uploadReq } from './s06-capture-key-standing.helpers';
+import { mockRes, slowUploadReq, uploadReq } from './s06-capture-key-standing.helpers';
 
 const { storeCapturedBytes, routeEvent } = vi.hoisted(() => ({
   storeCapturedBytes: vi.fn(),
@@ -190,7 +190,7 @@ describeIfDb('S-06: a capture API key answers for its company standing and its c
     warn.mockClear();
     await expectUploads(key, 'manager');
     const legacy = warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes('legacy key with no creator'));
-    expect(legacy).toHaveLength(2);
+    expect(legacy).toHaveLength(4); // per upload: at auth, and the re-check before the first write
     for (const call of legacy) {
       expect(call[1]).toEqual({ keyId: key.id, keyPrefix: key.prefix });
       expect(JSON.stringify(call)).not.toContain(key.raw);
@@ -248,6 +248,41 @@ describeIfDb('S-06: a capture API key answers for its company standing and its c
     const key = await workingKey();
     await admin.query(`UPDATE users SET status = 'disabled' WHERE id = $1`, [key.userId]);
     await expectRefused(key, 'creator account is not in good standing');
+  });
+
+  it('a key revoked_at but still is_active is refused', async () => {
+    const key = await workingKey();
+    await admin.query('UPDATE capture_api_keys SET revoked_at = NOW() WHERE id = $1', [key.id]);
+    await expectRefused(key, 'invalid or revoked key presented');
+  });
+
+  it('standing lost while the body is still streaming: refused before the first write', async () => {
+    const key = await workingKey();
+    const { req, release } = slowUploadReq(key.raw);
+    const res = mockRes();
+    const done = route(req, res);
+    await new Promise((r) => setTimeout(r, 300)); // key accepted, body still arriving
+    await admin.query(`UPDATE companies SET status = 'suspended', suspended_at = NOW() WHERE id = $1`, [key.companyId]);
+    release();
+    await done;
+    const { rows } = await admin.query('SELECT count(*)::int AS n FROM captured_documents WHERE company_id = $1', [key.companyId]);
+    expect({ status: res.statusCode, docs: rows[0].n }).toEqual({ status: 401, docs: 0 });
+    expect(JSON.stringify(res.body)).toContain('Invalid or revoked API key');
+    expect(storeCapturedBytes).not.toHaveBeenCalled();
+  });
+
+  it('a creator demoted owner -> manager while the body streams: the write acts as manager', async () => {
+    const companyId = await seedCompany();
+    const owner = await seedMember(companyId, 'owner');
+    const key = await working(await issueKey(companyId, owner), 'owner');
+    const { req, release } = slowUploadReq(key.raw);
+    const res = mockRes();
+    const done = route(req, res);
+    await new Promise((r) => setTimeout(r, 300));
+    await admin.query(`UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2`, [companyId, owner]);
+    release();
+    await done;
+    expect({ status: res.statusCode, role: req.companyRole }).toEqual({ status: 201, role: 'manager' });
   });
 
   it('a revoked key is still refused', async () => {

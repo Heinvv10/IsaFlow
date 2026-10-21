@@ -25,19 +25,39 @@ export function mockRes(): Res {
   return res;
 }
 
-export function uploadReq(rawKey: string, header: Header): UploadReq {
-  const body = Buffer.concat([
+function multipartBody(): Buffer {
+  return Buffer.concat([
     Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="s06.pdf"\r\n`
       + 'Content-Type: application/pdf\r\n\r\n'),
     PDF,
     Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
   ]);
+}
+
+function asUploadReq(stream: Readable, rawKey: string, header: Header, length: number): UploadReq {
   const auth = header === 'bearer' ? { authorization: `Bearer ${rawKey}` } : { 'x-api-key': rawKey };
-  return Object.assign(Readable.from([body]), {
+  return Object.assign(stream, {
     method: 'POST',
     url: '/api/accounting/capture/upload',
     query: {},
     cookies: {},
-    headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}`, 'content-length': String(body.length), ...auth },
+    headers: { 'content-type': `multipart/form-data; boundary=${BOUNDARY}`, 'content-length': String(length), ...auth },
   }) as unknown as UploadReq;
+}
+
+export function uploadReq(rawKey: string, header: Header): UploadReq {
+  const body = multipartBody();
+  return asUploadReq(Readable.from([body]), rawKey, header, body.length);
+}
+
+/**
+ * The same upload, but the body stalls after its first bytes until `release()`:
+ * a client holding the request open after the key was checked.
+ */
+export function slowUploadReq(rawKey: string): { req: UploadReq; release: () => void } {
+  const body = multipartBody();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  async function* stalled() { yield body.subarray(0, 10); await gate; yield body.subarray(10); }
+  return { req: asUploadReq(Readable.from(stalled()), rawKey, 'bearer', body.length), release };
 }
