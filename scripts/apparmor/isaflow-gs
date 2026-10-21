@@ -1,0 +1,36 @@
+# IsaFlow: Ghostscript rendering untrusted uploaded PDFs (vlmPdfRender.ts).
+# Not attached by path: IsaFlow runs gs as `aa-exec -p isaflow-gs -- gs ...`,
+# so other users of /usr/bin/gs on this box are unaffected.
+# PDF in on stdin, PNG out on stdout, scratch only in its private
+# /tmp/isaflow-gs-* dir. No network, no exec, no other files.
+#
+# Install (root): cp scripts/apparmor/isaflow-gs /etc/apparmor.d/ &&
+#   apparmor_parser -r /etc/apparmor.d/isaflow-gs   (loaded again at boot)
+# Then set GS_APPARMOR_PROFILE=isaflow-gs in the service env.
+# Check: aa-exec -p isaflow-gs -- gs -v  (works);  aa-exec -p isaflow-gs -- cat /etc/hostname  (denied)
+abi <abi/4.0>,
+include <tunables/global>
+
+profile isaflow-gs {
+  include <abstractions/base>
+  include <abstractions/fonts>
+
+  /usr/bin/gs mr,
+  /usr/share/ghostscript/** r,
+  /etc/ghostscript/** r,
+  /etc/papersize r,
+  /usr/share/color/** r,
+  /usr/share/poppler/** r,
+
+  /tmp/isaflow-gs-*/ rw,
+  /tmp/isaflow-gs-*/** rwk,
+
+  # The service must be able to kill it (timeout, output cap); gs itself may signal no one.
+  signal (receive),
+
+  deny network,
+  deny capability,
+  deny @{HOME}/** rwx,
+  deny /home/velo/** rwx,
+  deny /root/** rwx,
+}

@@ -31,6 +31,7 @@ import {
   InsufficientFlowsError,
 } from '@/modules/billing/services/flowWalletService';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
+import { isDynamicOauthApp } from '@/lib/auth/oauthDynamicClients';
 import { MAX_INVOICES } from './tools/writeBulkInvoices';
 import { partitionSupplierInvoiceBatch } from './tools/bulkInvoiceDuplicateSkip';
 import {
@@ -507,6 +508,7 @@ export async function debitForTool(
   companyId: string,
   toolName: string,
   args: Record<string, unknown>,
+  oauthAppId: string | null = null,
 ): Promise<DebitOutcome> {
   const code = flowOperationFor(toolName, args);
   if (!code) return { ok: true, handle: null };
@@ -514,6 +516,14 @@ export async function debitForTool(
   // Subscription tenants pay a flat fee; only PAYG wallets are metered.
   const plan = await getCompanyPlan(companyId);
   if (!plan || plan.planCode !== 'payg') return { ok: true, handle: null };
+
+  // Marketplace connections are free (FB-6, Hein 2026-10-20). A plugin listed
+  // on the Cursor Marketplace must be free to its users (Publisher Terms 3.1:
+  // no fees "directly or indirectly" for use of the plugin), and a dynamically
+  // registered OAuth client is what such a connector is. PATs and
+  // pre-registered OAuth apps stay metered. Checked last, so only a PAYG call
+  // to a metered tool pays for the lookup; no debit, no auto top-up.
+  if (oauthAppId && (await isDynamicOauthApp(oauthAppId))) return { ok: true, handle: null };
 
   const cost = getFlowCost(code) * flowQuantityFor(toolName, args);
   try {
