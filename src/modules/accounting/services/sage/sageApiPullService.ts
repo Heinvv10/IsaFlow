@@ -6,7 +6,7 @@
  *
  * Call budget: about 8 calls plus one per contact owing / owed money; at the
  * client's 700 ms spacing a company with 300 open balances takes ~4 minutes.
- * Above MAX_CONTACTS_WITH_BALANCES the pull refuses up front rather than run
+ * Past the size caps (sagePullLimits) the pull refuses up front rather than run
  * into Sage's daily limit half-way. A contact on the wrong side (customer in
  * credit, supplier overpaid) needs no documents: the builder reports it.
  *
@@ -16,25 +16,14 @@
  * does not document, and a credit note taken on as an invoice would be wrong.
  */
 import { SageApiError, type SageApiClient, type SageCallGuard } from './sageApiClient';
+import { isTakenOn, MAX_OUTSTANDING_INVOICES, pullSizeRefusal } from './sagePullLimits';
 import type {
   SageAccount, SageBankAccount, SageCompanySummary, SageCurrency, SageCustomer, SageFinancialYear, SageInvoiceRef,
   SageOutstandingDocument, SagePaged, SagePull, SageSupplier, SageTrialBalanceLine,
 } from './sageApiTypes';
 
-/**
- * What one import can take on inside one request (Cloudflare cuts it at 100 s):
- * the take-on posts one wizard document + journal per unpaid invoice and one
- * balance-brought-forward per contact short of documents, so the worst case is
- * MAX_OUTSTANDING_INVOICES + MAX_CONTACTS_WITH_BALANCES = 600 documents. Measured
- * on the one-cluster integration harness, 2026-10-21, box load 15-25 (uptime):
- * 600 documents / 300 contacts ~10 s, 900 ~25 s, 1 200 ~58 s, 2 400 ~73 s,
- * 5 000 did not finish in 900 s. The growth is faster than linear, so the caps
- * sit where the worst case has ~7x headroom. A bigger company uses the file
- * upload (Migration Wizard), which takes documents in batches.
- */
-export const MAX_CONTACTS_WITH_BALANCES = 300;
-/** Unpaid customer invoices and supplier bills together. */
-export const MAX_OUTSTANDING_INVOICES = 300;
+// The size caps are the import's time budget, measured: see sagePullLimits.
+export { MAX_CONTACTS, MAX_CONTACTS_WITH_BALANCES, MAX_OUTSTANDING_INVOICES } from './sagePullLimits';
 
 export type PullStep = 'company' | 'accounts' | 'trial_balance' | 'customers' | 'suppliers' | 'documents';
 
@@ -66,14 +55,25 @@ export class SagePullTooLargeError extends Error {
   }
 }
 
-const TOO_BIG = (what: string, n: number) => new SagePullTooLargeError(`This Sage company has more than ${n} ${what} — more than Import from Sage takes on in one go. Use the Migration Wizard's file upload (Accounting → Migration) for this company: it takes Sage's reports in batches.`);
+const tooBig = (sizes: Parameters<typeof pullSizeRefusal>[0]): void => {
+  const refusal = pullSizeRefusal(sizes);
+  if (refusal) throw new SagePullTooLargeError(refusal);
+};
 
-/** Currency/Get, or null on an API build that does not answer it (any CurrencyId then blocks: sageCurrency). */
+/**
+ * Currency/Get. A company without multi-currency answers 403 or 404: that is a
+ * single-currency company, so an empty list (contacts with no CurrencyId pass;
+ * any other id still fails closed, sageCurrency). An answer that cannot be
+ * read leaves the list unknown (null, which fails closed the same way). A 5xx
+ * or a throttle is a failed read, as for every other call.
+ */
 async function currenciesOf(client: ReturnType<SageApiClient['forCompany']>): Promise<SageCurrency[] | null> {
   try {
     return (await client.getAll<SageCurrency>('Currency/Get')).map((c) => ({ ID: c.ID, Code: c.Code, Symbol: c.Symbol }));
   } catch (err) {
-    if (err instanceof SageApiError && err.kind === 'bad_response') return null;
+    if (!(err instanceof SageApiError)) throw err;
+    if (err.kind === 'forbidden' || (err.kind === 'bad_response' && err.status === 404)) return [];
+    if (err.kind === 'bad_response') return null;
     throw err;
   }
 }
@@ -81,7 +81,7 @@ async function currenciesOf(client: ReturnType<SageApiClient['forCompany']>): Pr
 /** The still-owed rows of an invoice list, as references. */
 async function outstandingInvoices(client: ReturnType<SageApiClient['forCompany']>, path: string): Promise<SageInvoiceRef[]> {
   const rows = await client.getAll<SageInvoiceRef>(path, { $filter: 'AmountDue gt 0' }, MAX_OUTSTANDING_INVOICES);
-  if (rows.length > MAX_OUTSTANDING_INVOICES) throw TOO_BIG('unpaid invoices and bills', MAX_OUTSTANDING_INVOICES);
+  tooBig({ contacts: 0, owing: 0, invoices: rows.length });
   return rows.map((r) => ({ ID: r.ID, DocumentNumber: r.DocumentNumber }));
 }
 
@@ -116,19 +116,16 @@ export async function pullSageCompany(
   onProgress('suppliers');
   const suppliers = await client.getAll<SageSupplier>('Supplier/Get');
 
-  const owing = [...customers, ...suppliers].filter((c) => c.Balance > 0.005);
-  if (owing.length > MAX_CONTACTS_WITH_BALANCES) {
-    throw new SagePullTooLargeError(`This Sage company has ${owing.length} customers and suppliers with open balances, more than the ${MAX_CONTACTS_WITH_BALANCES} Import from Sage takes on in one go. Use the Migration Wizard's file upload (Accounting → Migration) for this company: it takes Sage's reports in batches.`);
-  }
+  const everyone = [...customers, ...suppliers];
+  const owing = everyone.filter((c) => c.Balance > 0.005).length;
+  tooBig({ contacts: everyone.filter(isTakenOn).length, owing, invoices: 0 });
 
   onProgress('documents');
   const customersOwing = customers.filter((x) => x.Balance > 0.005);
   const suppliersOwed = suppliers.filter((x) => x.Balance > 0.005);
   const customerInvoices = customersOwing.length > 0 ? await outstandingInvoices(client, 'TaxInvoice/Get') : [];
   const supplierInvoices = suppliersOwed.length > 0 ? await outstandingInvoices(client, 'SupplierInvoice/Get') : [];
-  if (customerInvoices.length + supplierInvoices.length > MAX_OUTSTANDING_INVOICES) {
-    throw TOO_BIG('unpaid invoices and bills', MAX_OUTSTANDING_INVOICES);
-  }
+  tooBig({ contacts: 0, owing, invoices: customerInvoices.length + supplierInvoices.length });
   const customerDocuments: Record<number, SageOutstandingDocument[]> = {};
   for (const c of customersOwing) {
     customerDocuments[c.ID] = rows(await client.post<SagePaged<SageOutstandingDocument> | SageOutstandingDocument[]>(

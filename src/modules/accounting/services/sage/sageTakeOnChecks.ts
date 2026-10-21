@@ -6,9 +6,10 @@
  *   - Currency: the take-on is home-currency only. A Sage company in another
  *     currency than the IsaFlow company's functional currency blocks.
  *   - Financial year: the opening trial balance is Sage's as at today, so it
- *     carries this year's income and expenses to date. That is only right when
- *     IsaFlow's fiscal year holding the cut-over date (its fiscal_periods)
- *     starts on the day Sage's does; otherwise, or with no period, it blocks.
+ *     carries this year's income and expenses to date. They come across as
+ *     they are only when IsaFlow's fiscal year holding the cut-over date (its
+ *     fiscal_periods) starts on the day Sage's does; otherwise the take-on is
+ *     balance-sheet-only (sageTakeOnFold). No period for the date blocks.
  *   - Closed periods: the opening balances post on the cut-over date and each
  *     unpaid document on its own date. A date in a closed or locked IsaFlow
  *     period would refuse the whole import at posting time, so each such
@@ -37,18 +38,17 @@ export function checkCurrency(pull: SagePull, ctx: TakeOnContext, issues: TakeOn
   return rule(home);
 }
 
-export function checkFinancialYear(pull: SagePull, ctx: TakeOnContext, issues: TakeOnIssue[]): void {
-  const sage = pull.financialYearStart;
+/**
+ * Whether the opening TB must be taken on balance-sheet-only (sageTakeOnFold):
+ * true when IsaFlow's fiscal year holding the cut-over date starts on another
+ * day than Sage's. No fiscal period for the date at all is a blocking issue.
+ */
+export function checkFinancialYear(pull: SagePull, ctx: TakeOnContext, issues: TakeOnIssue[]): boolean {
   if (ctx.fiscalYear === null) {
-    issues.push({ severity: 'error', area: 'company', message: `IsaFlow has no fiscal period covering ${pull.asAtDate}, the cut-over date, so the opening balances have no year to land in. Create this financial year under Fiscal Periods, starting on ${sage} as Sage's does, then review again.` });
-    return;
+    issues.push({ severity: 'error', area: 'company', message: `IsaFlow has no fiscal period covering ${pull.asAtDate}, the cut-over date, so the opening balances have no year to land in. Create the financial year that holds ${pull.asAtDate} under Accounting → Fiscal Periods (it follows this company's financial-year setting), then review again.` });
+    return false;
   }
-  if (ctx.fiscalYear.startDate !== sage) {
-    issues.push({
-      severity: 'error', area: 'company',
-      message: `Sage's financial year started on ${sage}, but IsaFlow's fiscal year holding ${pull.asAtDate} runs from ${ctx.fiscalYear.startDate} to ${ctx.fiscalYear.endDate}. The opening balances include this year's income and expenses from ${sage}, which belong in IsaFlow's year only if both start on the same day. Line IsaFlow's fiscal periods up with Sage's year under Fiscal Periods (or correct the year in Sage), then review again.`,
-    });
-  }
+  return ctx.fiscalYear.startDate !== pull.financialYearStart;
 }
 
 /** Every closed or locked IsaFlow period one of `dates` falls in, as one issue per period. */

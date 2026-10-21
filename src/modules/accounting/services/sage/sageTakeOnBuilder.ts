@@ -10,6 +10,7 @@
  */
 import { buildAccounts, buildOpeningBalances } from './sageTakeOnAccounts';
 import { checkClosedPeriods, checkCurrency, checkFinancialYear } from './sageTakeOnChecks';
+import { foldProfitAndLoss } from './sageTakeOnFold';
 import { buildContacts, type TakeOnContact, type TakeOnDocument } from './sageTakeOnContacts';
 import type { SagePull } from './sageApiTypes';
 import { formatRand, round2, type SageTakeOn, type TakeOnContext, type TakeOnIssue } from './sageTakeOnTypes';
@@ -40,9 +41,12 @@ export function buildSageTakeOn(pull: SagePull, ctx: TakeOnContext): SageTakeOn 
   const issues: TakeOnIssue[] = [];
   // A refused currency still builds the rest, so the review shows everything; the error blocks the import.
   const currency = checkCurrency(pull, ctx, issues);
-  checkFinancialYear(pull, ctx, issues);
+  const balanceSheetOnly = checkFinancialYear(pull, ctx, issues);
   const accounts = buildAccounts(pull, ctx, issues);
   const opening = buildOpeningBalances(pull, accounts, issues);
+  const fold = balanceSheetOnly && ctx.fiscalYear
+    ? foldProfitAndLoss(opening.openingBalances, accounts.accounts, accounts.systemAccountMap.retained_earnings)
+    : null;
   const customers = buildContacts(pull.customers, pull.customerDocuments, 'customer', pull.asAtDate,
     { invoices: pull.customerInvoices, currency }, issues);
   const suppliers = buildContacts(pull.suppliers, pull.supplierDocuments, 'supplier', pull.asAtDate,
@@ -54,7 +58,7 @@ export function buildSageTakeOn(pull: SagePull, ctx: TakeOnContext): SageTakeOn 
   // Where each journal will be dated: the opening balances on the cut-over
   // date, each unpaid document on its own date (the wizard's posting dates).
   checkClosedPeriods([
-    ...(opening.openingBalances.length > 0 || opening.openingBalanceClearing.debit > 0 || opening.openingBalanceClearing.credit > 0
+    ...((fold ? fold.lines : opening.openingBalances).length > 0 || opening.openingBalanceClearing.debit > 0 || opening.openingBalanceClearing.credit > 0
       ? [{ date: pull.asAtDate, what: `the opening balances (${pull.asAtDate})` }] : []),
     ...customers.documents.map((d) => ({ date: d.invoiceDate, what: `${d.invoiceNumber} (${d.invoiceDate})` })),
     ...suppliers.documents.map((d) => ({ date: d.invoiceDate, what: `${d.invoiceNumber} (${d.invoiceDate})` })),
@@ -64,11 +68,14 @@ export function buildSageTakeOn(pull: SagePull, ctx: TakeOnContext): SageTakeOn 
     sageCompany: { id: pull.company.id, name: pull.company.name },
     asAtDate: pull.asAtDate,
     financialYearStart: pull.financialYearStart,
+    profitAndLossFold: fold && ctx.fiscalYear
+      ? { profit: fold.profit, isaflowYearStart: ctx.fiscalYear.startDate, isaflowYearEnd: ctx.fiscalYear.endDate }
+      : null,
     accounts: accounts.accounts,
     systemAccountMap: accounts.systemAccountMap,
     sageAccountCodes: accounts.sageAccountCodes,
     sageBankCodes: accounts.sageBankCodes,
-    openingBalances: opening.openingBalances,
+    openingBalances: fold ? fold.lines : opening.openingBalances,
     openingBalanceClearing: opening.openingBalanceClearing,
     customers: customers.contacts.map(contactRow),
     suppliers: suppliers.contacts.map(({ sageId: _s, creditLimit: _c, ...rest }) => rest),
