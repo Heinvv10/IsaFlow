@@ -42,6 +42,32 @@ describe('filterMerchant — merchants it keeps (and the key it keeps)', () => {
     expect(filterMerchant(raw)).toEqual({ ok: true, merchant: key });
   });
 
+  it.each([
+    ['FNB APP PAYMENT ESKOM 12345678', 'ESKOM'],
+    ['ABSA DEBIT ORDER SANTAM', 'SANTAM'],
+    ['CAPITEC POS PURCHASE ENGEN SANDTON', 'ENGEN'],
+    ['YOCO *CORNER CAFE', 'CORNER CAFE'],
+    ['PAYFAST*TAKEALOT', 'TAKEALOT'],
+    ['ABSA SERVICE FEE', 'ABSA'],
+    ['NEDBANK MONTHLY ACCOUNT FEE 12345678', 'NEDBANK'],
+    ['BUILDERS WAREHOUSE MIDRAND', 'BUILDERSWAREHOUSE'],
+  ])('a bank or payment processor is the channel, not the merchant: %s -> %s', (raw, key) => {
+    expect(filterMerchant(raw)).toEqual({ ok: true, merchant: key });
+  });
+
+  it.each([
+    ['PAYFAST*N MOKOENA', 'person_name'],
+    ['FNB APP PAYMENT 12345678 MOKOENA', 'identifier'],
+    ['YOCO 0821234567 KASI KITCHEN', 'identifier'],
+  ])('a channel licenses nothing the merchant behind it would not: %s -> %s', (raw, reason) => {
+    expect(filterMerchant(raw)).toEqual({ ok: false, reason });
+  });
+
+  it('BUILDERS alone is a trade word, not the Builders brand', () => {
+    expect(filterMerchant('MOKOENA BUILDERS')).toEqual({ ok: true, merchant: 'MOKOENA BUILDERS' });
+    expect(filterMerchant('BUILDERS 12345678')).toEqual({ ok: false, reason: 'identifier' });
+  });
+
   it('the same merchant from different branches and dates gives one key', () => {
     const keys = ['ENGEN SANDTON 0412', 'ENGEN DURBAN NORTH', 'POS ENGEN 21OCT', 'Engen Midrand 12:01'].map(poolMerchantKey);
     expect(new Set(keys)).toEqual(new Set(['ENGEN']));
