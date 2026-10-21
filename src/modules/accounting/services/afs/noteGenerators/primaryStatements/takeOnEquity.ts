@@ -12,6 +12,7 @@
  */
 import { sql } from '@/lib/neon';
 import { TAKE_ON_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/takeOnJournalSource';
+import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { DIVIDENDS_PAID_CODE } from './dividendsPaid';
 
 export async function fetchTakeOnByLine(companyId: string, from: string, through: string): Promise<Map<string, number>> {
@@ -23,6 +24,8 @@ export async function fetchTakeOnByLine(companyId: string, from: string, through
     JOIN afs_account_mappings am ON am.gl_account_id = ga.id AND am.company_id = ${companyId}::uuid
     WHERE jl.company_id = ${companyId}::uuid
       AND je.status = 'posted' AND je.source = ${TAKE_ON_JOURNAL_SOURCE}
+      -- G-01: every AFS reader skips the posted close by the shared marker (implied here; kept for the census).
+      AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
       AND je.entry_date BETWEEN ${from}::date AND ${through}::date
       AND ga.account_type = 'equity'
       AND (am.afs_line_code <> ${DIVIDENDS_PAID_CODE} OR ga.normal_balance = 'debit' OR ga.account_subtype = 'dividends')
