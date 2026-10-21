@@ -1,0 +1,59 @@
+/**
+ * parseAmount reads the money formats South African ledgers actually export.
+ * The migration parser used to strip every comma, so "1234,56" (decimal comma)
+ * became 123456, and the wizard pages used parseFloat(...) || 0, so a garbage
+ * cell silently imported as zero. Garbage must come back as NaN so the caller
+ * reports the row.
+ */
+import { describe, it, expect } from 'vitest';
+import { parseAmount } from '@/lib/parseAmount';
+
+describe('parseAmount', () => {
+  it.each([
+    ['1234.56', 1234.56],
+    ['1,234.56', 1234.56],
+    ['1 234,56', 1234.56],
+    ['1234,56', 1234.56],
+    ['R1,234.00', 1234],
+    ['R 1 234,56', 1234.56],
+    ['(1 234.00)', -1234],
+    ['1234.00 Cr', -1234],
+    ['1234.00 CR', -1234],
+    ['1234.00cr', -1234],
+    ['1234.00 Dr', 1234],
+    ['-1234', -1234],
+    ['1.234.567,89', 1234567.89],
+    ['1,234,567', 1234567],
+    ['  42  ', 42],
+    ['0', 0],
+    ['0.5', 0.5],
+    ['-R 100.00', -100],
+    ['R-100.00', -100],
+  ])('reads %j as %d', (input, expected) => {
+    expect(parseAmount(input)).toBeCloseTo(expected, 6);
+  });
+
+  it('treats non-breaking and narrow no-break spaces as thousands separators', () => {
+    expect(parseAmount('1 234,56')).toBeCloseTo(1234.56, 6);
+    expect(parseAmount('R 12 345.10')).toBeCloseTo(12345.1, 6);
+  });
+
+  it('reads empty and missing as 0', () => {
+    expect(parseAmount('')).toBe(0);
+    expect(parseAmount('   ')).toBe(0);
+    expect(parseAmount(undefined)).toBe(0);
+    expect(parseAmount(null)).toBe(0);
+  });
+
+  it('passes finite numbers through', () => {
+    expect(parseAmount(12.5)).toBe(12.5);
+    expect(Number.isNaN(parseAmount(Number.NaN))).toBe(true);
+  });
+
+  it.each(['abc', '12x', '1-2', '--5', '1.2.3,4,5', 'R', '()', '12 Cr Dr', '1e5'])(
+    'returns NaN for garbage %j, never 0',
+    input => {
+      expect(Number.isNaN(parseAmount(input))).toBe(true);
+    },
+  );
+});

@@ -53,6 +53,7 @@ const TYPE_LABELS: Record<string, string> = {
   journal_entry: 'Journal',
   bank_transaction: 'Bank',
   item: 'Item',
+  page: 'Page',
 };
 
 // ─── Recent items helpers ─────────────────────────────────────────────────────

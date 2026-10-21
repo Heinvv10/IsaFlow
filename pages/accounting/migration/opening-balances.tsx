@@ -1,20 +1,27 @@
 import { useState, useRef, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Upload, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { parseAmount } from '@/lib/parseAmount';
+import { parseMigrationCsv } from '@/components/accounting/migration/parseMigrationCsv';
+import { TemplateDownloadCard } from '@/components/accounting/migration/TemplateDownloadCard';
+import { RowProblemsList } from '@/components/accounting/migration/RowProblemsList';
+import {
+  parseOpeningBalanceCsv,
+  type OpeningBalanceCsvRow as BalanceRow,
+} from '@/modules/accounting/services/core/openingBalanceCsv';
 
-interface BalanceRow {
-  accountCode: string;
-  accountName: string;
-  debit: number;
-  credit: number;
-}
-
+/**
+ * What importOpeningBalances returns. The page used to read `balancesSet` and
+ * `journalId` — fields the service never returned — so the success message
+ * read "set for undefined accounts", and the per-row errors were never shown.
+ */
 interface ImportResult {
-  journalId: string;
-  balancesSet: number;
+  journalEntryId: string;
+  linesImported?: number;
+  errors?: Array<{ row?: number; message: string }>;
 }
 
 export default function OpeningBalancesPage() {
@@ -23,6 +30,7 @@ export default function OpeningBalancesPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
+  const [rowErrors, setRowErrors] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const totalDebit = rows.reduce((s, r) => s + r.debit, 0);
@@ -33,32 +41,34 @@ export default function OpeningBalancesPage() {
   const handleFile = async (file: File) => {
     setError('');
     setImportResult(null);
-    const Papa = (await import('papaparse')).default;
-    Papa.parse<Record<string, string>>(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: ({ data }) => {
-        const parsed: BalanceRow[] = data.map(r => ({
-          accountCode: r['account_code'] ?? r['code'] ?? '',
-          accountName: r['account_name'] ?? r['name'] ?? '',
-          debit: parseFloat(r['debit_balance'] ?? r['debit'] ?? '0') || 0,
-          credit: parseFloat(r['credit_balance'] ?? r['credit'] ?? '0') || 0,
-        }));
-        setRows(parsed);
-      },
-      error: err => {
-        log.warn('CSV parse error', { error: err }, 'migration');
-        setError('Could not read the CSV file - check it is a valid CSV and try again');
-      },
-    });
+    setRows([]);
+    setRowErrors([]);
+    let csv;
+    try {
+      csv = await parseMigrationCsv(file);
+    } catch (err) {
+      log.warn('CSV parse error', { error: err }, 'migration');
+      setError('Could not read the CSV file - check it is a valid CSV and try again');
+      return;
+    }
+    // Headers matched ignoring case / spaces / underscores, with the aliases
+    // real exports use; a file without them is told what was expected.
+    const result = parseOpeningBalanceCsv(csv.data, csv.fields);
+    if (result.missingColumnsMessage) { setError(result.missingColumnsMessage); return; }
+    setRowErrors(result.errors.map(e => e.message));
+    setRows(result.rows);
+    if (result.rows.length === 0 && result.errors.length === 0) setError('The file has no balance rows');
   };
 
   const updateRow = useCallback((i: number, field: 'debit' | 'credit', val: string) => {
-    setRows(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: parseFloat(val) || 0 } : r));
+    const n = parseAmount(val);
+    if (Number.isNaN(n)) return;
+    setRows(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: n } : r));
   }, []);
 
   const handleImport = async () => {
     if (!effectiveDate) { setError('Please set an effective date'); return; }
+    if (rowErrors.length > 0) { setError('Some rows could not be read - fix them in the file and upload again'); return; }
     if (!isBalanced) { setError(`Trial balance is not balanced. Difference: ${difference.toFixed(2)}`); return; }
     setIsImporting(true);
     setError('');
@@ -88,22 +98,6 @@ export default function OpeningBalancesPage() {
     }
   };
 
-  const downloadTemplate = async () => {
-    try {
-      const res = await apiFetch('/api/accounting/migration/templates?step=opening-balances');
-      await assertOk(res, 'Could not download the template - try again');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'opening-balances-template.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not download the template - try again'));
-    }
-  };
-
   return (
     <AppLayout>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -119,23 +113,21 @@ export default function OpeningBalancesPage() {
           </div>
         )}
         {importResult && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm mb-4">
-            <CheckCircle2 className="h-4 w-4" />
-            Opening balances set for {importResult.balancesSet} accounts. Journal ID: {importResult.journalId}
+          <div className="space-y-2 mb-4">
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">
+              <CheckCircle2 className="h-4 w-4" />
+              Opening balances posted: {importResult.linesImported ?? 0} account line(s). Journal entry {importResult.journalEntryId}.
+            </div>
+            <RowProblemsList problems={(importResult.errors ?? []).map(e => (typeof e.row === 'number' ? `Row ${e.row + 1}: ${e.message}` : e.message))} />
           </div>
         )}
 
         <div className="space-y-6">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">1. Download Template</h2>
-            <button onClick={downloadTemplate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              <Download className="h-4 w-4" /> Download CSV Template
-            </button>
-          </div>
+          <TemplateDownloadCard step="opening-balances" onError={setError} />
 
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">2. Upload Trial Balance CSV</h2>
-            <p className="text-xs text-[var(--ff-text-secondary)] mb-3">Required columns: account_code, debit_balance, credit_balance</p>
+            <p className="text-xs text-[var(--ff-text-secondary)] mb-3">Needs an account code column and either Debit / Credit columns or a single Balance column (negative = credit). Header names are matched loosely.</p>
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]).catch(() => setError('Could not read the CSV file - try again')); }} />
             <button
               onClick={() => fileRef.current?.click()}
@@ -155,6 +147,8 @@ export default function OpeningBalancesPage() {
             />
             <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Typically the first day of your new financial year</p>
           </div>
+
+          <RowProblemsList problems={rowErrors} />
 
           {rows.length > 0 && (
             <>
@@ -179,7 +173,7 @@ export default function OpeningBalancesPage() {
               </div>
 
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">4. Preview ({rows.length} rows)</h2>
+                <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">4. Preview ({rows.length} rows{rows.length > 15 ? ', first 15 shown' : ''})</h2>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-xs divide-y divide-gray-200 dark:divide-gray-700">
                     <thead>
@@ -221,7 +215,7 @@ export default function OpeningBalancesPage() {
               <div className="flex justify-end">
                 <button
                   onClick={handleImport}
-                  disabled={isImporting || !isBalanced}
+                  disabled={isImporting || !isBalanced || rowErrors.length > 0}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
                   {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
