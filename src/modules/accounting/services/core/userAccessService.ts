@@ -8,6 +8,9 @@ import crypto from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { lockOwnersAndRequireOwner, OWNER_GRANT_REFUSED } from './ownerLock';
+
+export { OwnerProtectedError } from './ownerLock';
 
 
 export const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
@@ -93,24 +96,15 @@ export async function listCompanyUsers(companyId: string): Promise<CompanyUserRe
   }));
 }
 
-/** S-04: a non-owner tried to change or remove an owner. The route answers 403. */
-export class OwnerProtectedError extends Error {
-  constructor() {
-    super('Only an owner can change or remove another owner.');
-    this.name = 'OwnerProtectedError';
-  }
-}
-
 // The target's role, read under its row lock so it cannot change between this
 // check and the write (an owner promoting the target while an admin demotes
 // it). When the target is an owner OR the new role is 'owner', take the
-// per-company owner lock the member role guard takes (migs 883/886), after the
-// row lock as the trigger does, so the last-owner count below is the one the
-// write is judged by. The actor's role is read only then, not taken from the
-// request: every owner demotion takes that lock, so an actor demoted since
-// withAuth read their role is seen as demoted (breaker REPRO 1). newRole also
-// gates here so a non-owner cannot self-promote via a future caller that skips
-// the API-layer check (defence-in-depth).
+// per-company owner lock and require a live owner actor (ownerLock.ts), after
+// the row lock as the trigger does, so the last-owner count below is the one
+// the write is judged by. newRole also gates here so a non-owner cannot
+// promote via a future caller that skips the API-layer check, and an owner
+// being demoted at that moment cannot promote either (the trigger reads the
+// actor without the lock).
 async function lockTargetRole(
   companyId: string,
   userId: string,
@@ -124,13 +118,7 @@ async function lockTargetRole(
   `) as DbRow[];
   const role = rows[0]?.role as string | undefined;
   if (role !== 'owner' && newRole !== 'owner') return role;
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`company_owners:${companyId}`}, 0))`;
-  const actor = (await sql`
-    SELECT role FROM company_users
-    WHERE company_id = ${companyId}::UUID AND lower(user_id) = lower(${actorUserId})
-  `) as DbRow[];
-  // By person, as the member role guard counts owners (lower-cased ids).
-  if (!actor.some((r) => r.role === 'owner')) throw new OwnerProtectedError();
+  await lockOwnersAndRequireOwner(companyId, actorUserId, role === 'owner' ? undefined : OWNER_GRANT_REFUSED);
   return role;
 }
 

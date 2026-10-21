@@ -9,7 +9,7 @@
  * tests/integration/s04-owner-protection.int.test.ts.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const h = vi.hoisted(() => ({ statements: [] as string[], targetRole: 'owner', actorRole: 'owner', ownerCount: 2 }));
@@ -127,13 +127,33 @@ describe('company-users service — non-owner cannot promote to owner (defence-i
     h.actorRole = 'admin';
     h.ownerCount = 2;
   });
-  afterEach(() => vi.clearAllMocks());
+
+  // Row lock on the target, then the owner lock, then the actor's role: read
+  // before the lock, an owner being demoted at that moment would still promote.
+  function expectLockThenActorRead(): void {
+    const rowLock = h.statements.findIndex((s) => /FOR UPDATE$/.test(s));
+    const ownerLock = h.statements.findIndex((s) => s.includes('pg_advisory_xact_lock'));
+    const actorRead = h.statements.findIndex((s, i) => i > rowLock && /^SELECT role FROM company_users/.test(s));
+    expect(rowLock).toBeGreaterThanOrEqual(0);
+    expect(ownerLock).toBeGreaterThan(rowLock);
+    expect(actorRead).toBeGreaterThan(ownerLock);
+  }
 
   it('throws OwnerProtectedError when an admin promotes a manager to owner', async () => {
-    await expect(
-      updateCompanyUserRole(COMPANY_ID, TARGET, 'owner', 'actor-admin'),
-    ).rejects.toBeInstanceOf(OwnerProtectedError);
+    const err = await updateCompanyUserRole(COMPANY_ID, TARGET, 'owner', 'actor-admin').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OwnerProtectedError);
+    expect((err as Error).message).toBe('Only an owner can grant the owner role.');
     // No UPDATE issued
+    expect(writes()).toEqual([]);
+    expectLockThenActorRead();
+  });
+
+  it('answers 403 to an admin promoting a manager through the route', async () => {
+    h.targetRole = 'manager';
+    const { promise, res } = call('PUT', 'owner', { userId: TARGET, role: 'owner' });
+    h.actorRole = 'admin'; // owner at sign-in, demoted since
+    await promise;
+    expect(statusOf(res)).toBe(403);
     expect(writes()).toEqual([]);
   });
 
@@ -143,5 +163,6 @@ describe('company-users service — non-owner cannot promote to owner (defence-i
       updateCompanyUserRole(COMPANY_ID, TARGET, 'owner', 'actor-owner'),
     ).resolves.toBeUndefined();
     expect(writes()).toHaveLength(1);
+    expectLockThenActorRead();
   });
 });
