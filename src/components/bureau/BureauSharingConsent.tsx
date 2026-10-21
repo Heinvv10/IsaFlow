@@ -15,6 +15,8 @@ interface SettingChange { id: string; changedAt: string; actorName: string | nul
 const onOff = (v: boolean | null) => (v === null ? 'unset' : v ? 'on' : 'off');
 
 export const SHARING_COMING_SOON_LABEL = 'Coming soon - pending legal review';
+/** Stored on, but the gate pools nothing (poolEligibility.ts), so it must not read plain "On". */
+export const SHARING_PAUSED_LABEL = 'On (paused pending legal review)';
 
 export function BureauSharingConsent({ enabled, canEdit, available, saving, history, onChange }: {
   enabled: boolean;
@@ -44,12 +46,18 @@ export function BureauSharingConsent({ enabled, canEdit, available, saving, hist
             onChange={(e) => onChange(e.target.checked)}
             className="h-4 w-4 accent-teal-500"
           />
-          {available ? (enabled ? 'On' : 'Off') : (enabled ? 'On' : SHARING_COMING_SOON_LABEL)}
+          {available ? (enabled ? 'On' : 'Off') : (enabled ? SHARING_PAUSED_LABEL : SHARING_COMING_SOON_LABEL)}
         </label>
       </div>
-      {!available && (
+      {!available && !enabled && (
         <p className="text-xs text-[var(--ff-text-tertiary)]">
           Sharing can&apos;t be switched on yet: the consent wording below is waiting for legal review.
+        </p>
+      )}
+      {!available && enabled && (
+        <p className="text-xs text-[var(--ff-text-tertiary)]">
+          Sharing is paused while the consent wording below is waiting for legal review: nothing is shared.
+          {canEdit ? ' You can still switch it off.' : ''}
         </p>
       )}
       {available && !canEdit && (
