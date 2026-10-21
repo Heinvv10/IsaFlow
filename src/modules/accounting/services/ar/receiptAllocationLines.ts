@@ -274,7 +274,9 @@ function buildLine(
     outstandingBefore,
     outstandingAfter,
     statusBefore,
-    statusAfter: outstandingAfter <= EPS ? 'paid' : 'partially_paid',
+    // Whole cents (outstandingAfter is round2'd): the status the row will hold, which recomputeInvoiceStatus
+    // derives with no tolerance - a cent still owing is 'partially_paid'.
+    statusAfter: outstandingAfter <= 0 ? 'paid' : 'partially_paid',
   };
 }
 

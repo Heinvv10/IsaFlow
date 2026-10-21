@@ -100,9 +100,9 @@ export async function recomputeInvoiceStatus(
   // 'sent' and 'overdue' are preserved while a balance remains: both mean
   // "unpaid and communicated", which staying unpaid does not contradict.
   // Collapsing them to 'approved' is what lost dunning state before.
-  // Customer invoices are judged in EXACT cents: `amount_paid <= total_amount` is a DB CHECK and every writer of
-  // amount_paid is whole-cent, so a cent still owing is 'partially_paid', never 'paid'. The supplier branch below keeps
-  // its one-cent tolerance: supplier_invoices has no such CHECK, so that side is not changed here.
+  // Customer invoices are judged in EXACT cents: `amount_paid <= total_amount` is a DB CHECK, so a cent still owing
+  // is 'partially_paid', never 'paid'. The supplier branch below keeps its one-cent tolerance: supplier_invoices has
+  // no such CHECK, so that side is not changed here.
   if (kind === 'customer') {
     await sql`
       UPDATE customer_invoices SET status = CASE

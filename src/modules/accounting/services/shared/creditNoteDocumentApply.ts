@@ -24,7 +24,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
-import { EPS, round2 } from './autoAllocateStrategy';
+import { EPS, invoiceFloor, round2 } from './autoAllocateStrategy';
 import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
 import { applyCreditNote, deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
 import { assertAllocationsMatchApplied, lockInvoicesForUpdate } from './creditNoteApplicationWrites';
@@ -112,7 +112,7 @@ export async function applyCreditNoteToDocument(
   // not the caller's problem. Thrown as a plain Error so the registry unwinds
   // and answers generically; a "retry" refusal would misstate the cause.
   const applied = round2(application.appliedAmount);
-  if (applied <= EPS) {
+  if (applied <= invoiceFloor(plan.side)) {
     throw new Error(
       `applyCreditNoteToDocument: engine applied nothing to invoice ${plan.invoiceId} planned at `
       + `R${plan.amount.toFixed(2)} under lock — plan and engine disagree.`,
@@ -224,7 +224,7 @@ async function buildPlan(
     );
   }
   const outstanding = Math.max(0, round2(Number(doc.outstanding)));
-  if (outstanding <= EPS) {
+  if (outstanding <= invoiceFloor(side)) {
     throw new CreditNoteApplyRefusal(`Invoice ${invoiceNumber} has nothing outstanding.`);
   }
 
@@ -254,8 +254,8 @@ async function buildPlan(
   const amount = round2(Math.min(input.amount ?? remainder, remainder, outstanding));
   // The engine writes only lines ABOVE a cent. A plan below that would promise
   // what the live call then cannot do.
-  if (amount <= EPS) {
-    throw new CreditNoteApplyRefusal(`The smallest amount that can be applied is R${(EPS + 0.01).toFixed(2)}.`);
+  if (amount <= invoiceFloor(side)) {
+    throw new CreditNoteApplyRefusal(`The smallest amount that can be applied is R${(invoiceFloor(side) + 0.01).toFixed(2)}.`);
   }
   const appliedAfter = round2(appliedBefore + amount);
   return {
