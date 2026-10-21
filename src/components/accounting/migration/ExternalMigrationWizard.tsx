@@ -8,13 +8,12 @@
 import { useState } from 'react';
 import { ArrowRight, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
 import { AccountMappingTable } from './AccountMappingTable';
 import {
   StepIndicator, FileUploadZone, SummaryCard, VerifyTable, RollbackButton,
   type VerifyEntry,
 } from './WizardParts';
-import type { ParsedAccount, ParsedEntity, MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
+import { remapAccounts, type ParsedAccount, type ParsedEntity, type MigrationSource } from '@/modules/accounting/services/core/migrationParserService';
 
 interface Props {
   source: MigrationSource;
@@ -56,7 +55,6 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
   const [customers, setCustomers] = useState<ParsedEntity[]>([]);
   const [suppliers, setSuppliers] = useState<ParsedEntity[]>([]);
   const [parsing, setParsing] = useState('');
-  const [autoMapping, setAutoMapping] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [verifyResults, setVerifyResults] = useState<VerifyEntry[]>([]);
@@ -64,6 +62,8 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
   const [error, setError] = useState('');
 
   const hints = SOURCE_HINTS[source];
+  // A balance the parser could not read is carried as 0 with an error: never import it silently.
+  const unreadable = [...accounts, ...customers, ...suppliers].filter(r => r.parseError);
 
   const parseFile = async (file: File, fileType: 'accounts' | 'customers' | 'suppliers') => {
     setParsing(fileType);
@@ -86,26 +86,16 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
     }
   };
 
-  const runAutoMap = async () => {
+  // In memory, with the parser's own pure mapping. This used to POST
+  // JSON.stringify(accounts) to the CSV parser as a "file"; it found no CSV
+  // rows and the list was replaced with [] — wiping every uploaded account.
+  const runAutoMap = () => {
     if (accounts.length === 0) return;
-    setAutoMapping(true);
     setError('');
-    // Re-submit to parser to re-apply auto-mapping
-    try {
-      const blob = new Blob([JSON.stringify(accounts)], { type: 'text/plain' });
-      const form = new FormData();
-      form.append('file', blob, 'accounts.csv');
-      form.append('source', source);
-      form.append('fileType', 'accounts');
-      const res = await apiFetch('/api/accounting/migration-parse', { method: 'POST', body: form });
-      await assertOk(res, 'Could not auto-map the accounts - try again');
-      setAccounts((await res.json()).data.parsed);
-    } catch (e) {
-      log.warn('AI auto-mapping failed', { error: e }, 'migration');
-      setError(apiErrorMessage(e, 'Could not auto-map the accounts - try again'));
-    } finally {
-      setAutoMapping(false);
-    }
+    setAccounts(prev => {
+      const mapped = remapAccounts(source, prev);
+      return mapped.length === prev.length ? mapped : prev;
+    });
   };
 
   const executeImport = async () => {
@@ -150,6 +140,13 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
     <div className="space-y-6">
       <StepIndicator step={step} />
 
+      {unreadable.length > 0 && (
+        <div role="alert" className="p-3 rounded-lg bg-red-500/10 text-red-400 text-xs space-y-1">
+          <p className="font-medium">{unreadable.length} row(s) have a balance that could not be read. Fix the file and upload it again:</p>
+          {unreadable.slice(0, 5).map((r, i) => <p key={i}>{'sourceName' in r ? r.sourceName : r.name}: {r.parseError}</p>)}
+        </div>
+      )}
+
       {error && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
           <AlertCircle className="h-4 w-4 shrink-0" /> {error}
@@ -172,7 +169,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
 
       {step === 'mapping' && (
         <div className="space-y-4">
-          <AccountMappingTable accounts={accounts} onChange={setAccounts} onAutoMap={runAutoMap} autoMapping={autoMapping} />
+          <AccountMappingTable accounts={accounts} onChange={setAccounts} onAutoMap={runAutoMap} autoMapping={false} />
           <div className="flex items-center justify-between pt-2">
             <button onClick={() => setStep('upload')} className="text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] underline">Back</button>
             <button onClick={() => setStep('review')} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium">
@@ -197,7 +194,7 @@ export function ExternalMigrationWizard({ source, onDone, onBack }: Props) {
           </div>
           <div className="flex items-center justify-between pt-2">
             <button onClick={() => setStep('mapping')} className="text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] underline">Back</button>
-            <button onClick={executeImport} disabled={importing} className="flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-50">
+            <button onClick={executeImport} disabled={importing || unreadable.length > 0} className="flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-50">
               {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               {importing ? 'Importing...' : 'Import Now'}
             </button>
