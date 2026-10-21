@@ -206,6 +206,28 @@ describe('sweep', () => {
     expect(statsCall![1]).toBe(1);
   });
 
+  it('learning loop: a posted row is recorded as an auto-posted decision on the suggestion it posted', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
+      { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, suggested_strategy: 'pattern', description: 'Coffee' },
+        { id: 't2', status: 'imported', feed_state: 'posted', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.50', suggested_vat_code: null, suggested_strategy: 'pattern', description: 'Low' },
+      ] },
+      { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
+      { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
+      { match: /UPDATE bank_auto_post_runs/, rows: [] },
+      { match: /categorization_decisions/, rows: [] },
+    ]);
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-1' });
+
+    await sweep('co-1', ['t1', 't2'], 'categorization', 'u-1');
+
+    const logged = sqlMock.mock.calls.filter((c) => /categorization_decisions/.test((c[0] as TemplateStringsArray).join('?')));
+    expect(logged).toHaveLength(1); // t2 was skipped (confidence too low): no decision
+    expect((logged[0]![0] as TemplateStringsArray).join('?')).toMatch(/was_auto_posted = true/);
+    expect(logged[0]!.slice(1)).toEqual(expect.arrayContaining(['co-1', 't1', 'pattern', 'gl-1', 0.95]));
+  });
+
   // ── The unattended posting boundary ────────────────────────────────────
   // allocateTransaction is the ATTENDED path and coerces nothing. This gate
   // posts with nobody watching, so it must guard before it calls. Velocity's

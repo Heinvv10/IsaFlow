@@ -25,6 +25,7 @@ import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { handOffsetOf, postingJournalOf, type HandOffset } from './autoPostHandOffset';
 import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
+import { recordAutoPostUndone } from './codingDecisionLog';
 
 type Row = DbRow;
 
@@ -168,6 +169,7 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     UPDATE bank_transactions SET auto_post_run_id = NULL
     WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
   `;
+  await recordAutoPostUndone(companyId, txId, userId); // non-fatal; inside the row's savepoint
   return { kind: outcome };
 }
 
