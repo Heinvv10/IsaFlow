@@ -1,6 +1,6 @@
 /**
  * Persistence for "Connect to Sage" between review and import
- * (table sage_connect_pulls, migration 898). Stores what was READ from Sage —
+ * (table sage_connect_pulls, migration 907). Stores what was READ from Sage —
  * never the Sage login — and clears it once imported or discarded.
  *
  * Also reads the target company's chart (TakeOnContext) the builder needs.
