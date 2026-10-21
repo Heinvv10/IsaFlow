@@ -5,12 +5,16 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { saveCategoryMapping, autoMapCategories, listCategoryMappings, runSharedPoolAggregation, runAfterCommit } = vi.hoisted(() => ({
+const {
+  saveCategoryMapping, autoMapCategories, listCategoryMappings, runSharedPoolAggregation, isSharedPoolRunning, runAfterCommit, logAdminAction,
+} = vi.hoisted(() => ({
   saveCategoryMapping: vi.fn(async () => undefined),
   autoMapCategories: vi.fn(async () => ({ mapped: 1, ambiguous: [] })),
   listCategoryMappings: vi.fn(async () => ({ listVersion: 1, categories: [] })),
   runSharedPoolAggregation: vi.fn(async () => ({ published: 3 })),
+  isSharedPoolRunning: vi.fn(() => false),
   runAfterCommit: vi.fn(),
+  logAdminAction: vi.fn(async () => undefined),
 }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -19,7 +23,8 @@ vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/admin/middleware/withAdmin', () => ({ withAdmin: (h: unknown) => h }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit }));
-vi.mock('@/modules/accounting/services/sharedPool/sharedPoolJob', () => ({ runSharedPoolAggregation }));
+vi.mock('@/modules/accounting/services/sharedPool/sharedPoolJob', () => ({ runSharedPoolAggregation, isSharedPoolRunning }));
+vi.mock('@/modules/admin/services/auditService', () => ({ logAdminAction }));
 vi.mock('@/modules/accounting/services/sharedPool/categoryMappingService', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/sharedPool/categoryMappingService')>()),
   saveCategoryMapping, autoMapCategories, listCategoryMappings,
@@ -101,6 +106,18 @@ describe('/api/admin/shared-merchant-pool', () => {
     expect(r.statusCode).toBe(200);
     expect(runSharedPoolAggregation).not.toHaveBeenCalled();
     expect(runAfterCommit).toHaveBeenCalledWith('shared-merchant-pool: admin recompute', runSharedPoolAggregation);
+  });
+  it('is audited as shared_pool_recompute by the admin who asked', async () => {
+    await call(adminRoute, { method: 'POST', body: { action: 'recompute' }, user: { id: 'admin-1' } });
+    expect(logAdminAction).toHaveBeenCalledTimes(1);
+    expect((logAdminAction.mock.calls[0] as unknown[]).slice(0, 5)).toEqual(['admin-1', 'shared_pool_recompute', 'shared_merchant_pool', null, null]);
+  });
+  it('is a 409 while a run is in progress, and queues nothing', async () => {
+    isSharedPoolRunning.mockReturnValueOnce(true);
+    const r = await call(adminRoute, { method: 'POST', body: { action: 'recompute' }, user: { id: 'admin-1' } });
+    expect(r.statusCode).toBe(409);
+    expect(runAfterCommit).not.toHaveBeenCalled();
+    expect(logAdminAction).not.toHaveBeenCalled();
   });
   it('anything but { action: recompute } is a 400', async () => {
     expect((await call(adminRoute, { method: 'POST', body: { action: 'recompute', extra: 1 }, user: { id: 'a' } })).statusCode).toBe(400);

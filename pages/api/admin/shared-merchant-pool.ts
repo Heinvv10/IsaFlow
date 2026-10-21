@@ -5,7 +5,8 @@
  * The same job the nightly cron runs (sharedPoolJob.ts). It is queued with runAfterCommit, so it runs off
  * this request's platform_admin connection, on the pool role, exactly as from cron: the job reads every
  * eligible company's coding and writes only through shared_pool_publish, which platform_admin cannot
- * execute. The run's counts are in the log ('shared-pool').
+ * execute. The run's counts are in the log ('shared-pool'). Audited (admin_audit_log, shared_pool_recompute);
+ * 409 while a run is in progress in this process, so repeated clicks cannot stack full scans.
  */
 
 import type { NextApiResponse } from 'next';
@@ -16,7 +17,9 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { runAfterCommit } from '@/lib/afterCommit';
-import { runSharedPoolAggregation } from '@/modules/accounting/services/sharedPool/sharedPoolJob';
+import { logAdminAction } from '@/modules/admin/services/auditService';
+import { getIp } from '@/utils/getIp';
+import { isSharedPoolRunning, runSharedPoolAggregation } from '@/modules/accounting/services/sharedPool/sharedPoolJob';
 
 const PostBody = z.object({ action: z.literal('recompute') }).strict();
 
@@ -24,6 +27,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   const parsed = PostBody.safeParse(req.body);
   if (!parsed.success) return apiResponse.badRequest(res, "action must be 'recompute'");
+  if (isSharedPoolRunning()) return apiResponse.conflict(res, 'A shared pool recompute is already running');
+  await logAdminAction(req.user.id, 'shared_pool_recompute', 'shared_merchant_pool', null, null, getIp(req));
   runAfterCommit('shared-merchant-pool: admin recompute', runSharedPoolAggregation);
   log.info('Shared merchant pool recompute queued via admin API', { userId: req.user.id }, 'admin-shared-pool');
   return apiResponse.success(res, { queued: true }, 'Recompute queued; it starts once this request commits');
