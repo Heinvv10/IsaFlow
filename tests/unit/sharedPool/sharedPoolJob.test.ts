@@ -1,9 +1,10 @@
 /**
  * The job's own guards: it refuses to run inside a request (where RLS would show it one tenant and it would
  * publish that one tenant's view as the whole pool), and with no eligible company it publishes an empty
- * pool (everyone opted out -> nothing left), through shared_pool_publish only.
+ * pool (everyone opted out -> nothing left), through shared_pool_publish only. While the legal-review gate
+ * (MERCHANT_SHARING_ENABLED) is off it reads and writes nothing at all.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { als } from '@/lib/als';
 
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
@@ -15,7 +16,11 @@ vi.mock('@/modules/bureau/services/poolEligibility', () => ({ listPoolEligibleCo
 import { isSharedPoolRunning, runSharedPoolAggregation } from '@/modules/accounting/services/sharedPool/sharedPoolJob';
 import { MERCHANT_FILTER_VERSION } from '@/modules/accounting/services/sharedPool/merchantPiiFilter';
 
-beforeEach(() => { sqlMock.mockReset(); listPoolEligibleCompanyIds.mockReset(); listPoolEligibleCompanyIds.mockResolvedValue([]); });
+beforeEach(() => {
+  sqlMock.mockReset(); listPoolEligibleCompanyIds.mockReset(); listPoolEligibleCompanyIds.mockResolvedValue([]);
+  process.env.MERCHANT_SHARING_ENABLED = 'true';
+});
+afterEach(() => { delete process.env.MERCHANT_SHARING_ENABLED; });
 const published = () => sqlMock.mock.calls.filter(([s]) => (s as TemplateStringsArray).join('?').includes('shared_pool_publish'));
 
 describe('runSharedPoolAggregation', () => {
@@ -63,5 +68,27 @@ describe('runSharedPoolAggregation', () => {
     await first;
     expect(isSharedPoolRunning()).toBe(false);
     await expect(runSharedPoolAggregation()).resolves.toMatchObject({ published: 0 });
+  });
+});
+
+describe('the legal-review gate (MERCHANT_SHARING_ENABLED)', () => {
+  it.each([undefined, 'false', 'TRUE', '1'])('MERCHANT_SHARING_ENABLED=%s: skipped, nothing read or written', async (v) => {
+    if (v === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = v;
+    listPoolEligibleCompanyIds.mockResolvedValue(['co-a']);
+    sqlMock.mockResolvedValue([{ published: 0 }]);
+    await expect(runSharedPoolAggregation()).resolves.toEqual({
+      skipped: true, reason: 'sharing_pending_legal_review', message: 'skipped: sharing disabled pending legal review',
+    });
+    expect(listPoolEligibleCompanyIds).not.toHaveBeenCalled();
+    expect(sqlMock).not.toHaveBeenCalled();
+    expect(isSharedPoolRunning()).toBe(false);
+  });
+
+  it("MERCHANT_SHARING_ENABLED='true': the run reads eligibility and publishes", async () => {
+    sqlMock.mockResolvedValue([{ published: 0 }]);
+    const r = await runSharedPoolAggregation();
+    expect(r).not.toHaveProperty('skipped');
+    expect(listPoolEligibleCompanyIds).toHaveBeenCalledTimes(1);
+    expect(published()).toHaveLength(1);
   });
 });

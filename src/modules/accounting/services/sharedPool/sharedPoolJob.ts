@@ -26,12 +26,19 @@
  * All or nothing: if any eligible company's read fails, nothing is published and the previous pool stands.
  * Publishing without a company is not "less": it can wipe the pool (every read failing) or raise a
  * merchant over the agreement threshold (a dissenting company dropped). One run at a time per process.
+ *
+ * Legal-review gate (merchantSharingGate.ts, Hein 2026-10-21 decision 3): while MERCHANT_SHARING_ENABLED is
+ * off the job does nothing at all, before any other check: no company read, no eligibility read, no publish,
+ * so the pool table is left exactly as it is. It returns { skipped: true, reason: 'sharing_pending_legal_review' }
+ * and logs "skipped: sharing disabled pending legal review". It does not rely on poolEligibility returning no
+ * company: an empty eligible set would publish an empty pool, which is a write.
  */
 
 import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listPoolEligibleCompanyIds } from '@/modules/bureau/services/poolEligibility';
+import { isMerchantSharingEnabled, MERCHANT_SHARING_PENDING_CODE } from '@/modules/bureau/services/merchantSharingGate';
 import { MERCHANT_FILTER_VERSION } from './merchantPiiFilter';
 import { accountToCategory, aggregatePool, type AggregationStats, type PoolObservation } from './merchantPool';
 
@@ -83,6 +90,15 @@ export interface SharedPoolRunResult extends AggregationStats {
   durationMs: number;
 }
 
+/** What a run returns while the legal-review gate is off: nothing was read or written. */
+export interface SharedPoolSkipped {
+  skipped: true;
+  reason: typeof MERCHANT_SHARING_PENDING_CODE;
+  message: string;
+}
+
+export const SHARED_POOL_SKIPPED_MESSAGE = 'skipped: sharing disabled pending legal review';
+
 let running = false;
 
 /** True while a run is in progress in this process (the admin trigger answers 409 instead of queueing another). */
@@ -91,10 +107,14 @@ export function isSharedPoolRunning(): boolean {
 }
 
 /**
- * Recompute and replace the pool. A company whose read fails aborts the run before the publish (logged and
+ * Recompute and replace the pool; while the legal-review gate is off, skip without touching anything. A company whose read fails aborts the run before the publish (logged and
  * thrown), so the previous pool stands; a second run while one is in progress is refused.
  */
-export async function runSharedPoolAggregation(): Promise<SharedPoolRunResult> {
+export async function runSharedPoolAggregation(): Promise<SharedPoolRunResult | SharedPoolSkipped> {
+  if (!isMerchantSharingEnabled()) {
+    log.info(`shared pool: ${SHARED_POOL_SKIPPED_MESSAGE}`, {}, 'shared-pool');
+    return { skipped: true, reason: MERCHANT_SHARING_PENDING_CODE, message: SHARED_POOL_SKIPPED_MESSAGE };
+  }
   // Inside a request, every read would be RLS-bound to one company and the publish would replace the
   // whole pool with that one company's view (an empty pool). Refuse instead of wiping it.
   if (als.getStore()) throw new Error('runSharedPoolAggregation must run off any request transaction (cron, or runAfterCommit)');

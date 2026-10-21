@@ -17,10 +17,15 @@
  * Source 'shared_pool': labelled "Common at other ISAFlow clients" in the bank screen, and NEVER
  * auto-posted (autoPostGate refuses the strategy outright). Non-fatal: a failed lookup costs the
  * suggestion, never the categorisation run (own savepoint, so a request transaction stays usable).
+ *
+ * Legal-review gate (merchantSharingGate.ts): while MERCHANT_SHARING_ENABLED is off this answers as if the
+ * pool were empty, before the filter or any SQL, so no stored pool row is ever served. It does not rely on
+ * shared_pool_lookup, which reads the stored opt-in flags and cannot see the server's env.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { isMerchantSharingEnabled } from '@/modules/bureau/services/merchantSharingGate';
 import type { CategorizationResult } from '../core/smartCategorizationMatchingService';
 import { normalisePatternVatCode, toConfidenceLevel } from '../core/smartCategorizationMatchingService';
 import { merchantCategory } from './merchantCategories';
@@ -93,7 +98,7 @@ async function lookup(companyId: string, lines: SharedLookupLine[]): Promise<Map
 export async function getSharedSuggestions(
   companyId: string, lines: SharedLookupLine[],
 ): Promise<Map<string, CategorizationResult>> {
-  if (lines.length === 0) return new Map();
+  if (lines.length === 0 || !isMerchantSharingEnabled()) return new Map();
   try {
     return await withSavepoint('shared_pool_lookup', () => lookup(companyId, lines));
   } catch (err) {

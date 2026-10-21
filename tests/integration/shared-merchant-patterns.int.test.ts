@@ -4,12 +4,14 @@
  * sub-threshold rows and non-poolable categories; shared_pool_lookup answers only an eligible caller's
  * active company; the job publishes at k = 5 eligible companies, ignores no-bureau and partially opted-out
  * companies, unmapped accounts and pool-accepted decisions, and drops everything on opt-out; a suggestion
- * names the caller's own account; company_category_mappings is tenant-isolated.
+ * names the caller's own account; company_category_mappings is tenant-isolated. The suite runs with the
+ * legal-review gate on (MERCHANT_SHARING_ENABLED=true); with it off, the job leaves the pool untouched and
+ * the reader serves none of the rows it holds.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { asUser, pool, seedCompany, seedUser, teardownCompanies, type Co } from './learning-loop.helpers';
-import { runSharedPoolAggregation } from '../../src/modules/accounting/services/sharedPool/sharedPoolJob';
+import { runSharedPoolAggregation as runJob, type SharedPoolRunResult } from '../../src/modules/accounting/services/sharedPool/sharedPoolJob';
 import { getSharedSuggestion } from '../../src/modules/accounting/services/sharedPool/sharedSuggestionService';
 import { autoMapCategories } from '../../src/modules/accounting/services/sharedPool/categoryMappingService';
 import { bulkCategorize } from '../../src/modules/accounting/services/core/smartCategorizationService';
@@ -23,6 +25,17 @@ const users: string[] = [];
 let member = ''; // member of c[0], c[1], c[5], c[6]
 const bureauIn = crypto.randomUUID();
 const bureauOut = crypto.randomUUID();
+
+/** A run with the gate on: a skip here means the env was not set, so fail loudly. */
+async function runSharedPoolAggregation(): Promise<SharedPoolRunResult> {
+  const r = await runJob();
+  if ('skipped' in r) throw new Error('the shared pool job skipped: MERCHANT_SHARING_ENABLED is not true');
+  return r;
+}
+const gateBefore = process.env.MERCHANT_SHARING_ENABLED;
+function restoreGate() {
+  if (gateBefore === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = gateBefore;
+}
 
 async function poolRow(merchant: string) {
   return (await pool.query('SELECT * FROM shared_merchant_patterns WHERE normalized_merchant = $1', [merchant])).rows[0];
@@ -40,6 +53,7 @@ async function decidedLine(co: Co, description: string, source: string, outcome:
 }
 
 beforeAll(async () => {
+  process.env.MERCHANT_SHARING_ENABLED = 'true';
   for (let i = 0; i < 7; i++) cos.push(await seedCompany(`906 pool co ${i}`));
   fresh = await seedCompany('906 auto-map co');
   member = await seedUser([cos[0]!.id, cos[1]!.id, cos[5]!.id, cos[6]!.id, fresh.id]);
@@ -82,6 +96,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  restoreGate();
   try {
     const ids = [...cos, fresh].map((c) => c.id);
     await pool.query("SELECT public.shared_pool_publish('[]'::jsonb, 1)");
@@ -119,6 +134,32 @@ describe('the aggregation job', () => {
     expect(text).not.toContain(bureauIn);
     expect(Object.keys(row).sort()).toEqual(['agreement_pct', 'category_code', 'distinct_company_count', 'filter_version',
       'normalized_merchant', 'total_observations', 'updated_at']);
+  });
+});
+
+describe('the legal-review gate off (MERCHANT_SHARING_ENABLED unset)', () => {
+  it('the job reads and writes nothing: the published rows stay exactly as they were', async () => {
+    const before = (await pool.query('SELECT * FROM shared_merchant_patterns ORDER BY normalized_merchant')).rows;
+    expect(before.length).toBeGreaterThan(0);
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    try {
+      expect(await runJob()).toEqual({
+        skipped: true, reason: 'sharing_pending_legal_review', message: 'skipped: sharing disabled pending legal review',
+      });
+    } finally {
+      process.env.MERCHANT_SHARING_ENABLED = 'true';
+    }
+    expect((await pool.query('SELECT * FROM shared_merchant_patterns ORDER BY normalized_merchant')).rows).toEqual(before);
+  });
+
+  it('an eligible member gets no pool suggestion although the pool holds the merchant', async () => {
+    expect(await poolRow('ENGEN')).toBeDefined();
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    try {
+      expect(await asUser(member, cos[1]!.id, () => getSharedSuggestion(cos[1]!.id, 'POS ENGEN ROSEBANK 4411'))).toBeNull();
+    } finally {
+      process.env.MERCHANT_SHARING_ENABLED = 'true';
+    }
   });
 });
 

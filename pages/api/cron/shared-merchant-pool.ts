@@ -6,6 +6,10 @@
  * next run. Runs on the pool role with no request context (no withAuth), as every cron route does.
  * Scheduled by scripts/isaflow-shared-merchant-pool.{service,timer} (not installed by deploy.sh).
  *
+ * While the legal-review gate is off (MERCHANT_SHARING_ENABLED, merchantSharingGate.ts) the job reads and
+ * writes nothing and this answers 200 with { skipped: true, reason: 'sharing_pending_legal_review' }, so the
+ * nightly timer does not report a failure every night while sharing waits for legal.
+ *
  * Authentication: X-Cron-Secret header must match CRON_SECRET env var.
  */
 
