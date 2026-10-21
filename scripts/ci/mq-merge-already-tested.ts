@@ -25,12 +25,20 @@
  *      attempt, concluded success.
  * Why the PR run's tree is HEAD's tree: GitHub tests a PR as its merge into the
  * base of the moment, and ci.yml's pull_request trigger is pinned to base
- * master (workflowRunsCiRule), so that base was master. Master moves only
- * forward (strict protection, no force push), so it was an ancestor of
- * `before`, hence of the second parent (3), and merging an ancestor changes
- * nothing: the tested tree is the second parent's, which (3) makes HEAD's.
- * The runs API drops `pull_requests` once a PR is merged, so the run is tied to
- * PR N by its head branch, not by number.
+ * master (workflowRunsCiRule), so that base was master. ASSUMED, not checked:
+ * master has never been force-pushed since that run. Branch protection
+ * forbids force-pushes to master (allow_force_pushes: false, enforce_admins
+ * on); this script refuses a forced CURRENT push but cannot see an earlier
+ * one. Under that assumption master moved only forward, so the run's base was
+ * an ancestor of `before`, hence of the second parent (3), and merging an
+ * ancestor changes nothing: the tested tree is the second parent's, which (3)
+ * makes HEAD's. The runs API drops `pull_requests` once a PR is merged, so the
+ * run is tied to PR N by its head branch, not by number.
+ * A queue batch (maxBatch > 1) lands the same way: the queue merges its batch
+ * PR (branch merge-queue/batch-*, built from master), so N is the batch PR.
+ * The queue's `in-merge-queue` label is not used: the queue removes it once
+ * the merge lands, often before this runs, and it proves nothing the tree and
+ * run checks above do not.
  *
  * Token: CI_READ_TOKEN (the job's github.token, with actions: read and
  * pull-requests: read). Any API or git error runs everything.

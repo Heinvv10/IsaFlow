@@ -63,6 +63,15 @@ describe('decide', () => {
     expect(v.reason).toMatch(/PR #763.*run 7/);
   });
 
+  it('skips a batch merge (maxBatch > 1): the batch PR from merge-queue/batch-* is the PR, its run the proof', async () => {
+    const batch = 'merge-queue/batch-1761070000000';
+    const v = await decide(ENV, EVENT, fakeGit({ subject: `Merge pull request #763 from Heinvv10/${batch}` }), fakeApi({
+      pr: { ...GOOD_API.pr, head: { sha: P2, ref: batch } },
+      runs: [{ ...GOOD_API.runs[0], head_branch: batch }],
+    }));
+    expect(v.tested).toBe(true);
+  });
+
   it('a rerun attempt counts: a later run of the same head can carry the green jobs', async () => {
     const runs = [{ id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH, head_repository: { full_name: REPO } }, ...GOOD_API.runs];
     expect((await decide(ENV, EVENT, fakeGit(), fakeApi({ runs, jobs: { 8: [greenJobs[0]!], 7: greenJobs } }))).tested).toBe(true);
