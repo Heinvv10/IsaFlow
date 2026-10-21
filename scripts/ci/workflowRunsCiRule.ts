@@ -33,7 +33,11 @@
  *     status checks; see docs/audits/remediation/R-052/fix.md.
  *   - It does not read run-ci.sh, nor the BODIES of the package scripts it
  *     calls (`"lint": "true"`). An edit there that skips a gate is a
- *     code-review matter.
+ *     code-review matter. run-ci.sh itself skips on purpose in two places,
+ *     each decided by a unit-tested script that runs everything on any doubt:
+ *     every gate on a push that is an already-tested merge-queue merge
+ *     (mq-merge-already-tested.ts), and the integration step on a
+ *     Markdown-only change (integration/scope.ts).
  *   - It cannot protect the runner. The self-hosted runner persists between
  *     jobs and its user owns ~/.bun/bin, so any job (golden-paths, another
  *     workflow) could replace bun for every later run. A bunfig.toml preload
@@ -73,15 +77,25 @@ const GOLDEN_PATHS_CONCURRENCY = { group: 'golden-paths-dev-demo', 'cancel-in-pr
 /**
  * The token every job gets. With `actions: write` any job (golden-paths
  * included) could `gh run cancel` the run, ending quality CANCELLED. Pinned at
- * the top level, and no job may widen it.
+ * the top level. A job may set exactly JOB_PERMISSIONS and nothing else: the
+ * read scopes mq-merge-already-tested.ts needs to read the merged PR and its CI
+ * run's jobs. A read scope cannot cancel, rerun or write anything.
  */
 const PERMISSIONS = { contents: 'read' };
+const JOB_PERMISSIONS = { contents: 'read', actions: 'read', 'pull-requests': 'read' };
 const MIN_TIMEOUT_MINUTES = 20;
 const CHECKOUT = /^actions\/checkout@v\d+$/;
+/** The one checkout input allowed: full history (the integration scope and the merge check read it). */
+const CHECKOUT_WITH = { 'fetch-depth': 0 };
 const INSTALL = 'bun install --frozen-lockfile --ignore-scripts';
 const RUN_CI = 'bun run ci';
 /** The only env the gate step may set. CI_SKIP_BUILD / SKIP_CI would drop gates silently. */
-const GATE_ENV = new Set(['DATABASE_URL', 'JWT_SECRET', 'NODE_ENV']);
+const GATE_ENV = new Set(['CI_READ_TOKEN', 'DATABASE_URL', 'JWT_SECRET', 'NODE_ENV']);
+/**
+ * CI_READ_TOKEN must be the job's own token: the merge check trusts what the
+ * API answers, so a token for another repo or account is refused.
+ */
+const CI_READ_TOKEN = '${{ github.token }}';
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -92,6 +106,11 @@ function sameList(v: unknown, want: string[]): boolean {
 
 function extraKeys(o: Obj, allowed: string[]): string[] {
   return Object.keys(o).filter((k) => !allowed.includes(k));
+}
+
+function sameMap(v: unknown, want: Record<string, unknown>): boolean {
+  return isObj(v) && sameList(Object.keys(v).sort(), Object.keys(want).sort())
+    && Object.entries(want).every(([k, x]) => v[k] === x);
 }
 
 function checkTrigger(on: Obj, event: string, errors: string[]): void {
@@ -149,8 +168,10 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     if (!sameList(Object.keys(jobs), JOBS)) {
       errors.push(`ci.yml jobs must be exactly ${JOBS.join(', ')}; another job can take the ci- concurrency group and cancel quality`);
     }
-    const widened = Object.entries(jobs).filter(([, j]) => isObj(j) && 'permissions' in j).map(([name]) => name);
-    if (widened.length) errors.push(`jobs ${widened.join(', ')} set permissions; only the top-level {contents: read} token is allowed`);
+    const widened = Object.entries(jobs)
+      .filter(([, j]) => isObj(j) && 'permissions' in j && !sameMap(j.permissions, JOB_PERMISSIONS))
+      .map(([name]) => name);
+    if (widened.length) errors.push(`jobs ${widened.join(', ')} set permissions other than exactly ${JSON.stringify(JOB_PERMISSIONS)}; a write scope lets a job cancel the run`);
     const gp = jobs['golden-paths'];
     const gpc = isObj(gp) ? gp.concurrency : undefined;
     if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
@@ -161,7 +182,7 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
   const job = isObj(jobs) ? jobs[QUALITY_JOB] : undefined;
   if (!isObj(job)) return [...errors, `ci.yml has no jobs.${QUALITY_JOB}`];
 
-  const jobExtra = extraKeys(job, ['name', 'runs-on', 'timeout-minutes', 'steps']);
+  const jobExtra = extraKeys(job, ['name', 'runs-on', 'timeout-minutes', 'permissions', 'steps']);
   if (jobExtra.length) errors.push(`jobs.${QUALITY_JOB} sets ${jobExtra.join(', ')}; if/continue-on-error/defaults/env/strategy can skip or neutralise the gate`);
   const timeout = job['timeout-minutes'];
   if (!Number.isInteger(timeout) || (timeout as number) < MIN_TIMEOUT_MINUTES) {
@@ -178,8 +199,9 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
   }
   const [checkout, install, gate] = steps as unknown[];
 
-  if (!isObj(checkout) || extraKeys(checkout, ['uses']).length || typeof checkout.uses !== 'string' || !CHECKOUT.test(checkout.uses)) {
-    errors.push('step 1 must be only `uses: actions/checkout@vN`');
+  if (!isObj(checkout) || extraKeys(checkout, ['uses', 'with']).length || typeof checkout.uses !== 'string'
+    || !CHECKOUT.test(checkout.uses) || (checkout.with !== undefined && !sameMap(checkout.with, CHECKOUT_WITH))) {
+    errors.push('step 1 must be only `uses: actions/checkout@vN`, optionally `with: {fetch-depth: 0}`');
   }
   if (!isObj(install) || extraKeys(install, ['name', 'run']).length || install.run !== INSTALL) {
     errors.push(`step 2 must be only \`run: ${INSTALL}\` (install scripts or a step before the gate can rewrite what it runs)`);
@@ -190,6 +212,9 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
     const env = gate.env;
     const bad = isObj(env) ? Object.keys(env).filter((k) => !GATE_ENV.has(k)) : ['<not a mapping>'];
     if (bad.length) errors.push(`the gate step's env sets ${bad.join(', ')}; only ${[...GATE_ENV].join(', ')} are allowed`);
+    if (isObj(env) && 'CI_READ_TOKEN' in env && env.CI_READ_TOKEN !== CI_READ_TOKEN) {
+      errors.push(`the gate step's CI_READ_TOKEN must be exactly ${CI_READ_TOKEN}`);
+    }
   }
   return errors;
 }
