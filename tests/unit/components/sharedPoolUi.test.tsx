@@ -50,11 +50,11 @@ describe('Merchant Categories page', () => {
     { id: 'a4', accountCode: '6300', accountName: 'Closed', isActive: false },
   ];
 
-  function serve() {
+  function serve(sharingAvailable: boolean | 'omitted' = true) {
     apiFetch.mockImplementation(async (url: string, init?: { body?: string }) => {
       if (url.startsWith('/api/accounting/chart-of-accounts')) return ok(accounts);
       if (init?.body) return ok(JSON.parse(init.body).action === 'auto_map' ? { mapped: 3, ambiguous: ['telephone'] } : { saved: true });
-      return ok({ listVersion: 1, categories });
+      return ok({ listVersion: 1, categories, ...(sharingAvailable === 'omitted' ? {} : { sharingAvailable }) });
     });
   }
 
@@ -77,6 +77,15 @@ describe('Merchant Categories page', () => {
     serve();
     render(<MerchantCategoriesPage />);
     expect(await screen.findByText(/your coding on mapped accounts also counts \(anonymously\) toward these suggestions for other ISAFlow clients/)).toBeTruthy();
+  });
+
+  it.each([false, 'omitted'] as const)('sharingAvailable %s: says shared suggestions are pending legal review, not that coding counts', async (v) => {
+    serve(v);
+    render(<MerchantCategoriesPage />);
+    const p = await screen.findByTestId('sharing-pending');
+    expect(p.textContent).toContain('Shared suggestions: Coming soon - pending legal review.');
+    expect(p.textContent).toContain('nothing you map here is shared with other ISAFlow clients');
+    expect(screen.queryByText(/also counts \(anonymously\)/)).toBeNull();
   });
 
   it('flags an account two categories map to as not shared', async () => {
