@@ -89,10 +89,23 @@ run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 # that skipped and why, and fails on one that skipped without saying why.
 # See the header of scripts/ci/integration/run.sh.
 # It runs on GitHub (GITHUB_ACTIONS=true) and, locally, only when asked for
-# with CI_INTEGRATION=1: it adds 8-25 minutes, so the pre-push hook skips it.
+# with CI_INTEGRATION=1: it adds 6-15 minutes, so the pre-push hook skips it.
+# On GitHub, a change that touches nothing but Markdown skips it
+# (scripts/ci/integration/scope.ts: exit 10 skips, anything else, a crash
+# included, runs; it prints why and the files that made it run).
 INTEGRATION_NOTE=""
 if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI_INTEGRATION:-}" = "1" ]; then
-  run_step "integration"     bash scripts/ci/integration/run.sh
+  scope_rc=0
+  if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${CI_INTEGRATION:-}" != "1" ]; then
+    echo ""
+    bun scripts/ci/integration/scope.ts || scope_rc=$?
+  fi
+  if [ "$scope_rc" -eq 10 ]; then
+    INTEGRATION_NOTE=" (integration SKIPPED: Markdown-only change)"
+    echo "[skip] integration: SKIPPED — every changed file is Markdown (see [integration-scope] above)"
+  else
+    run_step "integration"   bash scripts/ci/integration/run.sh
+  fi
 else
   INTEGRATION_NOTE=" (integration NOT RUN)"
   echo ""
