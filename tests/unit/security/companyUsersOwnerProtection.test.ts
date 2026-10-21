@@ -12,13 +12,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const h = vi.hoisted(() => ({ statements: [] as string[], targetRole: 'owner', ownerCount: 2 }));
+const h = vi.hoisted(() => ({ statements: [] as string[], targetRole: 'owner', actorRole: 'owner', ownerCount: 2 }));
 
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn((strings: TemplateStringsArray) => {
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
     h.statements.push(text);
-    if (/^SELECT role FROM company_users/.test(text)) return Promise.resolve([{ role: h.targetRole }]);
+    if (/^SELECT role FROM company_users.*FOR UPDATE$/.test(text)) return Promise.resolve([{ role: h.targetRole }]);
+    // The actor's own role, read live after the owner lock.
+    if (/^SELECT role FROM company_users/.test(text)) return Promise.resolve([{ role: h.actorRole }]);
     if (/^SELECT COUNT\(\*\)/.test(text)) return Promise.resolve([{ cnt: String(h.ownerCount) }]);
     return Promise.resolve([]);
   }),
@@ -39,6 +41,7 @@ const COMPANY_ID = '11111111-1111-4111-9111-111111111111';
 const TARGET = '44444444-4444-4444-9444-444444444444';
 
 function call(method: 'PUT' | 'DELETE', companyRole: string, body: Record<string, string>) {
+  h.actorRole = companyRole;
   const req = {
     method, query: {}, body, headers: {},
     companyId: COMPANY_ID, companyRole, user: { id: 'caller' },
@@ -69,6 +72,15 @@ describe('company-users S-04 — only an owner changes or removes an owner', () 
 
   it('answers 403 to an admin removing an owner, and writes nothing', async () => {
     const { promise, res } = call('DELETE', 'admin', { userId: TARGET });
+    await promise;
+    expect(statusOf(res)).toBe(403);
+    expect(writes()).toEqual([]);
+  });
+
+  // Breaker REPRO 1: withAuth read 'owner', but the caller was demoted since.
+  it('answers 403 when the caller was an owner at sign-in but is not one now', async () => {
+    const { promise, res } = call('PUT', 'owner', { userId: TARGET, role: 'viewer' });
+    h.actorRole = 'admin';
     await promise;
     expect(statusOf(res)).toBe(403);
     expect(writes()).toEqual([]);

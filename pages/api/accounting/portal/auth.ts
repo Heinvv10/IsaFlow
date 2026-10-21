@@ -7,11 +7,8 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
-import { createMagicLink } from '@/modules/accounting/services/afs/magicLinkService';
-import { notifyMagicLinkRequested, type PortalSignInLink } from '@/modules/accounting/services/afs/portalNotificationService';
-import { listLiveCompanies } from '@/lib/auth/liveCompanies';
+import { sendPortalSignInLinks } from '@/modules/accounting/services/afs/portalSignInLinks';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 
@@ -38,47 +35,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const normalizedEmail = email.trim().toLowerCase();
 
-  // Cross-tenant lookup — the user provides only their email. One email can be
-  // a contact on several companies (audit S-08): every live one gets its own
-  // link, all in one email, so the contact chooses rather than LIMIT 1.
-  const contacts = (await sql`
-    SELECT id, company_id, name, email
-    FROM portal_contacts
-    WHERE email = ${normalizedEmail} AND active = true
-    ORDER BY created_at, id
-  `) as Array<{ id: string; company_id: string; name: string; email: string }>;
-
-  const live = new Map(
-    (await listLiveCompanies(contacts.map((c) => c.company_id))).map((c) => [c.companyId, c.companyName]),
-  );
-  const liveContacts = contacts.flatMap((c) => {
-    const companyName = live.get(c.company_id);
-    return companyName === undefined ? [] : [{ ...c, companyName: companyName || 'Your company' }];
-  });
-
-  const first = liveContacts[0];
-  if (first) {
-    // A failure here happens only for an email that exists; answering it as a
-    // 500 would tell the caller so. Logged, and answered like every other email.
-    try {
-      const links: PortalSignInLink[] = [];
-      for (const contact of liveContacts) {
-        const { token } = await createMagicLink(contact.company_id, contact.id);
-        links.push({
-          companyId: contact.company_id,
-          companyName: contact.companyName,
-          url: `${APP_URL}/api/accounting/portal/auth/verify?token=${token}`,
-        });
-      }
-      await notifyMagicLinkRequested({ name: first.name, email: first.email }, links);
-      log.info('Magic links created for portal contact', { contactIds: liveContacts.map((c) => c.id) }, 'portal-auth-api');
-    } catch (err) {
-      log.error('Portal magic links could not be created', {
-        contactIds: liveContacts.map((c) => c.id),
-        error: err instanceof Error ? err.message : String(err),
-      }, 'portal-auth-api');
-    }
-  }
+  // Not awaited (audit S-08 breaker REPRO 2): the lookup, link creation and
+  // send take measurably longer for an email that has a live company, so the
+  // answer would tell the caller which emails do. Every email is answered alike.
+  void sendPortalSignInLinks(normalizedEmail, APP_URL);
 
   // Always return success — prevent email enumeration
   return apiResponse.success(res, { sent: true });
