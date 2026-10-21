@@ -15,6 +15,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { log } from '@/lib/logger';
+import { jsonSafe } from '@/modules/accounting/services/ap/netcashAnswerSafety';
 import { resolveSubmission, type ResolveOutcome } from '@/modules/accounting/services/ap/netcashSubmissionResolve';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,7 +28,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { submissionId, outcome, note } = (req.body ?? {}) as Record<string, unknown>;
   if (typeof submissionId !== 'string' || !UUID.test(submissionId)) return apiResponse.badRequest(res, 'submissionId must be a submission id');
   if (outcome !== 'failed' && outcome !== 'submitted') return apiResponse.badRequest(res, "outcome must be 'failed' or 'submitted'");
-  const trimmed = typeof note === 'string' ? note.trim() : '';
+  // Made jsonb-safe first (round 16): it is written to netcash_response.resolved and audit_log, and a NUL or a lone
+  // surrogate failed the resolve (22P05).
+  const trimmed = typeof note === 'string' ? jsonSafe(note).trim() : '';
   if (trimmed === '' || trimmed.length > MAX_NOTE) return apiResponse.badRequest(res, `note is required (what you found at Netcash), at most ${MAX_NOTE} characters`);
 
   const result = await resolveSubmission({

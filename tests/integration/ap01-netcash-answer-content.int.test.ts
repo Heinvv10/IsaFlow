@@ -113,4 +113,30 @@ describe('Netcash\'s answer cannot defeat its own settle (AP-01 round 15)', () =
     const latest = (await row(id)).netcash_response?.latestPoll as { status?: string } | undefined;
     expect({ http: res.state.statusCode, status: (await row(id)).status, latest: latest?.status }).toEqual({ http: 200, status: 'processing', latest: 'Processing' });
   });
+
+  // The adversary's round-15 content attacks (round 16: permanent). Each: the row settles, the batch stays closed.
+  const big = 'Z'.repeat(2 * 1024 * 1024);
+  it.each([
+    ['NUL in a short reference', { success: true, outcome: 'accepted', batchReference: 'NC-\u0000-1' }, 'submitted'],
+    ['lone high surrogate in reference', { success: true, outcome: 'accepted', batchReference: 'NC-\ud800' }, 'submitted'],
+    ['lone low surrogate in reference', { success: true, outcome: 'accepted', batchReference: '\udc00NC' }, 'submitted'],
+    ['backslash-u text in reference', { success: true, outcome: 'accepted', batchReference: 'NC-\\u0000-\\ud800' }, 'submitted'],
+    ['2 MB reference', { success: true, outcome: 'accepted', batchReference: big }, 'submitted'],
+    ['exactly 100 chars, multibyte', { success: true, outcome: 'accepted', batchReference: '\u00e9'.repeat(100) }, 'submitted'],
+    ['51 emoji = 102 UTF-16 units', { success: true, outcome: 'accepted', batchReference: '\u{1F600}'.repeat(51) }, 'submitted'],
+    ['50 emoji = 100 UTF-16 units, 50 chars', { success: true, outcome: 'accepted', batchReference: '\u{1F600}'.repeat(50) }, 'submitted'],
+    ['NUL + surrogate in an unknown answer\'s error text', { success: false, outcome: 'unknown', error: 'boom\u0000\ud800' }, 'unknown'],
+    ['a non-finite number as the reference', { success: true, outcome: 'accepted', batchReference: 1e400 }, 'submitted'],
+    ['a NUL key with a surrogate value in the answer', { success: true, outcome: 'accepted', batchReference: 'NC-K', ['x\u0000y']: 'v\ud800' }, 'submitted'],
+  ])('content: %s settles the row and keeps the batch closed (resend 409, 1 send)', async (_n, answered, expected) => {
+    const { c, b } = await fresh();
+    const s = await parked(c, b.id);
+    s.answer(answered);
+    const first = await s.first;
+    hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
+    const again = await submit(c, b.id);
+    expect({ notError: first.state.statusCode !== 500, status: (await row(s.id)).status, resend: again.state.statusCode, sends: hold.submitEftBatch.mock.calls.length })
+      .toEqual({ notError: true, status: expected, resend: 409, sends: 1 });
+  }, 40_000);
 });
+

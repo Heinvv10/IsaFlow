@@ -8,6 +8,7 @@ import { Banknote, RefreshCw, Loader2, AlertCircle, ExternalLink } from 'lucide-
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canResolveSubmission, NetcashResolveForm, type LastPoll } from '@/components/accounting/NetcashResolveControl';
+import { netcashReferenceOf } from '@/modules/accounting/services/ap/netcashAnswerSafety';
 
 interface Submission {
   id: string;
@@ -44,6 +45,9 @@ const POLL_FAILED_NOTE = 'Netcash reported a failure on the last check. Check Ne
 const lateNote = (s: Submission) => s.netcash_response?.lateSendResult
   ? `Netcash answered this send (${s.netcash_response.lateSendResult.status ?? 'unknown'}) after it was resolved. Check Netcash for this batch.`
   : undefined;
+
+/** The reference to link Netcash's merchant page by: batch_reference, or the one kept in netcash_response (round 16). */
+const merchantRef = (s: Submission) => netcashReferenceOf(s.batch_reference, s.netcash_response);
 
 /** Netcash's last poll of a submitted/processing row read as a failure (a hint for the note; resolve never reads it). */
 const pollFailed = (s: Submission) => (s.status === 'submitted' || s.status === 'processing') && Boolean(s.netcash_response?.pollFailure);
@@ -188,9 +192,9 @@ export default function NetcashSubmissionsPage() {
                             Check status
                           </button>
                         )}
-                        {s.batch_reference && !HOLDING_NOTE[s.status] && (
+                        {merchantRef(s) && !HOLDING_NOTE[s.status] && (
                           <a
-                            href={`https://merchant.netcash.co.za/batch/${s.batch_reference}`}
+                            href={`https://merchant.netcash.co.za/batch/${encodeURIComponent(merchantRef(s)!)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
