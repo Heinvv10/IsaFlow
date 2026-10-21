@@ -9,10 +9,12 @@
  *
  * Sage's limits: 100 requests a minute per company (going over blocks the IP
  * for an hour), 5000 a day, at most 100 rows per list call. Calls are spaced
- * (`minIntervalMs`), lists are paged with $top/$skip, and a throttled or
- * failed call is retried with backoff before it is reported.
+ * by the process-wide pacer (sageApiPacer: every tenant shares the key and the
+ * IP), lists are paged with $top/$skip, and a throttled or failed call is
+ * retried with backoff before it is reported.
  */
 import { safeFetch } from '@/lib/safeFetch';
+import { sharedSagePacer, type SagePacer } from './sageApiPacer';
 import type { SageCompanySummary, SagePaged } from './sageApiTypes';
 
 export const SAGE_API_BASE = 'https://accounting.sageone.co.za/api/2.0.0';
@@ -44,11 +46,11 @@ export interface SageApiClientOptions {
   password: string;
   baseUrl?: string;
   fetchImpl?: FetchImpl;
-  /** Gap between calls; 700 ms keeps one pull under Sage's 100 a minute. */
-  minIntervalMs?: number;
+  /** Spaces the calls; the process-wide pacer unless a test supplies its own. */
+  pacer?: SagePacer;
   maxRetries?: number;
+  /** The retry backoff's wait. */
   sleep?: (ms: number) => Promise<void>;
-  now?: () => number;
 }
 
 const defaultFetch: FetchImpl = (url, init) => safeFetch(url, init, { allowHosts: ['sageone.co.za'], timeoutMs: 60_000 });
@@ -57,8 +59,8 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 export interface SageCompanyClient {
   get<T>(path: string, query?: Record<string, string>): Promise<T>;
   post<T>(path: string, body: unknown, query?: Record<string, string>): Promise<T>;
-  /** Every row of a paged list. */
-  getAll<T>(path: string, query?: Record<string, string>): Promise<T[]>;
+  /** Every row of a paged list; with `limit`, paging stops once more than `limit` rows are in. */
+  getAll<T>(path: string, query?: Record<string, string>, limit?: number): Promise<T[]>;
 }
 
 export interface SageApiClient {
@@ -71,20 +73,9 @@ export function createSageApiClient(opts: SageApiClientOptions): SageApiClient {
   const base = (opts.baseUrl ?? SAGE_API_BASE).replace(/\/+$/, '');
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const sleep = opts.sleep ?? defaultSleep;
-  const now = opts.now ?? Date.now;
-  const minInterval = opts.minIntervalMs ?? 700;
+  const pacer = opts.pacer ?? sharedSagePacer();
   const maxRetries = opts.maxRetries ?? 3;
   const authorization = `Basic ${Buffer.from(`${opts.username}:${opts.password}`).toString('base64')}`;
-  let lastCall: number | null = null;
-
-  async function pace(): Promise<void> {
-    if (lastCall !== null && minInterval > 0) {
-      const wait = minInterval - (now() - lastCall);
-      if (wait > 0) await sleep(wait);
-    }
-    lastCall = now();
-  }
-
   async function call<T>(method: 'GET' | 'POST', path: string, query: Record<string, string>, body?: unknown): Promise<T> {
     const url = new URL(`${base}/${path.replace(/^\/+/, '')}`);
     url.searchParams.set('apikey', opts.apiKey);
@@ -98,7 +89,7 @@ export function createSageApiClient(opts: SageApiClientOptions): SageApiClient {
     let last: SageApiError = new SageApiError('unavailable');
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) await sleep(Math.min(30_000, 1_000 * 2 ** (attempt - 1)));
-      await pace();
+      await pacer.wait();
       let res: Response;
       try {
         res = await fetchImpl(url.toString(), init);
@@ -125,7 +116,7 @@ export function createSageApiClient(opts: SageApiClientOptions): SageApiClient {
     return {
       get: <T>(path: string, query?: Record<string, string>) => call<T>('GET', path, scoped(query)),
       post: <T>(path: string, body: unknown, query?: Record<string, string>) => call<T>('POST', path, scoped(query), body),
-      async getAll<T>(path: string, query?: Record<string, string>): Promise<T[]> {
+      async getAll<T>(path: string, query?: Record<string, string>, limit?: number): Promise<T[]> {
         const rows: T[] = [];
         for (let skip = 0; ; skip += PAGE_SIZE) {
           const page = await call<SagePaged<T> | T[]>('GET', path, scoped({ ...query, $top: String(PAGE_SIZE), $skip: String(skip) }));
@@ -133,6 +124,7 @@ export function createSageApiClient(opts: SageApiClientOptions): SageApiClient {
           rows.push(...results);
           const total = Array.isArray(page) ? undefined : page?.TotalResults;
           if (results.length < PAGE_SIZE || (total !== undefined && rows.length >= total)) return rows;
+          if (limit !== undefined && rows.length > limit) return rows;
         }
       },
     };

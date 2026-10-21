@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSageApiClient, SageApiError } from '@/modules/accounting/services/sage/sageApiClient';
+import { createSagePacer, sharedSagePacer } from '@/modules/accounting/services/sage/sageApiPacer';
 
 type Call = { url: URL; init: RequestInit };
 
@@ -14,7 +15,7 @@ function fakeSage(handler: (url: URL, n: number) => { status: number; body?: unk
   return { calls, fetchImpl };
 }
 
-const base = { apiKey: '{key-123}', username: 'owner@acme.test', password: 's3cret!', minIntervalMs: 0, sleep: async () => {} };
+const base = { apiKey: '{key-123}', username: 'owner@acme.test', password: 's3cret!', pacer: createSagePacer(0), sleep: async () => {} };
 
 describe('createSageApiClient', () => {
   it('sends the API key, the company id and Basic auth on every call', async () => {
@@ -85,10 +86,52 @@ describe('createSageApiClient', () => {
   it('spaces calls to stay under Sage\'s 100 requests a minute', async () => {
     const sleep = vi.fn(async () => {});
     const { fetchImpl } = fakeSage(() => ({ status: 200, body: {} }));
-    const c = createSageApiClient({ ...base, minIntervalMs: 700, sleep, now: () => 0, fetchImpl }).forCompany(1);
+    const c = createSageApiClient({ ...base, pacer: createSagePacer(700, () => 0, sleep), fetchImpl }).forCompany(1);
     await c.get('A');
     await c.get('B');
     expect(sleep).toHaveBeenCalledWith(700);
+  });
+
+  // Every tenant shares one SAGE_API_KEY and one server IP, and Sage blocks the
+  // IP for an hour on an overrun: the spacing is per PROCESS, not per client.
+  it('spaces calls across clients: two logins share one pacer', async () => {
+    const sleep = vi.fn(async () => {});
+    const pacer = createSagePacer(700, () => 0, sleep);
+    const { fetchImpl } = fakeSage(() => ({ status: 200, body: {} }));
+    await createSageApiClient({ ...base, pacer, fetchImpl }).forCompany(1).get('A');
+    await createSageApiClient({ ...base, username: 'other@b.test', pacer, fetchImpl }).forCompany(2).get('B');
+    expect(sleep).toHaveBeenCalledWith(700);
+  });
+
+  it('reserves slots in order when calls overlap', async () => {
+    const waits: number[] = [];
+    const pacer = createSagePacer(700, () => 0, async (ms) => { waits.push(ms); });
+    await Promise.all([pacer.wait(), pacer.wait(), pacer.wait()]);
+    expect(waits).toEqual([700, 1400]);
+  });
+
+  it('uses the one process-wide pacer unless a test supplies its own', async () => {
+    expect(sharedSagePacer()).toBe(sharedSagePacer());
+    const wait = vi.spyOn(sharedSagePacer(), 'wait').mockResolvedValue();
+    try {
+      const { pacer: _drop, ...noPacer } = base;
+      const { fetchImpl } = fakeSage(() => ({ status: 200, body: {} }));
+      await createSageApiClient({ ...noPacer, fetchImpl }).forCompany(1).get('A');
+      expect(wait).toHaveBeenCalledTimes(1);
+    } finally {
+      wait.mockRestore();
+    }
+  });
+
+  it('stops paging once a limit is passed', async () => {
+    const all = Array.from({ length: 500 }, (_, i) => ({ ID: i }));
+    const { calls, fetchImpl } = fakeSage((url) => {
+      const skip = Number(url.searchParams.get('$skip'));
+      return { status: 200, body: { TotalResults: all.length, ReturnedResults: 100, Results: all.slice(skip, skip + 100) } };
+    });
+    const rows = await createSageApiClient({ ...base, fetchImpl }).forCompany(1).getAll('TaxInvoice/Get', {}, 150);
+    expect(rows).toHaveLength(200);
+    expect(calls).toHaveLength(2);
   });
 
   it('refuses to run without an API key, and says why', () => {
