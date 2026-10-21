@@ -55,8 +55,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Load submission — company-scoped
   const submissions = await sql`
     SELECT id, batch_reference, status,
-           jsonb_build_object('batchReference', netcash_response -> 'batchReference',
-                              'lateSendResult', jsonb_build_object('batchReference', netcash_response -> 'lateSendResult' -> 'batchReference')) AS kept
+           jsonb_build_object(
+             'success', netcash_response -> 'success', 'outcome', netcash_response -> 'outcome', 'mock', netcash_response -> 'mock',
+             'batchReference', netcash_response -> 'batchReference',
+             'lateSendResult', jsonb_build_object('response', jsonb_build_object(
+               'success', netcash_response #> '{lateSendResult,response,success}', 'outcome', netcash_response #> '{lateSendResult,response,outcome}',
+               'mock', netcash_response #> '{lateSendResult,response,mock}', 'batchReference', netcash_response #> '{lateSendResult,response,batchReference}'))
+           ) AS kept /* the send answer's fields, not the whole (possibly large) response */
     FROM netcash_submissions
     WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID
     LIMIT 1
@@ -86,14 +91,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     });
   }
 
-  // Round 16: a reference that did not fit batch_reference (NULL there) is polled by the one kept in netcash_response,
-  // when usable for the API - sent to Netcash only, never written into a column.
-  const reference = netcashReferenceOf(submission.batch_reference as string | null, submission.kept);
+  // Round 17: polled ONLY by a reference Netcash itself issued (an accepted send answer's batchReference, kept in
+  // netcash_response; netcashReferenceOf) - never by the batch_reference column on its own, which holds OUR batch
+  // number from the claim on and after an 'unknown' answer (an operator may then resolve the row 'submitted'), and
+  // NULL when Netcash's did not fit it. Sent to Netcash only, never written into a column. None: nothing is called or
+  // written.
+  const reference = netcashReferenceOf(submission.kept);
   if (!reference) {
     return apiResponse.success(res, {
       submissionId,
       status: submission.status,
-      detail: 'No batch reference available for polling',
+      detail: 'No Netcash reference for this submission - check Netcash directly',
       polled: false,
     });
   }

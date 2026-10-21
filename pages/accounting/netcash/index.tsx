@@ -46,8 +46,11 @@ const lateNote = (s: Submission) => s.netcash_response?.lateSendResult
   ? `Netcash answered this send (${s.netcash_response.lateSendResult.status ?? 'unknown'}) after it was resolved. Check Netcash for this batch.`
   : undefined;
 
-/** The reference to link Netcash's merchant page by: batch_reference, or the one kept in netcash_response (round 16). */
-const merchantRef = (s: Submission) => netcashReferenceOf(s.batch_reference, s.netcash_response);
+/**
+ * The reference to link Netcash's merchant page by: only one Netcash issued (round 17, netcashReferenceOf). The Batch
+ * Ref column shows batch_reference as stored - OUR batch number until Netcash accepts, and after an 'unknown' answer.
+ */
+const merchantRef = (s: Submission) => netcashReferenceOf(s.netcash_response);
 
 /** Netcash's last poll of a submitted/processing row read as a failure (a hint for the note; resolve never reads it). */
 const pollFailed = (s: Submission) => (s.status === 'submitted' || s.status === 'processing') && Boolean(s.netcash_response?.pollFailure);
@@ -154,7 +157,9 @@ export default function NetcashSubmissionsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--ff-border-primary)]">
-                {items.map(s => (
+                {items.map(s => {
+                  const ref = merchantRef(s);
+                  return (
                   <Fragment key={s.id}>
                   <tr className="hover:bg-[var(--ff-bg-secondary)]/50 transition-colors">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDate(s.submitted_at ?? s.created_at)}</td>
@@ -192,9 +197,9 @@ export default function NetcashSubmissionsPage() {
                             Check status
                           </button>
                         )}
-                        {merchantRef(s) && !HOLDING_NOTE[s.status] && (
+                        {ref && !HOLDING_NOTE[s.status] && (
                           <a
-                            href={`https://merchant.netcash.co.za/batch/${encodeURIComponent(merchantRef(s)!)}`}
+                            href={`https://merchant.netcash.co.za/batch/${encodeURIComponent(ref)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-1 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
@@ -219,7 +224,8 @@ export default function NetcashSubmissionsPage() {
                     </tr>
                   )}
                   </Fragment>
-                ))}
+                );
+                })}
               </tbody>
             </table>
           </div>

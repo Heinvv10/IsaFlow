@@ -38,16 +38,26 @@ export function apiReference(ref: unknown): string | null {
   return LONE_SURROGATE.test(ref) ? null : ref;
 }
 
-/**
- * The reference to poll or link a submission by: its batch_reference, or - when that is NULL because Netcash's did not
- * fit the column (safeReference) - the one kept in its netcash_response (top level, or lateSendResult), if usable.
- */
-export function netcashReferenceOf(batchReference: string | null | undefined, netcashResponse: unknown): string | null {
-  if (batchReference) return batchReference;
-  const r = (netcashResponse ?? {}) as { batchReference?: unknown; lateSendResult?: { batchReference?: unknown } | null };
-  return apiReference(r.batchReference) ?? apiReference(r.lateSendResult?.batchReference);
-}
+/** An answer from Netcash's send: did Netcash accept it (and so issue its batchReference)? */
+interface SendAnswer { success?: unknown; outcome?: unknown; mock?: unknown; batchReference?: unknown }
+const accepted = (a: SendAnswer | null | undefined): boolean =>
+  // outcome is AP-01's; a row written before it has only success (a mock success was never Netcash's). An absent field
+  // may arrive as null (status.ts builds the object in SQL).
+  Boolean(a) && a!.mock !== true && (a!.outcome === 'accepted' || (a!.outcome == null && a!.success === true));
 
+/**
+ * The reference to poll or link a submission by (round 17): ONLY one Netcash itself issued - the batchReference of an
+ * ACCEPTED send answer kept in netcash_response (top level, or lateSendResult.response for an answer that came late),
+ * if usable for the API. Never the batch_reference column on its own: after an 'unknown' answer (and from the claim
+ * on) it holds OUR batch number, and a poll by it asks Netcash about a reference it never gave us ("Successful" would
+ * complete the row, "not found" would flag a batch the operator attested Netcash has). null: no Netcash reference.
+ */
+export function netcashReferenceOf(netcashResponse: unknown): string | null {
+  const r = (netcashResponse ?? {}) as SendAnswer & { lateSendResult?: { response?: SendAnswer | null } | null };
+  if (accepted(r)) return apiReference(r.batchReference);
+  const late = r.lateSendResult?.response;
+  return accepted(late) ? apiReference(late?.batchReference) : null;
+}
 
 function safeText(s: string): string {
   return s.replace(/\u0000/g, '').replace(LONE_SURROGATE, '\ufffd');
