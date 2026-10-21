@@ -20,6 +20,7 @@ import { accountAttributes, attributeChanges } from './migrationCoaVatLock';
 import { importRowSubtype } from './migrationCoaSubtype';
 import { holderParentConflicts, mappedHolders, roleMapConflicts, validateSystemAccountMap } from './migrationCoaRoleMap';
 import { assertRolesKept, snapshotRoles, SystemRoleInvariantError } from '../gl/systemRoleInvariant';
+import { resolveCoaImportRows, type RawCoaImportRow } from './accountTypeAliases';
 
 export { validateSystemAccountMap };
 
@@ -51,19 +52,24 @@ export interface SystemAccountMap {
 export async function importChartOfAccounts(
   companyId: string,
   sessionId: string,
-  accounts: AccountImportRow[],
+  rawAccounts: Array<AccountImportRow | RawCoaImportRow>,
   systemAccountMap: SystemAccountMap,
 ): Promise<ImportResult> {
-  const errors: MigrationError[] = [];
+  // Sage / Pastel type labels ("Current Assets", "Cost of Sales") are translated
+  // and a blank normal balance derived from the type; an unknown label is a
+  // friendly per-row error here instead of a raw CHECK-constraint failure.
+  const resolved = resolveCoaImportRows(rawAccounts as RawCoaImportRow[]);
+  const accounts: AccountImportRow[] = resolved.accounts;
+  const errors: MigrationError[] = [...resolved.errors];
   let imported = 0;
-  let skipped = 0;
+  let skipped = resolved.errors.length;
 
   // Refuse before the first write: a bad map is a fault in the request, and
   // half an import with a mis-flagged system account is worse than none.
   const mapErrors = validateSystemAccountMap(systemAccountMap as unknown as Record<string, unknown>, accounts);
   if (mapErrors.length > 0) {
     log.warn('COA import refused: invalid system account map', { companyId, errors: mapErrors }, 'migration');
-    return { imported: 0, skipped: accounts.length, errors: mapErrors };
+    return { imported: 0, skipped: rawAccounts.length, errors: [...resolved.errors, ...mapErrors] };
   }
 
   // The writes run inside a SAVEPOINT, and the VAT-lock check reads what they
@@ -109,7 +115,8 @@ export async function importChartOfAccounts(
 
             const { isSystem, explicitSubtype, accountSubtype, defaulted } = importRowSubtype(acct, systemAccountMap);
             if (defaulted) {
-              errors.push({ step: 'coa', row: i, field: 'accountSubtype',
+              // The row imports: a warning (MigrationError.severity), not a refusal.
+              errors.push({ step: 'coa', row: i, field: 'accountSubtype', severity: 'warning',
                 message: `No subtype given; imported as ${accountSubtype} (an existing classification is kept). Reclassify cost-of-sales accounts before reporting.` });
             }
             // A row's own subtype goes through the same gate as every other write
@@ -161,7 +168,7 @@ export async function importChartOfAccounts(
             const keptSubtype = written?.account_subtype == null ? null : String(written.account_subtype);
             if (written && !isSystem && (written.account_type !== acct.accountType
               || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
-              errors.push({ step: 'coa', row: i, field: 'accountType',
+              errors.push({ step: 'coa', row: i, field: 'accountType', severity: 'warning',
                 message: `Account ${acct.accountCode} is a system account: its name was updated, its type and subtype (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
             }
             imported++;
@@ -217,11 +224,11 @@ export async function importChartOfAccounts(
   });
   if (Array.isArray(refusal)) {
     log.warn('COA import refused: the role map would take an account from another role', { companyId, errors: refusal }, 'migration');
-    return { imported: 0, skipped: accounts.length, errors: refusal };
+    return { imported: 0, skipped: rawAccounts.length, errors: [...resolved.errors, ...refusal] };
   }
   if (refusal) {
     log.warn('COA import refused: it would change a filed VAT period or leave a role unheld', { companyId, error: refusal.message }, 'migration');
-    return { imported: 0, skipped: accounts.length, errors: [{ step: 'coa', row: -1, field: 'accountCode', message: refusal.message }] };
+    return { imported: 0, skipped: rawAccounts.length, errors: [...resolved.errors, { step: 'coa', row: -1, field: 'accountCode', message: refusal.message }] };
   }
 
   clearSystemAccountCacheAfterCommit(companyId);
