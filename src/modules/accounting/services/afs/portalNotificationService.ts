@@ -49,6 +49,7 @@ export async function notifyMagicLinkRequested(
       to: recipient.email,
       subject: 'ISaFlow Portal — Your sign-in link',
       html,
+      // email_log takes one company: the first. The info line below names them all.
       _log: { companyId: links[0]!.companyId, emailType: 'other', sentBy: null },
     });
     log.info('Magic link email sent', { companyIds: links.map((l) => l.companyId), linkCount: links.length }, 'portalNotificationService');

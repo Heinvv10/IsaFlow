@@ -51,21 +51,33 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const live = new Map(
     (await listLiveCompanies(contacts.map((c) => c.company_id))).map((c) => [c.companyId, c.companyName]),
   );
-  const liveContacts = contacts.filter((c) => live.has(c.company_id));
+  const liveContacts = contacts.flatMap((c) => {
+    const companyName = live.get(c.company_id);
+    return companyName === undefined ? [] : [{ ...c, companyName: companyName || 'Your company' }];
+  });
 
-  if (liveContacts.length > 0) {
-    const links: PortalSignInLink[] = [];
-    for (const contact of liveContacts) {
-      const { token } = await createMagicLink(contact.company_id, contact.id);
-      links.push({
-        companyId: contact.company_id,
-        companyName: live.get(contact.company_id)!,
-        url: `${APP_URL}/api/accounting/portal/auth/verify?token=${token}`,
-      });
+  const first = liveContacts[0];
+  if (first) {
+    // A failure here happens only for an email that exists; answering it as a
+    // 500 would tell the caller so. Logged, and answered like every other email.
+    try {
+      const links: PortalSignInLink[] = [];
+      for (const contact of liveContacts) {
+        const { token } = await createMagicLink(contact.company_id, contact.id);
+        links.push({
+          companyId: contact.company_id,
+          companyName: contact.companyName,
+          url: `${APP_URL}/api/accounting/portal/auth/verify?token=${token}`,
+        });
+      }
+      await notifyMagicLinkRequested({ name: first.name, email: first.email }, links);
+      log.info('Magic links created for portal contact', { contactIds: liveContacts.map((c) => c.id) }, 'portal-auth-api');
+    } catch (err) {
+      log.error('Portal magic links could not be created', {
+        contactIds: liveContacts.map((c) => c.id),
+        error: err instanceof Error ? err.message : String(err),
+      }, 'portal-auth-api');
     }
-    const first = liveContacts[0]!;
-    await notifyMagicLinkRequested({ name: first.name, email: first.email }, links);
-    log.info('Magic links created for portal contact', { contactIds: liveContacts.map((c) => c.id) }, 'portal-auth-api');
   }
 
   // Always return success — prevent email enumeration

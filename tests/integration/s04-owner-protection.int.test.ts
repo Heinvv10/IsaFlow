@@ -124,6 +124,34 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
     expect(await roleOf(OWNER_A)).toBe('owner');
   });
 
+  // The target's role is read FOR UPDATE: without it, an admin reads X as a
+  // manager while an owner's promotion of X is in flight, and then demotes the
+  // new owner once that commits.
+  it('an admin demoting a member an owner is promoting at that moment never demotes an owner', async () => {
+    for (let round = 0; round < 5; round++) {
+      await seedMembers();
+      const [co, ca] = [await admin.connect(), await admin.connect()];
+      try {
+        let commitPromotion!: () => void;
+        const held = new Promise<void>((r) => { commitPromotion = r; });
+        const promotion = asMember(OWNER_A, async () => {
+          await updateCompanyUserRole(COMPANY, MANAGER, 'owner', 'owner');
+          await held; // keep the promotion uncommitted while the admin starts
+        }, co);
+        await new Promise((r) => setTimeout(r, 50));
+        const demotion = asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', 'admin'), ca);
+        await new Promise((r) => setTimeout(r, 100));
+        commitPromotion();
+        const [p, d] = await Promise.allSettled([promotion, demotion]);
+        expect(p.status, `round ${round}`).toBe('fulfilled');
+        expect(d.status === 'rejected' ? d.reason : d.status, `round ${round}`).toBeInstanceOf(OwnerProtectedError);
+        expect(await roleOf(MANAGER), `round ${round}`).toBe('owner');
+      } finally {
+        co.release(); ca.release();
+      }
+    }
+  });
+
   it('two owners demoting each other at the same moment leave exactly one owner', async () => {
     for (let round = 0; round < 10; round++) {
       await seedMembers();
@@ -141,8 +169,9 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
         const results = await Promise.allSettled(pending);
         const owners = await admin.query(
           `SELECT user_id FROM company_users WHERE company_id = $1 AND role = 'owner'`, [COMPANY]);
-        expect(owners.rowCount, `round ${round}: ${JSON.stringify(results.map(r => r.status === "rejected" ? String(r.reason) : "ok"))}`).toBe(1);
-        expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
+        const why = `round ${round}: ${JSON.stringify(results.map(r => r.status === "rejected" ? String(r.reason) : "ok"))} owners=${JSON.stringify(owners.rows)}`;
+        expect(owners.rowCount, why).toBe(1);
+        expect(results.filter(r => r.status === "fulfilled"), why).toHaveLength(1);
       } finally {
         ca.release(); cb.release();
       }
