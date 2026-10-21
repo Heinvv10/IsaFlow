@@ -67,6 +67,10 @@ SQL.
 - **The key is the brand alone.** When the filter finds a known brand, the key is that brand, so
   `ENGEN SANDTON 1234` becomes `ENGEN`. Otherwise the key is the first two words. A suburb or branch
   after the name is therefore not kept, which would otherwise fragment the key or reveal a location.
+- **A bank or payment processor is the channel, not the merchant.** FNB, ABSA, YOCO, PAYFAST and the
+  like are dropped when anything but generic words is left (`FNB APP PAYMENT ESKOM` keys on `ESKOM`,
+  `YOCO *CORNER CAFE` on `CORNER CAFE`), and are the key only when nothing else is (bank charges). A
+  channel never licenses an identifier, an honorific or an initial.
 
 ### T3. Personal information in descriptions
 
@@ -77,19 +81,24 @@ the whole line, not just the offending part, when it finds any of these:
 - a 7+ digit run or a phone-number shape, unless a known brand is present (and then only the brand is
   kept);
 - free text: more than 6 words, or words only a person writes;
-- an honorific, a single-letter initial, or a leading common first name;
+- an honorific, a single-letter initial, or a common first name anywhere in the line;
 - generic banking words only;
-- a key that ends up under 3 characters.
+- a key that ends up under 3 characters;
+- with no known brand, a key (its first two words) that holds no trade word (PLUMBING, CAFE, MOTORS…):
+  two plain words may be a person's full name.
 
-The rule is "when unsure, reject". About 90 unit cases cover it. On top of that:
+The rule is "when unsure, reject". About 100 unit cases cover it. On top of that:
 - The table's CHECK allows only `^[A-Z]{2,40}( [A-Z]{2,40})?$`, so no digits can be stored.
 - `salaries` is not poolable. The publish function refuses it, and so does the aggregation.
 
 ### T4. Poisoning: one bureau inventing companies, or a pool feeding on itself
 
-- **Pool-accepted decisions don't vote.** A decision that only accepted a pool suggestion is excluded
-  from the inputs, so the pool cannot reinforce itself. An auto-post later corrected by hand is excluded
-  too, because its final account is the wrong one.
+- **The pool never votes for itself.** A decision that only accepted a pool suggestion never votes.
+  Accepting one also writes a learned pattern (every account allocation does) and may lead to a rule,
+  so a company that accepted the pool's suggestion for a merchant gives no vote on that merchant from
+  anything but its `recoded` decisions there, where a person chose an account themselves. A unit test
+  and an integration test (five acceptances plus their learned patterns: nothing published) cover it.
+  An auto-post later corrected by hand is excluded too, because its final account is the wrong one.
 - **Pool suggestions never auto-post.** `autoPostGate.evaluate` refuses `shared_pool` before any
   setting is read. A unit test, a sweep test and an integration test cover this. A poisoned entry
   therefore produces at worst a wrong suggestion that a person must accept.
@@ -120,6 +129,12 @@ The rule is "when unsure, reject". About 90 unit cases cover it. On top of that:
   integration test checks each refusal.
 - **The job refuses to run inside a request.** A request-scoped run would see one tenant through RLS
   and publish that one tenant's view as the whole pool.
+- **All or nothing.** If any eligible company's read fails, the job publishes nothing and fails (the
+  previous pool stands). Publishing without a company could empty the pool, or lift a merchant over the
+  agreement threshold by dropping a dissenting company.
+- **One run at a time, audited.** A second run in the same process is refused; the admin trigger answers
+  409 while one runs and records `shared_pool_recompute` in `admin_audit_log`. An integration test checks
+  the job's privileges as the runtime login has them in production (no SUPERUSER).
 - **The census pins the doors.** `tests/unit/sharedPool/sharedPoolTableGuard.test.ts` checks the
   columns, the deny-all grants, and that only the job calls publish and only the reader calls lookup.
 
@@ -128,9 +143,14 @@ The rule is "when unsure, reject". About 90 unit cases cover it. On top of that:
 1. k = 5 rather than 10 (Hein's choice). Small-cohort inference is possible in principle; see T2.
 2. Shell-company poisoning by one bureau. A distinct-bureau minimum is recommended and not built.
 3. Up to about 24 h of stale pool rows after an opt-out (aggregate rows only).
-4. A full personal name with no initial, honorific or listed first name, paid by 5 eligible companies
-   and coded to the same category by at least 80% of them, would pass the filter. The first-name list is
-   not exhaustive.
+4. **Needs sign-off.** A sole trader's trading name passes when it is a surname plus a trade word:
+   `NDLOVU PLUMBING`, `NKOSI DENTAL`, `PIETERSE ATTORNEYS`, `TSHABALALA SECURITY`. The key then carries
+   a natural person's surname (POPIA personal information), though as part of a business name, paid by
+   at least 5 eligible companies and coded alike by at least 80% of them. Rejecting it would mean a
+   second non-surname word or an allow-list, and would drop most small local merchants from the pool. A
+   bare full name is rejected since the trade-word rule (the key is the first two words, and
+   `THEMBEKILE NDLOVU PLUMBING` keys on `THEMBEKILE NDLOVU`, which holds no trade word); a name passes
+   only when one of its two words is itself a listed trade word.
 5. Enumeration: an eligible member can probe up to 500 merchant guesses per call and learn which
    popular merchants are in the pool. That is the feature's intended output, but nothing rate-limits it
    beyond normal request limits.
