@@ -163,6 +163,22 @@ describe('B1/B2: what the retry says about an answer it cannot see acknowledged'
     expect({ http: res.state.statusCode, rows: await rowsOf(A.c), late }).toEqual({ http: 200, rows: ['processing'], late: false });
   });
 
+  it('B1 (late branch): a first settle that reopened a row released underneath its send committed, reply lost: the retry still reports reopened', async () => {
+    const A = await company();
+    const a = await parked(A.c, (await A.batch()).id);
+    const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [A.c])).rows[0].id as string;
+    await pool.query("UPDATE netcash_submissions SET status = 'failed' WHERE id = $1", [id]); // released past the guards
+    // The claim has committed already: the claim connection's next COMMIT is the settle's.
+    faults.rules.push({ match: /^COMMIT$/, claimOnly: true, act: async (run) => { await run(); throw new Error('injected: reply lost'); } });
+    a.answer();
+    const res = await a.done;
+    hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
+    const again = await submit(A.c, (await pool.query('SELECT batch_id FROM netcash_submissions WHERE id = $1', [id])).rows[0].batch_id);
+    expect({ http: res.state.statusCode, reopened: JSON.stringify(res.state.body).includes('"reopened":true'), rows: await rowsOf(A.c),
+      resend: again.state.statusCode, sends: hold.submitEftBatch.mock.calls.length })
+      .toEqual({ http: 409, reopened: true, rows: ['submitted'], resend: 409, sends: 1 });
+  });
+
   it('B2: the retry\'s COMMIT landed but its reply was lost: 500 that says the answer MAY not have been recorded (check the row and Netcash)', async () => {
     const A = await company();
     faults.rules.push({ match: /^COMMIT$/, claimOnly: true, skip: 1, act: async () => { throw new Error('injected: settle commit'); } });
