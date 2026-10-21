@@ -611,7 +611,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     const reference = 'k036_baddate_ref';
     await seedPaymentRequest(reference);
 
-    // "Today" is the app's local (SAST) date, not CURRENT_DATE: CI Postgres
+    // "Today" is the process's local date (SAST on the runner), not CURRENT_DATE: CI Postgres
     // runs in UTC, so from 00:00 to 02:00 SAST its date is yesterday's. Either
     // side of the call is accepted only because the call may straddle midnight.
     const dayBefore = fmtDate(new Date());
