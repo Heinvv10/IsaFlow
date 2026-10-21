@@ -120,6 +120,54 @@ describe('POST /api/oauth/consent — write:post server-side opt-in gate', () =>
   });
 });
 
+describe('POST /api/oauth/consent — native-app redirect (FB-1)', () => {
+  it('builds the cursor:// redirect with code and state', async () => {
+    const cursorUri = 'cursor://anysphere.cursor-mcp/oauth/callback';
+    vi.mocked(getOauthAppByClientId).mockResolvedValue({
+      id: 'app-2', name: 'Grok Bot', description: null, logoUrl: null, homepageUrl: null,
+      redirectUris: [cursorUri, 'https://www.cursor.com/agents/mcp/oauth/callback'], clientId: 'client_abc',
+      isVerified: false, isFirstParty: false, isConfidential: false,
+    });
+    const res = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(
+      makeReq({ redirectUri: cursorUri, state: 'st-1' }), res,
+    );
+    expect(res.statusCode).toBe(200);
+    const redirectTo = String(res.body?.data?.redirectTo);
+    expect(redirectTo.startsWith(`${cursorUri}?`)).toBe(true);
+    const url = new URL(redirectTo);
+    expect(url.searchParams.get('code')).toBe(`oac_${'C'.repeat(32)}`);
+    expect(url.searchParams.get('state')).toBe('st-1');
+  });
+});
+
+describe('POST /api/oauth/consent — RFC 9207 iss and RFC 8707 resource (FB-4)', () => {
+  it('the success redirect carries iss = the metadata issuer', async () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    const res = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(makeReq({ state: 's' }), res);
+    expect(res.statusCode).toBe(200);
+    const url = new URL(String(res.body?.data?.redirectTo));
+    expect(url.searchParams.get('iss')).toBe('https://app.isaflow.co.za');
+    expect(url.searchParams.get('state')).toBe('s');
+  });
+
+  it('a wrong resource → 400, no code minted; the right one is fine', async () => {
+    const bad = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(
+      makeReq({ resource: 'https://evil.example/api/mcp' }), bad,
+    );
+    expect(bad.statusCode).toBe(400);
+    expect(createAuthorisationCode).not.toHaveBeenCalled();
+
+    const ok = makeRes();
+    await (handler as (req: unknown, res: unknown) => Promise<void>)(
+      makeReq({ resource: 'https://app.isaflow.co.za/api/mcp' }), ok,
+    );
+    expect(ok.statusCode).toBe(200);
+  });
+});
+
 describe('POST /api/oauth/consent — company membership gate', () => {
   it('rejects a companyId the user is not a member of (403, no code minted)', async () => {
     mockSqlOnce([]); // membership probe: no row
