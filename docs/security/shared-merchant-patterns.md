@@ -3,7 +3,8 @@
 > **SECURITY REVIEW ITEM.** This is the first ISAFlow table that holds data derived from many tenants.
 > A human security review should sign off before it is switched on in production.
 > Status 2026-10-21: built on `feat/learning-loop-pool-20261021` (learning loop PR 2). Not deployed.
-> Nothing is scheduled.
+> Nothing is scheduled. The pool is hard-gated off by `MERCHANT_SHARING_ENABLED` (below) until legal
+> approves the POPIA consent copy.
 
 ## What it is
 
@@ -35,6 +36,30 @@ one bureau, and every bureau it is linked to has `share_merchant_patterns = true
 
 The job uses `listPoolEligibleCompanyIds`, and the reader's definer function repeats the same test in
 SQL.
+
+## The legal-review gate (Hein, 2026-10-21, decision 3)
+
+`MERCHANT_SHARING_ENABLED` (server env, `bureau/services/merchantSharingGate.ts`) is off unless it is
+exactly the string `true`; unset, `false`, `TRUE` and `1` are all off. It stays off until legal approves the
+consent copy. While it is off the pool neither takes in nor gives out anything, whatever the bureaus have
+stored:
+
+| Path | While off | Code |
+|---|---|---|
+| Opt-in | Switching sharing ON is a 409 `sharing_pending_legal_review` (PR 1) | `bureauSettingsService.ts` |
+| Eligibility | Every bureau reads as not opted in; the eligible set is empty | `poolEligibility.ts` |
+| Job | Returns `skipped`, reason `sharing_pending_legal_review`, and logs "skipped: sharing disabled pending legal review". It checks the gate first: no eligibility read, no company read, no publish, so the pool table is left as it is. It does not rely on the empty eligible set, which would publish an empty pool | `sharedPoolJob.ts` |
+| Cron route | 200 with the job's skip result, so the nightly timer does not fail every night | `pages/api/cron/shared-merchant-pool.ts` |
+| Admin recompute | 409 with code `sharing_pending_legal_review` (the same answer PUT `/api/bureau/settings` gives); nothing queued, nothing audited | `pages/api/admin/shared-merchant-pool.ts` |
+| Reader / cold start | No suggestions, before the filter or any SQL, so no stored pool row is served. It does not rely on `shared_pool_lookup`, which reads the stored opt-in flags and cannot see the env | `sharedSuggestionService.ts` |
+| Merchant Categories page | Says shared suggestions are "Coming soon - pending legal review" and that nothing mapped is shared yet; mappings can still be set up | `GET /api/accounting/category-mappings` reports `sharingAvailable` |
+
+Entry points checked: the job starts only from the cron and admin routes (no script or MCP tool runs it).
+Every pool read goes through `getSharedSuggestions`, called only by `bulkCategorize`, which serves
+`POST /api/accounting/smart-categorize` and the MCP tool in `src/lib/mcp/tools/writeBank.ts`; the gate in
+the reader covers all of them. `sharedPoolTableGuard.test.ts` pins the job as the only caller of publish and
+the reader as the only caller of lookup. The gate lives in TypeScript only; the two definer functions do not
+check it.
 
 ## Threats and mitigations
 
@@ -154,10 +179,18 @@ The rule is "when unsure, reject". About 100 unit cases cover it. On top of that
 5. Enumeration: an eligible member can probe up to 500 merchant guesses per call and learn which
    popular merchants are in the pool. That is the feature's intended output, but nothing rate-limits it
    beyond normal request limits.
-6. The consent copy (`SHARING_CONSENT_COPY`, PR 1) is still marked DRAFT pending legal review.
+6. The consent copy (`SHARING_CONSENT_COPY`, PR 1) is still marked DRAFT pending legal review, and the
+   `MERCHANT_SHARING_ENABLED` gate keeps the pool off until it is approved.
+7. The gate is in TypeScript, not in the definer functions. Code that called `shared_pool_lookup`
+   directly as app_user would be answered from the stored flags while the gate is off; the census test
+   allows only the reader to call it. Switching the gate off does not delete pool rows already published,
+   and a bank line that already carries a `shared_pool` suggestion keeps it (and its label) until someone
+   codes the line; switching off only stops new pool reads and runs.
 
 ## Rollback
 
-- Turn it off without a deploy: publish an empty pool (`SELECT public.shared_pool_publish('[]', 1)` as
-  migration_admin) and stop the timer. With an empty pool, the reader returns nothing.
+- Turn it off without a deploy: unset `MERCHANT_SHARING_ENABLED` (or set it to anything but `true`) in the
+  service env and restart. The job and the reader then do nothing; the rows stay. To remove the rows too,
+  publish an empty pool (`SELECT public.shared_pool_publish('[]', 1)` as migration_admin) and stop the
+  timer.
 - Schema rollback: the blocks in the headers of 906, then 905.
