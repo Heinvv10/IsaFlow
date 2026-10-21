@@ -8,8 +8,9 @@
  * portal, invite or extension token), or the file is listed in OTHER_ENTRY with how it authenticates.
  * A company route is MUTATING unless it refuses every method but GET and names no write method. It is
  * GATED when its default export composes withWriteAccess (no allowedRoles, or only owner/admin/manager),
- * withRole('manager'|'admin'|'owner'), withPayrollDetailAccess or withPlatformAdmin. Any other mutating
- * company route must be in EXEMPT, with the reason a non-writing role may call it. Files are read from
+ * withRole at a level whose WITH_ROLE_ADMITS lists only writing roles, withPayrollDetailAccess or
+ * withPlatformAdmin. Any other mutating company route must be in EXEMPT, with the reason a non-writing
+ * role may call it. Files are read from
  * disk (not `git ls-files`), so an untracked new route is counted too. Named limits: routeRoleGateCensus.helpers.ts.
  */
 import { describe, it, expect } from 'vitest';
@@ -59,7 +60,6 @@ const EXEMPT: Record<string, string> = {
   'pages/api/accounting/loans/portfolio/summary.ts': 'reads only; every other method answers 400',
   // GET routes that write: they sync a provider's status onto the company's own rows.
   'pages/api/accounting/netcash/status.ts': 'GET refreshes netcash_submissions.status from Netcash; idempotent sync, no user input written',
-  'pages/api/billing/paystack/mandate/verify.ts': 'GET settles a Paystack verification onto the company\'s own request/mandate rows (audit K-202, open: no role gate, no CSRF)',
 };
 
 /** For each `inline:` exemption, the call that does the role check. Its absence from the code fails the census. */
@@ -167,6 +167,9 @@ describe('the detector', () => {
     expect(gated(exp('withAuth(withWriteAccess(handler, { allowedRoles: ROLES }))'))).toBe(false);
     expect(gated(exp("withAuth(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))"))).toBe(true);
     expect(gated(exp("withAuth(withRole('viewer')(handler))"))).toBe(false);
+    // withRole has no 'manager' or 'owner' level; a name it would throw on is no gate.
+    expect(gated(exp("withAuth(withRole('manager')(handler))"))).toBe(false);
+    expect(gated(exp("withAuth(withRole('owner')(handler))"))).toBe(false);
   });
 
   it('refuses options it cannot read: a variable or a spread (breaker REPRO 5)', () => {
