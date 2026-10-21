@@ -93,11 +93,12 @@ export async function importChartOfAccounts(
       // Bounded: every statement below waits at most 5s for any lock while this import holds the role lock.
       await boundedRowWait(() => withSavepoint('coa_import_vat_lock', async () => {
         const before = await accountAttributes(companyId);
-        // Sort: accounts without parents first, then those with parents (preserves hierarchy)
-        const sorted = [...accounts.filter(a => !a.parentCode), ...accounts.filter(a => a.parentCode)];
+        // Sort: accounts without parents first, then those with parents (preserves hierarchy).
+        // Each keeps its input position, so a row error names the row the operator uploaded.
+        const rows = accounts.map((acct, k) => ({ acct, row: resolved.sourceRows[k]! }));
+        const sorted = [...rows.filter(r => !r.acct.parentCode), ...rows.filter(r => r.acct.parentCode)];
 
-        for (let i = 0; i < sorted.length; i++) {
-          const acct = sorted[i]!;
+        for (const { acct, row } of sorted) {
           try {
             let parentAccountId: string | null = null;
             if (acct.parentCode) {
@@ -106,7 +107,7 @@ export async function importChartOfAccounts(
                 WHERE account_code = ${acct.parentCode} AND company_id = ${companyId}::UUID
               `) as DbRow[];
               if (parentRows.length === 0) {
-                errors.push({ step: 'coa', row: i, field: 'parentCode', message: `Parent code ${acct.parentCode} not found` });
+                errors.push({ step: 'coa', row, field: 'parentCode', message: `Parent code ${acct.parentCode} not found` });
                 skipped++;
                 continue;
               }
@@ -116,7 +117,7 @@ export async function importChartOfAccounts(
             const { isSystem, explicitSubtype, accountSubtype, defaulted } = importRowSubtype(acct, systemAccountMap);
             if (defaulted) {
               // The row imports: a warning (MigrationError.severity), not a refusal.
-              errors.push({ step: 'coa', row: i, field: 'accountSubtype', severity: 'warning',
+              errors.push({ step: 'coa', row, field: 'accountSubtype', severity: 'warning',
                 message: `No subtype given; imported as ${accountSubtype} (an existing classification is kept). Reclassify cost-of-sales accounts before reporting.` });
             }
             // A row's own subtype goes through the same gate as every other write
@@ -126,7 +127,7 @@ export async function importChartOfAccounts(
             if (!isSystem) {
               const subtypeError = subtypeErrorFor({ accountType: acct.accountType }, accountSubtype);
               if (subtypeError) {
-                errors.push({ step: 'coa', row: i, field: 'accountSubtype', message: subtypeError });
+                errors.push({ step: 'coa', row, field: 'accountSubtype', message: subtypeError });
                 skipped++;
                 continue;
               }
@@ -168,7 +169,7 @@ export async function importChartOfAccounts(
             const keptSubtype = written?.account_subtype == null ? null : String(written.account_subtype);
             if (written && !isSystem && (written.account_type !== acct.accountType
               || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
-              errors.push({ step: 'coa', row: i, field: 'accountType', severity: 'warning',
+              errors.push({ step: 'coa', row, field: 'accountType', severity: 'warning',
                 message: `Account ${acct.accountCode} is a system account: its name was updated, its type and subtype (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
             }
             imported++;
@@ -176,7 +177,7 @@ export async function importChartOfAccounts(
             // A lock timeout or deadlock aborted the savepoint: not a row to skip — the whole import retries.
             if (isRetryableLockError(err)) throw err;
             const msg = err instanceof Error ? err.message : String(err);
-            errors.push({ step: 'coa', row: i, field: 'accountCode', message: msg });
+            errors.push({ step: 'coa', row, field: 'accountCode', message: msg });
             skipped++;
           }
         }
