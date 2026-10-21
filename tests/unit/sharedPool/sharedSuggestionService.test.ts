@@ -3,7 +3,7 @@
  * gives the account, and a failure never breaks categorisation. SQL is mocked by statement text; the real
  * function and grants are proved in tests/integration/shared-merchant-patterns.int.test.ts.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { sqlMock, warn } = vi.hoisted(() => ({ sqlMock: vi.fn(), warn: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock, withSavepoint: (_n: string, fn: () => unknown) => fn() }));
@@ -27,7 +27,8 @@ function route(r: Route) {
 }
 const lookupCall = () => sqlMock.mock.calls.find((c) => (c[0] as TemplateStringsArray).join('?').includes('shared_pool_lookup'));
 
-beforeEach(() => { sqlMock.mockReset(); warn.mockReset(); });
+beforeEach(() => { sqlMock.mockReset(); warn.mockReset(); process.env.MERCHANT_SHARING_ENABLED = 'true'; });
+afterEach(() => { delete process.env.MERCHANT_SHARING_ENABLED; });
 
 describe('getSharedSuggestions', () => {
   it('maps the pool category to the company\'s own account, labelled shared_pool', async () => {
@@ -107,5 +108,23 @@ describe('getSharedSuggestion (one description)', () => {
   it('returns the suggestion or null', async () => {
     route({ lookup: [] });
     expect(await getSharedSuggestion(CO, 'ENGEN')).toBeNull();
+  });
+});
+
+describe('the legal-review gate (MERCHANT_SHARING_ENABLED)', () => {
+  const pooled = () => route({
+    lookup: [{ merchant: 'ENGEN', category_code: 'fuel', confidence: 0.8 }],
+    mappings: [{ category_code: 'fuel', gl_account_id: OWN_FUEL, account_code: '6100', account_name: 'Fuel', default_vat_code: null }],
+  });
+  it.each([undefined, 'false', 'TRUE', '1'])('MERCHANT_SHARING_ENABLED=%s: nothing, and no SQL (stored pool rows never served)', async (v) => {
+    if (v === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = v;
+    pooled();
+    expect((await getSharedSuggestions(CO, [{ txId: 't1', description: 'ENGEN' }])).size).toBe(0);
+    expect(await getSharedSuggestion(CO, 'ENGEN')).toBeNull();
+    expect(sqlMock).not.toHaveBeenCalled();
+  });
+  it("MERCHANT_SHARING_ENABLED='true': the same pool row is served", async () => {
+    pooled();
+    expect((await getSharedSuggestion(CO, 'ENGEN'))?.glAccountId).toBe(OWN_FUEL);
   });
 });

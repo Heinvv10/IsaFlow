@@ -1,9 +1,10 @@
 /**
  * Shared-pool routes: the mapping route scopes to req.companyId and validates its input; the cron route
  * runs the job only with the right X-Cron-Secret; the admin route queues the job after commit, never
- * inline on the request's connection.
+ * inline on the request's connection. While the legal-review gate (MERCHANT_SHARING_ENABLED) is off the
+ * admin route is a 409 sharing_pending_legal_review and the cron route passes the job's skip through as 200.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   saveCategoryMapping, autoMapCategories, listCategoryMappings, runSharedPoolAggregation, isSharedPoolRunning, runAfterCommit, logAdminAction,
@@ -51,13 +52,23 @@ const asCompany = { companyId: CO, user: { id: 'user-1' } };
 
 // A random key per run, as the r168 cron suites do.
 const CRON_KEY = crypto.randomUUID();
-beforeEach(() => { vi.clearAllMocks(); process.env.CRON_SECRET = CRON_KEY; });
+beforeEach(() => { vi.clearAllMocks(); process.env.CRON_SECRET = CRON_KEY; process.env.MERCHANT_SHARING_ENABLED = 'true'; });
+afterEach(() => { delete process.env.MERCHANT_SHARING_ENABLED; });
+const setGate = (v: string | undefined) => {
+  if (v === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = v;
+};
 
 describe('/api/accounting/category-mappings', () => {
   it('GET lists for req.companyId only', async () => {
     await call(mappingRoute, { ...asCompany, method: 'GET', query: { companyId: 'someone-else' } });
     expect(listCategoryMappings).toHaveBeenCalledWith(CO);
   });
+  it.each([[undefined, false], ['false', false], ['TRUE', false], ['1', false], ['true', true]])(
+    'GET reports the gate: MERCHANT_SHARING_ENABLED=%s -> sharingAvailable %s', async (v, available) => {
+      setGate(v);
+      const r = await call(mappingRoute, { ...asCompany, method: 'GET', query: {} });
+      expect((r.body as { data: { sharingAvailable: boolean } }).data.sharingAvailable).toBe(available);
+    });
   it('save passes the company, the user and the pick', async () => {
     const r = await call(mappingRoute, { ...asCompany, method: 'POST', body: { action: 'save', categoryCode: 'fuel', glAccountId: GL } });
     expect(r.statusCode).toBe(200);
@@ -95,6 +106,13 @@ describe('/api/cron/shared-merchant-pool', () => {
     expect(r.statusCode).toBe(200);
     expect(runSharedPoolAggregation).toHaveBeenCalledTimes(1);
   });
+  it('passes the job\'s skip through as a 200 (the timer must not fail nightly while sharing is off)', async () => {
+    const skip = { skipped: true, reason: 'sharing_pending_legal_review', message: 'skipped: sharing disabled pending legal review' };
+    runSharedPoolAggregation.mockResolvedValueOnce(skip as never);
+    const r = await call(cronRoute, { method: 'POST', headers: { 'x-cron-secret': CRON_KEY } });
+    expect(r.statusCode).toBe(200);
+    expect((r.body as { data: unknown }).data).toEqual(skip);
+  });
   it('GET is not allowed', async () => {
     expect((await call(cronRoute, { method: 'GET', headers: { 'x-cron-secret': CRON_KEY } })).statusCode).toBe(405);
   });
@@ -122,5 +140,20 @@ describe('/api/admin/shared-merchant-pool', () => {
   it('anything but { action: recompute } is a 400', async () => {
     expect((await call(adminRoute, { method: 'POST', body: { action: 'recompute', extra: 1 }, user: { id: 'a' } })).statusCode).toBe(400);
     expect(runAfterCommit).not.toHaveBeenCalled();
+  });
+  it.each([undefined, 'false', 'TRUE', '1'])(
+    'MERCHANT_SHARING_ENABLED=%s: 409 sharing_pending_legal_review, nothing queued or audited', async (v) => {
+      setGate(v);
+      const r = await call(adminRoute, { method: 'POST', body: { action: 'recompute' }, user: { id: 'admin-1' } });
+      expect(r.statusCode).toBe(409);
+      expect(JSON.stringify(r.body)).toContain('sharing_pending_legal_review');
+      expect(runAfterCommit).not.toHaveBeenCalled();
+      expect(logAdminAction).not.toHaveBeenCalled();
+    });
+  it("MERCHANT_SHARING_ENABLED='true': queued", async () => {
+    setGate('true');
+    const r = await call(adminRoute, { method: 'POST', body: { action: 'recompute' }, user: { id: 'admin-1' } });
+    expect(r.statusCode).toBe(200);
+    expect(runAfterCommit).toHaveBeenCalledTimes(1);
   });
 });
