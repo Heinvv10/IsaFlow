@@ -22,7 +22,14 @@ import { assignShards, routeSuite } from './suiteRoute';
  * new slow suite lands or one shard's `[integration] shard i/6 ... Ns` line in
  * the gate log runs well past the others.
  */
+// cwd is the repo root: run.sh cds there before calling plan.ts.
 const SLOW = JSON.parse(readFileSync('scripts/ci/integration/suite-seconds.json', 'utf8')) as Record<string, number>;
+const badWeights = Object.entries(SLOW).filter(([, s]) => !(typeof s === 'number' && Number.isFinite(s) && s > 0));
+if (badWeights.length > 0) {
+  process.stderr.write(`[integration] suite-seconds.json has non-positive or non-numeric entries: ${badWeights.map(([f]) => f).join(', ')}\n`);
+  process.exit(1);
+}
+// Unlisted suites measured under 3 s each (median well under 1 s of test time).
 const FALLBACK_SECONDS = 1;
 
 const shards = Number(process.argv[2]);

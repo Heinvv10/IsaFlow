@@ -20,13 +20,16 @@
  *   4. The subject is "Merge pull request #N from ...", and PR N is merged
  *      into master with head = the second parent and merge commit = HEAD.
  *   5. A CI run (.github/workflows/ci.yml) for event pull_request at the second
- *      parent has both required jobs, in their latest attempt, concluded
- *      success.
+ *      parent, from PR N's head branch, has both required jobs, in their latest
+ *      attempt, concluded success.
  * Why the PR run's tree is HEAD's tree: GitHub tests a PR as its merge into the
- * base of the moment. Master moves only forward (strict protection, no force
- * push), so that base is an ancestor of `before`, hence of the second parent
- * (3), and merging an ancestor changes nothing: the tested tree is the second
- * parent's, which (3) makes HEAD's.
+ * base of the moment, and ci.yml's pull_request trigger is pinned to base
+ * master (workflowRunsCiRule), so that base was master. Master moves only
+ * forward (strict protection, no force push), so it was an ancestor of
+ * `before`, hence of the second parent (3), and merging an ancestor changes
+ * nothing: the tested tree is the second parent's, which (3) makes HEAD's.
+ * The runs API drops `pull_requests` once a PR is merged, so the run is tied to
+ * PR N by its head branch, not by number.
  *
  * Token: CI_READ_TOKEN (the job's github.token, with actions: read and
  * pull-requests: read). Any API or git error runs everything.
@@ -46,7 +49,7 @@ export type Api = (path: string) => Promise<unknown>;
 const SHA = /^[0-9a-f]{40}$/;
 const SUBJECT = /^Merge pull request #(\d+) from \S+$/;
 
-type Run = { id?: unknown; path?: unknown; event?: unknown; head_sha?: unknown };
+type Run = { id?: unknown; path?: unknown; event?: unknown; head_sha?: unknown; head_branch?: unknown };
 type Job = { name?: unknown; status?: unknown; conclusion?: unknown; head_sha?: unknown };
 
 const no = (reason: string): Verdict => ({ tested: false, reason });
@@ -90,7 +93,7 @@ export async function decide(env: Env, event: unknown, git: Git, api: Api): Prom
   if (!repo) return no('GITHUB_REPOSITORY is unset');
 
   const p = (await api(`/repos/${repo}/pulls/${pr}`)) as {
-    merged?: unknown; merge_commit_sha?: unknown; head?: { sha?: unknown }; base?: { ref?: unknown };
+    merged?: unknown; merge_commit_sha?: unknown; head?: { sha?: unknown; ref?: unknown }; base?: { ref?: unknown };
   };
   if (p.merged !== true) return no(`PR #${pr} is not merged`);
   if (p.base?.ref !== 'master') return no(`PR #${pr} was not merged into master`);
@@ -100,8 +103,11 @@ export async function decide(env: Env, event: unknown, git: Git, api: Api): Prom
   const runs = ((await api(`/repos/${repo}/actions/runs?head_sha=${p2}&event=pull_request&per_page=100`)) as {
     workflow_runs?: Run[];
   }).workflow_runs ?? [];
-  const ci = runs.filter((r) => r.path === WORKFLOW_PATH && r.event === 'pull_request' && r.head_sha === p2);
-  if (ci.length === 0) return no(`no pull_request CI run for ${p2}`);
+  const branch = p.head?.ref;
+  if (typeof branch !== 'string' || branch === '') return no(`PR #${pr} has no head branch`);
+  const ci = runs.filter((r) => r.path === WORKFLOW_PATH && r.event === 'pull_request' && r.head_sha === p2
+    && r.head_branch === branch);
+  if (ci.length === 0) return no(`no pull_request CI run for ${p2} from ${branch}`);
   for (const run of ci) {
     const jobs = ((await api(`/repos/${repo}/actions/runs/${String(run.id)}/jobs?filter=latest&per_page=100`)) as {
       jobs?: Job[];

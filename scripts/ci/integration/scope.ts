@@ -14,9 +14,11 @@
  *
  * Changed files are what the tested tree adds to a tree that already passed
  * the gate:
- *   pull_request: the event's base sha .. HEAD (the merge commit checked out);
- *     master only moves through the merge queue on green required checks, so
- *     the base passed;
+ *   pull_request: the event's base sha .. HEAD (the merge commit checked out).
+ *     ci.yml's pull_request trigger is pinned to base master, and master only
+ *     moves through the merge queue on green required checks, so the base
+ *     passed. The payload's base sha can be older than the base the merge ref
+ *     was built on; that only widens the diff (more files, more likely to run);
  *   push: the event's `before` .. HEAD, refused when forced or `before` is
  *     all zeros (a new ref has nothing to compare with).
  * --no-renames lists a rename as its deletion AND its addition, so moving
