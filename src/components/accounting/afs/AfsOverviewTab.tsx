@@ -47,17 +47,20 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
   type ColKey = keyof typeof report.columns[0];
-  const rows: Array<{ label: string; key: ColKey }> = [
+  // 'Balances taken on' only for a period a take-on (migration) posted in.
+  const rows: Array<{ label: string; key: ColKey }> = ([
     { label: 'Opening balance', key: 'opening' },
+    { label: 'Balances taken on', key: 'takeOn' },
     { label: 'Profit for year', key: 'profitForYear' },
     { label: 'Dividends paid',  key: 'dividends' },
     { label: 'Share issue',     key: 'shareIssue' },
     { label: 'Revaluation',     key: 'revaluation' },
     { label: 'Other movements', key: 'otherMovements' },
     { label: 'Closing balance', key: 'closing' },
-  ];
+  ] as Array<{ label: string; key: ColKey }>).filter((r) => r.key !== 'takeOn' || report.columns.some((c) => Boolean(c.takeOn)));
   const totalByRow: Record<string, number> = {
     opening:       report.totalOpening,
+    takeOn:        report.totalTakeOn,
     profitForYear: report.totalProfitForYear,
     dividends:     report.totalDividends,
     shareIssue:    report.totalShareIssue,
