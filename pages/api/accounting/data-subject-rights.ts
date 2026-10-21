@@ -74,16 +74,9 @@ async function handleErasure(req: NextApiRequest, res: NextApiResponse) {
   const companyReq = req as CompanyAuthedRequest;
   const userId = companyReq.user.id;
 
-  const placeholder = `anonymized_${userId.slice(0, 8)}`;
-
-  await sql`
-    UPDATE users SET
-      first_name  = 'Anonymized',
-      last_name   = ${placeholder},
-      email       = ${`${placeholder}@deleted.invalid`},
-      updated_at  = NOW()
-    WHERE id = ${userId}
-  `;
+  // Migration 902: app_user cannot write users.email (createInvitation matches on it),
+  // so the erasure runs through a definer function that writes fixed values to auth.uid()'s row.
+  await sql`SELECT public.anonymize_own_user_profile()`;
 
   log.info('Data subject erasure completed', { userId }, 'data-subject-rights');
 

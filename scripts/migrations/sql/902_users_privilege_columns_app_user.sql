@@ -12,6 +12,7 @@
 --   app_user (withAuth: SET LOCAL ROLE app_user)
 --     pages/api/auth/profile.ts                first_name, last_name, phone, mobile
 --     pages/api/accounting/data-subject-rights first_name, last_name, email, updated_at
+--                                              (now through anonymize_own_user_profile, below)
 --     pages/api/onboarding/complete.ts         onboarding_completed
 --     onboardingSetupWriters.markOnboardingCompleted (complete-setup)  onboarding_completed
 --   postgres, the pool's login role (withUserAuth issues no SET ROLE; owner, so
@@ -23,6 +24,13 @@
 --   updateUser (role), convertUserToBureauOwner (account_type).
 -- No app_user path INSERTs into users, and none writes role, status,
 -- is_active, suspended_*, permissions or account_type.
+--
+-- email is privilege-bearing too: createInvitation (userInvitationService)
+-- adds an EXISTING users row to the inviting company, at the invited role,
+-- when its email matches. A writable email let an injected request claim a
+-- pending invitee's address and be added in their place. Its one app_user
+-- writer, the POPIA erasure, only ever writes a fixed placeholder, so it goes
+-- through a SECURITY DEFINER function that takes no arguments.
 --
 -- A COLUMN-LEVEL REVOKE ALONE WOULD BE A NO-OP: Postgres keeps a table-level
 -- privilege when a column one is revoked. So: revoke at table level, grant the
@@ -36,8 +44,34 @@
 
 REVOKE INSERT, UPDATE ON public.users FROM app_user;
 REVOKE INSERT, UPDATE ON public.users FROM PUBLIC;
-GRANT UPDATE (first_name, last_name, phone, mobile, email, updated_at, onboarding_completed)
+GRANT UPDATE (first_name, last_name, phone, mobile, updated_at, onboarding_completed)
   ON public.users TO app_user;
+
+-- The caller's own row (auth.uid(), the same claim users_self_write admits),
+-- fixed values only: nothing the caller passes can reach email.
+CREATE OR REPLACE FUNCTION public.anonymize_own_user_profile()
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_uid pg_catalog.text := auth.uid();
+  v_placeholder pg_catalog.text;
+BEGIN
+  IF v_uid IS NULL THEN
+    RAISE EXCEPTION 'anonymize_own_user_profile: no authenticated user' USING ERRCODE = '42501';
+  END IF;
+  v_placeholder := 'anonymized_' || pg_catalog.left(v_uid, 8);
+  UPDATE public.users
+     SET first_name = 'Anonymized',
+         last_name  = v_placeholder,
+         email      = v_placeholder || '@deleted.invalid',
+         updated_at = pg_catalog.now()
+   WHERE id = v_uid;
+END
+$$;
+REVOKE ALL ON FUNCTION public.anonymize_own_user_profile() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.anonymize_own_user_profile() TO app_user;
 
 -- Fail the deploy rather than ship a no-op: a grant issued by another grantor,
 -- or one reaching app_user through a role it can SET ROLE to, survives the
@@ -53,7 +87,7 @@ BEGIN
       RAISE EXCEPTION '902: % (reachable from app_user) still holds table-level INSERT/UPDATE on users', r.rolname;
     END IF;
     FOREACH col IN ARRAY ARRAY['role', 'status', 'is_active', 'suspended_at', 'suspended_reason',
-                               'permissions', 'account_type', 'id'] LOOP
+                               'permissions', 'account_type', 'email', 'id'] LOOP
       IF has_column_privilege(r.oid, 'public.users', col, 'UPDATE')
          OR has_column_privilege(r.oid, 'public.users', col, 'INSERT') THEN
         RAISE EXCEPTION '902: % (reachable from app_user) can still write users.%', r.rolname, col;
