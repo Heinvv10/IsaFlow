@@ -221,10 +221,11 @@ describe('R-185: a fee post that fails for any other reason still fails', () => 
   it('a closed period: the delivery answers 500 and leaves no fee journal, not even a draft', async () => {
     const { ref } = await bankedWithoutFee();
     const closed = (await pool.query<{ id: string }>(
-      // The period the fee posts into is the app's local (SAST) today; the CI
-      // cluster's UTC CURRENT_DATE lags it from 00:00 to 02:00 SAST.
+      // The fee posts into the process's local today (SAST on the runner); the
+      // CI cluster's UTC CURRENT_DATE lags it from 00:00 to 02:00 SAST. Today
+      // and tomorrow are closed, in case the delivery straddles midnight.
       `UPDATE fiscal_periods SET status = 'closed'
-       WHERE company_id = $1 AND start_date <= $2::date AND end_date >= $2::date AND status <> 'closed'
+       WHERE company_id = $1 AND start_date <= $2::date + 1 AND end_date >= $2::date AND status <> 'closed'
        RETURNING id`, [A.id, fmtDate(new Date())])).rows.map((r) => r.id);
     expect(closed.length).toBeGreaterThan(0);
     try {
