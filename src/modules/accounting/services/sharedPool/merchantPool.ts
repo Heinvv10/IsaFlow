@@ -13,8 +13,13 @@
  *      tied between two categories abstains. So a company with 10 000 lines weighs the same as one with
  *      ten, and cannot alone carry the agreement.
  *   4. A merchant is published when at least MIN_DISTINCT_COMPANIES companies voted, and the winning
- *      category has at least MIN_AGREEMENT of those votes, and the category is poolable. Only the winner
- *      and the counts leave this function: never which companies voted, nor what the minority said.
+ *      category has at least MIN_AGREEMENT of those votes, and the category is poolable. Only the winner,
+ *      the voter count, the agreement and the voters' total line count leave this function: never which
+ *      companies voted, nor what the minority said.
+ *   5. The pool never votes for itself. A company that accepted a pool suggestion for a merchant took the
+ *      pool's word: that line, and everything else of the company's on that merchant key (the learned
+ *      pattern the acceptance wrote, a rule made from it, a later 'pattern' suggestion accepted), is
+ *      dropped. Only its 'recoded' decisions there still vote: the person chose an account themselves.
  *
  * The two thresholds are also CHECK constraints on shared_merchant_patterns (migration 906), so the table
  * refuses a row under them whatever the writer; merchantPool.test.ts pins the constants to that file.
@@ -33,6 +38,12 @@ export interface PoolObservation {
   categoryCode: string;
   /** How many lines / patterns this observation stands for within the company (>= 1). */
   weight: number;
+  /**
+   * 'pool_accepted': a bank line whose pool suggestion was accepted as is (never a vote; mutes the company's
+   * other evidence on the merchant, rule 5). 'recoded': a line the person coded away from the suggestion.
+   * Absent: any other source (a pattern, a rule, an accepted non-pool suggestion).
+   */
+  origin?: 'pool_accepted' | 'recoded';
 }
 
 /** Exactly the five fields shared_pool_publish accepts; it refuses any other key. */
@@ -50,6 +61,8 @@ export interface AggregationStats {
   ineligibleDropped: number;
   merchantsSeen: number;
   published: number;
+  /** Observations dropped because the company had taken the pool's word on that merchant (rule 5). */
+  poolEchoDropped: number;
 }
 
 /** A company's vote: its majority category, or null on a tie. */
@@ -66,20 +79,29 @@ function companyVote(tally: Map<string, number>): string | null {
 export function aggregatePool(
   observations: PoolObservation[], eligible: ReadonlySet<string>,
 ): { rows: PublishRow[]; stats: AggregationStats } {
-  const stats: AggregationStats = { observations: observations.length, rejectedByFilter: 0, ineligibleDropped: 0, merchantsSeen: 0, published: 0 };
-  // merchant -> company -> category -> weight
-  const byMerchant = new Map<string, Map<string, Map<string, number>>>();
+  const stats: AggregationStats = {
+    observations: observations.length, rejectedByFilter: 0, ineligibleDropped: 0, merchantsSeen: 0, published: 0, poolEchoDropped: 0,
+  };
+  const kept: Array<{ o: PoolObservation; merchant: string }> = [];
+  const poolTaken = new Set<string>(); // `${companyId} ${merchant}`
   for (const o of observations) {
     if (!eligible.has(o.companyId)) { stats.ineligibleDropped++; continue; }
     if (!merchantCategory(o.categoryCode)) continue;
     const f = filterMerchant(o.text);
     if (!f.ok) { stats.rejectedByFilter++; continue; }
+    if (o.origin === 'pool_accepted') poolTaken.add(`${o.companyId} ${f.merchant}`);
+    kept.push({ o, merchant: f.merchant });
+  }
+  // merchant -> company -> category -> weight
+  const byMerchant = new Map<string, Map<string, Map<string, number>>>();
+  for (const { o, merchant } of kept) {
+    if (poolTaken.has(`${o.companyId} ${merchant}`) && o.origin !== 'recoded') { stats.poolEchoDropped++; continue; }
     const weight = Number.isFinite(o.weight) && o.weight >= 1 ? Math.floor(o.weight) : 1;
-    const companies = byMerchant.get(f.merchant) ?? new Map<string, Map<string, number>>();
+    const companies = byMerchant.get(merchant) ?? new Map<string, Map<string, number>>();
     const tally = companies.get(o.companyId) ?? new Map<string, number>();
     tally.set(o.categoryCode, (tally.get(o.categoryCode) ?? 0) + weight);
     companies.set(o.companyId, tally);
-    byMerchant.set(f.merchant, companies);
+    byMerchant.set(merchant, companies);
   }
   stats.merchantsSeen = byMerchant.size;
 

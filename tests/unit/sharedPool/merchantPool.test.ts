@@ -132,3 +132,36 @@ describe('accountToCategory', () => {
     expect([...m.entries()]).toEqual([['a', 'fuel']]);
   });
 });
+
+describe('aggregatePool — the pool never votes for itself', () => {
+  const withOrigin = (o: PoolObservation, origin: PoolObservation['origin']): PoolObservation => ({ ...o, origin });
+
+  it('a company that accepted the pool suggestion for a merchant gives no vote through its learned pattern', () => {
+    // 4 companies coded ESKOM themselves; a 5th only took the pool's word (the accepted line, plus the
+    // learned pattern that acceptance wrote). 4 independent votes: not published.
+    const ids = companies(5);
+    const o = ids.slice(0, 4).map((c) => obs(c, 'ESKOM PREPAID', 'electricity'));
+    o.push(withOrigin(obs(ids[4]!, 'ESKOM PREPAID 0412345678901', 'electricity'), 'pool_accepted'));
+    o.push(obs(ids[4]!, 'ESKOM PREPAID', 'electricity'));
+    const r = aggregatePool(o, all(ids));
+    expect(r.rows).toEqual([]);
+    expect(r.stats.poolEchoDropped).toBe(2);
+  });
+
+  it('a recoded decision on that merchant is the company\'s own judgement and still votes', () => {
+    const ids = companies(5);
+    const o = ids.slice(0, 4).map((c) => obs(c, 'ESKOM PREPAID', 'electricity'));
+    o.push(withOrigin(obs(ids[4]!, 'ESKOM PREPAID', 'electricity'), 'pool_accepted'));
+    o.push(withOrigin(obs(ids[4]!, 'ESKOM PREPAID', 'electricity'), 'recoded'));
+    expect(aggregatePool(o, all(ids)).rows).toEqual([
+      { merchant: 'ESKOM', category: 'electricity', companies: 5, agreement: 1, observations: 5 },
+    ]);
+  });
+
+  it('mutes only that merchant, for only that company', () => {
+    const ids = companies(5);
+    const o = ids.map((c) => obs(c, 'VODACOM', 'telephone'));
+    o.push(withOrigin(obs(ids[0]!, 'ESKOM', 'electricity'), 'pool_accepted'));
+    expect(aggregatePool(o, all(ids)).rows.map((r) => r.merchant)).toEqual(['VODACOM']);
+  });
+});
