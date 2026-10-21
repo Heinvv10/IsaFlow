@@ -31,6 +31,8 @@ vi.mock('@/components/accounting/dashboard/TodoWidget', () => ({ TodoWidget: () 
 vi.mock('@/components/accounting/dashboard/WorkbenchSection', () => ({ WorkbenchSection: () => null }));
 vi.mock('@/components/accounting/banking/NoBankAccountWarning', () => ({ NoBankAccountWarning: () => null }));
 vi.mock('@/lib/auth/portalJwt', () => ({ verifyPortalToken: async () => ({ role: 'client_admin' }) }));
+// The session is in standing (company live, contact active): standing itself is pinned by portalAuthStanding.
+vi.mock('@/lib/auth/portalAuth', () => ({ currentPortalSession: async (s: unknown) => s }));
 
 import { apiFetch } from '@/lib/apiFetch';
 import LoanNewPage from '../../../pages/accounting/loans/new';
