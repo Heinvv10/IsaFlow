@@ -10,6 +10,7 @@
     "scripts/ci/report-skipped-integration.ts",
     "tests/helpers/liveGoTrue.ts",
     "tests/helpers/integrationGate.ts",
+    "scripts/sandbox/*.ts",
     "next-env.d.ts"
   ],
   "exclude": ["node_modules"]

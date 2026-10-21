@@ -80,6 +80,7 @@ const KNOWN_WRITERS = [
   'scripts/provision-isademo2.ts: writes', // W18 demo provisioning — postgres
   'scripts/qa-check-demo-db.ts: names as a string', // read-only table list
   'scripts/qa-cleanup-run.ts: names as a string', // W18 QA cleanup by company — postgres
+  'scripts/sandbox/reviewerSandboxIdentity.ts: writes', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
   'scripts/stress-test.ts: writes', // W18 stress seed — postgres
   'src/modules/accounting/services/core/userAccessService.ts: writes', // W1/W2 — app_user
   'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — app_user
