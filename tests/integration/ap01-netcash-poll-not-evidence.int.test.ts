@@ -238,6 +238,32 @@ describe('the poll answer is a hint, written by merge and never older than what 
     expect((await row(id)).netcash_response.pollError).toBeUndefined();
   });
 
+  it('the pollError hint is compare-and-set: not written over an operator\'s resolution, and an older error never replaces a newer one', async () => {
+    const POLL_ERROR = /SET netcash_response = COALESCE\(netcash_response, '\{\}'::JSONB\) \|\|/;
+    const unanswered = (detail: string) => hold.getSubmissionStatus.mockResolvedValueOnce({ status: 'unknown', detail, answered: false });
+    const a = await submitted();
+    unanswered('older');
+    let p = park(POLL_ERROR);
+    const parked = poll(a.c, a.id);
+    await p.inside;
+    expect((await resolve(u.admin, a.c, a.id)).state.statusCode).toBe(200); // the row is failed now
+    p.release();
+    await parked;
+    const resolvedRow = await row(a.id);
+    const b = await submitted();
+    unanswered('older');
+    p = park(POLL_ERROR);
+    const olderP = poll(b.c, b.id);
+    await p.inside;
+    unanswered('newer');
+    await poll(b.c, b.id);
+    p.release();
+    await olderP;
+    expect({ resolved: resolvedRow.status, hintOnResolved: resolvedRow.netcash_response.pollError,
+      latest: ((await row(b.id)).netcash_response.pollError as { detail?: string } | undefined)?.detail })
+      .toEqual({ resolved: 'failed', hintOnResolved: undefined, latest: 'newer' });
+  });
+
   it('overlapping polls: an older failure answer written after a newer clean one changes nothing', async () => {
     const { c, id } = await submitted();
     answer('Failed'); // poll A gets Netcash's older answer, then stalls before its write
