@@ -122,6 +122,18 @@ describe('R8: a contact\'s CurrencyId', () => {
     expect(withCustomer({ CurrencyId: 1 }, null)).toContainEqual(expect.objectContaining({ area: 'customers' }));
   });
 
+  // Round 5: a fully settled document says nothing about a balance; its
+  // currency must not block the import. One with an amount due still does.
+  it('a settled (zero-due) foreign-currency document is left out with a warning, not a block; a negative amount due still blocks', () => {
+    const p = sageFixture();
+    p.customerDocuments[11]!.push({ ID: 9400, DocumentNumber: 'USD-1', Date: '2026-08-01', Total: 100, AmountDue: 0, Customer_CurrencyId: 4, Customer_ExchangeRate: 18.5 });
+    const t = buildSageTakeOn(p, emptyCompany);
+    expect(t.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    expect(t.issues).toContainEqual(expect.objectContaining({ severity: 'warning', message: expect.stringMatching(/^USD-1 /) }));
+    p.customerDocuments[11]![2]!.AmountDue = -50;
+    expect(errors(emptyCompany, p)).toContainEqual(expect.objectContaining({ area: 'receivables', message: expect.stringContaining('USD-1') }));
+  });
+
   it('a single-currency company (empty list): null and 0 pass, any other id still fails closed', () => {
     expect(withCustomer({ CurrencyId: null }, [])).toEqual([]);
     expect(withCustomer({ CurrencyId: 0 }, [])).toEqual([]);

@@ -123,15 +123,23 @@ describe('createSageApiClient', () => {
     }
   });
 
-  it('stops paging once a limit is passed', async () => {
+  // Round 5: the caller sees every page as it arrives, with Sage's own
+  // TotalResults, and stops the read by throwing — on the first page if the
+  // total already says the list is too long.
+  it('hands each page and Sage\'s TotalResults to onPage; a throw stops the paging there', async () => {
     const all = Array.from({ length: 500 }, (_, i) => ({ ID: i }));
     const { calls, fetchImpl } = fakeSage((url) => {
       const skip = Number(url.searchParams.get('$skip'));
       return { status: 200, body: { TotalResults: all.length, ReturnedResults: 100, Results: all.slice(skip, skip + 100) } };
     });
-    const rows = await createSageApiClient({ ...base, fetchImpl }).forCompany(1).getAll('TaxInvoice/Get', {}, 150);
-    expect(rows).toHaveLength(200);
-    expect(calls).toHaveLength(2);
+    const seen: Array<[number, number | undefined]> = [];
+    const onPage = (rows: readonly unknown[], total: number | undefined) => {
+      seen.push([rows.length, total]);
+      if (total !== undefined && total > 300) throw new Error('too long');
+    };
+    await expect(createSageApiClient({ ...base, fetchImpl }).forCompany(1).getAll('TaxInvoice/Get', {}, onPage)).rejects.toThrow('too long');
+    expect(calls).toHaveLength(1);
+    expect(seen).toEqual([[100, 500]]);
   });
 
   it('refuses to run without an API key, and says why', () => {

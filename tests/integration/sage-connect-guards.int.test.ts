@@ -8,6 +8,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { SageImportRefused } from '@/modules/accounting/services/sage/sageTakeOnImportService';
+import { getChangesInEquity } from '@/modules/accounting/services/afs/changesInEquityService';
+import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageFixture } from '../unit/services/sage/sageFixture';
 import {
@@ -36,6 +38,32 @@ describe('R2: the fiscal year comes from fiscal_periods', () => {
       expect(await balanceOf(c, companyId, "a.account_name = 'Bank - Cheque'")).toBeCloseTo(50000, 2);
       expect(await balanceOf(c, companyId, "a.account_subtype = 'receivable' AND a.is_system_account")).toBeCloseTo(30000, 2);
       expect(await balanceOf(c, companyId, "a.account_subtype = 'opening_balance_equity'")).toBeCloseTo(2000, 2);
+    }, '2026-01-01');
+  });
+
+  // Round 5: the statement of changes in equity reads the take-on as balances
+  // taken on — not as a R23 000 dividend — and still shows a real dividend as one.
+  it('the SoCE shows the folded take-on as balances taken on, and a real dividend as a dividend', async () => {
+    await inRolledBackCompany(async (c, companyId, userId) => {
+      const pullId = await storeReady(companyId, userId, sageFixture());
+      await importAsRoute(companyId, userId, pullId);
+      const ids = Object.fromEntries((await c.query(
+        "SELECT account_subtype, id FROM gl_accounts WHERE company_id = $1 AND is_system_account AND account_subtype IN ('retained_earnings', 'bank')", [companyId],
+      )).rows.map((r) => [r.account_subtype, r.id]));
+      const dividend = await createJournalEntry(companyId, {
+        entryDate: '2026-11-15', description: 'Dividend declared and paid', source: 'manual',
+        lines: [{ glAccountId: ids.retained_earnings, debit: 5000, credit: 0 }, { glAccountId: ids.bank, debit: 0, credit: 5000 }],
+      }, userId);
+      await postJournalEntry(companyId, dividend.id, userId);
+
+      const soce = await getChangesInEquity(companyId, '2026-01-01', '2026-12-31');
+      const re = soce.columns.find((col) => col.subtype === 'retained_earnings')!;
+      expect(re.takeOn).toBeCloseTo(23000, 2); // -15 000 prior + 38 000 profit to date, credit-positive
+      expect(re.dividends).toBeCloseTo(-5000, 2);
+      expect(re.profitForYear).toBeCloseTo(0, 2); // no P&L before the cut-over
+      // The statement still ties to the ledger's equity.
+      const equity = -(await balanceOf(c, companyId, "a.account_type = 'equity'"));
+      expect(soce.totalClosing).toBeCloseTo(equity, 2);
     }, '2026-01-01');
   });
 

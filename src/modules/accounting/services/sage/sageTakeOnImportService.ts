@@ -40,7 +40,7 @@ import { exactContactIds } from './sageTakeOnContactIds';
 import { pullSizeRefusal, sizesOf } from './sagePullLimits';
 import { findPriorTakeOn, readTakeOnContext } from './sageTakeOnContext';
 import { loadPullForImport, markImported, READY_TTL_HOURS, type StoredPull } from './sageTakeOnStore';
-import { summarise, type TakeOnIssue, type TakeOnSummary } from './sageTakeOnTypes';
+import { staleReviewIssue, summarise, type TakeOnIssue, type TakeOnSummary } from './sageTakeOnTypes';
 
 export class SageImportRefused extends Error {
   constructor(message: string, public readonly issues: TakeOnIssue[] = []) {
@@ -103,7 +103,8 @@ export async function importSagePull(companyId: string, userId: string, pullId: 
   // Before any read: the prior-take-on check below is a read-then-write, and
   // every wizard step takes this same lock (re-entrant, transaction-scoped).
   await lockMigrationImport(companyId);
-  const pull = readyPull(await loadPullForImport(companyId, pullId));
+  const stored = await loadPullForImport(companyId, pullId);
+  const pull = readyPull(stored);
   // The caps again: a review read under older (larger) caps must not run past the request's time.
   const tooBig = pullSizeRefusal(sizesOf(pull));
   if (tooBig) throw new SageImportRefused(tooBig);
@@ -111,6 +112,9 @@ export async function importSagePull(companyId: string, userId: string, pullId: 
   if (prior) throw new SageImportRefused(prior);
 
   const takeOn = buildSageTakeOn(pull, await readTakeOnContext(companyId, pull.asAtDate));
+  // The review's P&L treatment, not one the client never saw.
+  const stale = staleReviewIssue(stored?.summary, takeOn);
+  if (stale) throw new SageImportRefused(stale.message, [stale]);
   const blocking = takeOn.issues.filter((i) => i.severity === 'error');
   if (blocking.length > 0) {
     throw new SageImportRefused('Some of the Sage data cannot be imported yet. Each item below says what to fix and where; then review again.', blocking);

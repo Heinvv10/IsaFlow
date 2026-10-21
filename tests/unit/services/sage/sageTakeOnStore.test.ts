@@ -88,7 +88,7 @@ describe('the job\'s writes are fenced and scoped', () => {
 describe('reading the row', () => {
   it('a pulling row gone quiet reads as failed, with the interrupted message', async () => {
     answer(() => [{ id: PULL, status: 'pulling', progress: 'Reading suppliers', error: null, pull: null, stale: true }]);
-    expect(await loadPullState(CO, PULL)).toEqual({ id: PULL, status: 'failed', progress: null, error: STALE_PULL_ERROR, pull: null });
+    expect(await loadPullState(CO, PULL)).toEqual({ id: PULL, status: 'failed', progress: null, error: STALE_PULL_ERROR, pull: null, summary: {} });
     everyCallNamesTheCompany();
   });
 
@@ -105,9 +105,9 @@ describe('reading the row', () => {
   });
 
   it('loadPullForImport locks the row and says whether the review is past its TTL', async () => {
-    answer(() => [{ id: PULL, status: 'ready', pull: JSON.stringify(sageFixture()), expired: true }]);
+    answer(() => [{ id: PULL, status: 'ready', pull: JSON.stringify(sageFixture()), expired: true, summary: { profitAndLossFold: null } }]);
     const s = await loadPullForImport(CO, PULL);
-    expect(s).toMatchObject({ status: 'ready', expired: true });
+    expect(s).toMatchObject({ status: 'ready', expired: true, summary: { profitAndLossFold: null } });
     expect(s!.pull!.company.id).toBe(555);
     expect(calls()[0]!.text).toMatch(/FOR UPDATE/);
     everyCallNamesTheCompany();

@@ -51,6 +51,18 @@ export function checkFinancialYear(pull: SagePull, ctx: TakeOnContext, issues: T
   return ctx.fiscalYear.startDate !== pull.financialYearStart;
 }
 
+const ROLE_LABEL: Partial<Record<string, string>> = { retained_earnings: 'Retained Earnings' };
+
+/** A role IsaFlow's chart gives to more than one account: the take-on will not pick one. */
+export function checkContestedRoles(ctx: TakeOnContext, issues: TakeOnIssue[]): void {
+  for (const c of ctx.contestedRoles) {
+    issues.push({
+      severity: 'error', area: 'accounts',
+      message: `IsaFlow has ${c.codes.length} accounts (${c.codes.join(', ')}) holding the ${ROLE_LABEL[c.role] ?? c.role} role, so it cannot tell which one the opening balances belong on. Leave one holder under Accounting → Default Accounts, then review again.`,
+    });
+  }
+}
+
 /** Every closed or locked IsaFlow period one of `dates` falls in, as one issue per period. */
 export function checkClosedPeriods(
   dates: readonly { date: string; what: string }[], ctx: TakeOnContext, issues: TakeOnIssue[],

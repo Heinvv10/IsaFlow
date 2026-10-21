@@ -77,6 +77,10 @@ describe('the review', () => {
     const folded = toReview(buildSageTakeOn(sageFixture(), { ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } }));
     expect(folded.profitAndLossNote).toMatch(/profit to date of R38\D000\D00 .*Retained Earnings/);
     expect(folded.profitAndLossNote).toMatch(/will not show this year's income and expenses before 2026-10-21/);
+    // Round 5: what that means for this year's statements.
+    expect(folded.profitAndLossNote).toMatch(/annual financial statements/);
+    expect(folded.profitAndLossNote).toMatch(/ITR14/);
+    expect(folded.profitAndLossNote).toMatch(/before 2026-10-21 is in Sage/);
   });
 
   it('the poll and start answers carry the row state', () => {
