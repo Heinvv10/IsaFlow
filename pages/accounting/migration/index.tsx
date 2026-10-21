@@ -145,9 +145,9 @@ function SageFilesOpener({ firstStepHref }: { firstStepHref?: string }) {
     </>
   );
   const box = 'flex flex-col gap-4 sm:flex-row sm:items-center rounded-lg border border-green-500/30 bg-green-500/5 p-5';
-  if (!firstStepHref) return <div className={box}>{body}</div>;
+  if (!firstStepHref) return <div id="sage" className={box}>{body}</div>;
   return (
-    <Link href={firstStepHref} className={`${box} hover:border-green-500 transition-colors`}>
+    <Link id="sage" href={firstStepHref} className={`${box} hover:border-green-500 transition-colors`}>
       {body}
       <span className="w-full text-center sm:w-auto rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white">Upload Sage files</span>
     </Link>
