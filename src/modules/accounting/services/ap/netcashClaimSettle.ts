@@ -15,6 +15,7 @@ import {
   CHEAP_QUERY_TIMEOUT_MS, CLAIM_CONNECTION_TIMEOUT_MS, SETTLE_ATTEMPT_BUDGET_MS, SETTLE_LOCK_TIMEOUT_MS, SETTLE_QUERY_TIMEOUT_MS,
   SETTLE_STATEMENT_TIMEOUT_MS,
 } from './netcashTimeouts';
+import { jsonSafe, safeReference } from './netcashAnswerSafety';
 
 export interface ClaimPrincipal {
   companyId: string;
@@ -57,12 +58,12 @@ const CHEAP = /^\s*(BEGIN|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT|SET 
  * SETTLE_QUERY_TIMEOUT_MS - CHEAP_QUERY_TIMEOUT_MS for cheap ones - and never after what is left of the attempt's
  * SETTLE_ATTEMPT_BUDGET_MS; once that is spent nothing more is sent (round 13: the whole chain fits the send window).
  */
-export function bounded(client: PoolClient): Queryable {
-  const deadline = Date.now() + SETTLE_ATTEMPT_BUDGET_MS;
+export function bounded(client: PoolClient, budgetMs = SETTLE_ATTEMPT_BUDGET_MS): Queryable {
+  const deadline = Date.now() + budgetMs;
   return {
     query: <R extends QueryResultRow>(text: string, values?: unknown[]) => {
       const left = deadline - Date.now();
-      if (left <= 0) return Promise.reject(new Error(`netcash settle attempt budget (${SETTLE_ATTEMPT_BUDGET_MS} ms) spent`));
+      if (left <= 0) return Promise.reject(new Error(`netcash settle attempt budget (${budgetMs} ms) spent`));
       const cap = CHEAP.test(text) ? CHEAP_QUERY_TIMEOUT_MS : SETTLE_QUERY_TIMEOUT_MS;
       return client.query<R>({ text, values, query_timeout: Math.min(cap, left) });
     },
@@ -92,8 +93,16 @@ export async function actAsCaller(client: Queryable, p: ClaimPrincipal): Promise
  * to 'submitted'/'unknown' (compare-and-set on 'failed'). If a newer claim already holds the batch the unique index
  * refuses it (23505, inside a savepoint): the row stays 'failed' and the newer claim is named. Inside a transaction.
  */
-export async function settleRows(client: Queryable, p: ClaimPrincipal, submissionId: string, s: ClaimSettlement,
+export async function settleRows(client: Queryable, p: ClaimPrincipal, submissionId: string, answer: ClaimSettlement,
   settleToken: string): Promise<SettleResult> {
+  // Round 15: nothing of Netcash's own content may fail the settle (netcashAnswerSafety) - an over-long or malformed
+  // reference settles on the outcome with batch_reference NULL, kept whole in netcash_response.
+  const s: ClaimSettlement = { ...answer, batchReference: safeReference(answer.batchReference), netcashResponse: jsonSafe(answer.netcashResponse) };
+  if (answer.batchReference !== null && s.batchReference === null) {
+    log.warn('netcash reference does not fit batch_reference - recorded NULL, kept whole in netcash_response', {
+      submissionId, length: typeof answer.batchReference === 'string' ? answer.batchReference.length : typeof answer.batchReference,
+    }, 'netcash');
+  }
   const { rowCount } = await client.query(
     `UPDATE netcash_submissions
      SET status = $3, batch_reference = $4, netcash_response = $5::JSONB || jsonb_build_object('settleToken', $7::TEXT), submitted_at = $6
@@ -105,7 +114,7 @@ export async function settleRows(client: Queryable, p: ClaimPrincipal, submissio
      SET netcash_response = COALESCE(netcash_response, '{}'::JSONB) || jsonb_build_object('lateSendResult', $3::JSONB)
      WHERE id = $1::UUID AND company_id = $2::UUID
      RETURNING status, batch_id`,
-    [submissionId, p.companyId, JSON.stringify({ status: s.status, batchReference: s.batchReference, response: s.netcashResponse, settleToken })]);
+    [submissionId, p.companyId, JSON.stringify(jsonSafe({ status: s.status, batchReference: answer.batchReference, response: s.netcashResponse, settleToken }))]);
   if (!rows[0]) throw new Error(`netcash claim ${submissionId} not found for settlement`);
   const result = await lateOutcome(client, p, submissionId, s, rows[0]);
   // What this late answer did, beside its token: a retry after a COMMIT whose reply was lost reports it as it was.

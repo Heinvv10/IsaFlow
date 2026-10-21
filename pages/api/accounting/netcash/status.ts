@@ -15,6 +15,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSubmissionStatus } from '@/modules/accounting/services/ap/netcashService';
+import { jsonSafe } from '@/modules/accounting/services/ap/netcashAnswerSafety';
 
 type Row = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -125,7 +126,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // answer (AP-01 round 11 - 'unknown' mapped to processing and was stored as latestPoll). Only a pollError hint is
   // merged, compare-and-set like the answer below; the status and latestPoll stay as they are.
   if (!pollResult.answered) {
-    const pollError = JSON.stringify({ pollError: { detail: pollResult.detail, at: answeredAt } });
+    const pollError = JSON.stringify(jsonSafe({ pollError: { detail: pollResult.detail, at: answeredAt } }));
     await sql`
       UPDATE netcash_submissions
       SET netcash_response = COALESCE(netcash_response, '{}'::JSONB) || ${pollError}::JSONB
@@ -164,7 +165,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const written = await sql`
     UPDATE netcash_submissions
     SET status = ${newStatus},
-        netcash_response = (COALESCE(netcash_response, '{}'::JSONB) - 'pollFailure' - 'pollError') || ${JSON.stringify(hint)}::JSONB
+        netcash_response = (COALESCE(netcash_response, '{}'::JSONB) - 'pollFailure' - 'pollError') || ${JSON.stringify(jsonSafe(hint))}::JSONB /* Netcash's text made safe for jsonb (round 15) */
     WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID AND status = ${String(submission.status)}
       AND COALESCE((netcash_response -> 'latestPoll' ->> 'at')::TIMESTAMPTZ, '-infinity'::TIMESTAMPTZ) < ${answeredAt}::TIMESTAMPTZ
     RETURNING id

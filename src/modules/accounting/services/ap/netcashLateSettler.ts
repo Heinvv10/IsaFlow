@@ -32,6 +32,18 @@ function totalMs(): number {
   return DEFAULT_LATE_SETTLE_TOTAL_MS;
 }
 
+/**
+ * An error that retrying cannot clear (round 15): a data exception (22xxx: a value the column will not take), an
+ * integrity violation other than a unique one (23xxx; 23505 is a newer claim, handled in the settle, and may clear),
+ * or a syntax / access error (42xxx). Retrying those for ten minutes only hides them; the durable record
+ * (netcashUnrecordedAnswer) still keeps the row from being freed.
+ */
+function neverClears(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code !== 'string') return false;
+  return code.startsWith('22') || (code.startsWith('23') && code !== '23505') || code.startsWith('42');
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms).unref?.(); });
 
 /** Start the detached settler for this answer. Never throws; every outcome is logged. */
@@ -78,6 +90,12 @@ async function run(p: ClaimPrincipal, submissionId: string, s: ClaimSettlement, 
       return;
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
+      if (neverClears(err)) {
+        log.error('netcash late settler stopped - the answer cannot be written (an error retrying will never clear); check Netcash, do not resend', {
+          ...answer, attempt, error, code: (err as { code?: string }).code,
+        }, 'netcash');
+        return;
+      }
       if (Date.now() >= deadline) {
         log.error('netcash late settler gave up - the answer is NOT on the row; check Netcash, do not resend', { ...answer, attempt, error }, 'netcash');
         return;

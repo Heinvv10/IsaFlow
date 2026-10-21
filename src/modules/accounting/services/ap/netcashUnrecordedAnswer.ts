@@ -14,7 +14,8 @@ import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { actAsCaller, bounded, tightenSettleTimeouts, type ClaimPrincipal, type ClaimSettlement } from './netcashClaimSettle';
 import { connectWithin } from './netcashSendCapacity';
-import { CLAIM_CONNECTION_TIMEOUT_MS } from './netcashTimeouts';
+import { UNRECORDED_ANSWER_BUDGET_MS, UNRECORDED_ANSWER_CHECKOUT_MS } from './netcashTimeouts';
+import { jsonSafe, safeReference } from './netcashAnswerSafety';
 
 export const UNRECORDED_ANSWER_ENTITY = 'netcash_unrecorded_answer';
 
@@ -28,11 +29,11 @@ function outcomeOf(s: ClaimSettlement): string {
 export async function recordUnrecordedAnswer(p: ClaimPrincipal, submissionId: string, s: ClaimSettlement,
   settleToken: string): Promise<boolean> {
   try {
-    const client = await connectWithin(getPool(), CLAIM_CONNECTION_TIMEOUT_MS);
-    if (!client) throw new Error(`no connection within ${CLAIM_CONNECTION_TIMEOUT_MS} ms`);
+    const client = await connectWithin(getPool(), UNRECORDED_ANSWER_CHECKOUT_MS);
+    if (!client) throw new Error(`no connection within ${UNRECORDED_ANSWER_CHECKOUT_MS} ms`);
     const onError = (err: Error) => log.error('netcash unrecorded-answer connection lost', { submissionId, error: err.message }, 'netcash');
     client.on('error', onError);
-    const q = bounded(client);
+    const q = bounded(client, UNRECORDED_ANSWER_BUDGET_MS);
     let unusable = false;
     let begun = false;
     try {
@@ -40,14 +41,22 @@ export async function recordUnrecordedAnswer(p: ClaimPrincipal, submissionId: st
       begun = true;
       await tightenSettleTimeouts(q);
       await actAsCaller(q, p);
-      const metadata = {
-        status: s.status, outcome: outcomeOf(s), batchReference: s.batchReference ?? '', settleToken,
+      // Round 15: the reference only in metadata (JSONB, made safe); entity_ref (varchar(100)) only when it fits as is,
+      // so the record cannot fail on the answer's own content.
+      const metadata = jsonSafe({
+        status: s.status, outcome: outcomeOf(s), batchReference: s.batchReference == null ? '' : String(s.batchReference), settleToken,
         answer: JSON.stringify(s.netcashResponse ?? null),
-      };
+      });
+      // A plain INSERT with exactly logAuditOrThrow's columns (core/auditTrailService; no hash chain, no trigger - pinned
+      // by netcashUnrecordedAnswerColumns.test.ts), but on this record's OWN connection: logAuditOrThrow writes on the
+      // request's `sql` transaction, which the 500 this record precedes rolls back.
       await q.query(
-        `INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes)
-         VALUES ($1::UUID, $2, 'create', $3, $4::UUID, $5, jsonb_build_object('metadata', $6::JSONB))`,
-        [p.companyId, p.userId, UNRECORDED_ANSWER_ENTITY, submissionId, s.batchReference, JSON.stringify(metadata)]);
+        `INSERT INTO audit_log (
+           company_id, user_id, user_email, action,
+           entity_type, entity_id, entity_ref,
+           changes, ip_address, user_agent, session_id
+         ) VALUES ($1::UUID, $2, NULL, 'create', $3, $4::UUID, $5, jsonb_build_object('metadata', $6::JSONB), NULL, NULL, NULL)`,
+        [p.companyId, p.userId, UNRECORDED_ANSWER_ENTITY, submissionId, safeReference(s.batchReference), JSON.stringify(metadata)]);
       await q.query('COMMIT');
       return true;
     } catch (err) {

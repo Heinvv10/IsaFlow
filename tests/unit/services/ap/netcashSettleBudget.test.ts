@@ -11,15 +11,17 @@ import type { PoolClient } from 'pg';
 import { ROLLBACK_TIMEOUT_MS } from '@/lib/rollbackFailed';
 import {
   CHEAP_QUERY_TIMEOUT_MS, CLAIM_CONNECTION_TIMEOUT_MS, REQUEST_TIMEOUT_MS, SEND_WINDOW_MS, SETTLE_ATTEMPT_BUDGET_MS,
-  SETTLE_QUERY_TIMEOUT_MS, SETTLE_STATEMENT_TIMEOUT_MS,
+  SETTLE_QUERY_TIMEOUT_MS, SETTLE_STATEMENT_TIMEOUT_MS, UNRECORDED_ANSWER_BUDGET_MS, UNRECORDED_ANSWER_CHECKOUT_MS,
 } from '@/modules/accounting/services/ap/netcashTimeouts';
 import { bounded } from '@/modules/accounting/services/ap/netcashClaimSettle';
 
 afterEach(() => { vi.useRealTimers(); });
 
 describe('the settle budget', () => {
-  it('send + both settle attempts (each with an unanswered ROLLBACK) + the retry checkout stay within 75% of SEND_WINDOW_MS', () => {
-    const worst = REQUEST_TIMEOUT_MS + 2 * (SETTLE_ATTEMPT_BUDGET_MS + ROLLBACK_TIMEOUT_MS) + CLAIM_CONNECTION_TIMEOUT_MS;
+  it('send + both settle attempts (each with an unanswered ROLLBACK) + the retry checkout + the durable record stay within 75% of SEND_WINDOW_MS', () => {
+    // Round 15: the durable record (recordUnrecordedAnswer) runs before the 500 too: its checkout, attempt and ROLLBACK.
+    const record = UNRECORDED_ANSWER_CHECKOUT_MS + UNRECORDED_ANSWER_BUDGET_MS + ROLLBACK_TIMEOUT_MS;
+    const worst = REQUEST_TIMEOUT_MS + 2 * (SETTLE_ATTEMPT_BUDGET_MS + ROLLBACK_TIMEOUT_MS) + CLAIM_CONNECTION_TIMEOUT_MS + record;
     expect(Number.isFinite(worst)).toBe(true);
     expect(worst).toBeLessThanOrEqual(0.75 * SEND_WINDOW_MS);
   });
