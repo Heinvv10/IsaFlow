@@ -51,7 +51,12 @@ export function useSageConnect() {
   const [review, setReview] = useState<SageReview | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const live = useRef(true);
-  useEffect(() => () => { live.current = false; }, []);
+  // Set on every mount, not only at creation: StrictMode (on in next.config)
+  // mounts, unmounts and mounts again, and a ref left false drops every answer.
+  useEffect(() => {
+    live.current = true;
+    return () => { live.current = false; };
+  }, []);
 
   /** One poll: moves the page on when the read is done. 'bad' when the poll itself failed. */
   const poll = useCallback(async (id: string): Promise<'pulling' | 'done' | 'bad'> => {

@@ -8,7 +8,7 @@
  */
 import { act, cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ReactNode } from 'react';
+import { StrictMode, type ReactNode } from 'react';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, script } from '../helpers/d2R3a5';
 
@@ -142,5 +142,27 @@ describe('Import from Sage: the import answer (L6)', () => {
     await toReviewThenImport(() => new Response(JSON.stringify({ success: false, error: { message: 'IsaFlow could not take on every item.', details: { issues: [{ severity: 'error', area: 'receivables', message: 'D2 bad row' }] } } }), { status: 400 }));
     expect(await screen.findByText('IsaFlow could not take on every item. Nothing was changed.')).toBeTruthy();
     await waitFor(() => expect(screen.getByText('D2 bad row')).toBeTruthy());
+  });
+});
+
+// Round 4, item 6: next.config has reactStrictMode on, so in dev every effect
+// mounts, unmounts and mounts again. A "still mounted" ref that is only ever
+// set false on unmount stayed false after the remount, every answer was
+// dropped, and the page span for ever.
+describe('Import from Sage under React.StrictMode', () => {
+  it('still shows the answers it gets: the sign-in form, then a review', async () => {
+    script((u) => {
+      if (u.endsWith('/sage-connect/status')) return ok({ available: true, open: { pullId: PULL, status: 'ready' }, priorTakeOn: null });
+      if (u.includes('/pulls/')) return ready();
+      return undefined;
+    });
+    render(<StrictMode><SageConnectPage /></StrictMode>);
+    expect(await screen.findByText(/Check what will come across from Acme Media/)).toBeTruthy();
+  });
+
+  it('a fresh company reaches the sign-in form', async () => {
+    script((u) => (u.endsWith('/sage-connect/status') ? ok({ available: true, open: null, priorTakeOn: null }) : undefined));
+    render(<StrictMode><SageConnectPage /></StrictMode>);
+    expect(await screen.findByLabelText(/password/i)).toBeTruthy();
   });
 });
