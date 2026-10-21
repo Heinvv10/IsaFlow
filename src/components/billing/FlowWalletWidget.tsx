@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { Zap, Plus, Loader2 } from 'lucide-react';
+import { useCompany } from '@/contexts/CompanyContext';
 import { TopUpModal } from './TopUpModal';
 import { UpgradeNudgeBanner, type NudgeLevel } from './UpgradeNudgeBanner';
 
@@ -16,7 +17,12 @@ interface WalletResp {
   monthFlowsUsed: number;
 }
 
+// Mirrors the API gate on purchase; the 403 there is the control, this is a courtesy.
+const PAY_ROLES = ['owner', 'admin'];
+
 export function FlowWalletWidget() {
+  const { companyRole } = useCompany();
+  const mayPay = PAY_ROLES.includes(companyRole ?? '');
   const [wallet, setWallet] = useState<WalletResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -69,12 +75,20 @@ export function FlowWalletWidget() {
             </div>}
           </div>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg"
-        >
-          <Plus className="w-4 h-4" /> Top up
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={() => setShowModal(true)}
+            disabled={!mayPay}
+            className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-teal-600"
+          >
+            <Plus className="w-4 h-4" /> Top up
+          </button>
+          {!mayPay && (
+            <p className="text-xs text-gray-500 max-w-xs text-right">
+              Only the company owner or an admin can buy Flows or change auto top-up.
+            </p>
+          )}
+        </div>
       </div>
 
       <TopUpModal open={showModal} onClose={() => setShowModal(false)} onSuccess={load} />

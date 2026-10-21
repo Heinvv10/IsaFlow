@@ -8,6 +8,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { TopUpModal } from '@/components/billing/TopUpModal';
+import { useCompany } from '@/contexts/CompanyContext';
 import { UpgradeNudgeBanner, type NudgeLevel } from '@/components/billing/UpgradeNudgeBanner';
 import { Zap, Plus, AlertCircle, Loader2 } from 'lucide-react';
 
@@ -37,7 +38,12 @@ interface LedgerEntry {
   createdAt: string;
 }
 
+// Mirrors the API gate on purchase and auto-topup; the 403 there is the control, this is a courtesy.
+const PAY_ROLES = ['owner', 'admin'];
+
 export default function FlowsSettingsPage() {
+  const { companyRole } = useCompany();
+  const mayPay = PAY_ROLES.includes(companyRole ?? '');
   const [wallet, setWallet]   = useState<Wallet | null>(null);
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [ledger, setLedger]   = useState<LedgerEntry[]>([]);
@@ -137,6 +143,12 @@ export default function FlowsSettingsPage() {
           <>
             <UpgradeNudgeBanner level={wallet.nudgeLevel} monthFlowsUsed={wallet.monthFlowsUsed} />
 
+            {!mayPay && (
+              <p className="mb-4 text-sm text-gray-500">
+                Only the company owner or an admin can buy Flows or change auto top-up.
+              </p>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
                 <div className="text-xs text-gray-500 uppercase mb-1">Balance</div>
@@ -157,7 +169,8 @@ export default function FlowsSettingsPage() {
                 </div>
                 <button
                   onClick={() => setModalOpen(true)}
-                  className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg"
+                  disabled={!mayPay}
+                  className="inline-flex items-center gap-1 px-3 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-teal-600"
                 >
                   <Plus className="w-4 h-4" /> Top up
                 </button>
@@ -181,7 +194,7 @@ export default function FlowsSettingsPage() {
                 <input
                   type="checkbox"
                   checked={wallet.autoTopupEnabled}
-                  disabled={!wallet.paymentMethodToken}
+                  disabled={!mayPay || !wallet.paymentMethodToken}
                   onChange={(e) => updateAutoTopup(e.target.checked, wallet.autoTopupBundleId)}
                   className="disabled:opacity-50 disabled:cursor-not-allowed"
                 />
@@ -192,7 +205,7 @@ export default function FlowsSettingsPage() {
                   <label className="block text-xs text-gray-500 mb-1">Bundle to purchase</label>
                   <select
                     value={wallet.autoTopupBundleId ?? ''}
-                    disabled={!wallet.paymentMethodToken}
+                    disabled={!mayPay || !wallet.paymentMethodToken}
                     onChange={(e) => updateAutoTopup(true, e.target.value || null)}
                     className="px-3 py-2 text-sm rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
