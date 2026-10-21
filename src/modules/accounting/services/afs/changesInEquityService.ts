@@ -64,7 +64,6 @@ export interface ChangesInEquityReport {
   totalClosing: number;
 }
 
-
 /** Column the accumulated result is reported in. */
 const RETAINED_EARNINGS = 'retained_earnings';
 
