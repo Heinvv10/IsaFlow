@@ -132,15 +132,17 @@ it('success: AR invoices import renders the data it received', async () => {
 });
 
 it('success: customers import renders the data it received', async () => {
-  answerOk('/migration/customers', { succeeded: 53, skipped: 7, failed: 2 });
+  // migrationContactService's real shape: `skipped` includes the rows in `errors`.
+  answerOk('/migration/customers', { imported: 53, skipped: 9, errors: [{ row: 3, message: 'Name is required' }, { row: 8, message: 'D2 bad row' }] });
   const { container } = render(<CustomersImportPage />);
   await upload(container);
   fireEvent.click(await screen.findByRole('button', { name: /Import 2 Customers/ }));
   expect(await screen.findByText(/Imported 53 customers\. Skipped: 7\. Failed: 2\./)).toBeTruthy();
+  expect(screen.getByText('Row 9: D2 bad row')).toBeTruthy();
 });
 
 it('success: suppliers import renders the data it received', async () => {
-  answerOk('/migration/suppliers', { succeeded: 29, skipped: 3, failed: 1 });
+  answerOk('/migration/suppliers', { imported: 29, skipped: 4, errors: [{ row: 2, message: 'D2 bad supplier row' }] });
   const { container } = render(<SuppliersImportPage />);
   await upload(container);
   fireEvent.click(await screen.findByRole('button', { name: /Import 2 Suppliers/ }));
