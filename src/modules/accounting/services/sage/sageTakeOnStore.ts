@@ -22,6 +22,8 @@ import type { DbRow } from '@/types/db';
 import type { SagePull } from './sageApiTypes';
 import type { TakeOnSummary } from './sageTakeOnTypes';
 
+const parseSummary = (v: unknown): Partial<TakeOnSummary> => (typeof v === 'string' ? JSON.parse(v) : (v ?? {})) as Partial<TakeOnSummary>;
+
 export { summarise, type TakeOnSummary } from './sageTakeOnTypes';
 export { readTakeOnContext } from './sageTakeOnContext';
 
@@ -125,6 +127,8 @@ export interface PullState {
   progress: string | null;
   error: string | null;
   pull: SagePull | null;
+  /** What the pull job recorded (counts, totals, the P&L decision). */
+  summary: Partial<TakeOnSummary>;
 }
 
 const parsePull = (v: unknown): SagePull | null => (typeof v === 'string' ? (JSON.parse(v) as SagePull) : (v as SagePull | null));
@@ -138,12 +142,13 @@ function toState(r: DbRow): PullState {
     progress: stale ? null : (r.progress == null ? null : String(r.progress)),
     error: stale ? STALE_PULL_ERROR : (r.error == null ? null : String(r.error)),
     pull: parsePull(r.pull),
+    summary: parseSummary(r.summary),
   };
 }
 
 export async function loadPullState(companyId: string, pullId: string): Promise<PullState | null> {
   const rows = (await sql`
-    SELECT id, status, progress, error, pull,
+    SELECT id, status, progress, error, pull, summary,
       (COALESCE(heartbeat_at, created_at) < NOW() - make_interval(mins => ${PULL_STALE_MINUTES})) AS stale
     FROM sage_connect_pulls
     WHERE id = ${pullId}::UUID AND company_id = ${companyId}::UUID
@@ -154,7 +159,7 @@ export async function loadPullState(companyId: string, pullId: string): Promise<
 /** The company's review in progress or waiting for import, if any: the page resumes it. */
 export async function latestOpenPull(companyId: string): Promise<{ pullId: string; status: PullStatus } | null> {
   const rows = (await sql`
-    SELECT id, status, progress, error, NULL AS pull,
+    SELECT id, status, progress, error, NULL AS pull, NULL AS summary,
       (COALESCE(heartbeat_at, created_at) < NOW() - make_interval(mins => ${PULL_STALE_MINUTES})) AS stale
     FROM sage_connect_pulls
     WHERE company_id = ${companyId}::UUID AND status IN ('pulling', 'ready')
@@ -164,12 +169,12 @@ export async function latestOpenPull(companyId: string): Promise<{ pullId: strin
   return s && (s.status === 'pulling' || s.status === 'ready') ? { pullId: s.id, status: s.status } : null;
 }
 
-export interface StoredPull { id: string; status: PullStatus; pull: SagePull | null; expired: boolean }
+export interface StoredPull { id: string; status: PullStatus; pull: SagePull | null; expired: boolean; summary: Partial<TakeOnSummary> }
 
 /** Locks the row for the rest of the request so two Import clicks cannot both run. */
 export async function loadPullForImport(companyId: string, pullId: string): Promise<StoredPull | null> {
   const rows = (await sql`
-    SELECT id, status, pull,
+    SELECT id, status, pull, summary,
       (ready_at < NOW() - make_interval(hours => ${READY_TTL_HOURS})) AS expired
     FROM sage_connect_pulls
     WHERE id = ${pullId}::UUID AND company_id = ${companyId}::UUID
@@ -177,7 +182,7 @@ export async function loadPullForImport(companyId: string, pullId: string): Prom
   `) as DbRow[];
   const r = rows[0];
   if (!r) return null;
-  return { id: String(r.id), status: String(r.status) as PullStatus, pull: parsePull(r.pull), expired: r.expired === true };
+  return { id: String(r.id), status: String(r.status) as PullStatus, pull: parsePull(r.pull), expired: r.expired === true, summary: parseSummary(r.summary) };
 }
 
 export async function markImported(companyId: string, pullId: string, sessionId: string, summary: TakeOnSummary): Promise<void> {

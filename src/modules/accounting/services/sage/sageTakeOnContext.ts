@@ -18,6 +18,7 @@ import type { DbRow } from '@/types/db';
 import type { GLAccountType } from '@/modules/accounting/types/gl.types';
 import { OPENING_BALANCE_DESCRIPTION } from '../core/migrationWizardOpeningBalanceService';
 import { findJournalChainHead } from '../shared/journalChainHead';
+import { getSystemAccountCandidates } from '../gl/systemAccountResolver';
 import type { ClosedPeriod, SystemRole, TakeOnContext } from './sageTakeOnTypes';
 
 const ROLES: readonly SystemRole[] = [
@@ -39,6 +40,17 @@ export async function readTakeOnContext(companyId: string, asAtDate: string): Pr
     if (r.is_system_account === true && r.is_active === true && ROLES.includes(role) && !existingRoles[role]) {
       existingRoles[role] = { code: String(r.account_code), name: String(r.account_name), type: String(r.account_type) as GLAccountType };
     }
+  }
+  // Retained Earnings is where the fold puts this year's profit, so it is the
+  // holder the year-end close will use: the resolver's, not the first by code.
+  // Contested (two or more holders) is reported for the builder to refuse.
+  delete existingRoles.retained_earnings;
+  const contestedRoles: TakeOnContext['contestedRoles'][number][] = [];
+  const re = await getSystemAccountCandidates('retained_earnings', companyId);
+  if (re.length === 1) {
+    existingRoles.retained_earnings = { code: re[0]!.accountCode, name: re[0]!.accountName, type: re[0]!.accountType as GLAccountType };
+  } else if (re.length > 1) {
+    contestedRoles.push({ role: 'retained_earnings', codes: re.map((a) => a.accountCode).sort() });
   }
   const company = ((await sql`
     SELECT functional_currency, default_currency
@@ -66,6 +78,7 @@ export async function readTakeOnContext(companyId: string, asAtDate: string): Pr
     existingRoles,
     homeCurrency: String(company?.functional_currency || company?.default_currency || ''),
     fiscalYear: year?.start_date ? { startDate: fmtDate(year.start_date), endDate: fmtDate(year.end_date) } : null,
+    contestedRoles,
     closedPeriods: periods.map((p): ClosedPeriod => ({
       name: String(p.period_name),
       startDate: fmtDate(p.start_date),

@@ -16,14 +16,14 @@
  * does not document, and a credit note taken on as an invoice would be wrong.
  */
 import { SageApiError, type SageApiClient, type SageCallGuard } from './sageApiClient';
-import { isTakenOn, MAX_OUTSTANDING_INVOICES, pullSizeRefusal } from './sagePullLimits';
+import { isTakenOn, pullSizeRefusal } from './sagePullLimits';
 import type {
   SageAccount, SageBankAccount, SageCompanySummary, SageCurrency, SageCustomer, SageFinancialYear, SageInvoiceRef,
   SageOutstandingDocument, SagePaged, SagePull, SageSupplier, SageTrialBalanceLine,
 } from './sageApiTypes';
 
 // The size caps are the import's time budget, measured: see sagePullLimits.
-export { MAX_CONTACTS, MAX_CONTACTS_WITH_BALANCES, MAX_OUTSTANDING_INVOICES } from './sagePullLimits';
+export { MAX_CONTACTS, MAX_CONTACTS_LISTED, MAX_CONTACTS_WITH_BALANCES, MAX_OUTSTANDING_INVOICES } from './sagePullLimits';
 
 export type PullStep = 'company' | 'accounts' | 'trial_balance' | 'customers' | 'suppliers' | 'documents';
 
@@ -78,11 +78,30 @@ async function currenciesOf(client: ReturnType<SageApiClient['forCompany']>): Pr
   }
 }
 
-/** The still-owed rows of an invoice list, as references. */
-async function outstandingInvoices(client: ReturnType<SageApiClient['forCompany']>, path: string): Promise<SageInvoiceRef[]> {
-  const rows = await client.getAll<SageInvoiceRef>(path, { $filter: 'AmountDue gt 0' }, MAX_OUTSTANDING_INVOICES);
-  tooBig({ contacts: 0, owing: 0, invoices: rows.length });
+/**
+ * The still-owed rows of an invoice list, as references. `before` is how many
+ * the other list already had: the cap is on both together, refused from the
+ * first page's TotalResults.
+ */
+async function outstandingInvoices(client: ReturnType<SageApiClient['forCompany']>, path: string, before: number): Promise<SageInvoiceRef[]> {
+  const rows = await client.getAll<SageInvoiceRef>(path, { $filter: 'AmountDue gt 0' }, (page, total) => {
+    tooBig({ contacts: 0, owing: 0, invoices: before + Math.max(page.length, total ?? 0) });
+  });
   return rows.map((r) => ({ ID: r.ID, DocumentNumber: r.DocumentNumber }));
+}
+
+/**
+ * A contact list, refused while it is read: from the first page's
+ * TotalResults (with the other list's count) for what Sage lists, and page by
+ * page for the contacts the take-on would import.
+ */
+async function contactsOf<T extends { Active: boolean; Balance: number }>(
+  client: ReturnType<SageApiClient['forCompany']>, path: string, other: readonly T[],
+): Promise<T[]> {
+  const otherTakenOn = other.filter(isTakenOn).length;
+  return client.getAll<T>(path, undefined, (page, total) => {
+    tooBig({ listed: total === undefined ? undefined : other.length + total, contacts: otherTakenOn + page.filter(isTakenOn).length, owing: 0, invoices: 0 });
+  });
 }
 
 export async function pullSageCompany(
@@ -112,9 +131,9 @@ export async function pullSageCompany(
   }));
 
   onProgress('customers');
-  const customers = await client.getAll<SageCustomer>('Customer/Get');
+  const customers = await contactsOf<SageCustomer>(client, 'Customer/Get', []);
   onProgress('suppliers');
-  const suppliers = await client.getAll<SageSupplier>('Supplier/Get');
+  const suppliers = await contactsOf<SageSupplier>(client, 'Supplier/Get', customers);
 
   const everyone = [...customers, ...suppliers];
   const owing = everyone.filter((c) => c.Balance > 0.005).length;
@@ -123,8 +142,8 @@ export async function pullSageCompany(
   onProgress('documents');
   const customersOwing = customers.filter((x) => x.Balance > 0.005);
   const suppliersOwed = suppliers.filter((x) => x.Balance > 0.005);
-  const customerInvoices = customersOwing.length > 0 ? await outstandingInvoices(client, 'TaxInvoice/Get') : [];
-  const supplierInvoices = suppliersOwed.length > 0 ? await outstandingInvoices(client, 'SupplierInvoice/Get') : [];
+  const customerInvoices = customersOwing.length > 0 ? await outstandingInvoices(client, 'TaxInvoice/Get', 0) : [];
+  const supplierInvoices = suppliersOwed.length > 0 ? await outstandingInvoices(client, 'SupplierInvoice/Get', customerInvoices.length) : [];
   tooBig({ contacts: 0, owing, invoices: customerInvoices.length + supplierInvoices.length });
   const customerDocuments: Record<number, SageOutstandingDocument[]> = {};
   for (const c of customersOwing) {

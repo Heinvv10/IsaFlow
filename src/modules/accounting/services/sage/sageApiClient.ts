@@ -59,9 +59,16 @@ const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 export interface SageCompanyClient {
   get<T>(path: string, query?: Record<string, string>): Promise<T>;
   post<T>(path: string, body: unknown, query?: Record<string, string>): Promise<T>;
-  /** Every row of a paged list; with `limit`, paging stops once more than `limit` rows are in. */
-  getAll<T>(path: string, query?: Record<string, string>, limit?: number): Promise<T[]>;
+  /**
+   * Every row of a paged list. `onPage` sees the rows so far and Sage's
+   * TotalResults after each page; throwing from it stops the paging there (a
+   * caller refusing a list that is too long reads no further page).
+   */
+  getAll<T>(path: string, query?: Record<string, string>, onPage?: SagePageCheck<T>): Promise<T[]>;
 }
+
+/** After each page of a list: the rows so far and Sage's TotalResults (when it sends one). */
+export type SagePageCheck<T> = (rows: readonly T[], total: number | undefined) => void;
 
 /** Asked before every call and every retry; throwing stops the read there. */
 export type SageCallGuard = () => Promise<void>;
@@ -127,15 +134,15 @@ export function createSageApiClient(opts: SageApiClientOptions): SageApiClient {
     return {
       get: <T>(path: string, query?: Record<string, string>) => call<T>('GET', path, scoped(query), undefined, guard),
       post: <T>(path: string, body: unknown, query?: Record<string, string>) => call<T>('POST', path, scoped(query), body, guard),
-      async getAll<T>(path: string, query?: Record<string, string>, limit?: number): Promise<T[]> {
+      async getAll<T>(path: string, query?: Record<string, string>, onPage?: SagePageCheck<T>): Promise<T[]> {
         const rows: T[] = [];
         for (let skip = 0; ; skip += PAGE_SIZE) {
           const page = await call<SagePaged<T> | T[]>('GET', path, scoped({ ...query, $top: String(PAGE_SIZE), $skip: String(skip) }), undefined, guard);
           const results = Array.isArray(page) ? page : page?.Results ?? [];
           rows.push(...results);
           const total = Array.isArray(page) ? undefined : page?.TotalResults;
+          onPage?.(rows, total);
           if (results.length < PAGE_SIZE || (total !== undefined && rows.length >= total)) return rows;
-          if (limit !== undefined && rows.length > limit) return rows;
         }
       },
     };

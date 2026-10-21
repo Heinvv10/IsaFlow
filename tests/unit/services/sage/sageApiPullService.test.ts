@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pullSageCompany, MAX_CONTACTS_WITH_BALANCES, MAX_OUTSTANDING_INVOICES, SagePullTooLargeError } from '@/modules/accounting/services/sage/sageApiPullService';
+import { pullSageCompany, MAX_CONTACTS_LISTED, MAX_CONTACTS_WITH_BALANCES, MAX_OUTSTANDING_INVOICES, SagePullTooLargeError } from '@/modules/accounting/services/sage/sageApiPullService';
 import { SageApiError, type SageApiClient, type SageCompanyClient } from '@/modules/accounting/services/sage/sageApiClient';
 
 function fakeClient(over: Partial<Record<string, unknown>> = {}) {
@@ -28,7 +28,13 @@ function fakeClient(over: Partial<Record<string, unknown>> = {}) {
   const company: SageCompanyClient = {
     get: async <T,>(path: string) => { calls.push({ method: 'GET', path }); return answer(path) as T; },
     post: async <T,>(path: string, body: unknown) => { calls.push({ method: 'POST', path, body }); return answer(path) as T; },
-    getAll: async <T,>(path: string, query?: Record<string, string>) => { calls.push({ method: 'GETALL', path, body: query }); return answer(path) as T[]; },
+    // Pages of 100, each handed to onPage with the list's full length as Sage's TotalResults.
+    getAll: async <T,>(path: string, query?: Record<string, string>, onPage?: (rows: readonly T[], total: number | undefined) => void) => {
+      calls.push({ method: 'GETALL', path, body: query });
+      const all = answer(path) as T[];
+      for (let n = 100; onPage; n += 100) { calls.push({ method: 'PAGE', path }); onPage(all.slice(0, n), all.length); if (n >= all.length) break; }
+      return all;
+    },
   };
   const client: SageApiClient = { listCompanies: async () => [], forCompany: () => company };
   return { client, calls };
@@ -86,7 +92,7 @@ describe('pullSageCompany', () => {
   it('reads the outstanding tax invoices and supplier invoices, to tell invoices from other documents', async () => {
     const { client, calls } = fakeClient();
     const pull = await pullSageCompany(client, 9, '2026-10-21');
-    expect(calls.filter((c) => c.path === 'TaxInvoice/Get' || c.path === 'SupplierInvoice/Get').map((c) => [c.path, c.body]))
+    expect(calls.filter((c) => c.method === 'GETALL' && (c.path === 'TaxInvoice/Get' || c.path === 'SupplierInvoice/Get')).map((c) => [c.path, c.body]))
       .toEqual([['TaxInvoice/Get', { $filter: 'AmountDue gt 0' }], ['SupplierInvoice/Get', { $filter: 'AmountDue gt 0' }]]);
     expect(pull.customerInvoices).toEqual([{ ID: 10, DocumentNumber: 'INV1' }]);
     expect(pull.supplierInvoices).toEqual([]);
@@ -158,5 +164,28 @@ describe('pullSageCompany', () => {
     const { client, calls } = fakeClient({ 'Customer/Get': many });
     await expect(pullSageCompany(client, 9, '2026-10-21')).rejects.toThrow(/customers and suppliers.*Migration Wizard/);
     expect(calls.some((c) => c.path.includes('Outstanding') || c.path.endsWith('Invoice/Get'))).toBe(false);
+  });
+
+  // Round 5: the caps refuse while the lists are being read, not after.
+  it('refuses on the first page when Sage\'s TotalResults lists more contacts than one pull reads', async () => {
+    const many = Array.from({ length: MAX_CONTACTS_LISTED + 1 }, (_, i) => ({ ID: i + 1, Name: `C${i}`, Active: false, Balance: 0 }));
+    const { client, calls } = fakeClient({ 'Customer/Get': many });
+    await expect(pullSageCompany(client, 9, '2026-10-21')).rejects.toThrow(/Migration Wizard/);
+    expect(calls.filter((c) => c.method === 'PAGE' && c.path === 'Customer/Get')).toHaveLength(1);
+  });
+
+  it('stops reading contacts at the page where the imported ones pass the cap', async () => {
+    const many = Array.from({ length: 2500 }, (_, i) => ({ ID: i + 1, Name: `C${i}`, Active: true, Balance: 0 }));
+    const { client, calls } = fakeClient({ 'Customer/Get': many });
+    await expect(pullSageCompany(client, 9, '2026-10-21')).rejects.toThrow(/customers and suppliers/);
+    expect(calls.filter((c) => c.method === 'PAGE' && c.path === 'Customer/Get')).toHaveLength(21);
+    expect(calls.some((c) => c.path === 'Supplier/Get')).toBe(false);
+  });
+
+  it('refuses the unpaid-invoice list from its first page\'s TotalResults', async () => {
+    const list = Array.from({ length: MAX_OUTSTANDING_INVOICES + 50 }, (_, i) => ({ ID: i, DocumentNumber: `I${i}`, AmountDue: 1, Total: 1 }));
+    const { client, calls } = fakeClient({ 'TaxInvoice/Get': list });
+    await expect(pullSageCompany(client, 9, '2026-10-21')).rejects.toThrow(/unpaid invoices and bills/);
+    expect(calls.filter((c) => c.method === 'PAGE' && c.path === 'TaxInvoice/Get')).toHaveLength(1);
   });
 });

@@ -9,7 +9,7 @@
  * through the same tested engine.
  */
 import { buildAccounts, buildOpeningBalances } from './sageTakeOnAccounts';
-import { checkClosedPeriods, checkCurrency, checkFinancialYear } from './sageTakeOnChecks';
+import { checkClosedPeriods, checkContestedRoles, checkCurrency, checkFinancialYear } from './sageTakeOnChecks';
 import { foldProfitAndLoss } from './sageTakeOnFold';
 import { buildContacts, type TakeOnContact, type TakeOnDocument } from './sageTakeOnContacts';
 import type { SagePull } from './sageApiTypes';
@@ -42,6 +42,7 @@ export function buildSageTakeOn(pull: SagePull, ctx: TakeOnContext): SageTakeOn 
   // A refused currency still builds the rest, so the review shows everything; the error blocks the import.
   const currency = checkCurrency(pull, ctx, issues);
   const balanceSheetOnly = checkFinancialYear(pull, ctx, issues);
+  checkContestedRoles(ctx, issues);
   const accounts = buildAccounts(pull, ctx, issues);
   const opening = buildOpeningBalances(pull, accounts, issues);
   const fold = balanceSheetOnly && ctx.fiscalYear

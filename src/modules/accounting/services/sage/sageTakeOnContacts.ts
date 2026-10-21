@@ -136,8 +136,11 @@ function invoicesOnly(
     const label = d.DocumentNumber?.trim() || `#${d.ID}`;
     const rate = kind === 'customer' ? d.Customer_ExchangeRate : d.Supplier_ExchangeRate;
     const currencyId = kind === 'customer' ? d.Customer_CurrencyId : d.Supplier_CurrencyId;
-    const foreign = foreignCurrency(currencyId, null, homeCurrency);
-    if (foreign || (rate != null && Math.abs(rate - 1) > 0.000001)) {
+    // Only a document with something due (either way) carries a balance, so
+    // only its currency can make the take-on wrong; a settled one is left out below.
+    const due = Math.abs(d.AmountDue) > 0.005;
+    const foreign = due ? foreignCurrency(currencyId, null, homeCurrency) : null;
+    if (due && (foreign || (rate != null && Math.abs(rate - 1) > 0.000001))) {
       issues.push({
         severity: 'error', area,
         message: `${label} for ${kind} "${name}" is in a foreign currency (${foreign ?? `exchange rate ${rate}`}). Import from Sage takes on home-currency balances only; use the file upload for this company.`,

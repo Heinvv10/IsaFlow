@@ -19,6 +19,7 @@ const freshCompany: TakeOnContext = {
   homeCurrency: 'ZAR',
   fiscalYear: { startDate: '2026-03-01', endDate: '2027-02-28' },
   closedPeriods: [],
+  contestedRoles: [],
 };
 
 const codeOf = (t: ReturnType<typeof buildSageTakeOn>, sageId: number) => t.sageAccountCodes[sageId]!;

@@ -44,12 +44,14 @@ import { importSagePull, SageImportRefused } from '@/modules/accounting/services
 import { emptyCompany, sageFixture } from './sageFixture';
 
 const done = { imported: 1, skipped: 0, errors: [] };
+/** What the review recorded: the fixture's years match, nothing folded. */
+const REVIEWED = { profitAndLossFold: null };
 const CO = 'co-1';
 
 beforeEach(() => {
   vi.clearAllMocks();
   order.length = 0;
-  m.loadPullForImport.mockResolvedValue({ id: 'p', status: 'ready', pull: sageFixture(), expired: false });
+  m.loadPullForImport.mockResolvedValue({ id: 'p', status: 'ready', pull: sageFixture(), expired: false, summary: REVIEWED });
   m.findPriorTakeOn.mockResolvedValue(null);
   m.readTakeOnContext.mockResolvedValue(emptyCompany);
   m.createSession.mockResolvedValue({ id: 'sess-1' });
@@ -99,6 +101,37 @@ describe('M6: a review past its TTL', () => {
       m.loadPullForImport.mockResolvedValue({ id: 'p', status, pull: null, expired: false });
       expect(((await refusal()) as Error).message).toMatch(msg);
     });
+});
+
+// Round 5, item 3: the import rebuilds against IsaFlow as it is NOW. If the
+// fiscal periods changed since the review, the treatment of this year's P&L
+// may differ from what the client saw; then the import refuses.
+describe('round 5: the import does what the review showed', () => {
+  const janDec = { ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } };
+  it('refuses when the review did not fold the P&L but a build now would', async () => {
+    m.readTakeOnContext.mockResolvedValue(janDec);
+    const err = await refusal();
+    expect(err).toBeInstanceOf(SageImportRefused);
+    expect((err as Error).message).toMatch(/out of date.*review again/i);
+    expect(m.createSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the folded amount changed', async () => {
+    m.readTakeOnContext.mockResolvedValue(janDec);
+    m.loadPullForImport.mockResolvedValue({ id: 'p', status: 'ready', pull: sageFixture(), expired: false, summary: { profitAndLossFold: { profit: 37000 } } });
+    expect(((await refusal()) as Error).message).toMatch(/out of date/i);
+  });
+
+  it('imports when the review folded the same amount', async () => {
+    m.readTakeOnContext.mockResolvedValue(janDec);
+    m.loadPullForImport.mockResolvedValue({ id: 'p', status: 'ready', pull: sageFixture(), expired: false, summary: { profitAndLossFold: { profit: 38000 } } });
+    await expect(importSagePull(CO, 'u', 'p')).resolves.toMatchObject({ sessionId: 'sess-1' });
+  });
+
+  it('a review stored before the decision was recorded is out of date', async () => {
+    m.loadPullForImport.mockResolvedValue({ id: 'p', status: 'ready', pull: sageFixture(), expired: false, summary: {} });
+    expect(((await refusal()) as Error).message).toMatch(/out of date/i);
+  });
 });
 
 describe('round 4: the size caps are checked again at import', () => {

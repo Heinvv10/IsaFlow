@@ -28,6 +28,8 @@ export interface TakeOnContext {
   fiscalYear: { startDate: string; endDate: string } | null;
   /** The periods nothing can be posted into: status closed or locked. */
   closedPeriods: readonly ClosedPeriod[];
+  /** Roles the resolver finds more than one holder for (Retained Earnings): the take-on refuses to pick. */
+  contestedRoles: readonly { role: SystemRole; codes: string[] }[];
 }
 
 export interface ClosedPeriod {
@@ -102,6 +104,13 @@ export interface TakeOnSummary {
   totals: TakeOnTotals;
   errors: number;
   warnings: number;
+  /**
+   * What the review decided about this year's P&L: folded into Retained
+   * Earnings (with the profit), or null when it comes across as it is. The
+   * import refuses when a fresh build disagrees (staleReviewIssue). Absent on
+   * rows written before it was recorded.
+   */
+  profitAndLossFold?: { profit: number } | null;
 }
 
 export function summarise(t: SageTakeOn): TakeOnSummary {
@@ -119,5 +128,22 @@ export function summarise(t: SageTakeOn): TakeOnSummary {
     totals: t.totals,
     errors: t.issues.filter((i) => i.severity === 'error').length,
     warnings: t.issues.filter((i) => i.severity === 'warning').length,
+    profitAndLossFold: t.profitAndLossFold ? { profit: t.profitAndLossFold.profit } : null,
+  };
+}
+
+/**
+ * The blocking issue when `fresh` would treat this year's P&L differently from
+ * the review recorded in `stored` (IsaFlow's fiscal periods changed in
+ * between), or null. A summary without the decision is out of date too.
+ */
+export function staleReviewIssue(stored: Partial<TakeOnSummary> | null | undefined, fresh: SageTakeOn): TakeOnIssue | null {
+  const was = stored?.profitAndLossFold;
+  const now = fresh.profitAndLossFold;
+  const same = was !== undefined && (was === null ? now === null : now !== null && Math.abs(was.profit - now.profit) <= 0.005);
+  if (same) return null;
+  return {
+    severity: 'error', area: 'company',
+    message: 'This review is out of date: IsaFlow\'s fiscal periods changed since it was prepared, so this year\'s income and expenses would now come across differently from what it shows. Start again from "Import from Sage" to review again.',
   };
 }

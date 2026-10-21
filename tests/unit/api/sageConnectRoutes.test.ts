@@ -156,7 +156,7 @@ describe('GET pulls/{pullId}: the poll', () => {
   });
 
   it('builds the review once ready, against the chart as it is now', async () => {
-    m.loadPullState.mockResolvedValue({ id: PULL, status: 'ready', progress: null, error: null, pull: sageFixture() });
+    m.loadPullState.mockResolvedValue({ id: PULL, status: 'ready', progress: null, error: null, pull: sageFixture(), summary: { profitAndLossFold: null } });
     m.readTakeOnContext.mockResolvedValue(emptyCompany);
     const real = await vi.importActual<typeof import('@/modules/accounting/services/sage/sageTakeOnBuilder')>('@/modules/accounting/services/sage/sageTakeOnBuilder');
     m.buildSageTakeOn.mockImplementation(real.buildSageTakeOn);
@@ -166,6 +166,16 @@ describe('GET pulls/{pullId}: the poll', () => {
     // Names and amounts only: no contact details leave the server.
     expect(JSON.stringify(review)).not.toContain('ap@bright.test');
     expect(m.readTakeOnContext).toHaveBeenCalledWith(CO, '2026-10-21');
+  });
+
+  it('a ready review whose fold no longer matches IsaFlow is shown with a blocking out-of-date issue', async () => {
+    m.loadPullState.mockResolvedValue({ id: PULL, status: 'ready', progress: null, error: null, pull: sageFixture(), summary: { profitAndLossFold: null } });
+    m.readTakeOnContext.mockResolvedValue({ ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } });
+    const real = await vi.importActual<typeof import('@/modules/accounting/services/sage/sageTakeOnBuilder')>('@/modules/accounting/services/sage/sageTakeOnBuilder');
+    m.buildSageTakeOn.mockImplementation(real.buildSageTakeOn);
+    const out = await call(pull, { method: 'GET', query: { pullId: PULL }, companyId: CO });
+    const issues = (out.body.data!.review as { issues: { severity: string; message: string }[] }).issues;
+    expect(issues).toContainEqual(expect.objectContaining({ severity: 'error', message: expect.stringMatching(/out of date/i) }));
   });
 
   it('reports a failed read with its safe message', async () => {

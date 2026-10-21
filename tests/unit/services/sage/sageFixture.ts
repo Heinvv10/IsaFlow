@@ -10,7 +10,7 @@ import type { TakeOnContext } from '@/modules/accounting/services/sage/sageTakeO
 
 /** A company's side with no chart: ZAR, a March year, nothing closed. */
 export const emptyCompany: TakeOnContext = {
-  takenCodes: [], existingRoles: {}, homeCurrency: 'ZAR', fiscalYear: { startDate: '2026-03-01', endDate: '2027-02-28' }, closedPeriods: [],
+  takenCodes: [], existingRoles: {}, homeCurrency: 'ZAR', fiscalYear: { startDate: '2026-03-01', endDate: '2027-02-28' }, closedPeriods: [], contestedRoles: [],
 };
 
 const cat = (ID: number, Description: string) => ({ ID, Description });

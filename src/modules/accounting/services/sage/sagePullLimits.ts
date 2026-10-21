@@ -18,6 +18,13 @@
 import type { SagePull } from './sageApiTypes';
 
 export const MAX_CONTACTS = 2000;
+/**
+ * Customers and suppliers LISTED in Sage, active or not, read from the first
+ * page's TotalResults: bounds the pull's list calls (100 rows a call) before
+ * paging. Not the import cap: inactive contacts are never taken on, so a raw
+ * count above MAX_CONTACTS can still be a company that fits.
+ */
+export const MAX_CONTACTS_LISTED = 10_000;
 export const MAX_CONTACTS_WITH_BALANCES = 300;
 /** Unpaid customer invoices and supplier bills together. */
 export const MAX_OUTSTANDING_INVOICES = 300;
@@ -26,6 +33,8 @@ export const MAX_OUTSTANDING_INVOICES = 300;
 export const isTakenOn = (c: { Active: boolean; Balance: number }): boolean => c.Active || Math.abs(c.Balance) > 0.005;
 
 export interface PullSizes {
+  /** Customers and suppliers Sage lists, active or not; only checked when known. */
+  listed?: number;
   /** Contacts the take-on imports. */
   contacts: number;
   /** Contacts with a positive balance: their documents are read, and each may need a brought-forward document. */
@@ -38,6 +47,9 @@ const WIZARD = "Use the Migration Wizard's file upload (Accounting → Migration
 
 /** Why a company this size cannot be taken on in one import, or null. */
 export function pullSizeRefusal(s: PullSizes): string | null {
+  if (s.listed !== undefined && s.listed > MAX_CONTACTS_LISTED) {
+    return `This Sage company lists ${s.listed} customers and suppliers, more than the ${MAX_CONTACTS_LISTED} Import from Sage reads in one go. ${WIZARD}`;
+  }
   if (s.contacts > MAX_CONTACTS) {
     return `This Sage company has ${s.contacts} customers and suppliers to bring across, more than the ${MAX_CONTACTS} Import from Sage takes on in one go. ${WIZARD}`;
   }
