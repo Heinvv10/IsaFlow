@@ -228,7 +228,7 @@ async function authAndHandle(req: NextApiRequest, res: NextApiResponse) {
     authedReq.companyRole = ctx.role; // the creator's current role; 'manager' for a legacy key
     authedReq.user = { id: '', claims: {} };
     authedReq._apiKeyId = ctx.keyId;
-    authedReq._apiKeyRecheck = () => validateCaptureApiKey(rawKey);
+    authedReq._apiKeyRecheck = () => validateCaptureApiKey(rawKey, { recheck: true });
     return handler(authedReq, res);
   }
 

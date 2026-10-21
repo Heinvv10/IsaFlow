@@ -73,8 +73,15 @@ function keyRefusal(row: KeyRow): string | null {
  *
  * Runs on the app pool with no request transaction and no claims, so it
  * relies on that role bypassing RLS, as the pre-auth reads in liveCompanies.ts do.
+ *
+ * `recheck: true` is the same key checked again later in the same request
+ * (upload.ts, before its first write): it skips the legacy-key warning, so
+ * one use logs it once.
  */
-export async function validateCaptureApiKey(rawKey: string): Promise<ApiKeyContext | null> {
+export async function validateCaptureApiKey(
+  rawKey: string,
+  { recheck = false }: { recheck?: boolean } = {},
+): Promise<ApiKeyContext | null> {
   if (!rawKey.startsWith('isa_live_')) return null;
 
   const hash = createHash('sha256').update(rawKey).digest('hex');
@@ -109,7 +116,7 @@ export async function validateCaptureApiKey(rawKey: string): Promise<ApiKeyConte
     log.warn('captureApiKey: key refused', { keyId: row.id, companyId: row.company_id, reason }, 'capture-api-key');
     return null;
   }
-  if (row.created_by === null) {
+  if (row.created_by === null && !recheck) {
     // The prefix (shown in the keys list) identifies the key; the secret is never logged.
     log.warn(
       'captureApiKey: legacy key with no creator used; it acts as manager until re-issued',

@@ -189,12 +189,18 @@ describeIfDb('S-06: a capture API key answers for its company standing and its c
     const key = await working(await issueKey(await seedCompany(), null), 'manager');
     warn.mockClear();
     await expectUploads(key, 'manager');
-    const legacy = warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes('legacy key with no creator'));
-    expect(legacy).toHaveLength(4); // per upload: at auth, and the re-check before the first write
-    for (const call of legacy) {
+    const legacyWarns = () => warn.mock.calls.filter((c: unknown[]) => String(c[0]).includes('legacy key with no creator'));
+    expect(legacyWarns()).toHaveLength(2); // one per upload: the re-check before the first write does not repeat it
+    for (const call of legacyWarns()) {
       expect(call[1]).toEqual({ keyId: key.id, keyPrefix: key.prefix });
       expect(JSON.stringify(call)).not.toContain(key.raw);
     }
+    // The one warning belongs to the auth-time check, so a use refused later still logged it.
+    warn.mockClear();
+    await validateCaptureApiKey(key.raw, { recheck: true });
+    expect(legacyWarns()).toHaveLength(0);
+    await validateCaptureApiKey(key.raw);
+    expect(legacyWarns()).toHaveLength(1);
   });
 
   it('(1) is refused once its company is suspended', async () => {
@@ -261,7 +267,8 @@ describeIfDb('S-06: a capture API key answers for its company standing and its c
     const { req, release } = slowUploadReq(key.raw);
     const res = mockRes();
     const done = route(req, res);
-    await new Promise((r) => setTimeout(r, 300)); // key accepted, body still arriving
+    // The auth step has accepted the key (it sets companyRole); the body is still stalled.
+    await vi.waitFor(() => expect(req.companyRole).toBe('manager'));
     await admin.query(`UPDATE companies SET status = 'suspended', suspended_at = NOW() WHERE id = $1`, [key.companyId]);
     release();
     await done;
@@ -278,7 +285,7 @@ describeIfDb('S-06: a capture API key answers for its company standing and its c
     const { req, release } = slowUploadReq(key.raw);
     const res = mockRes();
     const done = route(req, res);
-    await new Promise((r) => setTimeout(r, 300));
+    await vi.waitFor(() => expect(req.companyRole).toBe('owner')); // accepted as owner; body stalled
     await admin.query(`UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2`, [companyId, owner]);
     release();
     await done;
