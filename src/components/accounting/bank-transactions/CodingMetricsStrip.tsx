@@ -20,7 +20,8 @@ export function CodingMetricsStrip() {
     let live = true;
     apiFetch('/api/accounting/coding-metrics', { credentials: 'include' })
       .then(async (r) => { await assertOk(r, 'Could not load the coding numbers - try again'); return r.json(); })
-      .then((j: CodingMetricsResponse) => { if (live) setData(j?.data ?? null); })
+      // An envelope without metrics renders nothing rather than taking the page down with it.
+      .then((j: CodingMetricsResponse) => { if (live) setData(j?.data?.metrics ? j.data : null); })
       .catch((err) => { if (live) setError(apiErrorMessage(err, 'Could not load the coding numbers - try again')); });
     return () => { live = false; };
   }, []);

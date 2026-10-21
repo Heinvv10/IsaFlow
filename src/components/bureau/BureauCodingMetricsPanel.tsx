@@ -32,7 +32,7 @@ export function BureauCodingMetricsPanel({ bureauId, bureauName }: { bureauId: s
     setData(null); setError('');
     apiFetch(`/api/bureau/coding-metrics?bureauId=${encodeURIComponent(bureauId)}`, { credentials: 'include' })
       .then(async (r) => { await assertOk(r, 'Could not load the coding numbers - try again'); return r.json(); })
-      .then((j: { data?: BureauCodingMetrics }) => { if (live) setData(j?.data ?? null); })
+      .then((j: { data?: BureauCodingMetrics }) => { if (live) setData(Array.isArray(j?.data?.clients) ? j.data! : null); })
       .catch((err) => { if (live) setError(apiErrorMessage(err, 'Could not load the coding numbers - try again')); });
     return () => { live = false; };
   }, [bureauId]);
