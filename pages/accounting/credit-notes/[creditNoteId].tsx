@@ -94,7 +94,7 @@ export default function CreditNoteDetailPage() {
           totalAmount: Number(r.total_amount ?? r.totalAmount ?? 0),
           amountPaid: Number(r.amount_paid ?? r.amountPaid ?? 0),
           outstanding: Number(r.total_amount ?? r.totalAmount ?? 0) - Number(r.amount_paid ?? r.amountPaid ?? 0),
-        })).filter(i => i.outstanding > 0.01)
+        })).filter(i => Math.round(i.totalAmount * 100) - Math.round(i.amountPaid * 100) > 0)
       );
     } catch (err) {
       setInvoices([]);

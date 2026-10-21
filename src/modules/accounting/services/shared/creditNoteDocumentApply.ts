@@ -24,7 +24,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
-import { EPS, invoiceFloor, round2 } from './autoAllocateStrategy';
+import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import { APPLICABLE_CREDIT_NOTE_STATUSES } from './autoApplyBackfillApply';
 import { applyCreditNote, deriveCreditNoteStatus, type CreditNoteSide } from './creditNoteFifo';
 import { assertAllocationsMatchApplied, lockInvoicesForUpdate } from './creditNoteApplicationWrites';
@@ -120,7 +120,7 @@ export async function applyCreditNoteToDocument(
   }
 
   const appliedAfter = round2(plan.noteAppliedBefore + applied);
-  const statusAfter = deriveCreditNoteStatus(appliedAfter, plan.noteTotal);
+  const statusAfter = deriveCreditNoteStatus(appliedAfter, plan.noteTotal, plan.side);
   await sql`
     UPDATE credit_notes
     SET applied_amount = ${appliedAfter}, status = ${statusAfter}, updated_at = NOW()
@@ -173,13 +173,13 @@ function checkNote(note: DbRow | null, input: CreditNoteToDocumentInput): Checke
   // Every other status outside the applicable set is refused BEFORE the
   // remainder is read: cancelling resets applied_amount to 0, so a cancelled
   // note looks unspent.
-  if (status === 'applied' && remainder > EPS) {
+  if (status === 'applied' && remainder > invoiceFloor(side)) {
     throw new CreditNoteApplyRefusal(
       `Credit note ${number} is marked applied but R${remainder.toFixed(2)} of it is unapplied — its `
       + 'status and amounts disagree, so it cannot be applied here. Reconcile it by hand.',
     );
   }
-  if (status === 'applied' || (APPLICABLE_CREDIT_NOTE_STATUSES.has(status) && remainder <= EPS)) {
+  if (status === 'applied' || (APPLICABLE_CREDIT_NOTE_STATUSES.has(status) && remainder <= invoiceFloor(side))) {
     throw new CreditNoteApplyRefusal(`Credit note ${number} has nothing left to apply.`);
   }
   if (status === 'draft') {
@@ -269,7 +269,7 @@ async function buildPlan(
     noteAppliedBefore: appliedBefore,
     noteAppliedAfter: appliedAfter,
     noteRemainderAfter: round2(total - appliedAfter),
-    noteStatusAfter: deriveCreditNoteStatus(appliedAfter, total),
+    noteStatusAfter: deriveCreditNoteStatus(appliedAfter, total, side),
     invoiceOutstandingBefore: outstanding,
     invoiceOutstandingAfter: round2(outstanding - amount),
   };

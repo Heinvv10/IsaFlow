@@ -272,7 +272,7 @@ export async function applyCreditNoteToInvoice(
   const nowApplied = round2(alreadyApplied + applyAmount);
   const appliedRows = (await sql`
     UPDATE credit_notes
-    SET status = ${deriveCreditNoteStatus(nowApplied, Number(cn.total_amount))},
+    SET status = ${deriveCreditNoteStatus(nowApplied, Number(cn.total_amount), 'customer')},
         customer_invoice_id = COALESCE(customer_invoice_id, ${invoiceId}::UUID), updated_at = NOW(),
         applied_amount = ${nowApplied}
     WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
