@@ -120,8 +120,22 @@ describe('filterMerchant — what it rejects', () => {
   });
 
   it(`more than ${MAX_WORDS} words left is free text, even for invented business-like words`, () => {
-    expect(filterMerchant('ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF')).toEqual({ ok: false, reason: 'free_text' });
-    expect(filterMerchant('ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT').ok).toBe(true);
+    expect(filterMerchant('ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT MOTORS')).toEqual({ ok: false, reason: 'free_text' });
+    expect(filterMerchant('ALPHA BRAVO CHARLIE DELTA ECHO MOTORS')).toEqual({ ok: true, merchant: 'ALPHA BRAVO' });
+  });
+
+  it('a first name anywhere in the line is a person, not just in front', () => {
+    for (const raw of ['GENERAL JOHN SMITH', 'SMITH JOHN', 'SUNDRY THABO M', 'MOKOENA SIPHO TRADING']) {
+      expect(filterMerchant(raw)).toEqual({ ok: false, reason: 'person_name' });
+    }
+  });
+
+  it('two plain words with no brand and no trade word are not kept (could be a full name)', () => {
+    for (const raw of ['NONHLANHLA MOKOENA', 'VAN WYK', 'NOMALANGA DLAMINI', 'PURPLE RIDES', 'ZEBRA STRIPES']) {
+      expect(filterMerchant(raw)).toEqual({ ok: false, reason: 'not_a_business' });
+    }
+    // A company suffix counts as a trade word, even though it is dropped from the key.
+    expect(filterMerchant('MOKOENA DLAMINI PTY LTD')).toEqual({ ok: true, merchant: 'MOKOENA DLAMINI' });
   });
 
   it('a person-payment word wins over a known brand (a salary to a VODACOM employee is still a salary)', () => {
