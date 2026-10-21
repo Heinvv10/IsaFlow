@@ -35,6 +35,16 @@ export interface EquityColumn {
    * earnings that is not profit) and left profit-for-the-year at 0 (G-01).
    */
   otherMovements: number;
+  /**
+   * Balances brought into IsaFlow during the period by a take-on: every journal
+   * with source = TAKE_ON_SOURCE ('auto_migration'), whose writers are all
+   * take-ons — the migration wizard's opening balances and take-on documents,
+   * the file migration's opening balances, Import from Sage, and the MCP
+   * set_opening_balance. Without this row a take-on onto Retained Earnings
+   * (Sage's prior Retained Income, or this year's profit folded in when the
+   * years differ) read as a DIVIDEND, and one onto share capital as a share issue.
+   */
+  takeOn: number;
   closing: number;
 }
 
@@ -48,8 +58,12 @@ export interface ChangesInEquityReport {
   totalShareIssue: number;
   totalRevaluation: number;
   totalOtherMovements: number;
+  totalTakeOn: number;
   totalClosing: number;
 }
+
+/** The source every take-on / opening-balance journal carries (see EquityColumn.takeOn). */
+const TAKE_ON_SOURCE = 'auto_migration';
 
 /** Column the accumulated result is reported in. */
 const RETAINED_EARNINGS = 'retained_earnings';
@@ -135,7 +149,7 @@ async function fetchMovements(
   companyId: string,
   periodStart: string,
   periodEnd: string,
-): Promise<Array<{ subtype: string; amount: number; isDividends: boolean }>> {
+): Promise<Array<{ subtype: string; amount: number; isDividends: boolean; isTakeOn: boolean }>> {
   const rows = (await sql`
     SELECT
       COALESCE(ga.account_subtype, ${RETAINED_EARNINGS}) AS account_subtype,
@@ -144,6 +158,7 @@ async function fetchMovements(
         SELECT 1 FROM afs_account_mappings am
         WHERE am.company_id = ${companyId}::UUID AND am.gl_account_id = ga.id
           AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}) AS is_dividends,
+      je.source = ${TAKE_ON_SOURCE} AS is_take_on,
       COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS amount
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -155,13 +170,14 @@ async function fetchMovements(
       AND ga.account_type = 'equity'
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
-    GROUP BY 1, 2
+    GROUP BY 1, 2, 3
   `) as Row[];
 
   return rows.map(r => ({
     subtype:     String(r.account_subtype),
     amount:      Number(r.amount),
     isDividends: r.is_dividends === true,
+    isTakeOn:    r.is_take_on === true,
   }));
 }
 
@@ -175,6 +191,7 @@ function emptyColumn(subtype: string): EquityColumn {
     shareIssue:     0,
     revaluation:    0,
     otherMovements: 0,
+    takeOn:         0,
     closing:        0,
   };
 }
@@ -217,7 +234,10 @@ export async function getChangesInEquity(
     columnFor(RETAINED_EARNINGS).profitForYear += figures.period.netProfit;
 
     for (const mv of movements) {
-      if (mv.isDividends) columnFor(RETAINED_EARNINGS).dividends += mv.amount;
+      // A take-on first: it is a balance brought in, whatever account it lands on
+      // (an IS484 dividends account's lands in retained earnings, as its opening does).
+      if (mv.isTakeOn) columnFor(mv.isDividends ? RETAINED_EARNINGS : mv.subtype).takeOn += mv.amount;
+      else if (mv.isDividends) columnFor(RETAINED_EARNINGS).dividends += mv.amount;
       else columnFor(mv.subtype)[movementRowFor(mv.subtype)] += mv.amount;
     }
 
@@ -228,7 +248,8 @@ export async function getChangesInEquity(
         col.dividends +
         col.shareIssue +
         col.revaluation +
-        col.otherMovements;
+        col.otherMovements +
+        col.takeOn;
     }
 
     const columns = [...columnMap.values()].sort((a, b) => {
@@ -253,6 +274,7 @@ export async function getChangesInEquity(
       totalShareIssue:     sum('shareIssue'),
       totalRevaluation:    sum('revaluation'),
       totalOtherMovements: sum('otherMovements'),
+      totalTakeOn:         sum('takeOn'),
       totalClosing:        sum('closing'),
     };
   } catch (err) {
