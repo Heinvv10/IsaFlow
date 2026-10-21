@@ -6,16 +6,20 @@
  *
  *   1. every tracked file naming the token in any quoting (', " or `) is on the
  *      allowlist below with its reason — a new mention fails until judged;
- *   2. the WRITERS among them are exactly the five take-on writers;
+ *   2. the WRITERS among them are exactly the five take-on writers, and the
+ *      one writer through the constant is scripts/import-sage-britech.ts, for
+ *      Sage's own opening balances only (sage/sageOpeningBalanceJournal.ts);
  *   3. every file that imports or uses the shared constant
  *      (gl/takeOnJournalSource's TAKE_ON_JOURNAL_SOURCE) is allowlisted with
  *      its reason — the constant is the same marker, so a reader of it is
  *      judged like a reader of the literal — and the AFS readers take the
  *      marker from it, so they cannot drift apart.
  *
- * Read from the repo (git ls-files), not from memory. scripts/import-sage-britech.ts
+ * Read from the repo (git ls-files), not from memory; a listed file that cannot
+ * be read fails the census rather than pass as not ours. scripts/import-sage-britech.ts
  * wrote Sage's LIVE history with the token until PR #768 (it now writes
- * auto_gl_import); migration 908 relabelled the rows it wrote.
+ * auto_gl_import, and the take-on source for Sage's opening balances only);
+ * migration 908 relabelled the rows it wrote, by the same predicate.
  */
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -76,6 +80,8 @@ const OTHERS: Record<string, string> = {
   'tests/unit/services/reports/unusualJournalsDocumentPostings.test.ts': 'test: unusual-journals report fixture',
 };
 
+const BRITECH = 'scripts/import-sage-britech.ts';
+
 /** Every file allowed to import or use TAKE_ON_JOURNAL_SOURCE, and why. */
 const CONSTANT_USERS: Record<string, string> = {
   'src/modules/accounting/services/gl/takeOnJournalSource.ts': 'defines it',
@@ -84,6 +90,7 @@ const CONSTANT_USERS: Record<string, string> = {
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers.ts': 'reader: income statement IS484 leaves take-ons out',
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/takeOnEquity.ts': 'reader: AFS SOCE balances taken on column',
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/derivedAccumulatedProfit.ts': 'reader: income statement "Balances taken on" line in the IS485 chain',
+  [BRITECH]: "writer: Sage's own opening balances in the Britech import (isSageOpeningBalanceJournal); its live history is auto_gl_import",
   'tests/unit/services/afs/changesInEquityTakeOn.test.ts': 'test: the report SOCE query binds it',
   'tests/unit/services/afs/takeOnJournalWriterCensus.test.ts': 'test: this census',
 };
@@ -94,23 +101,27 @@ const WRITES = [
   /\bsource\s*:\s*['"`]auto_migration['"`]/,
   /INSERT\s+INTO\s+gl_journal_entries[\s\S]{0,600}?['"`]auto_migration['"`]/i,
 ];
+/** The same, through the constant. */
+const CONSTANT_WRITES = [
+  /\bsource\s*:\s*TAKE_ON_JOURNAL_SOURCE\b/,
+  /INSERT\s+INTO\s+gl_journal_entries[\s\S]{0,600}?TAKE_ON_JOURNAL_SOURCE\b/i,
+  /[?:=]\s*TAKE_ON_JOURNAL_SOURCE\b/,
+];
 
 function tracked(): string[] {
   return execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
 }
 
-function mentions(): Map<string, string> {
+/** Every tracked file's text. A listed file that cannot be read throws: the census cannot judge what it cannot read. */
+function trackedTexts(): Map<string, string> {
   const out = new Map<string, string>();
-  for (const f of tracked()) {
-    let text: string;
-    try { text = readFileSync(resolve(ROOT, f), 'utf8'); } catch { continue; } // a submodule or removed path: not text we own
-    if (TOKEN.test(text)) out.set(f, text);
-  }
+  for (const f of tracked()) out.set(f, readFileSync(resolve(ROOT, f), 'utf8'));
   return out;
 }
 
 describe('auto_migration census', () => {
-  const found = mentions();
+  const texts = trackedTexts();
+  const found = new Map([...texts].filter(([, text]) => TOKEN.test(text)));
 
   it('every file naming the token is allowlisted with a reason', () => {
     const allowed = new Set([...Object.keys(WRITERS), ...Object.keys(OTHERS)]);
@@ -128,16 +139,24 @@ describe('auto_migration census', () => {
     expect(writers.sort()).toEqual(Object.keys(WRITERS).sort());
   });
 
-  it('the Britech live-history import writes as a GL import', () => {
-    const text = readFileSync(resolve(ROOT, 'scripts/import-sage-britech.ts'), 'utf8');
-    expect(text).toMatch(/'auto_gl_import'/);
+  it('the Britech import writes its live history as a GL import, and the take-on source for Sage opening balances only', () => {
+    const text = texts.get(BRITECH)!;
     expect(TOKEN.test(text)).toBe(false);
+    expect(text).toMatch(/import \{ isSageOpeningBalanceJournal \} from '\.\.\/src\/modules\/accounting\/services\/sage\/sageOpeningBalanceJournal'/);
+    expect(text.match(/\bTAKE_ON_JOURNAL_SOURCE\b/g)).toHaveLength(2); // the import and the one use
+    expect(text).toMatch(/const source = isSageOpeningBalanceJournal\(je\.Description, je\.Reference\) \? TAKE_ON_JOURNAL_SOURCE : 'auto_gl_import';/);
+    expect(text).toMatch(/INSERT INTO gl_journal_entries[\s\S]{0,300}?\$\{source\}, 'posted'/);
+  });
+
+  it('the one writer through the constant is the Britech import', () => {
+    const writers = [...texts].filter(([f, text]) => !f.startsWith('tests/') && CONSTANT.test(text)
+      && CONSTANT_WRITES.some((re) => re.test(text))).map(([f]) => f);
+    expect(writers).toEqual([BRITECH]);
+    expect(CONSTANT_USERS[BRITECH]).toMatch(/^writer: /);
   });
 
   it('every file importing or using the shared constant is allowlisted with a reason, and none is stale', () => {
-    const users = tracked().filter((f) => {
-      try { return CONSTANT.test(readFileSync(resolve(ROOT, f), 'utf8')); } catch { return false; } // not text we own
-    });
+    const users = [...texts].filter(([, text]) => CONSTANT.test(text)).map(([f]) => f);
     expect(users.sort()).toEqual(Object.keys(CONSTANT_USERS).sort());
     for (const reason of Object.values(CONSTANT_USERS)) expect(reason.trim()).not.toBe('');
   });
