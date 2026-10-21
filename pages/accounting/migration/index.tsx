@@ -127,8 +127,21 @@ export default function MigrationHubPage() {
 function SourceSelection({ onSelect, selecting, isSuperAdmin }: { onSelect: (s: string) => void; selecting: boolean; isSuperAdmin?: boolean }) {
   return (
     <div className="space-y-4">
+      <Link
+        href="/accounting/migration/sage"
+        className="flex items-center gap-4 rounded-lg border border-green-500/30 bg-green-500/5 p-5 hover:border-green-500 transition-colors"
+      >
+        <span className="text-2xl" aria-hidden>☁️</span>
+        <div className="flex-1">
+          <p className="font-semibold text-[var(--ff-text-primary)]">Moving from Sage Business Cloud Accounting?</p>
+          <p className="text-sm text-[var(--ff-text-secondary)]">
+            Sign in to Sage and bring your accounts, customers, suppliers, balances and unpaid invoices across in one go — no spreadsheets.
+          </p>
+        </div>
+        <span className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white">Import from Sage</span>
+      </Link>
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6">
-        <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Step 1: Choose Your Source System</h2>
+        <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Or upload files: choose your source system</h2>
         <p className="text-sm text-[var(--ff-text-secondary)] mb-5">Select the accounting software you are migrating from.</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {SOURCE_SYSTEMS.map(sys => (

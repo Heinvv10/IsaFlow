@@ -166,13 +166,13 @@ export default function SageMigrationPage() {
               </div>
 
               <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm">
-                <p className="font-semibold text-blue-400 mb-1">How to sync Sage data</p>
-                <p className="text-[var(--ff-text-secondary)]">
-                  Use the Sage sync APIs to pull data:
-                  <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--ff-bg-primary)] text-xs font-mono">POST /api/sage/sync/chart-of-accounts</code>
-                  and
-                  <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--ff-bg-primary)] text-xs font-mono">POST /api/sage/sync/invoices</code>
+                <p className="font-semibold text-blue-400 mb-1">Moving from Sage?</p>
+                <p className="text-[var(--ff-text-secondary)] mb-3">
+                  Bring your accounts, customers, suppliers, balances and unpaid invoices across in a few steps.
                 </p>
+                <Link href="/accounting/migration/sage" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                  Import from Sage
+                </Link>
               </div>
             </div>
           ) : status ? (

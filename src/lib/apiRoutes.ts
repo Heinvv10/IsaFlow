@@ -36,6 +36,8 @@
 
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
+import type { discardPayload, previewPayload, statusPayload, toCompanyOptions } from '@/modules/accounting/services/sage/sageConnectRequest';
+import type { importSagePull } from '@/modules/accounting/services/sage/sageTakeOnImportService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
 import type { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
@@ -101,6 +103,12 @@ interface StaticRoutes {
   // by-id read has its own query key below (`QueryRoutes`).
   '/api/accounting/document-capture': CapturedDocument[] | { document: CapturedDocument; extracted: ExtractedDocument };
   '/api/accounting/migration/session': { session: MigrationSession | null };
+  // Connect to Sage (official Sage SA API). Every shape comes from the service.
+  '/api/accounting/sage-connect/status': ReturnType<typeof statusPayload>;
+  '/api/accounting/sage-connect/companies': ReturnType<typeof toCompanyOptions>;
+  '/api/accounting/sage-connect/preview': ReturnType<typeof previewPayload>;
+  '/api/accounting/sage-connect/import': Awaited<ReturnType<typeof importSagePull>>;
+  '/api/accounting/sage-connect/discard': ReturnType<typeof discardPayload>;
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
   '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;
   // WS3. `token` and `url` exist on the POST response and nowhere else — the

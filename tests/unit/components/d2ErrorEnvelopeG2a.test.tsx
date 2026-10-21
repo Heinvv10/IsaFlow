@@ -148,10 +148,12 @@ it('success: suppliers import renders the data it received', async () => {
 });
 
 it('success: opening balances import renders the data it received', async () => {
-  answerOk('/migration/opening-balances', { balancesSet: 61, journalId: 'J-777' });
+  // The service's real shape: { journalEntryId, linesImported, errors }. The
+  // page used to read balancesSet / journalId, which it never returned.
+  answerOk('/migration/opening-balances', { journalEntryId: 'J-777', linesImported: 61, errors: [] });
   const { container } = render(<OpeningBalancesPage />);
   await upload(container);
   fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-03-01' } });
   fireEvent.click(await screen.findByRole('button', { name: /Set Opening Balances/ }));
-  expect(await screen.findByText(/Opening balances set for 61 accounts\. Journal ID: J-777/)).toBeTruthy();
+  expect(await screen.findByText(/Opening balances posted: 61 account line\(s\)\. Journal entry J-777/)).toBeTruthy();
 });
