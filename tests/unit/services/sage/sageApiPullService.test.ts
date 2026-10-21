@@ -32,7 +32,9 @@ function fakeClient(over: Partial<Record<string, unknown>> = {}) {
     getAll: async <T,>(path: string, query?: Record<string, string>, onPage?: (rows: readonly T[], total: number | undefined) => void) => {
       calls.push({ method: 'GETALL', path, body: query });
       const all = answer(path) as T[];
-      for (let n = 100; onPage; n += 100) { calls.push({ method: 'PAGE', path }); onPage(all.slice(0, n), all.length); if (n >= all.length) break; }
+      // A list marked `bare` answers without TotalResults, as a bare array does.
+      const total = (all as T[] & { bare?: boolean }).bare ? undefined : all.length;
+      for (let n = 100; onPage; n += 100) { calls.push({ method: 'PAGE', path }); onPage(all.slice(0, n), total); if (n >= all.length) break; }
       return all;
     },
   };
@@ -187,5 +189,14 @@ describe('pullSageCompany', () => {
     const { client, calls } = fakeClient({ 'TaxInvoice/Get': list });
     await expect(pullSageCompany(client, 9, '2026-10-21')).rejects.toThrow(/unpaid invoices and bills/);
     expect(calls.filter((c) => c.method === 'PAGE' && c.path === 'TaxInvoice/Get')).toHaveLength(1);
+  });
+
+  // Round 6: a bare-array answer has no TotalResults; the listed cap counts the rows read instead.
+  it('without TotalResults, the listed cap counts the contacts read so far', async () => {
+    const many = Object.assign(
+      Array.from({ length: MAX_CONTACTS_LISTED + 1 }, (_, i) => ({ ID: i + 1, Name: `C${i}`, Active: false, Balance: 0 })),
+      { bare: true },
+    );
+    await expect(pullSageCompany(fakeClient({ 'Customer/Get': many }).client, 9, '2026-10-21')).rejects.toThrow(/lists 10001 customers and suppliers/);
   });
 });

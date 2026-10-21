@@ -33,7 +33,7 @@ export const MAX_OUTSTANDING_INVOICES = 300;
 export const isTakenOn = (c: { Active: boolean; Balance: number }): boolean => c.Active || Math.abs(c.Balance) > 0.005;
 
 export interface PullSizes {
-  /** Customers and suppliers Sage lists, active or not; only checked when known. */
+  /** Customers and suppliers Sage lists, active or not (TotalResults, else the rows read); checked when given. */
   listed?: number;
   /** Contacts the take-on imports. */
   contacts: number;
