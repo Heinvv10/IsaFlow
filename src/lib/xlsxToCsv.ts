@@ -8,9 +8,11 @@
  *
  * An .xlsx is a zip: a 10 MB upload can inflate to gigabytes. Before ExcelJS
  * loads it, every entry is inflated through jszip and COUNTED (the sizes a zip
- * declares can lie), and the first sheet's rows and columns are capped. Each
+ * declares can lie), and the first sheet is streamed with its rows and columns
+ * capped as it is read. Each
  * limit refuses with SpreadsheetTooLargeError, whose message is for the client.
  */
+import { Readable } from 'node:stream';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 
@@ -91,24 +93,35 @@ async function assertInflatesWithin(buf: Buffer, maxBytes: number): Promise<void
   }
 }
 
+/**
+ * The first sheet, STREAMED: ExcelJS's WorkbookReader holds the shared strings
+ * and one row at a time, never the whole model, and the read stops at the
+ * first row or column past a cap — so the caps bound memory, not only the
+ * answer. Cells are kept as text (at most maxRows x maxColumns of them) and
+ * padded to the widest row at the end, as the CSV parsers expect.
+ */
 export async function xlsxBufferToCsv(buf: Buffer, limits: XlsxLimits = XLSX_LIMITS): Promise<string> {
   await assertInflatesWithin(buf, limits.maxUncompressedBytes);
-  const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buf as unknown as ArrayBuffer);
-  const ws = wb.worksheets[0];
-  if (!ws) return '';
-  if (ws.rowCount > limits.maxRows) {
-    throw new SpreadsheetTooLargeError(`The first sheet has ${ws.rowCount} rows; IsaFlow imports at most ${limits.maxRows} at a time. Split the file and upload each part.`);
-  }
-  const width = ws.columnCount;
-  if (width > limits.maxColumns) {
-    throw new SpreadsheetTooLargeError(`The first sheet has ${width} columns; IsaFlow reads at most ${limits.maxColumns}. Remove the columns you do not need and upload again.`);
-  }
-  const lines: string[] = [];
-  ws.eachRow({ includeEmpty: false }, row => {
-    const cells: string[] = [];
-    for (let c = 1; c <= width; c++) cells.push(csvField(cellText(row.getCell(c).value)));
-    lines.push(cells.join(','));
+  const reader = new ExcelJS.stream.xlsx.WorkbookReader(Readable.from([buf]), {
+    worksheets: 'emit', sharedStrings: 'cache', styles: 'cache', hyperlinks: 'ignore', entries: 'ignore',
   });
-  return lines.join('\n');
+  const rows: string[][] = [];
+  let width = 0;
+  for await (const sheet of reader) {
+    for await (const row of sheet) {
+      if (row.number > limits.maxRows) {
+        throw new SpreadsheetTooLargeError(`The first sheet has more than ${limits.maxRows} rows; IsaFlow imports at most ${limits.maxRows} at a time. Split the file and upload each part.`);
+      }
+      if (row.cellCount > limits.maxColumns) {
+        throw new SpreadsheetTooLargeError(`The first sheet has more than ${limits.maxColumns} columns; IsaFlow reads at most ${limits.maxColumns}. Remove the columns you do not need and upload again.`);
+      }
+      if (!row.hasValues) continue;
+      const cells: string[] = [];
+      for (let c = 1; c <= row.cellCount; c++) cells.push(csvField(cellText(row.getCell(c).value)));
+      rows.push(cells);
+      width = Math.max(width, cells.length);
+    }
+    break; // the first sheet only
+  }
+  return rows.map(cells => [...cells, ...Array<string>(width - cells.length).fill('')].join(',')).join('\n');
 }

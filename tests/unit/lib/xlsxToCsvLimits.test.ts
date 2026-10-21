@@ -4,7 +4,7 @@
  * first sheet's rows and columns are capped, each refused with a sentence the
  * client can act on (SpreadsheetTooLargeError) rather than a crash or a hang.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
 import { SpreadsheetTooLargeError, xlsxBufferToCsv } from '@/lib/xlsxToCsv';
@@ -39,6 +39,24 @@ describe('xlsxBufferToCsv limits', () => {
   it('refuses a sheet with more columns than the cap', async () => {
     const buf = await workbook([['a', 'b', 'c', 'd']]);
     await expect(xlsxBufferToCsv(buf, limits)).rejects.toBeInstanceOf(SpreadsheetTooLargeError);
+  });
+
+  // The caps must bound memory, not just the answer: the sheet is streamed and
+  // the read stops at the first row past the cap. A full load
+  // (Workbook.xlsx.load) builds the whole model first and only then could count
+  // it — so it would know the sheet's full 2,000 rows; the streamed read
+  // cannot, and never touches the full-model loader.
+  it('stops reading at the first row past the cap, without loading the whole workbook', async () => {
+    const buf = await workbook(Array.from({ length: 2000 }, (_, i) => [`r${i}`]));
+    const fullLoad = vi.spyOn(ExcelJS.Workbook.prototype, 'xlsx', 'get');
+    try {
+      const err = await xlsxBufferToCsv(buf, limits).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(SpreadsheetTooLargeError);
+      expect((err as Error).message).not.toContain('2000');
+      expect(fullLoad).not.toHaveBeenCalled();
+    } finally {
+      fullLoad.mockRestore();
+    }
   });
 
   it('converts a sheet exactly at the caps', async () => {
