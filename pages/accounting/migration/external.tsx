@@ -126,7 +126,7 @@ export default function ExternalMigrationPage() {
           {/* Sage moves go through the file-upload Migration Wizard */}
           <div className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)]">
             Moving from Sage? Export your data from Sage as CSV or Excel files and use{' '}
-            <Link href="/accounting/migration" className="text-orange-400 hover:underline">
+            <Link href="/accounting/migration#sage" className="text-orange-400 hover:underline">
               Import from Sage
             </Link>
             {' '}in the Migration Wizard for a guided step-by-step upload.
