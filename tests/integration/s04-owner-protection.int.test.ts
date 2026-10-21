@@ -185,8 +185,9 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
         }, cb);
         await Promise.race([locked, demoteA]);
         const aPromotes = asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, MANAGER, 'owner', OWNER_A), ca);
-        await aWaits();
-        commitDemotion();
+        // Released whatever happens: an A that never waits must not leave B's
+        // transaction open, holding the lock, for the tests after this one.
+        try { await aWaits(); } finally { commitDemotion(); }
         const [b, a] = await Promise.allSettled([demoteA, aPromotes]);
         expect(b.status, `round ${round}`).toBe('fulfilled');
         expect(a.status === 'rejected' ? a.reason : a.status, `round ${round}`).toBeInstanceOf(OwnerProtectedError);
