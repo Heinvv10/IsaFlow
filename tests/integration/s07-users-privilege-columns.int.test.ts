@@ -30,9 +30,12 @@ import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { pool, asRole, inServiceContext, callRoute, userRow } from './s07-users-privilege-columns.helpers';
 
 /** Every column app_user may UPDATE; each is named by a writer that runs as app_user. */
-const GRANTED = ['first_name', 'last_name', 'phone', 'mobile', 'email', 'updated_at', 'onboarding_completed'];
-/** The columns S-07 is about, plus the rest of the standing/privilege set. */
-const FORBIDDEN = ['role', 'status', 'is_active', 'suspended_at', 'suspended_reason', 'permissions', 'account_type'];
+const GRANTED = ['first_name', 'last_name', 'phone', 'mobile', 'updated_at', 'onboarding_completed'];
+/**
+ * The columns S-07 is about, plus the rest of the standing/privilege set. email
+ * is one: createInvitation adds an existing users row to the company by email.
+ */
+const FORBIDDEN = ['role', 'status', 'is_active', 'suspended_at', 'suspended_reason', 'permissions', 'account_type', 'email'];
 const DENIED = /permission denied for table users/i;
 
 const me = crypto.randomUUID();
