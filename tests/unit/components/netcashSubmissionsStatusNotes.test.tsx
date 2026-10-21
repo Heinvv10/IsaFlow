@@ -36,11 +36,22 @@ describe('netcash submissions page: rows that hold a batch', () => {
       expect(document.querySelector('a[href*="merchant.netcash.co.za"]')).toBeNull();
     });
 
-  it('a submitted row still offers the poll and the merchant link', async () => {
-    route(() => ok({ items: [sub('x2', 'submitted')], total: 1 }));
+  it('a submitted row still offers the poll and the merchant link - by the reference Netcash issued', async () => {
+    route(() => ok({ items: [{ ...sub('x2', 'submitted'), batch_reference: 'NC-X2', netcash_response: { success: true, outcome: 'accepted', batchReference: 'NC-X2' } }], total: 1 }));
     render(<NetcashSubmissionsPage />);
     expect(await screen.findByRole('button', { name: /Check status/ })).toBeTruthy();
-    expect(document.querySelector('a[href*="merchant.netcash.co.za"]')).not.toBeNull();
+    expect([...document.querySelectorAll('a[href*="merchant.netcash.co.za"]')].map((a) => a.getAttribute('href')))
+      .toEqual(['https://merchant.netcash.co.za/batch/NC-X2']);
+  });
+
+  it('round 17: a submitted row whose column holds OUR batch number (Netcash never issued one) gets no merchant link', async () => {
+    route(() => ok({ items: [
+      { ...sub('o', 'submitted'), netcash_response: { success: false, outcome: 'unknown', error: 'aborted', resolved: { outcome: 'submitted' } } },
+      sub('n', 'processing'),
+    ], total: 2 }));
+    render(<NetcashSubmissionsPage />);
+    await screen.findAllByRole('button', { name: /Check status/ });
+    expect(document.querySelector('a[href*="merchant.netcash.co.za"]')).toBeNull();
   });
 
   it('an admin gets a Resolve control on every row that holds the batch (pending, unknown, submitted, processing), polled or not; not on completed/failed', async () => {
@@ -75,8 +86,8 @@ describe('netcash submissions page: rows that hold a batch', () => {
   it('round 16: a reference too long for the column links the merchant page by the one kept in netcash_response; an unusable one gets no link', async () => {
     const long = `NC-${'R'.repeat(147)}`;
     route(() => ok({ items: [
-      { ...sub('l', 'submitted'), batch_reference: null, netcash_response: { batchReference: long } },
-      { ...sub('u', 'submitted'), batch_reference: null, netcash_response: { batchReference: 'NC-\u0007-bell' } },
+      { ...sub('l', 'submitted'), batch_reference: null, netcash_response: { success: true, outcome: 'accepted', batchReference: long } },
+      { ...sub('u', 'submitted'), batch_reference: null, netcash_response: { success: true, outcome: 'accepted', batchReference: 'NC-\u0007-bell' } },
     ], total: 2 }));
     render(<NetcashSubmissionsPage />);
     await screen.findAllByRole('button', { name: /Check status/ });

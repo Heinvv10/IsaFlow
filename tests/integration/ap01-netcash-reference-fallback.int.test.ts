@@ -67,7 +67,7 @@ describe('a reference too long for the column is still polled (AP-01 round 16)',
     const { c, id } = await submittedWith(ref);
     const res = await poll(c, id);
     expect({ http: res.state.statusCode, polled: (res.state.body as { data?: { polled?: boolean } }).data?.polled,
-      calls: hold.getSubmissionStatus.mock.calls.length, detail: /no batch reference/i.test(JSON.stringify(res.state.body)) })
+      calls: hold.getSubmissionStatus.mock.calls.length, detail: /No Netcash reference for this submission/.test(JSON.stringify(res.state.body)) })
       .toEqual({ http: 200, polled: false, calls: 0, detail: true });
   });
 });
@@ -83,3 +83,59 @@ describe('the operator\'s note is made jsonb-safe (AP-01 round 16)', () => {
       .toEqual({ http: 200, status: 'failed', note: 'Portal says �rejected', audited: true });
   });
 });
+
+describe('only a reference Netcash itself issued is polled (AP-01 round 17)', () => {
+  /** An 'unknown' answer (the column holds OUR batch number), then the operator attests Netcash has it. */
+  async function unknownResolvedSubmitted() {
+    const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
+    const b = await plantBatch(pool, c, admin, bank);
+    hold.submitEftBatch.mockResolvedValueOnce({ success: false, outcome: 'unknown', error: 'The operation was aborted' });
+    await callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
+    const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
+    const ok = await callRoute(netcashResolve, tokens[admin]!, c, 'POST',
+      { submissionId: id, outcome: 'submitted', note: 'Netcash portal shows the batch' }, '/api/accounting/netcash/resolve');
+    expect(ok.state.statusCode).toBe(200);
+    return { c, id, before: await row(id) };
+  }
+
+  it.each([
+    ['REPRO 8: "Successful"', 'Successful'],
+    ['REPRO 8b: "Rejected: batch reference not found"', 'Rejected: batch reference not found'],
+  ])('%s about our own batch number: no call, row unchanged, no pollFailure, no attention flag', async (_n, said) => {
+    const { c, id, before } = await unknownResolvedSubmitted();
+    hold.getSubmissionStatus.mockResolvedValueOnce({ status: said, detail: '', answered: true });
+    const res = await poll(c, id);
+    const after = await row(id);
+    const data = (res.state.body as { data?: { polled?: boolean; needsAttention?: boolean; detail?: string } }).data;
+    expect({ calls: hold.getSubmissionStatus.mock.calls.length, polled: data?.polled, attention: data?.needsAttention ?? false,
+      detail: /No Netcash reference for this submission/.test(String(data?.detail)), status: after.status,
+      pollFailure: 'pollFailure' in (after.netcash_response ?? {}), unchanged: JSON.stringify(after.netcash_response) === JSON.stringify(before.netcash_response) })
+      .toEqual({ calls: 0, polled: false, attention: false, detail: true, status: 'submitted', pollFailure: false, unchanged: true });
+  });
+
+  it('an accepted row whose column holds Netcash\'s reference still polls by it', async () => {
+    const { c, id } = await submittedWith('NC-ISSUED');
+    hold.getSubmissionStatus.mockResolvedValueOnce({ status: 'Processing', detail: '', answered: true });
+    await poll(c, id);
+    expect({ askedWith: hold.getSubmissionStatus.mock.calls[0]?.[1], status: (await row(id)).status }).toEqual({ askedWith: 'NC-ISSUED', status: 'processing' });
+  });
+
+  it.each([
+    ['a late accepted answer (lateSendResult.response)', { lateSendResult: { status: 'submitted', batchReference: 'OUR-1', response: { success: true, outcome: 'accepted', batchReference: 'NC-LATE' } } }, 'NC-LATE'],
+    ['a row from before AP-01 (success, no outcome)', { success: true, batchReference: 'NC-OLD' }, 'NC-OLD'],
+    ['a mock success from before AP-01', { success: true, batchReference: 'MOCK-1', mock: true }, null],
+    ['an unknown answer that echoes a reference', { success: false, outcome: 'unknown', batchReference: 'NC-ECHO' }, null],
+    ['a rejected answer with a reference', { success: false, outcome: 'rejected', batchReference: 'NC-REJ' }, null],
+  ])('%s: polled by the reference Netcash issued, or not at all', async (_n, response, expected) => {
+    const { company: c } = await payCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
+    const id = (await pool.query(
+      `INSERT INTO netcash_submissions (company_id, submission_type, batch_reference, total_amount_cents, record_count, status, created_by, netcash_response)
+       VALUES ($1, 'eft_payment', 'OUR-1', 100, 1, 'submitted', 'x', $2::JSONB) RETURNING id`, [c, JSON.stringify(response)])).rows[0].id as string;
+    hold.getSubmissionStatus.mockResolvedValueOnce({ status: 'Processing', detail: '', answered: true });
+    await poll(c, id);
+    expect(hold.getSubmissionStatus.mock.calls[0]?.[1] ?? null).toBe(expected);
+  });
+});
+
