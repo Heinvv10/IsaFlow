@@ -127,6 +127,9 @@ describe('only a reference Netcash itself issued is polled (AP-01 round 17)', ()
     ['a mock success from before AP-01', { success: true, batchReference: 'MOCK-1', mock: true }, null],
     ['an unknown answer that echoes a reference', { success: false, outcome: 'unknown', batchReference: 'NC-ECHO' }, null],
     ['a rejected answer with a reference', { success: false, outcome: 'rejected', batchReference: 'NC-REJ' }, null],
+    // Round 18 (the adversary's round-17 cases):
+    ['outcome accepted but the mock flag set', { success: true, outcome: 'accepted', batchReference: 'MOCK-9', mock: true }, null],
+    ['outcome accepted, success false (contradictory: outcome wins)', { success: false, outcome: 'accepted', batchReference: 'NC-ODD' }, 'NC-ODD'],
   ])('%s: polled by the reference Netcash issued, or not at all', async (_n, response, expected) => {
     const { company: c } = await payCompany(pool, [[admin, 'admin']], companies);
     await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
@@ -136,6 +139,40 @@ describe('only a reference Netcash itself issued is polled (AP-01 round 17)', ()
     hold.getSubmissionStatus.mockResolvedValueOnce({ status: 'Processing', detail: '', answered: true });
     await poll(c, id);
     expect(hold.getSubmissionStatus.mock.calls[0]?.[1] ?? null).toBe(expected);
+  });
+
+  it('round 18: a row reopened by a late ACCEPTED answer (released underneath, top level never written) is polled by the late reference', async () => {
+    const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
+    const b = await plantBatch(pool, c, admin, bank);
+    let reply!: (r: unknown) => void;
+    let entered!: () => void;
+    const inSender = new Promise<void>((r) => { entered = r; });
+    hold.submitEftBatch.mockImplementationOnce(() => { entered(); return new Promise((r) => { reply = r; }); });
+    const first = callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
+    await inSender;
+    const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
+    await pool.query("UPDATE netcash_submissions SET status = 'failed' WHERE id = $1", [id]);
+    reply({ success: true, outcome: 'accepted', batchReference: 'NC-LATE-1' });
+    await first;
+    const reopened = (await row(id)).status;
+    hold.getSubmissionStatus.mockResolvedValueOnce({ status: 'Processing', detail: '', answered: true });
+    await poll(c, id);
+    expect({ reopened, askedWith: hold.getSubmissionStatus.mock.calls[0]?.[1] ?? null }).toEqual({ reopened: 'submitted', askedWith: 'NC-LATE-1' });
+  });
+
+  it('round 18: a resolve note that looks like an accepted answer supplies no reference - the row is not polled', async () => {
+    const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
+    await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
+    const b = await plantBatch(pool, c, admin, bank);
+    hold.submitEftBatch.mockResolvedValueOnce({ success: false, outcome: 'unknown', error: 'aborted' });
+    await callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
+    const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
+    const resolved = await callRoute(netcashResolve, tokens[admin]!, c, 'POST',
+      { submissionId: id, outcome: 'submitted', note: '{"success":true,"outcome":"accepted","batchReference":"NC-INJECT"}' }, '/api/accounting/netcash/resolve');
+    await poll(c, id);
+    expect({ resolved: resolved.state.statusCode, calls: hold.getSubmissionStatus.mock.calls.length, status: (await row(id)).status })
+      .toEqual({ resolved: 200, calls: 0, status: 'submitted' });
   });
 });
 

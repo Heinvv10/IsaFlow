@@ -160,71 +160,71 @@ export default function NetcashSubmissionsPage() {
                 {items.map(s => {
                   const ref = merchantRef(s);
                   return (
-                  <Fragment key={s.id}>
-                  <tr className="hover:bg-[var(--ff-bg-secondary)]/50 transition-colors">
-                    <td className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDate(s.submitted_at ?? s.created_at)}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">
-                      {s.submission_type === 'eft_payment' ? 'EFT Payment' : 'Debit Order'}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-secondary)]">
-                      {s.batch_reference ?? <span className="text-[var(--ff-text-tertiary)]">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium text-[var(--ff-text-primary)]">
-                      {formatRands(s.total_amount_cents)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{s.record_count}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_BADGE[s.status]}`}>
-                        {s.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        {lateNote(s) && <span className="text-xs text-red-400 text-right max-w-[16rem]">{lateNote(s)}</span>}
-                        {(HOLDING_NOTE[s.status] ?? (pollFailed(s) ? POLL_FAILED_NOTE : undefined)) && (
-                          <span className="text-xs text-orange-400 text-right max-w-[16rem]">{HOLDING_NOTE[s.status] ?? POLL_FAILED_NOTE}</span>
-                        )}
-                        {canResolveSubmission(companyRole, s.status) && (
-                          <button onClick={() => setResolvingId(s.id)} className="text-xs text-orange-400 hover:text-orange-300">Resolve…</button>
-                        )}
-                        {(s.status === 'submitted' || s.status === 'processing') && (
-                          <button
-                            onClick={() => void handlePollStatus(s.id)}
-                            disabled={pollingId === s.id}
-                            className="flex items-center gap-1 text-xs text-teal-500 hover:text-teal-400 disabled:opacity-50"
-                          >
-                            <RefreshCw className={`h-3.5 w-3.5 ${pollingId === s.id ? 'animate-spin' : ''}`} />
-                            Check status
-                          </button>
-                        )}
-                        {ref && !HOLDING_NOTE[s.status] && (
-                          <a
-                            href={`https://merchant.netcash.co.za/batch/${encodeURIComponent(ref)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </a>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  {resolvingId === s.id && (
-                    <tr>
-                      <td colSpan={7} className="px-4 pb-4">
-                        <NetcashResolveForm
-                          submissionId={s.id}
-                          status={s.status}
-                          lastPoll={s.netcash_response?.latestPoll}
-                          onResolved={() => void fetchSubmissions()}
-                          onClose={() => setResolvingId(null)}
-                        />
+                    <Fragment key={s.id}>
+                    <tr className="hover:bg-[var(--ff-bg-secondary)]/50 transition-colors">
+                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDate(s.submitted_at ?? s.created_at)}</td>
+                      <td className="px-4 py-3 text-[var(--ff-text-secondary)] capitalize">
+                        {s.submission_type === 'eft_payment' ? 'EFT Payment' : 'Debit Order'}
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-secondary)]">
+                        {s.batch_reference ?? <span className="text-[var(--ff-text-tertiary)]">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium text-[var(--ff-text-primary)]">
+                        {formatRands(s.total_amount_cents)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{s.record_count}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_BADGE[s.status]}`}>
+                          {s.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          {lateNote(s) && <span className="text-xs text-red-400 text-right max-w-[16rem]">{lateNote(s)}</span>}
+                          {(HOLDING_NOTE[s.status] ?? (pollFailed(s) ? POLL_FAILED_NOTE : undefined)) && (
+                            <span className="text-xs text-orange-400 text-right max-w-[16rem]">{HOLDING_NOTE[s.status] ?? POLL_FAILED_NOTE}</span>
+                          )}
+                          {canResolveSubmission(companyRole, s.status) && (
+                            <button onClick={() => setResolvingId(s.id)} className="text-xs text-orange-400 hover:text-orange-300">Resolve…</button>
+                          )}
+                          {(s.status === 'submitted' || s.status === 'processing') && (
+                            <button
+                              onClick={() => void handlePollStatus(s.id)}
+                              disabled={pollingId === s.id}
+                              className="flex items-center gap-1 text-xs text-teal-500 hover:text-teal-400 disabled:opacity-50"
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${pollingId === s.id ? 'animate-spin' : ''}`} />
+                              Check status
+                            </button>
+                          )}
+                          {ref && !HOLDING_NOTE[s.status] && (
+                            <a
+                              href={`https://merchant.netcash.co.za/batch/${encodeURIComponent(ref)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-xs text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                        </div>
                       </td>
                     </tr>
-                  )}
-                  </Fragment>
-                );
+                    {resolvingId === s.id && (
+                      <tr>
+                        <td colSpan={7} className="px-4 pb-4">
+                          <NetcashResolveForm
+                            submissionId={s.id}
+                            status={s.status}
+                            lastPoll={s.netcash_response?.latestPoll}
+                            onResolved={() => void fetchSubmissions()}
+                            onClose={() => setResolvingId(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                  );
                 })}
               </tbody>
             </table>
