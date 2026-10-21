@@ -198,11 +198,13 @@ async function importJournalEntries() {
     if (!glAccountId || !contraAccountId) { errs++; continue; }
 
     try {
-      // Create journal entry header
+      // Create journal entry header. Sage's LIVE journal history, so a GL import —
+      // NOT auto_migration, which every reader takes for a take-on / opening
+      // balance (changesInEquityService's "Balances taken on" row).
       const jeRows = await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description,
         source, status, created_by, reference)
         VALUES (${CID}::UUID, ${'SAGE-' + je.ID}, ${entryDate}::DATE, ${je.Description || ''},
-          'auto_migration', 'posted', ${USER_ID}::UUID, ${je.Reference || null})
+          'auto_gl_import', 'posted', ${USER_ID}::UUID, ${je.Reference || null})
         RETURNING id`;
       const journalId = jeRows[0].id;
 

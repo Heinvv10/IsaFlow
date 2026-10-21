@@ -173,6 +173,22 @@ describe('M3 / R2: the financial year', () => {
     expect(t.profitAndLossFold).toEqual({ profit: 38000, isaflowYearStart: '2026-01-01', isaflowYearEnd: '2026-12-31' });
   });
 
+  // Round 6: dividends are equity, not P&L. The fold removes only income and
+  // expense lines, so a dividends account comes across on the fold path exactly
+  // as on the matching one, and both SOCE readers show it as dividends.
+  it('a dividends account is not folded: its line comes across, and only income and expense move to Retained Earnings', () => {
+    const p = sageFixture();
+    p.accounts.push({ ID: 2010, Name: 'Dividends Paid', Category: { ID: 9, Description: 'Owners Equity' }, Active: true, AccountType: 1 });
+    p.trialBalance.push({ AccountId: 2010, Name: 'Dividends Paid', Debit: 10000, Credit: 0 });
+    p.trialBalance.find((l) => l.AccountId === 2005)!.Credit = 19000; // share capital, to keep Sage's TB balanced
+    const t = buildSageTakeOn(p, janDec);
+    const dividends = t.openingBalances.find((b) => b.accountCode === t.sageAccountCodes[2010]);
+    expect(dividends).toEqual({ accountCode: t.sageAccountCodes[2010], debit: 10000, credit: 0 });
+    expect(t.profitAndLossFold?.profit).toBeCloseTo(38000, 2);
+    const re = t.openingBalances.find((b) => b.accountCode === t.systemAccountMap.retained_earnings)!;
+    expect(re.credit - re.debit).toBeCloseTo(23000, 2);
+  });
+
   it('a loss to date folds the same way', () => {
     const p = sageFixture();
     p.trialBalance.find((l) => l.AccountId === 2003)!.Debit = 70000; // rent 70 000: a loss of 12 000

@@ -9,6 +9,7 @@ import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { SageImportRefused } from '@/modules/accounting/services/sage/sageTakeOnImportService';
 import { getChangesInEquity } from '@/modules/accounting/services/afs/changesInEquityService';
+import { fetchDividendsPaid } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/dividendsPaid';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageFixture } from '../unit/services/sage/sageFixture';
@@ -56,15 +57,50 @@ describe('R2: the fiscal year comes from fiscal_periods', () => {
       }, userId);
       await postJournalEntry(companyId, dividend.id, userId);
 
+      // Round 6: a journal as scripts/import-sage-britech.ts used to write Sage's
+      // LIVE history (source auto_migration, entry number SAGE-<id>) is not a take-on.
+      const legacy = (await c.query(
+        `INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, source, status, created_by)
+         VALUES ($1, 'SAGE-77', '2026-11-20', 'Dividend (Sage history)', 'auto_migration', 'posted', $2) RETURNING id`, [companyId, userId],
+      )).rows[0]!.id as string;
+      await c.query(
+        `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+         VALUES ($1, $2, $3, 1000, 0, 'd'), ($1, $2, $4, 0, 1000, 'c')`, [companyId, legacy, ids.retained_earnings, ids.bank],
+      );
+
       const soce = await getChangesInEquity(companyId, '2026-01-01', '2026-12-31');
       const re = soce.columns.find((col) => col.subtype === 'retained_earnings')!;
       expect(re.takeOn).toBeCloseTo(23000, 2); // -15 000 prior + 38 000 profit to date, credit-positive
-      expect(re.dividends).toBeCloseTo(-5000, 2);
+      expect(re.dividends).toBeCloseTo(-6000, 2); // the real dividend and the legacy history row
       expect(re.profitForYear).toBeCloseTo(0, 2); // no P&L before the cut-over
       // The statement still ties to the ledger's equity.
       const equity = -(await balanceOf(c, companyId, "a.account_type = 'equity'"));
       expect(soce.totalClosing).toBeCloseTo(equity, 2);
     }, '2026-01-01');
+  });
+
+  // Round 6, item 1: a take-on whose years match carries this year's dividends.
+  // On an IS484 dividends account both readers — the report SOCE and the AFS
+  // SOCE (fetchDividendsPaid) — must show them as dividends.
+  it('this year\'s dividends in a take-on, on an IS484 dividends account, are dividends in both SOCE readers', async () => {
+    await inRolledBackCompany(async (c, companyId, userId) => {
+      const pull = sageFixture();
+      pull.accounts.push({ ID: 2010, Name: 'Dividends paid', Category: { ID: 9, Description: 'Owners Equity' }, Active: true, AccountType: 1 });
+      pull.trialBalance.push({ AccountId: 2010, Name: 'Dividends paid', Debit: 10000, Credit: 0 });
+      pull.trialBalance.find((l) => l.AccountId === 2005)!.Credit = 19000; // share capital, to keep Sage's TB balanced
+      const pullId = await storeReady(companyId, userId, pull);
+      await importAsRoute(companyId, userId, pullId);
+      // As an operator maps it after the take-on: the dividends account, debit-normal, on IS484.
+      const taken = (await c.query("SELECT id FROM gl_accounts WHERE company_id = $1 AND account_name = 'Dividends paid'", [companyId])).rows[0]!.id as string;
+      await c.query("UPDATE gl_accounts SET account_subtype = 'dividends', normal_balance = 'debit' WHERE id = $1", [taken]);
+      await c.query("INSERT INTO afs_account_mappings(company_id, gl_account_id, afs_line_code) VALUES ($1, $2, 'IS484')", [companyId, taken]);
+
+      const soce = await getChangesInEquity(companyId, '2026-03-01', '2027-02-28');
+      const paid = await fetchDividendsPaid(companyId, '2026-03-01', '2027-02-28');
+      const re = soce.columns.find((col) => col.subtype === 'retained_earnings')!;
+      expect(paid).toBeCloseTo(10000, 2);
+      expect(re.dividends).toBeCloseTo(-paid, 2);
+    });
   });
 
   it('a company with no fiscal period for the cut-over date is refused with what to do', async () => {
