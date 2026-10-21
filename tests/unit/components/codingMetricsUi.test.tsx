@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
 import { BureauCodingMetricsPanel } from '@/components/bureau/BureauCodingMetricsPanel';
-import { BureauSharingConsent, SHARING_COMING_SOON_LABEL } from '@/components/bureau/BureauSharingConsent';
+import { BureauSharingConsent, SHARING_COMING_SOON_LABEL, SHARING_PAUSED_LABEL } from '@/components/bureau/BureauSharingConsent';
 import { computeCodingMetrics, type CompanyCodingCounts } from '@/modules/accounting/services/bank/codingMetrics';
 import { SHARING_CONSENT_STATUS_LABEL } from '@/modules/bureau/services/sharingConsentCopy';
 
@@ -145,5 +145,13 @@ describe('BureauSharingConsent', () => {
     render(<BureauSharingConsent {...base} available={false} enabled canEdit onChange={onChange} />);
     fireEvent.click(screen.getByRole('switch'));
     expect(onChange).toHaveBeenCalledWith(false);
+  });
+
+  it('gate off but stored on: reads paused, never plain "On", and says nothing is shared', () => {
+    render(<BureauSharingConsent {...base} available={false} enabled canEdit={false} />);
+    expect(screen.getByText(SHARING_PAUSED_LABEL)).toBeTruthy();
+    expect(screen.queryByText('On')).toBeNull();
+    expect(screen.getByText(/paused .*nothing is shared/)).toBeTruthy();
+    expect(screen.queryByText(/can.t be switched on yet/)).toBeNull();
   });
 });
