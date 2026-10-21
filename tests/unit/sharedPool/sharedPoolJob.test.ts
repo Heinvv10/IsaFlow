@@ -20,7 +20,10 @@ beforeEach(() => {
   sqlMock.mockReset(); listPoolEligibleCompanyIds.mockReset(); listPoolEligibleCompanyIds.mockResolvedValue([]);
   process.env.MERCHANT_SHARING_ENABLED = 'true';
 });
-afterEach(() => { delete process.env.MERCHANT_SHARING_ENABLED; });
+const gateBefore = process.env.MERCHANT_SHARING_ENABLED;
+afterEach(() => {
+  if (gateBefore === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = gateBefore;
+});
 const published = () => sqlMock.mock.calls.filter(([s]) => (s as TemplateStringsArray).join('?').includes('shared_pool_publish'));
 
 describe('runSharedPoolAggregation', () => {
