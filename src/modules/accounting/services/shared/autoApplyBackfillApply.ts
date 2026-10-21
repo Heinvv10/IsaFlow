@@ -24,7 +24,7 @@ import { planReceiptApplication, applyReceiptPlan } from '../ar/receiptApplicati
 import { resolveSupplierAutoAllocateStrategy } from '../ap/supplierAutoAllocate';
 import { resolveCustomerAutoAllocateStrategy } from '../ar/customerAutoAllocate';
 import { sql } from '@/lib/neon';
-import { EPS, planGreedyAllocations, round2 } from './autoAllocateStrategy';
+import { EPS, invoiceFloor, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import { lockCreditNoteForUpdate } from '../ar/creditNoteLock';
 import { assertStoredDocumentSettleable } from './documentCurrency';
 import { applyCreditNote, deriveCreditNoteStatus } from './creditNoteFifo';
@@ -110,7 +110,7 @@ export async function applyOnePayment(
   const open = await fetchOpenDocuments(
     ctx.companyId, ctx.subledger, entityId, await ctx.oldestFirstFor(entityId), true,
   );
-  const allocations = planGreedyAllocations(remainder, open);
+  const allocations = planGreedyAllocations(remainder, open, invoiceFloor(isAp ? 'supplier' : 'customer'));
   if (allocations.length === 0) return [];
 
   // plan → apply, the split both application services enforce: the plan takes

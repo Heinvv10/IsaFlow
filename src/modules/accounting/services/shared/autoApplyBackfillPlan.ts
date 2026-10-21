@@ -25,7 +25,7 @@
  * `amount_paid`, status — into agreement with a GL that already carries it.
  */
 
-import { round2 } from './autoAllocateStrategy';
+import { invoiceFloor, round2 } from './autoAllocateStrategy';
 import {
   simulateSequentialApplications,
   type SimulationDocument,
@@ -270,6 +270,7 @@ export function buildBackfillPlan(args: {
     entityKey: source.skippedReason || !source.entityId ? null : source.entityId,
     cash: source.remainder,
     oldestFirst: source.entityId ? oldestFirstByEntity.get(source.entityId) ?? true : true,
+    floor: invoiceFloor(subledger === 'ap' ? 'supplier' : 'customer'),
   }));
   const simulated = new Map(
     simulateSequentialApplications(simLines, openByEntity).map((l) => [l.index, l]),
