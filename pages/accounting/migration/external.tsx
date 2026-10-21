@@ -126,8 +126,8 @@ export default function ExternalMigrationPage() {
           {/* Link to Sage-specific tools */}
           <div className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)]">
             Looking for the Sage Business Cloud migration? Use the{' '}
-            <Link href="/accounting/sage-migration" className="text-orange-400 hover:underline">
-              Sage Migration tool
+            <Link href="/accounting/migration/sage" className="text-orange-400 hover:underline">
+              Import from Sage
             </Link>
             {' '}or{' '}
             <Link href="/accounting/migration" className="text-blue-400 hover:underline">
