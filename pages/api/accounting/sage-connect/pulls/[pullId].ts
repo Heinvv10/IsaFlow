@@ -28,7 +28,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const state = await loadPullState(companyId, pullId);
   if (!state) return apiResponse.notFound(res, 'Sage review', pullId);
   const review = state.status === 'ready' && state.pull
-    ? toReview(buildSageTakeOn(state.pull, await readTakeOnContext(companyId)))
+    ? toReview(buildSageTakeOn(state.pull, await readTakeOnContext(companyId, state.pull.asAtDate)))
     : null;
   return apiResponse.success(res, pullPayload(state, review));
 }

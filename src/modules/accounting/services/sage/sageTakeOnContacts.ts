@@ -18,10 +18,12 @@
  * Fail closed on what cannot be taken on as a home-currency invoice: an
  * outstanding document that is not one of Sage's still-owed tax invoices /
  * supplier invoices (a credit note, a receipt, an opening balance — matched by
- * ID and number, see sageApiPullService), a contact in another currency, or a
- * document with an exchange rate, each blocks the import with its reason.
+ * ID and number, see sageApiPullService) is LEFT OUT with a warning naming it
+ * and its amount; a contact or document in another currency (sageCurrency,
+ * which fails closed) blocks the import.
  */
 import type { SageCustomer, SageInvoiceRef, SageOutstandingDocument, SageSupplier } from './sageApiTypes';
+import { foreignCurrency, type CurrencyRule } from './sageCurrency';
 import { formatRand, round2, type TakeOnIssue } from './sageTakeOnTypes';
 
 export type ContactKind = 'customer' | 'supplier';
@@ -110,13 +112,21 @@ const invoiceKey = (id: number, number: string | undefined) => `${id}|${(number 
 export interface ContactRules {
   /** Sage's still-owed invoices of this kind (tax invoices / supplier invoices). */
   invoices: readonly SageInvoiceRef[];
-  /** The Sage company's own currency symbol; a contact in another is refused. */
-  homeSymbol: string;
+  /** The home currency; a contact or document in another is refused. */
+  currency: CurrencyRule;
 }
 
-/** Outstanding documents that are not home-currency invoices, as blocking issues. */
-function refuseNonInvoices(
-  name: string, docs: SageOutstandingDocument[], kind: ContactKind, invoices: ReadonlySet<string>, issues: TakeOnIssue[],
+/**
+ * The outstanding documents that can be taken on as invoices. One that is not
+ * among Sage's unpaid invoices (a credit note, an unallocated receipt, an
+ * opening-balance entry) is LEFT OUT with a warning naming it and its amount
+ * (Hein, 2026-10-21): the contact's balance still decides what comes across,
+ * so a credit left out is applied to the invoices instead. A foreign-currency
+ * document blocks.
+ */
+function invoicesOnly(
+  name: string, docs: SageOutstandingDocument[], kind: ContactKind, invoices: ReadonlySet<string>,
+  homeCurrency: CurrencyRule, issues: TakeOnIssue[],
 ): SageOutstandingDocument[] {
   const area = kind === 'customer' ? 'receivables' : 'payables';
   const invoice = kind === 'customer' ? 'tax invoice' : 'supplier invoice';
@@ -124,15 +134,17 @@ function refuseNonInvoices(
   for (const d of docs) {
     const label = d.DocumentNumber?.trim() || `#${d.ID}`;
     const rate = kind === 'customer' ? d.Customer_ExchangeRate : d.Supplier_ExchangeRate;
-    if (!invoices.has(invoiceKey(d.ID, d.DocumentNumber))) {
+    const currencyId = kind === 'customer' ? d.Customer_CurrencyId : d.Supplier_CurrencyId;
+    const foreign = foreignCurrency(currencyId, null, homeCurrency);
+    if (foreign || (rate != null && Math.abs(rate - 1) > 0.000001)) {
       issues.push({
         severity: 'error', area,
-        message: `Sage lists ${label} (document type ${d.DocumentTypeId ?? 'not given'}) as outstanding for ${kind} "${name}", but it is not an unpaid ${invoice} — usually a credit note, a receipt or an opening balance that is not allocated. Allocate it in Sage, then connect again, or use the file upload for this company.`,
+        message: `${label} for ${kind} "${name}" is in a foreign currency (${foreign ?? `exchange rate ${rate}`}). Import from Sage takes on home-currency balances only; use the file upload for this company.`,
       });
-    } else if (rate != null && Math.abs(rate - 1) > 0.000001) {
+    } else if (!invoices.has(invoiceKey(d.ID, d.DocumentNumber))) {
       issues.push({
-        severity: 'error', area,
-        message: `${label} for ${kind} "${name}" is in a foreign currency (exchange rate ${rate}). Import from Sage takes on home-currency balances only; use the file upload for this company.`,
+        severity: 'warning', area,
+        message: `${label} (${formatRand(d.AmountDue)} outstanding, document type ${d.DocumentTypeId ?? 'not given'}) for ${kind} "${name}" was left out: it is not an unpaid ${invoice} in Sage — usually a credit note, an unallocated receipt or an opening balance. ${name}'s Sage balance still comes across in full; allocate the item in IsaFlow after the import.`,
       });
     } else {
       kept.push(d);
@@ -200,11 +212,11 @@ export function buildContacts(
   const docs: TakeOnDocument[] = [];
   for (const { c, name } of selected) {
     const balance = round2(c.Balance);
-    const symbol = c.CurrencySymbol?.trim();
-    if (symbol && symbol.toLowerCase() !== rules.homeSymbol.toLowerCase()) {
+    const foreign = foreignCurrency(c.CurrencyId, c.CurrencySymbol, rules.currency);
+    if (foreign) {
       issues.push({
         severity: 'error', area,
-        message: `${kind === 'customer' ? 'Customer' : 'Supplier'} "${name}" is kept in ${symbol} in Sage, not ${rules.homeSymbol}. Import from Sage takes on home-currency contacts only; use the file upload for this company.`,
+        message: `${kind === 'customer' ? 'Customer' : 'Supplier'} "${name}" is kept in ${foreign} in Sage, not ${rules.currency.homeCode}. Import from Sage takes on home-currency contacts only; use the file upload for this company.`,
       });
       continue;
     }
@@ -220,7 +232,7 @@ export function buildContacts(
       continue;
     }
     if (balance > 0.005) {
-      const open = refuseNonInvoices(name, (documents[c.ID] ?? []).filter((d) => d.AmountDue > 0.005), kind, invoices, issues);
+      const open = invoicesOnly(name, (documents[c.ID] ?? []).filter((d) => d.AmountDue > 0.005), kind, invoices, rules.currency, issues);
       docs.push(...documentsFor(name, c.ID, balance, open, kind, asAtDate));
     }
   }

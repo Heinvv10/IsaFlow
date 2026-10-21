@@ -106,7 +106,7 @@ export async function importSagePull(companyId: string, userId: string, pullId: 
   const prior = await findPriorTakeOn(companyId);
   if (prior) throw new SageImportRefused(prior);
 
-  const takeOn = buildSageTakeOn(pull, await readTakeOnContext(companyId));
+  const takeOn = buildSageTakeOn(pull, await readTakeOnContext(companyId, pull.asAtDate));
   const blocking = takeOn.issues.filter((i) => i.severity === 'error');
   if (blocking.length > 0) {
     throw new SageImportRefused('Some of the Sage data cannot be imported yet. Each item below says what to fix and where; then review again.', blocking);

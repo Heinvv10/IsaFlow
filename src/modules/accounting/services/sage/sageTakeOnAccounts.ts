@@ -83,6 +83,9 @@ export interface AccountsPart {
   controlIds: { receivable: number | null; payable: number | null };
 }
 
+/** A trial balance line's account: its code and the namespace it was found in. */
+interface Resolved { ns: 'account' | 'bank'; code: string }
+
 /** A Sage account and the id namespace it came from: the account list, or the bank list. */
 interface Placed { a: SageAccount; ns: 'account' | 'bank' }
 
@@ -182,21 +185,22 @@ export interface OpeningPart {
 }
 
 /**
- * The code a trial balance line posts to: null when it has none, undefined
+ * Where a trial balance line posts: null when it has no account, undefined
  * when the line is ambiguous (already reported). An id in both namespaces is
  * told apart by the line's AccountTypeId (3 = bank); without one it is refused
  * rather than guessed.
  */
-function codeForLine(l: SagePull['trialBalance'][number], part: AccountsPart, issues: TakeOnIssue[]): string | null | undefined {
+function codeForLine(l: SagePull['trialBalance'][number], part: AccountsPart, issues: TakeOnIssue[]): Resolved | null | undefined {
   const account = part.sageAccountCodes[l.AccountId];
   const bank = part.sageBankCodes[l.AccountId];
   if (account !== undefined && bank !== undefined) {
-    if (l.AccountTypeId === 3) return bank;
-    if (l.AccountTypeId !== undefined) return account;
+    if (l.AccountTypeId === 3) return { ns: 'bank', code: bank };
+    if (l.AccountTypeId !== undefined) return { ns: 'account', code: account };
     issues.push({ severity: 'error', area: 'trial_balance', message: `Trial balance line "${l.Name}" could be the Sage account or the bank account with the same number (${l.AccountId}); IsaFlow cannot tell which. Ask IsaFlow support before importing.` });
     return undefined;
   }
-  return account ?? bank ?? null;
+  if (account !== undefined) return { ns: 'account', code: account };
+  return bank !== undefined ? { ns: 'bank', code: bank } : null;
 }
 
 export function buildOpeningBalances(pull: SagePull, part: AccountsPart, issues: TakeOnIssue[]): OpeningPart {
@@ -211,18 +215,19 @@ export function buildOpeningBalances(pull: SagePull, part: AccountsPart, issues:
     tbDr += debit;
     tbCr += credit;
     if (debit === 0 && credit === 0) continue;
-    if (l.AccountId === part.controlIds.receivable) { receivableControl += debit - credit; continue; }
-    if (l.AccountId === part.controlIds.payable) { payableControl += credit - debit; continue; }
-    const code = codeForLine(l, part, issues);
-    if (code === undefined) continue;
-    if (code === null) {
+    const at = codeForLine(l, part, issues);
+    if (at === undefined) continue;
+    // The control holders are Sage system accounts: the ACCOUNT namespace only (R5).
+    if (at?.ns === 'account' && l.AccountId === part.controlIds.receivable) { receivableControl += debit - credit; continue; }
+    if (at?.ns === 'account' && l.AccountId === part.controlIds.payable) { payableControl += credit - debit; continue; }
+    if (at === null) {
       // L1: only an ACCOUNT issue about this very account already explains the gap.
       if (!issues.some((i) => i.area === 'accounts' && i.message.includes(`"${l.Name}"`))) {
         issues.push({ severity: 'error', area: 'trial_balance', message: `Trial balance line "${l.Name}" has no account to post to.` });
       }
       continue;
     }
-    lines.push({ accountCode: code, debit, credit });
+    lines.push({ accountCode: at.code, debit, credit });
   }
   tbDr = round2(tbDr);
   tbCr = round2(tbCr);

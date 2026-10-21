@@ -75,6 +75,14 @@ describe('the job\'s writes are fenced and scoped', () => {
     answer(() => [{ id: PULL }]);
     expect(await markPullFailed(CO, PULL, 'x')).toBe(true);
   });
+
+  it('touchPull says whether the row is still pulling, so the job can stop (R1)', async () => {
+    answer(() => []);
+    expect(await touchPull(CO, PULL)).toBe(false);
+    answer(() => [{ id: PULL }]);
+    expect(await touchPull(CO, PULL)).toBe(true);
+    expect(calls().at(-1)!.text).toMatch(/RETURNING id/);
+  });
 });
 
 describe('reading the row', () => {

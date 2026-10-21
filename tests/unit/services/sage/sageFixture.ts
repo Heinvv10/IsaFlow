@@ -10,7 +10,7 @@ import type { TakeOnContext } from '@/modules/accounting/services/sage/sageTakeO
 
 /** A company's side with no chart: ZAR, a March year, nothing closed. */
 export const emptyCompany: TakeOnContext = {
-  takenCodes: [], existingRoles: {}, homeCurrency: 'ZAR', fiscalYearStartMonth: 3, closedPeriods: [],
+  takenCodes: [], existingRoles: {}, homeCurrency: 'ZAR', fiscalYear: { startDate: '2026-03-01', endDate: '2027-02-28' }, closedPeriods: [],
 };
 
 const cat = (ID: number, Description: string) => ({ ID, Description });
@@ -81,5 +81,6 @@ export function sageFixture(): SagePull {
     // Sage's still-owed invoices: what makes an outstanding document an invoice.
     customerInvoices: [{ ID: 9001, DocumentNumber: 'INV0001' }, { ID: 9002, DocumentNumber: 'INV0002' }],
     supplierInvoices: [{ ID: 8001, DocumentNumber: 'PH-77' }],
+    currencies: [{ ID: 1, Code: 'ZAR', Symbol: 'R' }, { ID: 4, Code: 'USD', Symbol: '$' }],
   };
 }

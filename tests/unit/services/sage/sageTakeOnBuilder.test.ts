@@ -17,7 +17,7 @@ const freshCompany: TakeOnContext = {
     admin_expense: { code: '6005', name: 'Administrative Expenses', type: 'expense' },
   },
   homeCurrency: 'ZAR',
-  fiscalYearStartMonth: 3,
+  fiscalYear: { startDate: '2026-03-01', endDate: '2027-02-28' },
   closedPeriods: [],
 };
 

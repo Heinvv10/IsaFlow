@@ -39,14 +39,14 @@ function reconcile(
 export function buildSageTakeOn(pull: SagePull, ctx: TakeOnContext): SageTakeOn {
   const issues: TakeOnIssue[] = [];
   // A refused currency still builds the rest, so the review shows everything; the error blocks the import.
-  const homeSymbol = checkCurrency(pull, ctx, issues) ?? pull.company.currencySymbol ?? 'R';
+  const currency = checkCurrency(pull, ctx, issues);
   checkFinancialYear(pull, ctx, issues);
   const accounts = buildAccounts(pull, ctx, issues);
   const opening = buildOpeningBalances(pull, accounts, issues);
   const customers = buildContacts(pull.customers, pull.customerDocuments, 'customer', pull.asAtDate,
-    { invoices: pull.customerInvoices, homeSymbol }, issues);
+    { invoices: pull.customerInvoices, currency }, issues);
   const suppliers = buildContacts(pull.suppliers, pull.supplierDocuments, 'supplier', pull.asAtDate,
-    { invoices: pull.supplierInvoices, homeSymbol }, issues);
+    { invoices: pull.supplierInvoices, currency }, issues);
 
   reconcile(issues, 'receivables', opening.receivableControl, customers.documentsTotal);
   reconcile(issues, 'payables', opening.payableControl, suppliers.documentsTotal);
