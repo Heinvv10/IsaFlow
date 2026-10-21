@@ -170,6 +170,8 @@ export function useSageConnect() {
         setError(IMPORT_UNKNOWN);
       }
     } catch {
+      setImportIssues([]);
+      setOutcome(null);
       setError(IMPORT_UNKNOWN);
     } finally {
       setBusy(null);
