@@ -36,13 +36,26 @@ describe('member roles through PUT/DELETE /api/accounting/company-users', () => 
     expect(await roleOf(pool, c, p.m)).toBe('owner');
   });
 
-  it('an admin manages roles below owner, demotes a non-last owner, and changes their own role (all allowed today)', async () => {
+  it('an admin manages roles below owner and changes their own role; an owner demotes a non-last owner', async () => {
     const c = await company(pool, p, companies);
     const r = await routes(p.a, c);
     expect((await r.members('PUT', { userId: p.m, role: 'viewer' })).state.statusCode).toBe(200);
-    expect((await r.members('PUT', { userId: p.o2, role: 'admin' })).state.statusCode).toBe(200);
     expect((await r.members('PUT', { userId: p.a, role: 'manager' })).state.statusCode).toBe(200);
+    expect((await (await routes(p.o, c)).members('PUT', { userId: p.o2, role: 'admin' })).state.statusCode).toBe(200);
     expect([await roleOf(pool, c, p.m), await roleOf(pool, c, p.o2), await roleOf(pool, c, p.a)]).toEqual(['viewer', 'admin', 'manager']);
+  });
+
+  // Audit S-04 (2026-10-21): only an owner may change or remove an owner.
+  it('an admin may not demote or remove an owner, even a non-last one (403, nothing written)', async () => {
+    const c = await company(pool, p, companies);
+    const r = await routes(p.a, c);
+    const demote = await r.members('PUT', { userId: p.o2, role: 'admin' });
+    expect(demote.state.statusCode).toBe(403);
+    expect(messageOf(demote)).toBe('Only an owner can change or remove another owner.');
+    const remove = await r.members('DELETE', { userId: p.o2 });
+    expect(remove.state.statusCode).toBe(403);
+    expect(messageOf(remove)).toBe('Only an owner can change or remove another owner.');
+    expect(await roleOf(pool, c, p.o2)).toBe('owner');
   });
 
   it('removes a member; refuses removing yourself and the last owner', async () => {
@@ -50,8 +63,10 @@ describe('member roles through PUT/DELETE /api/accounting/company-users', () => 
     const r = await routes(p.a, c);
     expect((await r.members('DELETE', { userId: p.m })).state.statusCode).toBe(200);
     expect((await r.members('DELETE', { userId: p.a })).state.statusCode).toBe(400);
-    // The route answers the service's last-owner refusal as a generic 400 (as before).
-    expect((await r.members('DELETE', { userId: p.o })).state.statusCode).toBe(400);
+    // An admin never reaches the last-owner rule on an owner (S-04: 403 first);
+    // the last owner demoting themselves gets the service's refusal as a 400.
+    expect((await r.members('DELETE', { userId: p.o })).state.statusCode).toBe(403);
+    expect((await (await routes(p.o, c)).members('PUT', { userId: p.o, role: 'admin' })).state.statusCode).toBe(400);
     expect([await roleOf(pool, c, p.m), await roleOf(pool, c, p.a), await roleOf(pool, c, p.o)]).toEqual([null, 'admin', 'owner']);
   });
 });
