@@ -20,6 +20,8 @@ import { feedStateOf } from './bankFeedStateGuard';
 import { BankControlError } from './bankControlRefusal';
 import { evaluate, AUTO_POST_AGENT } from './autoPostGate';
 import type { AutoPostSource, SweepResult, SweepWarning } from './autoPostGate';
+import { recordAutoPosted, type ShownSuggestion } from './codingDecisionLog';
+import { sourceFromStrategy } from './codingDecisionOutcome';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
 // because every caller has always imported them from this file. Split out to
@@ -160,6 +162,10 @@ export async function sweep(
     let rowJournalId = '';
     try {
       const skipReason = await withSavepoint(SWEEP_ROW_SAVEPOINT, async (): Promise<string | null> => {
+        let decision: ShownSuggestion = {
+          txId: row.id, source: sourceFromStrategy(row.suggested_strategy),
+          glAccountId: row.suggested_gl_account_id, confidence,
+        };
         if (isImport) {
           const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence, triggeredBy });
           if (!res.journalEntryId) {
@@ -167,6 +173,9 @@ export async function sweep(
           }
           rowWarnings = res.warnings ?? [];
           rowJournalId = res.journalEntryId;
+          // The import path posts the history predictor's coding, not the line's suggested_* columns.
+          decision = { txId: row.id, source: 'historical', glAccountId: res.prediction.glAccountId,
+            contactId: res.prediction.supplierId, confidence: res.prediction.confidence };
         } else {
           // THE UNATTENDED POSTING BOUNDARY. `allocateTransaction` is the
           // ATTENDED path and deliberately coerces nothing — the screen warned
@@ -208,6 +217,7 @@ export async function sweep(
           UPDATE bank_transactions SET auto_post_run_id = ${id}::UUID
           WHERE id = ${row.id}::UUID AND company_id = ${companyId}::UUID
         `;
+        await recordAutoPosted(companyId, decision); // non-fatal; rolls back with this row's savepoint
         return null;
       });
       if (skipReason !== null) {

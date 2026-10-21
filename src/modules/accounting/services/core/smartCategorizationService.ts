@@ -16,6 +16,8 @@ import {
   matchFromHistoryBulk,
   learnFromAllocation,
 } from './smartCategorizationMatchingService';
+import { recordSuggestionsShown } from '../bank/codingDecisionLog';
+import { sourceFromStrategy } from '../bank/codingDecisionOutcome';
 
 export type { ConfidenceLevel, CategorizationResult, CachedRule, CachedPattern } from './smartCategorizationMatchingService';
 
@@ -172,9 +174,10 @@ export async function bulkCategorize(companyId: string,
   // 6. Bulk UPDATE all matched transactions in parallel batches of 25
   if (matched.length > 0) {
     const BATCH = 25;
+    const written = new Set<string>();
     for (let i = 0; i < matched.length; i += BATCH) {
       const batch = matched.slice(i, i + BATCH);
-      await Promise.all(batch.map(({ txId, result }) => sql`
+      const updated = await Promise.all(batch.map(({ txId, result }) => sql`
         UPDATE bank_transactions SET
           suggested_gl_account_id = COALESCE(${result.glAccountId ?? null}::UUID, suggested_gl_account_id),
           suggested_category       = COALESCE(${result.category ?? null},           suggested_category),
@@ -184,8 +187,16 @@ export async function bulkCategorize(companyId: string,
         WHERE id = ${txId}::UUID
           AND company_id = ${companyId}::UUID
           AND suggested_gl_account_id IS NULL
+        RETURNING id
       `));
+      for (const rows of updated) if (Array.isArray(rows)) for (const r of rows as Row[]) written.add(String(r.id));
     }
+    // Only the lines this run actually wrote: a line whose suggested_gl_account_id was already set (a person's
+    // saved pick, or an earlier suggestion) kept it, so ISAFlow suggested nothing new there.
+    await recordSuggestionsShown(companyId, matched.filter(({ txId }) => written.has(txId)).map(({ txId, result }) => ({
+      txId, source: sourceFromStrategy(result.matchSource), glAccountId: result.glAccountId ?? null,
+      category: result.category ?? null, confidence: result.confidence,
+    })));
   }
 
   const results = txRows.map(tx => ({

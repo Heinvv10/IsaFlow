@@ -41,6 +41,7 @@ import {
   type AllocationType,
   type SplitLine,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { recordAllocationDecision, recordAutoPostUndone, recordExcluded } from '@/modules/accounting/services/bank/codingDecisionLog';
 
 const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('match'), bankTransactionId: UUID, journalLineId: UUID, reconciliationId: UUID.optional() }),
@@ -133,14 +134,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       case 'match': {
         await assertImporterMayMatch(companyId, body.bankTransactionId, body.journalLineId, userId); // step 2: 403 pre-write
         const tx = await matchTransaction(companyId, body.bankTransactionId, body.journalLineId, body.reconciliationId);
+        await recordAllocationDecision(companyId, body.bankTransactionId, userId, { glAccountId: null, contactId: null }); // learning loop (non-fatal)
         return apiResponse.success(res, tx);
       }
       case 'unmatch': {
         const tx = await unmatchTransaction(companyId, body.bankTransactionId);
+        await recordAutoPostUndone(companyId, body.bankTransactionId, userId); // only an auto-posted line's decision moves
         return apiResponse.success(res, tx);
       }
       case 'exclude': {
         const tx = await excludeTransaction(companyId, body.bankTransactionId, body.excludeReason);
+        await recordExcluded(companyId, body.bankTransactionId, userId);
         return apiResponse.success(res, tx);
       }
       case 'auto_match': {
@@ -169,6 +173,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           { ...(body.autoApply ? { autoApply: body.autoApply } : {}), allowLateInputClaim: true },
         ));
         if (result === JOURNAL_DATE_REFUSED) return;
+        const byContact = aType === 'supplier' || aType === 'customer'; // accepted vs recoded against the open suggestion
+        await recordAllocationDecision(companyId, body.bankTransactionId, userId, { glAccountId: byContact ? null : body.contraAccountId ?? null, contactId: byContact ? body.entityId ?? null : null });
         return apiResponse.success(res, result);
       }
       case 'split_allocate': {
@@ -176,6 +182,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         const splitResult = await withJournalDateRefusal(res, () => splitAllocateTransaction(
           companyId, body.bankTransactionId, splitLines, userId, { allowLateInputClaim: true }));
         if (splitResult === JOURNAL_DATE_REFUSED) return;
+        await recordAllocationDecision(companyId, body.bankTransactionId, userId, { glAccountId: null, contactId: null }); // a split is never the one suggested target
         return apiResponse.success(res, splitResult);
       }
       case 'delete': {
@@ -243,6 +250,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
       case 'reverse': {
         if (await withJournalDateRefusal(res, () => reverseReconciledTransaction(companyId, body.bankTransactionId, userId)) === JOURNAL_DATE_REFUSED) return;
+        await recordAutoPostUndone(companyId, body.bankTransactionId, userId);
         return apiResponse.success(res, { reversed: true });
       }
     }

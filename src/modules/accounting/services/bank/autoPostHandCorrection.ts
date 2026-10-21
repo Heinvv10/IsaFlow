@@ -34,6 +34,7 @@ import { isReconciliationCompleted } from './reconciliationSessionLock';
 import { refuseLockedCash } from './reconciledCash';
 import { BankControlError } from './bankControlRefusal';
 import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
+import { recordHandCorrected } from './codingDecisionLog';
 
 /** A refusal written for the person who asked; nothing was written. */
 export class HandCorrectionRefusedError extends Error {
@@ -136,6 +137,7 @@ export async function markCorrectedByHand(
     WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
   `;
   await recordDecision(companyId, userId, HAND_CORRECTION_REASON, runId, d, j);
+  await recordHandCorrected(companyId, txId, userId); // learning loop: the auto-post was re-coded (non-fatal)
   const runClosed = await closeRunIfNothingTagged(companyId, runId, userId);
   log.info('Auto-post line marked corrected by hand — nothing posted',
     { companyId, runId, txId, offsetJournalId: j.id, runClosed }, 'auto-post-undo');
