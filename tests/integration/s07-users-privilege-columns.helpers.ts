@@ -89,9 +89,10 @@ type Route = (req: never, res: never) => Promise<unknown>;
  * user's own.
  */
 export async function callRoute(route: unknown, opts: {
-  sub: string; method: string; body?: unknown; query?: Record<string, string>; companyId?: string;
+  sub: string; method: string; body?: unknown; query?: Record<string, string>; companyId?: string; sessionId?: string;
 }): Promise<{ status: number; body: unknown }> {
-  const jar: Record<string, string> = { 'sb-access-token': await signSession(opts.sub, crypto.randomUUID(), 'aal2') };
+  const session = opts.sessionId ?? crypto.randomUUID();
+  const jar: Record<string, string> = { 'sb-access-token': await signSession(opts.sub, session, 'aal2') };
   if (opts.companyId) jar.active_company_id = opts.companyId;
   const req = request(jar, opts.method) as NextApiRequest & { body: unknown };
   req.body = opts.body ?? {};

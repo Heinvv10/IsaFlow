@@ -30,6 +30,7 @@ import { suspendUser, activateUser, resetOnboarding } from '@/modules/admin/serv
 import { updateUser } from '@/modules/admin/services/adminUserService';
 import { convertUserToBureauOwner } from '@/modules/bureau/services/bureauService';
 import { hashInviteToken } from '@/lib/auth/inviteToken';
+import { getDbPool } from '@/lib/neon';
 import { pool, asRole, inServiceContext, callRoute, userRow, urlAsRole } from './s07-users-privilege-columns.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
@@ -262,6 +263,31 @@ describe('S-07: every legitimate users writer still succeeds', () => {
       client.release();
     }
     expect(await userRow(signup)).toMatchObject({ role: 'admin', is_active: true, first_name: 'Lerato' });
+  });
+
+  it('data-subject-rights erasure refuses an impersonated session and leaves the row', async () => {
+    const session = crypto.randomUUID();
+    await pool.query(`INSERT INTO impersonation_sessions (session_id, actor_user_id, target_user_id) VALUES ($1, $2, $3)`,
+      [session, invitee, me]);
+    try {
+      const r = await callRoute(dsrRoute, { sub: me, method: 'POST', companyId: company, sessionId: session, body: { action: 'erasure' } });
+      expect(r.status).toBe(403);
+      expect((await userRow(me)).first_name).not.toBe('Anonymized');
+    } finally {
+      await pool.query('DELETE FROM impersonation_sessions WHERE session_id = $1', [session]);
+    }
+  });
+
+  it('data-subject-rights erasure answers an error, not "anonymized", when its UPDATE matched no row', async () => {
+    // What a pool role that FORCE RLS filters out would see: the write runs and matches nothing.
+    const spy = vi.spyOn(getDbPool(), 'query').mockResolvedValueOnce({ rowCount: 0, rows: [] } as never);
+    try {
+      const r = await callRoute(dsrRoute, { sub: me, method: 'POST', companyId: company, body: { action: 'erasure' } });
+      expect(String(spy.mock.calls[0]?.[0])).toMatch(/UPDATE users SET first_name = 'Anonymized'/);
+      expect(r.status).toBe(500);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('data-subject-rights erasure (withAuth; the UPDATE on the pool role) anonymises names and email', async () => {
