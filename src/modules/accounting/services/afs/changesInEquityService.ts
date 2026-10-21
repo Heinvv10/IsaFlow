@@ -5,6 +5,7 @@ import { canonicalSubtype } from '@/modules/accounting/services/gl/accountSubtyp
 import { getRetainedEarningsBroughtForward } from '@/modules/accounting/services/gl/trialBalanceBasis';
 import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { TAKE_ON_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/takeOnJournalSource';
 import { DIVIDENDS_PAID_CODE } from './noteGenerators/primaryStatements/dividendsPaid';
 
 type Row = DbRow;
@@ -36,18 +37,14 @@ export interface EquityColumn {
    */
   otherMovements: number;
   /**
-   * Balances brought into IsaFlow during the period by a take-on: journals with
-   * source = TAKE_ON_SOURCE ('auto_migration'), whose writers are pinned by
-   * tests/unit/services/afs/takeOnJournalWriterCensus.test.ts — the migration
-   * wizard's opening balances and take-on documents, the file migration's
-   * opening balances (Import from Sage posts through the wizard's), and the MCP
-   * set_opening_balance. Not the journals scripts/import-sage-britech.ts wrote
-   * before it was moved to 'auto_gl_import': those are Sage's live history,
-   * and are told apart by their 'SAGE-' entry numbers (LEGACY_LIVE_HISTORY).
-   * Without this row a take-on onto Retained Earnings (Sage's prior Retained
-   * Income, or this year's profit folded in when the years differ) read as a
-   * DIVIDEND, and one onto share capital as a share issue. An IS484 dividends
-   * account stays on the dividends row (see getChangesInEquity).
+   * Balances brought into IsaFlow during the period by a take-on journal
+   * (gl/takeOnJournalSource: wizard / file migration / Import from Sage opening
+   * balances and take-on documents, MCP set_opening_balance, and reversals of
+   * them, which copy the source and so net here). A take-on onto an IS484
+   * dividends account lands here too, in the retained-earnings column: it is a
+   * balance carried in, and the AFS SOCE leaves it out of dividends paid the
+   * same way. Without this row a take-on onto Retained Earnings read as a
+   * DIVIDEND, and one onto share capital or another equity account as a share issue.
    */
   takeOn: number;
   closing: number;
@@ -67,10 +64,6 @@ export interface ChangesInEquityReport {
   totalClosing: number;
 }
 
-/** The source every take-on / opening-balance journal carries (see EquityColumn.takeOn). */
-const TAKE_ON_SOURCE = 'auto_migration';
-/** Entry numbers of the live Sage history scripts/import-sage-britech.ts once wrote as 'auto_migration'. */
-const LEGACY_LIVE_HISTORY = 'SAGE-%';
 
 /** Column the accumulated result is reported in. */
 const RETAINED_EARNINGS = 'retained_earnings';
@@ -166,7 +159,7 @@ async function fetchMovements(
         SELECT 1 FROM afs_account_mappings am
         WHERE am.company_id = ${companyId}::UUID AND am.gl_account_id = ga.id
           AND am.afs_line_code = ${DIVIDENDS_PAID_CODE}) AS is_dividends,
-      (je.source = ${TAKE_ON_SOURCE} AND COALESCE(je.entry_number, '') NOT LIKE ${LEGACY_LIVE_HISTORY}) AS is_take_on,
+      je.source = ${TAKE_ON_JOURNAL_SOURCE} AS is_take_on,
       COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS amount
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -242,12 +235,12 @@ export async function getChangesInEquity(
     columnFor(RETAINED_EARNINGS).profitForYear += figures.period.netProfit;
 
     for (const mv of movements) {
-      // An IS484 dividends account is dividends whatever journal posted it: a
-      // take-on whose years match carries this year's dividends from Sage's year
-      // start, and the AFS SOCE (dividendsPaid.ts) counts them as paid, so this
-      // report must too. Any other take-on is a balance brought in.
-      if (mv.isDividends) columnFor(RETAINED_EARNINGS).dividends += mv.amount;
-      else if (mv.isTakeOn) columnFor(mv.subtype).takeOn += mv.amount;
+      // A take-on first, whatever account it lands on: a balance carried in
+      // (Hein, 2026-10-21), dividends included — an IS484 dividends account's in
+      // the retained-earnings column, as its opening is. The AFS SOCE leaves the
+      // same postings out of dividends paid (gl/takeOnJournalSource).
+      if (mv.isTakeOn) columnFor(mv.isDividends ? RETAINED_EARNINGS : mv.subtype).takeOn += mv.amount;
+      else if (mv.isDividends) columnFor(RETAINED_EARNINGS).dividends += mv.amount;
       else columnFor(mv.subtype)[movementRowFor(mv.subtype)] += mv.amount;
     }
 

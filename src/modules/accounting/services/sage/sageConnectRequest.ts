@@ -59,13 +59,15 @@ export function answerSageError(res: NextApiResponse, err: unknown): boolean {
 
 /** M3 / round 4: where this year's income and expenses to date land. */
 function profitAndLossNote(t: SageTakeOn): string {
+  // Hein, 2026-10-21: dividends in the take-on journal are a balance carried in, in both SOCE readers.
+  const dividends = ` Dividends paid before ${t.asAtDate} come across as a balance taken on, not as this year's dividends, so this year's annual financial statements need them from Sage.`;
   const fold = t.profitAndLossFold;
   if (fold) {
     const what = fold.profit >= 0 ? 'profit' : 'loss';
-    return `Sage's financial year started on ${t.financialYearStart}, but IsaFlow's fiscal year holding ${t.asAtDate} runs from ${fold.isaflowYearStart} to ${fold.isaflowYearEnd}. So this year's ${what} to date of ${formatRand(Math.abs(fold.profit))} (Sage, ${t.financialYearStart} to ${t.asAtDate}) goes into equity, on Retained Earnings, with the opening balances; income and expense accounts start at nil. IsaFlow will not show this year's income and expenses before ${t.asAtDate}, so IsaFlow alone cannot produce this year's annual financial statements or the ITR14 income statement: the part of the year before ${t.asAtDate} is in Sage. Keep Sage's reports for this year.`;
+    return `Sage's financial year started on ${t.financialYearStart}, but IsaFlow's fiscal year holding ${t.asAtDate} runs from ${fold.isaflowYearStart} to ${fold.isaflowYearEnd}. So this year's ${what} to date of ${formatRand(Math.abs(fold.profit))} (Sage, ${t.financialYearStart} to ${t.asAtDate}) goes into equity, on Retained Earnings, with the opening balances; income and expense accounts start at nil. IsaFlow will not show this year's income and expenses before ${t.asAtDate}, so IsaFlow alone cannot produce this year's annual financial statements or the ITR14 income statement: the part of the year before ${t.asAtDate} is in Sage. Keep Sage's reports for this year.${dividends}`;
   }
   const month = new Intl.DateTimeFormat('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${t.asAtDate}T00:00:00Z`));
-  return `Sage's trial balance runs from the start of its financial year (${t.financialYearStart}) to ${t.asAtDate}, so this year's income and expenses to date come across inside the opening-balance journal dated ${t.asAtDate}. IsaFlow's reports will show all of them in ${month}, the cut-over month, not month by month; the year's totals are right.`;
+  return `Sage's trial balance runs from the start of its financial year (${t.financialYearStart}) to ${t.asAtDate}, so this year's income and expenses to date come across inside the opening-balance journal dated ${t.asAtDate}. IsaFlow's reports will show all of them in ${month}, the cut-over month, not month by month; the year's totals are right.${dividends}`;
 }
 
 /** What the review screen shows. Contact details stay server-side; names and amounts are enough to check. */

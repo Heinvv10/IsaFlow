@@ -16,6 +16,7 @@ vi.mock('@/modules/accounting/services/gl/financialFiguresService', () => ({ get
 
 import { sql } from '@/lib/neon';
 import { getChangesInEquity } from '@/modules/accounting/services/afs/changesInEquityService';
+import { TAKE_ON_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/takeOnJournalSource';
 
 const mockSql = sql as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown[]>>;
 const arrange = (movements: unknown[]) => { mockSql.mockResolvedValueOnce([]).mockResolvedValueOnce(movements); };
@@ -61,26 +62,31 @@ describe('changes in equity: take-on postings', () => {
     arrange([]);
     await getChangesInEquity('co', '2026-01-01', '2026-12-31');
     const text = (mockSql.mock.calls[1]![0] as unknown as string[]).join('?');
-    expect(text).toMatch(/je\.source = \? AND COALESCE\(je\.entry_number, ''\) NOT LIKE \?\) AS is_take_on/);
-    expect(mockSql.mock.calls[1]).toContain('auto_migration');
-    // scripts/import-sage-britech.ts's live Sage history, written as auto_migration before: not a take-on.
-    expect(mockSql.mock.calls[1]).toContain('SAGE-%');
+    expect(text).toMatch(/je\.source = \? AS is_take_on/);
+    expect(mockSql.mock.calls[1]).toContain(TAKE_ON_JOURNAL_SOURCE);
+    // Migration 908 relabelled the Sage live history; no entry-number rule is left.
+    expect(mockSql.mock.calls[1]).not.toContain('SAGE-%');
   });
 
-  // Round 6: when the years match, Sage's TB runs from its year start, so a
-  // take-on carries this year's dividends; the AFS SOCE (dividendsPaid.ts)
-  // counts an IS484 dividends account's postings as dividends paid, and so must
-  // this report, or the two statements disagree on the same journal.
-  it('a take-on onto an IS484 dividends account stays on the dividends row, in retained earnings', async () => {
+  // Round 7 (Hein): dividends in a take-on are a balance carried in, in BOTH
+  // readers — here on the take-on row of the retained-earnings column, and left
+  // out of the AFS SOCE's dividends paid (dividendsPaid.ts, paidOnly).
+  it('a take-on onto an IS484 dividends account is a balance taken on, in retained earnings', async () => {
     arrange([
       { account_subtype: 'dividends', is_dividends: true, is_take_on: true, amount: -100000 },
       { account_subtype: 'retained_earnings', is_take_on: true, amount: 23000 },
     ]);
     const r = await getChangesInEquity('co', '2026-01-01', '2026-12-31');
     const re = r.columns.find((c) => c.subtype === 'retained_earnings')!;
-    expect(re.dividends).toBeCloseTo(-100000, 2);
-    expect(re.takeOn).toBeCloseTo(23000, 2);
+    expect(re.dividends).toBe(0);
+    expect(re.takeOn).toBeCloseTo(-77000, 2);
     expect(r.columns.map((c) => c.subtype)).not.toContain('dividends');
+  });
+
+  it('a dividend outside a take-on is still a dividend', async () => {
+    arrange([{ account_subtype: 'dividends', is_dividends: true, is_take_on: false, amount: -4000 }]);
+    const re = (await getChangesInEquity('co', '2026-01-01', '2026-12-31')).columns.find((c) => c.subtype === 'retained_earnings')!;
+    expect([re.dividends, re.takeOn]).toEqual([-4000, 0]);
   });
 
   it('names the Opening Balance Equity column, not its subtype key', async () => {
