@@ -116,6 +116,20 @@ describe('confirmCustomerInvoiceMatch', () => {
     expect(confirmReceiptMatch).not.toHaveBeenCalled();
   });
 
+  it('refuses a cent over the balance at the pre-screen (899: no tolerance), naming the cent; takes the exact balance and float noise', async () => {
+    invoice(600);
+    const over = await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600.01);
+    expect(over).toMatchObject({ ok: false, kind: 'refused' });
+    expect((over as { message: string }).message).toMatch(/R0\.01 excess/);
+    expect(validateBankReceiptApplication).not.toHaveBeenCalled();
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
+
+    invoice(600);
+    expect(await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600)).toMatchObject({ ok: true });
+    invoice(0.3);
+    expect(await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 0.1 + 0.2)).toMatchObject({ ok: true });
+  });
+
   it('refuses an invoice with nothing outstanding', async () => {
     invoice(600, 600);
     const outcome = await confirmCustomerInvoiceMatch(COMPANY, TX, INVOICE, USER, 600);

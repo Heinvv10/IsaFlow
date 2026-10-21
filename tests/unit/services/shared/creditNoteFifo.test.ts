@@ -44,23 +44,38 @@ import { applyCreditNote, deriveCreditNoteStatus } from '@/modules/accounting/se
 
 describe('deriveCreditNoteStatus', () => {
   it('is approved when nothing was consumed', () => {
-    expect(deriveCreditNoteStatus(0, 115)).toBe('approved');
+    expect(deriveCreditNoteStatus(0, 115, 'supplier')).toBe('approved');
   });
 
   it('is applied when the whole face value was consumed', () => {
-    expect(deriveCreditNoteStatus(115, 115)).toBe('applied');
+    expect(deriveCreditNoteStatus(115, 115, 'supplier')).toBe('applied');
   });
 
   it('is partially_applied between the two', () => {
-    expect(deriveCreditNoteStatus(40, 115)).toBe('partially_applied');
+    expect(deriveCreditNoteStatus(40, 115, 'supplier')).toBe('partially_applied');
   });
 
   it('treats a sub-cent remainder as fully applied', () => {
-    expect(deriveCreditNoteStatus(114.995, 115)).toBe('applied');
+    expect(deriveCreditNoteStatus(114.995, 115, 'supplier')).toBe('applied');
   });
 
   it('treats a sub-cent application as nothing applied', () => {
-    expect(deriveCreditNoteStatus(0.004, 115)).toBe('approved');
+    expect(deriveCreditNoteStatus(0.004, 115, 'supplier')).toBe('approved');
+  });
+
+  describe('side-aware floor: customer notes are exact, supplier notes keep the cent tolerance', () => {
+    it('a customer note with R0.01 unapplied is partially_applied, not applied', () => {
+      expect(deriveCreditNoteStatus(114.99, 115, 'customer')).toBe('partially_applied');
+      expect(deriveCreditNoteStatus(115, 115, 'customer')).toBe('applied');
+    });
+    it('a customer note that consumed one cent is partially_applied, not approved', () => {
+      expect(deriveCreditNoteStatus(0.01, 115, 'customer')).toBe('partially_applied');
+      expect(deriveCreditNoteStatus(0.004, 115, 'customer')).toBe('approved');
+    });
+    it('a supplier note keeps the tolerance at both ends', () => {
+      expect(deriveCreditNoteStatus(114.99, 115, 'supplier')).toBe('applied');
+      expect(deriveCreditNoteStatus(0.01, 115, 'supplier')).toBe('approved');
+    });
   });
 });
 
@@ -181,7 +196,7 @@ describe('applyCreditNote — the oldest-first walk', () => {
     expect(w.money).toEqual([[A, 40]]);
     // 60 has nowhere to go and stays on the note as on-account credit.
     expect(out.remainder).toBe(60);
-    expect(deriveCreditNoteStatus(out.appliedAmount, 100)).toBe('partially_applied');
+    expect(deriveCreditNoteStatus(out.appliedAmount, 100, 'customer')).toBe('partially_applied');
   });
 
   it('caps the LINKED document at its own balance before walking the rest', async () => {
