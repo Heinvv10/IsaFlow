@@ -130,16 +130,16 @@ function SageConnectBanner() {
   return (
     <Link
       href="/accounting/migration/sage"
-      className="flex items-center gap-4 rounded-lg border border-green-500/30 bg-green-500/5 p-5 hover:border-green-500 transition-colors"
+      className="flex flex-col gap-4 sm:flex-row sm:items-center rounded-lg border border-green-500/30 bg-green-500/5 p-5 hover:border-green-500 transition-colors"
     >
-      <span className="text-2xl" aria-hidden>☁️</span>
+      <span className="hidden sm:inline text-2xl" aria-hidden>☁️</span>
       <div className="flex-1">
         <p className="font-semibold text-[var(--ff-text-primary)]">Moving from Sage Business Cloud Accounting?</p>
         <p className="text-sm text-[var(--ff-text-secondary)]">
           Sign in to Sage and bring your accounts, customers, suppliers, balances and unpaid invoices across in one go — no spreadsheets.
         </p>
       </div>
-      <span className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white">Import from Sage</span>
+      <span className="w-full text-center sm:w-auto rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white">Import from Sage</span>
     </Link>
   );
 }

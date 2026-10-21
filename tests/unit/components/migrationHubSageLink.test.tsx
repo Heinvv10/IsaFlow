@@ -30,4 +30,16 @@ describe('migration hub: the way to Import from Sage', () => {
     const link = (await screen.findByText(/Moving from Sage Business Cloud Accounting\?/)).closest('a');
     expect(link?.getAttribute('href')).toBe('/accounting/migration/sage');
   });
+
+  // Round 5, item 6: at 375px the text was squeezed beside the button. It
+  // stacks below `sm` (text, then a full-width button) and is a row from `sm`
+  // up. jsdom has no layout, so this pins the classes; the look is a browser check.
+  it('stacks on small screens and is a row from sm up', async () => {
+    answer(null);
+    render(<MigrationHubPage />);
+    const link = (await screen.findByText(/Moving from Sage Business Cloud Accounting\?/)).closest('a')!;
+    expect(link.className.split(' ')).toEqual(expect.arrayContaining(['flex-col', 'sm:flex-row', 'sm:items-center']));
+    const button = screen.getAllByText('Import from Sage').find((n) => n.closest('a') === link)!;
+    expect(button.className.split(' ')).toEqual(expect.arrayContaining(['w-full', 'text-center', 'sm:w-auto']));
+  });
 });
