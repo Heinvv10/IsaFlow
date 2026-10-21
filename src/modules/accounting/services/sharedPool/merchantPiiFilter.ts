@@ -22,8 +22,9 @@
  *      ANYWHERE in the line — unless a known merchant token is present (MR PRICE, MR D) -> 'person_name'
  *   8. nothing but generic banking words left (PAYMENT, EFT, DEBIT ORDER, CASH, DEPOSIT…) -> 'generic'
  *   9. key shorter than MIN_KEY_LENGTH                   -> 'too_short'
- *  10. no known brand and no business word (PTY, LTD, MOTORS, PLUMBING, CAFE, HARDWARE…): two plain words
- *      may be a person's full name, so it is not kept       -> 'not_a_business'
+ *  10. no known brand, and the KEY itself (the first KEY_WORDS words left) holds no trade word (MOTORS,
+ *      PLUMBING, CAFE, HARDWARE…): two plain words may be a person's full name — and "SIPHO NDLOVU
+ *      PLUMBING" would key on the name — so it is not kept  -> 'not_a_business'
  *
  * The key is the known merchant brand when one is present (ENGEN SANDTON 1234 -> ENGEN), otherwise the
  * first KEY_WORDS words left (so a branch or suburb after the name does not fragment, or locate, a merchant).
@@ -108,17 +109,18 @@ const COMMON_FIRST_NAMES = new Set([
 ]);
 
 /**
- * Words that say the payee is a business. A line with no known brand must carry one of these (anywhere,
- * company suffixes included), or it is not kept: "NONHLANHLA MOKOENA" and "PURPLE PLUMBING" look alike to a
- * filter, and only the second has a word that names a trade. Extend with trade words, never with names.
+ * Trade words. A key with no known brand must contain one of these IN THE KEY, or it is not kept:
+ * "NONHLANHLA MOKOENA" and "PURPLE PLUMBING" look alike to a filter, and only the second names a trade.
+ * Noise and generic words never reach the key, so listing one here would do nothing (a unit test keeps
+ * the lists disjoint). Extend with trade words, never with names.
  */
-const BUSINESS_WORDS = new Set([
-  'PTY', 'LTD', 'CC', 'INC', 'NPC', 'NPO', 'HOLDINGS', 'TRADING', 'ENTERPRISES', 'GROUP', 'COMPANY', 'CORP',
+export const BUSINESS_WORDS: ReadonlySet<string> = new Set([
+  'HOLDINGS', 'TRADING', 'ENTERPRISES', 'GROUP', 'COMPANY', 'CORP',
   'MOTORS', 'MOTOR', 'AUTO', 'AUTOMOTIVE', 'GARAGE', 'TYRES', 'SPARES', 'PARTS', 'PANELBEATERS', 'CARS',
   'PLUMBING', 'PLUMBERS', 'ELECTRICAL', 'ELECTRICIANS', 'HARDWARE', 'BUILDERS', 'CONSTRUCTION', 'ENGINEERING',
   'TIMBER', 'STEEL', 'CEMENT', 'GLASS', 'PAINT', 'PAINTS', 'TOOLS', 'EQUIPMENT', 'MACHINERY', 'PLANT', 'HIRE', 'RENTALS',
   'SUPPLIES', 'SUPPLY', 'SUPPLIERS', 'DISTRIBUTORS', 'WHOLESALE', 'WHOLESALERS', 'TRADERS', 'IMPORTS', 'EXPORTS',
-  'SERVICES', 'SOLUTIONS', 'CONSULTING', 'CONSULTANTS', 'AGENCY', 'AGENCIES', 'BROKERS', 'ATTORNEYS', 'ACCOUNTANTS',
+  'SOLUTIONS', 'CONSULTING', 'CONSULTANTS', 'AGENCY', 'AGENCIES', 'BROKERS', 'ATTORNEYS', 'ACCOUNTANTS',
   'AUDITORS', 'ADVISORY', 'PARTNERS', 'ASSOCIATES',
   'CAFE', 'COFFEE', 'RESTAURANT', 'BISTRO', 'GRILL', 'PIZZA', 'PIZZERIA', 'KITCHEN', 'BAKERY', 'BUTCHERY', 'FOODS',
   'FOOD', 'MEAT', 'FRESH', 'PRODUCE', 'MARKET', 'SUPERMARKET', 'STORE', 'STORES', 'SHOP', 'SHOPS', 'BOUTIQUE',
@@ -130,7 +132,7 @@ const BUSINESS_WORDS = new Set([
   'TRANSPORT', 'TRAVEL', 'TOURS', 'AIRWAYS', 'AIRLINES', 'AIRPORT', 'PARKING', 'TOLL', 'FUEL', 'PETROLEUM', 'OIL', 'GAS',
   'INSURANCE', 'ASSURANCE', 'FINANCE', 'FINANCIAL', 'CAPITAL', 'INVESTMENTS', 'BANK', 'PROPERTIES', 'PROPERTY', 'ESTATES',
   'MUNICIPALITY', 'MUNICIPAL', 'METRO', 'COUNCIL', 'WATER', 'ELECTRICITY', 'POWER', 'ENERGY', 'SOLAR', 'TELECOM',
-  'TELECOMS', 'COMMUNICATIONS', 'INTERNET', 'NETWORKS', 'WIFI', 'FIBRE', 'FIBER', 'DATA', 'HOSTING', 'CLOUD',
+  'TELECOMS', 'COMMUNICATIONS', 'NETWORKS', 'WIFI', 'FIBRE', 'FIBER', 'DATA', 'HOSTING', 'CLOUD',
   'ELECTRONICS', 'COMPUTERS', 'COMPUTER', 'TECH', 'TECHNOLOGIES', 'TECHNOLOGY', 'SYSTEMS', 'SOFTWARE', 'DIGITAL',
   'MEDIA', 'ADVERTISING', 'MARKETING', 'DESIGN', 'STUDIO', 'STUDIOS', 'PHOTOGRAPHY', 'SALON', 'SPA', 'BARBER', 'GYM',
   'FITNESS', 'SPORTS', 'OUTDOOR', 'PETS', 'SCHOOL', 'COLLEGE', 'UNIVERSITY', 'ACADEMY', 'INSTITUTE', 'CHURCH',
@@ -138,7 +140,7 @@ const BUSINESS_WORDS = new Set([
 ]);
 
 /** Banking / card / reference noise: dropped before the key is formed. */
-const NOISE_TOKENS = new Set([
+export const NOISE_TOKENS: ReadonlySet<string> = new Set([
   'POS', 'PURCHASE', 'PURCH', 'CARD', 'CRD', 'DEBIT', 'CREDIT', 'ORDER', 'DO', 'REF', 'REFERENCE', 'INV', 'INVOICE',
   'PMT', 'PYMT', 'PAYMENT', 'MAGTAPE', 'ACB', 'NAEDO', 'EFT', 'IB', 'APP', 'ONLINE', 'INTERNET', 'BANKING', 'CHEQUE',
   'TXN', 'TRAN', 'TRANS', 'AUTH', 'NO', 'NR', 'NUM', 'ACC', 'ACCOUNT', 'ACCT', 'XXXX', 'ZA', 'ZAF', 'RSA', 'SA',
@@ -148,7 +150,7 @@ const NOISE_TOKENS = new Set([
 ]);
 
 /** Words that say nothing about WHO was paid: a line left with only these is rejected. */
-const GENERIC_TOKENS = new Set([
+export const GENERIC_TOKENS: ReadonlySet<string> = new Set([
   'CASH', 'DEPOSIT', 'WITHDRAWAL', 'ATM', 'FEE', 'FEES', 'CHARGE', 'CHARGES', 'SERVICE', 'SERVICES', 'MONTHLY',
   'ADMIN', 'INTEREST', 'RETURNED', 'REVERSAL', 'UNPAID', 'DISHONOURED', 'STOP', 'IMMEDIATE', 'REAL', 'TIME',
   'RECEIVED', 'RECEIPT', 'INWARD', 'OUTWARD', 'SWIFT', 'FOREX', 'RTC', 'VAT', 'SUNDRY', 'MISC', 'OTHER', 'GENERAL',
@@ -225,7 +227,7 @@ export function filterMerchant(raw: unknown): MerchantFilterResult {
   if (brand) return { ok: true, merchant: brand };
   const merchant = meaningful.slice(0, KEY_WORDS).join(' ');
   if (merchant.length < MIN_KEY_LENGTH) return reject('too_short');
-  if (!allWords.some((w) => BUSINESS_WORDS.has(w))) return reject('not_a_business');
+  if (!meaningful.slice(0, KEY_WORDS).some((w) => BUSINESS_WORDS.has(w))) return reject('not_a_business');
   return { ok: true, merchant };
 }
 
