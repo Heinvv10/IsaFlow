@@ -26,8 +26,8 @@ export interface CategoryMappingView {
   mapping: { glAccountId: string; accountCode: string | null; accountName: string; source: 'manual' | 'auto' } | null;
 }
 
+/** A refused mapping save (unknown category, or not this company's active account). The route answers 400. */
 export class CategoryMappingRefusal extends Error {
-  readonly code = 'CATEGORY_MAPPING_REFUSED';
   constructor(message: string) {
     super(message);
     this.name = 'CategoryMappingRefusal';
