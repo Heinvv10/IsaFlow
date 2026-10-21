@@ -11,7 +11,7 @@ import { SageImportRefused } from '@/modules/accounting/services/sage/sageTakeOn
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageFixture } from '../unit/services/sage/sageFixture';
 import {
-  books, importAsRoute, inRolledBackCompany as inCompany, storeReady,
+  balanceOf, importAsRoute, inRolledBackCompany as inCompany, storeReady,
 } from './sage-connect-takeon.helpers';
 
 assertDisposable();
@@ -20,16 +20,22 @@ afterAll(() => pool.end());
 const inRolledBackCompany = (fn: Parameters<typeof inCompany>[1], yearStart?: string | null) => inCompany(pool, fn, yearStart);
 
 describe('R2: the fiscal year comes from fiscal_periods', () => {
-  it('a company whose periods run January to December is refused, naming both starts (companies.financial_year_start says 3)', async () => {
+  // Round 4 (Hein): periods January to December against Sage's March year is
+  // taken on balance-sheet-only, not refused. Fixture: profit to date 38 000
+  // (income 60 000 - bank charges 2 000 - rent 20 000); Sage's Retained Income
+  // is a debit of 15 000, so Retained Earnings ends at a credit of 23 000.
+  it('a company whose periods run January to December is taken on balance-sheet-only: profit to date into Retained Earnings', async () => {
     await inRolledBackCompany(async (c, companyId, userId) => {
       const pullId = await storeReady(companyId, userId, sageFixture());
-      const before = await books(c, companyId);
-      const err = await importAsRoute(companyId, userId, pullId).then(() => null, (e: unknown) => e);
-      expect(err).toBeInstanceOf(SageImportRefused);
-      expect((err as SageImportRefused).issues).toContainEqual(expect.objectContaining({
-        area: 'company', message: expect.stringMatching(/2026-03-01.*2026-01-01 to 2026-12-31/),
-      }));
-      expect(await books(c, companyId)).toEqual(before);
+      const outcome = await importAsRoute(companyId, userId, pullId);
+      expect(outcome.sessionId).toBeTruthy();
+
+      expect(await balanceOf(c, companyId, 'true')).toBeCloseTo(0, 2); // the ledger balances
+      expect(await balanceOf(c, companyId, "a.account_type IN ('revenue', 'expense')")).toBeCloseTo(0, 2); // no P&L before cut-over
+      expect(await balanceOf(c, companyId, "a.account_subtype = 'retained_earnings' AND a.is_system_account")).toBeCloseTo(15000 - 38000, 2);
+      expect(await balanceOf(c, companyId, "a.account_name = 'Bank - Cheque'")).toBeCloseTo(50000, 2);
+      expect(await balanceOf(c, companyId, "a.account_subtype = 'receivable' AND a.is_system_account")).toBeCloseTo(30000, 2);
+      expect(await balanceOf(c, companyId, "a.account_subtype = 'opening_balance_equity'")).toBeCloseTo(2000, 2);
     }, '2026-01-01');
   });
 

@@ -61,6 +61,12 @@ export interface SageTakeOn {
   asAtDate: string;
   /** Sage's current financial year start: the trial balance's P&L lines are its activity from here to asAtDate. */
   financialYearStart: string;
+  /**
+   * Set when the years start on different days: the P&L lines were folded into
+   * Retained Earnings (sageTakeOnFold); `profit` is this year's profit to date
+   * (negative for a loss). Null when they came across as they are.
+   */
+  profitAndLossFold: { profit: number; isaflowYearStart: string; isaflowYearEnd: string } | null;
   accounts: AccountImportRow[];
   systemAccountMap: SystemAccountMap;
   /** Sage account id → the IsaFlow code it was given. */

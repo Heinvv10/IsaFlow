@@ -36,10 +36,29 @@ describe('M1: only invoices are taken on as invoices; anything else is left out 
     expect(w).toMatchObject({ severity: 'warning', area: 'receivables' });
     expect(w.message).toMatch(/R500\D00/);
     expect(w.message).toContain('Bright Billboards');
+    // Round 4: its effect is already in the balance that comes across; capturing it again double-counts.
+    expect(w.message).toMatch(/already included in Bright Billboards's Sage balance/);
+    expect(w.message).toMatch(/do not capture it again/i);
+    expect(w.message).not.toMatch(/allocate (it|the item)/i);
     expect(t.arInvoices.map((i) => i.invoiceNumber)).not.toContain('CRN0001');
     // The balance still decides: Bright Billboards owes R20 000, so the invoices still carry exactly that.
     const owed = t.arInvoices.filter((i) => i.customerName === 'Bright Billboards').reduce((s, i) => s + i.totalAmount - i.amountPaid, 0);
     expect(owed).toBeCloseTo(20000, 2);
+  });
+
+  // Round 4: a document Sage lists with nothing (or less than nothing) due was
+  // dropped silently; it is named like any other left-out document.
+  it.each([['a negative amount due (a credit)', -500], ['nothing due', 0]])('names a document with %s, even one on the invoice list', (_n, due) => {
+    const p = sageFixture();
+    p.customerDocuments[11]!.push({ ID: 9300, DocumentNumber: 'INV0009', Date: '2026-08-01', Total: 12000, AmountDue: due });
+    p.customerInvoices.push({ ID: 9300, DocumentNumber: 'INV0009' });
+    p.customerDocuments[11]!.push({ ID: 9200, DocumentNumber: 'RC-9', Date: '2026-09-20', Total: 500, AmountDue: due });
+    const t = buildSageTakeOn(p, emptyCompany);
+    expect(t.arInvoices.map((i) => i.invoiceNumber)).not.toContain('INV0009');
+    for (const n of ['RC-9', 'INV0009']) {
+      expect(t.issues).toContainEqual(expect.objectContaining({ severity: 'warning', area: 'receivables', message: expect.stringMatching(new RegExp(`^${n} .*already included`)) }));
+    }
+    expect(t.arInvoices.filter((i) => i.customerName === 'Bright Billboards').reduce((x, i) => x + i.totalAmount - i.amountPaid, 0)).toBeCloseTo(20000, 2);
   });
 
   it('matches on id AND number: an invoice id with another number is left out, and the balance comes forward instead', () => {
@@ -103,6 +122,12 @@ describe('R8: a contact\'s CurrencyId', () => {
     expect(withCustomer({ CurrencyId: 1 }, null)).toContainEqual(expect.objectContaining({ area: 'customers' }));
   });
 
+  it('a single-currency company (empty list): null and 0 pass, any other id still fails closed', () => {
+    expect(withCustomer({ CurrencyId: null }, [])).toEqual([]);
+    expect(withCustomer({ CurrencyId: 0 }, [])).toEqual([]);
+    expect(withCustomer({ CurrencyId: 1 }, [])).toContainEqual(expect.objectContaining({ area: 'customers', message: expect.stringContaining('could not identify') }));
+  });
+
   it('a document\'s own currency id is read too', () => {
     const p = sageFixture();
     p.supplierDocuments[21]![0]!.Supplier_CurrencyId = 4;
@@ -114,14 +139,47 @@ describe('R8: a contact\'s CurrencyId', () => {
 // holds the cut-over date), not companies.financial_year_start, which every
 // company declares as 3 while its periods start on 1 January.
 describe('M3 / R2: the financial year', () => {
-  it('blocks when IsaFlow\'s fiscal year holding the cut-over date starts on another day than Sage\'s', () => {
-    const e = errors({ ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } });
-    expect(e).toContainEqual(expect.objectContaining({ area: 'company', message: expect.stringMatching(/2026-03-01.*2026-01-01/) }));
+  // Round 4 (Hein): a different year start no longer blocks. The opening TB is
+  // taken on balance-sheet-only: this year's Sage profit to date goes into
+  // Retained Earnings at the cut-over date, so IsaFlow shows no P&L before it.
+  // Fixture: income 60 000, bank charges 2 000, rent 20 000 => profit 38 000;
+  // Sage's Retained Income is a debit of 15 000.
+  const janDec = { ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } };
+  const typeOf = (t: ReturnType<typeof buildSageTakeOn>, code: string) => t.accounts.find((a) => a.accountCode === code)?.accountType;
+
+  it('a different year start does not block: the P&L to date folds into Retained Earnings and the TB still balances', () => {
+    expect(errors(janDec)).toEqual([]);
+    const t = buildSageTakeOn(sageFixture(), janDec);
+    expect(t.openingBalances.filter((b) => ['revenue', 'expense'].includes(typeOf(t, b.accountCode) ?? ''))).toEqual([]);
+    const re = t.openingBalances.filter((b) => b.accountCode === t.systemAccountMap.retained_earnings);
+    expect(re).toHaveLength(1);
+    expect(re[0]!.credit - re[0]!.debit).toBeCloseTo(23000, 2); // prior equity -15 000 + profit 38 000
+    const dr = t.openingBalances.reduce((x, b) => x + b.debit, 0) + t.openingBalanceClearing.debit;
+    const cr = t.openingBalances.reduce((x, b) => x + b.credit, 0) + t.openingBalanceClearing.credit;
+    expect(dr).toBeCloseTo(cr, 2);
+    expect(t.openingBalanceClearing).toEqual(buildSageTakeOn(sageFixture(), emptyCompany).openingBalanceClearing);
+    expect(t.profitAndLossFold).toEqual({ profit: 38000, isaflowYearStart: '2026-01-01', isaflowYearEnd: '2026-12-31' });
+  });
+
+  it('a loss to date folds the same way', () => {
+    const p = sageFixture();
+    p.trialBalance.find((l) => l.AccountId === 2003)!.Debit = 70000; // rent 70 000: a loss of 12 000
+    p.trialBalance.find((l) => l.AccountId === 2005)!.Credit = 59000; // keep Sage's TB balanced
+    const t = buildSageTakeOn(p, janDec);
+    expect(t.profitAndLossFold?.profit).toBeCloseTo(-12000, 2);
+    const re = t.openingBalances.find((b) => b.accountCode === t.systemAccountMap.retained_earnings)!;
+    expect(re.debit - re.credit).toBeCloseTo(27000, 2); // debit 15 000 + loss 12 000
+  });
+
+  it('when the years match, the P&L lines come across as before and nothing is folded', () => {
+    const t = buildSageTakeOn(sageFixture(), emptyCompany);
+    expect(t.profitAndLossFold).toBeNull();
+    expect(t.openingBalances.some((b) => typeOf(t, b.accountCode) === 'revenue')).toBe(true);
   });
 
   it('blocks, with what to do, when IsaFlow has no fiscal period for the cut-over date', () => {
     const e = errors({ ...emptyCompany, fiscalYear: null });
-    expect(e).toContainEqual(expect.objectContaining({ area: 'company', message: expect.stringMatching(/no fiscal period covering 2026-10-21.*Fiscal Periods.*2026-03-01/) }));
+    expect(e).toContainEqual(expect.objectContaining({ area: 'company', message: expect.stringMatching(/no fiscal period covering 2026-10-21.*Create the financial year that holds 2026-10-21 under Accounting → Fiscal Periods/) }));
   });
 
   it('passes when both years start on the same day', () => {

@@ -73,6 +73,12 @@ describe('the review', () => {
     expect(review.profitAndLossNote).toMatch(/October 2026/);
   });
 
+  it('with the years apart, the note says this year\'s profit to date goes into equity', () => {
+    const folded = toReview(buildSageTakeOn(sageFixture(), { ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } }));
+    expect(folded.profitAndLossNote).toMatch(/profit to date of R38\D000\D00 .*Retained Earnings/);
+    expect(folded.profitAndLossNote).toMatch(/will not show this year's income and expenses before 2026-10-21/);
+  });
+
   it('the poll and start answers carry the row state', () => {
     expect(startedPayload('p')).toEqual({ pullId: 'p', status: 'pulling' });
     expect(pullPayload({ id: 'p', status: 'ready', progress: null, error: null, pull: null }, review)).toMatchObject({ pullId: 'p', status: 'ready', review });

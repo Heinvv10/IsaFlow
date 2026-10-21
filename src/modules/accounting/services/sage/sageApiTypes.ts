@@ -148,6 +148,6 @@ export interface SagePull {
   /** Tax invoices / supplier invoices with AmountDue > 0; read only when some contact carries a balance. */
   customerInvoices: SageInvoiceRef[];
   supplierInvoices: SageInvoiceRef[];
-  /** Currency/Get, or null when this Sage build does not answer it (then any CurrencyId set blocks). */
+  /** Currency/Get: [] for a single-currency company (403/404), null when unreadable; either way a CurrencyId it lacks blocks. */
   currencies: SageCurrency[] | null;
 }

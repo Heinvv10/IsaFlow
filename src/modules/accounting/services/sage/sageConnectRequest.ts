@@ -8,7 +8,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { createSageApiClient, SageApiError, type SageApiClient } from './sageApiClient';
 import type { SageCompanySummary } from './sageApiTypes';
 import type { PullState, PullStatus } from './sageTakeOnStore';
-import type { SageTakeOn } from './sageTakeOnTypes';
+import { formatRand, type SageTakeOn } from './sageTakeOnTypes';
 
 /** IsaFlow's Sage vendor key, from the server environment. */
 export function sageApiKey(): string {
@@ -57,8 +57,13 @@ export function answerSageError(res: NextApiResponse, err: unknown): boolean {
   return true;
 }
 
-/** M3: the year's income and expenses to date arrive as one journal on the cut-over date. */
+/** M3 / round 4: where this year's income and expenses to date land. */
 function profitAndLossNote(t: SageTakeOn): string {
+  const fold = t.profitAndLossFold;
+  if (fold) {
+    const what = fold.profit >= 0 ? 'profit' : 'loss';
+    return `Sage's financial year started on ${t.financialYearStart}, but IsaFlow's fiscal year holding ${t.asAtDate} runs from ${fold.isaflowYearStart} to ${fold.isaflowYearEnd}. So this year's ${what} to date of ${formatRand(Math.abs(fold.profit))} (Sage, ${t.financialYearStart} to ${t.asAtDate}) goes into equity, on Retained Earnings, with the opening balances; income and expense accounts start at nil. IsaFlow will not show this year's income and expenses before ${t.asAtDate}.`;
+  }
   const month = new Intl.DateTimeFormat('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${t.asAtDate}T00:00:00Z`));
   return `Sage's trial balance runs from the start of its financial year (${t.financialYearStart}) to ${t.asAtDate}, so this year's income and expenses to date come across inside the opening-balance journal dated ${t.asAtDate}. IsaFlow's reports will show all of them in ${month}, the cut-over month, not month by month; the year's totals are right.`;
 }

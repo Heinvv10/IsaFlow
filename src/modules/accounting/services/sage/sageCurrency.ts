@@ -9,9 +9,10 @@
  *   - a symbol that is not the home symbol is foreign;
  *   - no id (null / 0) is home;
  *   - an id Currency/Get resolves is foreign unless its code is the home code;
- *   - an id that cannot be resolved (not in the list, or the list could not be
- *     read) is treated as foreign: the import blocks rather than take a
- *     foreign balance on as rand.
+ *   - an id that cannot be resolved (not in the list — including the EMPTY list
+ *     of a single-currency company, whose Currency/Get answers 403/404 — or
+ *     the list could not be read) is treated as foreign: the import blocks
+ *     rather than take a foreign balance on as rand.
  */
 import type { SageCurrency } from './sageApiTypes';
 

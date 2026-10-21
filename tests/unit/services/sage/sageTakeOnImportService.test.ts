@@ -101,6 +101,18 @@ describe('M6: a review past its TTL', () => {
     });
 });
 
+describe('round 4: the size caps are checked again at import', () => {
+  it('a ready review stored under older, larger caps is refused before any write', async () => {
+    const p = sageFixture();
+    p.customers = Array.from({ length: 2001 }, (_, i) => ({ ID: 100 + i, Name: `C${i}`, Active: true, Balance: 0 }));
+    m.loadPullForImport.mockResolvedValue({ id: 'p', status: 'ready', pull: p, expired: false });
+    const err = await refusal();
+    expect(err).toBeInstanceOf(SageImportRefused);
+    expect((err as Error).message).toMatch(/Migration Wizard/);
+    expect(m.createSession).not.toHaveBeenCalled();
+  });
+});
+
 describe('M5: exact contacts on the Sage path', () => {
   it('imports contacts with exact matching and hands each document its contact\'s id', async () => {
     await importSagePull(CO, 'u', 'p');
@@ -143,7 +155,7 @@ describe('M7 / H3: all or nothing', () => {
   });
 
   it('a blocking review issue refuses before any write', async () => {
-    m.readTakeOnContext.mockResolvedValue({ ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } });
+    m.readTakeOnContext.mockResolvedValue({ ...emptyCompany, fiscalYear: null });
     expect(await refusal()).toBeInstanceOf(SageImportRefused);
     expect(m.createSession).not.toHaveBeenCalled();
   });

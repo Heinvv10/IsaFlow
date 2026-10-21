@@ -108,10 +108,27 @@ describe('pullSageCompany', () => {
   });
 
   // R8: the contact's CurrencyId means nothing without Sage's currency list.
-  it('reads the currency list, and gives null where this Sage build has none', async () => {
+  it('reads the currency list', async () => {
     expect((await pullSageCompany(fakeClient().client, 9, '2026-10-21')).currencies).toEqual([{ ID: 4, Code: 'USD', Symbol: '$' }]);
-    const { client } = fakeClient({ 'Currency/Get': new SageApiError('bad_response', 404) });
-    expect((await pullSageCompany(client, 9, '2026-10-21')).currencies).toBeNull();
+  });
+
+  // Round 4: a company without multi-currency answers Currency/Get with 403 or
+  // 404. That is a single-currency company (no currencies set up), not a failed read.
+  it.each([['403', new SageApiError('forbidden', 403)], ['404', new SageApiError('bad_response', 404)]])(
+    'a %s from Currency/Get is a single-currency company: an empty list, and the read goes on', async (_n, err) => {
+      const pull = await pullSageCompany(fakeClient({ 'Currency/Get': err }).client, 9, '2026-10-21');
+      expect(pull.currencies).toEqual([]);
+      expect(pull.customers).toHaveLength(2);
+    });
+
+  it('an answer it cannot read leaves the list unknown (null)', async () => {
+    const pull = await pullSageCompany(fakeClient({ 'Currency/Get': new SageApiError('bad_response', 400) }).client, 9, '2026-10-21');
+    expect(pull.currencies).toBeNull();
+  });
+
+  it('a 5xx from Currency/Get still fails the read', async () => {
+    await expect(pullSageCompany(fakeClient({ 'Currency/Get': new SageApiError('unavailable', 503) }).client, 9, '2026-10-21'))
+      .rejects.toMatchObject({ kind: 'unavailable' });
   });
 
   it('does not swallow a real failure of the currency list', async () => {
@@ -132,5 +149,14 @@ describe('pullSageCompany', () => {
     expect((err as Error).message).toMatch(/Migration Wizard/);
     expect(MAX_OUTSTANDING_INVOICES).toBeLessThanOrEqual(300);
     expect(MAX_CONTACTS_WITH_BALANCES).toBeLessThanOrEqual(300);
+  });
+
+  // Round 4: every active contact is imported, not only those owing, so the
+  // total is capped too, before a single document is read.
+  it('refuses more contacts than one import takes, balance or not, before reading any document', async () => {
+    const many = Array.from({ length: 2001 }, (_, i) => ({ ID: i + 1, Name: `C${i}`, Active: true, Balance: 0 }));
+    const { client, calls } = fakeClient({ 'Customer/Get': many });
+    await expect(pullSageCompany(client, 9, '2026-10-21')).rejects.toThrow(/customers and suppliers.*Migration Wizard/);
+    expect(calls.some((c) => c.path.includes('Outstanding') || c.path.endsWith('Invoice/Get'))).toBe(false);
   });
 });
