@@ -23,7 +23,7 @@ export interface OpeningBalanceRow {
 }
 
 /** The description every opening-balance entry carries; also how a re-run finds its own. */
-const OPENING_BALANCE_DESCRIPTION = 'Opening balances — migration import';
+export const OPENING_BALANCE_DESCRIPTION = 'Opening balances — migration import';
 
 /**
  * Reverse the entry a previous run of this step posted for this session.

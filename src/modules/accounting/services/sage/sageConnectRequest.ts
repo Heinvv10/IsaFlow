@@ -7,7 +7,7 @@ import type { NextApiResponse } from 'next';
 import { apiResponse } from '@/lib/apiResponse';
 import { createSageApiClient, SageApiError, type SageApiClient } from './sageApiClient';
 import type { SageCompanySummary } from './sageApiTypes';
-import type { TakeOnSummary } from './sageTakeOnStore';
+import type { PullState, PullStatus } from './sageTakeOnStore';
 import type { SageTakeOn } from './sageTakeOnTypes';
 
 /** IsaFlow's Sage vendor key, from the server environment. */
@@ -19,8 +19,17 @@ export function sageConnectAvailable(): boolean {
   return sageApiKey().length > 0;
 }
 
-/** What /status answers. */
-export const statusPayload = () => ({ available: sageConnectAvailable() });
+/**
+ * What /status answers: whether the connection is on, the company's review in
+ * progress or waiting (the page resumes it), and why the company cannot take
+ * another Sage take-on, if it cannot.
+ */
+export const statusPayload = (
+  open: { pullId: string; status: PullStatus } | null, priorTakeOn: string | null,
+) => ({ available: sageConnectAvailable(), open, priorTakeOn });
+
+/** What the review request answers: the read runs in the background; poll /pulls/{pullId}. */
+export const startedPayload = (pullId: string) => ({ pullId, status: 'pulling' as PullStatus });
 
 /** What /discard answers. */
 export const discardPayload = () => ({ discarded: true as const });
@@ -48,6 +57,12 @@ export function answerSageError(res: NextApiResponse, err: unknown): boolean {
   return true;
 }
 
+/** M3: the year's income and expenses to date arrive as one journal on the cut-over date. */
+function profitAndLossNote(t: SageTakeOn): string {
+  const month = new Intl.DateTimeFormat('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${t.asAtDate}T00:00:00Z`));
+  return `Sage's trial balance runs from the start of its financial year (${t.financialYearStart}) to ${t.asAtDate}, so this year's income and expenses to date come across inside the opening-balance journal dated ${t.asAtDate}. IsaFlow's reports will show all of them in ${month}, the cut-over month, not month by month; the year's totals are right.`;
+}
+
 /** What the review screen shows. Contact details stay server-side; names and amounts are enough to check. */
 export function toReview(t: SageTakeOn) {
   const nameOf = new Map(t.accounts.map((a) => [a.accountCode, a.accountName]));
@@ -55,6 +70,8 @@ export function toReview(t: SageTakeOn) {
   return {
     sageCompany: t.sageCompany,
     asAtDate: t.asAtDate,
+    financialYearStart: t.financialYearStart,
+    profitAndLossNote: profitAndLossNote(t),
     issues: t.issues,
     totals: t.totals,
     accounts: t.accounts.map((a) => ({ code: a.accountCode, name: a.accountName, type: a.accountType })),
@@ -80,7 +97,7 @@ export function toCompanyOptions(companies: SageCompanySummary[]) {
   };
 }
 
-/** What /preview answers. */
-export function previewPayload(pullId: string, takeOn: SageTakeOn, summary: TakeOnSummary) {
-  return { pullId, summary, review: toReview(takeOn) };
+/** What /pulls/{pullId} answers: the row's state, and the review once it is ready. */
+export function pullPayload(state: PullState, review: SageReview | null) {
+  return { pullId: state.id, status: state.status, progress: state.progress, error: state.error, review };
 }

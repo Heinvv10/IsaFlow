@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { pullSageCompany, MAX_CONTACTS_WITH_BALANCES } from '@/modules/accounting/services/sage/sageApiPullService';
+import { pullSageCompany, MAX_CONTACTS_WITH_BALANCES, MAX_OUTSTANDING_INVOICES } from '@/modules/accounting/services/sage/sageApiPullService';
 import { SageApiError, type SageApiClient, type SageCompanyClient } from '@/modules/accounting/services/sage/sageApiClient';
 
 function fakeClient(over: Partial<Record<string, unknown>> = {}) {
   const calls: { method: string; path: string; body?: unknown }[] = [];
   const data: Record<string, unknown> = {
-    'Company/Get/9': { ID: 9, Name: 'Acme' },
+    'Company/Get/9': { ID: 9, Name: 'Acme', CurrencySymbol: 'R' },
     'FinancialYear/GetCurrent': { ID: 1, YearStart: '2026-03-01T00:00:00', YearEnd: '2027-02-28T00:00:00', IsCurrentYear: true },
     'Account/GetWithSystemAccounts': [{ ID: -7, Name: 'Trade Receivables', Active: true, AccountType: 2 }],
     'Account/Get': [{ ID: 5, Name: 'Rent', Active: true, AccountType: 1 }, { ID: -7, Name: 'Trade Receivables', Active: true, AccountType: 2 }],
@@ -15,6 +15,8 @@ function fakeClient(over: Partial<Record<string, unknown>> = {}) {
     'Supplier/Get': [{ ID: 3, Name: 'S', Active: true, Balance: 40 }, { ID: 4, Name: 'Overpaid', Active: true, Balance: -5 }],
     'OutstandingCustomerDocument/Get': { TotalResults: 1, ReturnedResults: 1, Results: [{ ID: 10, DocumentNumber: 'INV1', Date: '2026-09-01', Total: 100, AmountDue: 100 }] },
     'OutstandingSupplierDocument/Get': [],
+    'TaxInvoice/Get': [{ ID: 10, DocumentNumber: 'INV1', AmountDue: 100, Total: 100 }],
+    'SupplierInvoice/Get': [],
     ...over,
   };
   const answer = (path: string) => {
@@ -25,7 +27,7 @@ function fakeClient(over: Partial<Record<string, unknown>> = {}) {
   const company: SageCompanyClient = {
     get: async <T,>(path: string) => { calls.push({ method: 'GET', path }); return answer(path) as T; },
     post: async <T,>(path: string, body: unknown) => { calls.push({ method: 'POST', path, body }); return answer(path) as T; },
-    getAll: async <T,>(path: string) => { calls.push({ method: 'GETALL', path }); return answer(path) as T[]; },
+    getAll: async <T,>(path: string, query?: Record<string, string>) => { calls.push({ method: 'GETALL', path, body: query }); return answer(path) as T[]; },
   };
   const client: SageApiClient = { listCompanies: async () => [], forCompany: () => company };
   return { client, calls };
@@ -39,7 +41,7 @@ describe('pullSageCompany', () => {
     expect(calls.find((c) => c.path === 'TrialBalance/Export')!.body).toEqual({
       FromDate: '2026-03-01', ToDate: '2026-10-21', ShowMovement: false, DisplayReportingGroupDetail: false, Comparative: false,
     });
-    expect(pull.company).toEqual({ id: 9, name: 'Acme' });
+    expect(pull.company).toEqual({ id: 9, name: 'Acme', currencySymbol: 'R' });
   });
 
   it('merges the account lists without duplicates', async () => {
@@ -75,5 +77,32 @@ describe('pullSageCompany', () => {
     const steps: string[] = [];
     await pullSageCompany(fakeClient().client, 9, '2026-10-21', (s) => steps.push(s));
     expect(steps).toEqual(['company', 'accounts', 'trial_balance', 'customers', 'suppliers', 'documents']);
+  });
+
+  // M1: the outstanding lists carry DocumentTypeId, whose values Sage does not
+  // document. Which documents are invoices is read from Sage's own invoice
+  // lists instead, filtered to what is still owed.
+  it('reads the outstanding tax invoices and supplier invoices, to tell invoices from other documents', async () => {
+    const { client, calls } = fakeClient();
+    const pull = await pullSageCompany(client, 9, '2026-10-21');
+    expect(calls.filter((c) => c.path === 'TaxInvoice/Get' || c.path === 'SupplierInvoice/Get').map((c) => [c.path, c.body]))
+      .toEqual([['TaxInvoice/Get', { $filter: 'AmountDue gt 0' }], ['SupplierInvoice/Get', { $filter: 'AmountDue gt 0' }]]);
+    expect(pull.customerInvoices).toEqual([{ ID: 10, DocumentNumber: 'INV1' }]);
+    expect(pull.supplierInvoices).toEqual([]);
+  });
+
+  it('skips the invoice lists when no contact owes or is owed anything', async () => {
+    const { client, calls } = fakeClient({
+      'Customer/Get': [{ ID: 1, Name: 'A', Active: true, Balance: 0 }],
+      'Supplier/Get': [{ ID: 3, Name: 'S', Active: true, Balance: 0 }],
+    });
+    const pull = await pullSageCompany(client, 9, '2026-10-21');
+    expect(calls.some((c) => c.path.endsWith('Invoice/Get'))).toBe(false);
+    expect(pull.customerInvoices).toEqual([]);
+  });
+
+  it('refuses a company with more outstanding invoices than one pull can read', async () => {
+    const many = Array.from({ length: MAX_OUTSTANDING_INVOICES + 1 }, (_, i) => ({ ID: i, DocumentNumber: `I${i}`, AmountDue: 1, Total: 1 }));
+    await expect(pullSageCompany(fakeClient({ 'TaxInvoice/Get': many }).client, 9, '2026-10-21')).rejects.toThrow(/file upload/i);
   });
 });

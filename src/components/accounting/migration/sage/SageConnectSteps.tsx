@@ -77,10 +77,7 @@ export function SageCompanyPicker({ companies, busy, onPick, onBack }: {
       <div className={`${card} flex flex-col items-center gap-3 py-12 text-center`}>
         <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
         <p className="font-medium text-[var(--ff-text-primary)]">Reading your data from Sage…</p>
-        <p className="max-w-md text-sm text-[var(--ff-text-secondary)]">
-          Sage only lets IsaFlow read a little at a time, so this can take a few minutes for a busy company.
-          Keep this page open.
-        </p>
+        <p className="max-w-md text-sm text-[var(--ff-text-secondary)]">Starting the read…</p>
       </div>
     );
   }
@@ -118,6 +115,25 @@ export function SageCompanyPicker({ companies, busy, onPick, onBack }: {
           Use a different Sage login
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Step 3 while Sage is being read in the background; the page polls until the review is in. */
+export function SageReading({ progress, busy, onCancel }: { progress: string | null; busy: boolean; onCancel: () => void }) {
+  return (
+    <div className={`${card} flex flex-col items-center gap-3 py-12 text-center`}>
+      <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+      <p className="font-medium text-[var(--ff-text-primary)]">Reading your data from Sage…</p>
+      {progress && <p className="text-sm text-[var(--ff-text-secondary)]">{progress}</p>}
+      <p className="max-w-md text-sm text-[var(--ff-text-secondary)]">
+        Sage only lets IsaFlow read a little at a time, so this can take several minutes for a busy company.
+        The read carries on if you leave this page; come back to Import from Sage to see the review.
+      </p>
+      <button type="button" onClick={onCancel} disabled={busy}
+        className="text-sm text-[var(--ff-text-secondary)] underline hover:text-[var(--ff-text-primary)] disabled:opacity-50">
+        Cancel the read
+      </button>
     </div>
   );
 }

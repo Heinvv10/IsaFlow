@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildSageTakeOn, type TakeOnContext } from '@/modules/accounting/services/sage/sageTakeOnBuilder';
 import { validateSystemAccountMap } from '@/modules/accounting/services/core/migrationCoaRoleMap';
-import { sageFixture } from './sageFixture';
+import { emptyCompany, sageFixture } from './sageFixture';
 
 const freshCompany: TakeOnContext = {
   takenCodes: ['1000', '1001', '1100', '1101', '1201', '2001', '2101', '3200', '4001', '5001', '6005'],
@@ -16,6 +16,9 @@ const freshCompany: TakeOnContext = {
     default_expense: { code: '5001', name: 'Cost of Goods Sold', type: 'expense' },
     admin_expense: { code: '6005', name: 'Administrative Expenses', type: 'expense' },
   },
+  homeCurrency: 'ZAR',
+  fiscalYearStartMonth: 3,
+  closedPeriods: [],
 };
 
 const codeOf = (t: ReturnType<typeof buildSageTakeOn>, sageId: number) => t.sageAccountCodes[sageId]!;
@@ -64,7 +67,7 @@ describe('buildSageTakeOn — chart of accounts', () => {
   });
 
   it('creates the roles Sage has no account for when the company has no holder either', () => {
-    const t = buildSageTakeOn(sageFixture(), { takenCodes: [], existingRoles: {} });
+    const t = buildSageTakeOn(sageFixture(), emptyCompany);
     const vatIn = t.accounts.find((a) => a.accountCode === t.systemAccountMap.vat_input)!;
     expect(vatIn).toMatchObject({ accountName: 'VAT Input', accountType: 'asset' });
     expect(validateSystemAccountMap(t.systemAccountMap as unknown as Record<string, unknown>, t.accounts)).toEqual([]);

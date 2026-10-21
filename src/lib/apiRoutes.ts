@@ -36,7 +36,7 @@
 
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
-import type { discardPayload, previewPayload, statusPayload, toCompanyOptions } from '@/modules/accounting/services/sage/sageConnectRequest';
+import type { discardPayload, pullPayload, startedPayload, statusPayload, toCompanyOptions } from '@/modules/accounting/services/sage/sageConnectRequest';
 import type { importSagePull } from '@/modules/accounting/services/sage/sageTakeOnImportService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
@@ -106,7 +106,7 @@ interface StaticRoutes {
   // Connect to Sage (official Sage SA API). Every shape comes from the service.
   '/api/accounting/sage-connect/status': ReturnType<typeof statusPayload>;
   '/api/accounting/sage-connect/companies': ReturnType<typeof toCompanyOptions>;
-  '/api/accounting/sage-connect/preview': ReturnType<typeof previewPayload>;
+  '/api/accounting/sage-connect/preview': ReturnType<typeof startedPayload>;
   '/api/accounting/sage-connect/import': Awaited<ReturnType<typeof importSagePull>>;
   '/api/accounting/sage-connect/discard': ReturnType<typeof discardPayload>;
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
@@ -159,6 +159,7 @@ interface StaticRoutes {
  * file exists to close, so the matcher rejects any binding containing `/`.
  */
 interface DynamicRoutes {
+  '/api/accounting/sage-connect/pulls/{}': ReturnType<typeof pullPayload>;
   '/api/admin/users/{}/impersonate': { redirect: string };
   '/api/accounting/packs/{}/trend': Awaited<ReturnType<typeof getPackTrend>>;
   // The board pack document, composed server-side. Projected off the
