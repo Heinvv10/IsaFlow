@@ -59,7 +59,7 @@ vi.mock('child_process', async (importOriginal) => {
 
 import { extractFromPdf } from '@/modules/accounting/services/core/ocrService';
 import { renderPdfPage } from '@/modules/accounting/services/bank/vlmPdfRender';
-import { buildScanInvoicePdf, INVOICE } from '../../helpers/scanInvoicePdf';
+import { buildScanInvoicePdf, buildTextInvoicePdf, INVOICE } from '../../helpers/scanInvoicePdf';
 
 const GOOD = {
   documentType: 'invoice', vendorName: INVOICE.vendorName, date: INVOICE.date, referenceNumber: INVOICE.referenceNumber,
@@ -164,7 +164,31 @@ describe('multi-page invoice scans', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     const expected = await Promise.all([1, 3].map((p) => renderPdfPage(scan3, p)));
     expect(images(partsOf(fetch.mock.calls[0]))).toEqual(expected.map(png));
+    expect(partsOf(fetch.mock.calls[0]).at(-1)!.text).toMatch(/^You are given pages 1 and 3 of a 3-page PDF, in page order\. /);
     expect(doc.warnings).toContain('Page 2 of 3 could not be read — check it by hand.');
+  }, 30_000);
+
+  it('cross-checks a weak digital read with the text of exactly the pages sent', async () => {
+    const WEAK = { documentType: 'unknown', vendorName: null, totalAmount: null, lineItems: [] };
+    const fetch = vi.fn().mockResolvedValueOnce(reply(WEAK)).mockResolvedValueOnce(reply(GOOD))
+      .mockResolvedValueOnce(reply(WEAK)).mockResolvedValueOnce(reply(GOOD));
+    vi.stubGlobal('fetch', fetch);
+    const pdf = buildTextInvoicePdf(3);
+    await extractFromPdf(pdf);
+    const all = partsOf(fetch.mock.calls[1]).at(-1)!.text!;
+    const cross = all.slice(all.indexOf('cross-check your extraction):'));
+    expect(images(partsOf(fetch.mock.calls[1]))).toHaveLength(3);
+    const at = ['PAYMENT REQUEST', 'TAX INVOICE', 'TERMS AND CONDITIONS'].map((t) => cross.indexOf(t));
+    expect(at.every((i) => i > 0)).toBe(true);
+    expect(at).toEqual([...at].sort((a, b) => a - b));
+    expect(cross).not.toMatch(/-- \d+ of \d+ --/);
+
+    gsSpy.failPage = 2;
+    await extractFromPdf(pdf);
+    const skipped = partsOf(fetch.mock.calls[3]).at(-1)!.text!;
+    expect(skipped).toContain('PAYMENT REQUEST');
+    expect(skipped).toContain('TERMS AND CONDITIONS');
+    expect(skipped).not.toContain('TAX INVOICE');
   }, 30_000);
 
   it('makes no VLM call when page 1 of a scan cannot be rendered (as before)', async () => {
@@ -181,6 +205,12 @@ describe('multi-page invoice scans', () => {
     const doc = await extractFromPdf(scan3);
     expect(doc.totalAmount).toBe(INVOICE.totalAmount);
     expect(doc.warnings).toContain('This PDF may contain more than one invoice.');
+  }, 30_000);
+
+  it('ignores a multipleInvoices flag on a one-page read, which never asks for it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => reply({ ...GOOD, multipleInvoices: true })));
+    const doc = await extractFromPdf(scan1);
+    expect(doc.warnings).not.toContain('This PDF may contain more than one invoice.');
   }, 30_000);
 
   it('holds ONE page-read slot per invoice, rendering its pages one at a time inside it', async () => {

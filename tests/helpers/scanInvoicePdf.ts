@@ -73,17 +73,25 @@ function pageLines(i: number): string[] {
   return delivery(i);
 }
 
-/** A one-page PDF with `lines` drawn in Courier: the source that is rasterised. */
-function textPagePdf(lines: string[]): Buffer {
+/** A PDF with one page per entry of `pages`, its lines drawn in Courier (a real text layer). */
+function textPdf(pages: string[][]): Buffer {
   const esc = (s: string) => s.replace(/[\\()]/g, (c) => `\\${c}`);
-  const body = lines.map((l, i) => `BT /F1 14 Tf 60 ${740 - i * 24} Td (${esc(l)}) Tj ET`).join('\n');
-  return assemble([
+  const objs = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
-    `<< /Length ${body.length} >>\nstream\n${body}\nendstream`,
+    `<< /Type /Pages /Kids [${pages.map((_, i) => `${4 + i * 2} 0 R`).join(' ')}] /Count ${pages.length} >>`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>',
-  ].map((o) => Buffer.from(o, 'latin1')));
+  ];
+  pages.forEach((lines, i) => {
+    const body = lines.map((l, j) => `BT /F1 14 Tf 60 ${740 - j * 24} Td (${esc(l)}) Tj ET`).join('\n');
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${5 + i * 2} 0 R /Resources << /Font << /F1 3 0 R >> >> >>`);
+    objs.push(`<< /Length ${body.length} >>\nstream\n${body}\nendstream`);
+  });
+  return assemble(objs.map((o) => Buffer.from(o, 'latin1')));
+}
+
+/** The same invoice as a DIGITAL `pages`-page PDF: every page has a text layer. */
+export function buildTextInvoicePdf(pages: number): Buffer {
+  return textPdf(Array.from({ length: pages }, (_, i) => pageLines(i + 1)));
 }
 
 function assemble(objs: Buffer[]): Buffer {
@@ -116,7 +124,7 @@ function rasterise(pdf: Buffer): Buffer {
 
 /** A `pages`-page image-only PDF (pages ≥ 1). */
 export function buildScanInvoicePdf(pages: number): Buffer {
-  const jpegs = Array.from({ length: pages }, (_, i) => rasterise(textPagePdf(pageLines(i + 1))));
+  const jpegs = Array.from({ length: pages }, (_, i) => rasterise(textPdf([pageLines(i + 1)])));
   const objs: Buffer[] = [
     Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'latin1'),
     Buffer.from(`<< /Type /Pages /Kids [${jpegs.map((_, i) => `${3 + i * 3} 0 R`).join(' ')}] /Count ${pages} >>`, 'latin1'),
