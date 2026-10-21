@@ -29,6 +29,12 @@ jobs:
     # suite times (suite-seconds.json), ~8 min estimated. A Markdown-only change
     # skips integration, and a push that is an already-tested merge-queue merge
     # skips every gate (see the gate step below).
+    # Since 2026-10-21 three runners share this box's 32 cores, so up to three
+    # quality jobs (6 integration shards each) can overlap. Total CPU work is
+    # the same as running them in turn, and the 58-min figure was measured at
+    # load 150-250, so the bound stands. Fewer shards would lower the peak but
+    # lengthen every run's critical path; queue merges no longer re-run on
+    # master, which removes roughly one full job per merge.
     # Integration's own bounds: 4 schema-build commands at 300 s + 30 s kill
     # grace (CI_INT_MIGRATE_TIMEOUT), shards cut at 30 min (CI_INT_SHARD_TIMEOUT).
     # Not bounded by those: postgres start retries (up to 5 x 120 s per
@@ -45,10 +51,13 @@ jobs:
     steps:
       # Full history: the integration scope diffs the tested tree against the
       # event's base, and the merge check needs both parents' ancestry. Shallow,
-      # either would fail safe and run everything.
+      # either would fail safe and run everything. persist-credentials: false
+      # keeps this job's wider read token out of .git/config, where any test
+      # could read it; nothing here fetches or pushes after checkout.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
       # root, workspace members and trusted dependencies, any of which could
@@ -95,7 +104,15 @@ jobs:
     # The suite writes to the SHARED isaflow_dev Demo company; the workflow's
     # ci-${{ github.ref }} group only serialises same-ref runs, so two branches
     # could otherwise interleave money flows (e.g. both claiming the same
-    # payroll sandbox period). Serialise across ALL refs, never cancel.
+    # payroll sandbox period). Serialise across ALL refs, never cancel. With
+    # three runners (2026-10-21) runs of different refs do overlap, so this
+    # group is what keeps them apart. GitHub keeps one PENDING job per group
+    # and cancels the older pending one, so a third arrival shows the second
+    # as cancelled; the merge queue re-runs a cancelled check up to twice per
+    # head. A master push that skips (the step below) still enters the group,
+    # but holds it for seconds. It cannot take a per-sha group instead: the
+    # group is fixed before the step decides, and a push that falls back to
+    # the full suite must stay serialised against PR runs on the Demo company.
     concurrency:
       group: golden-paths-dev-demo
       cancel-in-progress: false
@@ -106,9 +123,12 @@ jobs:
       pull-requests: read
 
     steps:
+      # As in quality: full history, no token left in .git/config (the install
+      # below runs dependency lifecycle scripts).
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # A push to master that is an already-tested merge-queue merge skips the
       # suite (see quality's gate step); the job still reports success. Exit

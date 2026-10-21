@@ -35,7 +35,8 @@ const GATE_STEP = [
 // The install step appears in both jobs; the gate comment makes this quality's.
 const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # The gate list';
 // Unique to quality: the --ignore-scripts comment follows its checkout.
-const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n\n      # --ignore-scripts';
+const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # --ignore-scripts';
+const GOLDEN_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      # A push';
 const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
 const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
 const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
@@ -162,9 +163,18 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit(from, from.replace(JOB_PERMS, '    permissions: write-all\n'))).length).toBeGreaterThan(0);
   });
 
-  it('checkout given any input but fetch-depth: 0', () => {
+  it('checkout given any input but fetch-depth: 0 and persist-credentials: false', () => {
     expect(check(edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('fetch-depth: 0\n', 'fetch-depth: 0\n          ref: master\n'))).length).toBeGreaterThan(0);
     expect(check(edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('fetch-depth: 0\n', 'fetch-depth: 1\n'))).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['quality', QUALITY_CHECKOUT],
+    ['golden-paths', GOLDEN_CHECKOUT],
+  ])('%s leaving its read token in .git/config (persist-credentials dropped or true)', (_job, from) => {
+    expect(check(edit(from, from.replace('          persist-credentials: false\n', ''))).length).toBeGreaterThan(0);
+    expect(check(edit(from, from.replace('persist-credentials: false', 'persist-credentials: true'))).length).toBeGreaterThan(0);
+    expect(check(edit(from, from.replace('persist-credentials: false', "persist-credentials: 'false'"))).length).toBeGreaterThan(0);
   });
 
   it('CI_READ_TOKEN set to anything but the job token (the merge check trusts the API it reaches)', () => {
@@ -191,8 +201,11 @@ describe('accepts equivalent spellings of the one allowed shape', () => {
     expect(check(edit(GATE_LINE, '        run: bun run ci  # every gate\n'))).toEqual([]);
   });
 
-  it('quality without the job permissions block, or a checkout without inputs', () => {
-    expect(check(edit(QUALITY_PERMS, QUALITY_PERMS.replace(JOB_PERMS, '')))).toEqual([]);
-    expect(check(edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('        with:\n          fetch-depth: 0\n', '')))).toEqual([]);
+  it('quality without the job permissions block, and then a checkout without inputs', () => {
+    const narrow = edit(QUALITY_PERMS, QUALITY_PERMS.replace(JOB_PERMS, ''));
+    expect(checkWorkflowRunsCi(load(narrow), SCRIPTS, WORKFLOW_FILES)).toEqual([]);
+    const bare = narrow.replace(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('        with:\n          fetch-depth: 0\n          persist-credentials: false\n', ''));
+    expect(bare).not.toBe(narrow);
+    expect(checkWorkflowRunsCi(load(bare), SCRIPTS, WORKFLOW_FILES)).toEqual([]);
   });
 });
