@@ -7,6 +7,10 @@
  * merchant patterns; the subtitle says so). Auto-map fills the unmapped categories whose account name is an
  * exact, unique match; every row stays editable. Header accounts are not offered (the server refuses them),
  * and a row whose account another category also maps to is flagged as not shared.
+ *
+ * While the server's legal-review gate is off (GET reports `sharingAvailable: false`, MERCHANT_SHARING_ENABLED)
+ * the subtitle says shared suggestions are "Coming soon - pending legal review" (PR 1's wording) and that
+ * nothing is shared or suggested yet; the mappings can still be set up.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -14,6 +18,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Tags, Loader2, AlertCircle, Wand2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CategoryMappingView } from '@/modules/accounting/services/sharedPool/categoryMappingService';
+import { SHARING_COMING_SOON_LABEL } from '@/components/bureau/BureauSharingConsent';
 
 interface Account {
   id: string; accountCode?: string; account_code?: string; accountName?: string; account_name?: string; isActive?: boolean; is_active?: boolean;
@@ -55,6 +60,7 @@ export default function MerchantCategoriesPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [loadFailed, setLoadFailed] = useState(false);
+  const [sharingAvailable, setSharingAvailable] = useState(false);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -70,9 +76,11 @@ export default function MerchantCategoriesPage() {
       const acctData = acctJson.data ?? acctJson;
       const list: Account[] = Array.isArray(acctData) ? acctData : (acctData.accounts ?? []);
       setAccounts(mappableAccounts(list));
-      const cats = (mapJson.data ?? mapJson).categories;
+      const mapData = mapJson.data ?? mapJson;
+      const cats = mapData.categories;
       if (!Array.isArray(cats)) throw new Error('Could not load the merchant categories - try again');
       setCategories(cats);
+      setSharingAvailable(mapData.sharingAvailable === true);
       setLoadFailed(false);
     } catch (err) {
       setLoadFailed(true);
@@ -121,10 +129,17 @@ export default function MerchantCategoriesPage() {
               <div className="p-2 rounded-lg bg-sky-500/10"><Tags className="h-6 w-6 text-sky-400" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Merchant Categories</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">
-                  Which of your accounts each ISAFlow category means. Suggestions marked &ldquo;Common at other ISAFlow clients&rdquo; use this map.
-                  If your bureau shares merchant patterns, your coding on mapped accounts also counts (anonymously) toward these suggestions for other ISAFlow clients.
-                </p>
+                {sharingAvailable ? (
+                  <p className="text-sm text-[var(--ff-text-secondary)]">
+                    Which of your accounts each ISAFlow category means. Suggestions marked &ldquo;Common at other ISAFlow clients&rdquo; use this map.
+                    If your bureau shares merchant patterns, your coding on mapped accounts also counts (anonymously) toward these suggestions for other ISAFlow clients.
+                  </p>
+                ) : (
+                  <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="sharing-pending">
+                    Which of your accounts each ISAFlow category means. Shared suggestions: {SHARING_COMING_SOON_LABEL}.
+                    Until then nothing you map here is shared with other ISAFlow clients, and no &ldquo;Common at other ISAFlow clients&rdquo; suggestions are made.
+                  </p>
+                )}
               </div>
             </div>
             <button onClick={autoMap} disabled={isLoading || loadFailed || busy !== null}

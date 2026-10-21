@@ -1,6 +1,8 @@
 /**
  * Merchant category mappings (shared merchant-pattern pool, learning loop PR 2).
- * GET  /api/accounting/category-mappings  — the ISAFlow category list with this company's account for each
+ * GET  /api/accounting/category-mappings  — the ISAFlow category list with this company's account for each,
+ *      plus `sharingAvailable` (the MERCHANT_SHARING_ENABLED legal-review gate, merchantSharingGate.ts), so the
+ *      page can say pooling is pending legal review without a NEXT_PUBLIC variable
  * POST /api/accounting/category-mappings
  *   { action: 'save', categoryCode, glAccountId | null }  — map (or clear) one category
  *   { action: 'auto_map' }                                — fill unmapped categories by account name
@@ -17,6 +19,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   autoMapCategories, CategoryMappingRefusal, listCategoryMappings, saveCategoryMapping,
 } from '@/modules/accounting/services/sharedPool/categoryMappingService';
+import { isMerchantSharingEnabled } from '@/modules/bureau/services/merchantSharingGate';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -24,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    return apiResponse.success(res, await listCategoryMappings(companyId));
+    return apiResponse.success(res, { ...(await listCategoryMappings(companyId)), sharingAvailable: isMerchantSharingEnabled() });
   }
 
   if (req.method === 'POST') {
