@@ -2,8 +2,8 @@
  * GET /api/bureau/settings?bureauId=...       — the bureau's sharing opt-in + recent changes (any member)
  * PUT /api/bureau/settings { bureauId, shareMerchantPatterns } — change it (bureau OWNER only)
  *
- * Auth: withUserAuth + bureau_users membership (the bureau pattern). The owner check is
- * bureau_users.role = 'owner', and setBureauSharingSetting re-checks it inside its write transaction.
+ * Auth: withUserAuth + bureau membership (bureauService.getBureauRole). The owner is
+ * bureaus.owner_user_id, and setBureauSharingSetting re-checks it inside its write transaction.
  * Every real change writes one bureau_audit_log row (who, when, old -> new). The setting is stored only:
  * nothing pools on it until PR 2 (poolEligibility.ts).
  */
@@ -15,9 +15,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
-import {
-  getBureauRole, getBureauSharingSetting, setBureauSharingSetting,
-} from '@/modules/bureau/services/bureauSettingsService';
+import { getBureauRole } from '@/modules/bureau/services/bureauService';
+import { getBureauSharingSetting, setBureauSharingSetting } from '@/modules/bureau/services/bureauSettingsService';
 
 const PutBody = z.object({ bureauId: UUID, shareMerchantPatterns: z.boolean() }).strict();
 

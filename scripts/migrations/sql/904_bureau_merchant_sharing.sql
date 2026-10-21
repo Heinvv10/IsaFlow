@@ -4,15 +4,17 @@
 -- 1. bureaus.share_merchant_patterns BOOLEAN NOT NULL DEFAULT false.
 --    A column, not a bureau_settings table: it is one flag per bureau, 1:1 with the row, read together with
 --    the bureau, and bureaus has no other settings to group it with. Default OFF; only the bureau owner
---    (bureau_users.role = 'owner') may change it (pages/api/bureau/settings.ts). Nothing pools on it yet:
+--    (bureaus.owner_user_id, the one owner column: set at creation, NOT NULL, and what every other owner-only
+--    check reads) may change it (pages/api/bureau/settings.ts). Nothing pools on it yet:
 --    PR 2 reads it through poolEligibility.ts (a company counts only if it is linked to at least one bureau
 --    and EVERY bureau it is linked to has opted in).
 --
 -- 2. bureau_audit_log — the audit home for bureau-level changes. audit_log.company_id is NOT NULL and a
 --    bureau setting belongs to no single company, so it cannot go there.
---      Keyed on bureau_id (FK bureaus ON DELETE CASCADE: the history goes with its bureau, the one delete the
---      append-only trigger lets through, 877's recipe). actor_user_id is users.id (character varying) with
---      no FK, so a deleted user's changes stay recorded. old_value / new_value are JSONB.
+--      Keyed on bureau_id with NO FK: it is the consent record PR 2 pools a bureau's past coding on (who
+--      switched sharing on, and when), so it must outlive the bureau row. A deleted bureau leaves its rows,
+--      bureau_id naming a bureau that is gone. actor_user_id is users.id (character varying), also with no
+--      FK, so a deleted user's changes stay recorded. old_value / new_value are JSONB.
 --
 --    Access model, and why it is deny-all for app_user. Bureau data is user-scoped, not tenant-scoped:
 --    bureaus / bureau_companies / bureau_users carry no company_id and no RLS, and every bureau route runs
@@ -27,8 +29,8 @@
 --    after the owner check. rls-policy-coverage checks only company_id tables, so it cannot see this
 --    one; tests/integration/bureau-audit-log-rls.int.test.ts pins the deny-all instead.
 --
---    Append-only for every role, the owner included (877's trigger): it refuses UPDATE, DELETE and TRUNCATE;
---    the one delete it lets through is the one that follows a deleted bureau (by then the bureau row is gone).
+--    Append-only for every role, the owner included (877's trigger): it refuses every UPDATE, DELETE and
+--    TRUNCATE, with no exception (nothing cascades into it).
 --
 -- Rollback (nothing else references either object; the audit history is lost with the table):
 --   DROP TABLE IF EXISTS public.bureau_audit_log;
@@ -43,7 +45,8 @@ COMMENT ON COLUMN bureaus.share_merchant_patterns IS
 
 CREATE TABLE IF NOT EXISTS bureau_audit_log (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  bureau_id     UUID NOT NULL REFERENCES bureaus(id) ON DELETE CASCADE,
+  -- No FK: the consent record outlives the bureau (see the header).
+  bureau_id     UUID NOT NULL,
   -- users.id is character varying(255), not uuid; no FK so the record outlives the user.
   actor_user_id TEXT NOT NULL,
   action        TEXT NOT NULL CHECK (action IN ('setting_changed')),
@@ -81,12 +84,6 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
-  -- Nested, not AND: a TRUNCATE has no OLD row to read.
-  IF TG_OP = 'DELETE' THEN
-    IF NOT EXISTS (SELECT 1 FROM public.bureaus b WHERE b.id = OLD.bureau_id) THEN
-      RETURN OLD;
-    END IF;
-  END IF;
   RAISE EXCEPTION '% is append-only (% refused)', TG_TABLE_NAME, TG_OP USING ERRCODE = '42501';
 END
 $$;

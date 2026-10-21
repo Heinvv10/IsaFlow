@@ -14,7 +14,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { UUID } from '@/lib/schemas/common';
 import { listBureauCompanies } from '@/modules/bureau/services/bureauService';
-import { getBureauRole } from '@/modules/bureau/services/bureauSettingsService';
+import { getBureauRole } from '@/modules/bureau/services/bureauService';
 import {
   aggregateCodingMetrics, computeCodingMetrics, currentSaMonth, monthPeriod, MIN_DECISIONS_FOR_RATE,
 } from '@/modules/accounting/services/bank/codingMetrics';

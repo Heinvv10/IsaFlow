@@ -18,8 +18,7 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
 vi.mock('@/lib/auth/withUserAuth', () => ({ withUserAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/modules/accounting/services/bank/codingMetricsService', () => ({ loadCodingCounts }));
-vi.mock('@/modules/bureau/services/bureauSettingsService', () => ({ getBureauRole }));
-vi.mock('@/modules/bureau/services/bureauService', () => ({ listBureauCompanies }));
+vi.mock('@/modules/bureau/services/bureauService', () => ({ getBureauRole, listBureauCompanies }));
 
 import companyRoute from '../../../pages/api/accounting/coding-metrics';
 import bureauRoute from '../../../pages/api/bureau/coding-metrics';

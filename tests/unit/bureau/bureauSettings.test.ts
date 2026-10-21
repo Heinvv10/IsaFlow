@@ -1,8 +1,8 @@
 /**
  * Bureau merchant-pattern sharing: owner-only toggle, one audit row per real change, and the route's auth.
- * The owner check is a JOIN on bureau_users.role = 'owner' inside the write transaction; here the
- * transaction is simulated (a non-owner's lock query returns no row), and the real join runs against a
- * schema in tests/integration/bureau-audit-log-rls.int.test.ts.
+ * The owner is bureaus.owner_user_id (bureauService.getBureauRole), re-checked inside the write transaction;
+ * here the queries are answered as Postgres would answer them, and the real SQL runs against a schema in
+ * tests/integration/bureau-audit-log-rls.int.test.ts (including a stale bureau_users 'owner' row).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -27,25 +27,33 @@ const OWNER = 'user-owner';
 
 const txText = (i: number) => (txMock.mock.calls[i]![0] as TemplateStringsArray).join('?');
 
-/** The lock query answers as Postgres would: a row only for the bureau owner. */
-function bureauRoles(roles: Record<string, 'owner' | 'accountant' | 'viewer'>, current: boolean) {
+type Role = 'owner' | 'accountant' | 'viewer';
+
+/**
+ * The queries answered as Postgres would: `owner` is bureaus.owner_user_id, `members` the bureau_users rows.
+ * `roles` is the shorthand where the one 'owner' member is also owner_user_id.
+ */
+function bureauOf(ownerUserId: string | null, members: Record<string, Role>, current: boolean) {
   txMock.mockImplementation(async (strings: TemplateStringsArray, ...vals: unknown[]) => {
     const text = strings.join('?');
-    if (/FOR UPDATE OF b/.test(text)) {
-      const user = vals[0] as string;
-      return roles[user] === 'owner' ? [{ share_merchant_patterns: current }] : [];
+    if (/owner_user_id = \?\s+FOR UPDATE/.test(text)) {
+      return vals[1] === ownerUserId ? [{ share_merchant_patterns: current }] : [];
     }
     return [];
   });
   sqlMock.mockImplementation(async (strings: TemplateStringsArray, ...vals: unknown[]) => {
     const text = strings.join('?');
-    if (/FROM bureau_users WHERE bureau_id/.test(text)) {
-      const role = roles[vals[1] as string];
+    if (/LEFT JOIN bureau_users bu/.test(text)) {
+      const user = vals[0] as string;
+      const role = user === ownerUserId ? 'owner' : members[user] === 'owner' ? 'accountant' : members[user];
       return role ? [{ role }] : [];
     }
     if (/SELECT share_merchant_patterns FROM bureaus/.test(text)) return [{ share_merchant_patterns: current }];
     return [];
   });
+}
+function bureauRoles(roles: Record<string, Role>, current: boolean) {
+  bureauOf(Object.keys(roles).find((u) => roles[u] === 'owner') ?? null, roles, current);
 }
 
 function res() {
@@ -67,7 +75,8 @@ describe('setBureauSharingSetting', () => {
     bureauRoles({ [OWNER]: 'owner' }, false);
     expect(await setBureauSharingSetting({ bureauId: BUREAU, actorUserId: OWNER, value: true }))
       .toEqual({ kind: 'ok', changed: true, oldValue: false, newValue: true });
-    expect(txText(0)).toMatch(/bu\.role = 'owner'/);
+    expect(txText(0)).toMatch(/b\.owner_user_id = \?/);
+    expect(txText(0)).toMatch(/FOR UPDATE/);
     expect(txText(1)).toMatch(/UPDATE bureaus SET share_merchant_patterns/);
     expect(txText(2)).toMatch(/INSERT INTO bureau_audit_log/);
     expect(txMock.mock.calls[2]!.slice(1)).toEqual([BUREAU, OWNER, false, true]);
@@ -103,6 +112,21 @@ describe('PUT /api/bureau/settings', () => {
   it('a non-boolean value is a 400', async () => {
     bureauRoles({ [OWNER]: 'owner' }, false);
     expect((await call('PUT', OWNER, { body: { bureauId: BUREAU, shareMerchantPatterns: 'yes' } })).statusCode).toBe(400);
+  });
+});
+
+describe('who the owner is: bureaus.owner_user_id', () => {
+  it('a stale bureau_users "owner" row that is not owner_user_id reads as accountant and cannot toggle', async () => {
+    bureauOf('the-owner', { 'old-owner': 'owner' }, false);
+    expect((await call('GET', 'old-owner', { query: { bureauId: BUREAU } })).body)
+      .toMatchObject({ data: { role: 'accountant', canEdit: false } });
+    expect((await call('PUT', 'old-owner', { body: { bureauId: BUREAU, shareMerchantPatterns: true } })).statusCode).toBe(403);
+  });
+  it('owner_user_id with no bureau_users row is still the owner: not locked out', async () => {
+    bureauOf('the-owner', {}, false);
+    expect((await call('GET', 'the-owner', { query: { bureauId: BUREAU } })).body)
+      .toMatchObject({ data: { role: 'owner', canEdit: true } });
+    expect((await call('PUT', 'the-owner', { body: { bureauId: BUREAU, shareMerchantPatterns: true } })).statusCode).toBe(200);
   });
 });
 

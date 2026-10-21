@@ -7,7 +7,7 @@ import {
   SHARING_CONSENT_COPY as COPY, SHARING_CONSENT_STATUS_LABEL,
 } from '@/modules/bureau/services/sharingConsentCopy';
 
-interface SettingChange { changedAt: string; oldValue: boolean | null; newValue: boolean }
+interface SettingChange { id: string; changedAt: string; actorName: string | null; oldValue: boolean | null; newValue: boolean }
 
 const onOff = (v: boolean | null) => (v === null ? 'unset' : v ? 'on' : 'off');
 
@@ -66,8 +66,8 @@ export function BureauSharingConsent({ enabled, canEdit, saving, history, onChan
           <h3 className="text-xs font-medium text-[var(--ff-text-primary)] mb-1">Recent changes</h3>
           <ul className="text-xs text-[var(--ff-text-tertiary)] space-y-0.5">
             {history.map((h) => (
-              <li key={h.changedAt}>
-                {new Date(h.changedAt).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}: switched {onOff(h.oldValue)} to {onOff(h.newValue)} by the bureau owner
+              <li key={h.id}>
+                {new Date(h.changedAt).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}: switched {onOff(h.oldValue)} to {onOff(h.newValue)} by {h.actorName ?? 'a user no longer on ISAFlow'}
               </li>
             ))}
           </ul>
