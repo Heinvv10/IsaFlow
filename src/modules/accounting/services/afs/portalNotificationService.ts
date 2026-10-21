@@ -7,7 +7,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
-import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
+import { emailLayout, ctaButton, BRAND } from '@/lib/email-templates-shared';
 import { escapeHtml } from './afsHtmlTableRenderer';
 import type { PortalContact } from './afsTypes';
 
@@ -34,12 +34,16 @@ export async function notifyMagicLinkRequested(
     const companies = links.map((l) => `
       <p style="margin:16px 0 0;"><strong>${escapeHtml(l.companyName)}</strong></p>
       ${ctaButton('Sign In to Portal', l.url)}`).join('');
+    // One table row: emailLayout's content sits inside its card table, and bare
+    // blocks there are hoisted above the card, splitting a label from its link.
     const html = emailLayout(`
-      <h2>ISaFlow Portal — Sign-in Link</h2>
-      <p>Hi ${escapeHtml(recipient.name)},</p>
-      <p>${links.length > 1 ? 'Choose the company whose financial documents you want to access.' : 'Click the button below to access your financial documents.'} Each link works once and expires in 30 minutes.</p>
-      ${companies}
-      <p style="font-size:12px;color:#94a3b8;">If you did not request this link, you can safely ignore this email.</p>
+      <tr><td style="padding:32px; font-family:${BRAND.fontStack}; color:${BRAND.textBody};">
+        <h2>ISaFlow Portal — Sign-in Link</h2>
+        <p>Hi ${escapeHtml(recipient.name)},</p>
+        <p>${links.length > 1 ? 'Choose the company whose financial documents you want to access.' : 'Click the button below to access your financial documents.'} Each link works once and expires in 30 minutes.</p>
+        ${companies}
+        <p style="font-size:12px;color:#94a3b8;">If you did not request this link, you can safely ignore this email.</p>
+      </td></tr>
     `);
     await sendEmail({
       to: recipient.email,
