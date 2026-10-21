@@ -44,7 +44,7 @@ async function submittedBatch() {
   return { c, b, id };
 }
 const poll = (c: string, id: string, answer: string) => {
-  netcash.getSubmissionStatus.mockResolvedValue({ status: answer, detail: 'from netcash' });
+  netcash.getSubmissionStatus.mockResolvedValue({ status: answer, detail: 'from netcash', answered: true });
   return callRoute(netcashStatus, tokens[user]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id });
 };
 const stored = async (id: string) => (await pool.query('SELECT status, netcash_response FROM netcash_submissions WHERE id = $1', [id])).rows[0] as
@@ -87,7 +87,7 @@ describe('netcash/status never frees a live batch (AP-01)', () => {
     netcash.getSubmissionStatus.mockImplementation(async () => {
       entered();
       await new Promise<void>((res) => { release = res; });
-      return { status: 'processing', detail: 'stale answer' };
+      return { status: 'processing', detail: 'stale answer', answered: true };
     });
     const pollP = callRoute(netcashStatus, tokens[user]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id });
     await inPoll; // the poll has read 'submitted' and is waiting on Netcash
@@ -102,7 +102,7 @@ describe('netcash/status never frees a live batch (AP-01)', () => {
   describe('who may poll, and what an answer leaves on the row (review)', () => {
     it('a read-only member gets the stored status and triggers neither an outbound call nor a write', async () => {
       const { c, id } = await submittedBatch();
-      netcash.getSubmissionStatus.mockResolvedValue({ status: 'completed', detail: 'from netcash' });
+      netcash.getSubmissionStatus.mockResolvedValue({ status: 'completed', detail: 'from netcash', answered: true });
       const res = await callRoute(netcashStatus, tokens[viewer]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id });
       expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
       expect(netcash.getSubmissionStatus).not.toHaveBeenCalled();

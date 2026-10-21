@@ -120,6 +120,26 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const pollResult = await getSubmissionStatus(serviceKey, String(submission.batch_reference));
   const answeredAt = new Date().toISOString(); // when Netcash answered: orders this poll against an overlapping one
+
+  // No answer (an HTTP or network error, an unreadable body, no status): nothing of Netcash's to apply or keep as its
+  // answer (AP-01 round 11 - 'unknown' mapped to processing and was stored as latestPoll). Only a pollError hint is
+  // merged, compare-and-set like the answer below; the status and latestPoll stay as they are.
+  if (!pollResult.answered) {
+    const pollError = JSON.stringify({ pollError: { detail: pollResult.detail, at: answeredAt } });
+    await sql`
+      UPDATE netcash_submissions
+      SET netcash_response = COALESCE(netcash_response, '{}'::JSONB) || ${pollError}::JSONB
+      WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID AND status = ${String(submission.status)}
+        AND COALESCE((netcash_response -> 'pollError' ->> 'at')::TIMESTAMPTZ, '-infinity'::TIMESTAMPTZ) < ${answeredAt}::TIMESTAMPTZ
+    `;
+    log.warn('Netcash status poll got no answer - nothing changed', { submissionId, detail: pollResult.detail }, 'netcash-api');
+    return apiResponse.success(res, {
+      submissionId,
+      status: submission.status,
+      detail: `Netcash did not answer (${pollResult.detail}). Nothing was changed - try again later.`,
+      polled: false,
+    });
+  }
   const mapped = mapNetcashStatus(pollResult.status);
 
   // AP-01: a poll never moves a live submission to 'failed'. 'failed' leaves the unique index that closes the batch
@@ -144,7 +164,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const written = await sql`
     UPDATE netcash_submissions
     SET status = ${newStatus},
-        netcash_response = (COALESCE(netcash_response, '{}'::JSONB) - 'pollFailure') || ${JSON.stringify(hint)}::JSONB
+        netcash_response = (COALESCE(netcash_response, '{}'::JSONB) - 'pollFailure' - 'pollError') || ${JSON.stringify(hint)}::JSONB
     WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID AND status = ${String(submission.status)}
       AND COALESCE((netcash_response -> 'latestPoll' ->> 'at')::TIMESTAMPTZ, '-infinity'::TIMESTAMPTZ) < ${answeredAt}::TIMESTAMPTZ
     RETURNING id

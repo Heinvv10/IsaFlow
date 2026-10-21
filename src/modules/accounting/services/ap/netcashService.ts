@@ -47,6 +47,9 @@ export interface NetcashSubmitResult {
 export interface NetcashStatusResult {
   status: string;
   detail: string;
+  /** Netcash gave a status. false for no key, an HTTP error, a network error, an unreadable body or no status: `status`
+   *  is then 'unknown', which is not Netcash's answer and must not be applied (AP-01 round 11). */
+  answered: boolean;
 }
 
 /** Wraps fetch with a hard 30-second timeout */
@@ -156,7 +159,7 @@ export async function getSubmissionStatus(
   // netcash/status does not call this without a key; 'unknown' is what an unanswered poll is.
   if (!serviceKey) {
     log.warn('Netcash status poll called without service key - nothing polled', {}, 'netcash');
-    return { status: 'unknown', detail: 'Netcash service key is not configured' };
+    return { status: 'unknown', detail: 'Netcash service key is not configured', answered: false };
   }
 
   try {
@@ -169,18 +172,22 @@ export async function getSubmissionStatus(
 
     if (!res.ok) {
       log.error('Netcash status poll failed', { status: res.status, batchReference }, 'netcash');
-      return { status: 'unknown', detail: String(json?.message ?? 'Status poll failed') };
+      return { status: 'unknown', detail: String(json?.message ?? 'Status poll failed'), answered: false };
     }
-    if (!json) return { status: 'unknown', detail: 'Netcash answered but the response could not be read' };
+    if (!json) return { status: 'unknown', detail: 'Netcash answered but the response could not be read', answered: false };
+    if (typeof json.status !== 'string' || json.status.trim() === '') {
+      return { status: 'unknown', detail: 'Netcash answered without a status', answered: false };
+    }
 
     return {
-      status: String(json.status ?? 'unknown'),
+      status: json.status,
       detail: String(json.detail ?? ''),
+      answered: true,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Network error';
     log.error('Netcash status poll exception', { error: msg, batchReference }, 'netcash');
-    return { status: 'unknown', detail: msg };
+    return { status: 'unknown', detail: msg, answered: false };
   }
 }
 

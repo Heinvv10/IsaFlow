@@ -72,7 +72,7 @@ const submit = (c: string, batchId: string) => callRoute(netcashSubmit, tokens[u
 const resolve = (user: string, c: string, id: string, outcome = 'failed', note = NOTE) => callRoute(netcashResolve, tokens[user]!, c, 'POST',
   { submissionId: id, outcome, note }, '/api/accounting/netcash/resolve');
 const poll = (c: string, id: string) => callRoute(netcashStatus, tokens[u.admin]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id });
-const answer = (status: string) => hold.getSubmissionStatus.mockResolvedValueOnce({ status, detail: `netcash says ${status}` });
+const answer = (status: string) => hold.getSubmissionStatus.mockResolvedValueOnce({ status, detail: `netcash says ${status}`, answered: true });
 type Stored = { status: string; netcash_response: Record<string, { status?: string } | undefined> };
 const row = async (id: string) => (await pool.query('SELECT status, netcash_response FROM netcash_submissions WHERE id = $1', [id])).rows[0] as Stored;
 const park = (re: RegExp) => {
@@ -218,6 +218,24 @@ describe('the poll answer is a hint, written by merge and never older than what 
     answer('Successful');
     expect((await callRoute(netcashStatus, tokens[u.manager]!, c, 'GET', undefined, '/api/accounting/netcash/status', { submissionId: id })).state.statusCode).toBe(200);
     expect({ status: (await row(id)).status, resolve: (await resolve(u.admin, c, id)).state.statusCode }).toEqual({ status: 'completed', resolve: 409 });
+  });
+
+  it.each([
+    ['HTTP 503', 'Status poll failed'], ['a network error', 'fetch failed'], ['an unreadable body', 'Netcash answered but the response could not be read'],
+  ])('a poll Netcash did not answer (%s) changes no status and stores no answer, only a pollError hint (round 11)', async (_n, detail) => {
+    const { c, id } = await submitted();
+    answer('Processing'); // an earlier real answer
+    await poll(c, id);
+    const before = await row(id);
+    hold.getSubmissionStatus.mockResolvedValueOnce({ status: 'unknown', detail, answered: false });
+    const res = await poll(c, id);
+    const after = await row(id);
+    expect({ polled: (res.state.body as { data?: { polled?: boolean } }).data?.polled, status: after.status,
+      latest: after.netcash_response.latestPoll, error: (after.netcash_response.pollError as { detail?: string } | undefined)?.detail })
+      .toEqual({ polled: false, status: before.status, latest: before.netcash_response.latestPoll, error: detail });
+    answer('Processing'); // an answer again: the error hint goes
+    await poll(c, id);
+    expect((await row(id)).netcash_response.pollError).toBeUndefined();
   });
 
   it('overlapping polls: an older failure answer written after a newer clean one changes nothing', async () => {
