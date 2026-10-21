@@ -192,7 +192,7 @@ export async function applyOneCreditNote(
   // A note with money still on it whose status has moved is the real refusal —
   // cancelling resets `applied_amount` to 0, so a cancelled note arrives with
   // its whole total apparently available and must never be spent.
-  if (remainder <= EPS) return [];
+  if (remainder <= invoiceFloor(ctx.subledger === 'ap' ? 'supplier' : 'customer')) return [];
   // FX PR0: the population leaves a foreign note out; one reaching here (a direct caller) is refused by name.
   await assertStoredDocumentSettleable(ctx.companyId, 'credit_note', source.paymentId);
   const status = String(note.status);
@@ -220,7 +220,7 @@ export async function applyOneCreditNote(
   await sql`
     UPDATE credit_notes
     SET applied_amount = ${appliedAfter},
-        status = ${deriveCreditNoteStatus(appliedAfter, total)},
+        status = ${deriveCreditNoteStatus(appliedAfter, total, side)},
         updated_at = NOW()
     WHERE id = ${source.paymentId}::UUID AND company_id = ${ctx.companyId}::UUID
   `;
