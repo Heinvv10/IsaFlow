@@ -3,6 +3,8 @@
  * Usage: DATABASE_URL="..." bun run /tmp/sage-pull-britech/import-sage-data.ts
  */
 import { createSql } from './_pg';
+import { TAKE_ON_JOURNAL_SOURCE } from '../src/modules/accounting/services/gl/takeOnJournalSource';
+import { isSageOpeningBalanceJournal } from '../src/modules/accounting/services/sage/sageOpeningBalanceJournal';
 import { readFileSync } from 'fs';
 
 const sql = createSql();
@@ -198,13 +200,14 @@ async function importJournalEntries() {
     if (!glAccountId || !contraAccountId) { errs++; continue; }
 
     try {
-      // Create journal entry header. Sage's LIVE journal history, so a GL import —
-      // NOT auto_migration, which every reader takes for a take-on / opening
-      // balance (changesInEquityService's "Balances taken on" row).
+      // Create journal entry header. Sage's LIVE journal history is a GL import; only
+      // Sage's own opening balances are a take-on, the source every reader takes for
+      // balances carried in (changesInEquityService's "Balances taken on" row).
+      const source = isSageOpeningBalanceJournal(je.Description, je.Reference) ? TAKE_ON_JOURNAL_SOURCE : 'auto_gl_import';
       const jeRows = await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description,
         source, status, created_by, reference)
         VALUES (${CID}::UUID, ${'SAGE-' + je.ID}, ${entryDate}::DATE, ${je.Description || ''},
-          'auto_gl_import', 'posted', ${USER_ID}::UUID, ${je.Reference || null})
+          ${source}, 'posted', ${USER_ID}::UUID, ${je.Reference || null})
         RETURNING id`;
       const journalId = jeRows[0].id;
 
