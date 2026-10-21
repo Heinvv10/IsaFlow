@@ -20,6 +20,7 @@ import {
   parseBankDetails,
 } from './vlmCore';
 import { renderPdfFirstPage } from './vlmPdfRender';
+import { buildInvoicePagesRequest, pdfPageCount, MULTIPLE_INVOICES_WARNING } from './vlmInvoicePages';
 import { sharedSlotLimiter, envLimit } from './vlmLimiter';
 
 // ---------------------------------------------------------------------------
@@ -92,11 +93,18 @@ export async function extractWithVlm(
     hasRawText: !!rawText,
   }, 'vlm-invoice');
 
-  const userContent = buildImageContent(imageBase64, mimeType, textPrompt);
+  return extractContentWithVlm(buildImageContent(imageBase64, mimeType, textPrompt), rawText || '');
+}
+
+async function extractContentWithVlm(
+  userContent: Array<Record<string, unknown>>,
+  rawText: string,
+): Promise<ExtractedDocument | null> {
+  const config = getVlmConfig();
+  if (!config) return null;
   const content = await callVlmChat(config, EXTRACTION_PROMPT, userContent, 4096);
   if (!content) return null;
-
-  return parseVlmResponse(content, rawText || '');
+  return parseVlmResponse(content, rawText);
 }
 
 /** A text layer shorter than this is treated as a scan with no usable text. */
@@ -118,7 +126,8 @@ const pageReads = sharedSlotLimiter('vlm-page-reads', envLimit('VLM_MAX_PAGE_REA
  *
  * A digital PDF already carries its text, so that is read first as a cheap
  * text-only call. A scan, or a text read that comes back weak, goes to the
- * model as a rendered first page (with the text layer as a cross-check); the
+ * model as rendered pages (with the text layer as a cross-check): page 1 of a
+ * one-page PDF, pages 1-3 of a longer one in one call (`vlmInvoicePages`). The
  * better-scoring read wins. The raw PDF is never sent: vLLM rejects it.
  */
 export async function extractPdfWithVlm(
@@ -133,38 +142,31 @@ export async function extractPdfWithVlm(
     if (textResult && textResult.confidence >= MIN_TEXT_ONLY_CONFIDENCE) return textResult;
   }
 
+  // One slot covers every page's render and the one call that reads them.
   const imageResult = await pageReads.run(async () => {
-    const pngBase64 = await renderPdfFirstPage(pdfBuffer);
-    return pngBase64 ? extractWithVlm(pngBase64, 'image/png', rawText) : null;
-  });
-  if (imageResult) {
     const pages = pdfPageCount(rawText);
-    if (pages > 1) imageResult.warnings.push(`Read from page 1 of ${pages} only — check later pages for totals.`);
-  }
+    if (pages <= 1) {
+      const pngBase64 = await renderPdfFirstPage(pdfBuffer);
+      return pngBase64 ? extractWithVlm(pngBase64, 'image/png', rawText) : null;
+    }
+    const request = await buildInvoicePagesRequest(pdfBuffer, rawText ?? '', pages);
+    if (!request) return null;
+    log.info('Calling vLLM for multi-page document extraction', { pages }, 'vlm-invoice');
+    const doc = await extractContentWithVlm(request.content, rawText ?? '');
+    doc?.warnings.push(...request.warnings);
+    return doc;
+  });
 
   if (!imageResult) return textResult;
   if (!textResult) return imageResult;
   return imageResult.confidence >= textResult.confidence ? imageResult : textResult;
 }
 
-/** Page count from pdf-parse's "-- 1 of N --" page markers; 0 when absent. */
-function pdfPageCount(rawText?: string): number {
-  const m = rawText?.match(/-- \d+ of (\d+) --/);
-  return m?.[1] ? parseInt(m[1], 10) : 0;
-}
-
 async function extractTextWithVlm(rawText: string): Promise<ExtractedDocument | null> {
-  const config = getVlmConfig();
-  if (!config) return null;
-
-  log.info('Calling vLLM for text-layer extraction', { model: config.model }, 'vlm-invoice');
-
+  log.info('Calling vLLM for text-layer extraction', undefined, 'vlm-invoice');
   const textPrompt = 'There is no image: this is the text layer of a PDF document. '
     + `Extract all accounting data from it.\n\n${rawText.substring(0, TEXT_LAYER_LIMIT)}`;
-  const content = await callVlmChat(config, EXTRACTION_PROMPT, [{ type: 'text', text: textPrompt }], 4096);
-  if (!content) return null;
-
-  const doc = parseVlmResponse(content, rawText);
+  const doc = await extractContentWithVlm([{ type: 'text', text: textPrompt }], rawText);
   if (doc && rawText.length > TEXT_LAYER_LIMIT) {
     doc.warnings.push(`Read the first ${TEXT_LAYER_LIMIT} characters of the text only — check the rest of the document.`);
   }
@@ -221,6 +223,8 @@ function parseVlmResponse(content: string, rawText: string): ExtractedDocument |
     }
 
     doc.warnings.push(...validateAmounts(doc));
+    // Asked for only when several pages are sent (vlmInvoicePages); the first invoice is the one read.
+    if (parsed.multipleInvoices === true) doc.warnings.push(MULTIPLE_INVOICES_WARNING);
 
     log.info('VLM extraction successful', {
       documentType: doc.documentType,
