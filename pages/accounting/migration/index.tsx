@@ -18,6 +18,9 @@ const SOURCE_SYSTEMS = [
   { id: 'other', label: 'Other / Manual CSV', icon: '📁', desc: 'Generic CSV format' },
 ];
 
+/** Sources whose files the "Moving from Sage?" opener describes. */
+const SAGE_SOURCES = new Set(['sage_cloud', 'sage_50']);
+
 interface WizardStep {
   id: keyof StepsCompleted;
   label: string;
@@ -83,7 +86,7 @@ export default function MigrationHubPage() {
             <SourceSelection onSelect={selectSource} selecting={selecting} isSuperAdmin={user?.role === 'super_admin'} />
           ) : (
             <div className="space-y-6">
-              <SageFilesOpener firstStepHref={STEPS[0]!.href} />
+              {SAGE_SOURCES.has(session.sourceSystem ?? '') && <SageFilesOpener firstStepHref={STEPS[0]!.href} />}
               <SessionSummary session={session} onReset={() => setSession(null)} />
               <SessionIssues issues={session.errors ?? []} />
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">

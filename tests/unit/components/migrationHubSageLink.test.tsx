@@ -3,7 +3,7 @@
  * Excel files exported from Sage, uploaded through this wizard — there is no
  * sign-in to Sage. Before a migration is started the opener points at the
  * source cards on the same page (no self-link); during one it links to the
- * wizard's first upload step. Shown in both states.
+ * wizard's first upload step, and only when that migration is from Sage.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
@@ -46,6 +46,20 @@ describe('migration hub: Moving from Sage?', () => {
     expect(link?.getAttribute('href')).toBe('/accounting/migration/chart-of-accounts');
     expect(link?.textContent).toMatch(/CSV or Excel/);
     expect(link?.textContent).not.toMatch(/sign in|password|connect/i);
+  });
+
+  it('during a migration from another system: not shown', async () => {
+    answer({ ...SESSION, sourceSystem: 'xero' });
+    render(<MigrationHubPage />);
+    expect(await screen.findByText('From: Xero')).toBeTruthy();
+    expect(screen.queryByText(/Moving from Sage/)).toBeNull();
+    expect(screen.queryByText('Upload Sage files')).toBeNull();
+  });
+
+  it.each(['sage_50'])('during a %s migration: shown', async (sourceSystem) => {
+    answer({ ...SESSION, sourceSystem });
+    render(<MigrationHubPage />);
+    expect((await opener()).closest('a')?.getAttribute('href')).toBe('/accounting/migration/chart-of-accounts');
   });
 
   // At 375px the text was squeezed beside the button. It stacks below `sm`
