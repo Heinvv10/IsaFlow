@@ -19,6 +19,7 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import action from '../../pages/api/accounting/bank-transactions-action';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { fmtDate } from '@/lib/fmtDate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -294,21 +295,36 @@ describe('K-021 reversal atomicity', () => {
     // which is the condition under test.
     await pool.query('UPDATE fiscal_periods SET start_date=$2::date, end_date=$3::date WHERE id=$1',
       [nowPeriod, parkedStart, parkedEnd]);
+    // Today is the process's local date the poster books on (SAST on the
+    // runner), not the CI cluster's UTC CURRENT_DATE, which lags it from 00:00
+    // to 02:00 SAST.
     const before = await pool.query(
-      'SELECT COUNT(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE',
-      [company]);
+      'SELECT COUNT(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND start_date <= $2::date AND end_date >= $2::date',
+      [company, fmtDate(new Date())]);
     expect(before.rows[0].n).toBe(0);
 
+    const dayBefore = fmtDate(new Date());
     const result = await reverse(noPeriodToday.bankTx, token, company);
+    const dayAfter = fmtDate(new Date());
     expect(result.state.statusCode).toBe(200);
     expect((await readState(noPeriodToday)).reversalJournals).toBe(1);
+    // The contra is dated the poster's today: either side of the call, only
+    // because the call may straddle midnight.
+    const booked = await pool.query(
+      'SELECT entry_date::text AS d FROM gl_journal_entries WHERE company_id=$1 AND reversal_of_id=$2',
+      [company, noPeriodToday.je]);
+    expect([dayBefore, dayAfter]).toContain(booked.rows[0].d);
 
     // The year was created on the way through, and the contra is IN it — a
     // reversal posted with a NULL period would be invisible to every
     // period-bounded report, which is the outcome the auto-create exists to stop.
+    // Counted for the day the contra was booked on, so a call that straddles
+    // midnight is measured against the date the poster actually used.
     const after = await pool.query(
-      'SELECT COUNT(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE',
-      [company]);
+      `SELECT COUNT(*)::int AS n FROM fiscal_periods fp, gl_journal_entries je
+       WHERE fp.company_id=$1 AND je.company_id=$1 AND je.reversal_of_id=$2
+         AND fp.start_date <= je.entry_date AND fp.end_date >= je.entry_date`,
+      [company, noPeriodToday.je]);
     expect(after.rows[0].n).toBe(1);
     const contra = await pool.query(
       'SELECT fiscal_period_id FROM gl_journal_entries WHERE company_id=$1 AND reversal_of_id=$2',
@@ -318,9 +334,11 @@ describe('K-021 reversal atomicity', () => {
 
   // Runs LAST: it closes every period covering today for the rest of the file.
   it('refuses BEFORE the unwind when the fallback reversal date has no open period', async () => {
+    // Today and tomorrow (local dates): the fallback is the poster's own today,
+    // which is tomorrow if the call straddles midnight.
     await pool.query(
-      "UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE",
-      [company]);
+      "UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND start_date <= $2::date + 1 AND end_date >= $2::date",
+      [company, fmtDate(new Date())]);
     const result = await reverse(closedToday.bankTx, token, company);
 
     expect(result.state.statusCode).not.toBe(200);

@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { CO, CUSTOMER, SECRET, USER, addLink, cleanupCompany, create, pool, requests, seedCompany } from './r167-portal-links.helpers';
 import { enableOnlinePayment, enableRoute, invoice, links, payNow, signIn, tokenOf } from './r177-portal-followups.helpers';
+import { restoreAmountPaidCheck } from './helpers/amountPaidCheck';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -32,7 +33,7 @@ beforeAll(async () => {
   await signIn();
 });
 beforeEach(() => { h.charged.length = 0; h.verifyTransaction.mockReset(); });
-afterAll(async () => { vi.unstubAllEnvs(); await cleanupCompany(); });
+afterAll(async () => { vi.unstubAllEnvs(); try { await cleanupCompany(); } finally { await restoreAmountPaidCheck(); } });
 
 describe('R-177: Pay Now hands out the standing link and never calls the gateway itself', () => {
   it('answers with the link and its token; no gateway call and no payment request in its transaction', async () => {
