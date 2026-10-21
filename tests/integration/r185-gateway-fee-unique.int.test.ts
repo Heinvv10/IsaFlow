@@ -22,6 +22,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { A, B, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 
@@ -220,9 +221,11 @@ describe('R-185: a fee post that fails for any other reason still fails', () => 
   it('a closed period: the delivery answers 500 and leaves no fee journal, not even a draft', async () => {
     const { ref } = await bankedWithoutFee();
     const closed = (await pool.query<{ id: string }>(
+      // The period the fee posts into is the app's local (SAST) today; the CI
+      // cluster's UTC CURRENT_DATE lags it from 00:00 to 02:00 SAST.
       `UPDATE fiscal_periods SET status = 'closed'
-       WHERE company_id = $1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE AND status <> 'closed'
-       RETURNING id`, [A.id])).rows.map((r) => r.id);
+       WHERE company_id = $1 AND start_date <= $2::date AND end_date >= $2::date AND status <> 'closed'
+       RETURNING id`, [A.id, fmtDate(new Date())])).rows.map((r) => r.id);
     expect(closed.length).toBeGreaterThan(0);
     try {
       expect((await deliver(ref, 11500, 'ZAR', { id: 1853, fees: 300 })).statusCode).toBe(500);

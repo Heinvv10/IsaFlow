@@ -19,6 +19,7 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import action from '../../pages/api/accounting/bank-transactions-action';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { fmtDate } from '@/lib/fmtDate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -294,9 +295,11 @@ describe('K-021 reversal atomicity', () => {
     // which is the condition under test.
     await pool.query('UPDATE fiscal_periods SET start_date=$2::date, end_date=$3::date WHERE id=$1',
       [nowPeriod, parkedStart, parkedEnd]);
+    // Today is the app's local (SAST) date the poster books on, not the UTC
+    // CURRENT_DATE of the CI cluster, which lags it from 00:00 to 02:00 SAST.
     const before = await pool.query(
-      'SELECT COUNT(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE',
-      [company]);
+      'SELECT COUNT(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND start_date <= $2::date AND end_date >= $2::date',
+      [company, fmtDate(new Date())]);
     expect(before.rows[0].n).toBe(0);
 
     const result = await reverse(noPeriodToday.bankTx, token, company);
@@ -307,8 +310,8 @@ describe('K-021 reversal atomicity', () => {
     // reversal posted with a NULL period would be invisible to every
     // period-bounded report, which is the outcome the auto-create exists to stop.
     const after = await pool.query(
-      'SELECT COUNT(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE',
-      [company]);
+      'SELECT COUNT(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND start_date <= $2::date AND end_date >= $2::date',
+      [company, fmtDate(new Date())]);
     expect(after.rows[0].n).toBe(1);
     const contra = await pool.query(
       'SELECT fiscal_period_id FROM gl_journal_entries WHERE company_id=$1 AND reversal_of_id=$2',
