@@ -53,6 +53,19 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
     }
   }
 
+  /** A function that resolves once `client`'s backend is waiting on a lock (row or advisory). */
+  async function lockWaiter(client: PoolClient): Promise<() => Promise<void>> {
+    const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+    return async () => {
+      for (const deadline = Date.now() + 15_000; Date.now() < deadline;) {
+        const r = await admin.query(`SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`, [pid]);
+        if (r.rows[0]?.wait_event_type === 'Lock') return;
+        await new Promise((res) => setTimeout(res, 10));
+      }
+      throw new Error(`backend ${pid} never waited on a lock`);
+    };
+  }
+
   async function roleOf(userId: string): Promise<string | null> {
     const r = await admin.query(
       'SELECT role FROM company_users WHERE company_id = $1 AND user_id = $2', [COMPANY, userId]);
@@ -121,15 +134,19 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
       await admin.query(`UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2`, [COMPANY, MANAGER]);
       const [cb, ca] = [await admin.connect(), await admin.connect()];
       try {
+        const aWaits = await lockWaiter(ca);
         let commitDemotion!: () => void;
+        let bHoldsLock!: () => void;
         const held = new Promise<void>((r) => { commitDemotion = r; });
+        const locked = new Promise<void>((r) => { bHoldsLock = r; });
         const demoteA = asMember(OWNER_B, async () => {
           await updateCompanyUserRole(COMPANY, OWNER_A, 'viewer', OWNER_B);
+          bHoldsLock();
           await held; // B holds the owner lock, A's demotion uncommitted
         }, cb);
-        await new Promise((r) => setTimeout(r, 50));
+        await locked;
         const aActs = asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', OWNER_A), ca);
-        await new Promise((r) => setTimeout(r, 100));
+        await aWaits();
         commitDemotion();
         const [b, a] = await Promise.allSettled([demoteA, aActs]);
         expect(b.status, `round ${round}`).toBe('fulfilled');
@@ -178,15 +195,19 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
       await seedMembers();
       const [co, ca] = [await admin.connect(), await admin.connect()];
       try {
+        const adminWaits = await lockWaiter(ca);
         let commitPromotion!: () => void;
+        let promoted!: () => void;
         const held = new Promise<void>((r) => { commitPromotion = r; });
+        const written = new Promise<void>((r) => { promoted = r; });
         const promotion = asMember(OWNER_A, async () => {
           await updateCompanyUserRole(COMPANY, MANAGER, 'owner', OWNER_A);
+          promoted();
           await held; // keep the promotion uncommitted while the admin starts
         }, co);
-        await new Promise((r) => setTimeout(r, 50));
+        await written;
         const demotion = asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', ADMIN), ca);
-        await new Promise((r) => setTimeout(r, 100));
+        await adminWaits();
         commitPromotion();
         const [p, d] = await Promise.allSettled([promotion, demotion]);
         expect(p.status, `round ${round}`).toBe('fulfilled');
