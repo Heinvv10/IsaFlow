@@ -26,7 +26,7 @@ export interface CategoryMappingView {
   mapping: { glAccountId: string; accountCode: string | null; accountName: string; source: 'manual' | 'auto' } | null;
 }
 
-/** A refused mapping save (unknown category, or not this company's active account). The route answers 400. */
+/** A refused mapping save (unknown category, or not this company's active posting account). The route answers 400. */
 export class CategoryMappingRefusal extends Error {
   constructor(message: string) {
     super(message);
@@ -59,7 +59,10 @@ export async function listCategoryMappings(companyId: string): Promise<{ listVer
   };
 }
 
-/** Map one category to an account (or clear it with null). Refuses an unknown category or an account not this company's. */
+/**
+ * Map one category to an account (or clear it with null). Refuses an unknown category, an account not this
+ * company's, and a header account (one with children): a pool suggestion must name an account a line can post to.
+ */
 export async function saveCategoryMapping(
   companyId: string, userId: string, categoryCode: string, glAccountId: string | null,
 ): Promise<void> {
@@ -69,9 +72,11 @@ export async function saveCategoryMapping(
     return;
   }
   const acct = (await sql`
-    SELECT id FROM gl_accounts WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID AND COALESCE(is_active, true)
+    SELECT ga.id FROM gl_accounts ga
+    WHERE ga.id = ${glAccountId}::UUID AND ga.company_id = ${companyId}::UUID AND COALESCE(ga.is_active, true)
+      AND NOT EXISTS (SELECT 1 FROM gl_accounts ch WHERE ch.parent_account_id = ga.id AND ch.company_id = ga.company_id)
   `) as Array<{ id: string }>;
-  if (acct.length === 0) throw new CategoryMappingRefusal('That account is not an active account of this company');
+  if (acct.length === 0) throw new CategoryMappingRefusal('That account is not an active posting account of this company (a header account cannot be mapped)');
   await sql`
     INSERT INTO company_category_mappings (company_id, category_code, gl_account_id, mapping_source, mapped_by)
     VALUES (${companyId}::UUID, ${categoryCode}, ${glAccountId}::UUID, 'manual', ${userId})
