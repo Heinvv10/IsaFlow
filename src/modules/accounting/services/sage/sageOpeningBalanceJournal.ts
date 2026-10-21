@@ -1,6 +1,6 @@
 /**
  * Which journals of Sage's journal history are Sage's own opening balances: a
- * take-on (TAKE_ON_JOURNAL_SOURCE), unlike the live history around them, which is a GL import.
+ * take-on (the take-on journal source), unlike the live history around them, which is a GL import.
  *
  * Sage marks them with the description "O/B from other system" or the reference
  * "O/balance" / "O/B". Compared case-insensitively; trailing spaces and . , ; : !
