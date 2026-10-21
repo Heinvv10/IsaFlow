@@ -86,7 +86,7 @@ function makeReq(): NextApiRequest {
 describe('pentest M5: POST /api/accounting/capture/upload magic-byte check', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    validateCaptureApiKeyMock.mockResolvedValue({ companyId: 'company-1', keyId: 'key-1' });
+    validateCaptureApiKeyMock.mockResolvedValue({ companyId: 'company-1', keyId: 'key-1', label: 'k', role: 'manager' });
   });
 
   it('rejects a PDF-declared upload whose real bytes are not a PDF', async () => {
