@@ -27,6 +27,7 @@ describe('the settle budget', () => {
   it('the client gives up after the server would (query timeout above statement timeout), cheap statements sooner', () => {
     expect(SETTLE_QUERY_TIMEOUT_MS).toBeGreaterThan(SETTLE_STATEMENT_TIMEOUT_MS);
     expect(CHEAP_QUERY_TIMEOUT_MS).toBeLessThan(SETTLE_QUERY_TIMEOUT_MS);
+    expect(CHEAP_QUERY_TIMEOUT_MS).toBeGreaterThanOrEqual(2_000); // round 14: 1 s tripped on a box at load 95+
     expect(SETTLE_ATTEMPT_BUDGET_MS).toBeGreaterThanOrEqual(SETTLE_QUERY_TIMEOUT_MS);
   });
 });

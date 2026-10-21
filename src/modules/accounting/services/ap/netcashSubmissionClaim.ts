@@ -36,6 +36,7 @@ import { NETCASH_SEND_LOCK_CLASS } from './netcashSendLock';
 import { connectWithin, takeSendSlot } from './netcashSendCapacity';
 import { CLAIM_CONNECTION_TIMEOUT_MS, SETTLE_QUERY_TIMEOUT_MS } from './netcashTimeouts';
 import { startLateSettle } from './netcashLateSettler';
+import { recordUnrecordedAnswer } from './netcashUnrecordedAnswer';
 import {
   actAsCaller, AnswerNotRecordedError, bounded, settleOnFreshConnection, settleRows, tightenSettleTimeouts, type Queryable,
   type ClaimPrincipal, type ClaimSettlement, type SettleResult,
@@ -221,7 +222,10 @@ async function settleOn(conn: ClaimConnection, p: ClaimPrincipal, submissionId: 
         submissionId, status: s.status, batchReference: s.batchReference, answer: s.netcashResponse,
         firstError: first instanceof Error ? first.message : String(first), retryError: second instanceof Error ? second.message : String(second),
       }, 'netcash');
-      // Round 13: the send slot is freed when this request ends, but the answer is not given up on.
+      // Round 14: kept durably first (audit_log, its own transaction: resolve refuses to free the row in any process
+      // while an acceptance is not on it); round 13: the send slot is freed when this request ends, but the answer is
+      // not given up on.
+      await recordUnrecordedAnswer(p, submissionId, s, settleToken);
       startLateSettle(p, submissionId, s, settleToken);
       throw new AnswerNotRecordedError(`Netcash's answer for submission ${submissionId} may not have been recorded`);
     }

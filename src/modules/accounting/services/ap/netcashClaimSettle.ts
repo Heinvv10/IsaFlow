@@ -18,6 +18,8 @@ import {
 
 export interface ClaimPrincipal {
   companyId: string;
+  /** The requesting user (audit_log.user_id for an answer kept durably). */
+  userId: string;
   /** The request's JWT claims: the RLS policies read the user from them. */
   claims: Record<string, unknown>;
 }

@@ -31,8 +31,11 @@ export const SETTLE_LOCK_TIMEOUT_MS = 2_000;
 export const SETTLE_STATEMENT_TIMEOUT_MS = 4_000;
 export const SETTLE_QUERY_TIMEOUT_MS = SETTLE_STATEMENT_TIMEOUT_MS + 2_000;
 
-/** Cheap statements (BEGIN, SET LOCAL, set_config, savepoints) are given up on sooner than SETTLE_QUERY_TIMEOUT_MS. */
-export const CHEAP_QUERY_TIMEOUT_MS = 1_000;
+/**
+ * Cheap statements (BEGIN, SET LOCAL, set_config, savepoints) are given up on sooner than SETTLE_QUERY_TIMEOUT_MS -
+ * 2 s, not 1 (round 14): this box has run at load 95+, where a 1 s bound tripped on statements that were only slow.
+ */
+export const CHEAP_QUERY_TIMEOUT_MS = 2_000;
 
 /**
  * One settle attempt, all its statements together, gets at most this long (round 13): each statement's client timeout

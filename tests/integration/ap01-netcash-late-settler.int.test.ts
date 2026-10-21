@@ -15,6 +15,7 @@ vi.mock('@/modules/accounting/services/ap/netcashService', () => hold);
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import netcashResolve from '../../pages/api/accounting/netcash/resolve';
 import { log } from '@/lib/logger';
+import { isAnswerPendingRecord } from '@/modules/accounting/services/ap/netcashLateSettler';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
@@ -40,8 +41,8 @@ async function fresh() {
   return { c, b: await plantBatch(pool, c, admin, bank) };
 }
 const submit = (c: string, batchId: string) => callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: batchId }, '/api/accounting/netcash/submit');
-const resolve = (c: string, id: string) => callRoute(netcashResolve, tokens[admin]!, c, 'POST',
-  { submissionId: id, outcome: 'failed', note: 'portal shows nothing yet' }, '/api/accounting/netcash/resolve');
+const resolve = (c: string, id: string, outcome = 'failed') => callRoute(netcashResolve, tokens[admin]!, c, 'POST',
+  { submissionId: id, outcome, note: 'portal shows nothing yet' }, '/api/accounting/netcash/resolve');
 const row = async (id: string) => (await pool.query('SELECT status, batch_reference, netcash_response FROM netcash_submissions WHERE id = $1', [id])).rows[0] as
   { status: string; batch_reference: string | null; netcash_response: Record<string, unknown> | null };
 const reason = (r: Awaited<ReturnType<typeof submit>>) => JSON.stringify(r.state.body).match(/"reason":"([A-Z_]+)"/)?.[1];
@@ -95,7 +96,7 @@ describe('a detached settler records an answer both bounded attempts could not (
     });
   }, 40_000);
 
-  it('the settler gives up after NETCASH_LATE_SETTLE_TOTAL_MS, logs the full answer, and stops guarding the row', async () => {
+  it('the settler gives up after NETCASH_LATE_SETTLE_TOTAL_MS, logs the full answer, and drops its in-process guard (the durable record still guards)', async () => {
     process.env.NETCASH_LATE_SETTLE_TOTAL_MS = '3000';
     const errors = vi.spyOn(log, 'error');
     const { c, id, blocker } = await answeredWhileLocked();
@@ -106,8 +107,11 @@ describe('a detached settler records an answer both bounded attempts could not (
       await blocker.query('ROLLBACK');
       blocker.release();
     }
-    const res = await resolve(c, id);
-    expect({ http: res.state.statusCode, status: (await row(id)).status }).toEqual({ http: 200, status: 'failed' });
+    // Round 14: the acceptance kept in audit_log still refuses freeing the row (ap01-netcash-durable-answer); recording
+    // it as submitted is what the operator does.
+    const res = await resolve(c, id, 'submitted');
+    expect({ inProcess: isAnswerPendingRecord(id), http: res.state.statusCode, status: (await row(id)).status })
+      .toEqual({ inProcess: false, http: 200, status: 'submitted' });
   }, 40_000);
 
   it('it never overwrites an operator\'s resolution made elsewhere: compare-and-set, the answer kept beside it', async () => {

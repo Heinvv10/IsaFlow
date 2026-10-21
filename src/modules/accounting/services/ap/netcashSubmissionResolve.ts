@@ -15,6 +15,7 @@ import { logAuditOrThrow } from '../core/auditTrailService';
 import { SEND_WINDOW_MS } from './netcashTimeouts';
 import { NETCASH_SEND_LOCK_CLASS } from './netcashSendLock';
 import { isAnswerPendingRecord } from './netcashLateSettler';
+import { unappliedAcceptedAnswer } from './netcashUnrecordedAnswer';
 
 export type ResolveOutcome = 'failed' | 'submitted';
 
@@ -23,7 +24,7 @@ export type ResolveResult =
   | { kind: 'not_found' }
   | { kind: 'not_resolvable'; status: string }
   | { kind: 'changed'; from: string; to: string }
-  | { kind: 'answer_pending' }
+  | { kind: 'answer_pending'; outcome?: string; batchReference?: string }
   | { kind: 'in_flight' };
 
 export interface ResolveInput {
@@ -47,6 +48,12 @@ export async function resolveSubmission(input: ResolveInput): Promise<ResolveRes
   // row may say 'pending' while Netcash holds the batch. Not resolvable until the answer is written or given up on.
   if (isAnswerPendingRecord(submissionId)) return { kind: 'answer_pending' };
   const previous = String(found[0].status);
+  // Round 14, in any process: a pending row whose settle could not record Netcash's ACCEPTANCE (kept in audit_log) is
+  // not freed - recording it as submitted is allowed, and so is anything once the answer is on the row.
+  if (previous === 'pending' && outcome === 'failed') {
+    const kept = await unappliedAcceptedAnswer(companyId, submissionId);
+    if (kept) return { kind: 'answer_pending', outcome: kept.outcome, batchReference: kept.batchReference };
+  }
   // pending/unknown: either outcome. submitted/processing (Netcash accepted it): 'failed' only, on the operator's word -
   // whatever the last poll said, which is a display hint and never consulted here.
   const heldOpen = previous === 'pending' || previous === 'unknown';
