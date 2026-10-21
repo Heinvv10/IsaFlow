@@ -12,7 +12,7 @@
  *   SEVERANCE_DIRECTIVE_MISMATCH  the directive's gross differs from the calculated severance;
  *                                 the directive's figures are paid (decided 2026-10-20).
  *   SEVERANCE_CAPTURED_AS_COMPONENT  the line, or an earlier declarable run, already pays a
- *                                 hand-made 39xx component: the directive's line is not added
+ *                                 hand-made 3901 component: the directive's line is not added
  *                                 (no double payment); on this line approval stays refused until
  *                                 that component is removed (lump_sum_without_directive).
  */
