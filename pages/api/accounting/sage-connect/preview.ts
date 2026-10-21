@@ -2,23 +2,28 @@
  * POST /api/accounting/sage-connect/preview
  * Body: { email, password, sageCompanyId }
  *
- * Reads the chosen Sage company (read-only, as at today), builds the take-on
- * against this company's chart, stores what was read (not the login) and
- * returns the review: accounts, opening balances, customers, suppliers,
- * outstanding documents, control-account reconciliation and any issues.
+ * Starts reading the chosen Sage company (read-only, as at today) and answers
+ * at once with { pullId, status: 'pulling' }: a read takes minutes, longer than
+ * a request may run. The read runs after this request commits, in the
+ * background (sagePullJob), holding the Sage login in memory only; the page
+ * polls GET /api/accounting/sage-connect/pulls/{pullId} for the review.
  * Nothing is written to the ledger here.
+ *
+ * Refused up front (400): the connection is off, the company already has a
+ * take-on, a read is already running for it, or every pull slot is busy.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { pullSageCompany } from '@/modules/accounting/services/sage/sageApiPullService';
-import { buildSageTakeOn } from '@/modules/accounting/services/sage/sageTakeOnBuilder';
-import { readTakeOnContext, savePull, summarise } from '@/modules/accounting/services/sage/sageTakeOnStore';
+import { BUSY_MESSAGE, pullSlotFree, runSagePull } from '@/modules/accounting/services/sage/sagePullJob';
+import { findPriorTakeOn } from '@/modules/accounting/services/sage/sageTakeOnContext';
+import { SagePullRefused, startPull } from '@/modules/accounting/services/sage/sageTakeOnStore';
 import {
-  answerSageError, clientFromLogin, previewPayload, sageConnectAvailable, todayInSouthAfrica,
+  clientFromLogin, sageConnectAvailable, startedPayload, todayInSouthAfrica,
 } from '@/modules/accounting/services/sage/sageConnectRequest';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -35,20 +40,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  const started = Date.now();
+  const prior = await findPriorTakeOn(companyId);
+  if (prior) return apiResponse.badRequest(res, prior, { sageError: 'already_imported' });
+  if (!pullSlotFree()) return apiResponse.badRequest(res, BUSY_MESSAGE, { sageError: 'busy' });
+
+  const asAtDate = todayInSouthAfrica();
+  let pullId: string;
   try {
-    const pull = await pullSageCompany(login.client, sageCompanyId, todayInSouthAfrica());
-    const takeOn = buildSageTakeOn(pull, await readTakeOnContext(companyId));
-    const summary = summarise(takeOn);
-    const pullId = await savePull(companyId, userId, pull, summary);
-    log.info('Sage pull reviewed', { companyId, pullId, sageCompanyId, ms: Date.now() - started, ...summary.counts, errors: summary.errors }, 'migration');
-    return apiResponse.success(res, previewPayload(pullId, takeOn, summary));
+    pullId = await startPull(companyId, userId, sageCompanyId, asAtDate);
   } catch (err) {
-    log.warn('Sage pull failed', { companyId, sageCompanyId, error: err instanceof Error ? err.message : String(err) }, 'migration');
-    if (answerSageError(res, err)) return;
-    if (err instanceof Error && /file upload/i.test(err.message)) return apiResponse.badRequest(res, err.message);
+    if (err instanceof SagePullRefused) return apiResponse.badRequest(res, err.message, { sageError: 'in_progress' });
     throw err;
   }
+  const client = login.client;
+  runAfterCommit('sage pull', () => runSagePull({ companyId, pullId, client, sageCompanyId, asAtDate }));
+  log.info('Sage pull started', { companyId, pullId, sageCompanyId }, 'migration');
+  return apiResponse.success(res, startedPayload(pullId));
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

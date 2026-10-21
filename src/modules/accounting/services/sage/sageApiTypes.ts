@@ -83,6 +83,9 @@ interface SageContactBase {
   PostalAddress03?: string;
   PostalAddress04?: string;
   PostalAddress05?: string;
+  /** The contact's own currency (multi-currency companies); the home currency otherwise. */
+  CurrencyId?: number | null;
+  CurrencySymbol?: string | null;
 }
 
 export interface SageCustomer extends SageContactBase {
@@ -94,6 +97,7 @@ export type SageSupplier = SageContactBase;
 /** One row of OutstandingCustomerDocument/Get or OutstandingSupplierDocument/Get. */
 export interface SageOutstandingDocument {
   ID: number;
+  /** Sage does not document the values; invoices are recognised through SageInvoiceRef instead. */
   DocumentTypeId?: number;
   DocumentNumber: string;
   Reference?: string;
@@ -103,11 +107,20 @@ export interface SageOutstandingDocument {
   Tax?: number;
   Total: number;
   AmountDue: number;
+  /** Rate to the home currency of a foreign-currency document (1 or absent in the home currency). */
+  Customer_ExchangeRate?: number | null;
+  Supplier_ExchangeRate?: number | null;
+}
+
+/** One still-owed row of TaxInvoice/Get or SupplierInvoice/Get: what makes a document an invoice. */
+export interface SageInvoiceRef {
+  ID: number;
+  DocumentNumber: string;
 }
 
 /** Everything the take-on needs, as pulled from one Sage company. */
 export interface SagePull {
-  company: { id: number; name: string };
+  company: { id: number; name: string; currencySymbol?: string };
   asAtDate: string;
   financialYearStart: string;
   accounts: SageAccount[];
@@ -118,4 +131,7 @@ export interface SagePull {
   /** Keyed by Sage customer / supplier ID; only contacts with a non-zero balance are fetched. */
   customerDocuments: Record<number, SageOutstandingDocument[]>;
   supplierDocuments: Record<number, SageOutstandingDocument[]>;
+  /** Tax invoices / supplier invoices with AmountDue > 0; read only when some contact carries a balance. */
+  customerInvoices: SageInvoiceRef[];
+  supplierInvoices: SageInvoiceRef[];
 }

@@ -75,44 +75,64 @@ class CodeAllocator {
 export interface AccountsPart {
   accounts: AccountImportRow[];
   systemAccountMap: SystemAccountMap;
+  /** Sage account id (the account list's namespace) → the IsaFlow code it was given. */
   sageAccountCodes: Record<number, string>;
+  /** Sage bank-account id → code, for banks the account list does not carry (their own namespace). */
+  sageBankCodes: Record<number, string>;
   /** Sage account ids holding the receivable / payable roles. */
   controlIds: { receivable: number | null; payable: number | null };
 }
 
-/** Sage's accounts plus any bank account the account list left out. */
-function allSageAccounts(pull: SagePull): SageAccount[] {
-  const ids = new Set(pull.accounts.map((a) => a.ID));
+/** A Sage account and the id namespace it came from: the account list, or the bank list. */
+interface Placed { a: SageAccount; ns: 'account' | 'bank' }
+
+/**
+ * Sage's accounts plus every bank account the account list does not carry.
+ * A bank shows in both lists under one id (AccountType 3) and is the same
+ * account; a bank whose id is taken in the account list by something that is
+ * NOT a bank is a different account, kept in the bank namespace so neither
+ * overwrites the other.
+ */
+function allSageAccounts(pull: SagePull): Placed[] {
+  const byId = new Map(pull.accounts.map((a) => [a.ID, a]));
   const banks = pull.bankAccounts
-    .filter((b) => !ids.has(b.ID))
-    .map((b): SageAccount => ({ ID: b.ID, Name: b.Name, Active: b.Active !== false, AccountType: 3, Balance: b.Balance }));
-  return [...pull.accounts, ...banks];
+    .filter((b) => byId.get(b.ID)?.AccountType !== 3)
+    .map((b): Placed => ({ a: { ID: b.ID, Name: b.Name, Active: b.Active !== false, AccountType: 3, Balance: b.Balance }, ns: 'bank' }));
+  return [...pull.accounts.map((a): Placed => ({ a, ns: 'account' })), ...banks];
+}
+
+/** Ids on the trial balance with a non-zero line. */
+function tbIdsOf(pull: SagePull): Set<number> {
+  return new Set(pull.trialBalance.filter((l) => Math.abs(l.Debit) > 0.005 || Math.abs(l.Credit) > 0.005).map((l) => l.AccountId));
 }
 
 export function buildAccounts(pull: SagePull, ctx: TakeOnContext, issues: TakeOnIssue[]): AccountsPart {
   const alloc = new CodeAllocator(ctx.takenCodes);
-  const tbIds = new Set(pull.trialBalance.filter((l) => Math.abs(l.Debit) > 0.005 || Math.abs(l.Credit) > 0.005).map((l) => l.AccountId));
+  const tbIds = tbIdsOf(pull);
   const sage = allSageAccounts(pull);
   const accounts: AccountImportRow[] = [];
   const codes: Record<number, string> = {};
+  const bankCodes: Record<number, string> = {};
+  const codeOf = (p: Placed) => (p.ns === 'bank' ? bankCodes : codes)[p.a.ID];
+  const setCode = (p: Placed, code: string) => { (p.ns === 'bank' ? bankCodes : codes)[p.a.ID] = code; };
   const map: Partial<SystemAccountMap> = {};
   const controlIds = { receivable: null as number | null, payable: null as number | null };
 
-  const firstBank = [...sage].filter((a) => a.AccountType === 3 && (a.Active || tbIds.has(a.ID)))
-    .sort((a, b) => a.Name.localeCompare(b.Name) || a.ID - b.ID)[0];
-  const roleHolder = (role: SystemRole): SageAccount | undefined =>
-    role === 'bank' ? firstBank : sage.find((a) => sageSystemRole(a.ID) === role);
+  const firstBank = sage.filter(({ a }) => a.AccountType === 3 && (a.Active || tbIds.has(a.ID)))
+    .sort((x, y) => x.a.Name.localeCompare(y.a.Name) || x.a.ID - y.a.ID)[0];
+  const roleHolder = (role: SystemRole): Placed | undefined =>
+    role === 'bank' ? firstBank : sage.find((p) => p.ns === 'account' && sageSystemRole(p.a.ID) === role);
 
   for (const role of ROLE_ORDER) {
     const holder = roleHolder(role);
     const existing = ctx.existingRoles[role];
     if (holder) {
-      const c = classifySageAccount(holder);
+      const c = classifySageAccount(holder.a);
       const type = existing?.type ?? (c.ok ? c.accountType : ROLE_DEFAULTS[role].type);
       const code = existing ? alloc.claim(existing.code) : alloc.next(type, role === 'bank' ? 'bank' : undefined);
-      accounts.push({ accountCode: code, accountName: holder.Name, accountType: type, normalBalance: NORMAL[type] });
-      codes[holder.ID] = code;
-      if (role === 'receivable' || role === 'payable') controlIds[role] = holder.ID;
+      accounts.push({ accountCode: code, accountName: holder.a.Name, accountType: type, normalBalance: NORMAL[type] });
+      setCode(holder, code);
+      if (role === 'receivable' || role === 'payable') controlIds[role] = holder.a.ID;
       map[role] = code;
     } else if (existing) {
       accounts.push({ accountCode: alloc.claim(existing.code), accountName: existing.name, accountType: existing.type, normalBalance: NORMAL[existing.type] });
@@ -126,14 +146,14 @@ export function buildAccounts(pull: SagePull, ctx: TakeOnContext, issues: TakeOn
   }
 
   const rest = sage
-    .filter((a) => codes[a.ID] === undefined && (a.Active || tbIds.has(a.ID)))
-    .map((a) => ({ a, c: classifySageAccount(a) }));
+    .filter((p) => codeOf(p) === undefined && (p.a.Active || tbIds.has(p.a.ID)))
+    .map((p) => ({ p, a: p.a, c: classifySageAccount(p.a) }));
   rest.sort((x, y) => {
     const bx = x.c.ok ? bandBase(x.c.accountType, x.c.accountSubtype) : 9999;
     const by = y.c.ok ? bandBase(y.c.accountType, y.c.accountSubtype) : 9999;
     return bx - by || x.a.Name.localeCompare(y.a.Name) || x.a.ID - y.a.ID;
   });
-  for (const { a, c } of rest) {
+  for (const { p, a, c } of rest) {
     if (!c.ok) {
       issues.push({
         severity: tbIds.has(a.ID) ? 'error' : 'warning',
@@ -146,10 +166,10 @@ export function buildAccounts(pull: SagePull, ctx: TakeOnContext, issues: TakeOn
     }
     const code = alloc.next(c.accountType, c.accountSubtype);
     accounts.push({ accountCode: code, accountName: a.Name, accountType: c.accountType, accountSubtype: c.accountSubtype, normalBalance: c.normalBalance });
-    codes[a.ID] = code;
+    setCode(p, code);
   }
 
-  return { accounts, systemAccountMap: map as SystemAccountMap, sageAccountCodes: codes, controlIds };
+  return { accounts, systemAccountMap: map as SystemAccountMap, sageAccountCodes: codes, sageBankCodes: bankCodes, controlIds };
 }
 
 export interface OpeningPart {
@@ -159,6 +179,24 @@ export interface OpeningPart {
   payableControl: number;
   trialBalanceDebit: number;
   trialBalanceCredit: number;
+}
+
+/**
+ * The code a trial balance line posts to: null when it has none, undefined
+ * when the line is ambiguous (already reported). An id in both namespaces is
+ * told apart by the line's AccountTypeId (3 = bank); without one it is refused
+ * rather than guessed.
+ */
+function codeForLine(l: SagePull['trialBalance'][number], part: AccountsPart, issues: TakeOnIssue[]): string | null | undefined {
+  const account = part.sageAccountCodes[l.AccountId];
+  const bank = part.sageBankCodes[l.AccountId];
+  if (account !== undefined && bank !== undefined) {
+    if (l.AccountTypeId === 3) return bank;
+    if (l.AccountTypeId !== undefined) return account;
+    issues.push({ severity: 'error', area: 'trial_balance', message: `Trial balance line "${l.Name}" could be the Sage account or the bank account with the same number (${l.AccountId}); IsaFlow cannot tell which. Ask IsaFlow support before importing.` });
+    return undefined;
+  }
+  return account ?? bank ?? null;
 }
 
 export function buildOpeningBalances(pull: SagePull, part: AccountsPart, issues: TakeOnIssue[]): OpeningPart {
@@ -175,9 +213,11 @@ export function buildOpeningBalances(pull: SagePull, part: AccountsPart, issues:
     if (debit === 0 && credit === 0) continue;
     if (l.AccountId === part.controlIds.receivable) { receivableControl += debit - credit; continue; }
     if (l.AccountId === part.controlIds.payable) { payableControl += credit - debit; continue; }
-    const code = part.sageAccountCodes[l.AccountId];
-    if (!code) {
-      if (!issues.some((i) => i.message.includes(`"${l.Name}"`))) {
+    const code = codeForLine(l, part, issues);
+    if (code === undefined) continue;
+    if (code === null) {
+      // L1: only an ACCOUNT issue about this very account already explains the gap.
+      if (!issues.some((i) => i.area === 'accounts' && i.message.includes(`"${l.Name}"`))) {
         issues.push({ severity: 'error', area: 'trial_balance', message: `Trial balance line "${l.Name}" has no account to post to.` });
       }
       continue;

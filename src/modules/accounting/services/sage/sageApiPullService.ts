@@ -9,14 +9,21 @@
  * Above MAX_CONTACTS_WITH_BALANCES the pull refuses up front rather than run
  * into Sage's daily limit half-way. A contact on the wrong side (customer in
  * credit, supplier overpaid) needs no documents: the builder reports it.
+ *
+ * Which outstanding documents are INVOICES is read from Sage's own invoice
+ * lists (TaxInvoice/Get, SupplierInvoice/Get, filtered to AmountDue > 0, a few
+ * paged calls): the outstanding lists carry a DocumentTypeId whose values Sage
+ * does not document, and a credit note taken on as an invoice would be wrong.
  */
 import { SageApiError, type SageApiClient } from './sageApiClient';
 import type {
-  SageAccount, SageBankAccount, SageCompanySummary, SageCustomer, SageFinancialYear,
+  SageAccount, SageBankAccount, SageCompanySummary, SageCustomer, SageFinancialYear, SageInvoiceRef,
   SageOutstandingDocument, SagePaged, SagePull, SageSupplier, SageTrialBalanceLine,
 } from './sageApiTypes';
 
 export const MAX_CONTACTS_WITH_BALANCES = 600;
+/** 50 paged calls per list; beyond it the file upload is the better route. */
+export const MAX_OUTSTANDING_INVOICES = 5000;
 
 export type PullStep = 'company' | 'accounts' | 'trial_balance' | 'customers' | 'suppliers' | 'documents';
 
@@ -38,6 +45,23 @@ async function accountsOf(client: ReturnType<SageApiClient['forCompany']>): Prom
   const byId = new Map<number, SageAccount>();
   for (const a of [...withSystem, ...plain]) if (!byId.has(a.ID)) byId.set(a.ID, a);
   return [...byId.values()];
+}
+
+/** The company is too big for one connection; the message is for the client. */
+export class SagePullTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SagePullTooLargeError';
+  }
+}
+
+const TOO_BIG = (what: string, n: number) => new SagePullTooLargeError(`This Sage company has more than ${n} ${what} — more than one connection can read within Sage's limits. Use the file upload for this company, or ask IsaFlow support to run it for you.`);
+
+/** The still-owed rows of an invoice list, as references. */
+async function outstandingInvoices(client: ReturnType<SageApiClient['forCompany']>, path: string): Promise<SageInvoiceRef[]> {
+  const rows = await client.getAll<SageInvoiceRef>(path, { $filter: 'AmountDue gt 0' }, MAX_OUTSTANDING_INVOICES);
+  if (rows.length > MAX_OUTSTANDING_INVOICES) throw TOO_BIG('unpaid invoices', MAX_OUTSTANDING_INVOICES);
+  return rows.map((r) => ({ ID: r.ID, DocumentNumber: r.DocumentNumber }));
 }
 
 export async function pullSageCompany(
@@ -70,23 +94,31 @@ export async function pullSageCompany(
 
   const owing = [...customers, ...suppliers].filter((c) => c.Balance > 0.005);
   if (owing.length > MAX_CONTACTS_WITH_BALANCES) {
-    throw new Error(`This Sage company has ${owing.length} customers and suppliers with open balances — more than one connection can read within Sage's limits. Use the file upload for this company, or ask IsaFlow support to run it for you.`);
+    throw new SagePullTooLargeError(`This Sage company has ${owing.length} customers and suppliers with open balances — more than one connection can read within Sage's limits. Use the file upload for this company, or ask IsaFlow support to run it for you.`);
   }
 
   onProgress('documents');
+  const customersOwing = customers.filter((x) => x.Balance > 0.005);
+  const suppliersOwed = suppliers.filter((x) => x.Balance > 0.005);
+  const customerInvoices = customersOwing.length > 0 ? await outstandingInvoices(client, 'TaxInvoice/Get') : [];
+  const supplierInvoices = suppliersOwed.length > 0 ? await outstandingInvoices(client, 'SupplierInvoice/Get') : [];
   const customerDocuments: Record<number, SageOutstandingDocument[]> = {};
-  for (const c of customers.filter((x) => x.Balance > 0.005)) {
+  for (const c of customersOwing) {
     customerDocuments[c.ID] = rows(await client.post<SagePaged<SageOutstandingDocument> | SageOutstandingDocument[]>(
       'OutstandingCustomerDocument/Get', { CustomerId: c.ID, IncludePaidInvoices: false }));
   }
   const supplierDocuments: Record<number, SageOutstandingDocument[]> = {};
-  for (const s of suppliers.filter((x) => x.Balance > 0.005)) {
+  for (const s of suppliersOwed) {
     supplierDocuments[s.ID] = rows(await client.post<SagePaged<SageOutstandingDocument> | SageOutstandingDocument[]>(
       'OutstandingSupplierDocument/Get', { SupplierId: s.ID, IncludePaidInvoices: false }));
   }
 
   return {
-    company: { id: company?.ID ?? sageCompanyId, name: company?.Name ?? `Sage company ${sageCompanyId}` },
+    company: {
+      id: company?.ID ?? sageCompanyId,
+      name: company?.Name ?? `Sage company ${sageCompanyId}`,
+      ...(company?.CurrencySymbol ? { currencySymbol: company.CurrencySymbol } : {}),
+    },
     asAtDate,
     financialYearStart,
     accounts,
@@ -96,5 +128,7 @@ export async function pullSageCompany(
     suppliers,
     customerDocuments,
     supplierDocuments,
+    customerInvoices,
+    supplierInvoices,
   };
 }

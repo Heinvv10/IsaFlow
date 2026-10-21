@@ -7,11 +7,11 @@
 import Link from 'next/link';
 import { AlertCircle, ArrowRight, CheckCircle2, CloudDownload, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { SageCompanyPicker, SageLoginForm, SageStepper } from '@/components/accounting/migration/sage/SageConnectSteps';
+import { SageCompanyPicker, SageLoginForm, SageReading, SageStepper } from '@/components/accounting/migration/sage/SageConnectSteps';
 import { IssueList, SageReviewPanel } from '@/components/accounting/migration/sage/SageReviewPanel';
 import { useSageConnect, type SageStep } from '@/components/accounting/migration/sage/useSageConnect';
 
-const STEP_INDEX: Record<SageStep, 0 | 1 | 2 | 3> = { loading: 0, unavailable: 0, login: 0, company: 1, review: 2, done: 3 };
+const STEP_INDEX: Record<SageStep, 0 | 1 | 2 | 3> = { loading: 0, unavailable: 0, prior: 0, login: 0, company: 1, reading: 2, review: 2, done: 3 };
 const card = 'bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6';
 
 function Unavailable() {
@@ -24,6 +24,18 @@ function Unavailable() {
       </p>
       <Link href="/accounting/migration" className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
         <FileSpreadsheet className="h-4 w-4" /> Upload Sage reports instead
+      </Link>
+    </div>
+  );
+}
+
+function Prior({ reason }: { reason: string }) {
+  return (
+    <div className={`${card} space-y-3`}>
+      <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">This company already has its opening balances</h2>
+      <p className="text-sm text-[var(--ff-text-secondary)]">{reason}</p>
+      <Link href="/accounting/reports/trial-balance" className="inline-flex items-center gap-2 rounded-lg border border-[var(--ff-border-light)] px-4 py-2 text-sm text-[var(--ff-text-primary)] hover:border-blue-500">
+        Open the trial balance
       </Link>
     </div>
   );
@@ -91,7 +103,7 @@ export default function SageConnectPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">Bring your books across from Sage Business Cloud Accounting</p>
               </div>
             </div>
-            {s.step !== 'unavailable' && s.step !== 'loading' && <SageStepper current={STEP_INDEX[s.step]} />}
+            {s.step !== 'unavailable' && s.step !== 'loading' && s.step !== 'prior' && <SageStepper current={STEP_INDEX[s.step]} />}
           </div>
         </div>
 
@@ -104,9 +116,11 @@ export default function SageConnectPage() {
           {s.step === 'loading' && <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>}
           {s.step === 'unavailable' && <Unavailable />}
           {s.step === 'login' && <SageLoginForm busy={s.busy === 'login'} onSubmit={s.connect} />}
-          {s.step === 'company' && <SageCompanyPicker companies={s.companies} busy={s.busy === 'pull'} onPick={s.review} onBack={s.backToLogin} />}
-          {s.step === 'review' && s.preview && (
-            <SageReviewPanel preview={s.preview} importIssues={s.importIssues} busy={s.busy} onImport={s.runImport} onStartOver={s.startOver} />
+          {s.step === 'prior' && s.notice && <Prior reason={s.notice} />}
+          {s.step === 'company' && <SageCompanyPicker companies={s.companies} busy={s.busy === 'pull'} onPick={s.startRead} onBack={s.backToLogin} />}
+          {s.step === 'reading' && <SageReading progress={s.progress} busy={s.busy !== null} onCancel={s.startOver} />}
+          {s.step === 'review' && s.review && (
+            <SageReviewPanel review={s.review} importIssues={s.importIssues} busy={s.busy} onImport={s.runImport} onStartOver={s.startOver} />
           )}
           {s.step === 'done' && s.outcome && <Done outcome={s.outcome} />}
           {(s.step === 'login' || s.step === 'company') && (

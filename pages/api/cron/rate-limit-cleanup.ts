@@ -2,7 +2,9 @@
  * Cron — rate-limit data cleanup (M14 / WS-2b).
  *
  * Deletes stale rate_limit_counters rows and expired/stale account_lockouts
- * rows. Active lockouts (locked_until >= NOW()) are never touched.
+ * rows. Active lockouts (locked_until >= NOW()) are never touched. Also expires
+ * every tenant's Sage review older than 24 hours, clearing the contact data it
+ * holds (sage_connect_pulls; each company's own calls expire its rows too).
  *
  * Cadence: nightly (e.g. 03:00 SAST). Secured by CRON_SECRET header.
  */
@@ -13,6 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { timingSafeEqualStr } from '@/lib/timingSafe';
 import { cleanupRateLimitData } from '@/modules/admin/services/rateLimitCleanupService';
+import { purgeExpiredPullsEverywhere } from '@/modules/accounting/services/sage/sageTakeOnStore';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -31,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const started = Date.now();
-  const result = await cleanupRateLimitData();
+  const result = { ...(await cleanupRateLimitData()), sagePullsExpired: await purgeExpiredPullsEverywhere() };
   const durationMs = Date.now() - started;
 
   log.info(

@@ -12,9 +12,16 @@
  *   - a balance with too few documents gets one "balance brought forward"
  *     document for the rest;
  *   - a balance on the wrong side (a customer in credit, a supplier we
- *     overpaid) cannot be taken on as a document and is reported.
+ *     overpaid) cannot be taken on as a document and is reported, with what it
+ *     does to the control account.
+ *
+ * Fail closed on what cannot be taken on as a home-currency invoice: an
+ * outstanding document that is not one of Sage's still-owed tax invoices /
+ * supplier invoices (a credit note, a receipt, an opening balance — matched by
+ * ID and number, see sageApiPullService), a contact in another currency, or a
+ * document with an exchange rate, each blocks the import with its reason.
  */
-import type { SageCustomer, SageOutstandingDocument, SageSupplier } from './sageApiTypes';
+import type { SageCustomer, SageInvoiceRef, SageOutstandingDocument, SageSupplier } from './sageApiTypes';
 import { formatRand, round2, type TakeOnIssue } from './sageTakeOnTypes';
 
 export type ContactKind = 'customer' | 'supplier';
@@ -97,12 +104,48 @@ function selectContacts(list: (SageCustomer | SageSupplier)[], kind: ContactKind
   return wanted.filter((c) => nameOf.has(c.ID)).map((c) => ({ c, name: nameOf.get(c.ID)! }));
 }
 
+const invoiceKey = (id: number, number: string | undefined) => `${id}|${(number ?? '').trim()}`;
+
+/** What the documents of one kind are checked against. */
+export interface ContactRules {
+  /** Sage's still-owed invoices of this kind (tax invoices / supplier invoices). */
+  invoices: readonly SageInvoiceRef[];
+  /** The Sage company's own currency symbol; a contact in another is refused. */
+  homeSymbol: string;
+}
+
+/** Outstanding documents that are not home-currency invoices, as blocking issues. */
+function refuseNonInvoices(
+  name: string, docs: SageOutstandingDocument[], kind: ContactKind, invoices: ReadonlySet<string>, issues: TakeOnIssue[],
+): SageOutstandingDocument[] {
+  const area = kind === 'customer' ? 'receivables' : 'payables';
+  const invoice = kind === 'customer' ? 'tax invoice' : 'supplier invoice';
+  const kept: SageOutstandingDocument[] = [];
+  for (const d of docs) {
+    const label = d.DocumentNumber?.trim() || `#${d.ID}`;
+    const rate = kind === 'customer' ? d.Customer_ExchangeRate : d.Supplier_ExchangeRate;
+    if (!invoices.has(invoiceKey(d.ID, d.DocumentNumber))) {
+      issues.push({
+        severity: 'error', area,
+        message: `Sage lists ${label} (document type ${d.DocumentTypeId ?? 'not given'}) as outstanding for ${kind} "${name}", but it is not an unpaid ${invoice} — usually a credit note, a receipt or an opening balance that is not allocated. Allocate it in Sage, then connect again, or use the file upload for this company.`,
+      });
+    } else if (rate != null && Math.abs(rate - 1) > 0.000001) {
+      issues.push({
+        severity: 'error', area,
+        message: `${label} for ${kind} "${name}" is in a foreign currency (exchange rate ${rate}). Import from Sage takes on home-currency balances only; use the file upload for this company.`,
+      });
+    } else {
+      kept.push(d);
+    }
+  }
+  return kept;
+}
+
 function documentsFor(
   name: string, sageId: number, balance: number, docs: SageOutstandingDocument[],
   kind: ContactKind, asAtDate: string,
 ): TakeOnDocument[] {
-  const open = docs
-    .filter((d) => d.AmountDue > 0.005)
+  const open = [...docs]
     .sort((a, b) => day(a.Date).localeCompare(day(b.Date)) || a.DocumentNumber.localeCompare(b.DocumentNumber));
   const out: TakeOnDocument[] = open.map((d) => {
     const total = round2(d.Total);
@@ -148,24 +191,38 @@ export function buildContacts(
   documents: Record<number, SageOutstandingDocument[]>,
   kind: ContactKind,
   asAtDate: string,
+  rules: ContactRules,
   issues: TakeOnIssue[],
 ): ContactsPart {
   const area = kind === 'customer' ? 'customers' : 'suppliers';
   const selected = selectContacts(list, kind, issues);
+  const invoices = new Set(rules.invoices.map((i) => invoiceKey(i.ID, i.DocumentNumber)));
   const docs: TakeOnDocument[] = [];
   for (const { c, name } of selected) {
     const balance = round2(c.Balance);
+    const symbol = c.CurrencySymbol?.trim();
+    if (symbol && symbol.toLowerCase() !== rules.homeSymbol.toLowerCase()) {
+      issues.push({
+        severity: 'error', area,
+        message: `${kind === 'customer' ? 'Customer' : 'Supplier'} "${name}" is kept in ${symbol} in Sage, not ${rules.homeSymbol}. Import from Sage takes on home-currency contacts only; use the file upload for this company.`,
+      });
+      continue;
+    }
     if (balance < -0.005) {
+      const amount = formatRand(-balance);
       issues.push({
         severity: 'warning',
         area,
         message: kind === 'customer'
-          ? `Customer "${name}" is in credit by ${formatRand(-balance)} in Sage. A credit cannot be taken on as an invoice — capture it as a credit note or unallocated receipt after the import.`
-          : `Supplier "${name}" owes you ${formatRand(-balance)} in Sage (a debit balance). That cannot be taken on as a bill — capture it as a supplier credit after the import.`,
+          ? `Customer "${name}" is in credit by ${amount} in Sage. A credit cannot be taken on as an invoice, so IsaFlow's Trade Receivables will be ${amount} higher than Sage's, and Opening Balance Equity carries the ${amount} difference, until you capture it as a credit note or unallocated receipt after the import.`
+          : `Supplier "${name}" owes you ${amount} in Sage (a debit balance). That cannot be taken on as a bill, so IsaFlow's Trade Payables will be ${amount} higher than Sage's, and Opening Balance Equity carries the ${amount} difference, until you capture it as a supplier credit after the import.`,
       });
       continue;
     }
-    if (balance > 0.005) docs.push(...documentsFor(name, c.ID, balance, documents[c.ID] ?? [], kind, asAtDate));
+    if (balance > 0.005) {
+      const open = refuseNonInvoices(name, (documents[c.ID] ?? []).filter((d) => d.AmountDue > 0.005), kind, invoices, issues);
+      docs.push(...documentsFor(name, c.ID, balance, open, kind, asAtDate));
+    }
   }
   return {
     contacts: selected.map(({ c, name }) => toContact(c, name)),

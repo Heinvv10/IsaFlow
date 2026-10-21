@@ -78,3 +78,19 @@ describe('sageSystemRole — Sage system account ids to IsaFlow roles', () => {
     for (const id of [-3, -13, -10, 5, 0, 1093996]) expect(sageSystemRole(id)).toBeNull();
   });
 });
+
+// M7 makes a refused COA row refuse the whole Sage import, so every subtype the
+// classifier can give must be one the COA step accepts for that type.
+describe('every classification is one the COA step accepts', () => {
+  it.each([
+    'Sales', 'Revenue', 'Other Income', 'Cost of Sales', 'Expenses', 'Income Tax', 'Non-Current Assets', 'Fixed Assets',
+    'Current Assets', 'Non-Current Liabilities', 'Long Term Liabilities', 'Current Liabilities', 'Owners Equity', 'Equity',
+  ])('%s, under every name rule', async (category) => {
+    const { subtypeErrorFor } = await import('@/modules/accounting/services/gl/accountSubtypeRules');
+    for (const name of ['Plain', 'Bank Charges', 'Interest Paid', 'Accumulated Depreciation', 'Inventory', 'Petty Cash', 'PAYE Payable']) {
+      const c = classifySageAccount({ ID: 1, Name: name, Category: { ID: 1, Description: category }, Active: true, AccountType: 1 });
+      expect(c.ok).toBe(true);
+      if (c.ok) expect(subtypeErrorFor({ accountType: c.accountType }, c.accountSubtype)).toBeNull();
+    }
+  });
+});

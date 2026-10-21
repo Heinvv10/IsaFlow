@@ -9,6 +9,7 @@
  * through the same tested engine.
  */
 import { buildAccounts, buildOpeningBalances } from './sageTakeOnAccounts';
+import { checkClosedPeriods, checkCurrency, checkFinancialYear } from './sageTakeOnChecks';
 import { buildContacts, type TakeOnContact, type TakeOnDocument } from './sageTakeOnContacts';
 import type { SagePull } from './sageApiTypes';
 import { formatRand, round2, type SageTakeOn, type TakeOnContext, type TakeOnIssue } from './sageTakeOnTypes';
@@ -37,20 +38,36 @@ function reconcile(
 
 export function buildSageTakeOn(pull: SagePull, ctx: TakeOnContext): SageTakeOn {
   const issues: TakeOnIssue[] = [];
+  // A refused currency still builds the rest, so the review shows everything; the error blocks the import.
+  const homeSymbol = checkCurrency(pull, ctx, issues) ?? pull.company.currencySymbol ?? 'R';
+  checkFinancialYear(pull, ctx, issues);
   const accounts = buildAccounts(pull, ctx, issues);
   const opening = buildOpeningBalances(pull, accounts, issues);
-  const customers = buildContacts(pull.customers, pull.customerDocuments, 'customer', pull.asAtDate, issues);
-  const suppliers = buildContacts(pull.suppliers, pull.supplierDocuments, 'supplier', pull.asAtDate, issues);
+  const customers = buildContacts(pull.customers, pull.customerDocuments, 'customer', pull.asAtDate,
+    { invoices: pull.customerInvoices, homeSymbol }, issues);
+  const suppliers = buildContacts(pull.suppliers, pull.supplierDocuments, 'supplier', pull.asAtDate,
+    { invoices: pull.supplierInvoices, homeSymbol }, issues);
 
   reconcile(issues, 'receivables', opening.receivableControl, customers.documentsTotal);
   reconcile(issues, 'payables', opening.payableControl, suppliers.documentsTotal);
 
+  // Where each journal will be dated: the opening balances on the cut-over
+  // date, each unpaid document on its own date (the wizard's posting dates).
+  checkClosedPeriods([
+    ...(opening.openingBalances.length > 0 || opening.openingBalanceClearing.debit > 0 || opening.openingBalanceClearing.credit > 0
+      ? [{ date: pull.asAtDate, what: `the opening balances (${pull.asAtDate})` }] : []),
+    ...customers.documents.map((d) => ({ date: d.invoiceDate, what: `${d.invoiceNumber} (${d.invoiceDate})` })),
+    ...suppliers.documents.map((d) => ({ date: d.invoiceDate, what: `${d.invoiceNumber} (${d.invoiceDate})` })),
+  ], ctx, issues);
+
   return {
-    sageCompany: pull.company,
+    sageCompany: { id: pull.company.id, name: pull.company.name },
     asAtDate: pull.asAtDate,
+    financialYearStart: pull.financialYearStart,
     accounts: accounts.accounts,
     systemAccountMap: accounts.systemAccountMap,
     sageAccountCodes: accounts.sageAccountCodes,
+    sageBankCodes: accounts.sageBankCodes,
     openingBalances: opening.openingBalances,
     openingBalanceClearing: opening.openingBalanceClearing,
     customers: customers.contacts.map(contactRow),

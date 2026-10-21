@@ -4,10 +4,7 @@
  * written. Import is disabled while there is a blocking problem.
  */
 import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, XCircle } from 'lucide-react';
-import type { ResponseFor } from '@/lib/apiRoutes';
-import type { ImportIssue } from './useSageConnect';
-
-type Preview = ResponseFor<'/api/accounting/sage-connect/preview'>;
+import type { ImportIssue, SageReview } from './useSageConnect';
 
 const rand = (n: number) => `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const card = 'bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]';
@@ -77,14 +74,13 @@ function Table({ head, rows }: { head: string[]; rows: (string | number)[][] }) 
   );
 }
 
-export function SageReviewPanel({ preview, importIssues, busy, onImport, onStartOver }: {
-  preview: Preview;
+export function SageReviewPanel({ review: r, importIssues, busy, onImport, onStartOver }: {
+  review: SageReview;
   importIssues: ImportIssue[];
   busy: null | string;
   onImport: () => void;
   onStartOver: () => void;
 }) {
-  const r = preview.review;
   const t = r.totals;
   const blocking = r.issues.some((i) => i.severity === 'error');
   const arTotal = r.arInvoices.reduce((s, i) => s + i.outstanding, 0);
@@ -97,6 +93,8 @@ export function SageReviewPanel({ preview, importIssues, busy, onImport, onStart
         <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">Check what will come across from {r.sageCompany.name}</h2>
         <p className="text-sm text-[var(--ff-text-secondary)]">Balances as at {r.asAtDate}. Nothing has been imported yet.</p>
       </div>
+
+      <p className={`${card} px-5 py-3 text-xs text-[var(--ff-text-secondary)]`}>{r.profitAndLossNote}</p>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Stat label="Accounts" value={r.accounts.length} />
@@ -149,7 +147,7 @@ export function SageReviewPanel({ preview, importIssues, busy, onImport, onStart
           className="text-sm text-[var(--ff-text-secondary)] underline hover:text-[var(--ff-text-primary)] disabled:opacity-50">
           Start again
         </button>
-        {blocking && <span className="text-xs text-red-300">Fix the items marked in red in Sage, then start again.</span>}
+        {blocking && <span className="text-xs text-red-300">Fix the items marked in red (each says where), then start again.</span>}
       </div>
     </div>
   );
