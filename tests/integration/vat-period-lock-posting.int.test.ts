@@ -128,7 +128,7 @@ describeIfDb('a locked VAT period refuses every posting that moves a VAT figure'
 
   it('refuses post_journal over MCP with a refusal the registry surfaces verbatim', async () => {
     const je = await draftJournal(vatJournalLines());
-    const ctx = { companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-vl', scopes: [] } as unknown as McpToolContext;
+    const ctx = { companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-vl', scopes: [] } as unknown as McpToolContext;
     const err = await inTx(fx, () => postJournalTool.handler({ journal_id: je.id, idempotency_key: `k${++seq}` }, ctx))
       .then(() => null, (e: unknown) => e);
     expect(err).toBeInstanceOf(VatPeriodLockedError);

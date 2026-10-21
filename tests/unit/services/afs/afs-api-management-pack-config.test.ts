@@ -51,7 +51,7 @@ function makeReq(body: Record<string, unknown> = {}): NextApiRequest {
     method:    'PUT',
     query:     {},
     body,
-    companyId: COMPANY_ID,
+    companyId: COMPANY_ID, companyRole: 'owner',
   } as unknown as NextApiRequest;
 }
 

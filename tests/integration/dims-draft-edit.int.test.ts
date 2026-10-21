@@ -194,7 +194,7 @@ describe('the customer invoice draft PUT re-derives CC1 (#663 review, LOW 4 and 
   });
 });
 
-const ctx = (): McpToolContext => ({ companyId: fx.companyId, userId: fx.userId, tokenJti: 'jti-dims' }) as unknown as McpToolContext;
+const ctx = (): McpToolContext => ({ companyId: fx.companyId, userId: fx.userId, companyRole: 'owner', tokenJti: 'jti-dims' }) as unknown as McpToolContext;
 let seq = 0;
 const update = (id: string, args: Record<string, unknown>) =>
   inTx(fx, () => updateSupplierInvoiceTool.handler({ invoice_id: id, ...args, idempotency_key: `dims-${++seq}` }, ctx()));

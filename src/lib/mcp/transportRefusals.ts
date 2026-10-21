@@ -23,8 +23,17 @@ export function refusalId(body: unknown): JsonRpcRequest['id'] {
   return typeof id === 'string' && id.length <= MAX_ECHOED_ID_LENGTH ? id : null;
 }
 
+/**
+ * mcp_connector stays a per-company switch (Hein, 2026-10-20: not global, not
+ * tied to a plan), so a marketplace user can reach this after a successful
+ * sign-in. Say what is missing and who can switch it on; never point at an
+ * upgrade (Cursor Marketplace Publisher Terms 3.1).
+ */
+export const CONNECTOR_NOT_ENABLED_MESSAGE =
+  'MCP connector not enabled for this company. Contact ISAFlow support to have it switched on.';
+
 export function connectorNotEnabled(body: unknown): JsonRpcResponse {
-  return rpcError(refusalId(body), RPC_CODES.NOT_ENABLED, 'MCP connector not enabled for this company');
+  return rpcError(refusalId(body), RPC_CODES.NOT_ENABLED, CONNECTOR_NOT_ENABLED_MESSAGE);
 }
 
 export function companyRateLimited(body: unknown): JsonRpcResponse {

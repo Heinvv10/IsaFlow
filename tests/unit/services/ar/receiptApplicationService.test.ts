@@ -234,6 +234,21 @@ describe('planReceiptApplication', () => {
     expect(plan.postsJournal).toBe(false);
   });
 
+  it('reports the status the row will hold: a cent still owing is partially_paid, nothing owing is paid', async () => {
+    // Whole cents, like recomputeInvoiceStatus (which writes the row): the plan must not promise 'paid'
+    // for an invoice that will read 'partially_paid' once the write lands.
+    lockMock.mockResolvedValue(paymentRow({ total_amount: '2000.00' }));
+    invoiceRows([invoiceRow(INV_A), invoiceRow(INV_B)]);
+
+    const plan = await planReceiptApplication(COMPANY, PAYMENT, [
+      { invoiceId: INV_A, amount: 599.99 },
+      { invoiceId: INV_B, amount: 600 },
+    ]);
+
+    expect(plan.lines[0]).toMatchObject({ outstandingAfter: 0.01, statusAfter: 'partially_paid' });
+    expect(plan.lines[1]).toMatchObject({ outstandingAfter: 0, statusAfter: 'paid' });
+  });
+
   it('RESOLVES THE COUNTERPARTY WITH COALESCE(client_id, customer_id)', async () => {
     // The route this replaces compares `invoice.client_id !== payment.client_id`.
     // `customer_invoices` carries both columns and an invoice populated on

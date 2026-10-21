@@ -12,20 +12,35 @@
 import type { NextApiHandler, NextApiResponse } from 'next';
 import { extractBearerToken } from './captureApiKeyAuth';
 import { runBearerRequest, type BearerHandler } from './bearerPipeline';
+import { DEFAULT_MCP_SCOPES } from './oauthScopes';
+import { setMcpCors } from '@/lib/mcp/httpCors';
 
 function appOrigin(): string {
   return process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 }
 
-function setChallenge(res: NextApiResponse): void {
-  res.setHeader(
-    'WWW-Authenticate',
-    `Bearer realm="IsaFlow MCP", resource_metadata="${appOrigin()}/.well-known/oauth-protected-resource"`,
+/**
+ * `scope` is the read-only default (MCP 2025-11-25: the challenge SHOULD carry
+ * one), so a client that would otherwise ask for nothing has a starting set.
+ */
+export function bearerChallenge(): string {
+  return (
+    `Bearer realm="IsaFlow MCP", ` +
+    `resource_metadata="${appOrigin()}/.well-known/oauth-protected-resource", ` +
+    `scope="${DEFAULT_MCP_SCOPES.join(' ')}"`
   );
+}
+
+function setChallenge(res: NextApiResponse): void {
+  res.setHeader('WWW-Authenticate', bearerChallenge());
 }
 
 export function withBearerAuth(handler: BearerHandler): NextApiHandler {
   return async (req, res) => {
+    // CORS first, so every answer this wrapper gives — the 401 challenge
+    // included — is readable by a browser client (FB-3). Safe with `*`: this
+    // wrapper never reads a cookie.
+    setMcpCors(res);
     const authHeader = req.headers.authorization;
     const rawToken = extractBearerToken(typeof authHeader === 'string' ? authHeader : undefined);
 

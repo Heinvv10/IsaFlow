@@ -51,7 +51,7 @@ const registry = new McpRegistry();
 registry.register(finalizeInvoiceTool);
 registry.register(bulkFinalizeInvoicesTool);
 const mcp = (c: string, name: string, args: Record<string, unknown>) => asUser(u.a, c, () => registry.call(name, args,
-  { userId: u.a, companyId: c, scopes: ['write:invoices', 'write:post'], tokenJti: 'r035-pr4', oauthAppId: null }));
+  { userId: u.a, companyId: c, scopes: ['write:invoices', 'write:post'], companyRole: 'owner', tokenJti: 'r035-pr4', oauthAppId: null }));
 const text = (res: { content: { text: string }[] }) => res.content[0]!.text;
 const requestsFor = async (id: string) => Number((await pool.query(
   'SELECT count(*)::INT AS n FROM approval_requests WHERE document_id = $1', [id])).rows[0].n);

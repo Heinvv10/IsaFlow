@@ -21,15 +21,24 @@
  *    cannot say which one. Saying only the category read as reassurance —
  *    malware is also a program running on this computer. Never show the port;
  *    it carries no meaning and reads like one.
+ *  - A native app's private-use scheme (RFC 8252 s7.1) is accepted only from
+ *    the exact allowlist in `oauthNativeRedirects.ts`, so the app it belongs to
+ *    is known and can be named, with the scheme and authority beside it. Any
+ *    other custom scheme stays `unknown`.
  */
 import { isLoopbackHost } from '@/lib/auth/oauthLoopback';
+import { describeNativeRedirect } from '@/lib/auth/oauthNativeRedirects';
 
 export type ConsentRedirectTarget =
   | { kind: 'web'; host: string }
   | { kind: 'local' }
+  | { kind: 'native'; appLabel: string; target: string }
   | { kind: 'unknown' };
 
 export function describeRedirectTarget(redirectUri: string): ConsentRedirectTarget {
+  const native = describeNativeRedirect(redirectUri);
+  if (native) return { kind: 'native', appLabel: native.appLabel, target: native.target };
+
   let url: URL;
   try {
     url = new URL(redirectUri);

@@ -104,6 +104,39 @@ describe('POST /api/oauth/token — public (PKCE-only) clients', () => {
     expect(res.body!.error).toBe('invalid_request');
   });
 
+  // FB-4 (RFC 8707): a token is only ever for /api/mcp.
+  it('a wrong resource → 400 invalid_target, before any code is consumed', async () => {
+    for (const resource of ['https://evil.example/api/mcp', ['https://app.isaflow.co.za/api/mcp', 'https://x.example']]) {
+      resetSqlMock();
+      mockSqlOnce([appRow(false)]);
+      const res = makeRes();
+      await handler(makeReq({ ...grant, resource }), res);
+      expect(res.statusCode).toBe(400);
+      expect(res.body!.error).toBe('invalid_target');
+    }
+  });
+
+  it('the right resource (path or bare origin) → 200', async () => {
+    for (const resource of ['https://app.isaflow.co.za/api/mcp', 'https://app.isaflow.co.za']) {
+      resetSqlMock();
+      mockSqlOnce([appRow(false)]);
+      mockSqlOnce([{ user_id: USER_ID, company_id: COMPANY_ID, scopes: ['read:reports'] }]);
+      const res = makeRes();
+      await handler(makeReq({ ...grant, resource }), res);
+      expect(res.statusCode, resource).toBe(200);
+    }
+  });
+
+  it('a wrong resource in a form-encoded body → 400 invalid_target', async () => {
+    mockSqlOnce([appRow(false)]);
+    const res = makeRes();
+    const req = { ...makeReq({ ...grant, resource: 'https://evil.example/api/mcp' }) } as unknown as Record<string, unknown>;
+    req.headers = { 'content-type': 'application/x-www-form-urlencoded' };
+    await handler(req as unknown as NextApiRequest, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body!.error).toBe('invalid_target');
+  });
+
   it('confidential clients still get 401 without their client_secret', async () => {
     mockSqlOnce([appRow(true)]);
     const res = makeRes();

@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { canWrite } from '@/lib/auth/writeRoles';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { magicBytesMatchMime, decodeUploadPayload } from '@/lib/fileMagic';
 import { sql } from '@/lib/neon';
@@ -29,12 +30,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
   // ── Helper: validate company membership ──
-  async function validateMembership(companyId: string): Promise<boolean> {
+  // `write`: the member's role must also allow writing (a viewer uploaded and deleted statutory documents).
+  async function validateMembership(companyId: string, write = false): Promise<boolean> {
     const rows = (await sql`
       SELECT role FROM company_users
       WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
     `) as Row[];
-    return rows.length > 0;
+    return rows.length > 0 && (!write || canWrite(String(rows[0]!.role)));
   }
 
   // ── GET ──
@@ -114,8 +116,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (docBuf.length < MIN_UPLOAD_BYTES) {
       return apiResponse.badRequest(res, 'File is too small to be a real document (under 1 KB)');
     }
-    if (!(await validateMembership(companyId))) {
-      return apiResponse.forbidden(res, 'You do not have access to this company');
+    if (!(await validateMembership(companyId, true))) {
+      return apiResponse.forbidden(res, 'Your role in this company does not allow uploading documents');
     }
     // Pentest M22: 50 MB bodyParser + no rate limit was a bandwidth/memory
     // DoS vector. 30 uploads/hr per tenant is plenty for document ingest.
@@ -157,8 +159,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE id = ${docId}::UUID AND is_active = true
     `) as Row[];
     if (rows.length === 0) return apiResponse.notFound(res, 'Document');
-    if (!(await validateMembership(String(rows[0]!.company_id)))) {
-      return apiResponse.forbidden(res, 'You do not have access to this company');
+    if (!(await validateMembership(String(rows[0]!.company_id), true))) {
+      return apiResponse.forbidden(res, 'Your role in this company does not allow deleting documents');
     }
 
     await sql`

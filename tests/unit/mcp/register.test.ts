@@ -115,6 +115,54 @@ describe('POST /api/oauth/register', () => {
     }
   });
 
+  // FB-1: Grok Bot and Cursor register with exactly these three URIs, the same
+  // on desktop and Cloud Agents (Cursor forum thread 171877). One refused entry
+  // failed the whole registration, so neither client could connect.
+  it('registers the Grok Bot / Cursor payload, cursor:// native redirect included', async () => {
+    const uris = [
+      'cursor://anysphere.cursor-mcp/oauth/callback',
+      'https://www.cursor.com/agents/mcp/oauth/callback',
+      'http://localhost:8787/callback',
+    ];
+    const res = makeRes();
+    await handler(makeReq({ redirect_uris: uris, client_name: 'Grok Bot' }), res);
+    expect(res.statusCode).toBe(201);
+    expect(res.body!.redirect_uris).toEqual(uris);
+    expect(registerOauthApp).toHaveBeenCalledWith(expect.objectContaining({ redirectUris: uris, dynamic: true }));
+  });
+
+  // The native allowlist is an exact string match: no prefix, no other custom
+  // scheme, no query or fragment, and no case variant.
+  it('rejects every custom-scheme URI that is not the exact allowlisted string', async () => {
+    for (const uri of [
+      'cursor://anysphere.cursor-mcp/oauth/callback?x=1',
+      'cursor://anysphere.cursor-mcp/oauth/callback#f',
+      'cursor://anysphere.cursor-mcp/oauth/callback/',
+      'cursor://anysphere.cursor-mcp/oauth/callbackx',
+      'CURSOR://anysphere.cursor-mcp/oauth/callback',
+      'cursor://evil/oauth/callback',
+      'myapp://cb',
+      'javascript:alert(1)',
+      'http://evil.com/cb',
+    ]) {
+      const res = makeRes();
+      await handler(makeReq({ redirect_uris: [uri] }), res);
+      expect(res.statusCode, uri).toBe(400);
+      expect(res.body!.error, uri).toBe('invalid_redirect_uri');
+    }
+    expect(registerOauthApp).not.toHaveBeenCalled();
+  });
+
+  it('one bad URI still fails a registration that also carries the native one', async () => {
+    const res = makeRes();
+    await handler(
+      makeReq({ redirect_uris: ['cursor://anysphere.cursor-mcp/oauth/callback', 'myapp://cb'] }),
+      res,
+    );
+    expect(res.statusCode).toBe(400);
+    expect(registerOauthApp).not.toHaveBeenCalled();
+  });
+
   it('more than 5 redirect URIs → 400', async () => {
     const uris = Array.from({ length: 6 }, (_, i) => `https://client.example/cb${i}`);
     const res = makeRes();

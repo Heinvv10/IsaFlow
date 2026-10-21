@@ -108,7 +108,7 @@ export function mcpCaller(pool: Pool, tools: McpTool[]) {
   for (const tool of tools) registry.register(tool);
   return (user: string, company: string, name: string, args: Record<string, unknown>): Promise<McpReply> =>
     asToken(pool, user, company, async () => (await registry.call(name, args,
-      { userId: user, companyId: company, scopes: ['write:bank-tx', 'write:post', 'write:invoices'], tokenJti: 'bc-a', oauthAppId: null },
+      { userId: user, companyId: company, scopes: ['write:bank-tx', 'write:post', 'write:invoices'], companyRole: 'owner', tokenJti: 'bc-a', oauthAppId: null },
     )) as McpReply);
 }
 

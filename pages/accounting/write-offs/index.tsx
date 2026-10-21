@@ -63,7 +63,7 @@ export default function WriteOffsPage() {
       .then(async r => { await assertOk(r, 'Could not load invoices - try again'); return r.json(); }).then(res => {
         const d = res.data || res;
         const list = Array.isArray(d) ? d : d.invoices || [];
-        setInvoices(list.filter((inv: Invoice) => Number(inv.total_amount) - Number(inv.amount_paid) > 0.01));
+        setInvoices(list.filter((inv: Invoice) => Math.round(Number(inv.total_amount) * 100) - Math.round(Number(inv.amount_paid) * 100) > 0));
       }).catch(err => setError(apiErrorMessage(err, 'Could not load invoices - try again')));
   }, [form.clientId]);
 
