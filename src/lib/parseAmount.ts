@@ -6,7 +6,9 @@
  * `-1234`, and non-breaking / narrow no-break spaces as thousands separators.
  * A comma before exactly three digits groups thousands (`1,234`) unless the
  * number before it is 0 (`0,500` is 0.5); a malformed grouping (`1,234,56`)
- * is NaN.
+ * is NaN. A dot is always the decimal point when it is the only separator:
+ * `1.234` is 1.234, not 1234 (no SA ledger groups thousands with a dot alone).
+ * A leading `+` is not read (`+100` is NaN, a row error).
  *
  * Empty or missing is 0 — a blank cell means "nothing". Anything else it cannot
  * read is NaN, never 0: the caller must report that row, because importing a

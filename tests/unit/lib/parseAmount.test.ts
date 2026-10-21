@@ -78,4 +78,10 @@ describe('parseAmount', () => {
       expect(Number.isNaN(parseAmount(input))).toBe(true);
     },
   );
+
+  // Deliberate: a lone dot is the decimal point, and a leading "+" is refused.
+  it('reads "1.234" as 1.234 (not 1234) and "+100" as NaN', () => {
+    expect(parseAmount('1.234')).toBe(1.234);
+    expect(Number.isNaN(parseAmount('+100'))).toBe(true);
+  });
 });
