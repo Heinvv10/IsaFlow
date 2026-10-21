@@ -22,7 +22,8 @@ export interface CategorizationResult {
   vatCode?: string;
   confidence: number;
   confidenceLevel: ConfidenceLevel;
-  matchSource: 'rule' | 'pattern' | 'historical' | 'llm';
+  /** 'shared_pool': the cross-company merchant pool (sharedPool/), a cold-start suggestion never auto-posted. */
+  matchSource: 'rule' | 'pattern' | 'historical' | 'llm' | 'shared_pool';
   matchDetail?: string;
 }
 
