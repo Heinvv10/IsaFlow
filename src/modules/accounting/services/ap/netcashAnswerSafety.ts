@@ -21,6 +21,34 @@ export function safeReference(ref: unknown): string | null {
 
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 
+/** The longest reference sent back to Netcash's API (a query parameter) when the column could not hold it. */
+export const API_REFERENCE_LENGTH = 1024;
+
+const UNUSABLE_FOR_API = /[\u0000-\u001f\u007f\ufffd]/;
+
+/**
+ * A reference kept in netcash_response (round 16), usable to ask Netcash about the batch: text of 1 to
+ * API_REFERENCE_LENGTH characters with no control character and no U+FFFD (jsonSafe may have put one where a lone
+ * surrogate was: no longer Netcash's reference), and no lone surrogate (encodeURIComponent throws on one). Else null.
+ */
+export function apiReference(ref: unknown): string | null {
+  if (typeof ref !== 'string' || ref.length === 0 || ref.length > API_REFERENCE_LENGTH) return null;
+  if (UNUSABLE_FOR_API.test(ref)) return null;
+  LONE_SURROGATE.lastIndex = 0;
+  return LONE_SURROGATE.test(ref) ? null : ref;
+}
+
+/**
+ * The reference to poll or link a submission by: its batch_reference, or - when that is NULL because Netcash's did not
+ * fit the column (safeReference) - the one kept in its netcash_response (top level, or lateSendResult), if usable.
+ */
+export function netcashReferenceOf(batchReference: string | null | undefined, netcashResponse: unknown): string | null {
+  if (batchReference) return batchReference;
+  const r = (netcashResponse ?? {}) as { batchReference?: unknown; lateSendResult?: { batchReference?: unknown } | null };
+  return apiReference(r.batchReference) ?? apiReference(r.lateSendResult?.batchReference);
+}
+
+
 function safeText(s: string): string {
   return s.replace(/\u0000/g, '').replace(LONE_SURROGATE, '\ufffd');
 }

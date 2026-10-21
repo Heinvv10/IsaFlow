@@ -15,7 +15,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSubmissionStatus } from '@/modules/accounting/services/ap/netcashService';
-import { jsonSafe } from '@/modules/accounting/services/ap/netcashAnswerSafety';
+import { jsonSafe, netcashReferenceOf } from '@/modules/accounting/services/ap/netcashAnswerSafety';
 
 type Row = Record<string, unknown>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -54,7 +54,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   // Load submission — company-scoped
   const submissions = await sql`
-    SELECT id, batch_reference, status
+    SELECT id, batch_reference, status,
+           jsonb_build_object('batchReference', netcash_response -> 'batchReference',
+                              'lateSendResult', jsonb_build_object('batchReference', netcash_response -> 'lateSendResult' -> 'batchReference')) AS kept
     FROM netcash_submissions
     WHERE id = ${String(submissionId)}::UUID AND company_id = ${companyId}::UUID
     LIMIT 1
@@ -84,7 +86,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     });
   }
 
-  if (!submission.batch_reference) {
+  // Round 16: a reference that did not fit batch_reference (NULL there) is polled by the one kept in netcash_response,
+  // when usable for the API - sent to Netcash only, never written into a column.
+  const reference = netcashReferenceOf(submission.batch_reference as string | null, submission.kept);
+  if (!reference) {
     return apiResponse.success(res, {
       submissionId,
       status: submission.status,
@@ -119,7 +124,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     });
   }
 
-  const pollResult = await getSubmissionStatus(serviceKey, String(submission.batch_reference));
+  const pollResult = await getSubmissionStatus(serviceKey, reference);
   const answeredAt = new Date().toISOString(); // when Netcash answered: orders this poll against an overlapping one
 
   // No answer (an HTTP or network error, an unreadable body, no status): nothing of Netcash's to apply or keep as its

@@ -72,6 +72,18 @@ describe('netcash submissions page: rows that hold a batch', () => {
     expect(screen.getAllByText(/after it was resolved/)).toHaveLength(1);
   });
 
+  it('round 16: a reference too long for the column links the merchant page by the one kept in netcash_response; an unusable one gets no link', async () => {
+    const long = `NC-${'R'.repeat(147)}`;
+    route(() => ok({ items: [
+      { ...sub('l', 'submitted'), batch_reference: null, netcash_response: { batchReference: long } },
+      { ...sub('u', 'submitted'), batch_reference: null, netcash_response: { batchReference: 'NC-\u0007-bell' } },
+    ], total: 2 }));
+    render(<NetcashSubmissionsPage />);
+    await screen.findAllByRole('button', { name: /Check status/ });
+    const links = [...document.querySelectorAll('a[href*="merchant.netcash.co.za"]')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual([`https://merchant.netcash.co.za/batch/${long}`]);
+  });
+
   it('a manager sees the notes but no Resolve control', async () => {
     company.companyRole = 'manager';
     route(() => ok({ items: [sub('p', 'pending')], total: 1 }));

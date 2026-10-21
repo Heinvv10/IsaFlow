@@ -33,15 +33,16 @@ function totalMs(): number {
 }
 
 /**
- * An error that retrying cannot clear (round 15): a data exception (22xxx: a value the column will not take), an
- * integrity violation other than a unique one (23xxx; 23505 is a newer claim, handled in the settle, and may clear),
- * or a syntax / access error (42xxx). Retrying those for ten minutes only hides them; the durable record
- * (netcashUnrecordedAnswer) still keeps the row from being freed.
+ * An error that retrying cannot clear because it comes from the answer's own content (round 15/16): a data exception
+ * (22xxx: a value the column will not take) or an integrity violation other than a unique one (23xxx; 23505 is a
+ * newer claim, handled in the settle, and may clear). Retrying those for ten minutes only hides them; the durable
+ * record (netcashUnrecordedAnswer) still keeps the row from being freed. A syntax / access error (42xxx: 42P01,
+ * 42501...) is retried - it can be transient around a migration or a grant.
  */
 function neverClears(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code !== 'string') return false;
-  return code.startsWith('22') || (code.startsWith('23') && code !== '23505') || code.startsWith('42');
+  return code.startsWith('22') || (code.startsWith('23') && code !== '23505');
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms).unref?.(); });

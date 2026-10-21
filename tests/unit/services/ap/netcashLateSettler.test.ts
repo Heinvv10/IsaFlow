@@ -2,9 +2,9 @@
  * AP-01 late settler.
  *   Round 14 (L1): startLateSettle ran `void run(...).finally(...)` with no catch - a throw outside run's own loop was
  *   an unhandled rejection with the answer nowhere. It is caught, logged with the full answer, the guard cleared.
- *   Round 15: an error that can never clear (a data exception 22xxx, an integrity error 23xxx other than 23505, a
- *   syntax/access error 42xxx) stops the settler at once with log.error, instead of retrying it for ten minutes; a
- *   transient one (a lock timeout, 55P03) is retried.
+ *   Round 15/16: an error from the answer's own content that can never clear (a data exception 22xxx, an integrity
+ *   error 23xxx other than 23505) stops the settler at once with log.error, instead of retrying it for ten minutes; a
+ *   transient one (a lock timeout 55P03, a 42P01/42501 around a migration or a grant) is retried.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -45,7 +45,7 @@ describe('startLateSettle', () => {
     }
   });
 
-  it.each(['22001', '22P05', '23502', '23514', '42703', '42501'])('a %s error never clears: one attempt, log.error with the answer, the guard cleared', async (code) => {
+  it.each(['22001', '22P05', '23502', '23514'])('a %s error never clears: one attempt, log.error with the answer, the guard cleared', async (code) => {
     settle.settleOnFreshConnection.mockRejectedValue(pgError(code));
     startLateSettle(P, `S-${code}`, S, 'token');
     await until(() => !isAnswerPendingRecord(`S-${code}`), 1000);
@@ -55,7 +55,7 @@ describe('startLateSettle', () => {
     }).toEqual({ attempts: 1, guard: false, logged: true });
   });
 
-  it.each(['55P03', '57014', '23505', '40P01'])('a %s error may clear: it is retried', async (code) => {
+  it.each(['55P03', '57014', '23505', '40P01', '42P01', '42501'])('a %s error may clear: it is retried', async (code) => {
     settle.settleOnFreshConnection.mockRejectedValueOnce(pgError(code)).mockResolvedValueOnce({ kind: 'settled' });
     startLateSettle(P, `T-${code}`, S, 'token');
     await until(() => !isAnswerPendingRecord(`T-${code}`), 1000);
