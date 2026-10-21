@@ -2,7 +2,7 @@
  * Learning-loop UI: the bank-transactions strip's plain labels, the bureau panel (total row only when the
  * API sends one), and the sharing switch (owner-only, consent wording marked as a draft on screen).
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
 import { BureauCodingMetricsPanel } from '@/components/bureau/BureauCodingMetricsPanel';
@@ -68,6 +68,16 @@ describe('BureauCodingMetricsPanel', () => {
     render(<BureauCodingMetricsPanel bureauId="b1" />);
     expect(await screen.findByText('Client A')).toBeTruthy();
     expect(screen.queryByText('All clients')).toBeNull();
+  });
+});
+
+describe('a 200 without the expected shape', () => {
+  it('renders nothing instead of taking the page down', async () => {
+    apiFetch.mockImplementation(async () => ok({})); // a fresh Response per call: a body reads once
+    const { container } = render(<div><CodingMetricsStrip /><BureauCodingMetricsPanel bureauId="b1" /><p>page body</p></div>);
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(container.textContent).toBe('page body');
   });
 });
 
