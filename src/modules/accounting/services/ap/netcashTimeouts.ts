@@ -52,3 +52,10 @@ export const SETTLE_ATTEMPT_BUDGET_MS = 8_000;
 export const LATE_SETTLE_FIRST_DELAY_MS = 1_000;
 export const LATE_SETTLE_MAX_DELAY_MS = 30_000;
 export const DEFAULT_LATE_SETTLE_TOTAL_MS = 600_000;
+
+/**
+ * The durable record of an answer the settle could not write (netcashUnrecordedAnswer, round 14) runs before the 500
+ * too: its checkout and its attempt are bounded like a settle's, and they count in the settle budget (round 15).
+ */
+export const UNRECORDED_ANSWER_CHECKOUT_MS = CLAIM_CONNECTION_TIMEOUT_MS;
+export const UNRECORDED_ANSWER_BUDGET_MS = 8_000;
