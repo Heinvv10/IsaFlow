@@ -36,6 +36,9 @@ import authHandler from '../../pages/api/accounting/portal/auth';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve
 import verifyHandler from '../../pages/api/accounting/portal/auth/verify';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve
+import documentsHandler from '../../pages/api/accounting/portal/documents';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 assertDisposableDb('s08 seeds companies and portal contacts.');
@@ -74,6 +77,19 @@ function sentEmails(): Array<{ to: string; html: string }> {
 
 function tokensIn(html: string): string[] {
   return [...new Set([...html.matchAll(/verify\?token=([0-9a-f]{64})/g)].map((m) => m[1]!))];
+}
+
+async function signIn(token: string): Promise<string> {
+  const { res, out } = mockRes();
+  await (verifyHandler as Handler)({ method: 'GET', query: { token }, headers: {} } as unknown as NextApiRequest, res);
+  return String((out.headers['set-cookie'] as string[])[0]).split(';')[0]!.split('=')[1]!;
+}
+
+async function documentsStatus(jwt: string): Promise<number> {
+  const { res, out } = mockRes();
+  await (documentsHandler as Handler)(
+    { method: 'GET', query: {}, headers: {}, cookies: { portal_session: jwt }, url: '/api/accounting/portal/documents' } as unknown as NextApiRequest, res);
+  return out.status;
 }
 
 async function landingCompanyOf(token: string): Promise<string | null> {
@@ -152,6 +168,28 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-08 — one sign-in email, one 
       expect(await landingCompanyOf(alphaToken)).toBeNull();
     } finally {
       await admin.query(`UPDATE companies SET status = 'active', suspended_at = NULL WHERE id = $1`, [ALPHA]);
+    }
+  });
+
+  // Breaker round 2 NEW A: the portal JWT lasts 8 hours; standing is re-read.
+  it('ends a signed-in session when its company is suspended or its contact deactivated', async () => {
+    await requestLink(EMAIL);
+    const html = sentEmails()[0]!.html;
+    const alpha = html.slice(html.indexOf('S08 Alpha'));
+    const jwt = await signIn(tokensIn(alpha)[0]!);
+    expect(await documentsStatus(jwt)).toBe(200);
+    await admin.query(`UPDATE companies SET status = 'suspended', suspended_at = now() WHERE id = $1`, [ALPHA]);
+    try {
+      expect(await documentsStatus(jwt)).toBe(401);
+    } finally {
+      await admin.query(`UPDATE companies SET status = 'active', suspended_at = NULL WHERE id = $1`, [ALPHA]);
+    }
+    expect(await documentsStatus(jwt)).toBe(200);
+    await admin.query(`UPDATE portal_contacts SET active = false WHERE company_id = $1 AND email = $2`, [ALPHA, EMAIL]);
+    try {
+      expect(await documentsStatus(jwt)).toBe(401);
+    } finally {
+      await admin.query(`UPDATE portal_contacts SET active = true WHERE company_id = $1 AND email = $2`, [ALPHA, EMAIL]);
     }
   });
 
