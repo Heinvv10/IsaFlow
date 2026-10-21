@@ -7,8 +7,11 @@
  *   1. every tracked file naming the token in any quoting (', " or `) is on the
  *      allowlist below with its reason — a new mention fails until judged;
  *   2. the WRITERS among them are exactly the five take-on writers;
- *   3. the two SOCE readers take the marker from the one shared constant, so
- *      they cannot drift apart.
+ *   3. every file that imports or uses the shared constant
+ *      (gl/takeOnJournalSource's TAKE_ON_JOURNAL_SOURCE) is allowlisted with
+ *      its reason — the constant is the same marker, so a reader of it is
+ *      judged like a reader of the literal — and the AFS readers take the
+ *      marker from it, so they cannot drift apart.
  *
  * Read from the repo (git ls-files), not from memory. scripts/import-sage-britech.ts
  * wrote Sage's LIVE history with the token until PR #768 (it now writes
@@ -64,6 +67,7 @@ const OTHERS: Record<string, string> = {
   'tests/unit/services/afs/changesInEquityTakeOn.test.ts': 'test: the SOCE take-on row',
   'tests/integration/sage-connect-soce.int.test.ts': 'test: both SOCE readers after a Sage take-on',
   'tests/integration/m908-relabel-sage-history.int.test.ts': 'test: migration 908',
+  'tests/integration/afs-take-on-dividends.int.test.ts': 'test: take-on dividends across the AFS pack',
   'tests/integration/r001-r002-r020-takeon-posting.int.test.ts': 'test: take-on posting',
   'tests/unit/mcp/setOpeningBalanceTool.test.ts': 'test: MCP set_opening_balance',
   'tests/unit/services/ap/migrationApService.test.ts': 'test: AP take-on',
@@ -71,6 +75,18 @@ const OTHERS: Record<string, string> = {
   'tests/unit/services/migrationOpeningBalances.test.ts': 'test: file migration opening balances',
   'tests/unit/services/reports/unusualJournalsDocumentPostings.test.ts': 'test: unusual-journals report fixture',
 };
+
+/** Every file allowed to import or use TAKE_ON_JOURNAL_SOURCE, and why. */
+const CONSTANT_USERS: Record<string, string> = {
+  'src/modules/accounting/services/gl/takeOnJournalSource.ts': 'defines it',
+  'src/modules/accounting/services/afs/changesInEquityService.ts': 'reader: the report SOCE take-on row',
+  'src/modules/accounting/services/afs/noteGenerators/primaryStatements/dividendsPaid.ts': 'reader: AFS SOCE dividends paid leaves take-ons out',
+  'src/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers.ts': 'reader: income statement IS484 leaves take-ons out',
+  'src/modules/accounting/services/afs/noteGenerators/primaryStatements/takeOnEquity.ts': 'reader: AFS SOCE balances taken on column',
+  'tests/unit/services/afs/changesInEquityTakeOn.test.ts': 'test: the report SOCE query binds it',
+  'tests/unit/services/afs/takeOnJournalWriterCensus.test.ts': 'test: this census',
+};
+const CONSTANT = /\bTAKE_ON_JOURNAL_SOURCE\b|from\s+['"][^'"]*takeOnJournalSource['"]/;
 
 /** A journal WRITE naming the source: createJournalEntry's input, or a raw INSERT carrying it. */
 const WRITES = [
@@ -117,11 +133,16 @@ describe('auto_migration census', () => {
     expect(TOKEN.test(text)).toBe(false);
   });
 
-  it('both SOCE readers take the marker from the one shared constant', () => {
-    for (const reader of [
-      'src/modules/accounting/services/afs/changesInEquityService.ts',
-      'src/modules/accounting/services/afs/noteGenerators/primaryStatements/dividendsPaid.ts',
-    ]) {
+  it('every file importing or using the shared constant is allowlisted with a reason, and none is stale', () => {
+    const users = tracked().filter((f) => {
+      try { return CONSTANT.test(readFileSync(resolve(ROOT, f), 'utf8')); } catch { return false; } // not text we own
+    });
+    expect(users.sort()).toEqual(Object.keys(CONSTANT_USERS).sort());
+    for (const reason of Object.values(CONSTANT_USERS)) expect(reason.trim()).not.toBe('');
+  });
+
+  it('the AFS readers take the marker from the one shared constant', () => {
+    for (const reader of Object.keys(CONSTANT_USERS).filter((f) => f.startsWith('src/') && !f.endsWith('takeOnJournalSource.ts'))) {
       const text = readFileSync(resolve(ROOT, reader), 'utf8');
       expect(text).toMatch(/import \{ TAKE_ON_JOURNAL_SOURCE \} from '@\/modules\/accounting\/services\/gl\/takeOnJournalSource'/);
       expect(text).toMatch(/\$\{TAKE_ON_JOURNAL_SOURCE\}/);

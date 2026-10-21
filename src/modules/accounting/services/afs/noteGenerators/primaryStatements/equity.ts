@@ -10,18 +10,27 @@
 //
 // Dividends paid on an equity account mapped to IS484 (dividendsPaid.ts) are
 // split out of the accumulated-profit row's movement into a Dividends column,
-// shown only in a year that has them.
+// shown only in a year that has them. Balances a take-on journal carried in
+// (gl/takeOnJournalSource; dividends among them, on the accumulated-profit row)
+// get their own "Balances taken on" column the same way (takeOnEquity.ts).
 
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt } from '../noteHelpers';
 import { fetchSectionLines, type SectionLine } from './_helpers';
 import { ACCUMULATED_PROFIT_CODE, DERIVED_ACCUMULATED_PROFIT_CODE } from './derivedAccumulatedProfit';
-import { fetchDividendsPaid } from './dividendsPaid';
+import { DIVIDENDS_PAID_CODE, fetchDividendsPaid } from './dividendsPaid';
+import { fetchTakeOnByLine } from './takeOnEquity';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // BSACCPL: the derived accumulated-profit line a taxonomy without BS045 gets (derivedAccumulatedProfit.ts).
 const EQUITY_CODES = new Set(['BS043', 'BS044', 'BS045', 'BS046', 'BS047', 'BS048', DERIVED_ACCUMULATED_PROFIT_CODE]);
+
+/** What the Movement column is net of, in words. */
+function movementLess(takeOn: boolean, dividends: boolean): string {
+  const parts = [...(takeOn ? ['the balances a take-on carried in'] : []), ...(dividends ? ['the dividends paid'] : [])];
+  return parts.length === 0 ? '' : `, less ${parts.join(' and ')} shown beside it`;
+}
 
 export async function generateChangesInEquity(
   companyId: string,
@@ -30,10 +39,11 @@ export async function generateChangesInEquity(
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateChangesInEquity', { companyId, fiscalYear }, 'AfsPrimary');
   const { start: fyStart, end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
-  const [lines, dividendsPaid] = await Promise.all([
+  const [lines, dividendsPaid, takeOn] = await Promise.all([
     fetchSectionLines(companyId, 'balance_sheet', fiscalYear, fiscalYear - 1),
-    // Paid only: clearing the dividends account into retained earnings is not a distribution.
+    // Paid only: clearing the dividends account into retained earnings is not a distribution, nor is a take-on.
     fetchDividendsPaid(companyId, fyStart, fyEnd, true),
+    fetchTakeOnByLine(companyId, fyStart, fyEnd),
   ]);
   const equityLines = lines.filter((l) => EQUITY_CODES.has(l.code));
 
@@ -45,11 +55,15 @@ export async function generateChangesInEquity(
   // derived profit nor the dividends, so the column is not shown rather than shown as zeros.
   const showDividends = dividendsPaid !== 0 && equityLines.some(isAccumulated);
   const dividendsOn = (l: SectionLine): number => (isAccumulated(l) ? -dividendsPaid : 0);
+  const takeOnOn = (l: SectionLine): number =>
+    (takeOn.get(l.code) ?? 0) + (isAccumulated(l) ? (takeOn.get(DIVIDENDS_PAID_CODE) ?? 0) : 0);
+  const showTakeOn = equityLines.some((l) => Math.abs(takeOnOn(l)) >= 0.005);
   const rows: string[][] = equityLines.map((l) => [
     l.label,
     fmt(-l.priorAmount),
+    ...(showTakeOn ? [fmt(takeOnOn(l))] : []),
     ...(showDividends ? [fmt(dividendsOn(l))] : []),
-    fmt(-(l.currentAmount - l.priorAmount) - dividendsOn(l)),
+    fmt(-(l.currentAmount - l.priorAmount) - dividendsOn(l) - takeOnOn(l)),
     fmt(-l.currentAmount),
   ]);
 
@@ -57,7 +71,7 @@ export async function generateChangesInEquity(
     // closingTotalEquity: the key the compliance checker compares to the SFP's totalEquity (credit-positive).
     // dividendsPaid: the year's dividends on IS484-mapped equity accounts, as a positive amount paid.
     dataSnapshot: {
-      equityLines, dividendsPaid,
+      equityLines, dividendsPaid, takeOnByLine: Object.fromEntries(takeOn),
       closingTotalEquity: -equityLines.filter((l) => !l.isTotal).reduce((s, l) => s + l.currentAmount, 0),
     },
     content: {
@@ -66,12 +80,10 @@ export async function generateChangesInEquity(
         { type: 'paragraph', text: `Movements in equity for the year ended ${fyEnd}.` },
         {
           type: 'table',
-          headers: ['Component', 'Opening (R)', ...(showDividends ? ['Dividends (R)'] : []), 'Movement (R)', 'Closing (R)'],
+          headers: ['Component', 'Opening (R)', ...(showTakeOn ? ['Balances taken on (R)'] : []), ...(showDividends ? ['Dividends (R)'] : []), 'Movement (R)', 'Closing (R)'],
           rows,
         },
-        { type: 'paragraph', text: showDividends
-          ? 'Movement column is the period delta of cumulative balances, less the dividends paid shown beside it. v1 limitation: see Notes for true profit-for-year.'
-          : 'Movement column is the period delta of cumulative balances. v1 limitation: see Notes for true profit-for-year and dividend movements.' },
+        { type: 'paragraph', text: `Movement column is the period delta of cumulative balances${movementLess(showTakeOn, showDividends)}. v1 limitation: see Notes for true profit-for-year${showDividends ? '' : ' and dividend movements'}.` },
       ],
     },
   };

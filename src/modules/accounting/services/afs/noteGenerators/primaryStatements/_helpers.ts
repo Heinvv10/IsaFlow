@@ -18,6 +18,8 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from '../noteHelpers';
 import { getFiscalRangeWithPrior } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { TAKE_ON_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/takeOnJournalSource';
+import { DIVIDENDS_PAID_CODE } from './dividendsPaid';
 import { addDerivedAccumulatedProfit, addDerivedOpeningAccumulatedIncome } from './derivedAccumulatedProfit';
 
 export { ACCUMULATED_BF_CODE } from './derivedAccumulatedProfit';
@@ -90,6 +92,9 @@ export async function fetchSectionLines(
     LEFT JOIN afs_account_mappings am ON am.afs_line_code = sl.code AND am.company_id = sl.company_id
     LEFT JOIN gl_journal_lines gjl ON gjl.gl_account_id = am.gl_account_id AND gjl.company_id = ${companyId}::uuid
     LEFT JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE} AND gje.company_id = ${companyId}::uuid
+      -- IS484 "Dividends paid" (and the IS485 running total built on it) leaves out a take-on journal: it carries
+      -- dividends in as a balance, as the AFS SOCE and the report SOCE read them (gl/takeOnJournalSource).
+      AND (sl.code <> ${DIVIDENDS_PAID_CODE} OR gje.source IS DISTINCT FROM ${TAKE_ON_JOURNAL_SOURCE})
     WHERE sl.company_id = ${companyId}::uuid
       AND sl.section = ${section}
       AND sl.is_active = true
