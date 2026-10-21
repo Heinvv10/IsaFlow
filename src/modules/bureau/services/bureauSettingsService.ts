@@ -10,9 +10,12 @@
  *     route's check and the write cannot slip a change through, and two toggles at once serialize and each
  *     audit row reads the true old value.
  * A no-op change (same value) writes nothing and is reported `changed: false`.
+ * Switching ON is refused for everyone while MERCHANT_SHARING_ENABLED is off (merchantSharingGate.ts: the
+ * consent copy awaits legal review); switching OFF is always allowed.
  */
 
 import { sql, withTransaction } from '@/lib/neon';
+import { isMerchantSharingEnabled } from './merchantSharingGate';
 
 export interface BureauSettingChange {
   id: string;
@@ -31,6 +34,7 @@ export interface BureauSharingSetting {
 
 export type SetSharingResult =
   | { kind: 'forbidden' }
+  | { kind: 'pending_legal_review' }
   | { kind: 'ok'; changed: boolean; oldValue: boolean; newValue: boolean };
 
 const asBool = (v: unknown): boolean | null => (v === true ? true : v === false ? false : null);
@@ -69,6 +73,7 @@ export async function getBureauSharingSetting(bureauId: string, historyLimit = 1
 export async function setBureauSharingSetting(opts: {
   bureauId: string; actorUserId: string; value: boolean;
 }): Promise<SetSharingResult> {
+  if (opts.value && !isMerchantSharingEnabled()) return { kind: 'pending_legal_review' };
   return withTransaction(async (tx) => {
     const rows = (await tx`
       SELECT b.share_merchant_patterns
