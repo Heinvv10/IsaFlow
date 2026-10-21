@@ -21,12 +21,21 @@ describe('parseImportDate', () => {
     ['03-Apr-2026', '2026-04-03'],
     ['03 SEPT 2026', '2026-09-03'],
     ['  03/04/2026  ', '2026-04-03'],
+    // Month-name-first, as the GL import accepted through new Date() — a month
+    // NAME is never ambiguous, so reading it is not guessing the order.
+    ['Apr 3, 2026', '2026-04-03'],
+    ['April 3, 2026', '2026-04-03'],
+    ['Apr 3 2026', '2026-04-03'],
+    ['Sept. 30, 2026', '2026-09-30'],
+    ['3 Apr 2026', '2026-04-03'],
   ])('reads %j as %s', (input, expected) => {
     expect(parseImportDate(input)).toBe(expected);
   });
 
   it('is day-first: never reads a US month-first date', () => {
     expect(parseImportDate('04/03/2026')).toBe('2026-03-04');
+    // Both halves could be a month: still day first.
+    expect(parseImportDate('01/02/2026')).toBe('2026-02-01');
     // 13 cannot be a month, and the parser does not swap to make it fit.
     expect(parseImportDate('12/13/2026')).toBeNull();
   });
@@ -37,7 +46,7 @@ describe('parseImportDate', () => {
     expect(parseImportDate(45658)).toBe('2025-01-01');
   });
 
-  it.each(['', '   ', 'not a date', '31/02/2026', '2026-02-30', '29/02/2027', '00/01/2026', '2026-13-01', '03 Foo 2026'])(
+  it.each(['', '   ', 'not a date', '31/02/2026', '2026-02-30', '29/02/2027', '00/01/2026', '2026-13-01', '03 Foo 2026', 'Foo 3, 2026', 'Apr 31, 2026'])(
     'returns null for %j',
     input => {
       expect(parseImportDate(input)).toBeNull();
