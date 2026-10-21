@@ -4,6 +4,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { log } from '@/lib/logger';
 import { getAfsDocument } from '@/modules/accounting/services/afs/afsDocumentService';
 import { enqueueGenerationJob } from '@/modules/accounting/services/afs/afsGenerationJobService';
@@ -33,4 +34,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.created(res, { job }, 'Generation job enqueued');
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler as never)));
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as never))));

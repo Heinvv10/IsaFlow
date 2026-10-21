@@ -24,7 +24,7 @@ import { SYSTEM_ACCOUNT_KEYS } from '@/modules/accounting/services/gl/systemAcco
 const fx = brkFixture('BRK593P4R');
 const { CO, USER, ins, holders } = fx;
 const id = () => randomUUID();
-const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'write:post', 'write:journals'], tokenJti: 'brk593', oauthAppId: null }) as never;
+const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'write:post', 'write:journals'], companyRole: 'owner', tokenJti: 'brk593', oauthAppId: null }) as never;
 const registry = new McpRegistry();
 for (const t of [updateGlAccountTool, createGlAccountTool, mergeGlAccountsTool]) registry.register(t);
 const mcp = async (name: string, args: Record<string, unknown>) => {

@@ -29,7 +29,7 @@ const fx = brkFixture('W228R9');
 const { CO, USER, ins, holders } = fx;
 const BANK = '11111111-1111-4111-8111-' + randomUUID().slice(-12);
 const X = 'ffffffff-ffff-4fff-bfff-' + randomUUID().slice(-12);
-const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'read:accounts'], tokenJti: 'w228r9', oauthAppId: null }) as never;
+const ctx = () => ({ userId: USER, companyId: CO, scopes: ['write:accounts', 'read:accounts'], companyRole: 'owner', tokenJti: 'w228r9', oauthAppId: null }) as never;
 const registry = new McpRegistry();
 registry.register(updateGlAccountTool);
 const save = () => fx.call(defaultAccounts, 'POST', '/api/accounting/default-accounts', { mappings: { primary_bank: X }, loaded: { primary_bank: BANK } });

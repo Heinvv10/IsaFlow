@@ -13,16 +13,14 @@ import type { NextApiHandler } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { OAUTH_SCOPES } from '@/lib/auth/oauth';
-
-function appOrigin(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
-}
+import { oauthIssuer } from '@/lib/auth/oauthResource';
 
 const handler: NextApiHandler = (req, res) => {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? '', ['GET']);
   }
-  const base = appOrigin();
+  // The same string the consent redirect sends as `iss` (RFC 9207).
+  const base = oauthIssuer();
   res.setHeader('Cache-Control', 'public, max-age=300');
   return res.status(200).json({
     issuer: base,
@@ -36,6 +34,8 @@ const handler: NextApiHandler = (req, res) => {
     // secret-post = pre-registered confidential clients.
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
     scopes_supported: [...OAUTH_SCOPES],
+    // RFC 9207: every authorization response (success and error) carries iss.
+    authorization_response_iss_parameter_supported: true,
   });
 };
 

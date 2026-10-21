@@ -34,6 +34,7 @@ vi.mock('@/modules/accounting/services/ar/gatewayInvoiceReceiptService', () => (
   recordGatewayInvoiceReceipt: vi.fn(),
 }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 
 const verifyTransaction = vi.fn();
 vi.mock('@/modules/billing/services/paystackClient', () => ({
@@ -312,7 +313,7 @@ describeIfDb('K-095 a second active mandate is refused, not thrown', () => {
       await als.run({ client, userId: 'k095', companyId: VERIFY_CO, claims: {} }, async () => {
         try {
           await route(
-            { method: 'GET', query: { ref: VERIFY_REF }, headers: {}, companyId: VERIFY_CO, user: { id: 'k095' } } as unknown as NextApiRequest,
+            { method: 'POST', query: {}, body: { ref: VERIFY_REF }, headers: {}, companyId: VERIFY_CO, companyRole: 'owner', user: { id: 'k095' } } as unknown as NextApiRequest,
             res,
           );
         } catch (err) {

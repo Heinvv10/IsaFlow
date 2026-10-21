@@ -113,7 +113,7 @@ async function allGenerators(mod: Record<string, unknown>, company: string, year
 
 export function readers(t: G01Tenant, user: string, pool: Pool): Reader[] {
   const c = t.company;
-  const ctx = { userId: user, companyId: c, scopes: ['read:reports'], tokenJti: null, oauthAppId: null } as unknown as McpToolContext;
+  const ctx = { userId: user, companyId: c, scopes: ['read:reports'], companyRole: 'owner', tokenJti: null, oauthAppId: null } as unknown as McpToolContext;
   const NOW = '2025-12-15T10:00:00';
   const R = (name: string, run: () => Promise<unknown>, ...anchors: RegExp[]): Reader => ({ name, run, anchors });
   return [

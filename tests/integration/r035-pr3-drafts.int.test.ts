@@ -104,7 +104,7 @@ describe('drafts-only creators are not gated, and post nothing', () => {
       const res = await als.run({ client, userId: u.a, companyId: c, claims: { sub: u.a } } as never, () => registry.call(
         'create_credit_note',
         { type: 'supplier', supplier_id: supplier, credit_date: '2026-09-02', subtotal: 200, idempotency_key: `r035-pr3-create-${c}` },
-        { userId: u.a, companyId: c, scopes: ['write:invoices'], tokenJti: 'r035-pr3', oauthAppId: null }));
+        { userId: u.a, companyId: c, scopes: ['write:invoices'], companyRole: 'owner', tokenJti: 'r035-pr3', oauthAppId: null }));
       await client.query('COMMIT');
       expect(res.isError, res.content[0]!.text).toBeFalsy();
       await expectDraft((JSON.parse(res.content[0]!.text) as { id: string }).id);

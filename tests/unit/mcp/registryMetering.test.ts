@@ -44,7 +44,7 @@ import type { McpTool, McpToolContext } from '@/lib/mcp/types';
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
 const ctx: McpToolContext = {
   userId: 'user-1',
-  companyId: COMPANY_ID,
+  companyId: COMPANY_ID, companyRole: 'owner',
   scopes: ['read:reports', 'write:bank-tx'],
   tokenJti: 'pat-1',
   oauthAppId: null,
@@ -87,8 +87,18 @@ describe('registry metering', () => {
     const res = await registryWith(tool).call('trial_balance', {}, ctx);
 
     expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toMatch(/insufficient flows/i);
+    // FB-6: a plain statement, no upsell.
+    expect(res.content[0]!.text).toBe(
+      "This company's Flow balance is too low for trial_balance: it costs 10 Flows and the balance is 2. Nothing was changed.",
+    );
+    expect(res.content[0]!.text).not.toMatch(/top up|upgrade|buy|purchase/i);
     expect(tool.handler).not.toHaveBeenCalled();
+  });
+
+  it('passes the connection\'s OAuth app to the debit, so marketplace calls can be exempted', async () => {
+    const tool = makeTool();
+    await registryWith(tool).call('trial_balance', {}, { ...ctx, oauthAppId: 'app-dyn-1' });
+    expect(debitForTool).toHaveBeenCalledWith(COMPANY_ID, 'trial_balance', {}, 'app-dyn-1');
   });
 
   it('does not burn the idempotency key when the wallet is short', async () => {

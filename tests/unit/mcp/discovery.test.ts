@@ -66,6 +66,8 @@ describe('GET /.well-known/oauth-authorization-server (metadata)', () => {
       expect.arrayContaining(['authorization_code', 'refresh_token']),
     );
     expect(b.scopes_supported).toEqual([...OAUTH_SCOPES]);
+    // FB-4: RFC 9207 — the consent redirects carry iss.
+    expect(b.authorization_response_iss_parameter_supported).toBe(true);
   });
 
   it('derives the origin from NEXT_PUBLIC_APP_URL when set', async () => {

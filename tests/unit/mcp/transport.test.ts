@@ -139,9 +139,39 @@ describe('/api/mcp transport', () => {
     const res = makeRes();
     await route(makeReq('OPTIONS') as never, res);
     expect(res.statusCode).toBe(204);
-    expect(res.headers['access-control-allow-headers']).toBe('Authorization, Content-Type');
+    // FB-3: the MCP request headers a browser client sends, and the ones it must read.
+    expect(res.headers['access-control-allow-headers']).toBe(
+      'Authorization, Content-Type, Mcp-Protocol-Version, Mcp-Session-Id, Mcp-Method, Mcp-Name, Last-Event-ID',
+    );
+    expect(res.headers['access-control-expose-headers']).toBe('WWW-Authenticate, Mcp-Session-Id');
     expect(res.headers['access-control-allow-methods']).toBe('GET, POST, OPTIONS');
     expect(hasFeature).not.toHaveBeenCalled();
+  });
+
+  // FB-3: Streamable HTTP says a GET MUST return an SSE stream or 405. We
+  // open no stream, so an MCP client's GET (Accept: text/event-stream) is 405.
+  it('GET asking for text/event-stream → 405, no server-info body', async () => {
+    for (const accept of ['text/event-stream', 'application/json, text/event-stream', 'TEXT/EVENT-STREAM']) {
+      const res = makeRes();
+      await route({ ...makeReq('GET'), headers: { accept } } as never, res);
+      expect(res.statusCode, accept).toBe(405);
+      expect(String(res.headers.allow)).toContain('POST');
+      expect(res.headers['access-control-allow-origin']).toBe('*');
+      expect((res.body as Record<string, unknown>).tools).toBeUndefined();
+    }
+    expect(hasFeature).not.toHaveBeenCalled();
+  });
+
+  it('server/discover → the legacy version only, so a 2026-07-28 client falls back to initialize', async () => {
+    const res = makeRes();
+    await route(makeReq('POST', rpc('server/discover', {})) as never, res);
+    expect(res.statusCode).toBe(200);
+    const result = (res.body as Record<string, unknown>).result as Record<string, unknown>;
+    expect(result.supportedVersions).toEqual(['2025-06-18']);
+    expect(result.resultType).toBe('complete');
+    expect(result.capabilities).toEqual({ tools: { listChanged: false } });
+    const meta = result._meta as Record<string, Record<string, unknown>>;
+    expect(meta['io.modelcontextprotocol/serverInfo']).toMatchObject({ name: 'isaflow', version: '1.0.0' });
   });
 
   it('GET → unauthenticated server-info with discovery URLs and client tool names', async () => {
@@ -275,7 +305,11 @@ describe('/api/mcp transport', () => {
       await route(makeReq('POST', rpc(method, { name: 'echo_ctx' })) as never, res);
       const err = (res.body as { error: { code: number; message: string } }).error;
       expect(err.code).toBe(-32001);
-      expect(err.message).toBe('MCP connector not enabled for this company');
+      // G3: names who can switch it on, never an upgrade.
+      expect(err.message).toBe(
+        'MCP connector not enabled for this company. Contact ISAFlow support to have it switched on.',
+      );
+      expect(err.message).not.toMatch(/upgrade|plan|subscri/i);
       // The request's id, not null: a null-id reply to a request that carried
       // an id is shown by MCP clients as a malformed result, hiding the message.
       expect((res.body as { id: unknown }).id).toBe(1);
@@ -371,6 +405,15 @@ describe('/api/mcp transport', () => {
     expect(res.statusCode).toBe(429);
     expect((res.body as { id: unknown }).id).toBe(1);
     expect(seenContexts).toHaveLength(0); // never reached a tool
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(String(res.headers['access-control-expose-headers'])).toContain('WWW-Authenticate');
+  });
+
+  it('per-company rate limit (429-equivalent refusal) carries CORS headers too', async () => {
+    vi.mocked(checkRateLimit).mockImplementation(async (key: string) => !key.startsWith('mcp:'));
+    const res = makeRes();
+    await route(makeReq('POST', rpc('ping')) as never, res);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
   });
 
   it('pre-auth per-IP throttle does not echo an oversized id', async () => {

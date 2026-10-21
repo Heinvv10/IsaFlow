@@ -11,3 +11,17 @@ export type WriteRole = (typeof DEFAULT_WRITE_ROLES)[number];
 export function canWrite(role: string | null | undefined): boolean {
   return (DEFAULT_WRITE_ROLES as readonly string[]).includes(role ?? '');
 }
+
+/** A token scope that lets it change data. */
+export function isWriteScope(scope: string): boolean {
+  return scope.startsWith('write:');
+}
+
+/**
+ * The scopes a token minted for this role may not hold: every write scope, for a role that cannot
+ * write (audit 2026-10-18 S-01: a viewer minted write:post and posted journals over MCP). The PAT
+ * route and OAuth consent apply it at mint; the MCP registry's role fence applies the role at call.
+ */
+export function scopesRoleMayNotHold(role: string | null | undefined, scopes: readonly string[]): string[] {
+  return canWrite(role) ? [] : scopes.filter(isWriteScope);
+}
