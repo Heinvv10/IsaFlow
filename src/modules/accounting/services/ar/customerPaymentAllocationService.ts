@@ -123,12 +123,12 @@ async function confirmCustomerPaymentInner(
         UPDATE customer_invoices
         SET amount_paid = COALESCE(amount_paid, 0) + ${newPaid},
             status = CASE
-              WHEN (total_amount - (COALESCE(amount_paid, 0) + ${newPaid})) <= 0.01 THEN 'paid'
+              WHEN (total_amount - (COALESCE(amount_paid, 0) + ${newPaid})) <= 0 THEN 'paid'
               WHEN (COALESCE(amount_paid, 0) + ${newPaid}) > 0 THEN 'partially_paid'
               ELSE status
             END,
             paid_at = CASE
-              WHEN (total_amount - (COALESCE(amount_paid, 0) + ${newPaid})) <= 0.01 THEN NOW()
+              WHEN (total_amount - (COALESCE(amount_paid, 0) + ${newPaid})) <= 0 THEN NOW()
               ELSE paid_at
             END
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}::UUID
@@ -194,17 +194,18 @@ async function cancelCustomerPaymentInner(
 
     // (3) Reverse invoice balances — runs on the ALS-bound connection so the
     // outer withAuth transaction provides atomicity, and BY INVOICE ID so two
-    // cancels touching the same two invoices cannot deadlock on each other.
+    // cancels touching the same two invoices cannot deadlock on each other. Whole cents, like confirm: a cent still
+    // paid is 'partially_paid', and any invoice no longer settled loses its paid_at with the 'paid' status.
     for (const alloc of delegated ? [] : byInvoiceId(payment.allocations)) {
       await sql`
         UPDATE customer_invoices
         SET amount_paid = GREATEST(0, amount_paid - ${alloc.amountAllocated}),
             status = CASE
-              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN 'approved'
+              WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0 THEN 'approved'
               WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN 'partially_paid'
               ELSE status
             END,
-            paid_at = CASE WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) <= 0.01 THEN NULL ELSE paid_at END
+            paid_at = CASE WHEN GREATEST(0, amount_paid - ${alloc.amountAllocated}) < total_amount THEN NULL ELSE paid_at END
         WHERE id = ${alloc.invoiceId}::UUID AND company_id = ${companyId}
       `;
     }

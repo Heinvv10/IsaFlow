@@ -8,6 +8,7 @@ import { createHmac, randomUUID } from 'crypto';
 import { Pool } from 'pg';
 import type { NextApiRequest } from 'next';
 import { response } from './mfa-impersonation-postgres.helpers';
+import { liftAmountPaidCheck } from './helpers/amountPaidCheck';
 
 export const SECRET = 'sk_test_r167_disposable_secret';
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -51,11 +52,14 @@ export async function deliver(reference: string, cents: number) {
 /** An invoice for R115.00 with `paid` received (a string for NaN), and one link on it. */
 export async function invoiceWithLink(paid: number | string | null, linkAmount: number, extra = '', chargesBalance = false) {
   const id = randomUUID();
-  await pool.query(
+  // 899's CHECK refuses a NaN or overpaid row, which the cases plant on purpose: lifted for the seed only.
+  const impossible = paid === 'NaN' || (typeof paid === 'number' && paid > 115);
+  const insert = () => pool.query(
     `INSERT INTO customer_invoices (id, company_id, customer_id, client_id, invoice_number, invoice_date,
        subtotal, tax_amount, total_amount, amount_paid, status, created_by)
      VALUES ($1, $2, $3, $3, $4, CURRENT_DATE, 100, 15, 115, $5, 'sent', $6)`,
     [id, CO, CUSTOMER, `R167-${id.slice(0, 8)}`, paid, USER]);
+  await (impossible ? liftAmountPaidCheck(insert) : insert());
   if (extra) await pool.query(`UPDATE customer_invoices SET ${extra} WHERE id = $1`, [id]);
   return { invoiceId: id, ...(await addLink(id, linkAmount, chargesBalance)) };
 }
