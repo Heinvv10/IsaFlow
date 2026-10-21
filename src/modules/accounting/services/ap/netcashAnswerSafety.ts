@@ -22,7 +22,7 @@ export function safeReference(ref: unknown): string | null {
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 
 function safeText(s: string): string {
-  return s.replace(/\u0000/g, '').replace(LONE_SURROGATE, '�');
+  return s.replace(/\u0000/g, '').replace(LONE_SURROGATE, '\ufffd');
 }
 
 /** `value` with every string (keys too) made safe for jsonb. */
