@@ -16,7 +16,7 @@ const ADMIN_ROLES = ['owner', 'admin'];
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole } = req as CompanyAuthedRequest;
-  const authReq = req as CompanyAuthedRequest;
+  const currentUserId = (req as unknown as { user: { id: string } }).user.id;
 
   // GET — list all users
   if (req.method === 'GET') {
@@ -42,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      await updateCompanyUserRole(companyId, userId, role, companyRole);
+      await updateCompanyUserRole(companyId, userId, role, currentUserId);
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {
@@ -62,13 +62,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'userId is required.');
     }
 
-    const currentUserId = (authReq as unknown as { user: { id: string } }).user.id;
     if (userId === currentUserId) {
       return apiResponse.badRequest(res, 'You cannot remove yourself from the company.');
     }
 
     try {
-      await removeCompanyUser(companyId, userId, companyRole);
+      await removeCompanyUser(companyId, userId, currentUserId);
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {

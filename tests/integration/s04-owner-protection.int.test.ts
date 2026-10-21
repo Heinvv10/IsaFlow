@@ -89,37 +89,49 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
   });
 
   it('refuses an admin demoting an owner, and the owner keeps the role', async () => {
-    await expect(asMember(ADMIN, () => updateCompanyUserRole(COMPANY, OWNER_B, 'viewer', 'admin')))
+    await expect(asMember(ADMIN, () => updateCompanyUserRole(COMPANY, OWNER_B, 'viewer', ADMIN)))
       .rejects.toBeInstanceOf(OwnerProtectedError);
     expect(await roleOf(OWNER_B)).toBe('owner');
   });
 
   it('refuses an admin removing an owner, and the owner stays a member', async () => {
-    await expect(asMember(ADMIN, () => removeCompanyUser(COMPANY, OWNER_B, 'admin')))
+    await expect(asMember(ADMIN, () => removeCompanyUser(COMPANY, OWNER_B, ADMIN)))
+      .rejects.toBeInstanceOf(OwnerProtectedError);
+    expect(await roleOf(OWNER_B)).toBe('owner');
+  });
+
+  // Breaker REPRO 1: withAuth read the caller's role when the request began; an
+  // owner demoted since must not still act on owners as one.
+  it('refuses a caller demoted from owner since their request began', async () => {
+    await admin.query(`UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2`, [COMPANY, MANAGER]);
+    await admin.query(`UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2`, [COMPANY, OWNER_A]);
+    await expect(asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_B, 'viewer', OWNER_A)))
+      .rejects.toBeInstanceOf(OwnerProtectedError);
+    await expect(asMember(OWNER_A, () => removeCompanyUser(COMPANY, OWNER_B, OWNER_A)))
       .rejects.toBeInstanceOf(OwnerProtectedError);
     expect(await roleOf(OWNER_B)).toBe('owner');
   });
 
   it('lets an owner demote another owner when two exist', async () => {
-    await asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_B, 'admin', 'owner'));
+    await asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_B, 'admin', OWNER_A));
     expect(await roleOf(OWNER_B)).toBe('admin');
   });
 
   it('lets an owner remove another owner when two exist', async () => {
-    await asMember(OWNER_A, () => removeCompanyUser(COMPANY, OWNER_B, 'owner'));
+    await asMember(OWNER_A, () => removeCompanyUser(COMPANY, OWNER_B, OWNER_A));
     expect(await roleOf(OWNER_B)).toBeNull();
   });
 
   it('still lets an admin manage a manager and a viewer', async () => {
-    await asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', 'admin'));
+    await asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', ADMIN));
     expect(await roleOf(MANAGER)).toBe('viewer');
-    await asMember(ADMIN, () => removeCompanyUser(COMPANY, VIEWER, 'admin'));
+    await asMember(ADMIN, () => removeCompanyUser(COMPANY, VIEWER, ADMIN));
     expect(await roleOf(VIEWER)).toBeNull();
   });
 
   it('still refuses demoting the last owner, even by that owner', async () => {
     await admin.query(`UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2`, [COMPANY, OWNER_B]);
-    await expect(asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_A, 'admin', 'owner')))
+    await expect(asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_A, 'admin', OWNER_A)))
       .rejects.toThrow(/last owner/);
     expect(await roleOf(OWNER_A)).toBe('owner');
   });
@@ -135,11 +147,11 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
         let commitPromotion!: () => void;
         const held = new Promise<void>((r) => { commitPromotion = r; });
         const promotion = asMember(OWNER_A, async () => {
-          await updateCompanyUserRole(COMPANY, MANAGER, 'owner', 'owner');
+          await updateCompanyUserRole(COMPANY, MANAGER, 'owner', OWNER_A);
           await held; // keep the promotion uncommitted while the admin starts
         }, co);
         await new Promise((r) => setTimeout(r, 50));
-        const demotion = asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', 'admin'), ca);
+        const demotion = asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', ADMIN), ca);
         await new Promise((r) => setTimeout(r, 100));
         commitPromotion();
         const [p, d] = await Promise.allSettled([promotion, demotion]);
@@ -162,7 +174,7 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
         let release!: () => void;
         const gate = new Promise<void>((r) => { release = r; });
         const race = (actor: string, target: string, c: PoolClient) =>
-          asMember(actor, async () => { await gate; return updateCompanyUserRole(COMPANY, target, 'viewer', 'owner'); }, c);
+          asMember(actor, async () => { await gate; return updateCompanyUserRole(COMPANY, target, 'viewer', actor); }, c);
         const pending = [race(OWNER_A, OWNER_B, ca), race(OWNER_B, OWNER_A, cb)];
         await new Promise((r) => setTimeout(r, 50));
         release();

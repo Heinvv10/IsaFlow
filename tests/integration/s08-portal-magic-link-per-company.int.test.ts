@@ -19,6 +19,15 @@ const sendEmailMock = vi.hoisted(() => vi.fn());
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail: sendEmailMock }));
 vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true), getClientIp: () => '127.0.0.1' }));
 vi.hoisted(() => { process.env.PORTAL_JWT_SECRET ??= 's08-portal-jwt-secret-for-tests-0123456789abcdef'; });
+// The route does not wait for the send; the REAL send runs, and this keeps its
+// promise so each test can wait for it to finish.
+const pending = vi.hoisted(() => ({ last: Promise.resolve() as Promise<void> }));
+vi.mock('@/modules/accounting/services/afs/portalSignInLinks', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@/modules/accounting/services/afs/portalSignInLinks')>();
+  return {
+    sendPortalSignInLinks: (email: string, appUrl: string) => (pending.last = real.sendPortalSignInLinks(email, appUrl)),
+  };
+});
 
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -55,6 +64,7 @@ function mockRes() {
 async function requestLink(email: string) {
   const { res, out } = mockRes();
   await (authHandler as Handler)({ method: 'POST', body: { email }, headers: {}, query: {} } as unknown as NextApiRequest, res);
+  await pending.last;
   return out;
 }
 
@@ -130,6 +140,19 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-08 — one sign-in email, one 
       `SELECT company_id FROM portal_magic_links
        WHERE company_id = ANY($1::UUID[]) AND used_at IS NULL AND expires_at > now()`, [[SUSPENDED, DELETED]]);
     expect(rows.rowCount).toBe(0);
+  });
+
+  // Breaker REPRO 3: a link minted while the company was live.
+  it('refuses a link whose company was suspended after the link was sent', async () => {
+    await requestLink(EMAIL);
+    const html = sentEmails()[0]!.html;
+    const alphaToken = tokensIn(html.slice(html.indexOf('S08 Alpha')))[0]!;
+    await admin.query(`UPDATE companies SET status = 'suspended', suspended_at = now() WHERE id = $1`, [ALPHA]);
+    try {
+      expect(await landingCompanyOf(alphaToken)).toBeNull();
+    } finally {
+      await admin.query(`UPDATE companies SET status = 'active', suspended_at = NULL WHERE id = $1`, [ALPHA]);
+    }
   });
 
   it('escapes the company name in the email', async () => {
