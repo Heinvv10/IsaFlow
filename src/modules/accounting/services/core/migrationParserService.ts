@@ -4,7 +4,9 @@
  */
 
 import { log } from '@/lib/logger';
+import { parseAmount } from '@/lib/parseAmount';
 import type { GLAccountType } from '../../types/gl.types';
+import { normalBalanceForType, translateAccountType } from './accountTypeAliases';
 
 export type MigrationSource = 'xero' | 'quickbooks' | 'pastel';
 
@@ -17,6 +19,8 @@ export interface ParsedAccount {
   mappedType?: GLAccountType;
   mappedNormalBalance?: 'debit' | 'credit';
   mappedSubtype?: string;
+  /** Set when a cell (the balance) could not be read; the wizard must not import the row as 0. */
+  parseError?: string;
 }
 
 export interface ParsedEntity {
@@ -26,6 +30,8 @@ export interface ParsedEntity {
   vatNumber?: string;
   address?: string;
   balance?: number;
+  /** Set when the balance cell could not be read. */
+  parseError?: string;
 }
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
@@ -82,11 +88,17 @@ function splitCsvLine(line: string, delimiter: string): string[] {
   return result;
 }
 
-function parseBalance(val: string): number {
-  if (!val) return 0;
-  const cleaned = val.replace(/[R$,\s]/g, '');
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? 0 : n;
+/** SA money formats. Stripping every comma read a decimal-comma "1234,56" as 123456, and garbage as 0. */
+function parseBalance(val: string): { value: number; error?: string } {
+  const n = parseAmount(val);
+  if (Number.isNaN(n)) return { value: 0, error: `Balance "${val}" is not a number` };
+  return { value: n };
+}
+
+/** An account's opening balance, and the error when it could not be read. */
+function accountBalance(raw: string): { openingBalance: number; parseError?: string } {
+  const { value, error } = parseBalance(raw);
+  return error ? { openingBalance: value, parseError: error } : { openingBalance: value };
 }
 
 // ── Account parsers per source ────────────────────────────────────────────────
@@ -96,7 +108,7 @@ function parseXeroAccounts(rows: Array<Record<string, string>>): ParsedAccount[]
     sourceCode: r['*code'] ?? r['account code'] ?? r['code'] ?? '',
     sourceName: r['*name'] ?? r['account name'] ?? r['name'] ?? '',
     sourceType: r['*type'] ?? r['type'] ?? '',
-    openingBalance: parseBalance(r['ytd balance'] ?? r['balance'] ?? ''),
+    ...accountBalance(r['ytd balance'] ?? r['balance'] ?? ''),
   })).filter(a => a.sourceCode || a.sourceName);
 }
 
@@ -105,7 +117,7 @@ function parseQuickBooksAccounts(rows: Array<Record<string, string>>): ParsedAcc
     sourceCode: r['account'] ?? r['account number'] ?? r['number'] ?? '',
     sourceName: r['account name'] ?? r['name'] ?? r['account'] ?? '',
     sourceType: r['type'] ?? r['account type'] ?? '',
-    openingBalance: parseBalance(r['balance'] ?? r['total'] ?? ''),
+    ...accountBalance(r['balance'] ?? r['total'] ?? ''),
   })).filter(a => a.sourceCode || a.sourceName);
 }
 
@@ -114,7 +126,7 @@ function parsePastelAccounts(rows: Array<Record<string, string>>): ParsedAccount
     sourceCode: r['accnumber'] ?? r['account number'] ?? r['code'] ?? r['gl no'] ?? '',
     sourceName: r['description'] ?? r['account description'] ?? r['name'] ?? '',
     sourceType: r['acctype'] ?? r['type'] ?? r['account type'] ?? '',
-    openingBalance: parseBalance(r['currentbalance'] ?? r['balance'] ?? r['closing balance'] ?? ''),
+    ...accountBalance(r['currentbalance'] ?? r['balance'] ?? r['closing balance'] ?? ''),
   })).filter(a => a.sourceCode || a.sourceName);
 }
 
@@ -130,6 +142,13 @@ export function parseAccountsFile(source: MigrationSource, fileContent: string):
   }
 }
 
+/** A contact's balance: absent when zero or blank, as before; an error when unreadable. */
+function contactBalance(raw: string): { balance?: number; parseError?: string } {
+  const { value, error } = parseBalance(raw);
+  if (error) return { parseError: error };
+  return value ? { balance: value } : {};
+}
+
 // ── Contact parsers per source ────────────────────────────────────────────────
 
 function parseXeroContacts(rows: Array<Record<string, string>>): ParsedEntity[] {
@@ -139,7 +158,7 @@ function parseXeroContacts(rows: Array<Record<string, string>>): ParsedEntity[] 
     phone: r['phone number'] ?? r['phone'] ?? undefined,
     vatNumber: r['tax number'] ?? r['vat number'] ?? undefined,
     address: r['postal address 1'] ?? r['street address'] ?? r['address'] ?? undefined,
-    balance: parseBalance(r['outstanding balance'] ?? r['balance'] ?? '') || undefined,
+    ...contactBalance(r['outstanding balance'] ?? r['balance'] ?? ''),
   })).filter(e => e.name.trim());
 }
 
@@ -150,7 +169,7 @@ function parseQuickBooksContacts(rows: Array<Record<string, string>>): ParsedEnt
     phone: r['main phone'] ?? r['phone'] ?? undefined,
     vatNumber: r['vat/gst'] ?? r['tax id'] ?? undefined,
     address: r['billing address'] ?? r['address'] ?? undefined,
-    balance: parseBalance(r['open balance'] ?? r['balance'] ?? '') || undefined,
+    ...contactBalance(r['open balance'] ?? r['balance'] ?? ''),
   })).filter(e => e.name.trim());
 }
 
@@ -161,7 +180,7 @@ function parsePastelContacts(rows: Array<Record<string, string>>): ParsedEntity[
     phone: r['telephone'] ?? r['phone'] ?? r['cell'] ?? undefined,
     vatNumber: r['vat number'] ?? r['vat reg no'] ?? undefined,
     address: r['address'] ?? r['address 1'] ?? r['postal address'] ?? undefined,
-    balance: parseBalance(r['balance'] ?? r['current balance'] ?? '') || undefined,
+    ...contactBalance(r['balance'] ?? r['current balance'] ?? ''),
   })).filter(e => e.name.trim());
 }
 
@@ -240,7 +259,7 @@ function mapByPastelCodeRange(code: string): { type: GLAccountType; normalBalanc
 
 export function autoMapAccounts(source: MigrationSource, accounts: ParsedAccount[]): ParsedAccount[] {
   return accounts.map(acct => {
-    const typeKey = acct.sourceType.toLowerCase().trim();
+    const typeKey = String(acct.sourceType ?? '').toLowerCase().trim();
     let mapping: { type: GLAccountType; normalBalance: 'debit' | 'credit'; subtype?: string } | null = null;
 
     if (source === 'xero') {
@@ -253,6 +272,8 @@ export function autoMapAccounts(source: MigrationSource, accounts: ParsedAccount
         QB_TYPE_MAP[typeKey] ?? XERO_TYPE_MAP[typeKey] ?? null;
     }
 
+    const alias = mapping ? null : translateAccountType(acct.sourceType); // Sage / Pastel: "Cost of Sales"
+    if (alias) mapping = { type: alias.type, normalBalance: normalBalanceForType(alias.type), subtype: alias.subtype };
     if (!mapping) return acct;
 
     return {
@@ -262,4 +283,15 @@ export function autoMapAccounts(source: MigrationSource, accounts: ParsedAccount
       mappedSubtype: mapping.subtype,
     };
   });
+}
+
+/**
+ * The external wizard's "Auto-map": re-maps the accounts already in memory. It used to POST
+ * JSON.stringify(accounts) to the CSV parser, which found no CSV and the list was replaced with [].
+ * A mapping the operator chose is kept; the result is always as long as the input.
+ */
+export function remapAccounts(source: MigrationSource, accounts: ParsedAccount[]): ParsedAccount[] {
+  if (accounts.length === 0) return accounts;
+  const auto = autoMapAccounts(source, accounts);
+  return accounts.map((acct, i) => (acct.mappedType ? acct : (auto[i] ?? acct)));
 }
