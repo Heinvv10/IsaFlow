@@ -19,7 +19,7 @@
 --    under withUserAuth on the BYPASSRLS pool role with no app.current_company_id and no SET ROLE; the route
 --    authorises by bureau_users membership first (bureau/services/.claude.md, "TENANT SAFETY"). There is no
 --    bureau GUC an app_user policy could test, and inventing one would be a parallel auth system. So the
---    strongest pattern available is the one entity_changes (888) uses for app_user INSERT: the table is
+--    strongest pattern available is the one 888's history table uses for app_user INSERT: the table is
 --    under ENABLE + FORCE RLS with NO policy, and every non-owner role (app_user, platform_admin, PUBLIC)
 --    holds no privilege on it. A request running as app_user (every withAuth route, MCP, the platform
 --    portal's app connection) can neither read nor write it, even with injected SQL; only the pool role
@@ -27,8 +27,8 @@
 --    after the owner check. rls-policy-coverage checks only company_id tables, so it cannot see this
 --    one; tests/integration/bureau-audit-log-rls.int.test.ts pins the deny-all instead.
 --
---    Append-only for every role, the owner included (877's trigger): UPDATE, DELETE and TRUNCATE are
---    refused, except the cascade from a deleted bureau (by then the bureau row is gone).
+--    Append-only for every role, the owner included (877's trigger): it refuses UPDATE, DELETE and TRUNCATE;
+--    the one delete it lets through is the one that follows a deleted bureau (by then the bureau row is gone).
 --
 -- Rollback (nothing else references either object; the audit history is lost with the table):
 --   DROP TABLE IF EXISTS public.bureau_audit_log;
