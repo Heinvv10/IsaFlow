@@ -8,7 +8,9 @@
 // withPlatformAdmin trusts users.role, so `UPDATE users SET role =
 // 'super_admin' WHERE id = auth.uid()` from any SQL injection on an app_user
 // route was a platform takeover. Migration 902 narrows app_user's UPDATE to
-// the columns its writers name and takes INSERT away.
+// the columns its writers name and takes INSERT away. email stays granted
+// for the POPIA erasure but is trigger-pinned to the row's own placeholder,
+// because createInvitation adds an existing user to a company by email.
 //
 // Outcome-based: every forbidden write is attempted as app_user and must be
 // refused with 42501 "permission denied for table users". That exact text,
@@ -32,13 +34,10 @@ import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { pool, asRole, inServiceContext, callRoute, userRow, urlAsRole } from './s07-users-privilege-columns.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
-/** Every column app_user may UPDATE; each is named by a writer that runs as app_user. */
-const GRANTED = ['first_name', 'last_name', 'phone', 'mobile', 'updated_at', 'onboarding_completed'];
-/**
- * The columns S-07 is about, plus the rest of the standing/privilege set. email
- * is one: createInvitation adds an existing users row to the company by email.
- */
-const FORBIDDEN = ['role', 'status', 'is_active', 'suspended_at', 'suspended_reason', 'permissions', 'account_type', 'email'];
+/** Every column app_user may UPDATE; each is named by a writer that runs as app_user. email is trigger-pinned. */
+const GRANTED = ['first_name', 'last_name', 'phone', 'mobile', 'email', 'updated_at', 'onboarding_completed'];
+/** The columns S-07 is about, plus the rest of the standing/privilege set. */
+const FORBIDDEN = ['role', 'status', 'is_active', 'suspended_at', 'suspended_reason', 'permissions', 'account_type'];
 const DENIED = /permission denied for table users/i;
 
 const me = crypto.randomUUID();
@@ -118,6 +117,31 @@ describe('S-07: app_user cannot write privilege columns on users', () => {
     expect((await userRow(me)).role).toBe('viewer');
   });
 
+  // email is privilege-bearing (createInvitation adds an existing users row to the
+  // company by email); app_user may only set its own row's erasure placeholder.
+  it('refuses an app_user email change to anything but the row\'s erasure placeholder', async () => {
+    const refused = await asRole('app_user', me, (q) =>
+      q(`UPDATE users SET email = 'pending-invitee@victim.test' WHERE id = auth.uid()`));
+    expect(refused).toMatchObject({ code: '42501' });
+    expect(refused?.message).toMatch(/erasure placeholder/);
+    const placeholder = await asRole('app_user', me, (q) =>
+      q(`UPDATE users SET email = 'anonymized_' || left(id, 8) || '@deleted.invalid' WHERE id = auth.uid()`));
+    expect(placeholder).toBeNull();
+  });
+
+  it('a claim forged inside the statement cannot steer the email write onto another user', async () => {
+    let updated = -1;
+    const refused = await asRole('app_user', me, async (q) => {
+      const r = await q(`WITH f AS MATERIALIZED (SELECT set_config('request.jwt.claims', $1, true) AS c)
+        UPDATE users SET first_name = 'pwn', email = 'anonymized_' || left(id, 8) || '@deleted.invalid'
+          FROM f WHERE users.id = $2 AND f.c IS NOT NULL`, [JSON.stringify({ sub: invitee }), invitee]) as { rowCount: number };
+      updated = r.rowCount;
+    });
+    expect(refused).toBeNull();
+    expect(updated).toBe(0);
+    expect((await userRow(invitee)).email).toBe(`${invitee}@test.local`);
+  });
+
   it('leaves app_user exactly the granted UPDATE columns and no INSERT, directly or through any role', async () => {
     const cols = await pool.query<{ column_name: string; upd: boolean; ins: boolean }>(
       `SELECT column_name, has_column_privilege('app_user', 'public.users', column_name, 'UPDATE') AS upd,
@@ -137,6 +161,9 @@ describe('S-07: app_user cannot write privilege columns on users', () => {
       UNION ALL SELECT a.privilege_type FROM pg_attribute t, aclexplode(t.attacl) a
       WHERE t.attrelid = 'public.users'::regclass AND a.grantee = 0 AND a.privilege_type IN ('INSERT', 'UPDATE')`);
     expect(pub.rows).toEqual([]);
+    const guard = await pool.query(`SELECT tgenabled FROM pg_trigger
+      WHERE tgrelid = 'public.users'::regclass AND tgname = 'users_app_user_email_guard'`);
+    expect(guard.rows).toEqual([{ tgenabled: 'O' }]);
   });
 
   it('re-applies cleanly and leaves the same privileges', async () => {
