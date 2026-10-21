@@ -19,9 +19,11 @@
  *   6. no known brand, and more than MAX_WORDS words left or a word only a person writes (PLEASE, FOR, MY,
  *      BIRTHDAY…): free text                             -> 'free_text'
  *   7. a person shape: an honorific (MR, MRS, DR, ME…), a single-letter initial, or a common first name
- *      leading the line — unless a known merchant token is present (MR PRICE, MR D) -> 'person_name'
+ *      ANYWHERE in the line — unless a known merchant token is present (MR PRICE, MR D) -> 'person_name'
  *   8. nothing but generic banking words left (PAYMENT, EFT, DEBIT ORDER, CASH, DEPOSIT…) -> 'generic'
  *   9. key shorter than MIN_KEY_LENGTH                   -> 'too_short'
+ *  10. no known brand and no business word (PTY, LTD, MOTORS, PLUMBING, CAFE, HARDWARE…): two plain words
+ *      may be a person's full name, so it is not kept       -> 'not_a_business'
  *
  * The key is the known merchant brand when one is present (ENGEN SANDTON 1234 -> ENGEN), otherwise the
  * first KEY_WORDS words left (so a branch or suburb after the name does not fragment, or locate, a merchant).
@@ -33,7 +35,8 @@ export const KEY_WORDS = 2;
 export const MIN_KEY_LENGTH = 3;
 
 export type MerchantRejectReason =
-  | 'empty' | 'contact_detail' | 'person_payment' | 'identifier' | 'free_text' | 'person_name' | 'generic' | 'too_short';
+  | 'empty' | 'contact_detail' | 'person_payment' | 'identifier' | 'free_text' | 'person_name' | 'generic' | 'too_short'
+  | 'not_a_business';
 
 export type MerchantFilterResult = { ok: true; merchant: string } | { ok: false; reason: MerchantRejectReason };
 
@@ -102,6 +105,36 @@ const COMMON_FIRST_NAMES = new Set([
   'LERATO', 'KAGISO', 'TSHEPO', 'KABELO', 'NALEDI', 'BUSISIWE', 'NOMVULA', 'SIFISO', 'MPHO', 'TUMELO', 'KATLEGO',
   'AYANDA', 'ANDILE', 'SANDILE', 'LINDIWE', 'NTOMBI', 'PRECIOUS', 'BLESSING', 'GIFT', 'LUCKY', 'PATIENCE',
   'MOHAMMED', 'MUHAMMAD', 'AHMED', 'YUSUF', 'FATIMA', 'AISHA', 'RAJ', 'PRIYA', 'ANIL', 'SANJAY', 'DEVAN',
+]);
+
+/**
+ * Words that say the payee is a business. A line with no known brand must carry one of these (anywhere,
+ * company suffixes included), or it is not kept: "NONHLANHLA MOKOENA" and "PURPLE PLUMBING" look alike to a
+ * filter, and only the second has a word that names a trade. Extend with trade words, never with names.
+ */
+const BUSINESS_WORDS = new Set([
+  'PTY', 'LTD', 'CC', 'INC', 'NPC', 'NPO', 'HOLDINGS', 'TRADING', 'ENTERPRISES', 'GROUP', 'COMPANY', 'CORP',
+  'MOTORS', 'MOTOR', 'AUTO', 'AUTOMOTIVE', 'GARAGE', 'TYRES', 'SPARES', 'PARTS', 'PANELBEATERS', 'CARS',
+  'PLUMBING', 'PLUMBERS', 'ELECTRICAL', 'ELECTRICIANS', 'HARDWARE', 'BUILDERS', 'CONSTRUCTION', 'ENGINEERING',
+  'TIMBER', 'STEEL', 'CEMENT', 'GLASS', 'PAINT', 'PAINTS', 'TOOLS', 'EQUIPMENT', 'MACHINERY', 'PLANT', 'HIRE', 'RENTALS',
+  'SUPPLIES', 'SUPPLY', 'SUPPLIERS', 'DISTRIBUTORS', 'WHOLESALE', 'WHOLESALERS', 'TRADERS', 'IMPORTS', 'EXPORTS',
+  'SERVICES', 'SOLUTIONS', 'CONSULTING', 'CONSULTANTS', 'AGENCY', 'AGENCIES', 'BROKERS', 'ATTORNEYS', 'ACCOUNTANTS',
+  'AUDITORS', 'ADVISORY', 'PARTNERS', 'ASSOCIATES',
+  'CAFE', 'COFFEE', 'RESTAURANT', 'BISTRO', 'GRILL', 'PIZZA', 'PIZZERIA', 'KITCHEN', 'BAKERY', 'BUTCHERY', 'FOODS',
+  'FOOD', 'MEAT', 'FRESH', 'PRODUCE', 'MARKET', 'SUPERMARKET', 'STORE', 'STORES', 'SHOP', 'SHOPS', 'BOUTIQUE',
+  'LIQUOR', 'LIQUORS', 'TAVERN', 'PUB', 'BAR', 'HOTEL', 'LODGE', 'GUESTHOUSE', 'MOTEL', 'INN', 'RESORT',
+  'PHARMACY', 'CHEMIST', 'CLINIC', 'MEDICAL', 'DENTAL', 'DENTIST', 'HOSPITAL', 'VET', 'VETERINARY', 'OPTOMETRIST',
+  'OPTICAL', 'LABORATORY', 'LAB', 'LABS', 'PATHOLOGY', 'RADIOLOGY',
+  'PRINTERS', 'PRINTING', 'STATIONERS', 'STATIONERY', 'OFFICE', 'BOOKS', 'BOOKSHOP', 'FLORIST', 'FLOWERS', 'NURSERY',
+  'SECURITY', 'CLEANING', 'CLEANERS', 'LAUNDRY', 'HYGIENE', 'PEST', 'COURIER', 'COURIERS', 'LOGISTICS', 'FREIGHT',
+  'TRANSPORT', 'TRAVEL', 'TOURS', 'AIRWAYS', 'AIRLINES', 'AIRPORT', 'PARKING', 'TOLL', 'FUEL', 'PETROLEUM', 'OIL', 'GAS',
+  'INSURANCE', 'ASSURANCE', 'FINANCE', 'FINANCIAL', 'CAPITAL', 'INVESTMENTS', 'BANK', 'PROPERTIES', 'PROPERTY', 'ESTATES',
+  'MUNICIPALITY', 'MUNICIPAL', 'METRO', 'COUNCIL', 'WATER', 'ELECTRICITY', 'POWER', 'ENERGY', 'SOLAR', 'TELECOM',
+  'TELECOMS', 'COMMUNICATIONS', 'INTERNET', 'NETWORKS', 'WIFI', 'FIBRE', 'FIBER', 'DATA', 'HOSTING', 'CLOUD',
+  'ELECTRONICS', 'COMPUTERS', 'COMPUTER', 'TECH', 'TECHNOLOGIES', 'TECHNOLOGY', 'SYSTEMS', 'SOFTWARE', 'DIGITAL',
+  'MEDIA', 'ADVERTISING', 'MARKETING', 'DESIGN', 'STUDIO', 'STUDIOS', 'PHOTOGRAPHY', 'SALON', 'SPA', 'BARBER', 'GYM',
+  'FITNESS', 'SPORTS', 'OUTDOOR', 'PETS', 'SCHOOL', 'COLLEGE', 'UNIVERSITY', 'ACADEMY', 'INSTITUTE', 'CHURCH',
+  'FOUNDATION', 'SOCIETY', 'CLUB', 'ASSOCIATION', 'MALL', 'CENTRE', 'CENTER', 'PLAZA', 'FARM', 'FARMS', 'AGRI',
 ]);
 
 /** Banking / card / reference noise: dropped before the key is formed. */
@@ -184,14 +217,15 @@ export function filterMerchant(raw: unknown): MerchantFilterResult {
   // With a brand the key is the brand alone, so nothing else in the line is ever stored.
   if (!brand) {
     if (words.length > MAX_WORDS || words.some((w) => FREE_TEXT_MARKERS.has(w))) return reject('free_text');
-    if (words.some((w) => HONORIFICS.has(w) || w.length === 1)) return reject('person_name');
-    if (words.length > 0 && COMMON_FIRST_NAMES.has(words[0]!)) return reject('person_name');
+    if (words.some((w) => HONORIFICS.has(w) || w.length === 1 || COMMON_FIRST_NAMES.has(w))) return reject('person_name');
   }
   const meaningful = words.filter((w) => !GENERIC_TOKENS.has(w));
   if (meaningful.length === 0) return reject(allWords.length === 0 ? 'empty' : 'generic');
 
-  const merchant = brand ?? meaningful.slice(0, KEY_WORDS).join(' ');
-  if (merchant.length < MIN_KEY_LENGTH && !brand) return reject('too_short');
+  if (brand) return { ok: true, merchant: brand };
+  const merchant = meaningful.slice(0, KEY_WORDS).join(' ');
+  if (merchant.length < MIN_KEY_LENGTH) return reject('too_short');
+  if (!allWords.some((w) => BUSINESS_WORDS.has(w))) return reject('not_a_business');
   return { ok: true, merchant };
 }
 
