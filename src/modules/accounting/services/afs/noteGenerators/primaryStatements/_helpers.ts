@@ -22,7 +22,7 @@ import { TAKE_ON_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/takeOnJ
 import { DIVIDENDS_PAID_CODE } from './dividendsPaid';
 import { addDerivedAccumulatedProfit, addDerivedOpeningAccumulatedIncome } from './derivedAccumulatedProfit';
 
-export { ACCUMULATED_BF_CODE } from './derivedAccumulatedProfit';
+export { ACCUMULATED_BF_CODE, ACCUMULATED_TAKE_ON_CODE } from './derivedAccumulatedProfit';
 
 type DbRow = Record<string, unknown>;
 
@@ -117,10 +117,10 @@ export async function fetchSectionLines(
   }));
 
   // The derived equity lines (see derivedAccumulatedProfit): the balance sheet's accumulated profit, or the
-  // income statement's opening accumulated income. The sort follows because both append a line.
+  // income statement's opening accumulated income and balances taken on. The sort follows because both append a line.
   const derived = isBs
     ? await addDerivedAccumulatedProfit(lines, companyId, end, priorEnd)
-    : await addDerivedOpeningAccumulatedIncome(lines, companyId, start, priorStart);
+    : await addDerivedOpeningAccumulatedIncome(lines, companyId, start, end, priorStart, priorEnd);
   return derived.sort((a, b) => a.sortOrder - b.sortOrder);
 }
 

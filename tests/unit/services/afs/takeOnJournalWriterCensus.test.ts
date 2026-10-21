@@ -83,6 +83,7 @@ const CONSTANT_USERS: Record<string, string> = {
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/dividendsPaid.ts': 'reader: AFS SOCE dividends paid leaves take-ons out',
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers.ts': 'reader: income statement IS484 leaves take-ons out',
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/takeOnEquity.ts': 'reader: AFS SOCE balances taken on column',
+  'src/modules/accounting/services/afs/noteGenerators/primaryStatements/derivedAccumulatedProfit.ts': 'reader: income statement "Balances taken on" line in the IS485 chain',
   'tests/unit/services/afs/changesInEquityTakeOn.test.ts': 'test: the report SOCE query binds it',
   'tests/unit/services/afs/takeOnJournalWriterCensus.test.ts': 'test: this census',
 };
