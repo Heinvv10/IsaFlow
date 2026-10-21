@@ -22,7 +22,10 @@ interface ParsedCustomer {
   isDuplicate?: boolean;
 }
 
-/** What importCustomers / importSuppliers return (migrationContactService). */
+/**
+ * What importCustomers / importSuppliers return (migrationContactService).
+ * `skipped` counts every row not imported, the failed ones (`errors`) included.
+ */
 interface ImportResult {
   imported: number;
   skipped: number;
@@ -132,7 +135,7 @@ export default function CustomersImportPage() {
         {importResult && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm mb-4">
             <CheckCircle2 className="h-4 w-4" />
-            Imported {importResult.imported} customers. Skipped: {importResult.skipped} (already in IsaFlow or could not be read).
+            Imported {importResult.imported} customers. Skipped: {importResult.skipped - importResult.errors.length}. Failed: {importResult.errors.length}.
           </div>
         )}
         {importResult && importResult.errors.length > 0 && (

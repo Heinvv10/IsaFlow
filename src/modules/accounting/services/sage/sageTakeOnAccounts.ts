@@ -10,6 +10,7 @@
  * control accounts.
  */
 import type { GLAccountType } from '@/modules/accounting/types/gl.types';
+import { canonicalSubtype } from '../gl/accountSubtypes';
 import type { AccountImportRow, SystemAccountMap } from '../core/migrationCoaService';
 import type { OpeningBalanceRow } from '../core/migrationWizardOpeningBalanceService';
 import { classifySageAccount, sageSystemRole } from './sageAccountClassifier';
@@ -40,18 +41,22 @@ const NORMAL: Record<GLAccountType, 'debit' | 'credit'> = {
 };
 
 function bandBase(type: GLAccountType, subtype: string | undefined): number {
+  // Through the shared vocabulary (gl/accountSubtypes), so a band reads the
+  // same concept every report reads; 'other' is the classifier's own marker.
+  const canon = canonicalSubtype(subtype);
+  const other = subtype === 'other';
   switch (type) {
     case 'asset':
-      if (subtype === 'bank') return 1010;
-      if (subtype === 'cash') return 1050;
-      if (subtype === 'fixed_asset' || subtype === 'other') return 1510;
+      if (canon === 'bank') return 1010;
+      if (canon === 'cash') return 1050;
+      if (canon === 'fixed_asset' || other) return 1510;
       return 1210;
-    case 'liability': return subtype === 'long_term_liability' ? 2510 : 2310;
+    case 'liability': return canon === 'long_term_liability' ? 2510 : 2310;
     case 'equity': return 3110;
-    case 'revenue': return subtype === 'other' ? 4110 : 4010;
+    case 'revenue': return other ? 4110 : 4010;
     case 'expense':
-      if (subtype === 'cost_of_sales') return 5010;
-      if (subtype === 'other') return 6910;
+      if (canon === 'cost_of_sales') return 5010;
+      if (other) return 6910;
       return 6010;
   }
 }
