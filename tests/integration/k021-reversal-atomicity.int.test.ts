@@ -322,8 +322,8 @@ describe('K-021 reversal atomicity', () => {
   // Runs LAST: it closes every period covering today for the rest of the file.
   it('refuses BEFORE the unwind when the fallback reversal date has no open period', async () => {
     await pool.query(
-      "UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE",
-      [company]);
+      "UPDATE fiscal_periods SET status='closed' WHERE company_id=$1 AND start_date <= $2::date AND end_date >= $2::date",
+      [company, fmtDate(new Date())]);
     const result = await reverse(closedToday.bankTx, token, company);
 
     expect(result.state.statusCode).not.toBe(200);
