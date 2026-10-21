@@ -39,6 +39,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.conflict(res, 'This submission is still in flight (its send has not finished). Try again in a few minutes.',
       { reason: 'IN_FLIGHT' });
   }
+  if (result.kind === 'answer_pending') {
+    return apiResponse.conflict(res, "Netcash has answered this submission and the server is still recording its answer. Wait a few minutes, reload, and check the submission's status before resolving it.",
+      { reason: 'ANSWER_PENDING_RECORD' });
+  }
   if (result.kind === 'changed') {
     return apiResponse.conflict(res, `This submission's status changed from ${result.from} to ${result.to} since you opened it. Reload the page and check Netcash again before resolving it.`,
       { reason: 'STATUS_CHANGED', status: result.to, previousStatus: result.from });

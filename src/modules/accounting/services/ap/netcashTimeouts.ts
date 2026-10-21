@@ -30,3 +30,22 @@ export const CLAIM_CONNECTION_TIMEOUT_MS = 2_000;
 export const SETTLE_LOCK_TIMEOUT_MS = 2_000;
 export const SETTLE_STATEMENT_TIMEOUT_MS = 4_000;
 export const SETTLE_QUERY_TIMEOUT_MS = SETTLE_STATEMENT_TIMEOUT_MS + 2_000;
+
+/** Cheap statements (BEGIN, SET LOCAL, set_config, savepoints) are given up on sooner than SETTLE_QUERY_TIMEOUT_MS. */
+export const CHEAP_QUERY_TIMEOUT_MS = 1_000;
+
+/**
+ * One settle attempt, all its statements together, gets at most this long (round 13): each statement's client timeout
+ * is what is left of it. With the send and both attempts this keeps the settle chain well inside SEND_WINDOW_MS
+ * (tests/unit/services/ap/netcashSettleBudget.test.ts holds it to 75%).
+ */
+export const SETTLE_ATTEMPT_BUDGET_MS = 8_000;
+
+/**
+ * The detached settler (netcashLateSettler, round 13) keeps trying to record an answer both bounded attempts could not,
+ * backing off from LATE_SETTLE_FIRST_DELAY_MS to LATE_SETTLE_MAX_DELAY_MS, for NETCASH_LATE_SETTLE_TOTAL_MS (default
+ * 10 minutes) in all.
+ */
+export const LATE_SETTLE_FIRST_DELAY_MS = 1_000;
+export const LATE_SETTLE_MAX_DELAY_MS = 30_000;
+export const DEFAULT_LATE_SETTLE_TOTAL_MS = 600_000;
