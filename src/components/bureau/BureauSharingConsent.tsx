@@ -2,6 +2,9 @@
  * BureauSharingConsent — the "share merchant patterns" switch with its consent wording
  * (SHARING_CONSENT_COPY, a DRAFT pending legal review, labelled as such on screen) and the recent changes.
  * Only the owner gets a working switch; everyone else sees the state and why they cannot change it.
+ * While the server gate is off (`available` false: MERCHANT_SHARING_ENABLED, pending legal review of the
+ * consent copy) it reads "Coming soon - pending legal review" and cannot be switched on; an owner whose
+ * bureau is somehow already on can still switch it off.
  */
 import {
   SHARING_CONSENT_COPY as COPY, SHARING_CONSENT_STATUS_LABEL,
@@ -11,13 +14,21 @@ interface SettingChange { id: string; changedAt: string; actorName: string | nul
 
 const onOff = (v: boolean | null) => (v === null ? 'unset' : v ? 'on' : 'off');
 
-export function BureauSharingConsent({ enabled, canEdit, saving, history, onChange }: {
+export const SHARING_COMING_SOON_LABEL = 'Coming soon - pending legal review';
+/** Stored on, but the gate pools nothing (poolEligibility.ts), so it must not read plain "On". */
+export const SHARING_PAUSED_LABEL = 'On (paused pending legal review)';
+
+export function BureauSharingConsent({ enabled, canEdit, available, saving, history, onChange }: {
   enabled: boolean;
   canEdit: boolean;
+  /** The server gate (GET /api/bureau/settings sharingAvailable). */
+  available: boolean;
   saving: boolean;
   history: SettingChange[];
   onChange: (next: boolean) => void;
 }) {
+  // Gate off: only switching OFF stays possible (and only for the owner).
+  const switchable = canEdit && !saving && (available || enabled);
   return (
     <section aria-label="Merchant-pattern sharing" className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4 space-y-4">
       <div className="flex items-start justify-between gap-4">
@@ -31,14 +42,25 @@ export function BureauSharingConsent({ enabled, canEdit, saving, history, onChan
             role="switch"
             aria-checked={enabled}
             checked={enabled}
-            disabled={!canEdit || saving}
+            disabled={!switchable}
             onChange={(e) => onChange(e.target.checked)}
             className="h-4 w-4 accent-teal-500"
           />
-          {enabled ? 'On' : 'Off'}
+          {available ? (enabled ? 'On' : 'Off') : (enabled ? SHARING_PAUSED_LABEL : SHARING_COMING_SOON_LABEL)}
         </label>
       </div>
-      {!canEdit && (
+      {!available && !enabled && (
+        <p className="text-xs text-[var(--ff-text-tertiary)]">
+          Sharing can&apos;t be switched on yet: the consent wording below is waiting for legal review.
+        </p>
+      )}
+      {!available && enabled && (
+        <p className="text-xs text-[var(--ff-text-tertiary)]">
+          Sharing is paused while the consent wording below is waiting for legal review: nothing is shared.
+          {canEdit ? ' You can still switch it off.' : ''}
+        </p>
+      )}
+      {available && !canEdit && (
         <p className="text-xs text-[var(--ff-text-tertiary)]">Only the bureau owner can change this setting.</p>
       )}
 
