@@ -61,6 +61,15 @@ describe('parseOpeningBalanceCsv', () => {
     expect(res.rows[0]).toMatchObject({ debit: 0, credit: 200 });
   });
 
+  it('takes a value written "Dr" in the credit column as the debit the operator wrote', () => {
+    const res = parseOpeningBalanceCsv(
+      [{ Code: '1110', Debit: '', Credit: '200 Dr' }, { Code: '1120', Debit: '', Credit: '75' }],
+      ['Code', 'Debit', 'Credit'],
+    );
+    expect(res.errors).toEqual([]);
+    expect(res.rows.map(r => [r.debit, r.credit])).toEqual([[200, 0], [0, 75]]);
+  });
+
   it('reports a garbage amount as a row error instead of importing 0', () => {
     const res = parseOpeningBalanceCsv(
       [{ Code: '1110', Debit: '12x', Credit: '' }, { Code: '1120', Debit: '5', Credit: '' }],

@@ -75,8 +75,8 @@ export function detectOpeningBalanceColumns(fields: string[]): OpeningBalanceCol
   return cols;
 }
 
-/** A value written with a "Cr" marker is a credit amount whatever column it sits in. */
-const CR_MARKED = /cr\s*$/i;
+/** A value written with a "Cr" / "Dr" marker is that side's amount whatever column it sits in. */
+const MARKER = /(cr|dr)\s*$/i;
 
 function splitSigned(value: number): { debit: number; credit: number } {
   return value >= 0 ? { debit: value, credit: 0 } : { debit: 0, credit: -value };
@@ -120,8 +120,12 @@ export function parseOpeningBalanceCsv(
     if (columns.debit || columns.credit) {
       const d = splitSigned(read('debit', rawDebit));
       const creditValue = read('credit', rawCredit);
-      // "200 Cr" in the credit column is a credit of 200, not a debit.
-      const c = CR_MARKED.test(rawCredit) ? { debit: 0, credit: Math.abs(creditValue) } : splitSigned(-creditValue);
+      // "200 Cr" in the credit column is a credit of 200 and "200 Dr" a debit of 200;
+      // only an unmarked value takes its side from the column.
+      const marker = MARKER.exec(rawCredit)?.[1]?.toLowerCase();
+      const c = marker === 'cr' ? { debit: 0, credit: Math.abs(creditValue) }
+        : marker === 'dr' ? { debit: Math.abs(creditValue), credit: 0 }
+        : splitSigned(-creditValue);
       debit = d.debit + c.debit;
       credit = d.credit + c.credit;
     }
