@@ -82,6 +82,7 @@ const KNOWN_WRITERS = [
   'scripts/qa-cleanup-run.ts: names as a string', // W18 QA cleanup by company — postgres
   'scripts/sandbox/reviewerSandboxIdentity.ts: writes', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
   'scripts/stress-test.ts: writes', // W18 stress seed — postgres
+  'src/modules/accounting/services/core/userAccessService.ts: locks', // S-04: the target's row, FOR UPDATE before the owner check — app_user
   'src/modules/accounting/services/core/userAccessService.ts: writes', // W1/W2 — app_user
   'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — app_user
   'src/modules/admin/services/adminUserActionsService.ts: writes', // W13–W14 delete-user, reset-onboarding — platform_admin
