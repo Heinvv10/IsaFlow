@@ -9,7 +9,7 @@
  * tests/integration/s04-owner-protection.int.test.ts.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const h = vi.hoisted(() => ({ statements: [] as string[], targetRole: 'owner', actorRole: 'owner', ownerCount: 2 }));
@@ -35,6 +35,7 @@ vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => f
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve; relative path needed
 import handler from '../../../pages/api/accounting/company-users';
+import { updateCompanyUserRole, OwnerProtectedError } from '@/modules/accounting/services/core/userAccessService';
 
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 const COMPANY_ID = '11111111-1111-4111-9111-111111111111';
@@ -114,5 +115,33 @@ describe('company-users S-04 — only an owner changes or removes an owner', () 
     await del.promise;
     expect(statusOf(del.res)).toBe(200);
     expect(writes()).toHaveLength(2);
+  });
+});
+
+describe('company-users service — non-owner cannot promote to owner (defence-in-depth)', () => {
+  // These tests call the service directly, bypassing the API-layer check, to
+  // verify that lockTargetRole also gates promotion-to-owner.
+  beforeEach(() => {
+    h.statements.length = 0;
+    h.targetRole = 'manager';
+    h.actorRole = 'admin';
+    h.ownerCount = 2;
+  });
+  afterEach(() => vi.clearAllMocks());
+
+  it('throws OwnerProtectedError when an admin promotes a manager to owner', async () => {
+    await expect(
+      updateCompanyUserRole(COMPANY_ID, TARGET, 'owner', 'actor-admin'),
+    ).rejects.toBeInstanceOf(OwnerProtectedError);
+    // No UPDATE issued
+    expect(writes()).toEqual([]);
+  });
+
+  it('allows an owner to promote a manager to owner', async () => {
+    h.actorRole = 'owner';
+    await expect(
+      updateCompanyUserRole(COMPANY_ID, TARGET, 'owner', 'actor-owner'),
+    ).resolves.toBeUndefined();
+    expect(writes()).toHaveLength(1);
   });
 });
