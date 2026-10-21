@@ -86,9 +86,20 @@ describe('consent screen — where the authorisation goes', () => {
     expect(hosted).not.toEqual(local);
   });
 
+  // FB-1: the allowlisted native redirect names the app and its scheme.
+  it('names the Cursor app for its native redirect', () => {
+    render(<AuthorizePage {...props('cursor://anysphere.cursor-mcp/oauth/callback')} />);
+    expect(
+      screen.getByText('the Cursor app on this computer (cursor://anysphere.cursor-mcp)'),
+    ).toBeTruthy();
+  });
+
   // Registration refuses these, so rather than guess, the line is absent.
   it('says nothing when the target cannot be described', () => {
-    const { container } = render(<AuthorizePage {...props('not a url')} />);
-    expect(container.textContent).not.toContain('Sends your authorisation to');
+    for (const uri of ['not a url', 'myapp://cb', 'cursor://evil/oauth/callback']) {
+      const { container, unmount } = render(<AuthorizePage {...props(uri)} />);
+      expect(container.textContent, uri).not.toContain('Sends your authorisation to');
+      unmount();
+    }
   });
 });

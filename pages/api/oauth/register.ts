@@ -10,7 +10,8 @@
  *
  * Abuse controls: 10 registrations/hour/IP ('oauth-register' bucket),
  * ≤5 redirect URIs, https-only redirect URIs except RFC 8252 loopback
- * (http://localhost:*, http://127.0.0.1:*).
+ * (http://localhost:*, http://127.0.0.1:*) and the exact native-app URIs in
+ * src/lib/auth/oauthNativeRedirects.ts (Cursor / Grok Bot).
  *
  * Responses use the raw RFC 7591 shape, not the apiResponse envelope
  * (clients parse this verbatim — same precedent as /api/oauth/token).
@@ -21,6 +22,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { isLoopbackHost } from '@/lib/auth/oauthLoopback';
+import { isAllowedNativeRedirect } from '@/lib/auth/oauthNativeRedirects';
 import { log } from '@/lib/logger';
 import { registerOauthApp } from '@/lib/auth/oauth';
 import { pruneStaleDynamicApps } from '@/lib/auth/oauthDynamicClients';
@@ -45,8 +47,13 @@ function rfcError(code: string, description: string): { error: string; error_des
   return { error: code, error_description: description };
 }
 
-/** https everywhere; plain http only for RFC 8252 loopback redirects. */
+/**
+ * https everywhere; plain http only for RFC 8252 loopback redirects; and the
+ * exact native-app URIs in oauthNativeRedirects.ts (RFC 8252 s7.1), so Cursor
+ * and Grok Bot can register. No other non-https scheme.
+ */
 function isAcceptableRedirect(raw: string): boolean {
+  if (isAllowedNativeRedirect(raw)) return true;
   let url: URL;
   try { url = new URL(raw); } catch { return false; }
   if (url.protocol === 'https:') return true;
@@ -91,7 +98,7 @@ const handler: NextApiHandler = async (req, res) => {
     }
     if (typeof u !== 'string' || !isAcceptableRedirect(u)) {
       return res.status(400).json(
-        rfcError('invalid_redirect_uri', 'redirect_uris must be https URLs (http allowed for localhost/127.0.0.1 loopback only)'),
+        rfcError('invalid_redirect_uri', 'redirect_uris must be https URLs (http allowed for localhost/127.0.0.1 loopback only; custom schemes only from a fixed native-app list)'),
       );
     }
   }

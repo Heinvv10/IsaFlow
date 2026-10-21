@@ -23,6 +23,7 @@ import { randomBytes } from 'crypto';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -160,4 +161,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+// Owner and admin only, the roles the mandate routes' withRole('admin') admits:
+// a viewer must not start a paid checkout.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));
