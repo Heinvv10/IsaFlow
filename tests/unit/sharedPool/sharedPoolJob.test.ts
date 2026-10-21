@@ -9,12 +9,14 @@ import { als } from '@/lib/als';
 const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('@/modules/bureau/services/poolEligibility', () => ({ listPoolEligibleCompanyIds: vi.fn(async () => []) }));
+const { listPoolEligibleCompanyIds } = vi.hoisted(() => ({ listPoolEligibleCompanyIds: vi.fn(async (): Promise<string[]> => []) }));
+vi.mock('@/modules/bureau/services/poolEligibility', () => ({ listPoolEligibleCompanyIds }));
 
-import { runSharedPoolAggregation } from '@/modules/accounting/services/sharedPool/sharedPoolJob';
+import { isSharedPoolRunning, runSharedPoolAggregation } from '@/modules/accounting/services/sharedPool/sharedPoolJob';
 import { MERCHANT_FILTER_VERSION } from '@/modules/accounting/services/sharedPool/merchantPiiFilter';
 
-beforeEach(() => { sqlMock.mockReset(); });
+beforeEach(() => { sqlMock.mockReset(); listPoolEligibleCompanyIds.mockReset(); listPoolEligibleCompanyIds.mockResolvedValue([]); });
+const published = () => sqlMock.mock.calls.filter(([s]) => (s as TemplateStringsArray).join('?').includes('shared_pool_publish'));
 
 describe('runSharedPoolAggregation', () => {
   it('refuses inside a request context and touches nothing', async () => {
@@ -31,5 +33,35 @@ describe('runSharedPoolAggregation', () => {
     expect((strings as TemplateStringsArray).join('?')).toContain('public.shared_pool_publish(');
     expect(rows).toBe('[]');
     expect(version).toBe(MERCHANT_FILTER_VERSION);
+  });
+
+  it('one company read failing publishes nothing: the previous pool stands', async () => {
+    listPoolEligibleCompanyIds.mockResolvedValue(['co-a', 'co-b']);
+    sqlMock.mockImplementation(async (_s: TemplateStringsArray, ...v: unknown[]) => {
+      if (v[0] === 'co-b') throw new Error('connection terminated');
+      return [];
+    });
+    await expect(runSharedPoolAggregation()).rejects.toThrow(/1 of 2 company reads failed; nothing published/);
+    expect(published()).toHaveLength(0);
+  });
+
+  it('every company read failing does not publish an empty pool', async () => {
+    listPoolEligibleCompanyIds.mockResolvedValue(['co-a', 'co-b']);
+    sqlMock.mockRejectedValue(new Error('the database is down'));
+    await expect(runSharedPoolAggregation()).rejects.toThrow(/nothing published/);
+    expect(published()).toHaveLength(0);
+  });
+
+  it('a second run while one is in progress is refused; the slot frees when the first ends', async () => {
+    let release: () => void = () => undefined;
+    listPoolEligibleCompanyIds.mockImplementationOnce(() => new Promise<string[]>((r) => { release = () => r([]); }));
+    sqlMock.mockResolvedValue([{ published: 0 }]);
+    const first = runSharedPoolAggregation();
+    expect(isSharedPoolRunning()).toBe(true);
+    await expect(runSharedPoolAggregation()).rejects.toThrow(/already running/);
+    release();
+    await first;
+    expect(isSharedPoolRunning()).toBe(false);
+    await expect(runSharedPoolAggregation()).resolves.toMatchObject({ published: 0 });
   });
 });
