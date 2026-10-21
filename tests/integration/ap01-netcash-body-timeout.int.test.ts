@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 
-vi.mock('@/modules/accounting/services/ap/netcashTimeouts', () => ({ REQUEST_TIMEOUT_MS: 150, SEND_WINDOW_MS: 120_000 }));
+vi.mock('@/modules/accounting/services/ap/netcashTimeouts', () => ({ REQUEST_TIMEOUT_MS: 150, SEND_WINDOW_MS: 120_000, CLAIM_CONNECTION_TIMEOUT_MS: 2_000 }));
 
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
