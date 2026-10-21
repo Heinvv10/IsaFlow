@@ -16,7 +16,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { looksLikeXlsx, SpreadsheetTooLargeError, xlsxBufferToCsv } from '@/lib/xlsxToCsv';
+import { looksLikeXlsx, SpreadsheetRefusedError, xlsxBufferToCsv } from '@/lib/xlsxToCsv';
 import {
   parseAccountsFile,
   parseCustomersFile,
@@ -78,8 +78,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       fileContent = looksLikeXlsx(bytes) ? await xlsxBufferToCsv(bytes) : bytes.toString('utf-8');
     } catch (err) {
-      if (err instanceof SpreadsheetTooLargeError) {
-        log.warn('Uploaded workbook refused: over a size limit', { reason: err.message }, 'migration');
+      if (err instanceof SpreadsheetRefusedError) {
+        log.warn('Uploaded workbook refused', { reason: err.message }, 'migration');
         return apiResponse.badRequest(res, err.message);
       }
       log.error('Failed to read uploaded file', { error: err }, 'migration');

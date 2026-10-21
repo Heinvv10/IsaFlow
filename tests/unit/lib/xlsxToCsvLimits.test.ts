@@ -16,14 +16,14 @@ async function workbook(rows: unknown[][]): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-const limits = { maxUncompressedBytes: 1024 * 1024, maxRows: 5, maxColumns: 3 };
+const limits = { maxUncompressedBytes: 1024 * 1024, maxRows: 5, maxColumns: 3, maxOutputBytes: 64 * 1024 };
 
 describe('xlsxBufferToCsv limits', () => {
-  it('refuses a zip that inflates past the cap before ExcelJS reads it', async () => {
-    // 4 MB of zeros deflates to a few KB; not even a workbook, so only the
-    // size check can be what refuses it.
-    const zip = new JSZip();
-    zip.file('xl/worksheets/sheet1.xml', Buffer.alloc(4 * 1024 * 1024));
+  it('refuses a workbook that inflates past the cap before ExcelJS reads it', async () => {
+    // A real workbook whose sheet is 4 MB of whitespace: it deflates to a few
+    // KB, and only the inflated-bytes count can be what refuses it.
+    const zip = await JSZip.loadAsync(await workbook([['a']]));
+    zip.file('xl/worksheets/sheet1.xml', ' '.repeat(4 * 1024 * 1024));
     const bomb = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
     expect(bomb.length).toBeLessThan(64 * 1024);
     const err = await xlsxBufferToCsv(bomb, limits).then(() => null, (e: unknown) => e);
