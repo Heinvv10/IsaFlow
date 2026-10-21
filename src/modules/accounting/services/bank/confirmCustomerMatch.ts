@@ -36,7 +36,7 @@ import {
   confirmReceiptMatch,
   validateBankReceiptApplication,
 } from '../ar/receiptMatchConfirmService';
-import { EPS, round2 } from '../ar/receiptAllocationLines';
+import { round2 } from '../ar/receiptAllocationLines';
 import { isReceiptHeldRow, isReceiptRefusal, isRetryableReceiptRefusal } from '../ar/receiptRefusal';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { refuseLineOfCompletedReconciliation } from './reconciledCash';
@@ -91,7 +91,8 @@ export async function confirmCustomerInvoiceMatch(
 
   const inv = invRows[0]!;
   const outstanding = round2(Number(inv.total_amount) - Number(inv.amount_paid || 0));
-  if (outstanding <= EPS) {
+  // Whole cents (outstanding is round2'd): an invoice owing one cent is 'partially_paid' and still takes cash.
+  if (outstanding <= 0) {
     return { ok: false, kind: 'refused', message: 'This customer invoice is already fully paid.' };
   }
 
@@ -107,7 +108,8 @@ export async function confirmCustomerInvoiceMatch(
   // A caller that HANDS IN its allocations may leave a remainder; this screen
   // derives them from the single invoice the user picked, so a remainder here
   // is a mis-match rather than an instruction.
-  if (paymentAmount > outstanding + EPS) {
+  // Whole cents, no tolerance (899): buildLine refuses a cent over, so the pre-screen says so first.
+  if (round2(paymentAmount) > outstanding) {
     return {
       ok: false,
       kind: 'refused',

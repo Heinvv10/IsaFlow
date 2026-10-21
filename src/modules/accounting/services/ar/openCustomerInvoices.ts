@@ -17,7 +17,6 @@
 import { sql } from '@/lib/neon';
 import { invoiceForeignCurrencySql } from '../shared/documentCurrency';
 import type { DbRow } from '@/lib/neon';
-import { EPS } from '../shared/autoAllocateStrategy';
 import type { SimulationDocument } from '../shared/autoApplySimulation';
 import { FIFO_ELIGIBLE_STATUSES } from './invoiceStatusRecompute';
 import { requireRequestTransaction } from '../core/requestTransaction';
@@ -58,7 +57,7 @@ export async function fetchOpenCustomerInvoices(
           AND ci.deleted_at IS NULL
           AND NOT ${invoiceForeignCurrencySql()}
           AND ci.status = ANY(${[...FIFO_ELIGIBLE_STATUSES]}::TEXT[])
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > ${EPS}
+          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
         ORDER BY ci.id
         FOR UPDATE OF ci`
     : await sql`
@@ -70,7 +69,7 @@ export async function fetchOpenCustomerInvoices(
           AND ci.deleted_at IS NULL
           AND NOT ${invoiceForeignCurrencySql()}
           AND ci.status = ANY(${[...FIFO_ELIGIBLE_STATUSES]}::TEXT[])
-          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > ${EPS}
+          AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
         ORDER BY ci.id`) as DbRow[];
 
   if (!opts.forUpdate) return orderOpenDocuments(toRows(await read()), oldestFirst);

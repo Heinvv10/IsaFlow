@@ -50,7 +50,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchOpenSupplierBills } from '../ap/supplierAutoAllocate';
 import { fetchOpenCustomerInvoices } from '../ar/customerAutoAllocate';
-import { EPS, planGreedyAllocations, round2 } from './autoAllocateStrategy';
+import { invoiceFloor, planGreedyAllocations, round2 } from './autoAllocateStrategy';
 import {
   UNAPPLICABLE_STATUSES, assertAllocationsMatchApplied, lockInvoicesForUpdate,
   undoApplication, writeApplication,
@@ -75,9 +75,13 @@ export function parseCreditNoteAutoApply(value: unknown): CreditNoteAutoApply | 
 export function deriveCreditNoteStatus(
   appliedAmount: number,
   totalAmount: number,
+  side: CreditNoteSide,
 ): 'approved' | 'partially_applied' | 'applied' {
-  if (appliedAmount <= EPS) return 'approved';
-  if (appliedAmount >= round2(totalAmount) - EPS) return 'applied';
+  // Side-aware like `invoiceFloor`: a customer note is exact (R0.01 unapplied is 'partially_applied' and can still
+  // be applied); a supplier note keeps the cent tolerance.
+  const floor = invoiceFloor(side);
+  if (round2(appliedAmount) <= floor) return 'approved';
+  if (round2(appliedAmount) >= round2(totalAmount) - floor) return 'applied';
   return 'partially_applied';
 }
 
@@ -182,7 +186,7 @@ export async function applyCreditNote(args: {
     const amount = linkedIsApplicable
       ? round2(Math.min(totalAmount, linked.outstanding))
       : 0;
-    if (amount > EPS) {
+    if (amount > invoiceFloor(side)) {
       lines.push({ invoiceId: linkedInvoiceId, amount });
       consumed = amount;
     } else if (!linkedIsApplicable) {
@@ -201,11 +205,11 @@ export async function applyCreditNote(args: {
   }
 
   const remaining = round2(totalAmount - consumed);
-  if (remaining > EPS) {
+  if (remaining > invoiceFloor(side)) {
     const rest = candidates
       .filter((id) => id !== linkedInvoiceId && locked.has(id))
       .map((id) => ({ invoiceId: id, outstanding: locked.get(id)!.outstanding }));
-    for (const planned of planGreedyAllocations(remaining, rest)) {
+    for (const planned of planGreedyAllocations(remaining, rest, invoiceFloor(side))) {
       lines.push({ invoiceId: planned.invoiceId, amount: planned.amount });
       consumed = round2(consumed + planned.amount);
     }
