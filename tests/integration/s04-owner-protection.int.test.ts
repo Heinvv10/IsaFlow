@@ -158,6 +158,45 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
     }
   });
 
+  it('refuses an admin promoting a member to owner (403 wording, not trigger RC003)', async () => {
+    const err = await asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'owner', ADMIN)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OwnerProtectedError);
+    expect((err as Error).message).toBe('Only an owner can grant the owner role.');
+    expect(await roleOf(MANAGER)).toBe('manager');
+  });
+
+  // The trigger reads the actor's role from its statement snapshot, without the
+  // owner lock: it still sees A as an owner while B's demotion of A is
+  // uncommitted. Only the service's live read after the lock refuses A.
+  it('an owner being demoted at that moment cannot promote anyone to owner', async () => {
+    for (let round = 0; round < 5; round++) {
+      await seedMembers();
+      const [cb, ca] = [await admin.connect(), await admin.connect()];
+      try {
+        const aWaits = await lockWaiter(ca);
+        let commitDemotion!: () => void;
+        let bHoldsLock!: () => void;
+        const held = new Promise<void>((r) => { commitDemotion = r; });
+        const locked = new Promise<void>((r) => { bHoldsLock = r; });
+        const demoteA = asMember(OWNER_B, async () => {
+          await updateCompanyUserRole(COMPANY, OWNER_A, 'viewer', OWNER_B);
+          bHoldsLock();
+          await held;
+        }, cb);
+        await Promise.race([locked, demoteA]);
+        const aPromotes = asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, MANAGER, 'owner', OWNER_A), ca);
+        await aWaits();
+        commitDemotion();
+        const [b, a] = await Promise.allSettled([demoteA, aPromotes]);
+        expect(b.status, `round ${round}`).toBe('fulfilled');
+        expect(a.status === 'rejected' ? a.reason : a.status, `round ${round}`).toBeInstanceOf(OwnerProtectedError);
+        expect(await roleOf(MANAGER), `round ${round}`).toBe('manager');
+      } finally {
+        cb.release(); ca.release();
+      }
+    }
+  });
+
   it('lets an owner demote another owner when two exist', async () => {
     await asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_B, 'admin', OWNER_A));
     expect(await roleOf(OWNER_B)).toBe('admin');
