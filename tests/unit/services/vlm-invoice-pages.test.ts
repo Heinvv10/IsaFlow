@@ -50,7 +50,7 @@ describe('buildInvoicePagesRequest', () => {
     const parts = req!.content as Array<{ type: string; image_url?: { url: string }; text?: string }>;
     expect(parts.filter((p) => p.type === 'image_url').map((p) => p.image_url!.url.length))
       .toEqual([big.length, 'small'.length].map((n) => n + 'data:image/png;base64,'.length));
-    expect(req!.warnings).toEqual(['Page 2 of 3 could not be read — check it by hand.']);
+    expect(req!.warnings).toEqual(['Page 2 of 3 was left out: the pages are too large to read together — check it by hand.']);
     expect(parts.at(-1)!.text).toMatch(/^You are given pages 1 and 3 of a 3-page PDF/);
   });
 
@@ -61,6 +61,12 @@ describe('buildInvoicePagesRequest', () => {
       'Page 2 of 5 could not be read — check it by hand.',
       'Read pages 1 and 3 of 5 — check later pages.',
     ]);
+  });
+
+  it('names a lone page 1 as "page 1", not a range "1-1"', async () => {
+    render.mockImplementation(async (_pdf, page) => (page === 1 ? 'png' : null));
+    const req = await buildInvoicePagesRequest(PDF, layer(['', '']), 2);
+    expect((req!.content.at(-1) as { text: string }).text).toMatch(/^You are given page 1 of a 2-page PDF/);
   });
 
   it('caps the cross-check text at 4,000 characters', async () => {

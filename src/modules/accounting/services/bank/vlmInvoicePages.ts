@@ -12,7 +12,10 @@
  * writes "-- k of N --" AFTER page k, even after a scan's empty pages. The
  * document's own text can print a line like that too, so only the markers
  * pdf-parse wrote count: the LAST one gives N, and page k ends at the first
- * "-- k of N --" after page k-1 ended.
+ * "-- k of N --" after page k-1 ended. Named limit: a page whose own text
+ * prints exactly its own marker ("-- 1 of 3 --" on page 1 of 3) is cut there,
+ * so that page's cross-check text is short; the count and the images are not
+ * affected. pdf-parse's output carries nothing that tells the two apart.
  */
 
 import { buildMultiImageContent } from './vlmCore';
@@ -74,8 +77,9 @@ export interface InvoicePagesRequest {
   warnings: string[];
 }
 
-/** "1-3" (with `dash`), or "1 and 3" when a page in the range was left out. */
+/** "1-3" (with `dash`), "1" alone, or "1 and 3" when a page in the range was left out. */
 function pageList(read: number[], dash = '-'): string {
+  if (read.length === 1) return String(read[0]);
   const contiguous = read.every((p, i) => p === i + 1);
   if (contiguous) return `1${dash}${read.length}`;
   return `${read.slice(0, -1).join(', ')} and ${read.at(-1)}`;
@@ -105,6 +109,8 @@ export async function buildInvoicePagesRequest(
       chars += png.length;
     } else if (page === 1) {
       return null;
+    } else if (png) {
+      warnings.push(`Page ${page} of ${total} was left out: the pages are too large to read together — check it by hand.`);
     } else {
       warnings.push(`Page ${page} of ${total} could not be read — check it by hand.`);
     }
@@ -112,7 +118,7 @@ export async function buildInvoicePagesRequest(
   if (total > last) warnings.push(`Read pages ${pageList(read, '–')} of ${total} — check later pages.`);
 
   // With every page read, the instruction is word for word the benchmark's json-multi mode (~/isaflow-ocr-bench/scripts/bench.py).
-  let prompt = `You are given pages ${pageList(read)} of a ${total}-page PDF, in page order. `
+  let prompt = `You are given page${read.length > 1 ? 's' : ''} ${pageList(read)} of a ${total}-page PDF, in page order. `
     + 'A page may be a cover page, a payment request, a remittance advice or terms and conditions: '
     + 'extract the SUPPLIER INVOICE (or credit note). Its totals are usually on the last invoice page. '
     + 'If the pages hold more than one separate invoice, extract the first one and add '
