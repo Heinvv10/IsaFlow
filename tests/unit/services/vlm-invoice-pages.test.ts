@@ -23,6 +23,7 @@ describe('pdf-parse page markers', () => {
     expect(pdfPageCount('')).toBe(0);
     expect(pdfPageCount(layer(['x -- 1 of 99999999999999999999 --']))).toBe(1);
     expect(pdfPageCount('a\n\n-- 200000 of 200000 --\n\n')).toBe(0);
+    expect(pdfPageCount('a\n\n-- 1 of 5 --\n\nb\n\n-- 2 of 5 --\n\n')).toBe(0);
   });
 
   it('keeps a one-page PDF that prints a marker-like line on the one-page path', () => {
@@ -67,6 +68,15 @@ describe('buildInvoicePagesRequest', () => {
     render.mockImplementation(async (_pdf, page) => (page === 1 ? 'png' : null));
     const req = await buildInvoicePagesRequest(PDF, layer(['', '']), 2);
     expect((req!.content.at(-1) as { text: string }).text).toMatch(/^You are given page 1 of a 2-page PDF/);
+  });
+
+  it('always sends page 1, even past the image budget, and says "page 1" when it is the only page read', async () => {
+    const huge = 'A'.repeat(MAX_REQUEST_IMAGE_CHARS + 1);
+    render.mockImplementation(async (_pdf, page) => (page === 1 ? huge : 'png'));
+    const req = await buildInvoicePagesRequest(PDF, layer(['', '', '', '', '']), 5);
+    const parts = req!.content as Array<{ type: string; image_url?: { url: string } }>;
+    expect(parts.filter((p) => p.type === 'image_url')).toHaveLength(1);
+    expect(req!.warnings.at(-1)).toBe('Read page 1 of 5 — check later pages.');
   });
 
   it('caps the cross-check text at 4,000 characters', async () => {

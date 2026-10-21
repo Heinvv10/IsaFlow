@@ -115,7 +115,7 @@ export async function buildInvoicePagesRequest(
       warnings.push(`Page ${page} of ${total} could not be read — check it by hand.`);
     }
   }
-  if (total > last) warnings.push(`Read pages ${pageList(read, '–')} of ${total} — check later pages.`);
+  if (total > last) warnings.push(`Read page${read.length > 1 ? 's' : ''} ${pageList(read, '–')} of ${total} — check later pages.`);
 
   // With every page read, the instruction is word for word the benchmark's json-multi mode (~/isaflow-ocr-bench/scripts/bench.py).
   let prompt = `You are given page${read.length > 1 ? 's' : ''} ${pageList(read)} of a ${total}-page PDF, in page order. `
