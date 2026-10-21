@@ -17,6 +17,7 @@ vi.mock('@/modules/accounting/services/ap/netcashService', () => hold);
 
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import { getPoolForTests } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { NETCASH_SEND_LOCK_CLASS } from '@/modules/accounting/services/ap/netcashSendLock';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
@@ -30,7 +31,7 @@ let admin = '';
 const ACCEPTED = { success: true, outcome: 'accepted', batchReference: 'NC-CONN' };
 
 /** A fault for the next matching query: on the claim's own connection only when `claimOnly`. */
-type Rule = { match: RegExp; claimOnly: boolean; act: (run: () => Promise<unknown>) => Promise<unknown> };
+type Rule = { match: RegExp; claimOnly: boolean; act: (run: () => Promise<unknown>) => Promise<unknown>; skip?: number };
 const hooks = { claim: null as null | { client: unknown; pid: number }, rules: [] as Rule[] };
 const realQuery = pg.Client.prototype.query;
 beforeAll(async () => {
@@ -40,7 +41,8 @@ beforeAll(async () => {
     const text = typeof first === 'string' ? first : first?.text ?? '';
     if (/pg_(try_)?advisory_lock\(\$1::INT4/.test(text)) hooks.claim = { client: this, pid: (this as unknown as { processID: number }).processID };
     const rule = hooks.rules.find((r) => r.match.test(text) && (!r.claimOnly || this === hooks.claim?.client));
-    if (rule && typeof args[args.length - 1] !== 'function') {
+    if (rule && rule.skip) rule.skip -= 1;
+    else if (rule && typeof args[args.length - 1] !== 'function') {
       hooks.rules.splice(hooks.rules.indexOf(rule), 1);
       return rule.act(() => (realQuery as (...a: unknown[]) => Promise<unknown>).apply(this, args));
     }
@@ -174,7 +176,7 @@ describe('L2: a connection that may hold the send lock is destroyed, never poole
       .toEqual({ http: 200, alive: false, locks: 0, claims: 1 });
   });
 
-  it('the settle fails and its ROLLBACK fails (unusable): 500, the row stays pending, the lock is gone, the backend closed', async () => {
+  it('the settle fails and its ROLLBACK fails (unusable): the backend is closed, the lock gone, and the retry on a fresh connection records the answer', async () => {
     const { c, b } = await fresh();
     hooks.rules.push({ match: /SET status = \$3, batch_reference = \$4, netcash_response = \$5/, claimOnly: true, act: injected('settle') });
     hooks.rules.push({ match: /^ROLLBACK$/, claimOnly: true, act: injected('rollback') });
@@ -182,7 +184,7 @@ describe('L2: a connection that may hold the send lock is destroyed, never poole
     const res = await submit(c, b.id);
     const status = (await pool.query('SELECT status FROM netcash_submissions WHERE company_id = $1', [c])).rows.map((r) => r.status);
     expect({ http: res.state.statusCode, alive: await claimBackendAlive(), locks: await sendLocks(), status })
-      .toEqual({ http: 500, alive: false, locks: 0, status: ['pending'] });
+      .toEqual({ http: 200, alive: false, locks: 0, status: ['submitted'] });
   });
 
   it('the claim COMMIT fails after the lock was taken: nothing claimed or sent, the lock is gone, the backend closed', async () => {
@@ -199,6 +201,53 @@ describe('L2: a connection that may hold the send lock is destroyed, never poole
     hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
     expect((await submit(c, b.id)).state.statusCode).toBe(200);
     expect({ alive: await claimBackendAliveNow(), locks: await sendLocks() }).toEqual({ alive: true, locks: 0 });
+  });
+});
+
+describe('A (adversarial round 11): a settle that fails on the claim connection is retried once on a fresh one', () => {
+  const SETTLE = /SET status = \$3, batch_reference = \$4, netcash_response = \$5/;
+
+  it('the retry fails too: 500 whose body gives Netcash\'s answer (accepted + reference, do not resend), the row stays pending, the full answer logged', async () => {
+    const { c, b } = await fresh();
+    hooks.rules.push({ match: SETTLE, claimOnly: true, act: injected('settle') });
+    hooks.rules.push({ match: /netcash_settle_retry/, claimOnly: false, act: injected('settle retry') });
+    const errors = vi.spyOn(log, 'error');
+    hold.submitEftBatch.mockResolvedValue(ACCEPTED);
+    const res = await submit(c, b.id);
+    const text = JSON.stringify(res.state.body);
+    const status = (await pool.query('SELECT status FROM netcash_submissions WHERE company_id = $1', [c])).rows.map((r) => r.status);
+    const loggedAnswer = errors.mock.calls.some(([, data]) => JSON.stringify(data).includes('NC-CONN') && JSON.stringify(data).includes('accepted'));
+    errors.mockRestore();
+    expect({ http: res.state.statusCode, reason: reason(res), accepted: /accepted/.test(text), ref: text.includes('NC-CONN'),
+      noRetry: /not resend|do not send it again|don't resend/i.test(text), status, loggedAnswer, resend: (await submit(c, b.id)).state.statusCode,
+      sends: hold.submitEftBatch.mock.calls.length })
+      .toEqual({ http: 500, reason: 'NETCASH_ANSWER_NOT_RECORDED', accepted: true, ref: true, noRetry: true, status: ['pending'], loggedAnswer: true, resend: 409, sends: 1 });
+  });
+
+  it('the first settle committed but its reply was lost: the retry sees its own answer on the row and reports success', async () => {
+    const { c, b } = await fresh();
+    // The claim connection's second COMMIT is the settle's: it lands, then the client reports an error.
+    hooks.rules.push({ match: /^COMMIT$/, claimOnly: true, skip: 1, act: async (run) => { await run(); throw new Error('injected: reply lost'); } });
+    hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
+    const res = await submit(c, b.id);
+    const status = (await pool.query('SELECT status FROM netcash_submissions WHERE company_id = $1', [c])).rows.map((r) => r.status);
+    expect({ http: res.state.statusCode, status, locks: await sendLocks() }).toEqual({ http: 200, status: ['submitted'], locks: 0 });
+  });
+
+  it('the retry\'s checkout is bounded: with the main pool exhausted it gives up within CLAIM_CONNECTION_TIMEOUT_MS (not the pool\'s 15 s)', async () => {
+    const { c, b } = await fresh();
+    const app = getPoolForTests();
+    let held: Array<{ release: () => void }> = [];
+    hooks.rules.push({ match: SETTLE, claimOnly: true, act: async () => {
+      held = await Promise.all(Array.from({ length: Number(app.options.max) - app.totalCount + app.idleCount }, () => app.connect()));
+      throw new Error('injected: settle');
+    } });
+    hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
+    const started = Date.now();
+    const res = await submit(c, b.id);
+    const took = Date.now() - started;
+    held.forEach((h) => h.release());
+    expect({ http: res.state.statusCode, reason: reason(res), fast: took < 8000 }).toEqual({ http: 500, reason: 'NETCASH_ANSWER_NOT_RECORDED', fast: true });
   });
 });
 

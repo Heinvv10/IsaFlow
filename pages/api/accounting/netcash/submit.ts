@@ -15,7 +15,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { validateNetcashPayees } from '@/modules/accounting/services/ap/netcashPayeeValidation';
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { unreleasedBankFile } from '@/modules/accounting/services/ap/batchBankFileRecord';
-import { claimBatch, type SettleResult } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
+import { AnswerNotRecordedError, claimBatch, type SettleResult } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
@@ -178,14 +178,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const reference = result.batchReference ?? batchReference;
     const submittedAt = result.success ? new Date().toISOString() : null;
 
-    // Settled in its own committed transaction. If that fails the claim stays 'pending' - the batch stays closed until
-    // an operator clears it - and the error answers 500: the request's rollback no longer touches the claim.
+    // Settled in its own committed transaction (retried once on a fresh connection, ap/netcashClaimSettle). If both
+    // fail the claim stays 'pending' - the batch stays closed until an operator clears it - and the request answers
+    // 500 saying what Netcash answered, so no one resends a batch Netcash may have.
     try {
       settled = await claim.settle({ status, batchReference: reference, netcashResponse: result, submittedAt });
     } catch (err) {
       log.error('Netcash claim not settled; left pending (the batch stays closed until an operator clears it)', {
         submissionId: claimId, outcome: result.outcome, error: err instanceof Error ? err.message : String(err),
       }, 'netcash-api');
+      if (err instanceof AnswerNotRecordedError) return respondAnswerNotRecorded(res, claimId, result);
       throw err;
     }
   } finally {
@@ -241,6 +243,15 @@ function respondClaimLost(res: NextApiResponse, claimId: string, result: Netcash
       + 'the batch stays closed. Check Netcash for this batch.'
     : `This submission was resolved by an operator (now ${settled.status}) while it was being sent, so Netcash's answer `
       + `(${result.outcome}) was not applied. Check Netcash for this batch before doing anything else.`, details);
+}
+
+/** Netcash answered but neither settle could record it: 500 that says what Netcash answered (do not resend). */
+function respondAnswerNotRecorded(res: NextApiResponse, claimId: string, result: NetcashSubmitResult): void {
+  const ref = result.batchReference ? ` (Netcash reference ${result.batchReference})` : '';
+  return apiResponse.error(res, ErrorCode.INTERNAL_ERROR,
+    `Netcash answered ${result.outcome}${ref}, but the answer could not be recorded: submission ${claimId} stays pending and the batch `
+    + 'closed. Do not resend it - check Netcash, then resolve the submission.',
+    { reason: 'NETCASH_ANSWER_NOT_RECORDED', submissionId: claimId, netcashOutcome: result.outcome, batchReference: result.batchReference ?? null });
 }
 
 /** Refused before anything was claimed or sent (ap/netcashSendCapacity, the send lock): safe to try again. */

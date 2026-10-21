@@ -34,12 +34,12 @@ import { rollbackFailed } from '@/lib/rollbackFailed';
 import { NETCASH_SEND_LOCK_CLASS } from './netcashSendLock';
 import { connectWithin, takeSendSlot } from './netcashSendCapacity';
 import { CLAIM_CONNECTION_TIMEOUT_MS } from './netcashTimeouts';
+import {
+  actAsCaller, AnswerNotRecordedError, settleOnFreshConnection, settleRows,
+  type ClaimPrincipal, type ClaimSettlement, type SettleResult,
+} from './netcashClaimSettle';
 
-export interface ClaimPrincipal {
-  companyId: string;
-  /** The request's JWT claims: the RLS policies read the user from them. */
-  claims: Record<string, unknown>;
-}
+export { AnswerNotRecordedError, type ClaimPrincipal, type ClaimSettlement, type SettleResult };
 
 export interface BatchClaim {
   batchId: string;
@@ -47,13 +47,6 @@ export interface BatchClaim {
   totalAmountCents: number;
   recordCount: number;
   createdBy: string;
-}
-
-export interface ClaimSettlement {
-  status: 'submitted' | 'failed' | 'unknown';
-  batchReference: string | null;
-  netcashResponse: unknown;
-  submittedAt: string | null;
 }
 
 /** The claim's connection: whether it holds the send lock, and whether it must be destroyed rather than pooled. */
@@ -68,9 +61,7 @@ async function committed<T>(conn: ClaimConnection, p: ClaimPrincipal, label: str
   try {
     await client.query('BEGIN');
     begun = true;
-    await client.query('SET LOCAL ROLE app_user');
-    await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify(p.claims)]);
-    await client.query("SELECT set_config('app.current_company_id', $1, true)", [p.companyId]);
+    await actAsCaller(client, p);
     const out = await fn(client);
     await client.query('COMMIT');
     return out;
@@ -191,53 +182,26 @@ export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<Clai
 }
 
 /**
- * 'settled', or 'lost': the claim was no longer 'pending' - `status` is what it is now. A late answer that found the
- * row 'failed' and put it back is `reopened`; one that could not, because a newer claim holds the batch, names it.
+ * Record Netcash's answer: on the claim's connection, and if that fails, once more on a fresh connection
+ * (netcashClaimSettle.settleOnFreshConnection) - the answer must reach the row, or an operator may later free a batch
+ * Netcash accepted. If both fail the row stays 'pending' (the batch closed), the full answer is logged, and
+ * AnswerNotRecordedError is thrown for the caller to say what Netcash answered.
  */
-export type SettleResult =
-  | { kind: 'settled' }
-  | { kind: 'lost'; status: string; reopened?: boolean; newerSubmissionId?: string | null };
-
-/**
- * Record what Netcash answered on the claim - compare-and-set on 'pending': a claim released while the send was in
- * flight is NOT overwritten as such; the answer is kept on the row as `lateSendResult`. Defence in depth (round 10):
- * if Netcash accepted (or may have) and the row says 'failed', the batch could be sent again, so the row is put back
- * to 'submitted'/'unknown' (compare-and-set on 'failed'). If a newer claim already holds the batch the unique index
- * refuses it (23505, inside a savepoint): the row stays 'failed' and the newer claim is named. If this throws the
- * claim stays 'pending' and the batch closed.
- */
-function settleOn(conn: ClaimConnection, p: ClaimPrincipal, submissionId: string, s: ClaimSettlement): Promise<SettleResult> {
-  return committed(conn, p, 'settle', async (client): Promise<SettleResult> => {
-    const { rowCount } = await client.query(
-      `UPDATE netcash_submissions
-       SET status = $3, batch_reference = $4, netcash_response = $5::JSONB, submitted_at = $6
-       WHERE id = $1::UUID AND company_id = $2::UUID AND status = 'pending'`,
-      [submissionId, p.companyId, s.status, s.batchReference, JSON.stringify(s.netcashResponse), s.submittedAt]);
-    if (rowCount === 1) return { kind: 'settled' };
-    const { rows } = await client.query<{ status: string; batch_id: string | null }>(
-      `UPDATE netcash_submissions
-       SET netcash_response = COALESCE(netcash_response, '{}'::JSONB) || jsonb_build_object('lateSendResult', $3::JSONB)
-       WHERE id = $1::UUID AND company_id = $2::UUID
-       RETURNING status, batch_id`,
-      [submissionId, p.companyId, JSON.stringify({ status: s.status, batchReference: s.batchReference, response: s.netcashResponse })]);
-    if (!rows[0]) throw new Error(`netcash claim ${submissionId} not found for settlement`);
-    if (rows[0].status !== 'failed' || s.status === 'failed') return { kind: 'lost', status: rows[0].status };
-    await client.query('SAVEPOINT netcash_reopen');
+async function settleOn(conn: ClaimConnection, p: ClaimPrincipal, submissionId: string, s: ClaimSettlement): Promise<SettleResult> {
+  try {
+    return await committed(conn, p, 'settle', (client) => settleRows(client, p, submissionId, s));
+  } catch (first) {
+    log.error('netcash settle failed on the claim connection - retrying once on a fresh connection', {
+      submissionId, status: s.status, error: first instanceof Error ? first.message : String(first),
+    }, 'netcash');
     try {
-      await client.query(
-        `UPDATE netcash_submissions SET status = $3, batch_reference = $4, submitted_at = COALESCE(submitted_at, $5)
-         WHERE id = $1::UUID AND company_id = $2::UUID AND status = 'failed'`,
-        [submissionId, p.companyId, s.status, s.batchReference, s.submittedAt]);
-      await client.query('RELEASE SAVEPOINT netcash_reopen');
-      return { kind: 'lost', status: s.status, reopened: true };
-    } catch (err) {
-      if ((err as { code?: string }).code !== '23505') throw err;
-      await client.query('ROLLBACK TO SAVEPOINT netcash_reopen');
-      const { rows: newer } = await client.query<{ id: string }>(
-        `SELECT id FROM netcash_submissions
-         WHERE company_id = $1::UUID AND batch_id = $2::UUID AND status <> 'failed' AND id <> $3::UUID LIMIT 1`,
-        [p.companyId, rows[0].batch_id, submissionId]);
-      return { kind: 'lost', status: 'failed', newerSubmissionId: newer[0]?.id ?? null };
+      return await settleOnFreshConnection(p, submissionId, s);
+    } catch (second) {
+      log.error('netcash answer NOT recorded - the claim stays pending; do not resend, check Netcash', {
+        submissionId, status: s.status, batchReference: s.batchReference, answer: s.netcashResponse,
+        firstError: first instanceof Error ? first.message : String(first), retryError: second instanceof Error ? second.message : String(second),
+      }, 'netcash');
+      throw new AnswerNotRecordedError(`Netcash's answer for submission ${submissionId} could not be recorded`);
     }
-  });
+  }
 }
