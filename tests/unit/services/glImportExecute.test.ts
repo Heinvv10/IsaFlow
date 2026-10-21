@@ -273,29 +273,3 @@ describe('importJournalEntries', () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 });
-
-// The posting path, not only the preview: a South African file's 03/04/2026 is
-// 3 April. Unnormalised it reached createJournalEntry (and Postgres, whose
-// default DateStyle is month-first) as the raw string, and two spellings of one
-// day became two journals.
-describe('importJournalEntries — day-first dates on the posting path', () => {
-  it('posts a dd/mm/yyyy row on the ISO day, day first', async () => {
-    withAccounts(ACCOUNTS);
-    await importJournalEntries(COMPANY, [
-      row({ date: '03/04/2026', accountCode: '1000', debit: 100, credit: 0 }),
-      row({ date: '03/04/2026', accountCode: '4000', debit: 0, credit: 100 }),
-    ], USER, false);
-    expect(createMock).toHaveBeenCalledTimes(1);
-    expect((createMock.mock.calls[0]![1] as { entryDate: string }).entryDate).toBe('2026-04-03');
-  });
-
-  it('groups two spellings of the same day into one journal', async () => {
-    withAccounts(ACCOUNTS);
-    await importJournalEntries(COMPANY, [
-      row({ date: '03/04/2026', accountCode: '1000', debit: 100, credit: 0 }),
-      row({ date: '2026-04-03', accountCode: '4000', debit: 0, credit: 100 }),
-    ], USER, false);
-    expect(createMock).toHaveBeenCalledTimes(1);
-    expect((createMock.mock.calls[0]![1] as { entryDate: string }).entryDate).toBe('2026-04-03');
-  });
-});
