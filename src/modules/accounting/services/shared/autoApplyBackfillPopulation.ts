@@ -85,7 +85,7 @@ async function readCreditNotes(
         WHERE cn.company_id = ${companyId}::UUID
           AND cn.type = ${CREDIT_NOTE_TYPE[subledger]}
           AND cn.status = ANY(${CREDIT_NOTE_STATUSES}::TEXT[])
-          AND (cn.total_amount - COALESCE(cn.applied_amount, 0)) > ${EPS}
+          AND (cn.total_amount - COALESCE(cn.applied_amount, 0)) > 0
           AND (${entityId}::UUID IS NULL OR cn.client_id = ${entityId}::UUID)
           AND NOT ${creditNoteForeignCurrencySql()}
         ORDER BY cn.credit_date ASC, cn.credit_note_number ASC, cn.id ASC

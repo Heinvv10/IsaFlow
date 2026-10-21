@@ -122,6 +122,19 @@ export async function importARInvoices(
         continue;
       }
 
+      // 899: customer_invoices_amount_paid_within_total refuses a row paid beyond its total, which
+      // would otherwise reach the operator as a raw constraint message. The excess is a credit the
+      // customer holds, not part of this invoice.
+      if (Math.round((inv.amountPaid ?? 0) * 100) > Math.round(inv.totalAmount * 100)) {
+        errors.push({
+          step: 'ar_invoices', row: fileRow(i), field: 'amountPaid',
+          message: `${inv.invoiceNumber} is paid ${(inv.amountPaid ?? 0).toFixed(2)}, which exceeds its total of `
+            + `${inv.totalAmount.toFixed(2)}. Import it at its total and load the excess as an unallocated receipt or credit note.`,
+        });
+        skipped++;
+        continue;
+      }
+
       const amountsDrift = Math.abs(inv.subtotal + inv.taxAmount - inv.totalAmount);
       if (amountsDrift > 0.005) {
         const detail = `subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`;

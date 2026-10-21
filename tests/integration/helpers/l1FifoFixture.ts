@@ -134,13 +134,13 @@ export async function seedBill(
 /** One open customer invoice. Returns its id. */
 export async function seedInvoice(
   fx: Fixture,
-  args: { number: string; date: string; total: number; status?: string },
+  args: { number: string; date: string; total: number; status?: string; customerId?: string },
 ): Promise<string> {
   const rows = (await sql`
     INSERT INTO customer_invoices
       (company_id, customer_id, invoice_number, invoice_date, due_date,
        subtotal, total_amount, amount_paid, status, created_by)
-    VALUES (${fx.companyId}::UUID, ${fx.customerId}::UUID, ${`${args.number}-${fx.tag}`},
+    VALUES (${fx.companyId}::UUID, ${args.customerId ?? fx.customerId}::UUID, ${`${args.number}-${fx.tag}`},
             ${args.date}::DATE, ${args.date}::DATE,
             ${args.total}, ${args.total}, 0, ${args.status ?? 'sent'}, ${fx.userId}::UUID)
     RETURNING id`) as { id: string }[];

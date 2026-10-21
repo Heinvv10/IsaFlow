@@ -16,7 +16,7 @@
  * so a preview cannot drift from the write by a cent.
  */
 
-import { planGreedyAllocations, round2, type OpenDocument } from './autoAllocateStrategy';
+import { EPS, planGreedyAllocations, round2, type OpenDocument } from './autoAllocateStrategy';
 
 /** One open document, with the number a human reads it by. */
 export interface SimulationDocument extends OpenDocument {
@@ -48,6 +48,12 @@ export interface SimulationLine {
    * preview-disagrees-with-live failure the simulation exists to prevent.
    */
   documentId?: string | null;
+  /**
+   * The line floor `planGreedyAllocations` applies: `invoiceFloor(side)` of the entity. The live path passes the
+   * same value, so a customer line must carry 0 here or the preview drops the last cent the apply writes.
+   * Defaults to a cent (supplier bills).
+   */
+  floor?: number;
 }
 
 export interface SimulatedApplication {
@@ -82,7 +88,7 @@ export function simulateSequentialApplications(
   }
 
   return lines.map((line) => {
-    const { index, entityKey, cash, oldestFirst } = line;
+    const { index, entityKey, cash, oldestFirst, floor = EPS } = line;
     const pool = entityKey === null ? undefined : remaining.get(entityKey);
     if (!pool || pool.length === 0) {
       return { index, applications: [], onAccount: round2(cash) };
@@ -94,7 +100,7 @@ export function simulateSequentialApplications(
     const ordered = named !== null
       ? pool.filter((d) => d.invoiceId === named)
       : (oldestFirst ? pool : [...pool].reverse());
-    const planned = planGreedyAllocations(cash, ordered);
+    const planned = planGreedyAllocations(cash, ordered, floor);
 
     const applications: SimulatedApplication[] = [];
     let applied = 0;

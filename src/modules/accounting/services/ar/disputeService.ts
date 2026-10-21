@@ -62,7 +62,9 @@ export async function raiseDispute(
 
   const invoice = invoiceRows[0];
   const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid ?? 0);
-  if (input.disputedAmount > outstanding + 0.01) {
+  // Whole cents, no tolerance (899): the credit note this dispute may raise is capped at the balance, so
+  // a disputed amount a cent above it could never be credited in full.
+  if (Math.round(input.disputedAmount * 100) > Math.round(outstanding * 100)) {
     throw new ArRequestError(
       `Disputed amount ${input.disputedAmount} exceeds outstanding balance ${outstanding}`,
       400,

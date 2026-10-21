@@ -204,6 +204,20 @@ describe('loadContraDocument', () => {
       .rejects.toThrow(/exceeds the R100\.00 outstanding/);
   });
 
+  it('refuses a cent over the outstanding balance, and takes the exact balance and float noise', async () => {
+    // 899: customer_invoices_amount_paid_within_total has zero tolerance, so a pre-check that lets a cent
+    // through turns into a 23514 once the receipt is confirmed. Outstanding here is R100.00.
+    for (const amount of [100.01, 100.02, 101]) {
+      sqlMock.mockResolvedValueOnce([invoiceRow({ amount_paid: '900.00' })]);
+      await expect(loadContraDocument(COMPANY, 'ar', DOC, amount), String(amount))
+        .rejects.toThrow(/exceeds the R100\.00 outstanding/);
+    }
+    for (const amount of [100, 99.99, 100.000000001]) {
+      sqlMock.mockResolvedValueOnce([invoiceRow({ amount_paid: '900.00' })]);
+      await expect(loadContraDocument(COMPANY, 'ar', DOC, amount), String(amount)).resolves.toMatchObject({ outstanding: 100 });
+    }
+  });
+
   it('refuses a cancelled document', async () => {
     sqlMock.mockResolvedValueOnce([invoiceRow({ status: 'cancelled' })]);
     await expect(loadContraDocument(COMPANY, 'ar', DOC, 100)).rejects.toThrow(/cancelled/);
