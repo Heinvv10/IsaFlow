@@ -1,7 +1,7 @@
 /**
  * loadCodingCounts against a real schema: what the headline counts as coded and as "no click", that an
  * undone run and a hand-corrected line do not count as auto-coded, the decision-log rates, and the
- * first-30-days window from the first import batch (falling back to the first bank line).
+ * first-30-days window from the earlier of the first import batch and the first bank line.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -15,6 +15,7 @@ const OCT = { month: '2026-10', from: '2026-10-01', to: '2026-11-01' };
 let C: Co;
 let F: Co; // no import batch: the window falls back to its first line
 let E: Co; // nothing at all
+let G: Co; // feed lines from August, then one CSV upload in October: the window keeps August
 let user = '';
 
 /** A person's decision unless `auto` (ISAFlow posted it) or `byIsaflow` (ISAFlow superseded its own suggestion). */
@@ -34,6 +35,7 @@ beforeAll(async () => {
   C = await seedCompany('metrics C');
   F = await seedCompany('metrics F');
   E = await seedCompany('metrics E');
+  G = await seedCompany('metrics G');
   user = await seedUser([C.id]);
   const run = (await pool.query<{ id: string }>(
     `INSERT INTO bank_auto_post_runs (company_id, source, min_confidence, amount_cap) VALUES ($1, 'categorization', 0.9, 0) RETURNING id`,
@@ -74,11 +76,17 @@ beforeAll(async () => {
   const f2 = await seedLine(F, { createdAt: '2026-08-02T00:00:00Z' });
   await decision(F, f1, { outcome: 'accepted', at: '2026-08-05T00:00:00Z' });
   await decision(F, f2, { outcome: 'recoded', at: '2026-09-15T00:00:00Z' }); // outside F's window
+
+  const g1 = await seedLine(G, { createdAt: '2026-08-01T00:00:00Z' });
+  await pool.query(
+    `INSERT INTO bank_import_batches (company_id, bank_account_id, statement_date, created_at)
+     VALUES ($1, $2, '2026-10-01', '2026-10-01T06:00:00Z')`, [G.id, G.bank]);
+  await decision(G, g1, { outcome: 'accepted', at: '2026-08-05T00:00:00Z' });
 });
 
 afterAll(async () => {
   try {
-    await teardownCompanies([C.id, F.id, E.id], [user]);
+    await teardownCompanies([C.id, F.id, E.id, G.id], [user]);
   } finally {
     await pool.end();
   }
@@ -103,7 +111,9 @@ describe('loadCodingCounts', () => {
   it('first 30 days start at the first import batch; each line\'s FIRST decision in the window counts', async () => {
     const [c] = await loadCodingCounts([C.id], OCT);
     expect(c!.firstBatchAt).toBe('2026-10-05T06:00:00.000Z');
-    expect(c!.firstLineAt).toBeNull();
+    // C's lines were created with (after) its imports, so the import starts the window.
+    expect(new Date(c!.firstLineAt!) > new Date(c!.firstBatchAt!)).toBe(true);
+    expect(computeCodingMetrics(c!).firstThirtyDays.windowSource).toBe('import_batch');
     // d1 accepted, d2 recoded, d3 rejected, d4 auto accepted, d5 undone -> 5 decided, 2 accepted.
     expect(c).toMatchObject({ firstWindowDecided: 5, firstWindowAccepted: 2 });
   });
@@ -114,6 +124,15 @@ describe('loadCodingCounts', () => {
     expect(f!.firstLineAt).toBe('2026-08-01T00:00:00.000Z');
     expect(f).toMatchObject({ firstWindowDecided: 1, firstWindowAccepted: 1 });
     expect(computeCodingMetrics(f!).firstThirtyDays.windowSource).toBe('bank_transaction');
+  });
+
+  it('feed lines before the first CSV: the window starts at the first line, not the later upload', async () => {
+    const [g] = await loadCodingCounts([G.id], OCT);
+    expect(g).toMatchObject({ firstBatchAt: '2026-10-01T06:00:00.000Z', firstLineAt: '2026-08-01T00:00:00.000Z' });
+    expect(g).toMatchObject({ firstWindowDecided: 1, firstWindowAccepted: 1 });
+    expect(computeCodingMetrics(g!).firstThirtyDays).toMatchObject({
+      windowSource: 'bank_transaction', windowStart: '2026-08-01T00:00:00.000Z',
+    });
   });
 
   it('a company with nothing: zeros and no window', async () => {

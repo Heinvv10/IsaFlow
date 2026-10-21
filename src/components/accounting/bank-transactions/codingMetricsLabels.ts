@@ -13,15 +13,18 @@ export function fmtDay(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Johannesburg' });
 }
 
-/** "Auto-coded by ISAFlow: 78% of lines this month (no clicks)". */
+/**
+ * "Auto-coded by ISAFlow: 78% of lines this month (no line-by-line coding)". Not "no clicks": a bank-rule
+ * run posts many lines from one click, and those lines count here.
+ */
 export function autoCodedLabel(r: Ratio): string {
   if (r.denominator === 0) return 'Auto-coded by ISAFlow: no lines coded this month yet';
-  return `Auto-coded by ISAFlow: ${fmtPct(r)} of lines this month (no clicks)`;
+  return `Auto-coded by ISAFlow: ${fmtPct(r)} of lines this month (no line-by-line coding)`;
 }
 
-/** "Suggestions accepted: 64% this month (since 21 Oct 2026)", or the not-enough-data form. */
+/** "Suggestions accepted: 64% this month (log started 21 Oct 2026)", or the not-enough-data form. */
 export function acceptedLabel(r: Ratio, since: string | null, min: number): string {
-  const sinceText = since ? ` (since ${fmtDay(since)})` : '';
+  const sinceText = since ? ` (log started ${fmtDay(since)})` : '';
   if (!r.enoughData) {
     return `Suggestions accepted: not enough data yet (${r.denominator} of ${min} decisions this month)${sinceText}`;
   }

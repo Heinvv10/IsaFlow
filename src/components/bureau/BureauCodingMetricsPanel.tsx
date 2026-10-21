@@ -44,20 +44,21 @@ export function BureauCodingMetricsPanel({ bureauId, bureauName }: { bureauId: s
   return (
     <section aria-label="ISAFlow coding by client" className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
       <div className="px-4 py-3 border-b border-[var(--ff-border-primary)]">
-        <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">ISAFlow coding this month{bureauName ? ` · ${bureauName}` : ''}</h2>
+        <h2 className="text-sm font-medium text-[var(--ff-text-primary)]">ISAFlow coding{bureauName ? ` · ${bureauName}` : ''}</h2>
         <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
-          Auto-coded counts lines ISAFlow posted with no clicks. Suggestion rates need {data.minDecisions} decisions
-          {since ? ` and are logged since ${fmtDay(since)}` : ''}.
+          Auto-coded counts lines ISAFlow posted without line-by-line coding: confident suggestions, and bank
+          rules (one rule run can post many lines). Suggestion rates need {data.minDecisions} decisions
+          {since ? `; the log started ${fmtDay(since)}` : ''}.
         </p>
       </div>
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)] text-left text-[var(--ff-text-secondary)]">
             <th className="py-2 px-3 font-medium">Client</th>
-            <th className="py-2 px-3 font-medium text-right">Auto-coded (no clicks)</th>
-            <th className="py-2 px-3 font-medium text-right">Suggestions accepted</th>
-            <th className="py-2 px-3 font-medium text-right">First 30 days accepted</th>
-            <th className="py-2 px-3 font-medium text-right">Auto-posts re-coded</th>
+            <th className="py-2 px-3 font-medium text-right">Auto-coded this month</th>
+            <th className="py-2 px-3 font-medium text-right">Suggestions accepted this month</th>
+            <th className="py-2 px-3 font-medium text-right">Accepted in client&apos;s first 30 days</th>
+            <th className="py-2 px-3 font-medium text-right">Auto-posts this month later re-coded</th>
           </tr>
         </thead>
         <tbody className="text-[var(--ff-text-primary)]">

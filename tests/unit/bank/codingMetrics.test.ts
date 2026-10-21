@@ -74,8 +74,11 @@ describe('computeCodingMetrics', () => {
 });
 
 describe('firstWindow', () => {
-  it('a batch wins over a line', () => {
+  it('the earlier of the first import and the first line: a feed client\'s later CSV does not move it', () => {
     expect(firstWindow('2026-01-10T00:00:00Z', '2026-01-01T00:00:00Z')).toEqual({
+      start: '2026-01-01T00:00:00.000Z', end: '2026-01-31T00:00:00.000Z', source: 'bank_transaction',
+    });
+    expect(firstWindow('2026-01-10T00:00:00Z', '2026-01-10T00:00:05Z')).toEqual({
       start: '2026-01-10T00:00:00.000Z', end: '2026-02-09T00:00:00.000Z', source: 'import_batch',
     });
   });

@@ -9,7 +9,7 @@
  *     suggestions ISAFlow itself superseded (decided_by NULL), are excluded. Matches count, judged by what
  *     the matched journal posts. Decision log only, so it starts the day the log shipped.
  *  3. firstThirtyDays: of the bank lines whose FIRST decision fell in the client's first 30 days (from its
- *     first bank import), the share whose first suggestion was accepted as-is (a person accepted it, or it
+ *     first bank import or first bank line, whichever came first), the share whose first suggestion was accepted as-is (a person accepted it, or it
  *     was auto-posted and still stands). Decision log only.
  *  4. autoPostRecodeRate: auto-posted decisions in the period (by auto-post time) that were later undone or
  *     re-coded (hand-corrected, reversed, unmatched, run undo), over all auto-posted decisions in the period.
@@ -53,7 +53,7 @@ export interface CompanyCodingCounts {
   suggestionsAccepted: number;
   autoPosted: number;
   autoPostedReversed: number;
-  /** Earliest bank_import_batches.created_at, and earliest bank_transactions.created_at (read only when no batch). */
+  /** Earliest bank_import_batches.created_at, and earliest bank_transactions.created_at. */
   firstBatchAt: string | null;
   firstLineAt: string | null;
   firstWindowDecided: number;
@@ -71,17 +71,18 @@ export interface CodingMetrics {
 }
 
 /**
- * The first-days window. The first bank import (earliest bank_import_batches.created_at) when the company
- * has one; else, for a company with lines but no batch rows (lines written by paths that record no batch),
- * the earliest bank_transactions.created_at; else none.
+ * The first-days window: from the EARLIER of the first bank import (bank_import_batches.created_at) and the
+ * first bank line (bank_transactions.created_at), so a feed-only client that later uploads one CSV keeps
+ * the window its feed lines started. A tie names the import. Neither: no window.
  */
 export function firstWindow(firstBatchAt: string | null, firstLineAt: string | null): {
   start: string | null; end: string | null; source: FirstWindowSource | null;
 } {
-  const start = firstBatchAt ?? firstLineAt;
+  const fromBatch = firstBatchAt !== null && (firstLineAt === null || new Date(firstBatchAt) <= new Date(firstLineAt));
+  const start = fromBatch ? firstBatchAt : firstLineAt;
   if (!start) return { start: null, end: null, source: null };
   const end = new Date(new Date(start).getTime() + FIRST_WINDOW_DAYS * 86_400_000).toISOString();
-  return { start: new Date(start).toISOString(), end, source: firstBatchAt ? 'import_batch' : 'bank_transaction' };
+  return { start: new Date(start).toISOString(), end, source: fromBatch ? 'import_batch' : 'bank_transaction' };
 }
 
 export function computeCodingMetrics(c: CompanyCodingCounts): CodingMetrics {

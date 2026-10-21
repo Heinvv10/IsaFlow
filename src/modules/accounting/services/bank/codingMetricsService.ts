@@ -66,8 +66,10 @@ export async function loadCodingCounts(companyIds: string[], period: MonthPeriod
     auto_posted: number; auto_posted_reversed: number; since: Date | string | null;
   }>;
 
-  // The first-days window: first bank import, else (no batch rows at all) the first bank line. Each line's
-  // FIRST decision ever is counted when it falls inside the window.
+  // The first-days window starts at the EARLIER of the first bank import and the first bank line. A
+  // feed-only client that later uploads one CSV keeps the window its feed lines started; a client that
+  // imports statements gets its first import (its lines are created with it). Each line's FIRST decision
+  // ever is counted when it falls inside the window.
   const firsts = (await sql`
     WITH starts AS (
       SELECT c.company_id,
@@ -76,8 +78,7 @@ export async function loadCodingCounts(companyIds: string[], period: MonthPeriod
     ),
     windows AS (
       SELECT s.company_id, s.first_batch_at,
-             CASE WHEN s.first_batch_at IS NULL
-                  THEN (SELECT MIN(t.created_at) FROM bank_transactions t WHERE t.company_id = s.company_id) END AS first_line_at
+             (SELECT MIN(t.created_at) FROM bank_transactions t WHERE t.company_id = s.company_id) AS first_line_at
       FROM starts s
     ),
     first_decisions AS (
@@ -92,8 +93,8 @@ export async function loadCodingCounts(companyIds: string[], period: MonthPeriod
     FROM windows w
     LEFT JOIN first_decisions f
       ON f.company_id = w.company_id
-     AND f.created_at >= COALESCE(w.first_batch_at, w.first_line_at)
-     AND f.created_at < COALESCE(w.first_batch_at, w.first_line_at) + make_interval(days => ${FIRST_WINDOW_DAYS}::INT)
+     AND f.created_at >= LEAST(w.first_batch_at, w.first_line_at)
+     AND f.created_at < LEAST(w.first_batch_at, w.first_line_at) + make_interval(days => ${FIRST_WINDOW_DAYS}::INT)
     GROUP BY w.company_id, w.first_batch_at, w.first_line_at
   `) as Array<{
     company_id: string; first_batch_at: Date | string | null; first_line_at: Date | string | null;
