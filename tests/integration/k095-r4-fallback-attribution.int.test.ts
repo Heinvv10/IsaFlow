@@ -25,6 +25,7 @@ vi.mock('@/modules/accounting/services/ar/gatewayInvoiceReceiptService', () => (
   recordGatewayInvoiceReceipt: vi.fn(),
 }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/modules/billing/services/paystackClient', () => ({
   verifyTransaction: vi.fn(),
 }));
@@ -209,8 +210,8 @@ describeIfDb('K-095 r4 the pre-651 fallback never reports a second checkout as s
         try {
           await route(
             {
-              method: 'GET', query: { ref: DANGLE_REF }, headers: {},
-              companyId: DANGLE_CO, user: { id: 'k095r4' },
+              method: 'POST', query: {}, body: { ref: DANGLE_REF }, headers: {},
+              companyId: DANGLE_CO, companyRole: 'owner', user: { id: 'k095r4' },
             } as unknown as NextApiRequest,
             res,
           );
