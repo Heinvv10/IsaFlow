@@ -91,22 +91,46 @@ describe('a send that is still live keeps its claim (AP-01 round 10)', () => {
     expect(await sendLocks()).toBe(0);
   });
 
-  it('a sender whose connection dies loses its lock: the claim is then resolvable past the window, and the late send cannot reopen it', async () => {
-    const { c, id, first, answer } = await stalled();
-    const killed = (await pool.query(`SELECT pg_terminate_backend(pid) AS ok FROM pg_locks WHERE locktype = 'advisory' AND objsubid = 2
-      AND classid = $1::BIGINT::OID AND objid = (hashtext($2::UUID::TEXT)::BIGINT & 4294967295)::OID`, [NETCASH_SEND_LOCK_CLASS, id])).rows;
-    expect(killed).toEqual([{ ok: true }]);
-    for (let i = 0; i < 100 && await sendLocks(id) > 0; i++) await new Promise((r) => setTimeout(r, 20));
-    expect(await sendLocks(id)).toBe(0);
+  it('a sender whose connection dies loses its lock: the claim is resolvable past the window, and the late acceptance closes the batch again', async () => {
+    const { c, b, id, first, answer } = await stalled();
+    await killSender(id);
     expect((await resolve(c, id)).state.statusCode).toBe(409); // second guard: younger than the send window, it may still be sending
     await pool.query("UPDATE netcash_submissions SET created_at = NOW() - INTERVAL '3 minutes' WHERE id = $1", [id]);
     expect((await resolve(c, id)).state.statusCode).toBe(200);
     answer(ACCEPTED);
-    expect((await first).state.statusCode).toBe(500); // its settle ran on the dead connection: nothing written
-    expect((await row(id)).status).toBe('failed');
-    expect(await sendLocks()).toBe(0);
+    // Round 11: the settle failed on the dead connection and was retried on a fresh one, which found the row failed
+    // and put it back (reopened) - before round 11 the answer was lost (500) and the row stayed failed.
+    const res = await first;
+    hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
+    const again = await submit(c, b.id);
+    expect({ first: res.state.statusCode, reopened: JSON.stringify(res.state.body).includes('"reopened":true'), status: (await row(id)).status,
+      resend: again.state.statusCode, sends: hold.submitEftBatch.mock.calls.length, locks: await sendLocks() })
+      .toEqual({ first: 409, reopened: true, status: 'submitted', resend: 409, sends: 1, locks: 0 });
+  });
+
+  it('REPRO 1 (adversarial round 11): Netcash accepts promptly but the claim connection was cut: the answer still lands and the batch stays closed', async () => {
+    const { c, b, id, first, answer } = await stalled();
+    await killSender(id);
+    answer(ACCEPTED);
+    const res = await first;
+    const after = await row(id);
+    hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
+    const again = await submit(c, b.id);
+    expect({
+      first: res.state.statusCode, status: after.status, answerKept: JSON.stringify(after.netcash_response ?? {}).includes('NC-LIVE'),
+      resend: again.state.statusCode, sends: hold.submitEftBatch.mock.calls.length,
+    }).toEqual({ first: 200, status: 'submitted', answerKept: true, resend: 409, sends: 1 });
   });
 });
+
+/** Terminate the claim's connection (a network blip, a restart): its send lock goes with it. */
+async function killSender(id: string) {
+  const killed = (await pool.query(`SELECT pg_terminate_backend(pid) AS ok FROM pg_locks WHERE locktype = 'advisory' AND objsubid = 2
+    AND classid = $1::BIGINT::OID AND objid = (hashtext($2::UUID::TEXT)::BIGINT & 4294967295)::OID`, [NETCASH_SEND_LOCK_CLASS, id])).rows;
+  expect(killed).toEqual([{ ok: true }]);
+  for (let i = 0; i < 100 && await sendLocks(id) > 0; i++) await new Promise((r) => setTimeout(r, 20));
+  expect(await sendLocks(id)).toBe(0);
+}
 
 describe('a late answer that finds its row failed (AP-01 round 10, defence in depth)', () => {
   /** The guards bypassed: the row is set 'failed' underneath a live send (as a lost lock plus a resolve could). */
