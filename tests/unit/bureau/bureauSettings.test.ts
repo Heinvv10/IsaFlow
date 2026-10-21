@@ -4,7 +4,7 @@
  * here the queries are answered as Postgres would answer them, and the real SQL runs against a schema in
  * tests/integration/bureau-audit-log-rls.int.test.ts (including a stale bureau_users 'owner' row).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const { sqlMock, txMock } = vi.hoisted(() => ({ sqlMock: vi.fn(), txMock: vi.fn() }));
@@ -68,7 +68,8 @@ const call = async (method: string, userId: string, opts: { body?: unknown; quer
   return out;
 };
 
-beforeEach(() => { sqlMock.mockReset(); txMock.mockReset(); });
+beforeEach(() => { sqlMock.mockReset(); txMock.mockReset(); process.env.MERCHANT_SHARING_ENABLED = 'true'; });
+afterEach(() => { delete process.env.MERCHANT_SHARING_ENABLED; });
 
 describe('setBureauSharingSetting', () => {
   it('owner switching it on: updates the bureau and writes one audit row, old -> new', async () => {
@@ -144,5 +145,38 @@ describe('GET /api/bureau/settings', () => {
   it('the owner can edit it', async () => {
     bureauRoles({ [OWNER]: 'owner' }, false);
     expect((await call('GET', OWNER, { query: { bureauId: BUREAU } })).body).toMatchObject({ data: { canEdit: true } });
+  });
+});
+
+describe('the legal-review gate (MERCHANT_SHARING_ENABLED)', () => {
+  const putAs = (user: string, value: boolean) => call('PUT', user, { body: { bureauId: BUREAU, shareMerchantPatterns: value } });
+  const wrote = () => txMock.mock.calls.some((c) => /UPDATE bureaus|INSERT INTO bureau_audit_log/.test((c[0] as TemplateStringsArray).join('?')));
+
+  it.each([undefined, 'false', '1'])('off (%s): the owner switching it on is a 409 sharing_pending_legal_review, nothing written', async (v) => {
+    if (v === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = v;
+    bureauRoles({ [OWNER]: 'owner' }, false);
+    const r = await putAs(OWNER, true);
+    expect(r.statusCode).toBe(409);
+    expect(r.body).toMatchObject({ error: { details: { code: 'sharing_pending_legal_review' } } });
+    expect(wrote()).toBe(false);
+  });
+  it('off: switching it off still works for the owner', async () => {
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    bureauRoles({ [OWNER]: 'owner' }, true);
+    const r = await putAs(OWNER, false);
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toMatchObject({ data: { shareMerchantPatterns: false, changed: true } });
+  });
+  it('off: GET reports sharingAvailable false', async () => {
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    bureauRoles({ [OWNER]: 'owner' }, false);
+    expect((await call('GET', OWNER, { query: { bureauId: BUREAU } })).body).toMatchObject({ data: { sharingAvailable: false, canEdit: true } });
+  });
+  it('on: the owner_user_id owner may switch it on; a bureau_users "owner" who is not owner_user_id may not', async () => {
+    bureauOf('the-owner', { 'the-owner': 'owner', 'other-owner-row': 'owner' }, false);
+    expect((await putAs('other-owner-row', true)).statusCode).toBe(403);
+    expect(wrote()).toBe(false);
+    expect((await putAs('the-owner', true)).statusCode).toBe(200);
+    expect((await call('GET', 'the-owner', { query: { bureauId: BUREAU } })).body).toMatchObject({ data: { sharingAvailable: true } });
   });
 });

@@ -2,7 +2,8 @@
  * POPIA consent wording shown beside the bureau's "share merchant patterns" switch.
  *
  * DRAFT [VERIFY] — pending legal review. Not approved wording: the UI shows SHARING_CONSENT_STATUS_LABEL
- * beside it until legal signs it off. One constant so the page, any email and PR 2's pool all quote the same
+ * beside it until legal signs it off. Until then sharing is hard-gated off on the server
+ * (MERCHANT_SHARING_ENABLED, merchantSharingGate.ts; Hein, 2026-10-21, decision 3): nobody can opt in. One constant so the page, any email and PR 2's pool all quote the same
  * text. No compliance claims and no customer names, on purpose.
  *
  * Tense: nothing pools yet (PR 2), so the copy says what WILL happen when pooling is available.

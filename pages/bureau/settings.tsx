@@ -3,7 +3,9 @@
  *
  * Every member sees the setting and its consent wording; only the bureau owner can switch it
  * (the API refuses anyone else with 403 and records every change in bureau_audit_log). Off by default.
- * The wording is a DRAFT pending legal review and says so on the page.
+ * The wording is a DRAFT pending legal review and says so on the page. Until the server's
+ * MERCHANT_SHARING_ENABLED gate is on (GET reports it as sharingAvailable), the opt-in shows as
+ * "Coming soon - pending legal review" and cannot be switched on.
  */
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -16,7 +18,9 @@ interface BureauRef { id: string; name: string; role: 'owner' | 'accountant' | '
 interface SettingChange {
   id: string; changedAt: string; actorUserId: string; actorName: string | null; oldValue: boolean | null; newValue: boolean;
 }
-interface BureauSettings { shareMerchantPatterns: boolean; canEdit: boolean; history: SettingChange[] }
+interface BureauSettings {
+  shareMerchantPatterns: boolean; canEdit: boolean; sharingAvailable: boolean; history: SettingChange[];
+}
 
 export default function BureauSettingsPage() {
   const [bureaus, setBureaus] = useState<BureauRef[]>([]);
@@ -115,6 +119,7 @@ export default function BureauSettingsPage() {
             <BureauSharingConsent
               enabled={settings.shareMerchantPatterns}
               canEdit={settings.canEdit}
+              available={settings.sharingAvailable === true}
               saving={saving}
               history={settings.history}
               onChange={(next) => void toggle(next)}
