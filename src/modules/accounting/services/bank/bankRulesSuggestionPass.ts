@@ -105,7 +105,6 @@ export async function applySuggestionRules(
     source: ruleSource(idOrNull(row.gl_account_id), idOrNull(row.supplier_id)),
     glAccountId: idOrNull(row.gl_account_id),
     contactId: idOrNull(row.supplier_id) ?? idOrNull(row.client_id),
-    category: row.rule_name == null ? null : String(row.rule_name),
   })));
 
   return updated.map((row) => ({

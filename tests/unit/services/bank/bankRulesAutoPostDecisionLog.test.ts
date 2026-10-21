@@ -58,7 +58,9 @@ describe('applyRules -> decision log', () => {
 
     expect(recordAutoPosted).toHaveBeenCalledTimes(1);
     expect(recordAutoPosted).toHaveBeenCalledWith(COMPANY, {
-      txId: 'tx-2', source: 'rule', glAccountId: 'acct-charges', contactId: null, category: 'Bank charges',
+      txId: 'tx-2', source: 'rule', glAccountId: 'acct-charges', contactId: null, journalEntryId: 'je-2', target: 'own',
     });
+    // The rule's free-text name is not passed on (data minimisation).
+    expect(JSON.stringify(recordAutoPosted.mock.calls)).not.toContain('Bank charges');
   });
 });

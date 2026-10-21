@@ -112,7 +112,8 @@ describe('undoRun', () => {
 
     const undone = sqlMock.mock.calls.filter((c) => /UPDATE categorization_decisions/.test((c[0] as TemplateStringsArray).join('?')));
     expect(undone).toHaveLength(1);
-    expect(undone[0]!.slice(1)).toEqual(['undone', 'u-1', 'co-1', 't2', 'co-1']);
+    // Keyed on the posting the locked row carried (its matched journal line), not "the latest auto-post".
+    expect(undone[0]!.slice(1)).toEqual(['undone', 'u-1', 'co-1', 't2', null, null, 'jl-2', 'co-1']);
   });
 
   it('marks the run undone when every row was reversed', async () => {

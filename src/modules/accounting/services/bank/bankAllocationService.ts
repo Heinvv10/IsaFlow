@@ -48,6 +48,7 @@ import { planSplitDimensions } from './bankSplitDimensions';
 import { planSplitContacts, recordSplitContactDocuments, type SplitContactDocument } from './bankSplitContacts';
 import { buildSplitJournalLines, splitParts } from './bankSplitJournal';
 import { SPLIT_ALLOCATION_NAME } from './splitJournalDocuments';
+import { postingRefOf, recordAllocationDecision, recordAutoPostUndone } from './codingDecisionLog';
 
 
 type Row = DbRow;
@@ -80,7 +81,8 @@ export async function allocateTransaction(
    * the cash got a document and closed nothing.
    */
   // allowLateInputClaim: a USER's allocation only (gl/vatLateClaimPlan) — never the rule auto-post.
-  opts?: PostingActorOpts & { autoApply?: AutoApplyMode; allowLateInputClaim?: boolean },
+  // unattended: the auto-post gate's own post (autoPostGateService), which records its own decision.
+  opts?: PostingActorOpts & { autoApply?: AutoApplyMode; allowLateInputClaim?: boolean; unattended?: boolean },
 ): Promise<{
   journalEntryId: string;
   bankTransaction: BankTransaction;
@@ -621,6 +623,14 @@ export async function allocateTransaction(
     });
   }
 
+  // Learning loop (non-fatal): accepted vs recoded against the open suggestion. The gate's own post is
+  // recorded by the gate as an auto-post, never as a person's decision.
+  if (!opts?.unattended) {
+    const byContact = allocType === 'supplier' || allocType === 'customer';
+    await recordAllocationDecision(companyId, bankTxId, userId,
+      { glAccountId: byContact ? null : contraAccountId, contactId: byContact ? entityId ?? null : null });
+  }
+
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   return {
     journalEntryId: je.id,
@@ -734,6 +744,8 @@ export async function splitAllocateTransaction(
   log.info('Split-allocated bank transaction', {
     bankTxId, journalEntryId: je.id, lineCount: lines.length, contactLines: contactPlan.length,
   }, 'accounting');
+  // A split is never the one suggested target: recoded (non-fatal).
+  await recordAllocationDecision(companyId, bankTxId, userId, { glAccountId: null, contactId: null });
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   return {
     journalEntryId: je.id, bankTransaction: mapTxRow(updated[0]!), ...(lateClaim ? { lateClaim } : {}),
@@ -784,8 +796,14 @@ async function reverseReconciledInner(
   // reading "completed". Before any write, so every caller answers it 400.
   refuseLockedCash(await reconciliationLockOf(companyId, tx), 'This bank line');
   const clearance = await assertMayReverse(companyId, tx, chain?.rootId ?? null, userId); // step 2: pre-write; audited after
-  if (chain?.doc) return auditedReversal(companyId, bankTxId, userId, clearance,
-    await reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts));
+  // Learning loop: the line's posting before the reversal, so only an auto-post that IS that posting is undone.
+  const postingBefore = postingRefOf(tx);
+  if (chain?.doc) {
+    const docResult = await auditedReversal(companyId, bankTxId, userId, clearance,
+      await reverseDocumentChainLine(companyId, tx, { ...chain, doc: chain.doc }, chainLines, userId, opts));
+    await recordAutoPostUndone(companyId, bankTxId, userId, postingBefore); // non-fatal
+    return docResult;
+  }
   // A plain journal: its chain decided from the root (D10), so a line on a middle or head reversal reverses the head
   // exactly when the chain stands. Its other lines stay as they are (a transfer's second leg: not D10).
   const journalEntryId = chain?.rootId ?? null;
@@ -849,6 +867,7 @@ async function reverseReconciledInner(
   });
   log.info('Reversed reconciled bank transaction', { bankTxId, userId }, 'accounting');
   await auditedReversal(companyId, bankTxId, userId, clearance, null);
+  await recordAutoPostUndone(companyId, bankTxId, userId, postingBefore); // non-fatal
   // Reported rather than discarded: `void_receipt` delegates to this function
   // and previously had to answer "0 invoices reopened" for the branch that does
   // the MOST work, because the counts were computed here and thrown away. An

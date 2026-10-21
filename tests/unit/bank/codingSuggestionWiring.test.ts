@@ -36,9 +36,10 @@ describe('rule suggestion pass', () => {
       { id: 't2', rule_name: 'Telkom', gl_account_id: null, supplier_id: SUP, client_id: null },
     ]);
     await applySuggestionRules(CO, 'bank-1', [{ id: 'r1', match_type: 'contains', match_pattern: 'x' }]);
+    // The rule's free-text name is not passed on (data minimisation).
     expect(recordSuggestionsShown).toHaveBeenCalledWith(CO, [
-      { txId: 't1', source: 'rule', glAccountId: GL, contactId: null, category: 'Fuel' },
-      { txId: 't2', source: 'supplier_rule', glAccountId: null, contactId: SUP, category: 'Telkom' },
+      { txId: 't1', source: 'rule', glAccountId: GL, contactId: null },
+      { txId: 't2', source: 'supplier_rule', glAccountId: null, contactId: SUP },
     ]);
   });
 });
