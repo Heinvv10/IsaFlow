@@ -4,10 +4,11 @@
  * Called by the admin mandate-return landing page. It writes (settles the
  * verification onto the request and mandate rows), so it is POST, CSRF-checked
  * and owner/admin only, like mandate/create and mandate/revoke (audit K-202).
- * If the webhook hasn't arrived yet, we re-query Paystack and (if
- * successful) promote the captured authorization onto the pending mandate
- * row inline so the UI doesn't have to wait. Always scoped by company_id, and always reported for the mandate
- * THIS reference is linked to — never the company's newest row.
+ * If the webhook hasn't arrived yet, we re-query Paystack and (if successful)
+ * promote the captured authorization onto the pending mandate row inline so
+ * the UI doesn't have to wait. Always scoped by company_id, and always
+ * reported for the mandate THIS reference is linked to — never the company's
+ * newest row.
  */
 
 import type { NextApiResponse } from 'next';
@@ -27,7 +28,8 @@ import {
   type MandateRow,
 } from '@/modules/billing/services/paystackMandateActivation';
 
-const Body = z.object({ ref: z.string().min(1) });
+// Postgres refuses a NUL in text, which would fail the query and answer 500.
+const Body = z.object({ ref: z.string().min(1).refine((r) => !r.includes('\u0000')) });
 
 interface PrRow {
   id: string;

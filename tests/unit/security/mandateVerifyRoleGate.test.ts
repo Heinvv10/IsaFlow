@@ -94,7 +94,7 @@ describe('POST /api/billing/paystack/mandate/verify — owner and admin only (K-
     expect(verifyTransaction).not.toHaveBeenCalled();
   });
 
-  it.each([{}, { ref: '' }, { ref: 42 }, { ref: [REF] }, null, 'ref'])('a body of %j is a 400', async (body) => {
+  it.each([{}, { ref: '' }, { ref: 42 }, { ref: [REF] }, { ref: 'a\u0000b' }, null, 'ref'])('a body of %j is a 400', async (body) => {
     const res = await call('POST', 'owner', { body });
     expect(res.statusCode).toBe(400);
     expect(sql).not.toHaveBeenCalled();

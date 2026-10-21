@@ -17,9 +17,9 @@ type Handler = (req: any, res: NextApiResponse<any>) => any;
  * — both rank above admin, and neither is a company role. A level is added here
  * before a route may name it; the parameter type makes an unlisted one a compile error.
  */
-export const WITH_ROLE_ADMITS = {
-  admin: ['owner', 'admin'],
-} as const satisfies Record<string, readonly AuthRole[]>;
+export const WITH_ROLE_ADMITS = Object.freeze({
+  admin: Object.freeze(['owner', 'admin'] as const),
+}) satisfies Record<string, readonly AuthRole[]>;
 
 export type WithRoleLevel = keyof typeof WITH_ROLE_ADMITS;
 
