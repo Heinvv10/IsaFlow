@@ -7,6 +7,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'next';
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
+import { currentPortalSession } from '@/lib/auth/portalAuth';
 
 interface AfsDocument {
   id: string;
@@ -25,7 +26,9 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
     return { redirect: { destination: '/accounting/afs/portal/login', permanent: false } };
   }
 
-  const session = await verifyPortalToken(cookie);
+  const verified = await verifyPortalToken(cookie);
+  // Re-read standing and role: the JWT lasts 8 hours (audit S-08).
+  const session = verified ? await currentPortalSession(verified) : null;
   if (!session) {
     return { redirect: { destination: '/accounting/afs/portal/login?error=expired', permanent: false } };
   }
