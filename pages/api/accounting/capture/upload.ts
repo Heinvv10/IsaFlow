@@ -12,7 +12,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { validateCaptureApiKey, extractBearerToken } from '@/lib/auth/captureApiKeyAuth';
+import { validateCaptureApiKey, extractBearerToken, type ApiKeyContext } from '@/lib/auth/captureApiKeyAuth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
@@ -71,13 +71,19 @@ function parseForm(
 
 type Row = Record<string, unknown>;
 
+/** The API-key path's request: the key's id, and a recheck of the same key. */
+type ApiKeyRequest = CompanyAuthedRequest & {
+  _apiKeyId?: string;
+  _apiKeyRecheck?: () => Promise<ApiKeyContext | null>;
+};
+
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method ?? '', ['POST']);
   }
 
   const { companyId } = req;
-  const apiKeyId = (req as CompanyAuthedRequest & { _apiKeyId?: string })._apiKeyId ?? null;
+  const apiKeyId = (req as ApiKeyRequest)._apiKeyId ?? null;
   // uploaded_by must be a real user UUID or null — never the API key pseudo-ID
   const uploaderId: string | null = apiKeyId ? null : (req.user?.id ?? null);
   // uploadChannel / postingAgent track the channel for capture_events.sender
@@ -93,6 +99,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, `File too large. Max ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
     }
     return apiResponse.badRequest(res, `Upload parse error: ${msg}`);
+  }
+
+  // S-06: the key was checked before the body was read, and a slow body holds
+  // that window open. Check the same key again before the first write, and act
+  // with the role it has now. No recheck on the key path fails closed.
+  if (apiKeyId) {
+    const recheck = (req as ApiKeyRequest)._apiKeyRecheck;
+    const now = recheck ? await recheck() : null;
+    if (!now || now.keyId !== apiKeyId || now.companyId !== companyId) {
+      return apiResponse.unauthorized(res, 'Invalid or revoked API key');
+    }
+    req.companyRole = now.role;
   }
 
   const fileField = files.file ?? files.files ?? (files as Record<string, formidable.File[] | undefined>)['files[]'];
@@ -205,11 +223,12 @@ async function authAndHandle(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.unauthorized(res, 'Invalid or revoked API key');
     }
     // Attach context so handler body can access companyId, user.id, and channel flag
-    const authedReq = req as CompanyAuthedRequest & { _apiKeyId?: string };
+    const authedReq = req as ApiKeyRequest;
     authedReq.companyId = ctx.companyId;
     authedReq.companyRole = ctx.role; // the creator's current role; 'manager' for a legacy key
     authedReq.user = { id: '', claims: {} };
     authedReq._apiKeyId = ctx.keyId;
+    authedReq._apiKeyRecheck = () => validateCaptureApiKey(rawKey);
     return handler(authedReq, res);
   }
 
