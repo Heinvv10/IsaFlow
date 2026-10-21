@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const render = vi.hoisted(() => vi.fn<(buf: Buffer) => Promise<string | null>>());
-vi.mock('@/modules/accounting/services/bank/vlmPdfRender', () => ({ renderPdfFirstPage: render }));
+vi.mock('@/modules/accounting/services/bank/vlmPdfRender', () => ({ renderPdfFirstPage: render, renderPdfPage: render }));
 
 import { extractPdfWithVlm } from '@/modules/accounting/services/bank/vlmInvoiceService';
 
@@ -75,13 +75,13 @@ describe('extractPdfWithVlm', () => {
     expect(doc!.confidence).toBe(0.55);
   });
 
-  it('adds the page-1 warning only when the page read is the one returned', async () => {
+  it('adds the partial-read warning only when the page read is the one returned', async () => {
     const MEDIUM = { ...WEAK, documentType: 'invoice', vendorName: 'Acme', date: '2026-09-01', totalAmount: 115 };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(reply(MEDIUM)).mockResolvedValueOnce(reply(WEAK)));
     render.mockResolvedValue('iVBORpng');
-    const doc = await extractPdfWithVlm(PDF, `${TEXT_LAYER}\n-- 1 of 3 --\n`);
+    const doc = await extractPdfWithVlm(PDF, `${TEXT_LAYER}\n-- 1 of 5 --\n`);
     expect(doc!.vendorName).toBe('Acme');
-    expect(doc!.warnings.some((w) => w.startsWith('Read from page 1'))).toBe(false);
+    expect(doc!.warnings.some((w) => w.startsWith('Read pages 1'))).toBe(false);
   });
 
   it('treats a scan whose text is only page markers as a scan', async () => {
@@ -91,8 +91,8 @@ describe('extractPdfWithVlm', () => {
     const markers = Array.from({ length: 40 }, (_, i) => `\n\n-- ${i + 1} of 40 --\n\n`).join('');
     const doc = await extractPdfWithVlm(PDF, markers);
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(partsOf(fetch.mock.calls[0])[0].type).toBe('image_url');
-    expect(doc!.warnings).toContain('Read from page 1 of 40 only — check later pages for totals.');
+    expect(partsOf(fetch.mock.calls[0]).map((p) => p.type)).toEqual(['image_url', 'image_url', 'image_url', 'text']);
+    expect(doc!.warnings).toContain('Read pages 1–3 of 40 — check later pages.');
   });
 
   it('says so when the text layer was cut short', async () => {

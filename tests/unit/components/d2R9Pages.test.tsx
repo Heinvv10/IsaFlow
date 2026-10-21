@@ -66,12 +66,12 @@ describe('admin web analytics', () => {
 describe('paystack mandate return', () => {
   beforeEach(() => { router.query = { ref: 'r1' }; });
   it('5xx with no body: a plain sentence', async () => {
-    serve(on('GET', '/mandate/verify', empty500));
+    serve(on('POST', '/mandate/verify', empty500));
     render(<PaystackReturn />);
     expect(await screen.findByText('Could not verify the mandate - try again')).toBeDefined(); expectNoJargon();
   });
   it('400: the server message', async () => {
-    serve(on('GET', '/mandate/verify', () => refuse()));
+    serve(on('POST', '/mandate/verify', () => refuse()));
     render(<PaystackReturn />);
     expect(await screen.findByText(MSG)).toBeDefined();
   });
