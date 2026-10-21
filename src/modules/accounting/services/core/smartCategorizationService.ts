@@ -19,6 +19,7 @@ import {
 import { recordSuggestionsShown } from '../bank/codingDecisionLog';
 import { sourceFromStrategy } from '../bank/codingDecisionOutcome';
 import { categorizeSweepScope, type CategorizeSweepScope } from './categorizeSweepScope';
+import { markAttempted, recentlyAttempted } from './categorizeSweepAttempts';
 
 export type { ConfidenceLevel, CategorizationResult, CachedRule, CachedPattern } from './smartCategorizationMatchingService';
 
@@ -224,12 +225,14 @@ export async function bulkCategorize(companyId: string,
 
 /**
  * The lines one sweep takes: uncoded (imported, no suggested account or category, never in the decision log),
- * dated or imported in the last `recentDays`, newest first, at most `maxLines`. Indexed: idx_bt_company_date
- * and the (company_id, status, created_at) index for the two date arms, categorization_decisions_tx_idx for
- * the NOT EXISTS.
+ * dated (SAST calendar day) or imported in the last `recentDays`, at most `maxLines`. Lines in `tried`
+ * (categorizeSweepAttempts.ts) come last, so lines no rule matched cannot hold the batch forever; within each
+ * group, newest first. Index candidates: idx_bt_company_date and the (company_id, status, created_at) index
+ * for the two date arms, categorization_decisions_tx_idx for the NOT EXISTS; no EXPLAIN on a large tenant
+ * is recorded yet.
  */
 export async function selectSweepLineIds(companyId: string, bankAccountId: string,
-  scope: CategorizeSweepScope = categorizeSweepScope()
+  scope: CategorizeSweepScope = categorizeSweepScope(), tried: string[] = []
 ): Promise<string[]> {
   const txRows = (await sql`
     SELECT bt.id FROM bank_transactions bt
@@ -238,20 +241,28 @@ export async function selectSweepLineIds(companyId: string, bankAccountId: strin
       AND bt.status = 'imported'
       AND bt.suggested_gl_account_id IS NULL
       AND bt.suggested_category IS NULL
-      AND (bt.transaction_date >= CURRENT_DATE - ${scope.recentDays}::INT
+      AND (bt.transaction_date >= (now() AT TIME ZONE 'Africa/Johannesburg')::date - ${scope.recentDays}::INT
            OR bt.created_at >= now() - make_interval(days => ${scope.recentDays}::INT))
       AND NOT EXISTS (
         SELECT 1 FROM categorization_decisions cd
         WHERE cd.company_id = bt.company_id AND cd.bank_transaction_id = bt.id
       )
-    ORDER BY bt.transaction_date DESC, bt.id
+    ORDER BY (bt.id = ANY(${tried}::uuid[])), bt.transaction_date DESC, bt.id
     LIMIT ${scope.maxLines}
   `) as Row[];
   return txRows.map((r: Row) => String(r.id));
 }
 
+/** A sweep's result plus the lines it tried for the first time within the retry window (the LLM's input). */
+export interface SweepCategorizationResult extends BulkCategorizationResult {
+  firstAttemptTxIds: string[];
+}
+
 export async function smartCategorizeForAccount(companyId: string,
   bankAccountId: string
-): Promise<BulkCategorizationResult> {
-  return bulkCategorize(companyId, await selectSweepLineIds(companyId, bankAccountId));
+): Promise<SweepCategorizationResult> {
+  const ids = await selectSweepLineIds(companyId, bankAccountId, categorizeSweepScope(),
+    recentlyAttempted(companyId, bankAccountId));
+  const firstAttemptTxIds = markAttempted(companyId, bankAccountId, ids);
+  return { ...(await bulkCategorize(companyId, ids)), firstAttemptTxIds };
 }

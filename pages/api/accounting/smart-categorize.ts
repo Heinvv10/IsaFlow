@@ -85,18 +85,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         case 'categorize': {
           // If bankAccountId provided, categorize all uncategorized for that account
           if (bankAccountId) {
-            const result = await smartCategorizeForAccount(companyId, bankAccountId);
+            const { firstAttemptTxIds, ...result } = await smartCategorizeForAccount(companyId, bankAccountId);
 
-            // The residual pass looks only at the lines this sweep took (categorizeSweepScope.ts), never the
-            // whole account.
-            const affectedTxIds = result.results.map((r) => r.transactionId);
+            // The residual pass looks only at the lines this sweep took for the first time within the retry
+            // window (categorizeSweepAttempts.ts), never the whole account: a line the LLM already saw and left
+            // unsuggested is not paid for again on every click.
 
             const candidateRows = (await sql`
               SELECT id, status,
                      suggested_gl_account_id AS "suggestedGlAccountId",
                      suggested_confidence    AS "suggestedConfidence"
               FROM bank_transactions
-              WHERE id = ANY(${affectedTxIds}::uuid[])
+              WHERE id = ANY(${firstAttemptTxIds}::uuid[])
                 AND company_id = ${companyId}::UUID
             `) as Array<{ id: string; status: string; suggestedGlAccountId: string | null; suggestedConfidence: number | null }>;
             const residualIds = selectResidualTxIds(
