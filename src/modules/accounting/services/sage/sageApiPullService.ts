@@ -92,15 +92,17 @@ async function outstandingInvoices(client: ReturnType<SageApiClient['forCompany'
 
 /**
  * A contact list, refused while it is read: from the first page's
- * TotalResults (with the other list's count) for what Sage lists, and page by
- * page for the contacts the take-on would import.
+ * TotalResults (with the other list's count; the rows read so far when Sage
+ * sends none) for what Sage lists, and page by page for the contacts the
+ * take-on would import.
  */
 async function contactsOf<T extends { Active: boolean; Balance: number }>(
   client: ReturnType<SageApiClient['forCompany']>, path: string, other: readonly T[],
 ): Promise<T[]> {
   const otherTakenOn = other.filter(isTakenOn).length;
   return client.getAll<T>(path, undefined, (page, total) => {
-    tooBig({ listed: total === undefined ? undefined : other.length + total, contacts: otherTakenOn + page.filter(isTakenOn).length, owing: 0, invoices: 0 });
+    // Without TotalResults (a bare array), what has been read so far is the count.
+    tooBig({ listed: other.length + (total ?? page.length), contacts: otherTakenOn + page.filter(isTakenOn).length, owing: 0, invoices: 0 });
   });
 }
 
