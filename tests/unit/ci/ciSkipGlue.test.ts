@@ -100,7 +100,7 @@ describe('run-ci.sh: the integration scope', () => {
 });
 
 describe('ci.yml golden-paths: the merge-check step', () => {
-  type Step = { id?: string; if?: string; run?: string; uses?: string };
+  type Step = { id?: string; if?: string; run?: string; uses?: string; env?: Record<string, string> };
   const steps = ((load(readFileSync('.github/workflows/ci.yml', 'utf8')) as { jobs: Record<string, { steps: Step[] }> })
     .jobs['golden-paths']!.steps);
   const at = steps.findIndex((s) => s.id === 'mq');
@@ -109,6 +109,10 @@ describe('ci.yml golden-paths: the merge-check step', () => {
     expect(at).toBe(1);
     expect(steps[0]!.uses).toMatch(/^actions\/checkout@/);
     for (const s of steps.slice(at + 1)) expect(s.if).toBe("steps.mq.outputs.skip != 'true'");
+  });
+
+  it('passes the job token to the check (without it every push runs the full suite)', () => {
+    expect(steps[at]!.env).toEqual({ CI_READ_TOKEN: '${{ github.token }}' });
   });
 
   function step(event: string, rc: string): string {

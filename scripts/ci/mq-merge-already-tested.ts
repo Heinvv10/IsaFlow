@@ -20,7 +20,8 @@
  *   4. The subject is "Merge pull request #N from ...", and PR N is merged
  *      into master with head = the second parent and merge commit = HEAD.
  *   5. A CI run (.github/workflows/ci.yml) for event pull_request at the second
- *      parent, from PR N's head branch, has both required jobs, in their latest
+ *      parent, from PR N's head branch in this repository (not a fork's branch
+ *      of the same name), has both required jobs, in their latest
  *      attempt, concluded success.
  * Why the PR run's tree is HEAD's tree: GitHub tests a PR as its merge into the
  * base of the moment, and ci.yml's pull_request trigger is pinned to base
@@ -49,7 +50,10 @@ export type Api = (path: string) => Promise<unknown>;
 const SHA = /^[0-9a-f]{40}$/;
 const SUBJECT = /^Merge pull request #(\d+) from \S+$/;
 
-type Run = { id?: unknown; path?: unknown; event?: unknown; head_sha?: unknown; head_branch?: unknown };
+type Run = {
+  id?: unknown; path?: unknown; event?: unknown; head_sha?: unknown; head_branch?: unknown;
+  head_repository?: { full_name?: unknown };
+};
 type Job = { name?: unknown; status?: unknown; conclusion?: unknown; head_sha?: unknown };
 
 const no = (reason: string): Verdict => ({ tested: false, reason });
@@ -106,7 +110,7 @@ export async function decide(env: Env, event: unknown, git: Git, api: Api): Prom
   const branch = p.head?.ref;
   if (typeof branch !== 'string' || branch === '') return no(`PR #${pr} has no head branch`);
   const ci = runs.filter((r) => r.path === WORKFLOW_PATH && r.event === 'pull_request' && r.head_sha === p2
-    && r.head_branch === branch);
+    && r.head_branch === branch && r.head_repository?.full_name === repo);
   if (ci.length === 0) return no(`no pull_request CI run for ${p2} from ${branch}`);
   for (const run of ci) {
     const jobs = ((await api(`/repos/${repo}/actions/runs/${String(run.id)}/jobs?filter=latest&per_page=100`)) as {
