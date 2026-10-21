@@ -21,7 +21,8 @@
 --   migration_admin (own pools): verify-email -> tenantProvisioningService and
 --   invitations/[token]/accept, the only INSERTs.
 --   platform_admin (withPlatformAdmin): suspend / activate / resetOnboarding,
---   updateUser (role), convertUserToBureauOwner (account_type).
+--   updateUser (role), convertUserToBureauOwner -> createBureauForOwner
+--   (account_type; its only caller is admin/users/[id]/convert-to-bureau).
 -- No app_user path INSERTs into users, and none writes role, status,
 -- is_active, suspended_*, permissions or account_type.
 --
@@ -39,8 +40,14 @@
 -- because data-subject-rights names it; the trigger update_users_updated_at
 -- needs no privilege of its own.
 --
--- SCOPE: this binds current_user = app_user. It does not bind the pool's login
--- role, which owns users; see the S-07 PR for the role-switch caveat.
+-- SCOPE, AND WHAT THIS DOES NOT CLOSE: this binds current_user = app_user.
+-- The app pool logs in as `postgres`, which owns users and bypasses RLS, and
+-- `SET LOCAL ROLE app_user` can be undone from inside a single injected
+-- expression: `SELECT set_config('role', 'none', true)` returns the session to
+-- `postgres` (verified on a PG16 fixture, non-superuser postgres). So S-07's
+-- "one SQL injection is a platform takeover" stays true by that route until
+-- the app pool logs in as a role that cannot regain the owner's privileges.
+-- That is a change to how the pools authenticate, outside this migration.
 
 REVOKE INSERT, UPDATE ON public.users FROM app_user;
 REVOKE INSERT, UPDATE ON public.users FROM PUBLIC;

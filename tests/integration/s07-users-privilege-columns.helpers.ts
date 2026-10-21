@@ -19,7 +19,19 @@ import { signSession } from './r-032-fake-gotrue.helpers';
 assertDisposable();
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 
-export type DbRole = 'app_user' | 'platform_admin';
+export type DbRole = 'app_user' | 'platform_admin' | 'migration_admin';
+
+/**
+ * DATABASE_URL, but every connection made from it runs as `role`
+ * (`options=-c role=...`; postgres is a member of each). Lets a route that
+ * builds its own pool from MIGRATION_ADMIN_DATABASE_URL run as the role it has
+ * in production instead of the harness's superuser.
+ */
+export function urlAsRole(role: DbRole): string {
+  const url = new URL(process.env.DATABASE_URL!);
+  url.searchParams.set('options', `-c role=${role}`);
+  return url.toString();
+}
 type Query = (text: string, params?: unknown[]) => Promise<unknown>;
 
 /** A refused statement's SQLSTATE and message; null when it succeeded. */
