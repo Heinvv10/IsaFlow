@@ -64,29 +64,19 @@ export async function learnFromAllocation(
         WHERE id = ${existingRow.id}::UUID
       `;
     } else {
-      // Check if company_id column exists on categorization_patterns
-      // (older DBs may not have it — use a safe INSERT)
-      try {
-        await sql`
-          INSERT INTO categorization_patterns
-            (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source, company_id)
-          VALUES
-            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
-        `;
-      } catch {
-        // Fallback without company_id if column doesn't exist
-        await sql`
-          INSERT INTO categorization_patterns
-            (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source)
-          VALUES
-            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned')
-        `;
-      }
+      // K-244: always tenant-scoped. company_id is NOT NULL (migration 220);
+      // a retry without it could only fail, or mint a cross-tenant pattern.
+      await sql`
+        INSERT INTO categorization_patterns
+          (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source, company_id)
+        VALUES
+          (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
+      `;
     }
 
     log.info('Learned categorization pattern', { pattern, category, glAccountId, companyId }, 'accounting');
   } catch (err) {
-    log.error('Failed to learn from allocation', { txId, error: err }, 'accounting');
+    log.error('Failed to learn from allocation', { txId, companyId, error: err }, 'accounting');
     // Non-critical: don't throw
   }
 }
