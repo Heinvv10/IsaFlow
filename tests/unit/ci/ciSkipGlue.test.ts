@@ -32,7 +32,10 @@ chmodSync(join(dir, 'bun'), 0o755);
 chmodSync(join(dir, 'bash'), 0o755);
 
 // A hook (pre-push) exports GIT_DIR; run-ci.sh's `git rev-parse` must see this repo.
-const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_') && k !== 'CI_INTEGRATION'));
+// On the GitHub runner the job's own GITHUB_ACTIONS=true, GITHUB_EVENT_NAME etc.
+// are inherited: drop them so each case sets exactly the environment it names.
+const inherited = (k: string) => /^(GIT_|GITHUB_|RUNNER_|ACTIONS_|CI_)/.test(k) || k === 'CI';
+const baseEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !inherited(k)));
 
 function run(script: string[], env: Record<string, string>): { status: number | null; out: string; calls: string[] } {
   writeFileSync(LOG, '');
