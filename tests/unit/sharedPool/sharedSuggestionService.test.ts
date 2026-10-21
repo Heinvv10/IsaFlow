@@ -28,7 +28,10 @@ function route(r: Route) {
 const lookupCall = () => sqlMock.mock.calls.find((c) => (c[0] as TemplateStringsArray).join('?').includes('shared_pool_lookup'));
 
 beforeEach(() => { sqlMock.mockReset(); warn.mockReset(); process.env.MERCHANT_SHARING_ENABLED = 'true'; });
-afterEach(() => { delete process.env.MERCHANT_SHARING_ENABLED; });
+const gateBefore = process.env.MERCHANT_SHARING_ENABLED;
+afterEach(() => {
+  if (gateBefore === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = gateBefore;
+});
 
 describe('getSharedSuggestions', () => {
   it('maps the pool category to the company\'s own account, labelled shared_pool', async () => {

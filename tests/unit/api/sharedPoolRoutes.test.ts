@@ -53,7 +53,10 @@ const asCompany = { companyId: CO, user: { id: 'user-1' } };
 // A random key per run, as the r168 cron suites do.
 const CRON_KEY = crypto.randomUUID();
 beforeEach(() => { vi.clearAllMocks(); process.env.CRON_SECRET = CRON_KEY; process.env.MERCHANT_SHARING_ENABLED = 'true'; });
-afterEach(() => { delete process.env.MERCHANT_SHARING_ENABLED; });
+const gateBefore = process.env.MERCHANT_SHARING_ENABLED;
+afterEach(() => {
+  if (gateBefore === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = gateBefore;
+});
 const setGate = (v: string | undefined) => {
   if (v === undefined) delete process.env.MERCHANT_SHARING_ENABLED; else process.env.MERCHANT_SHARING_ENABLED = v;
 };
@@ -112,6 +115,18 @@ describe('/api/cron/shared-merchant-pool', () => {
     const r = await call(cronRoute, { method: 'POST', headers: { 'x-cron-secret': CRON_KEY } });
     expect(r.statusCode).toBe(200);
     expect((r.body as { data: unknown }).data).toEqual(skip);
+  });
+  it.each([undefined, 'false'])('with the real job and MERCHANT_SHARING_ENABLED=%s: 200 skip, no SQL', async (v) => {
+    setGate(v);
+    const actual = await vi.importActual<typeof import('@/modules/accounting/services/sharedPool/sharedPoolJob')>(
+      '@/modules/accounting/services/sharedPool/sharedPoolJob');
+    runSharedPoolAggregation.mockImplementationOnce(actual.runSharedPoolAggregation as never);
+    const { sql } = await import('@/lib/neon');
+    const r = await call(cronRoute, { method: 'POST', headers: { 'x-cron-secret': CRON_KEY } });
+    expect(r.statusCode).toBe(200);
+    expect((r.body as { data: unknown }).data).toEqual(
+      { skipped: true, reason: 'sharing_pending_legal_review', message: 'skipped: sharing disabled pending legal review' });
+    expect(sql).not.toHaveBeenCalled();
   });
   it('GET is not allowed', async () => {
     expect((await call(cronRoute, { method: 'GET', headers: { 'x-cron-secret': CRON_KEY } })).statusCode).toBe(405);
