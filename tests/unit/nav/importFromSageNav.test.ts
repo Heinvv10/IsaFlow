@@ -13,13 +13,22 @@ import { isFlyout, type DropdownItem, type NavItem } from '@/components/accounti
 const flatten = (items: NavItem[]): DropdownItem[] => items.flatMap((i) => (isFlyout(i) ? flatten(i.items) : [i]));
 const links = [settingsTab, toolsTab].flatMap((t) => [...(t.topItems ?? []), ...flatten(t.items ?? [])]);
 const pageExists = (href: string) =>
-  ['.tsx', '/index.tsx'].some((ext) => existsSync(join(process.cwd(), 'pages', `${href}${ext}`)));
+  ['.tsx', '/index.tsx'].some((ext) => existsSync(join(process.cwd(), 'pages', `${href.split('#')[0]}${ext}`)));
 
 describe('nav: Import from Sage', () => {
-  it('is in both tabs and points at the Migration Wizard', () => {
+  it('is in both tabs and points at the Migration Wizard\'s Sage opener', () => {
     const sage = links.filter((l) => l.label === 'Import from Sage');
     expect(sage).toHaveLength(2);
-    for (const l of sage) expect(l.href).toBe('/accounting/migration');
+    for (const l of sage) expect(l.href).toBe('/accounting/migration#sage');
+  });
+
+  // The nav components key items by href: a repeat is a React duplicate key
+  // and two entries highlighting together.
+  it('no tab repeats an href', () => {
+    for (const tab of [settingsTab, toolsTab]) {
+      const hrefs = [...(tab.topItems ?? []), ...flatten(tab.items ?? [])].map((l) => l.href);
+      expect(hrefs.length - new Set(hrefs).size, tab.id).toBe(0);
+    }
   });
 
   it('every migration link resolves to a page', () => {

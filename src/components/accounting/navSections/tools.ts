@@ -51,7 +51,7 @@ export const toolsTab: Tab = {
         { label: 'Import Transactions', href: '/accounting/gl-import' },
         { label: 'Migration Wizard', href: '/accounting/migration' },
         { label: 'Import from Xero / QuickBooks / Pastel', href: '/accounting/migration/external' },
-        { label: 'Import from Sage', href: '/accounting/migration' },
+        { label: 'Import from Sage', href: '/accounting/migration#sage' },
         { label: 'Bank Import', href: '/accounting/bank-reconciliation/import' },
       ],
     },
