@@ -13,7 +13,7 @@ describe('getSubmissionStatus without a service key', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
     const result = await getSubmissionStatus(key.trim(), 'NC-REF');
-    expect(result).toEqual({ status: 'unknown', detail: 'Netcash service key is not configured' });
+    expect(result).toEqual({ status: 'unknown', detail: 'Netcash service key is not configured', answered: false });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
