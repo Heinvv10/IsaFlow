@@ -12,7 +12,8 @@ import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { connectWithin } from './netcashSendCapacity';
 import {
-  CLAIM_CONNECTION_TIMEOUT_MS, SETTLE_LOCK_TIMEOUT_MS, SETTLE_QUERY_TIMEOUT_MS, SETTLE_STATEMENT_TIMEOUT_MS,
+  CHEAP_QUERY_TIMEOUT_MS, CLAIM_CONNECTION_TIMEOUT_MS, SETTLE_ATTEMPT_BUDGET_MS, SETTLE_LOCK_TIMEOUT_MS, SETTLE_QUERY_TIMEOUT_MS,
+  SETTLE_STATEMENT_TIMEOUT_MS,
 } from './netcashTimeouts';
 
 export interface ClaimPrincipal {
@@ -47,11 +48,22 @@ export interface Queryable {
   query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<QueryResult<R>>;
 }
 
-/** `client`, with every statement given up on client-side after SETTLE_QUERY_TIMEOUT_MS (a connection gone silent). */
+const CHEAP = /^\s*(BEGIN|SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT|SET LOCAL|SELECT set_config)\b/i;
+
+/**
+ * `client` for one settle attempt: every statement is given up on client-side (a connection gone silent) after
+ * SETTLE_QUERY_TIMEOUT_MS - CHEAP_QUERY_TIMEOUT_MS for cheap ones - and never after what is left of the attempt's
+ * SETTLE_ATTEMPT_BUDGET_MS; once that is spent nothing more is sent (round 13: the whole chain fits the send window).
+ */
 export function bounded(client: PoolClient): Queryable {
+  const deadline = Date.now() + SETTLE_ATTEMPT_BUDGET_MS;
   return {
-    query: <R extends QueryResultRow>(text: string, values?: unknown[]) =>
-      client.query<R>({ text, values, query_timeout: SETTLE_QUERY_TIMEOUT_MS }),
+    query: <R extends QueryResultRow>(text: string, values?: unknown[]) => {
+      const left = deadline - Date.now();
+      if (left <= 0) return Promise.reject(new Error(`netcash settle attempt budget (${SETTLE_ATTEMPT_BUDGET_MS} ms) spent`));
+      const cap = CHEAP.test(text) ? CHEAP_QUERY_TIMEOUT_MS : SETTLE_QUERY_TIMEOUT_MS;
+      return client.query<R>({ text, values, query_timeout: Math.min(cap, left) });
+    },
   };
 }
 
@@ -146,8 +158,8 @@ export async function settleOnFreshConnection(p: ClaimPrincipal, submissionId: s
   try {
     await q.query('BEGIN');
     begun = true;
-    await actAsCaller(q, p);
     await tightenSettleTimeouts(q);
+    await actAsCaller(q, p);
     // This settle's own answer already on the row: settled (the token), or a late answer and what it did (lateSendResult).
     const { rows } = await q.query<{ ours: boolean; late: SettleResult | null }>(
       `SELECT (netcash_response ->> 'settleToken') IS NOT DISTINCT FROM $3::TEXT AS ours /* netcash_settle_retry */,

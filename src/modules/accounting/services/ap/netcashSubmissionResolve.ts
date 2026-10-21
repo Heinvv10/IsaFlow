@@ -14,6 +14,7 @@ import type { DbRow } from '@/lib/neon';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { SEND_WINDOW_MS } from './netcashTimeouts';
 import { NETCASH_SEND_LOCK_CLASS } from './netcashSendLock';
+import { isAnswerPendingRecord } from './netcashLateSettler';
 
 export type ResolveOutcome = 'failed' | 'submitted';
 
@@ -22,6 +23,7 @@ export type ResolveResult =
   | { kind: 'not_found' }
   | { kind: 'not_resolvable'; status: string }
   | { kind: 'changed'; from: string; to: string }
+  | { kind: 'answer_pending' }
   | { kind: 'in_flight' };
 
 export interface ResolveInput {
@@ -41,6 +43,9 @@ export async function resolveSubmission(input: ResolveInput): Promise<ResolveRes
     WHERE id = ${submissionId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
   if (!found[0]) return { kind: 'not_found' };
+  // Netcash answered, and this process is still writing that answer to the row (netcashLateSettler, round 13): the
+  // row may say 'pending' while Netcash holds the batch. Not resolvable until the answer is written or given up on.
+  if (isAnswerPendingRecord(submissionId)) return { kind: 'answer_pending' };
   const previous = String(found[0].status);
   // pending/unknown: either outcome. submitted/processing (Netcash accepted it): 'failed' only, on the operator's word -
   // whatever the last poll said, which is a display hint and never consulted here.

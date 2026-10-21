@@ -249,8 +249,9 @@ function respondClaimLost(res: NextApiResponse, claimId: string, result: Netcash
 function respondAnswerNotRecorded(res: NextApiResponse, claimId: string, result: NetcashSubmitResult): void {
   const ref = result.batchReference ? ` (Netcash reference ${result.batchReference})` : '';
   return apiResponse.error(res, ErrorCode.INTERNAL_ERROR,
-    `Netcash answered ${result.outcome}${ref}, but the answer may not have been recorded: submission ${claimId} may still be pending, `
-    + 'and the batch stays closed. Do not resend it - check the submission row and Netcash before doing anything, then resolve it if needed.',
+    `Netcash answered ${result.outcome}${ref}, but the answer may not have been recorded yet: submission ${claimId} may still be pending, `
+    + 'the batch stays closed, and the server keeps trying to record the answer for several minutes. Do not resend it - check the '
+    + 'submission row and Netcash before doing anything, then resolve it if needed.',
     { reason: 'NETCASH_ANSWER_NOT_RECORDED', submissionId: claimId, netcashOutcome: result.outcome, batchReference: result.batchReference ?? null });
 }
 
