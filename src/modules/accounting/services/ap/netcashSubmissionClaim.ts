@@ -27,15 +27,16 @@
  * (services/ap/netcashSubmissionResolve: 'failed' = Netcash never got it, the batch may be sent again; 'submitted' =
  * Netcash has it, the batch stays closed; a note is required, compare-and-set, audit-logged) - not by raw UPDATE.
  */
-import type { PoolClient } from 'pg';
+import { randomUUID } from 'crypto';
+import type { PoolClient, QueryConfig } from 'pg';
 import { getPool } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { NETCASH_SEND_LOCK_CLASS } from './netcashSendLock';
 import { connectWithin, takeSendSlot } from './netcashSendCapacity';
-import { CLAIM_CONNECTION_TIMEOUT_MS } from './netcashTimeouts';
+import { CLAIM_CONNECTION_TIMEOUT_MS, SETTLE_QUERY_TIMEOUT_MS } from './netcashTimeouts';
 import {
-  actAsCaller, AnswerNotRecordedError, settleOnFreshConnection, settleRows,
+  actAsCaller, AnswerNotRecordedError, bounded, settleOnFreshConnection, settleRows, tightenSettleTimeouts, type Queryable,
   type ClaimPrincipal, type ClaimSettlement, type SettleResult,
 } from './netcashClaimSettle';
 
@@ -54,16 +55,23 @@ interface ClaimConnection {
   client: PoolClient; locked: boolean; unusable: boolean; ended: boolean; onError: (err: Error) => void; freeSlot: () => void;
 }
 
-/** One committed transaction on the claim's connection, as app_user in the caller's company. */
-async function committed<T>(conn: ClaimConnection, p: ClaimPrincipal, label: string, fn: (client: PoolClient) => Promise<T>): Promise<T> {
+/**
+ * One committed transaction on the claim's connection, as app_user in the caller's company. `settle`: bounded
+ * (round 12) - every statement given up on client-side after SETTLE_QUERY_TIMEOUT_MS and lock_timeout /
+ * statement_timeout tightened - so a settle that stalls throws instead of holding its send slot.
+ */
+async function committed<T>(conn: ClaimConnection, p: ClaimPrincipal, label: string, fn: (q: Queryable) => Promise<T>,
+  settle = false): Promise<T> {
   const { client } = conn;
+  const q: Queryable = settle ? bounded(client) : client;
   let begun = false;
   try {
-    await client.query('BEGIN');
+    await q.query('BEGIN');
     begun = true;
-    await actAsCaller(client, p);
-    const out = await fn(client);
-    await client.query('COMMIT');
+    await actAsCaller(q, p);
+    if (settle) await tightenSettleTimeouts(q);
+    const out = await fn(q);
+    await q.query('COMMIT');
     return out;
   } catch (err) {
     if (begun && await rollbackFailed(client, `netcash claim ${label}`)) conn.unusable = true;
@@ -79,15 +87,21 @@ async function committed<T>(conn: ClaimConnection, p: ClaimPrincipal, label: str
  * pool) when a ROLLBACK on it failed (`unusable`, from rollbackFailed in committed()), when the lock was taken but the
  * claim did not commit, or when the unlock failed or found no lock. Never throws.
  */
-async function endClaim(conn: ClaimConnection, submissionId: string | null): Promise<void> {
-  if (conn.ended) return;
+async function endClaim(conn: ClaimConnection, submissionId: string | null, keepSlot = false): Promise<void> {
+  if (conn.ended) {
+    if (!keepSlot) conn.freeSlot();
+    return;
+  }
   conn.ended = true;
   const { client } = conn;
   let unlockFailed: unknown = null;
   if (conn.locked && !conn.unusable && submissionId) {
     try {
-      const { rows } = await client.query<{ ok: boolean }>(
-        'SELECT pg_advisory_unlock($1::INT4, hashtext($2::UUID::TEXT)) AS ok', [NETCASH_SEND_LOCK_CLASS, submissionId]);
+      // Bounded like the settle: an unlock on a connection gone silent must not hold the send slot either.
+      const { rows } = await client.query<{ ok: boolean }>({
+        text: 'SELECT pg_advisory_unlock($1::INT4, hashtext($2::UUID::TEXT)) AS ok',
+        values: [NETCASH_SEND_LOCK_CLASS, submissionId], query_timeout: SETTLE_QUERY_TIMEOUT_MS,
+      } as QueryConfig);
       if (rows[0]?.ok !== true) unlockFailed = new Error('send lock was not held');
     } catch (err) {
       unlockFailed = err;
@@ -96,7 +110,7 @@ async function endClaim(conn: ClaimConnection, submissionId: string | null): Pro
   }
   client.removeListener('error', conn.onError);
   client.release(conn.unusable || (conn.locked && !submissionId) || Boolean(unlockFailed));
-  conn.freeSlot();
+  if (!keepSlot) conn.freeSlot();
 }
 
 /** A claim whose connection holds its send lock until `end()`. */
@@ -117,7 +131,7 @@ export interface HeldClaim {
 export type ClaimOutcome =
   | { kind: 'claimed'; claim: HeldClaim }
   | { kind: 'held' }
-  | { kind: 'busy'; reason: 'sends' | 'connection' | 'lock' };
+  | { kind: 'busy'; reason: 'sends' | 'company_sends' | 'connection' | 'lock' };
 
 class SendLockBusy extends Error {}
 
@@ -126,8 +140,9 @@ class SendLockBusy extends Error {}
  * (try/finally); every other outcome has already given everything back.
  */
 export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<ClaimOutcome> {
-  const freeSlot = takeSendSlot();
-  if (!freeSlot) return { kind: 'busy', reason: 'sends' };
+  const slot = takeSendSlot(p.companyId);
+  if ('refused' in slot) return { kind: 'busy', reason: slot.refused === 'company' ? 'company_sends' : 'sends' };
+  const freeSlot = slot.free;
   let client: PoolClient | null;
   try {
     client = await connectWithin(getPool(), CLAIM_CONNECTION_TIMEOUT_MS);
@@ -188,20 +203,24 @@ export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<Clai
  * AnswerNotRecordedError is thrown for the caller to say what Netcash answered.
  */
 async function settleOn(conn: ClaimConnection, p: ClaimPrincipal, submissionId: string, s: ClaimSettlement): Promise<SettleResult> {
+  const settleToken = randomUUID(); // this send's answer, recognisable by the retry whatever a poll changes meanwhile
   try {
-    return await committed(conn, p, 'settle', (client) => settleRows(client, p, submissionId, s));
+    return await committed(conn, p, 'settle', (q) => settleRows(q, p, submissionId, s, settleToken), true);
   } catch (first) {
     log.error('netcash settle failed on the claim connection - retrying once on a fresh connection', {
       submissionId, status: s.status, error: first instanceof Error ? first.message : String(first),
     }, 'netcash');
+    // A connection whose ROLLBACK failed may still hold the settle's row lock (a statement it stopped answering
+    // for): drop it now, keeping the send slot, so the retry does not wait on it.
+    if (conn.unusable) await endClaim(conn, submissionId, true);
     try {
-      return await settleOnFreshConnection(p, submissionId, s);
+      return await settleOnFreshConnection(p, submissionId, s, settleToken);
     } catch (second) {
-      log.error('netcash answer NOT recorded - the claim stays pending; do not resend, check Netcash', {
+      log.error('netcash answer may NOT have been recorded - check the submission row and Netcash; do not resend', {
         submissionId, status: s.status, batchReference: s.batchReference, answer: s.netcashResponse,
         firstError: first instanceof Error ? first.message : String(first), retryError: second instanceof Error ? second.message : String(second),
       }, 'netcash');
-      throw new AnswerNotRecordedError(`Netcash's answer for submission ${submissionId} could not be recorded`);
+      throw new AnswerNotRecordedError(`Netcash's answer for submission ${submissionId} may not have been recorded`);
     }
   }
 }
