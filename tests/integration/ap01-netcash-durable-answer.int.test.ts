@@ -74,14 +74,29 @@ describe('an accepted answer the settle could not record survives the process (A
     await unlock();
     await sleep(1500);
     const free = await resolve(c, id);
+    const freeUpper = await resolve(c, id.toUpperCase()); // the same submission, its id in another case
     const text = JSON.stringify(free.state.body);
     const keep = await resolve(c, id, 'submitted');
     hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
     const again = await submit(c, b.id);
-    expect({ first: res.state.statusCode, free: free.state.statusCode, reason: reason(free), outcome: /accepted/.test(text), ref: text.includes('NC-DURABLE'),
+    expect({ upper: freeUpper.state.statusCode, first: res.state.statusCode, free: free.state.statusCode, reason: reason(free), outcome: /accepted/.test(text), ref: text.includes('NC-DURABLE'),
       keep: keep.state.statusCode, status: await status(id), resend: again.state.statusCode, sends: hold.submitEftBatch.mock.calls.length })
-      .toEqual({ first: 500, free: 409, reason: 'ANSWER_PENDING_RECORD', outcome: true, ref: true, keep: 200, status: 'submitted', resend: 409, sends: 1 });
+      .toEqual({ upper: 409, first: 500, free: 409, reason: 'ANSWER_PENDING_RECORD', outcome: true, ref: true, keep: 200, status: 'submitted', resend: 409, sends: 1 });
   }, 30_000);
+
+  it('REPRO 5 (adversarial, round 13): past the send window, no send lock, the settler still failing: resolve is refused 409 in any id case, and the row ends submitted', async () => {
+    const { c, id, unlock } = await answeredWhileLocked(); // aged past the window before the lock; the stall continues
+    const pendingNow = await status(id);
+    const during = await resolve(c, id);
+    const duringUpper = await resolve(c, id.toUpperCase());
+    // Recording it submitted is what the durable record allows; while the settler writes, the in-process guard refuses
+    // even that - whatever the case of the id.
+    const keepUpper = await resolve(c, id.toUpperCase(), 'submitted');
+    await unlock();
+    for (let i = 0; i < 80 && await status(id) === 'pending'; i++) await sleep(250);
+    expect({ pendingNow, during: during.state.statusCode, reason: reason(during), upper: duringUpper.state.statusCode, keepUpper: keepUpper.state.statusCode, final: await status(id) })
+      .toEqual({ pendingNow: 'pending', during: 409, reason: 'ANSWER_PENDING_RECORD', upper: 409, keepUpper: 409, final: 'submitted' });
+  }, 40_000);
 
   it('once the settler has put the answer on the row, resolve behaves as for any submitted row', async () => {
     const { c, id, unlock } = await answeredWhileLocked();
