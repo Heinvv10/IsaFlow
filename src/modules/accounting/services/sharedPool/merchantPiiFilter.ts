@@ -28,9 +28,12 @@
  *
  * The key is the known merchant brand when one is present (ENGEN SANDTON 1234 -> ENGEN), otherwise the
  * first KEY_WORDS words left (so a branch or suburb after the name does not fragment, or locate, a merchant).
+ * A bank or payment processor (CHANNEL_TOKENS) is dropped first, and is the key only when nothing but
+ * generic words is left (FNB APP PAYMENT ESKOM -> ESKOM; FNB MONTHLY ACCOUNT FEE -> FNB).
  */
 
-export const MERCHANT_FILTER_VERSION = 1;
+/** 2: banks and processors are a channel, not the key (FNB APP PAYMENT ESKOM -> ESKOM). */
+export const MERCHANT_FILTER_VERSION = 2;
 export const MAX_WORDS = 6;
 export const KEY_WORDS = 2;
 export const MIN_KEY_LENGTH = 3;
@@ -54,7 +57,7 @@ const KNOWN_MERCHANTS = new Set([
   'ENGEN', 'SHELL', 'SASOL', 'CALTEX', 'ASTRON', 'BP', 'TOTALENERGIES',
   // retail, groceries, hardware, stationery
   'CHECKERS', 'SHOPRITE', 'WOOLWORTHS', 'PICKNPAY', 'PNP', 'SPAR', 'MAKRO', 'DISCHEM', 'CLICKS',
-  'BUILDERS', 'CASHBUILD', 'LEROYMERLIN', 'WATERSHED', 'TAKEALOT', 'INCREDIBLECONNECTION', 'WALTONS', 'CNA',
+  'BUILDERSWAREHOUSE', 'BUILDERSEXPRESS', 'CASHBUILD', 'LEROYMERLIN', 'WATERSHED', 'TAKEALOT', 'INCREDIBLECONNECTION', 'WALTONS', 'CNA',
   'PEP', 'ACKERMANS', 'MRPRICE', 'MRD', 'BOXER', 'USAVE', 'FOODLOVERS', 'MASSMART', 'EDGARS',
   // food & travel
   'UBER', 'UBEREATS', 'BOLT', 'KFC', 'MCDONALDS', 'NANDOS', 'STEERS', 'WIMPY', 'SPUR', 'DEBONAIRS', 'VIDA',
@@ -64,9 +67,19 @@ const KNOWN_MERCHANTS = new Set([
   'GOOGLE', 'MICROSOFT', 'APPLE', 'ADOBE', 'ZOOM', 'DROPBOX', 'NETFLIX', 'SPOTIFY', 'AMAZON', 'AWS', 'FACEBOOK',
   'LINKEDIN', 'XERO', 'SAGE', 'CANVA', 'SLACK', 'GITHUB', 'OPENAI', 'HETZNER', 'XNEELO', 'ARUBA',
   'DHL', 'FEDEX', 'ARAMEX', 'POSTNET', 'PARGO', 'COURIERGUY', 'DAWNWING', 'FASTWAY', 'RAM', 'SKYNET',
-  // banks (bank charges), insurance, security
-  'FNB', 'ABSA', 'NEDBANK', 'STANDARDBANK', 'CAPITEC', 'INVESTEC', 'DISCOVERY', 'TYMEBANK', 'OUTSURANCE',
-  'SANTAM', 'MOMENTUM', 'OLDMUTUAL', 'HOLLARD', 'MIWAY', 'KINGPRICE', 'ADT', 'FIDELITY', 'CHUBB',
+  // insurance, security
+  'DISCOVERY', 'OUTSURANCE', 'SANTAM', 'MOMENTUM', 'OLDMUTUAL', 'HOLLARD', 'MIWAY', 'KINGPRICE', 'ADT', 'FIDELITY',
+  'CHUBB',
+]);
+
+/**
+ * Banks and payment processors: the CHANNEL a payment went through, usually printed before the real merchant
+ * (FNB APP PAYMENT ESKOM, YOCO *CORNER CAFE). Dropped when anything but generic words is left; the key only
+ * when nothing is (FNB MONTHLY ACCOUNT FEE, i.e. bank charges). A channel never licenses an identifier,
+ * honorific or initial that the merchant behind it would not.
+ */
+const CHANNEL_TOKENS = new Set([
+  'FNB', 'ABSA', 'NEDBANK', 'STANDARDBANK', 'CAPITEC', 'INVESTEC', 'TYMEBANK',
   'YOCO', 'PAYFAST', 'OZOW', 'SNAPSCAN', 'ZAPPER',
 ]);
 
@@ -76,6 +89,7 @@ const KNOWN_MERCHANT_PAIRS: Record<string, string> = {
   'OLD MUTUAL': 'OLDMUTUAL', 'KING PRICE': 'KINGPRICE', 'CITY LODGE': 'CITYLODGE', 'LEROY MERLIN': 'LEROYMERLIN',
   'FOOD LOVERS': 'FOODLOVERS', 'UBER EATS': 'UBEREATS', 'CITY POWER': 'CITYPOWER', 'MUGG BEAN': 'MUGGBEAN',
   'COOL IDEAS': 'COOLIDEAS', 'COURIER GUY': 'COURIERGUY', 'E TOLL': 'ETOLL', 'TYME BANK': 'TYMEBANK',
+  'BUILDERS WAREHOUSE': 'BUILDERSWAREHOUSE', 'BUILDERS EXPRESS': 'BUILDERSEXPRESS',
 };
 
 /** Any of these anywhere: the line pays a person, an employee or a loan, or moves money between accounts. */
@@ -92,7 +106,7 @@ const PERSON_PAYMENT_PATTERNS: RegExp[] = [
 const HONORIFICS = new Set(['MR', 'MRS', 'MS', 'MISS', 'DR', 'PROF', 'ADV', 'ME', 'MEV', 'MNR', 'MEJ', 'DS', 'SIR', 'REV']);
 
 /**
- * Common first names in South Africa (several languages). A line LEADING with one is treated as a person.
+ * Common first names in South Africa (several languages). A line with one ANYWHERE is treated as a person.
  * Not exhaustive — the residual risk (a full name with no initial, honorific or listed first name, paid by
  * MIN_DISTINCT_COMPANIES companies) is in docs/security/shared-merchant-patterns.md.
  */
@@ -212,8 +226,12 @@ export function filterMerchant(raw: unknown): MerchantFilterResult {
   const undated = upper.replace(DATE_TIME, ' ');
   const hadIdentifier = IDENTIFIER_DIGITS.test(undated.replace(/[\s-]/g, '')) || PHONE_SHAPE.test(undated);
   const allWords = joinPairs(tokens(upper));
-  const words = allWords.filter((w) => !NOISE_TOKENS.has(w));
-  const brand = words.find((w) => KNOWN_MERCHANTS.has(w));
+  const unchanneled = allWords.filter((w) => !NOISE_TOKENS.has(w));
+  const merchantWords = unchanneled.filter((w) => !CHANNEL_TOKENS.has(w));
+  const channel = unchanneled.find((w) => CHANNEL_TOKENS.has(w));
+  const brand = merchantWords.find((w) => KNOWN_MERCHANTS.has(w))
+    ?? (channel && merchantWords.every((w) => GENERIC_TOKENS.has(w)) ? channel : undefined);
+  const words = brand !== undefined && brand === channel ? unchanneled : merchantWords;
   if (hadIdentifier && !brand) return reject('identifier');
 
   // With a brand the key is the brand alone, so nothing else in the line is ever stored.

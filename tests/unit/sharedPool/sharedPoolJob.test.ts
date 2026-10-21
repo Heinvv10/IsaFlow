@@ -12,6 +12,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 vi.mock('@/modules/bureau/services/poolEligibility', () => ({ listPoolEligibleCompanyIds: vi.fn(async () => []) }));
 
 import { runSharedPoolAggregation } from '@/modules/accounting/services/sharedPool/sharedPoolJob';
+import { MERCHANT_FILTER_VERSION } from '@/modules/accounting/services/sharedPool/merchantPiiFilter';
 
 beforeEach(() => { sqlMock.mockReset(); });
 
@@ -29,6 +30,6 @@ describe('runSharedPoolAggregation', () => {
     const [strings, rows, version] = sqlMock.mock.calls[0]!;
     expect((strings as TemplateStringsArray).join('?')).toContain('public.shared_pool_publish(');
     expect(rows).toBe('[]');
-    expect(version).toBe(1);
+    expect(version).toBe(MERCHANT_FILTER_VERSION);
   });
 });
