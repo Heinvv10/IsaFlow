@@ -4,7 +4,9 @@
  * Those routes are listed by hand in the census's EXEMPT, with the reason. withWriteAccess passes every
  * GET, so a gated route that writes from its GET branch counts as gated, as does a gate applied on the
  * wrong branch of a conditional; and an inline exemption's role call is matched as text, not as reached
- * on the write path. All beyond a text census.
+ * on the write path. A gate is also matched wherever it appears in the file's text, so a gate passed as a
+ * stray argument, inside a comma expression or wrapped in another call counts as gated. All beyond a text
+ * census.
  */
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';

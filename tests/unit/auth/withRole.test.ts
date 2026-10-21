@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withRole } from '@/lib/auth/withAuth';
+import { WITH_ROLE_ADMITS } from '@/lib/auth/withRole';
 import { ROLE_HIERARCHY, type AuthRole } from '@/lib/auth/types';
 
 function fakeRes() {
@@ -41,6 +42,12 @@ describe('ROLE_HIERARCHY', () => {
 });
 
 describe('withRole("admin") admits owner and admin only, on every method', () => {
+  it('its allow-list cannot be widened at runtime', () => {
+    expect(() => (WITH_ROLE_ADMITS.admin as unknown as string[]).push('system')).toThrow(TypeError);
+    expect(() => { (WITH_ROLE_ADMITS as unknown as Record<string, string[]>).viewer = ['viewer']; }).toThrow(TypeError);
+    expect(WITH_ROLE_ADMITS.admin).toEqual(['owner', 'admin']);
+  });
+
   it.each(METHODS.flatMap((m) => ['owner', 'admin'].map((r) => [m, r] as const)))(
     '%s as %s reaches the handler — owner is the 2026-05-01 fiscal-period-reopen regression',
     async (method, role) => {
