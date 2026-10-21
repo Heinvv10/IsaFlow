@@ -28,6 +28,37 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-21 — Security S-07, AR Exact-Cents Fixes, VLM Multi-Page, Auth Hardening
+
+**Security — S-07**
+
+- `app_user` can no longer write privilege columns on `users`; `users.email` revoked from `app_user` and pinned via trigger; erasure via data-subject-rights endpoint fails loudly on a 0-row write and refuses impersonation (migration 902) (#761)
+
+**AR**
+
+- Customer invoice readers and FIFO cash settlement decide open/settled in exact cents; credit-note remainder and apply picker are exact cents; one-cent remnant clears correctly (#754)
+
+**Auth**
+
+- `withRole` frozen as owner/admin allow-list; mandate/verify enforced as POST + CSRF + owner/admin (K-202); `verify` refuses a NUL in `ref` with 400 (#762)
+- Billing flow role gate added to `auto-topup` and `purchase` API routes; Paystack return page hardened (#755)
+
+**Capture — VLM**
+
+- Multi-page scanned invoice reads pages 1–3 in a single VLM call; four review rounds of LOWs addressed (#766)
+
+**MCP**
+
+- MCP marketplace readiness: `mcp/index.ts` restructured; reviewer sandbox doc and `mcp-connect.md` updated (#756)
+
+**CI / Tests**
+
+- k-036 midnight-date flake fixed: receipts and periods booked by the app's SAST day, not UTC `CURRENT_DATE`; k021 and r185 suites hold across a call that straddles midnight (#760)
+
+Migrations: **902** (`users_privilege_columns_app_user`)
+
+---
+
 ## 2026-10-15 — Admin Company Restore, CI Lifecycle Hardening
 
 **Admin**
