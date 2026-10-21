@@ -1,15 +1,20 @@
 /**
- * GET /api/billing/paystack/mandate/verify?ref=<reference>
+ * POST /api/billing/paystack/mandate/verify   Body: { ref: string }
  *
- * Called by the admin mandate-return landing page. If the webhook hasn't
- * arrived yet, we re-query Paystack and (if successful) promote the captured
- * authorization onto the pending mandate row inline so the UI doesn't have
- * to wait. Always scoped by company_id, and always reported for the mandate
+ * Called by the admin mandate-return landing page. It writes (settles the
+ * verification onto the request and mandate rows), so it is POST, CSRF-checked
+ * and owner/admin only, like mandate/create and mandate/revoke (audit K-202).
+ * If the webhook hasn't arrived yet, we re-query Paystack and (if
+ * successful) promote the captured authorization onto the pending mandate
+ * row inline so the UI doesn't have to wait. Always scoped by company_id, and always reported for the mandate
  * THIS reference is linked to — never the company's newest row.
  */
 
 import type { NextApiResponse } from 'next';
+import { z } from 'zod';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { withCsrf } from '@/lib/auth/withCsrf';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql, withSavepoint } from '@/lib/neon';
@@ -21,6 +26,8 @@ import {
   resolveAuthorisedMandate,
   type MandateRow,
 } from '@/modules/billing/services/paystackMandateActivation';
+
+const Body = z.object({ ref: z.string().min(1) });
 
 interface PrRow {
   id: string;
@@ -40,11 +47,12 @@ interface MandateView {
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') {
-    return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
+  if (req.method !== 'POST') {
+    return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
   }
-  const ref = typeof req.query.ref === 'string' ? req.query.ref : '';
-  if (!ref) return apiResponse.badRequest(res, 'Missing ref');
+  const parsed = Body.safeParse(req.body);
+  if (!parsed.success) return apiResponse.badRequest(res, 'Missing ref');
+  const { ref } = parsed.data;
 
   const prRows = await sql<PrRow>`
     SELECT id, status, paystack_reference, mandate_id, failure_reason
@@ -196,4 +204,5 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withErrorHandler(handler));
+// Owner and admin only, like mandate/create and mandate/revoke.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

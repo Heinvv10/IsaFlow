@@ -8,6 +8,7 @@
  */
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
+import { WITH_ROLE_ADMITS } from '@/lib/auth/withRole';
 
 export function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -127,10 +128,14 @@ function writeAccessGates(expr: string): boolean {
   });
 }
 
+/** withRole at a level whose allow-list names only writing roles (today: admin). */
+const WITH_ROLE_GATE = new RegExp(`withRole\\(\\s*['"](${Object.entries(WITH_ROLE_ADMITS)
+  .filter(([, roles]) => roles.every((r) => WRITE_ROLES.has(r))).map(([level]) => level).join('|')})['"]\\s*\\)`);
+
 /** The default export composes a gate that refuses a non-writing role. */
 export function isGated(expr: string): boolean {
   return writeAccessGates(expr)
-    || /withRole\(\s*['"](manager|admin|owner)['"]\s*\)/.test(expr)
+    || WITH_ROLE_GATE.test(expr)
     || /withPayrollDetailAccess\(|withPlatformAdmin\(/.test(expr);
 }
 
