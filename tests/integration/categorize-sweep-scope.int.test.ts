@@ -62,6 +62,20 @@ describe('selectSweepLineIds', () => {
     expect(ids).toContain(L.old);
   });
 
+  it('lines a sweep already tried go last, so the next one reaches the older untried lines', async () => {
+    const scope = { recentDays: 30, maxLines: 2 };
+    const first = await asUser(user, C.id, () => selectSweepLineIds(C.id, C.bank, scope));
+    expect(first).toEqual([L.recent, L.recent2]);
+    const next = await asUser(user, C.id, () => selectSweepLineIds(C.id, C.bank, scope, first));
+    expect(next).not.toContain(L.recent);
+    expect(next).not.toContain(L.recent2);
+    expect(next).toHaveLength(2);
+    // Everything tried: they come back, newest first, rather than nothing.
+    const all = await asUser(user, C.id, () => selectSweepLineIds(C.id, C.bank, scope,
+      [L.recent!, L.recent2!, L.edge!, L.oldButJustImported!]));
+    expect(all).toEqual([L.recent, L.recent2]);
+  });
+
   it('never another company\'s lines, even named by its bank account', async () => {
     const ids = await asUser(user, C.id, () => selectSweepLineIds(C.id, other.bank, { recentDays: 30, maxLines: 200 }));
     expect(ids).toEqual([]);

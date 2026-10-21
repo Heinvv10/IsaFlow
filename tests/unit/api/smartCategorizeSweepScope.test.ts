@@ -53,9 +53,11 @@ beforeEach(() => {
 });
 
 describe('account sweep', () => {
-  it('the residual pass reads only the lines the sweep took', async () => {
+  it('the residual pass reads only the lines the sweep tried for the first time', async () => {
     m.smartCategorizeForAccount.mockResolvedValue({
-      categorized: 1, skipped: 1, results: [{ transactionId: 't1', result: {} }, { transactionId: 't2', result: null }],
+      categorized: 1, skipped: 2,
+      results: [{ transactionId: 't1', result: {} }, { transactionId: 't2', result: null }, { transactionId: 't3', result: null }],
+      firstAttemptTxIds: ['t1', 't2'], // t3 was tried (and left unsuggested) by an earlier click
     });
     m.sql.mockImplementation(async (_s: TemplateStringsArray, ...vals: unknown[]) =>
       (vals[0] as string[]).map((id) => ({ id, status: 'imported', suggestedGlAccountId: null, suggestedConfidence: null })));
@@ -66,6 +68,7 @@ describe('account sweep', () => {
     expect(text).not.toMatch(/bank_account_id/);
     expect(m.sql.mock.calls[0]![1]).toEqual(['t1', 't2']);
     expect(m.buildRunDeps).toHaveBeenCalledWith(CO, 'u1', ['t1', 't2']);
+    expect((r.body as { data: Record<string, unknown> }).data).not.toHaveProperty('firstAttemptTxIds');
   });
 });
 
