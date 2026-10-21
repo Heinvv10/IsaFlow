@@ -28,6 +28,19 @@ function verifyAnswers(data: Record<string, unknown>) {
 describe('Paystack mandate return page', () => {
   beforeEach(() => { mocked.mockReset(); });
 
+  it('polls verify by POST with the ref in a JSON body, never in the URL (K-202)', async () => {
+    verifyAnswers({ status: 'active', mandateId: 'm1' });
+
+    render(<PaystackMandateReturn />);
+
+    await waitFor(() => expect(screen.getByText('Mandate active')).toBeDefined());
+    expect(mocked).toHaveBeenCalledTimes(1);
+    const [url, init] = mocked.mock.calls[0] as [string, RequestInit | undefined];
+    expect(url).toBe('/api/billing/paystack/mandate/verify');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toEqual({ ref: 'k095ref' });
+  });
+
   it('offers "Back to billing", not a retry, when the card was charged but nothing attached', async () => {
     verifyAnswers({ status: 'failed', mandateId: null, failureReason: 'authorisation_blocked' });
 

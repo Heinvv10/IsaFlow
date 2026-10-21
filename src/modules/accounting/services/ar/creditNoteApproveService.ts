@@ -216,7 +216,7 @@ export async function approveCreditNote(
     // DERIVED from what was consumed, never chosen: 'partially_applied' is the
     // state a note spread across some but not all of its face value is in, and
     // it is the state every statement and ledger reader now distinguishes.
-    const finalStatus = deriveCreditNoteStatus(appliedAmount, Number(cn.total_amount));
+    const finalStatus = deriveCreditNoteStatus(appliedAmount, Number(cn.total_amount), side);
     const updatedRows = (await afterJournalWritten(noteNumber, () => sql`
       UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,
         approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID,

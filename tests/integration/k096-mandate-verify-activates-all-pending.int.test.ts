@@ -30,6 +30,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { als } from '@/lib/als';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 
 // Paystack says the authorisation succeeded. No network.
 vi.mock('@/modules/billing/services/paystackClient', () => ({
@@ -122,10 +123,12 @@ describeIfDb('K-096 mandate verify must activate only the mandate it authorised'
           try {
             await route(
               {
-                method: 'GET',
-                query: { ref: REF },
+                method: 'POST',
+                query: {},
+                body: { ref: REF },
                 headers: {},
                 companyId: COMPANY,
+                companyRole: 'owner',
                 user: { id: 'k096' },
               } as unknown as NextApiRequest,
               res,

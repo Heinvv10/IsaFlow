@@ -28,7 +28,7 @@ import {
   reverseCreditNoteApplications,
 } from '../shared/creditNoteFifo';
 import { lockInvoicesForUpdate, UNAPPLICABLE_STATUSES } from '../shared/creditNoteApplicationWrites';
-import { EPS, round2 } from '../shared/autoAllocateStrategy';
+import { round2 } from '../shared/autoAllocateStrategy';
 import { mapRow } from './creditNoteMapper';
 import { lockInvoiceCreditNotes } from './creditNotePostingChecks';
 import { recordLateLinkExcess } from './invoiceRevenuePosting';
@@ -253,7 +253,8 @@ export async function applyCreditNoteToInvoice(
   const alreadyApplied = round2(Number(cn.applied_amount ?? 0));
   const available = round2(Number(cn.total_amount) - alreadyApplied);
   const applyAmount = round2(Math.min(available, outstanding));
-  if (applyAmount <= EPS) throw new Error('Invoice has no outstanding balance');
+  // Whole cents: a credit note may clear a one-cent remnant (the invoice reads 'partially_paid' until it does).
+  if (applyAmount <= 0) throw new Error('Invoice has no outstanding balance');
 
   // The allocation row, then the money: a row that exists without the balance
   // move is the one inconsistency `credit_note_allocations` was added to make
@@ -271,7 +272,7 @@ export async function applyCreditNoteToInvoice(
   const nowApplied = round2(alreadyApplied + applyAmount);
   const appliedRows = (await sql`
     UPDATE credit_notes
-    SET status = ${deriveCreditNoteStatus(nowApplied, Number(cn.total_amount))},
+    SET status = ${deriveCreditNoteStatus(nowApplied, Number(cn.total_amount), 'customer')},
         customer_invoice_id = COALESCE(customer_invoice_id, ${invoiceId}::UUID), updated_at = NOW(),
         applied_amount = ${nowApplied}
     WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
