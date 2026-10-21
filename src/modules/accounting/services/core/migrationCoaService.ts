@@ -115,7 +115,8 @@ export async function importChartOfAccounts(
 
             const { isSystem, explicitSubtype, accountSubtype, defaulted } = importRowSubtype(acct, systemAccountMap);
             if (defaulted) {
-              errors.push({ step: 'coa', row: i, field: 'accountSubtype',
+              // The row imports: a warning (MigrationError.severity), not a refusal.
+              errors.push({ step: 'coa', row: i, field: 'accountSubtype', severity: 'warning',
                 message: `No subtype given; imported as ${accountSubtype} (an existing classification is kept). Reclassify cost-of-sales accounts before reporting.` });
             }
             // A row's own subtype goes through the same gate as every other write
@@ -167,7 +168,7 @@ export async function importChartOfAccounts(
             const keptSubtype = written?.account_subtype == null ? null : String(written.account_subtype);
             if (written && !isSystem && (written.account_type !== acct.accountType
               || (explicitSubtype !== null && keptSubtype !== explicitSubtype))) {
-              errors.push({ step: 'coa', row: i, field: 'accountType',
+              errors.push({ step: 'coa', row: i, field: 'accountType', severity: 'warning',
                 message: `Account ${acct.accountCode} is a system account: its name was updated, its type and subtype (${String(written.account_type)} / ${keptSubtype ?? 'none'}) were kept.` });
             }
             imported++;

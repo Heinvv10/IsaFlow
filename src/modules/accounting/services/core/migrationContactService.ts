@@ -44,6 +44,15 @@ export interface SupplierImportRow {
 
 export type DuplicateStrategy = 'skip' | 'overwrite' | 'merge';
 
+/**
+ * How an imported name finds an existing contact. 'similar' (the wizard's
+ * default, for hand-kept files) also takes a near spelling (Dice >= 0.8);
+ * 'exact' takes the same name only (case and outer spaces aside), for a
+ * source like Sage whose names are already the system's own — a near match
+ * there is a DIFFERENT contact.
+ */
+export type ContactNameMatch = 'similar' | 'exact';
+
 // ── Customers ────────────────────────────────────────────────────────────────
 
 export async function importCustomers(
@@ -51,6 +60,7 @@ export async function importCustomers(
   sessionId: string,
   customers: CustomerImportRow[],
   duplicateStrategy: DuplicateStrategy = 'skip',
+  nameMatch: ContactNameMatch = 'similar',
 ): Promise<ImportResult> {
   const errors: MigrationError[] = [];
   let imported = 0;
@@ -70,7 +80,7 @@ export async function importCustomers(
     }
 
     try {
-      const duplicate = findDuplicate(cust.name, existing);
+      const duplicate = findDuplicate(cust.name, existing, nameMatch);
 
       if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
 
@@ -123,6 +133,7 @@ export async function importSuppliers(
   duplicateStrategy: DuplicateStrategy,
   /** R-035 PR5: an overwrite that changes bank details makes them an author of the supplier's unpaid payments. */
   importedBy: string,
+  nameMatch: ContactNameMatch = 'similar',
 ): Promise<ImportResult> {
   const errors: MigrationError[] = [];
   let imported = 0;
@@ -143,7 +154,7 @@ export async function importSuppliers(
     }
 
     try {
-      const duplicate = findDuplicate(sup.name, existing);
+      const duplicate = findDuplicate(sup.name, existing, nameMatch);
 
       if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
 
@@ -169,10 +180,13 @@ export async function importSuppliers(
         continue;
       }
 
+      // suppliers has `address`, not customers' `billing_address`: naming the
+      // latter failed every new supplier (42703) and, with no savepoint per row,
+      // aborted the request's transaction.
       const [created] = (await sql`
         INSERT INTO suppliers (
           company_id, name, email, phone, vat_number, registration_number,
-          billing_address, contact_person, payment_terms,
+          address, contact_person, payment_terms,
           bank_name, bank_account_number, bank_branch_code, bank_account_type, notes
         ) VALUES (
           ${companyId}::UUID, ${sup.name}, ${sup.email ?? null}, ${sup.phone ?? null},
@@ -204,10 +218,11 @@ export async function importSuppliers(
 function findDuplicate(
   name: string,
   existing: Array<{ id: string; name: string }>,
+  nameMatch: ContactNameMatch,
 ): { id: string; name: string } | null {
   const normalized = name.toLowerCase().trim();
   const exact = existing.find(e => e.name.toLowerCase().trim() === normalized);
-  if (exact) return exact;
+  if (exact || nameMatch === 'exact') return exact ?? null;
 
   for (const e of existing) {
     if (diceCoefficient(normalized, e.name.toLowerCase().trim()) >= 0.8) return e;
