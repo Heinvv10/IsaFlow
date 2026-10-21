@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 type Row = Record<string, unknown>;
 
@@ -73,6 +74,8 @@ async function handleExport(req: NextApiRequest, res: NextApiResponse) {
 async function handleErasure(req: NextApiRequest, res: NextApiResponse) {
   const companyReq = req as CompanyAuthedRequest;
   const userId = companyReq.user.id;
+  // Irreversible: an administrator impersonating this user must not erase them.
+  await assertNotImpersonating();
 
   const placeholder = `anonymized_${userId.slice(0, 8)}`;
 
@@ -82,11 +85,17 @@ async function handleErasure(req: NextApiRequest, res: NextApiResponse) {
   // can switch role or forge request.jwt.claims mid-statement. userId is the
   // verified session's, not auth.uid(). It commits on its own, which is safe for
   // an idempotent erasure that is this handler's last write.
-  await getDbPool().query(
+  const erased = await getDbPool().query(
     `UPDATE users SET first_name = 'Anonymized', last_name = $2, email = $3, updated_at = NOW()
       WHERE id = $1`,
     [userId, placeholder, `${placeholder}@deleted.invalid`],
   );
+  // Never answer "anonymized" for a write that matched nothing: no profile row,
+  // or a pool role that FORCE RLS on users filters out.
+  if (erased.rowCount !== 1) {
+    log.error('Data subject erasure matched no users row', { userId, rowCount: erased.rowCount }, 'data-subject-rights');
+    throw new Error('Data subject erasure did not update the profile');
+  }
 
   log.info('Data subject erasure completed', { userId }, 'data-subject-rights');
 
