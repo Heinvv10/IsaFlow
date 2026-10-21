@@ -93,21 +93,47 @@ export async function listCompanyUsers(companyId: string): Promise<CompanyUserRe
   }));
 }
 
+/** S-04: a non-owner tried to change or remove an owner. The route answers 403. */
+export class OwnerProtectedError extends Error {
+  constructor() {
+    super('Only an owner can change or remove another owner.');
+    this.name = 'OwnerProtectedError';
+  }
+}
+
+// The target's role, read under its row lock so it cannot change between this
+// check and the write (an owner promoting the target while an admin demotes
+// it). When the target is an owner, also take the per-company owner lock the
+// member role guard takes (migs 883/886), after the row lock as the trigger
+// does, so the last-owner count below is the one the write is judged by.
+async function lockTargetRole(
+  companyId: string,
+  userId: string,
+  actorRole: string,
+): Promise<string | undefined> {
+  const rows = (await sql`
+    SELECT role FROM company_users
+    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
+    FOR UPDATE
+  `) as DbRow[];
+  const role = rows[0]?.role as string | undefined;
+  if (role !== 'owner') return role;
+  if (actorRole !== 'owner') throw new OwnerProtectedError();
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`company_owners:${companyId}`}, 0))`;
+  return role;
+}
+
 export async function updateCompanyUserRole(
   companyId: string,
   userId: string,
   newRole: string,
+  actorRole: string,
 ): Promise<void> {
   if (!isValidRole(newRole)) {
     throw new Error(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`);
   }
 
-  const currentRows = (await sql`
-    SELECT role FROM company_users
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
-  `) as DbRow[];
-
-  const currentRole = currentRows[0]?.role as string | undefined;
+  const currentRole = await lockTargetRole(companyId, userId, actorRole);
   if (currentRole === 'owner' && newRole !== 'owner') {
     const ownerCount = await countOwners(companyId);
     if (ownerCount <= 1) {
@@ -123,13 +149,8 @@ export async function updateCompanyUserRole(
   log.info('Company user role updated', { companyId, userId, newRole }, 'accounting');
 }
 
-export async function removeCompanyUser(companyId: string, userId: string): Promise<void> {
-  const rows = (await sql`
-    SELECT role FROM company_users
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
-  `) as DbRow[];
-
-  if ((rows[0]?.role as string | undefined) === 'owner') {
+export async function removeCompanyUser(companyId: string, userId: string, actorRole: string): Promise<void> {
+  if ((await lockTargetRole(companyId, userId, actorRole)) === 'owner') {
     const ownerCount = await countOwners(companyId);
     if (ownerCount <= 1) {
       throw new Error('Cannot remove the last owner of the company.');
