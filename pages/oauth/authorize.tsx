@@ -14,7 +14,9 @@ import { useState, type FormEvent } from 'react';
 import Image from 'next/image';
 import type { GetServerSideProps } from 'next';
 import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
-import { getOauthAppByClientId, OAUTH_SCOPES } from '@/lib/auth/oauth';
+import { getOauthAppByClientId } from '@/lib/auth/oauth';
+import { resolveAuthorizeScopes } from '@/lib/auth/authorizeScopes';
+import { authorizationErrorRedirect, checkResourceIndicator, oauthIssuer } from '@/lib/auth/oauthResource';
 import { ConsentScopeList } from '@/components/oauth/ConsentScopeList';
 import { ConsentCompanyPicker } from '@/components/oauth/ConsentCompanyPicker';
 import { ConsentRejected } from '@/components/oauth/ConsentRejected';
@@ -22,41 +24,14 @@ import { ConsentRedirectTarget } from '@/components/oauth/ConsentRedirectTarget'
 import { partitionRequestedScopes } from '@/lib/auth/consentScopes';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { parseCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
-import { resolveConsentCompany, type ConsentCompany } from '@/lib/auth/consentCompany';
+import { resolveConsentCompany } from '@/lib/auth/consentCompany';
 import { getUserCompanies } from '@/modules/accounting/services/core/companyService';
 import { verifyToken } from '@/lib/auth/gotrue';
 import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
 import { consentAppView } from '@/lib/auth/consentAppView';
 import { rejectionForUnknownScope } from '@/lib/auth/consentRejection';
 import { log } from '@/lib/logger';
-
-interface ConsentApp {
-  name: string;
-  description: string | null;
-  logoUrl: string | null;
-  homepageUrl: string | null;
-  isVerified: boolean;
-}
-
-interface Props {
-  ok: true;
-  app: ConsentApp;
-  clientId: string;
-  redirectUri: string;
-  scopes: string[];
-  state: string;
-  codeChallenge: string;
-  codeChallengeMethod: 'S256';
-  /** Memberships this user may grant against — resolved server-side. */
-  companies: ConsentCompany[];
-  /** Pre-selected company (active company when it is a membership). */
-  selectedCompanyId: string;
-}
-
-interface ErrorProps {
-  ok: false;
-  error: string;
-}
+import type { AuthorizePageProps as Props, AuthorizePageErrorProps as ErrorProps } from '@/lib/auth/authorizePageProps';
 
 
 export default function AuthorizePage(props: Props | ErrorProps) {
@@ -71,7 +46,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
 
   if (!props.ok) return <ConsentRejected error={props.error} />;
 
-  const { app, clientId, redirectUri, scopes, state, codeChallenge, codeChallengeMethod, companies } = props;
+  const { app, clientId, redirectUri, scopes, state, codeChallenge, codeChallengeMethod, companies, resource, issuer } = props;
 
   // Posting scopes (write:post) are opt-in: shown UNCHECKED even when the
   // client requested them, and granted only if the user actively ticks them.
@@ -97,6 +72,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
           state,
           codeChallenge,
           codeChallengeMethod,
+          ...(resource ? { resource } : {}),
           // Pin the grant to the company chosen here. consent.ts re-checks
           // membership on this value — the picker is UX, not the boundary.
           companyId,
@@ -116,10 +92,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   };
 
   const onCancel = () => {
-    const url = new URL(redirectUri);
-    url.searchParams.set('error', 'access_denied');
-    if (state) url.searchParams.set('state', state);
-    window.location.href = url.toString();
+    window.location.href = authorizationErrorRedirect(redirectUri, 'access_denied', state, issuer);
   };
 
   return (
@@ -225,8 +198,6 @@ export default function AuthorizePage(props: Props | ErrorProps) {
   );
 }
 
-const VALID_SCOPES = new Set<string>(OAUTH_SCOPES);
-
 export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async (ctx) => {
   // Auth gate — if the user has no valid session cookie, bounce to /login
   // with a returnTo so they come straight back here after signing in.
@@ -264,21 +235,31 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
     return { props: { ok: false, error: 'redirect_uri is not registered for this app' } };
   }
 
-  const scopes = scopeStr.split(/[\s,]+/).filter(Boolean);
-  for (const s of scopes) {
-    if (!VALID_SCOPES.has(s)) {
-      // The token goes to the log, never to the page — see consentRejection.ts.
-      // BOTH values are truncated: each is attacker-chosen and neither is
-      // length-capped on the way in (clientId comes straight off q.client_id).
-      log.warn(
-        'OAuth consent: unknown scope requested',
-        { clientId: clientId.slice(0, 120), scope: s.slice(0, 120) },
-        'oauth',
-      );
-      return { props: { ok: false, error: rejectionForUnknownScope(s) } };
-    }
+  // RFC 8707: only now that redirect_uri is a registered one may an error go
+  // back to it — invalid_target as an error redirect (oauthResource.ts).
+  const issuer = oauthIssuer();
+  const resourceCheck = checkResourceIndicator(q.resource);
+  if (!resourceCheck.ok) {
+    const destination = authorizationErrorRedirect(redirectUri, 'invalid_target', state, issuer);
+    return { redirect: { destination, permanent: false } };
   }
-  if (scopes.length === 0) return { props: { ok: false, error: 'At least one scope must be requested' } };
+  const resource = typeof q.resource === 'string' && q.resource ? q.resource : null;
+
+  // Absent/empty scope → the read-only default; openid/profile/email dropped;
+  // any other unknown scope refuses (authorizeScopes.ts).
+  const resolved = resolveAuthorizeScopes(scopeStr);
+  if (!resolved.ok) {
+    // The token goes to the log, never to the page — see consentRejection.ts.
+    // BOTH values are truncated: each is attacker-chosen and neither is
+    // length-capped on the way in (clientId comes straight off q.client_id).
+    log.warn(
+      'OAuth consent: unknown scope requested',
+      { clientId: clientId.slice(0, 120), scope: resolved.unknownScope.slice(0, 120) },
+      'oauth',
+    );
+    return { props: { ok: false, error: rejectionForUnknownScope(resolved.unknownScope) } };
+  }
+  const scopes = resolved.scopes;
 
   // The grant is pinned to ONE company for the life of the token, so the user
   // has to see (and for a multi-company user, choose) which one. Options come
@@ -301,6 +282,8 @@ export const getServerSideProps: GetServerSideProps<Props | ErrorProps> = async 
       state,
       codeChallenge,
       codeChallengeMethod: 'S256',
+      resource,
+      issuer,
     },
   };
 };
