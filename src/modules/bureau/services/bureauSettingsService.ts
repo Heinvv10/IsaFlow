@@ -44,7 +44,7 @@ export async function getBureauSharingSetting(bureauId: string, historyLimit = 1
     SELECT a.id, a.created_at, a.actor_user_id, a.old_value, a.new_value,
            COALESCE(NULLIF(btrim(concat_ws(' ', u.first_name, u.last_name)), ''), u.email) AS actor_name
     FROM bureau_audit_log a
-    LEFT JOIN users u ON u.id = a.actor_user_id
+    LEFT JOIN users u ON u.id = a.actor_user_id::TEXT
     WHERE a.bureau_id = ${bureauId}::UUID AND a.setting = 'share_merchant_patterns'
     ORDER BY a.created_at DESC, a.id DESC
     LIMIT ${historyLimit}
