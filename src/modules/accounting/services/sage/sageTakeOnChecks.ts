@@ -7,46 +7,46 @@
  *     currency than the IsaFlow company's functional currency blocks.
  *   - Financial year: the opening trial balance is Sage's as at today, so it
  *     carries this year's income and expenses to date. That is only right when
- *     Sage's year and IsaFlow's start in the same month; otherwise it blocks.
+ *     IsaFlow's fiscal year holding the cut-over date (its fiscal_periods)
+ *     starts on the day Sage's does; otherwise, or with no period, it blocks.
  *   - Closed periods: the opening balances post on the cut-over date and each
  *     unpaid document on its own date. A date in a closed or locked IsaFlow
  *     period would refuse the whole import at posting time, so each such
  *     period is named up front, with what to do about it.
  */
 import type { SagePull } from './sageApiTypes';
+import { currencyRule, type CurrencyRule } from './sageCurrency';
 import type { TakeOnContext, TakeOnIssue } from './sageTakeOnTypes';
 
 /** The currency symbol Sage shows for each functional currency the take-on supports. */
 const HOME_SYMBOLS: Record<string, string> = { ZAR: 'R' };
 
-const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-
-/** The symbol contacts and documents are compared with; null when the company itself is refused. */
-export function checkCurrency(pull: SagePull, ctx: TakeOnContext, issues: TakeOnIssue[]): string | null {
+/** The rule contacts and documents are judged by; refusing the company itself is an issue here. */
+export function checkCurrency(pull: SagePull, ctx: TakeOnContext, issues: TakeOnIssue[]): CurrencyRule {
+  const rule = (symbol: string) => currencyRule(ctx.homeCurrency || 'ZAR', symbol, pull.currencies);
   const home = HOME_SYMBOLS[ctx.homeCurrency.toUpperCase()];
   if (!home) {
     const books = ctx.homeCurrency ? `keeps its books in ${ctx.homeCurrency}` : 'has no currency set';
     issues.push({ severity: 'error', area: 'company', message: `This IsaFlow company ${books}. Import from Sage supports companies whose currency is ZAR; use the file upload instead.` });
-    return null;
+    return rule(pull.company.currencySymbol ?? 'R');
   }
   const sage = pull.company.currencySymbol?.trim();
   if (sage && sage.toLowerCase() !== home.toLowerCase()) {
     issues.push({ severity: 'error', area: 'company', message: `The Sage company "${pull.company.name}" keeps its books in ${sage}, but this IsaFlow company is in ${ctx.homeCurrency}. Choose the matching Sage company, or use the file upload.` });
-    return null;
   }
-  return home;
+  return rule(home);
 }
 
 export function checkFinancialYear(pull: SagePull, ctx: TakeOnContext, issues: TakeOnIssue[]): void {
-  const sageMonth = Number(pull.financialYearStart.slice(5, 7));
-  if (ctx.fiscalYearStartMonth === null) {
-    issues.push({ severity: 'error', area: 'company', message: `This IsaFlow company has no financial year start set. Set it in Company settings (Sage's year starts in ${MONTH_NAMES[sageMonth - 1] ?? pull.financialYearStart}), then review again.` });
+  const sage = pull.financialYearStart;
+  if (ctx.fiscalYear === null) {
+    issues.push({ severity: 'error', area: 'company', message: `IsaFlow has no fiscal period covering ${pull.asAtDate}, the cut-over date, so the opening balances have no year to land in. Create this financial year under Fiscal Periods, starting on ${sage} as Sage's does, then review again.` });
     return;
   }
-  if (sageMonth !== ctx.fiscalYearStartMonth) {
+  if (ctx.fiscalYear.startDate !== sage) {
     issues.push({
       severity: 'error', area: 'company',
-      message: `Sage's financial year starts in ${MONTH_NAMES[sageMonth - 1] ?? pull.financialYearStart} but this IsaFlow company's starts in ${MONTH_NAMES[ctx.fiscalYearStartMonth - 1]}. The opening balances include this year's income and expenses to date, which only belong in IsaFlow's year if both start in the same month. Correct the financial year in IsaFlow's Company settings (or in Sage), then review again.`,
+      message: `Sage's financial year started on ${sage}, but IsaFlow's fiscal year holding ${pull.asAtDate} runs from ${ctx.fiscalYear.startDate} to ${ctx.fiscalYear.endDate}. The opening balances include this year's income and expenses from ${sage}, which belong in IsaFlow's year only if both start on the same day. Line IsaFlow's fiscal periods up with Sage's year under Fiscal Periods (or correct the year in Sage), then review again.`,
     });
   }
 }

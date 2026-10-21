@@ -10,7 +10,8 @@
  * Nothing is written to the ledger here.
  *
  * Refused up front (400): the connection is off, the company already has a
- * take-on, a read is already running for it, or every pull slot is busy.
+ * take-on, a read is already running for it (or still stopping), or every
+ * pull slot is busy.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -19,7 +20,7 @@ import { runAfterCommit } from '@/lib/afterCommit';
 import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { BUSY_MESSAGE, pullSlotFree, runSagePull } from '@/modules/accounting/services/sage/sagePullJob';
+import { pullSlotRefusal, runSagePull } from '@/modules/accounting/services/sage/sagePullJob';
 import { findPriorTakeOn } from '@/modules/accounting/services/sage/sageTakeOnContext';
 import { SagePullRefused, startPull } from '@/modules/accounting/services/sage/sageTakeOnStore';
 import {
@@ -42,7 +43,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const prior = await findPriorTakeOn(companyId);
   if (prior) return apiResponse.badRequest(res, prior, { sageError: 'already_imported' });
-  if (!pullSlotFree()) return apiResponse.badRequest(res, BUSY_MESSAGE, { sageError: 'busy' });
+  const busy = pullSlotRefusal(companyId);
+  if (busy) return apiResponse.badRequest(res, busy, { sageError: 'busy' });
 
   const asAtDate = todayInSouthAfrica();
   let pullId: string;

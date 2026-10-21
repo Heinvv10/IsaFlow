@@ -87,12 +87,14 @@ export async function startPull(
   return String(rows[0]!.id);
 }
 
-/** Job: a sign of life, with the step under way. */
-export async function touchPull(companyId: string, pullId: string, progress?: string): Promise<void> {
-  await sql`
+/** Job: a sign of life, with the step under way. False when the row is no longer 'pulling': the job stops. */
+export async function touchPull(companyId: string, pullId: string, progress?: string): Promise<boolean> {
+  const rows = (await sql`
     UPDATE sage_connect_pulls SET heartbeat_at = NOW(), progress = COALESCE(${progress ?? null}, progress)
     WHERE id = ${pullId}::UUID AND company_id = ${companyId}::UUID AND status = 'pulling'
-  `;
+    RETURNING id
+  `) as DbRow[];
+  return rows.length === 1;
 }
 
 /** Job: the pull is in. False when the row stopped being 'pulling' meanwhile. */

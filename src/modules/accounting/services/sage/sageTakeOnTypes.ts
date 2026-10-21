@@ -19,8 +19,13 @@ export interface TakeOnContext {
   existingRoles: Partial<Record<SystemRole, { code: string; name: string; type: GLAccountType }>>;
   /** companies.functional_currency, e.g. 'ZAR'. */
   homeCurrency: string;
-  /** companies.financial_year_start (1-12); null when it is not set to a month. */
-  fiscalYearStartMonth: number | null;
+  /**
+   * IsaFlow's fiscal year holding the cut-over date, from fiscal_periods (its
+   * first period's start, its last period's end); null when no period covers
+   * the date. Not companies.financial_year_start: every company declares 3
+   * there while its periods start on 1 January.
+   */
+  fiscalYear: { startDate: string; endDate: string } | null;
   /** The periods nothing can be posted into: status closed or locked. */
   closedPeriods: readonly ClosedPeriod[];
 }

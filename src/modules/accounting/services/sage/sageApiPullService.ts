@@ -15,15 +15,26 @@
  * paged calls): the outstanding lists carry a DocumentTypeId whose values Sage
  * does not document, and a credit note taken on as an invoice would be wrong.
  */
-import { SageApiError, type SageApiClient } from './sageApiClient';
+import { SageApiError, type SageApiClient, type SageCallGuard } from './sageApiClient';
 import type {
-  SageAccount, SageBankAccount, SageCompanySummary, SageCustomer, SageFinancialYear, SageInvoiceRef,
+  SageAccount, SageBankAccount, SageCompanySummary, SageCurrency, SageCustomer, SageFinancialYear, SageInvoiceRef,
   SageOutstandingDocument, SagePaged, SagePull, SageSupplier, SageTrialBalanceLine,
 } from './sageApiTypes';
 
-export const MAX_CONTACTS_WITH_BALANCES = 600;
-/** 50 paged calls per list; beyond it the file upload is the better route. */
-export const MAX_OUTSTANDING_INVOICES = 5000;
+/**
+ * What one import can take on inside one request (Cloudflare cuts it at 100 s):
+ * the take-on posts one wizard document + journal per unpaid invoice and one
+ * balance-brought-forward per contact short of documents, so the worst case is
+ * MAX_OUTSTANDING_INVOICES + MAX_CONTACTS_WITH_BALANCES = 600 documents. Measured
+ * on the one-cluster integration harness, 2026-10-21, box load 15-25 (uptime):
+ * 600 documents / 300 contacts ~10 s, 900 ~25 s, 1 200 ~58 s, 2 400 ~73 s,
+ * 5 000 did not finish in 900 s. The growth is faster than linear, so the caps
+ * sit where the worst case has ~7x headroom. A bigger company uses the file
+ * upload (Migration Wizard), which takes documents in batches.
+ */
+export const MAX_CONTACTS_WITH_BALANCES = 300;
+/** Unpaid customer invoices and supplier bills together. */
+export const MAX_OUTSTANDING_INVOICES = 300;
 
 export type PullStep = 'company' | 'accounts' | 'trial_balance' | 'customers' | 'suppliers' | 'documents';
 
@@ -55,12 +66,22 @@ export class SagePullTooLargeError extends Error {
   }
 }
 
-const TOO_BIG = (what: string, n: number) => new SagePullTooLargeError(`This Sage company has more than ${n} ${what} — more than one connection can read within Sage's limits. Use the file upload for this company, or ask IsaFlow support to run it for you.`);
+const TOO_BIG = (what: string, n: number) => new SagePullTooLargeError(`This Sage company has more than ${n} ${what} — more than Import from Sage takes on in one go. Use the Migration Wizard's file upload (Accounting → Migration) for this company: it takes Sage's reports in batches.`);
+
+/** Currency/Get, or null on an API build that does not answer it (any CurrencyId then blocks: sageCurrency). */
+async function currenciesOf(client: ReturnType<SageApiClient['forCompany']>): Promise<SageCurrency[] | null> {
+  try {
+    return (await client.getAll<SageCurrency>('Currency/Get')).map((c) => ({ ID: c.ID, Code: c.Code, Symbol: c.Symbol }));
+  } catch (err) {
+    if (err instanceof SageApiError && err.kind === 'bad_response') return null;
+    throw err;
+  }
+}
 
 /** The still-owed rows of an invoice list, as references. */
 async function outstandingInvoices(client: ReturnType<SageApiClient['forCompany']>, path: string): Promise<SageInvoiceRef[]> {
   const rows = await client.getAll<SageInvoiceRef>(path, { $filter: 'AmountDue gt 0' }, MAX_OUTSTANDING_INVOICES);
-  if (rows.length > MAX_OUTSTANDING_INVOICES) throw TOO_BIG('unpaid invoices', MAX_OUTSTANDING_INVOICES);
+  if (rows.length > MAX_OUTSTANDING_INVOICES) throw TOO_BIG('unpaid invoices and bills', MAX_OUTSTANDING_INVOICES);
   return rows.map((r) => ({ ID: r.ID, DocumentNumber: r.DocumentNumber }));
 }
 
@@ -69,8 +90,10 @@ export async function pullSageCompany(
   sageCompanyId: number,
   asAtDate: string,
   onProgress: (step: PullStep) => void = () => {},
+  /** Asked before every Sage call (page, retry): the job stops a read whose row was discarded. */
+  guard?: SageCallGuard,
 ): Promise<SagePull> {
-  const client = api.forCompany(sageCompanyId);
+  const client = api.forCompany(sageCompanyId, guard);
 
   onProgress('company');
   const company = await client.get<SageCompanySummary>(`Company/Get/${sageCompanyId}`);
@@ -80,6 +103,7 @@ export async function pullSageCompany(
   onProgress('accounts');
   const accounts = await accountsOf(client);
   const bankAccounts = await client.getAll<SageBankAccount>('BankAccount/Get');
+  const currencies = await currenciesOf(client);
 
   onProgress('trial_balance');
   const trialBalance = rows(await client.post<SagePaged<SageTrialBalanceLine> | SageTrialBalanceLine[]>('TrialBalance/Export', {
@@ -94,7 +118,7 @@ export async function pullSageCompany(
 
   const owing = [...customers, ...suppliers].filter((c) => c.Balance > 0.005);
   if (owing.length > MAX_CONTACTS_WITH_BALANCES) {
-    throw new SagePullTooLargeError(`This Sage company has ${owing.length} customers and suppliers with open balances — more than one connection can read within Sage's limits. Use the file upload for this company, or ask IsaFlow support to run it for you.`);
+    throw new SagePullTooLargeError(`This Sage company has ${owing.length} customers and suppliers with open balances, more than the ${MAX_CONTACTS_WITH_BALANCES} Import from Sage takes on in one go. Use the Migration Wizard's file upload (Accounting → Migration) for this company: it takes Sage's reports in batches.`);
   }
 
   onProgress('documents');
@@ -102,6 +126,9 @@ export async function pullSageCompany(
   const suppliersOwed = suppliers.filter((x) => x.Balance > 0.005);
   const customerInvoices = customersOwing.length > 0 ? await outstandingInvoices(client, 'TaxInvoice/Get') : [];
   const supplierInvoices = suppliersOwed.length > 0 ? await outstandingInvoices(client, 'SupplierInvoice/Get') : [];
+  if (customerInvoices.length + supplierInvoices.length > MAX_OUTSTANDING_INVOICES) {
+    throw TOO_BIG('unpaid invoices and bills', MAX_OUTSTANDING_INVOICES);
+  }
   const customerDocuments: Record<number, SageOutstandingDocument[]> = {};
   for (const c of customersOwing) {
     customerDocuments[c.ID] = rows(await client.post<SagePaged<SageOutstandingDocument> | SageOutstandingDocument[]>(
@@ -130,5 +157,6 @@ export async function pullSageCompany(
     supplierDocuments,
     customerInvoices,
     supplierInvoices,
+    currencies,
   };
 }

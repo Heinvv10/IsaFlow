@@ -83,7 +83,11 @@ interface SageContactBase {
   PostalAddress03?: string;
   PostalAddress04?: string;
   PostalAddress05?: string;
-  /** The contact's own currency (multi-currency companies); the home currency otherwise. */
+  /**
+   * The contact's own currency on a multi-currency company: an id into
+   * Currency/Get. How Sage reports a home-currency contact (null, 0, or the
+   * home currency's own id) is not documented; sageCurrency handles all three.
+   */
   CurrencyId?: number | null;
   CurrencySymbol?: string | null;
 }
@@ -110,6 +114,16 @@ export interface SageOutstandingDocument {
   /** Rate to the home currency of a foreign-currency document (1 or absent in the home currency). */
   Customer_ExchangeRate?: number | null;
   Supplier_ExchangeRate?: number | null;
+  Customer_CurrencyId?: number | null;
+  Supplier_CurrencyId?: number | null;
+}
+
+/** One row of Currency/Get: the currencies a multi-currency company has set up. */
+export interface SageCurrency {
+  ID: number;
+  Code: string;
+  Description?: string;
+  Symbol?: string;
 }
 
 /** One still-owed row of TaxInvoice/Get or SupplierInvoice/Get: what makes a document an invoice. */
@@ -134,4 +148,6 @@ export interface SagePull {
   /** Tax invoices / supplier invoices with AmountDue > 0; read only when some contact carries a balance. */
   customerInvoices: SageInvoiceRef[];
   supplierInvoices: SageInvoiceRef[];
+  /** Currency/Get, or null when this Sage build does not answer it (then any CurrencyId set blocks). */
+  currencies: SageCurrency[] | null;
 }

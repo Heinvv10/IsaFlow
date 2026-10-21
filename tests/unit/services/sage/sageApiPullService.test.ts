@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pullSageCompany, MAX_CONTACTS_WITH_BALANCES, MAX_OUTSTANDING_INVOICES } from '@/modules/accounting/services/sage/sageApiPullService';
+import { pullSageCompany, MAX_CONTACTS_WITH_BALANCES, MAX_OUTSTANDING_INVOICES, SagePullTooLargeError } from '@/modules/accounting/services/sage/sageApiPullService';
 import { SageApiError, type SageApiClient, type SageCompanyClient } from '@/modules/accounting/services/sage/sageApiClient';
 
 function fakeClient(over: Partial<Record<string, unknown>> = {}) {
@@ -17,6 +17,7 @@ function fakeClient(over: Partial<Record<string, unknown>> = {}) {
     'OutstandingSupplierDocument/Get': [],
     'TaxInvoice/Get': [{ ID: 10, DocumentNumber: 'INV1', AmountDue: 100, Total: 100 }],
     'SupplierInvoice/Get': [],
+    'Currency/Get': [{ ID: 4, Code: 'USD', Symbol: '$' }],
     ...over,
   };
   const answer = (path: string) => {
@@ -104,5 +105,32 @@ describe('pullSageCompany', () => {
   it('refuses a company with more outstanding invoices than one pull can read', async () => {
     const many = Array.from({ length: MAX_OUTSTANDING_INVOICES + 1 }, (_, i) => ({ ID: i, DocumentNumber: `I${i}`, AmountDue: 1, Total: 1 }));
     await expect(pullSageCompany(fakeClient({ 'TaxInvoice/Get': many }).client, 9, '2026-10-21')).rejects.toThrow(/file upload/i);
+  });
+
+  // R8: the contact's CurrencyId means nothing without Sage's currency list.
+  it('reads the currency list, and gives null where this Sage build has none', async () => {
+    expect((await pullSageCompany(fakeClient().client, 9, '2026-10-21')).currencies).toEqual([{ ID: 4, Code: 'USD', Symbol: '$' }]);
+    const { client } = fakeClient({ 'Currency/Get': new SageApiError('bad_response', 404) });
+    expect((await pullSageCompany(client, 9, '2026-10-21')).currencies).toBeNull();
+  });
+
+  it('does not swallow a real failure of the currency list', async () => {
+    const { client } = fakeClient({ 'Currency/Get': new SageApiError('rate_limited', 429) });
+    await expect(pullSageCompany(client, 9, '2026-10-21')).rejects.toBeInstanceOf(SageApiError);
+  });
+
+  // R3: the import runs in one request, and its time grows faster than the
+  // document count (measured: 600 documents ~10 s, 900 ~25 s, 1 200 ~58 s on the
+  // one-cluster harness). So the caps are what fits, and a bigger company is
+  // sent to the file upload, which works in batches.
+  it('caps unpaid invoices and bills TOGETHER, and points a bigger company at the Migration Wizard', async () => {
+    const half = Math.floor(MAX_OUTSTANDING_INVOICES / 2) + 1;
+    const list = (n: number, p: string) => Array.from({ length: n }, (_, i) => ({ ID: i, DocumentNumber: `${p}${i}`, AmountDue: 1, Total: 1 }));
+    const err = await pullSageCompany(fakeClient({ 'TaxInvoice/Get': list(half, 'I'), 'SupplierInvoice/Get': list(half, 'B') }).client, 9, '2026-10-21')
+      .then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(SagePullTooLargeError);
+    expect((err as Error).message).toMatch(/Migration Wizard/);
+    expect(MAX_OUTSTANDING_INVOICES).toBeLessThanOrEqual(300);
+    expect(MAX_CONTACTS_WITH_BALANCES).toBeLessThanOrEqual(300);
   });
 });

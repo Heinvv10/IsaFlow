@@ -63,36 +63,47 @@ export interface SageCompanyClient {
   getAll<T>(path: string, query?: Record<string, string>, limit?: number): Promise<T[]>;
 }
 
+/** Asked before every call and every retry; throwing stops the read there. */
+export type SageCallGuard = () => Promise<void>;
+
 export interface SageApiClient {
   listCompanies(): Promise<SageCompanySummary[]>;
-  forCompany(companyId: number): SageCompanyClient;
+  forCompany(companyId: number, guard?: SageCallGuard): SageCompanyClient;
+  /** Drop the login: every later call throws, and nothing in the client still holds it. */
+  dispose(): void;
 }
 
 export function createSageApiClient(opts: SageApiClientOptions): SageApiClient {
   if (!opts.apiKey?.trim()) throw new SageApiError('not_configured');
+  // Copied out of `opts` so no closure below keeps it (and the password in it) alive.
+  const apiKey = opts.apiKey;
   const base = (opts.baseUrl ?? SAGE_API_BASE).replace(/\/+$/, '');
   const fetchImpl = opts.fetchImpl ?? defaultFetch;
   const sleep = opts.sleep ?? defaultSleep;
   const pacer = opts.pacer ?? sharedSagePacer();
   const maxRetries = opts.maxRetries ?? 3;
-  const authorization = `Basic ${Buffer.from(`${opts.username}:${opts.password}`).toString('base64')}`;
-  async function call<T>(method: 'GET' | 'POST', path: string, query: Record<string, string>, body?: unknown): Promise<T> {
+  let authorization: string | null = `Basic ${Buffer.from(`${opts.username}:${opts.password}`).toString('base64')}`;
+  const noGuard: SageCallGuard = async () => {};
+
+  async function call<T>(method: 'GET' | 'POST', path: string, query: Record<string, string>, body?: unknown, guard: SageCallGuard = noGuard): Promise<T> {
     const url = new URL(`${base}/${path.replace(/^\/+/, '')}`);
-    url.searchParams.set('apikey', opts.apiKey);
+    url.searchParams.set('apikey', apiKey);
     for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-    const init: RequestInit = {
+    const init = (auth: string): RequestInit => ({
       method,
-      headers: { Authorization: authorization, Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Authorization: auth, Accept: 'application/json', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    };
+    });
 
     let last: SageApiError = new SageApiError('unavailable');
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) await sleep(Math.min(30_000, 1_000 * 2 ** (attempt - 1)));
+      await guard();
       await pacer.wait();
+      if (authorization === null) throw new Error('Sage client used after it was disposed');
       let res: Response;
       try {
-        res = await fetchImpl(url.toString(), init);
+        res = await fetchImpl(url.toString(), init(authorization));
       } catch (err) {
         last = new SageApiError('unavailable', undefined, err instanceof Error ? err.name : undefined);
         continue;
@@ -111,15 +122,15 @@ export function createSageApiClient(opts: SageApiClientOptions): SageApiClient {
     throw last;
   }
 
-  function forCompany(companyId: number): SageCompanyClient {
+  function forCompany(companyId: number, guard: SageCallGuard = noGuard): SageCompanyClient {
     const scoped = (q: Record<string, string> = {}) => ({ ...q, companyid: String(companyId) });
     return {
-      get: <T>(path: string, query?: Record<string, string>) => call<T>('GET', path, scoped(query)),
-      post: <T>(path: string, body: unknown, query?: Record<string, string>) => call<T>('POST', path, scoped(query), body),
+      get: <T>(path: string, query?: Record<string, string>) => call<T>('GET', path, scoped(query), undefined, guard),
+      post: <T>(path: string, body: unknown, query?: Record<string, string>) => call<T>('POST', path, scoped(query), body, guard),
       async getAll<T>(path: string, query?: Record<string, string>, limit?: number): Promise<T[]> {
         const rows: T[] = [];
         for (let skip = 0; ; skip += PAGE_SIZE) {
-          const page = await call<SagePaged<T> | T[]>('GET', path, scoped({ ...query, $top: String(PAGE_SIZE), $skip: String(skip) }));
+          const page = await call<SagePaged<T> | T[]>('GET', path, scoped({ ...query, $top: String(PAGE_SIZE), $skip: String(skip) }), undefined, guard);
           const results = Array.isArray(page) ? page : page?.Results ?? [];
           rows.push(...results);
           const total = Array.isArray(page) ? undefined : page?.TotalResults;
@@ -136,5 +147,6 @@ export function createSageApiClient(opts: SageApiClientOptions): SageApiClient {
       return Array.isArray(page) ? page : page?.Results ?? [];
     },
     forCompany,
+    dispose() { authorization = null; },
   };
 }

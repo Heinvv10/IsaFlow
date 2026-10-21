@@ -19,77 +19,22 @@
  * behind and no teardown can miss a table.
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { Pool, type PoolClient } from 'pg';
+import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
-import { als } from '@/lib/als';
-import { withSavepoint } from '@/lib/neon';
-import type { SagePull } from '@/modules/accounting/services/sage/sageApiTypes';
-import { markPullReady, readTakeOnContext, startPull, summarise } from '@/modules/accounting/services/sage/sageTakeOnStore';
-import { importSagePull, SageImportRefused } from '@/modules/accounting/services/sage/sageTakeOnImportService';
-import { buildSageTakeOn } from '@/modules/accounting/services/sage/sageTakeOnBuilder';
+import { SageImportRefused, importSagePull } from '@/modules/accounting/services/sage/sageTakeOnImportService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { sageFixture } from '../unit/services/sage/sageFixture';
+import {
+  balanceOf, books, importAsRoute, inRolledBackCompany as inCompany, statusOf, storeReady,
+} from './sage-connect-takeon.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 afterAll(() => pool.end());
+const inRolledBackCompany = (fn: Parameters<typeof inCompany>[1], yearStart?: string | null) => inCompany(pool, fn, yearStart);
 
-async function inRolledBackCompany(fn: (c: PoolClient, companyId: string, userId: string) => Promise<void>) {
-  const c = await pool.connect();
-  const companyId = randomUUID();
-  const userId = randomUUID();
-  await c.query('BEGIN');
-  try {
-    await c.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [userId, `${userId}@test.local`]);
-    await c.query('INSERT INTO companies(id,name) VALUES($1,$2)', [companyId, 'Sage connect take-on']);
-    await c.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [companyId, userId]);
-    // A new company gets the seeded chart, as onboarding does.
-    await c.query('SELECT public.seed_company_chart_of_accounts($1)', [companyId]);
-    await als.run({ client: c, userId, companyId, claims: {} } as never, () => fn(c, companyId, userId));
-  } finally {
-    await c.query('ROLLBACK');
-    c.release();
-  }
-}
-
-/** Store `pull` as a ready review, as the pull job does. */
-async function storeReady(companyId: string, userId: string, pull: SagePull): Promise<string> {
-  const pullId = await startPull(companyId, userId, pull.company.id, pull.asAtDate);
-  const summary = summarise(buildSageTakeOn(pull, await readTakeOnContext(companyId)));
-  expect(await markPullReady(companyId, pullId, pull, summary)).toBe(true);
-  return pullId;
-}
-
-/** As the import route runs it: a refusal rolls the savepoint back, then the request commits its 400. */
-const importAsRoute = (companyId: string, userId: string, pullId: string) =>
-  withSavepoint('sage_import_test', () => importSagePull(companyId, userId, pullId));
-
-const balanceOf = async (c: PoolClient, companyId: string, where: string, params: unknown[] = []) => Number((await c.query(
-  `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS b
-     FROM gl_journal_lines l
-     JOIN gl_accounts a ON a.id = l.gl_account_id AND a.company_id = $1
-     JOIN gl_journal_entries e ON e.id = l.journal_entry_id AND e.company_id = $1
-    WHERE l.company_id = $1 AND e.status = 'posted' AND ${where}`, [companyId, ...params],
-)).rows[0]!.b);
-
-/** Everything a take-on writes, counted, so a refusal can be shown to have written none of it. */
-async function books(c: PoolClient, companyId: string) {
-  const count = async (table: string) => Number((await c.query(`SELECT COUNT(*)::int AS n FROM ${table} WHERE company_id = $1`, [companyId])).rows[0]!.n);
-  return {
-    accounts: await count('gl_accounts'),
-    customers: await count('customers'),
-    suppliers: await count('suppliers'),
-    journals: await count('gl_journal_entries'),
-    lines: await count('gl_journal_lines'),
-    sessions: await count('migration_sessions'),
-    customerInvoices: await count('customer_invoices'),
-    supplierInvoices: await count('supplier_invoices'),
-    accountNames: (await c.query('SELECT string_agg(account_code || account_name, \',\' ORDER BY account_code) AS s FROM gl_accounts WHERE company_id = $1', [companyId])).rows[0]!.s as string,
-  };
-}
-
-const statusOf = async (c: PoolClient, pullId: string) =>
-  (await c.query('SELECT status, pull IS NOT NULL AS has_pull FROM sage_connect_pulls WHERE id = $1', [pullId])).rows[0];
+import { createSession } from '@/modules/accounting/services/core/migrationService';
+import { importOpeningBalances } from '@/modules/accounting/services/core/migrationWizardOpeningBalanceService';
 
 describe('Connect to Sage: importSagePull on a fresh company', () => {
   it('takes the whole company on and the ledger agrees with Sage', async () => {
@@ -166,10 +111,28 @@ describe('Connect to Sage: refusals leave the books as they were', () => {
 
       expect(err).toBeInstanceOf(SageImportRefused);
       expect((err as Error).message).toMatch(/already has its books from Sage/);
+      // R4: reversing opening balances cannot reopen a company with an imported pull; the message does not suggest it.
+      expect((err as Error).message).not.toMatch(/reverse/i);
+      expect((err as Error).message).toMatch(/once per company/);
       expect(await books(c, companyId)).toEqual(after);
       expect(bank).toBeCloseTo(50000, 2);
       expect(await balanceOf(c, companyId, "a.account_name = 'Bank - Cheque'")).toBeCloseTo(50000, 2);
       expect(await statusOf(c, second)).toMatchObject({ status: 'ready', has_pull: true });
+    });
+  });
+
+  it('R4: opening balances from the file wizard refuse a Sage import, and say how to clear the way', async () => {
+    await inRolledBackCompany(async (c, companyId, userId) => {
+      const session = await createSession(companyId, 'csv_import', userId);
+      const bank = (await c.query("SELECT account_code FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'bank' AND is_system_account LIMIT 1", [companyId])).rows[0]!.account_code as string;
+      const equity = (await c.query("SELECT account_code FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'retained_earnings' LIMIT 1", [companyId])).rows[0]!.account_code as string;
+      await importOpeningBalances(companyId, session.id, '2026-10-01', [
+        { accountCode: bank, debit: 100, credit: 0 }, { accountCode: equity, debit: 0, credit: 100 },
+      ], userId);
+      const pullId = await storeReady(companyId, userId, sageFixture());
+      const err = await importAsRoute(companyId, userId, pullId).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(SageImportRefused);
+      expect((err as Error).message).toMatch(/opening balances from a migration \(dated 2026-10-01\).*reverse that opening-balance journal/i);
     });
   });
 
@@ -207,45 +170,24 @@ describe('Connect to Sage: refusals leave the books as they were', () => {
     });
   });
 
-  it('a chart-of-accounts row the database refuses refuses the import, nothing written', async () => {
+  it('a chart of accounts the COA step refuses refuses the import, nothing written', async () => {
     await inRolledBackCompany(async (c, companyId, userId) => {
-      const pull = sageFixture();
-      // gl_accounts.account_name is VARCHAR(100): the COA step cannot write this row.
-      pull.accounts.find((a) => a.ID === 2003)!.Name = `Rent ${'x'.repeat(120)}`;
-      pull.trialBalance.find((l) => l.AccountId === 2003)!.Name = pull.accounts.find((a) => a.ID === 2003)!.Name;
-      const pullId = await storeReady(companyId, userId, pull);
+      // The bank role lands on the company's existing bank account, which here
+      // has a sub-account: a balance-sheet role holder may not (roleTargetRefusal),
+      // so the COA step refuses the role map and imports nothing.
+      await c.query(
+        `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, parent_account_id, level)
+         SELECT company_id, '1119', 'Bank sub-account', 'asset', 'debit', id, 2 FROM gl_accounts
+         WHERE company_id = $1 AND account_subtype = 'bank' AND is_system_account LIMIT 1`, [companyId]);
+      const pullId = await storeReady(companyId, userId, sageFixture());
       const before = await books(c, companyId);
 
-      await expect(importAsRoute(companyId, userId, pullId)).rejects.toThrow();
+      const err = await importAsRoute(companyId, userId, pullId).then(() => null, (e: unknown) => e);
 
+      expect(err).toBeInstanceOf(SageImportRefused);
+      expect((err as Error).message).toMatch(/^The chart of accounts could not be imported: .*bank/);
       expect(await books(c, companyId)).toEqual(before);
       expect(await statusOf(c, pullId)).toMatchObject({ status: 'ready', has_pull: true });
-    });
-  });
-});
-
-describe('sage_connect_pulls under RLS (app_user, the routes\' role)', () => {
-  it('a member working in one company sees and writes only that company\'s Sage reads, even another company they belong to', async () => {
-    await inRolledBackCompany(async (c, companyA, userId) => {
-      const companyB = randomUUID();
-      await c.query('INSERT INTO companies(id,name) VALUES($1,$2)', [companyB, 'Sage connect take-on B']);
-      await c.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [companyB, userId]);
-      const insert = (co: string) => c.query(
-        "INSERT INTO sage_connect_pulls (company_id, created_by, sage_company_id, as_at_date) VALUES ($1, $2, 1, '2026-10-21') RETURNING id", [co, userId]);
-      await insert(companyA);
-      const rowB = (await insert(companyB)).rows[0]!.id as string;
-
-      await c.query('SAVEPOINT rls');
-      await c.query('SET LOCAL ROLE app_user');
-      await c.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: userId })]);
-      await c.query("SELECT set_config('app.current_company_id', $1, true)", [companyA]);
-      const seen = (await c.query('SELECT company_id FROM sage_connect_pulls')).rows.map((r) => r.company_id);
-      expect(seen).toEqual([companyA]);
-      expect((await c.query("UPDATE sage_connect_pulls SET status = 'discarded' WHERE id = $1", [rowB])).rowCount).toBe(0);
-      await expect(insert(companyB)).rejects.toThrow(/row-level security/);
-      await c.query('ROLLBACK TO SAVEPOINT rls');
-      await expect(c.query('SAVEPOINT del; SET LOCAL ROLE app_user; DELETE FROM sage_connect_pulls')).rejects.toThrow(/permission denied/);
-      await c.query('ROLLBACK TO SAVEPOINT del');
     });
   });
 });

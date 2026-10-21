@@ -138,4 +138,28 @@ describe('createSageApiClient', () => {
     expect(() => createSageApiClient({ ...base, apiKey: '' })).toThrow(SageApiError);
     try { createSageApiClient({ ...base, apiKey: '  ' }); } catch (e) { expect((e as SageApiError).kind).toBe('not_configured'); }
   });
+
+  // R1: a pull whose row was discarded must stop reading Sage — between pages
+  // too, not only between steps — and let go of the login.
+  it('asks the guard before every call, every page and every retry, and stops when it throws', async () => {
+    const all = Array.from({ length: 250 }, (_, i) => ({ ID: i }));
+    const { calls, fetchImpl } = fakeSage((url) => {
+      const skip = Number(url.searchParams.get('$skip'));
+      return { status: 200, body: { TotalResults: all.length, ReturnedResults: 100, Results: all.slice(skip, skip + 100) } };
+    });
+    let asked = 0;
+    const guard = async () => { if (++asked === 2) throw new Error('stopped'); };
+    await expect(createSageApiClient({ ...base, fetchImpl }).forCompany(1, guard).getAll('Customer/Get')).rejects.toThrow('stopped');
+    expect(calls).toHaveLength(1);
+    expect(asked).toBe(2);
+  });
+
+  it('dispose drops the login: no call goes out after it', async () => {
+    const { calls, fetchImpl } = fakeSage(() => ({ status: 200, body: {} }));
+    const client = createSageApiClient({ ...base, fetchImpl });
+    client.dispose();
+    await expect(client.forCompany(1).get('A')).rejects.toThrow(/disposed/);
+    await expect(client.listCompanies()).rejects.toThrow(/disposed/);
+    expect(calls).toHaveLength(0);
+  });
 });

@@ -12,28 +12,42 @@
 import { describe, expect, it } from 'vitest';
 import { buildSageTakeOn } from '@/modules/accounting/services/sage/sageTakeOnBuilder';
 import type { TakeOnContext } from '@/modules/accounting/services/sage/sageTakeOnTypes';
+import type { SagePull } from '@/modules/accounting/services/sage/sageApiTypes';
 import { emptyCompany, sageFixture } from './sageFixture';
 
 const errors = (ctx: TakeOnContext, p = sageFixture()) => buildSageTakeOn(p, ctx).issues.filter((i) => i.severity === 'error');
 
-describe('M1: only invoices are taken on as invoices', () => {
-  it('the fixture, whose documents are all Sage invoices, has no blocking issue', () => {
+describe('M1: only invoices are taken on as invoices; anything else is left out with a warning', () => {
+  it('the fixture, whose documents are all Sage invoices, has no issue about documents', () => {
     expect(errors(emptyCompany)).toEqual([]);
+    expect(buildSageTakeOn(sageFixture(), emptyCompany).issues.some((i) => /not an unpaid/.test(i.message))).toBe(false);
   });
 
-  it('blocks an outstanding document that is not one of Sage\'s unpaid tax invoices (a credit note)', () => {
+  // Hein, 2026-10-21: a credit note, an unallocated receipt or an opening-balance
+  // entry is not one of Sage's unpaid invoices. It is left out (never taken on
+  // as an invoice), the review names it and its amount, and the contact's
+  // balance logic absorbs it: the balance is the truth.
+  it('leaves out a document that is not one of Sage\'s unpaid tax invoices, names it and its amount, and blocks nothing', () => {
     const p = sageFixture();
     p.customerDocuments[11]!.push({ ID: 9100, DocumentTypeId: 7, DocumentNumber: 'CRN0001', Date: '2026-09-15', Total: 500, AmountDue: 500 });
-    const e = errors(emptyCompany, p);
-    expect(e).toContainEqual(expect.objectContaining({ area: 'receivables', message: expect.stringContaining('CRN0001') }));
-    expect(e[0]!.message).toMatch(/document type 7/);
-    expect(buildSageTakeOn(p, emptyCompany).arInvoices.map((i) => i.invoiceNumber)).not.toContain('CRN0001');
+    const t = buildSageTakeOn(p, emptyCompany);
+    expect(errors(emptyCompany, p)).toEqual([]);
+    const w = t.issues.find((i) => i.message.includes('CRN0001'))!;
+    expect(w).toMatchObject({ severity: 'warning', area: 'receivables' });
+    expect(w.message).toMatch(/R500\D00/);
+    expect(w.message).toContain('Bright Billboards');
+    expect(t.arInvoices.map((i) => i.invoiceNumber)).not.toContain('CRN0001');
+    // The balance still decides: Bright Billboards owes R20 000, so the invoices still carry exactly that.
+    const owed = t.arInvoices.filter((i) => i.customerName === 'Bright Billboards').reduce((s, i) => s + i.totalAmount - i.amountPaid, 0);
+    expect(owed).toBeCloseTo(20000, 2);
   });
 
-  it('matches on id AND number: an invoice id with another number is not that invoice', () => {
+  it('matches on id AND number: an invoice id with another number is left out, and the balance comes forward instead', () => {
     const p = sageFixture();
     p.supplierDocuments[21]![0]!.DocumentNumber = 'PH-78';
-    expect(errors(emptyCompany, p)).toContainEqual(expect.objectContaining({ area: 'payables', message: expect.stringContaining('PH-78') }));
+    const t = buildSageTakeOn(p, emptyCompany);
+    expect(t.issues).toContainEqual(expect.objectContaining({ severity: 'warning', area: 'payables', message: expect.stringContaining('PH-78') }));
+    expect(t.apInvoices).toEqual([expect.objectContaining({ invoiceNumber: 'SAGE-BF-S21', totalAmount: 27000 })]);
   });
 });
 
@@ -65,14 +79,53 @@ describe('M2: home currency only', () => {
   });
 });
 
-describe('M3: the financial year', () => {
-  it('blocks when Sage\'s year starts in another month than IsaFlow\'s', () => {
-    expect(errors({ ...emptyCompany, fiscalYearStartMonth: 1 })).toContainEqual(
-      expect.objectContaining({ area: 'company', message: expect.stringMatching(/March.*January/) }));
+// R8: Sage's CurrencyId is read too, through Currency/Get, failing closed.
+describe('R8: a contact\'s CurrencyId', () => {
+  const withCustomer = (patch: Record<string, unknown>, currencies: SagePull['currencies'] = sageFixture().currencies) => {
+    const p = sageFixture();
+    Object.assign(p.customers[0]!, patch);
+    p.currencies = currencies;
+    return errors(emptyCompany, p);
+  };
+
+  it('a foreign CurrencyId blocks even when Sage omits the symbol and the exchange rate', () => {
+    expect(withCustomer({ CurrencyId: 4 })).toContainEqual(expect.objectContaining({ area: 'customers', message: expect.stringContaining('USD') }));
   });
 
-  it('blocks when IsaFlow has no financial year start', () => {
-    expect(errors({ ...emptyCompany, fiscalYearStartMonth: null })).toContainEqual(expect.objectContaining({ area: 'company' }));
+  it('the home currency\'s own id, 0 and null are home', () => {
+    expect(withCustomer({ CurrencyId: 1 })).toEqual([]);
+    expect(withCustomer({ CurrencyId: 0 })).toEqual([]);
+    expect(withCustomer({ CurrencyId: null })).toEqual([]);
+  });
+
+  it('fails closed: an id the currency list does not have, or no list at all, blocks', () => {
+    expect(withCustomer({ CurrencyId: 99 })).toContainEqual(expect.objectContaining({ message: expect.stringContaining('could not identify') }));
+    expect(withCustomer({ CurrencyId: 1 }, null)).toContainEqual(expect.objectContaining({ area: 'customers' }));
+  });
+
+  it('a document\'s own currency id is read too', () => {
+    const p = sageFixture();
+    p.supplierDocuments[21]![0]!.Supplier_CurrencyId = 4;
+    expect(errors(emptyCompany, p)).toContainEqual(expect.objectContaining({ area: 'payables', message: expect.stringContaining('USD') }));
+  });
+});
+
+// R2: judged against IsaFlow's REAL fiscal year (the fiscal_periods year that
+// holds the cut-over date), not companies.financial_year_start, which every
+// company declares as 3 while its periods start on 1 January.
+describe('M3 / R2: the financial year', () => {
+  it('blocks when IsaFlow\'s fiscal year holding the cut-over date starts on another day than Sage\'s', () => {
+    const e = errors({ ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } });
+    expect(e).toContainEqual(expect.objectContaining({ area: 'company', message: expect.stringMatching(/2026-03-01.*2026-01-01/) }));
+  });
+
+  it('blocks, with what to do, when IsaFlow has no fiscal period for the cut-over date', () => {
+    const e = errors({ ...emptyCompany, fiscalYear: null });
+    expect(e).toContainEqual(expect.objectContaining({ area: 'company', message: expect.stringMatching(/no fiscal period covering 2026-10-21.*Fiscal Periods.*2026-03-01/) }));
+  });
+
+  it('passes when both years start on the same day', () => {
+    expect(errors(emptyCompany)).toEqual([]);
   });
 
   it('carries the year start for the review\'s P&L note', () => {
@@ -138,5 +191,17 @@ describe('L1 / L2: account identity', () => {
     const p = sageFixture();
     p.bankAccounts.push({ ID: 2003, Name: 'Savings', Active: true, Balance: 0 });
     expect(errors(emptyCompany, p)).toContainEqual(expect.objectContaining({ area: 'trial_balance', message: expect.stringContaining('cannot tell which') }));
+  });
+
+  // R5: the AR/AP control lines are found in the ACCOUNT namespace only; a bank
+  // sharing the control's id is the bank, and its line posts as one.
+  it('a bank that shares the receivable control\'s id is not taken for the control', () => {
+    const p = sageFixture();
+    p.bankAccounts.push({ ID: -7, Name: 'Odd Bank', Active: true, Balance: 0 });
+    p.trialBalance.push({ AccountId: -7, Name: 'Odd Bank', Debit: 100, Credit: 0, AccountTypeId: 3 }, { AccountId: 2003, Name: 'Rent', Debit: 0, Credit: 100 });
+    p.trialBalance.find((l) => l.AccountId === -7 && l.Name === 'Trade Receivables')!.AccountTypeId = 2;
+    const t = buildSageTakeOn(p, emptyCompany);
+    expect(t.totals.receivableControl).toBe(30000);
+    expect(t.openingBalances.find((b) => b.accountCode === t.sageBankCodes[-7])?.debit).toBe(100);
   });
 });

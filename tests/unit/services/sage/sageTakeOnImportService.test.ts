@@ -143,7 +143,7 @@ describe('M7 / H3: all or nothing', () => {
   });
 
   it('a blocking review issue refuses before any write', async () => {
-    m.readTakeOnContext.mockResolvedValue({ ...emptyCompany, fiscalYearStartMonth: 1 });
+    m.readTakeOnContext.mockResolvedValue({ ...emptyCompany, fiscalYear: { startDate: '2026-01-01', endDate: '2026-12-31' } });
     expect(await refusal()).toBeInstanceOf(SageImportRefused);
     expect(m.createSession).not.toHaveBeenCalled();
   });

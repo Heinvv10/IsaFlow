@@ -15,7 +15,7 @@ const m = vi.hoisted(() => {
     SagePullRefused, SageImportRefused,
     startPull: vi.fn(), loadPullState: vi.fn(), purgeExpiredPulls: vi.fn(), latestOpenPull: vi.fn(), discardPull: vi.fn(),
     findPriorTakeOn: vi.fn(), readTakeOnContext: vi.fn(), buildSageTakeOn: vi.fn(),
-    pullSlotFree: vi.fn(), runSagePull: vi.fn(), runAfterCommit: vi.fn(), importSagePull: vi.fn(),
+    pullSlotRefusal: vi.fn(), runSagePull: vi.fn(), runAfterCommit: vi.fn(), importSagePull: vi.fn(),
   };
 });
 
@@ -39,7 +39,7 @@ vi.mock('@/modules/accounting/services/sage/sageTakeOnStore', () => ({
 }));
 vi.mock('@/modules/accounting/services/sage/sageTakeOnContext', () => ({ findPriorTakeOn: m.findPriorTakeOn, readTakeOnContext: m.readTakeOnContext }));
 vi.mock('@/modules/accounting/services/sage/sageTakeOnBuilder', () => ({ buildSageTakeOn: m.buildSageTakeOn }));
-vi.mock('@/modules/accounting/services/sage/sagePullJob', () => ({ BUSY_MESSAGE: 'busy now', pullSlotFree: m.pullSlotFree, runSagePull: m.runSagePull }));
+vi.mock('@/modules/accounting/services/sage/sagePullJob', () => ({ pullSlotRefusal: m.pullSlotRefusal, runSagePull: m.runSagePull }));
 vi.mock('@/modules/accounting/services/sage/sageTakeOnImportService', () => ({ importSagePull: m.importSagePull, SageImportRefused: m.SageImportRefused }));
 
 import preview from '../../../pages/api/accounting/sage-connect/preview';
@@ -71,7 +71,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.SAGE_API_KEY = 'vendor-key';
   m.findPriorTakeOn.mockResolvedValue(null);
-  m.pullSlotFree.mockReturnValue(true);
+  m.pullSlotRefusal.mockReturnValue(null);
   m.startPull.mockResolvedValue(PULL);
   m.latestOpenPull.mockResolvedValue(null);
 });
@@ -132,8 +132,9 @@ describe('POST preview: starts the read in the background', () => {
   });
 
   it('refuses when every pull slot is busy', async () => {
-    m.pullSlotFree.mockReturnValue(false);
+    m.pullSlotRefusal.mockReturnValue('busy now');
     expect((await call(preview, { method: 'POST', body: login, companyId: CO })).body.error?.message).toBe('busy now');
+    expect(m.pullSlotRefusal).toHaveBeenCalledWith(CO);
     expect(m.startPull).not.toHaveBeenCalled();
   });
 
@@ -164,7 +165,7 @@ describe('GET pulls/{pullId}: the poll', () => {
     expect(review.sageCompany.name).toBe('Acme Media (Pty) Ltd');
     // Names and amounts only: no contact details leave the server.
     expect(JSON.stringify(review)).not.toContain('ap@bright.test');
-    expect(m.readTakeOnContext).toHaveBeenCalledWith(CO);
+    expect(m.readTakeOnContext).toHaveBeenCalledWith(CO, '2026-10-21');
   });
 
   it('reports a failed read with its safe message', async () => {
