@@ -103,16 +103,19 @@ export class OwnerProtectedError extends Error {
 
 // The target's role, read under its row lock so it cannot change between this
 // check and the write (an owner promoting the target while an admin demotes
-// it). When the target is an owner, also take the per-company owner lock the
-// member role guard takes (migs 883/886), after the row lock as the trigger
-// does, so the last-owner count below is the one the write is judged by. The
-// actor's role is read only then, not taken from the request: every owner
-// demotion takes that lock, so an actor demoted since withAuth read their role
-// is seen as demoted (breaker REPRO 1).
+// it). When the target is an owner OR the new role is 'owner', take the
+// per-company owner lock the member role guard takes (migs 883/886), after the
+// row lock as the trigger does, so the last-owner count below is the one the
+// write is judged by. The actor's role is read only then, not taken from the
+// request: every owner demotion takes that lock, so an actor demoted since
+// withAuth read their role is seen as demoted (breaker REPRO 1). newRole also
+// gates here so a non-owner cannot self-promote via a future caller that skips
+// the API-layer check (defence-in-depth).
 async function lockTargetRole(
   companyId: string,
   userId: string,
   actorUserId: string,
+  newRole?: string,
 ): Promise<string | undefined> {
   const rows = (await sql`
     SELECT role FROM company_users
@@ -120,7 +123,7 @@ async function lockTargetRole(
     FOR UPDATE
   `) as DbRow[];
   const role = rows[0]?.role as string | undefined;
-  if (role !== 'owner') return role;
+  if (role !== 'owner' && newRole !== 'owner') return role;
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`company_owners:${companyId}`}, 0))`;
   const actor = (await sql`
     SELECT role FROM company_users
@@ -141,7 +144,7 @@ export async function updateCompanyUserRole(
     throw new Error(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`);
   }
 
-  const currentRole = await lockTargetRole(companyId, userId, actorUserId);
+  const currentRole = await lockTargetRole(companyId, userId, actorUserId, newRole);
   if (currentRole === 'owner' && newRole !== 'owner') {
     const ownerCount = await countOwners(companyId);
     if (ownerCount <= 1) {
