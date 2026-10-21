@@ -3,9 +3,11 @@
  * history (its company only; source auto_migration, entry numbers SAGE-<n>)
  * is relabelled auto_gl_import, reversals with it at any depth, each change
  * recorded in audit_log; Sage's own opening balances (by description, any
- * case and trailing punctuation, or by reference O/balance / O/B), every
+ * case and trailing punctuation, or by reference O/balance / O/B in any case,
+ * the predicate scripts/import-sage-britech.ts now writes by), every
  * genuine take-on and every other company stay as they are. Label only:
- * amounts, dates and status untouched. Idempotent. Rolled back afterwards.
+ * amounts, dates and status untouched. Idempotent. A journal whose author is
+ * not a user refuses it. row_security is restored after. Rolled back afterwards.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -13,6 +15,7 @@ import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { isSageOpeningBalanceJournal } from '../../src/modules/accounting/services/sage/sageOpeningBalanceJournal';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
@@ -63,6 +66,10 @@ describe('migration 908', () => {
       const openingBalance = await a.journal('SAGE-1002', 'O/B from other system', 'auto_migration', null, 'O/balance');
       const obVariant = await a.journal('SAGE-1004', 'o/b FROM other system.', 'auto_migration');
       const obByReference = await a.journal('SAGE-1005', 'Opening balance', 'auto_migration', null, 'O/B');
+      const obReferenceCase = await a.journal('SAGE-1006', 'Opening balance', 'auto_migration', null, ' o/BALANCE ');
+      // Near misses: live history, relabelled (and so, by the script's predicate, a GL import).
+      const nearDescription = await a.journal('SAGE-1007', 'O/B from other system 2');
+      const nearReference = await a.journal('SAGE-1008', 'Bank charges', 'auto_migration', null, 'O/balances');
       const obReversal = await a.journal(null, 'm908 reversal of O/B', 'auto_migration', openingBalance);
       const wizardTakeOn = await a.journal(null, 'm908 Opening balances — migration import');
       const otherSource = await a.journal('SAGE-1003', 'm908 card spend', 'manual');
@@ -73,19 +80,33 @@ describe('migration 908', () => {
         [BRITECH],
       )).rows;
 
+      expect((await c.query('SHOW row_security')).rows[0]!.row_security).toBe('on');
       await c.query(MIGRATION);
+      // Turned off for the migration, back on for the rest of the transaction.
+      expect((await c.query('SHOW row_security')).rows[0]!.row_security).toBe('on');
 
       expect(await label(c, history)).toBe('auto_gl_import');
+      expect(await label(c, nearDescription)).toBe('auto_gl_import');
+      expect(await label(c, nearReference)).toBe('auto_gl_import');
       expect(await label(c, historyReversal)).toBe('auto_gl_import');
       expect(await label(c, deeper)).toBe('auto_gl_import');
-      for (const kept of [openingBalance, obVariant, obByReference, obReversal, wizardTakeOn]) expect(await label(c, kept)).toBe('auto_migration');
+      for (const kept of [openingBalance, obVariant, obByReference, obReferenceCase, obReversal, wizardTakeOn]) expect(await label(c, kept)).toBe('auto_migration');
+      // The script's predicate and the migration's agree on every Sage journal it numbered.
+      const sage = (await c.query(
+        "SELECT entry_number, description, reference, source FROM gl_journal_entries WHERE company_id = $1 AND entry_number LIKE 'SAGE-%' AND source <> 'manual'", [BRITECH],
+      )).rows as Array<{ entry_number: string; description: string; reference: string | null; source: string }>;
+      expect(sage.length).toBe(7);
+      for (const j of sage) {
+        expect({ n: j.entry_number, takeOn: isSageOpeningBalanceJournal(j.description, j.reference) })
+          .toEqual({ n: j.entry_number, takeOn: j.source === 'auto_migration' });
+      }
       expect(await label(c, otherSource)).toBe('manual');
       expect(await label(c, otherCompany)).toBe('auto_migration'); // not the script's company: untouched
       expect(await fingerprint(c, [a.id, b.id])).toBe(before); // no amount, date or status changed
 
       // Each relabelled journal's change is recorded, by its author.
       const recorded = await audit();
-      expect(recorded.map((r) => r.entity_id).sort()).toEqual([history, historyReversal, deeper].sort());
+      expect(recorded.map((r) => r.entity_id).sort()).toEqual([history, historyReversal, deeper, nearDescription, nearReference].sort());
       for (const r of recorded) {
         expect(r).toMatchObject({ action: 'update', entity_type: 'gl_journal_entry', user_id: user });
         expect(r.changes.fields).toEqual([{ field: 'source', label: 'Source', old: 'auto_migration', new: 'auto_gl_import' }]);
@@ -94,7 +115,20 @@ describe('migration 908', () => {
       await c.query(MIGRATION); // idempotent: nothing relabelled, nothing recorded again
       expect(await label(c, openingBalance)).toBe('auto_migration');
       expect(await fingerprint(c, [a.id, b.id])).toBe(before);
-      expect(await audit()).toHaveLength(3);
+      expect(await audit()).toHaveLength(5);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
+
+  it('refuses when a journal to relabel has no author in users, rather than relabel it unrecorded', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const a = await company(c, randomUUID(), BRITECH); // created_by names no users row
+      await a.journal('SAGE-1001', 'm908 Cost of sales - March 23');
+      await expect(c.query(MIGRATION)).rejects.toThrow(/no author in users/);
     } finally {
       await c.query('ROLLBACK');
       c.release();

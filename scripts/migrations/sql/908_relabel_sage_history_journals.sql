@@ -21,7 +21,10 @@
 --   * source 'auto_migration' and entry number 'SAGE-<n>';
 --   * NOT Sage's own opening balances, which ARE a take-on: a description of
 --     'O/B from other system' (any case, trailing punctuation or spaces
---     ignored) or a reference 'O/balance' / 'O/B';
+--     ignored) or a reference 'O/balance' / 'O/B' (any case, surrounding
+--     spaces ignored). scripts/import-sage-britech.ts now writes the take-on
+--     source for exactly these (sage/sageOpeningBalanceJournal.ts, the same
+--     predicate, held to this file by m908-relabel-sage-history.int.test.ts);
 --   * and every reversal of a relabelled journal, at any depth, in that
 --     company (reverseJournalEntry copies the source; a reversal is numbered
 --     'JE-...', so it is found through reversal_of_id, not its number).
@@ -47,7 +50,8 @@
 -- turned off for this transaction (as 855 does), so a role subject to RLS gets
 -- an error ("query would be affected by row-level security policy") instead of
 -- matching, relabelling and counting nothing and passing. It applies as the
--- owner, a superuser or a BYPASSRLS role.
+-- owner, a superuser or a BYPASSRLS role. The setting is restored at the end
+-- for the rest of the runner's transaction (as 855 does).
 --
 -- Rollback: set source back to 'auto_migration' on the journals the audit_log
 -- rows of this file name (entity_ref, changes->'metadata'->>'migration').
@@ -61,6 +65,7 @@ DECLARE
   v_relabelled integer;
   v_kept integer;
   v_left integer;
+  prev_row_security text := current_setting('row_security');
 BEGIN
   PERFORM set_config('row_security', 'off', true);
 
@@ -74,7 +79,7 @@ BEGIN
        AND je.source = 'auto_migration'
        AND je.entry_number LIKE 'SAGE-%'
        AND lower(rtrim(COALESCE(je.description, ''), ' .,;:!')) <> 'o/b from other system'
-       AND COALESCE(btrim(je.reference), '') NOT IN ('O/balance', 'O/B')
+       AND lower(COALESCE(btrim(je.reference), '')) NOT IN ('o/balance', 'o/b')
     UNION
     -- Reversals of a relabelled journal, at any depth, in the same company.
     SELECT r.id, r.company_id, r.created_by
@@ -120,7 +125,7 @@ BEGIN
      WHERE je.company_id = v_company
        AND je.entry_number LIKE 'SAGE-%'
        AND lower(rtrim(COALESCE(je.description, ''), ' .,;:!')) <> 'o/b from other system'
-       AND COALESCE(btrim(je.reference), '') NOT IN ('O/balance', 'O/B')
+       AND lower(COALESCE(btrim(je.reference), '')) NOT IN ('o/balance', 'o/b')
     UNION
     SELECT r.id, r.company_id
       FROM gl_journal_entries r
@@ -138,4 +143,7 @@ BEGIN
    WHERE je.company_id = v_company AND je.source = 'auto_migration' AND je.entry_number LIKE 'SAGE-%';
   RAISE NOTICE 'migration 908: company %: % Sage history journals (reversals included) relabelled auto_gl_import, % Sage opening balances kept auto_migration',
     v_company, v_relabelled, v_kept;
+
+  -- Restore it for the rest of the runner's transaction.
+  PERFORM set_config('row_security', prev_row_security, true);
 END $$;
