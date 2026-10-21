@@ -7,7 +7,7 @@
 // row, and mig 348 granted app_user table-level INSERT/UPDATE on every table.
 // withPlatformAdmin trusts users.role, so `UPDATE users SET role =
 // 'super_admin' WHERE id = auth.uid()` from any SQL injection on an app_user
-// route was a platform takeover. Migration 898 narrows app_user's UPDATE to
+// route was a platform takeover. Migration 902 narrows app_user's UPDATE to
 // the columns its writers name and takes INSERT away.
 //
 // Outcome-based: every forbidden write is attempted as app_user and must be
@@ -22,12 +22,15 @@ import dsrRoute from '../../pages/api/accounting/data-subject-rights';
 import onboardingCompleteRoute from '../../pages/api/onboarding/complete';
 import changeEmailRoute from '../../pages/api/auth/change-email';
 import inviteRoute from '../../pages/api/invite/[token]';
+import acceptRoute from '../../pages/api/invitations/[token]/accept';
+import { provisionTenant } from '@/modules/onboarding/services/tenantProvisioningService';
 import { markOnboardingCompleted } from '@/modules/onboarding/services/onboardingSetupWriters';
 import { suspendUser, activateUser, resetOnboarding } from '@/modules/admin/services/adminUserActionsService';
 import { updateUser } from '@/modules/admin/services/adminUserService';
 import { convertUserToBureauOwner } from '@/modules/bureau/services/bureauService';
 import { hashInviteToken } from '@/lib/auth/inviteToken';
-import { pool, asRole, inServiceContext, callRoute, userRow } from './s07-users-privilege-columns.helpers';
+import { pool, asRole, inServiceContext, callRoute, userRow, urlAsRole } from './s07-users-privilege-columns.helpers';
+import { signSession } from './r-032-fake-gotrue.helpers';
 
 /** Every column app_user may UPDATE; each is named by a writer that runs as app_user. */
 const GRANTED = ['first_name', 'last_name', 'phone', 'mobile', 'updated_at', 'onboarding_completed'];
@@ -42,11 +45,18 @@ const me = crypto.randomUUID();
 const company = crypto.randomUUID();
 const invitee = crypto.randomUUID();
 const inviteToken = `s07-${crypto.randomUUID()}`;
+/** A brand-new invitee accepted through /api/invitations/[token]/accept (INSERT writer 1). */
+const acceptee = crypto.randomUUID();
+const acceptToken = `s07a-${crypto.randomUUID()}`;
+/** A self-serve signup owner provisioned by tenantProvisioningService (INSERT writer 2). */
+const signup = crypto.randomUUID();
 
 beforeAll(async () => {
   // GoTrue is a fetch stub in the tests that reach it; the keys only have to exist.
   vi.stubEnv('SUPABASE_ANON_KEY', 'x');
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'x');
+  // The accept route builds its pool from this URL: run it as production's migration_admin.
+  vi.stubEnv('MIGRATION_ADMIN_DATABASE_URL', urlAsRole('migration_admin'));
   await pool.query(`INSERT INTO companies (id, name, is_active) VALUES ($1, 'S07 fixture', true)`, [company]);
   for (const id of [me, invitee]) {
     await pool.query(`INSERT INTO users (id, email, first_name, last_name, role, is_active, onboarding_completed)
@@ -55,6 +65,9 @@ beforeAll(async () => {
   await pool.query(`INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'admin', true)`, [company, me]);
   await pool.query(`INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
     VALUES ($1, $2, 'viewer', $3, $4, NOW() + interval '1 day')`, [company, `${invitee}@test.local`, me, hashInviteToken(inviteToken)]);
+  await pool.query(`INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at, gotrue_user_id)
+    VALUES ($1, $2, 'viewer', $3, $4, NOW() + interval '1 day', $5)`,
+  [company, `${acceptee}@test.local`, me, hashInviteToken(acceptToken), acceptee]);
 }, 60000);
 
 afterAll(async () => {
@@ -62,9 +75,15 @@ afterAll(async () => {
     await pool.query('DELETE FROM bureau_users WHERE user_id = ANY($1)', [[me, invitee]]);
     await pool.query('DELETE FROM bureaus WHERE owner_user_id = ANY($1)', [[me, invitee]]);
     await pool.query('DELETE FROM company_invitations WHERE company_id = $1', [company]);
-    await pool.query('DELETE FROM company_users WHERE company_id = $1 OR user_id = ANY($2)', [company, [me, invitee]]);
-    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[me, invitee]]);
-    await pool.query('DELETE FROM companies WHERE id = $1', [company]);
+    const owned = await pool.query('SELECT company_id FROM company_users WHERE user_id = $1', [signup]);
+    const companies = [company, ...owned.rows.map(r => r.company_id as string)];
+    for (const t of ['fiscal_periods', 'subscriptions', 'company_users']) {
+      await pool.query(`DELETE FROM ${t} WHERE company_id = ANY($1)`, [companies]);
+    }
+    await pool.query('DELETE FROM company_users WHERE user_id = ANY($1)', [[me, invitee, acceptee, signup]]);
+    await pool.query('DELETE FROM users WHERE id = ANY($1)', [[me, invitee, acceptee, signup]]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [companies]);
+    await pool.query(`DELETE FROM rate_limit_counters WHERE key = 'invite-accept:' || $1`, [hashInviteToken(acceptToken)]);
     await pool.query(`DELETE FROM rate_limit_counters WHERE key LIKE '%' || $1 || '%' OR key LIKE '%127.0.0.79%'`, [me]);
   } finally {
     vi.unstubAllGlobals();
@@ -190,6 +209,48 @@ describe('S-07: every legitimate users writer still succeeds', () => {
     vi.unstubAllGlobals();
     expect(r).toMatchObject({ status: 200 });
     expect((await userRow(me)).email).toBe(`${me}-new@test.local`);
+  });
+
+  it('the migration-admin pool URL really runs as migration_admin', async () => {
+    const { Pool } = await import('pg');
+    const p = new Pool({ connectionString: process.env.MIGRATION_ADMIN_DATABASE_URL, max: 1 });
+    try {
+      expect((await p.query('SELECT current_user AS u')).rows[0].u).toBe('migration_admin');
+    } finally {
+      await p.end();
+    }
+  });
+
+  it('invitations/[token]/accept (migration_admin pool) INSERTs the new invitee\'s users row', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: unknown) => {
+      const body = String(input).includes('/token')
+        ? { access_token: await signSession(acceptee, crypto.randomUUID(), 'aal2'), refresh_token: 'r', expires_in: 3600,
+          token_type: 'bearer', user: { id: acceptee } }
+        : { id: acceptee };
+      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+    }));
+    const r = await callRoute(acceptRoute, { sub: acceptee, method: 'POST', query: { token: acceptToken },
+      body: { password: 's07-long-enough-password', firstName: 'Sipho', lastName: 'Dlamini' } });
+    vi.unstubAllGlobals();
+    expect(r).toMatchObject({ status: 200 });
+    expect(await userRow(acceptee)).toMatchObject({ first_name: 'Sipho', is_active: true });
+  });
+
+  it('tenantProvisioningService (verify-email, migration_admin) INSERTs the owner as admin', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE migration_admin');
+      await provisionTenant(client, { ownerUserId: signup, email: `${signup}@test.local`, firstName: 'Lerato',
+        lastName: 'Nkosi', companyName: `S07 signup ${signup}`, phone: null, annualTurnoverCents: null, signupType: 'direct' });
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    expect(await userRow(signup)).toMatchObject({ role: 'admin', is_active: true, first_name: 'Lerato' });
   });
 
   it('data-subject-rights erasure (withAuth, app_user) anonymises names and email', async () => {
