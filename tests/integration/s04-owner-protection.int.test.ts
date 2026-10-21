@@ -112,6 +112,35 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
     expect(await roleOf(OWNER_B)).toBe('owner');
   });
 
+  // Breaker round 2 NEW B: the caller's role is read AFTER the owner lock. B,
+  // demoting A, holds that lock; A's own owner action must wait for it and
+  // then see that A is no longer an owner.
+  it('a caller being demoted at that moment never acts on an owner as one', async () => {
+    for (let round = 0; round < 5; round++) {
+      await seedMembers();
+      await admin.query(`UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2`, [COMPANY, MANAGER]);
+      const [cb, ca] = [await admin.connect(), await admin.connect()];
+      try {
+        let commitDemotion!: () => void;
+        const held = new Promise<void>((r) => { commitDemotion = r; });
+        const demoteA = asMember(OWNER_B, async () => {
+          await updateCompanyUserRole(COMPANY, OWNER_A, 'viewer', OWNER_B);
+          await held; // B holds the owner lock, A's demotion uncommitted
+        }, cb);
+        await new Promise((r) => setTimeout(r, 50));
+        const aActs = asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', OWNER_A), ca);
+        await new Promise((r) => setTimeout(r, 100));
+        commitDemotion();
+        const [b, a] = await Promise.allSettled([demoteA, aActs]);
+        expect(b.status, `round ${round}`).toBe('fulfilled');
+        expect(a.status === 'rejected' ? a.reason : a.status, `round ${round}`).toBeInstanceOf(OwnerProtectedError);
+        expect(await roleOf(MANAGER), `round ${round}`).toBe('owner');
+      } finally {
+        cb.release(); ca.release();
+      }
+    }
+  });
+
   it('lets an owner demote another owner when two exist', async () => {
     await asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_B, 'admin', OWNER_A));
     expect(await roleOf(OWNER_B)).toBe('admin');
