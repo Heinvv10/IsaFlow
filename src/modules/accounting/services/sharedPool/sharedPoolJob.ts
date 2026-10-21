@@ -107,8 +107,9 @@ export function isSharedPoolRunning(): boolean {
 }
 
 /**
- * Recompute and replace the pool; while the legal-review gate is off, skip without touching anything. A company whose read fails aborts the run before the publish (logged and
- * thrown), so the previous pool stands; a second run while one is in progress is refused.
+ * Recompute and replace the pool; while the legal-review gate is off, skip without touching anything.
+ * A company whose read fails aborts the run before the publish (logged and thrown), so the previous
+ * pool stands; a second run while one is in progress is refused.
  */
 export async function runSharedPoolAggregation(): Promise<SharedPoolRunResult | SharedPoolSkipped> {
   if (!isMerchantSharingEnabled()) {
