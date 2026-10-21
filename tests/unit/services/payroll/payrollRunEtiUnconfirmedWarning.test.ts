@@ -39,6 +39,11 @@ vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
   applySdlToLines: vi.fn(() => 0),
 }));
+// No leaver awaiting a severance directive (p3-severance-directive-run covers that).
+vi.mock('@/modules/accounting/services/payroll/payrollSeveranceDirective', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollSeveranceDirective')>()),
+  listSeveranceOnlyRunEmployees: vi.fn(async () => []),
+}));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
   listPayrollRunEmployees: vi.fn(async () => [{
     id: 'e1', firstName: 'Thandi', lastName: 'Mokoena', employeeNumber: 'E1',

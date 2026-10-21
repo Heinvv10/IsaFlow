@@ -207,7 +207,7 @@ export async function validateEmployeeIrp5(
     msgs.push({
       severity: 'warning',
       code: 'IRP5_SEVERANCE_WITHOUT_DIRECTIVE',
-      message: 'Severance (code 3901) is present but no approved SARS tax directive is on file — PAYE will be calculated at the normal monthly rate, not the directive rate. Apply for a directive before submission.',
+      message: 'Severance (code 3901) is present but no approved SARS tax directive is on file — the pay run deducts no PAYE from a lump sum without one, and a run paying it cannot be approved. Apply for the directive.',
     });
   }
 
