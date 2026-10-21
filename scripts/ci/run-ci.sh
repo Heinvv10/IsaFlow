@@ -25,6 +25,21 @@ run_step() {
 # workflow-runs-ci check included. Checked in bash for that reason; the repo
 # has no bunfig.toml, and adding one means changing this line in review (R-052).
 run_step "no-bunfig"         test ! -e bunfig.toml
+
+# A push to master that is a merge-queue merge of a PR head whose tree already
+# passed both required checks as a pull_request run is not tested twice
+# (scripts/ci/mq-merge-already-tested.ts: exit 10 skips, anything else, a crash
+# included, runs every gate; it prints why). Only on GitHub, only on push, and
+# only after no-bunfig passed (a preload could fake the exit code).
+if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${GITHUB_EVENT_NAME:-}" = "push" ] && [ "${#FAILED[@]}" -eq 0 ]; then
+  echo ""
+  mq_rc=0
+  bun scripts/ci/mq-merge-already-tested.ts || mq_rc=$?
+  if [ "$mq_rc" -eq 10 ]; then
+    echo "[ci] all checks skipped: this exact tree already passed them as a pull_request run (see [mq-merge] above)"
+    exit 0
+  fi
+fi
 run_step "type-check"        bun run type-check
 # `tsconfig.json` excludes `tests/**`, so a FIXTURE may omit a required field
 # of the model it claims to be and neither `tsc --noEmit` nor vitest notices.

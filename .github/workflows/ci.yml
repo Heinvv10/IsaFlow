@@ -24,15 +24,31 @@ jobs:
     # Measured 8m13s at load ~45 (R-052/green.log). OBSERVED on this box
     # 2026-10-12 (not bounds): every step but integration 15 min at load ~65,
     # 58 min at load 150-250; integration 8-16 min, 24 min at its worst.
+    # 2026-10-21: the job took 20-24 min, integration 12-15 of it (one shard
+    # holding the audit-snapshots suites); plan.ts now deals shards by measured
+    # suite times (suite-seconds.json), ~8 min estimated. A Markdown-only change
+    # skips integration, and a push that is an already-tested merge-queue merge
+    # skips every gate (see the gate step below).
     # Integration's own bounds: 4 schema-build commands at 300 s + 30 s kill
     # grace (CI_INT_MIGRATE_TIMEOUT), shards cut at 30 min (CI_INT_SHARD_TIMEOUT).
     # Not bounded by those: postgres start retries (up to 5 x 120 s per
     # cluster), the 10 s TERM-to-KILL graces at shard exit and in cleanup,
     # initdb and plan. 58 + 22 + 30 + ~2 install = ~112 min, so 120.
     timeout-minutes: 120
+    # Read-only. actions + pull-requests: mq-merge-already-tested.ts reads the
+    # merged PR and its CI run's jobs (CI_READ_TOKEN below).
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
 
     steps:
+      # Full history: the integration scope diffs the tested tree against the
+      # event's base, and the merge check needs both parents' ancestry. Shallow,
+      # either would fail safe and run everything.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # --ignore-scripts: bun install otherwise runs lifecycle scripts of the
       # root, workspace members and trusted dependencies, any of which could
@@ -51,10 +67,19 @@ jobs:
       # starts its own throwaway PostgreSQL 16 clusters as the runner user
       # (scripts/ci/integration/run.sh) and ignores DATABASE_URL, which stays
       # empty. It prints every suite that skipped and why
-      # (scripts/ci/report-skipped-integration.ts).
+      # (scripts/ci/report-skipped-integration.ts). On a change that touches
+      # only Markdown it skips them (scripts/ci/integration/scope.ts), and it
+      # prints why it ran or skipped.
+      #
+      # On a push to master, run-ci.sh first asks
+      # scripts/ci/mq-merge-already-tested.ts whether the pushed commit is a
+      # merge-queue merge whose exact tree already passed both required checks
+      # as a pull_request run; if so it exits 0 without running the gates. Any
+      # doubt or error runs every gate.
       - name: CI gate (scripts/ci/run-ci.sh)
         run: bun run ci
         env:
+          CI_READ_TOKEN: ${{ github.token }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: test-secret-for-ci-only
           NODE_ENV: test
@@ -74,14 +99,37 @@ jobs:
     concurrency:
       group: golden-paths-dev-demo
       cancel-in-progress: false
+    # Read-only; for the merge check below (as in quality).
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A push to master that is an already-tested merge-queue merge skips the
+      # suite (see quality's gate step); the job still reports success. Exit
+      # 10 skips; any other exit, a crash included, runs the suite.
+      - name: Already tested as a pull_request run?
+        id: mq
+        env:
+          CI_READ_TOKEN: ${{ github.token }}
+        run: |
+          rc=0
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            bun scripts/ci/mq-merge-already-tested.ts || rc=$?
+          fi
+          if [ "$rc" -eq 10 ]; then echo "skip=true" >> "$GITHUB_OUTPUT"; else echo "skip=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Install dependencies
+        if: steps.mq.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
       - name: Boot dev server and run golden paths
+        if: steps.mq.outputs.skip != 'true'
         env:
           E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
           E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}

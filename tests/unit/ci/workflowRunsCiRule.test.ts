@@ -26,6 +26,7 @@ const GATE_STEP = [
   '      - name: CI gate (scripts/ci/run-ci.sh)',
   '        run: bun run ci',
   '        env:',
+  '          CI_READ_TOKEN: ${{ github.token }}',
   '          DATABASE_URL: ${{ secrets.DATABASE_URL }}',
   '          JWT_SECRET: test-secret-for-ci-only',
   '          NODE_ENV: test',
@@ -34,7 +35,10 @@ const GATE_STEP = [
 // The install step appears in both jobs; the gate comment makes this quality's.
 const QUALITY_INSTALL = '      - name: Install dependencies\n        run: bun install --frozen-lockfile --ignore-scripts\n\n      # The gate list';
 // Unique to quality: the --ignore-scripts comment follows its checkout.
-const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n\n      # --ignore-scripts';
+const QUALITY_CHECKOUT = '      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n\n      # --ignore-scripts';
+const JOB_PERMS = '    permissions:\n      contents: read\n      actions: read\n      pull-requests: read\n';
+const QUALITY_PERMS = `merged PR and its CI run's jobs (CI_READ_TOKEN below).\n${JOB_PERMS}`;
+const GOLDEN_PERMS = `merge check below (as in quality).\n${JOB_PERMS}`;
 const QUALITY_HEADER = '  quality:\n    name: Type Check, Lint & Test\n';
 
 describe('the committed workflow', () => {
@@ -57,7 +61,7 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['install without --ignore-scripts (root, workspace-member and trusted-dependency lifecycle scripts run and can rewrite run-ci.sh)', edit(QUALITY_INSTALL, QUALITY_INSTALL.replace(' --ignore-scripts', ''))],
     ['an extra step before the gate', edit(QUALITY_INSTALL, `      - run: echo hi\n${QUALITY_INSTALL}`)],
     ['a step after the gate (e.g. one that always reports success)', edit(GATE_STEP, `${GATE_STEP}      - run: exit 0\n`)],
-    ['checkout pinned to another ref', edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('@v4\n', '@v4\n        with:\n          ref: master\n'))],
+    ['checkout pinned to another ref', edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('fetch-depth: 0\n', 'ref: master\n'))],
     ['checkout swapped for another action', edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('actions/checkout', 'someone/checkout'))],
     ['pull_request trigger removed', edit('  pull_request:\n    branches: [master]\n', '')],
     ['paths-ignore on pull_request', edit('  pull_request:\n    branches: [master]\n', '  pull_request:\n    branches: [master]\n    paths-ignore: ["**"]\n')],
@@ -67,8 +71,9 @@ describe('refuses every way found to keep the job green while skipping gates', (
     ['flow-style step with continue-on-error', edit(GATE_STEP, '      - { name: CI gate, run: bun run ci, continue-on-error: true }\n')],
     ['gate replaced by one hand-picked gate', edit(GATE_LINE, '        run: bun run test:unit\n')],
     ['gate neutralised with || true', edit(GATE_LINE, '        run: bun run ci || true\n')],
-    ['workflow-level env', edit('permissions:\n', 'env:\n  CI_SKIP_BUILD: "1"\n\npermissions:\n')],
-    ['workflow-level defaults.run.shell', edit('permissions:\n', 'defaults:\n  run:\n    shell: cat {0}\n\npermissions:\n')],
+    // Top-level only: the jobs' own permissions blocks are indented.
+    ['workflow-level env', edit('\npermissions:\n', '\nenv:\n  CI_SKIP_BUILD: "1"\n\npermissions:\n')],
+    ['workflow-level defaults.run.shell', edit('\npermissions:\n', '\ndefaults:\n  run:\n    shell: cat {0}\n\npermissions:\n')],
     ['job-level env', edit(QUALITY_HEADER, `${QUALITY_HEADER}    env:\n      SKIP_CI: "1"\n`)],
   ];
 
@@ -148,8 +153,22 @@ describe('refuses every way found to keep the job green while skipping gates', (
     expect(check(edit('permissions:\n  contents: read\n', '')).length).toBeGreaterThan(0);
   });
 
-  it('a job widening its own token', () => {
-    expect(check(edit('    concurrency:\n      group: golden-paths-dev-demo\n', '    permissions:\n      actions: write\n    concurrency:\n      group: golden-paths-dev-demo\n')).length).toBeGreaterThan(0);
+  it.each([
+    ['golden-paths', GOLDEN_PERMS],
+    ['quality', QUALITY_PERMS],
+  ])('%s widening its own token', (_job, from) => {
+    expect(check(edit(from, from.replace('actions: read', 'actions: write'))).length).toBeGreaterThan(0);
+    expect(check(edit(from, from.replace('      pull-requests: read\n', '      pull-requests: read\n      checks: write\n'))).length).toBeGreaterThan(0);
+    expect(check(edit(from, from.replace(JOB_PERMS, '    permissions: write-all\n'))).length).toBeGreaterThan(0);
+  });
+
+  it('checkout given any input but fetch-depth: 0', () => {
+    expect(check(edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('fetch-depth: 0\n', 'fetch-depth: 0\n          ref: master\n'))).length).toBeGreaterThan(0);
+    expect(check(edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('fetch-depth: 0\n', 'fetch-depth: 1\n'))).length).toBeGreaterThan(0);
+  });
+
+  it('CI_READ_TOKEN set to anything but the job token (the merge check trusts the API it reaches)', () => {
+    expect(check(edit('          CI_READ_TOKEN: ${{ github.token }}\n          DATABASE_URL', '          CI_READ_TOKEN: ${{ secrets.OTHER }}\n          DATABASE_URL')).length).toBeGreaterThan(0);
   });
 
   it('a third job in ci.yml', () => {
@@ -170,5 +189,10 @@ describe('accepts equivalent spellings of the one allowed shape', () => {
     expect(check(edit('      - name: CI gate (scripts/ci/run-ci.sh)\n        run: bun run ci\n', '      - run: bun run ci\n'))).toEqual([]);
     expect(check(edit(GATE_LINE, '        run: "bun run ci"\n'))).toEqual([]);
     expect(check(edit(GATE_LINE, '        run: bun run ci  # every gate\n'))).toEqual([]);
+  });
+
+  it('quality without the job permissions block, or a checkout without inputs', () => {
+    expect(check(edit(QUALITY_PERMS, QUALITY_PERMS.replace(JOB_PERMS, '')))).toEqual([]);
+    expect(check(edit(QUALITY_CHECKOUT, QUALITY_CHECKOUT.replace('        with:\n          fetch-depth: 0\n', '')))).toEqual([]);
   });
 });
