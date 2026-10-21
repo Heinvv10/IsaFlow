@@ -14,7 +14,8 @@ import { log } from '@/lib/logger';
 import { settleOnFreshConnection, type ClaimPrincipal, type ClaimSettlement } from './netcashClaimSettle';
 import { DEFAULT_LATE_SETTLE_TOTAL_MS, LATE_SETTLE_FIRST_DELAY_MS, LATE_SETTLE_MAX_DELAY_MS } from './netcashTimeouts';
 
-const live = new Set<string>();
+/** Live settlers by submission id; `stopped` ends one at its next attempt (a restart, simulated in tests). */
+const live = new Map<string, { stopped: boolean }>();
 
 /** Whether this process is still writing Netcash's answer for `submissionId`. */
 export function isAnswerPendingRecord(submissionId: string): boolean {
@@ -37,16 +38,37 @@ const sleep = (ms: number) => new Promise<void>((r) => { setTimeout(r, ms).unref
 export function startLateSettle(p: ClaimPrincipal, submissionId: string, s: ClaimSettlement, settleToken: string): void {
   const key = submissionId.toLowerCase();
   if (live.has(key)) return;
-  live.add(key);
-  void run(p, submissionId, s, settleToken).finally(() => live.delete(key));
+  const me = { stopped: false };
+  live.set(key, me);
+  void run(p, submissionId, s, settleToken, me)
+    .catch((err: unknown) => {
+      // Outside run's own loop (it catches every attempt): never an unhandled rejection, and the answer is logged.
+      log.error('netcash late settler failed - the answer may NOT be on the row; check Netcash, do not resend', {
+        submissionId, status: s.status, batchReference: s.batchReference, answer: s.netcashResponse,
+        error: err instanceof Error ? err.message : String(err),
+      }, 'netcash');
+    })
+    .finally(() => { if (live.get(key) === me) live.delete(key); });
 }
 
-async function run(p: ClaimPrincipal, submissionId: string, s: ClaimSettlement, settleToken: string): Promise<void> {
+/**
+ * Test seam: what a restart does to the settlers - each stops before its next attempt and the in-process guard is gone.
+ * Throws outside a test run (NODE_ENV is inlined as 'production' in the server bundle).
+ */
+export function dropLateSettlesForTests(): void {
+  if (process.env.NODE_ENV !== 'test') throw new Error('dropLateSettlesForTests works only in a test run (NODE_ENV=test)');
+  for (const entry of live.values()) entry.stopped = true;
+  live.clear();
+}
+
+async function run(p: ClaimPrincipal, submissionId: string, s: ClaimSettlement, settleToken: string,
+  me: { stopped: boolean }): Promise<void> {
   const deadline = Date.now() + totalMs();
   const answer = { submissionId, status: s.status, batchReference: s.batchReference, answer: s.netcashResponse };
   let delay = LATE_SETTLE_FIRST_DELAY_MS;
   for (let attempt = 1; ; attempt += 1) {
     await sleep(Math.max(0, Math.min(delay, deadline - Date.now())));
+    if (me.stopped) return;
     try {
       const result = await settleOnFreshConnection(p, submissionId, s, settleToken);
       log.info('netcash late settler recorded the answer', { ...answer, attempt, result }, 'netcash');

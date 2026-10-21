@@ -148,7 +148,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // a second or concurrent request finds the batch claimed and is refused 409 without calling Netcash. The claim must
   // not ride in this request's transaction: withAuth rolls that back on any >=500, a crash or a timeout, and the claim
   // of a batch that may already be paid would go with it.
-  const principal = { companyId, claims: (req.user?.claims ?? {}) as Record<string, unknown> };
+  const principal = { companyId, userId: req.user.id, claims: (req.user?.claims ?? {}) as Record<string, unknown> };
   const claimed = await claimBatch(principal, {
     batchId: batchPaymentId, batchReference, totalAmountCents,
     recordCount: payments.length, createdBy,

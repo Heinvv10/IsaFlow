@@ -40,8 +40,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       { reason: 'IN_FLIGHT' });
   }
   if (result.kind === 'answer_pending') {
-    return apiResponse.conflict(res, "Netcash has answered this submission and the server is still recording its answer. Wait a few minutes, reload, and check the submission's status before resolving it.",
-      { reason: 'ANSWER_PENDING_RECORD' });
+    const answered = result.outcome
+      ? `Netcash answered ${result.outcome}${result.batchReference ? ` (reference ${result.batchReference})` : ''} for this submission, but that answer is not on it yet. Do not free it: resolve it as submitted if Netcash has the batch.`
+      : "Netcash has answered this submission and the server is still recording its answer. Wait a few minutes, reload, and check the submission's status before resolving it.";
+    return apiResponse.conflict(res, answered,
+      { reason: 'ANSWER_PENDING_RECORD', netcashOutcome: result.outcome ?? null, batchReference: result.batchReference ?? null });
   }
   if (result.kind === 'changed') {
     return apiResponse.conflict(res, `This submission's status changed from ${result.from} to ${result.to} since you opened it. Reload the page and check Netcash again before resolving it.`,
