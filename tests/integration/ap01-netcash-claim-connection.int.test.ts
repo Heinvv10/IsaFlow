@@ -10,7 +10,7 @@
  * the stub sender's call count, claim rows, pg_locks and whether the claim's backend is gone. Disposable DB only.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import pg, { Pool } from 'pg';
+import { Pool } from 'pg';
 
 const hold = vi.hoisted(() => ({ submitEftBatch: vi.fn(), getSubmissionStatus: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/netcashService', () => hold);
@@ -20,6 +20,7 @@ import { getPoolForTests } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { NETCASH_SEND_LOCK_CLASS } from '@/modules/accounting/services/ap/netcashSendLock';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { faults as hooks, injected, installQueryFaults, resetFaults, type Rule } from './ap01-netcash-faults.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
 
@@ -30,29 +31,15 @@ const tokens: Record<string, string> = {};
 let admin = '';
 const ACCEPTED = { success: true, outcome: 'accepted', batchReference: 'NC-CONN' };
 
-/** A fault for the next matching query: on the claim's own connection only when `claimOnly`. */
-type Rule = { match: RegExp; claimOnly: boolean; act: (run: () => Promise<unknown>) => Promise<unknown>; skip?: number };
-const hooks = { claim: null as null | { client: unknown; pid: number }, rules: [] as Rule[] };
-const realQuery = pg.Client.prototype.query;
+let restorePg = () => {};
 beforeAll(async () => {
   admin = await createUser(pool, tokens);
-  pg.Client.prototype.query = function patched(this: pg.Client, ...args: unknown[]) {
-    const first = args[0] as string | { text?: string };
-    const text = typeof first === 'string' ? first : first?.text ?? '';
-    if (/pg_(try_)?advisory_lock\(\$1::INT4/.test(text)) hooks.claim = { client: this, pid: (this as unknown as { processID: number }).processID };
-    const rule = hooks.rules.find((r) => r.match.test(text) && (!r.claimOnly || this === hooks.claim?.client));
-    if (rule && rule.skip) rule.skip -= 1;
-    else if (rule && typeof args[args.length - 1] !== 'function') {
-      hooks.rules.splice(hooks.rules.indexOf(rule), 1);
-      return rule.act(() => (realQuery as (...a: unknown[]) => Promise<unknown>).apply(this, args));
-    }
-    return (realQuery as (...a: unknown[]) => unknown).apply(this, args);
-  } as typeof realQuery;
+  restorePg = installQueryFaults();
 });
-beforeEach(() => { hold.submitEftBatch.mockReset(); hooks.claim = null; hooks.rules = []; });
+beforeEach(() => { hold.submitEftBatch.mockReset(); resetFaults(); });
 afterEach(() => { delete process.env.NETCASH_MAX_CONCURRENT_SENDS; });
 afterAll(async () => {
-  pg.Client.prototype.query = realQuery;
+  restorePg();
   await pool.query('DELETE FROM audit_log WHERE company_id = ANY($1)', [companies]);
   await cleanupPr5(pool, companies, [admin]);
 });
@@ -77,7 +64,6 @@ async function claimBackendAlive(): Promise<boolean> {
   }
   return true;
 }
-const injected = (what: string) => async () => { throw new Error(`injected: ${what}`); };
 
 describe('M1: sends in flight are capped, and the claim connection is checked out within a bound', () => {
   it('with 3 sends held (the default cap) a 4th submit is refused 503 before any claim; once they finish it goes', async () => {

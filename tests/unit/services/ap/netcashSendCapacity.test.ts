@@ -4,27 +4,41 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Pool, PoolClient } from 'pg';
 
-import { connectWithin, maxConcurrentSends, takeSendSlot } from '@/modules/accounting/services/ap/netcashSendCapacity';
+import { connectWithin, maxConcurrentSends, maxConcurrentSendsPerCompany, takeSendSlot } from '@/modules/accounting/services/ap/netcashSendCapacity';
 
-afterEach(() => { delete process.env.NETCASH_MAX_CONCURRENT_SENDS; vi.useRealTimers(); });
+afterEach(() => { delete process.env.NETCASH_MAX_CONCURRENT_SENDS; delete process.env.NETCASH_MAX_CONCURRENT_SENDS_PER_COMPANY; vi.useRealTimers(); });
 
 describe('takeSendSlot', () => {
-  it('admits the default 3, refuses the 4th, and a slot released twice frees one place only', () => {
-    expect(maxConcurrentSends()).toBe(3);
-    const slots = [takeSendSlot(), takeSendSlot(), takeSendSlot()];
-    expect(slots.every(Boolean)).toBe(true);
-    expect(takeSendSlot()).toBeNull();
-    slots[0]!();
-    slots[0]!();
-    const again = takeSendSlot();
-    expect(again).not.toBeNull();
-    expect(takeSendSlot()).toBeNull();
-    [again, slots[1], slots[2]].forEach((free) => free!());
+  const take = (c: string) => { const s = takeSendSlot(c); return 'free' in s ? s.free : s.refused; };
+
+  it('admits the default 3 per process (2 per company), and a slot released twice frees one place only', () => {
+    expect([maxConcurrentSends(), maxConcurrentSendsPerCompany()]).toEqual([3, 2]);
+    const a1 = take('A');
+    const a2 = take('A');
+    expect(take('A')).toBe('company');
+    const b1 = take('B');
+    expect(take('C')).toBe('process');
+    expect([a1, a2, b1].every((f) => typeof f === 'function')).toBe(true);
+    (a1 as () => void)();
+    (a1 as () => void)();
+    const a3 = take('A');
+    expect(typeof a3).toBe('function');
+    expect(take('C')).toBe('process');
+    [a2, a3, b1].forEach((free) => (free as () => void)());
+    const c = take('C');
+    expect(typeof c).toBe('function');
+    (c as () => void)();
   });
 
   it.each([['1', 1], ['5', 5], ['abc', 3], ['0', 3]])('NETCASH_MAX_CONCURRENT_SENDS=%j gives a cap of %i', (raw, cap) => {
     process.env.NETCASH_MAX_CONCURRENT_SENDS = raw;
     expect(maxConcurrentSends()).toBe(cap);
+  });
+
+  it.each([['1', '3', 1], ['3', '3', 3], ['5', '3', 3], ['2', '1', 1]])('per company %j under a process cap of %j gives %i', (per, all, cap) => {
+    process.env.NETCASH_MAX_CONCURRENT_SENDS_PER_COMPANY = per;
+    process.env.NETCASH_MAX_CONCURRENT_SENDS = all;
+    expect(maxConcurrentSendsPerCompany()).toBe(cap);
   });
 });
 

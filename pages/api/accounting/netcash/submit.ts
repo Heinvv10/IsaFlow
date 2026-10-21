@@ -245,20 +245,25 @@ function respondClaimLost(res: NextApiResponse, claimId: string, result: Netcash
       + `(${result.outcome}) was not applied. Check Netcash for this batch before doing anything else.`, details);
 }
 
-/** Netcash answered but neither settle could record it: 500 that says what Netcash answered (do not resend). */
+/** Netcash answered but neither settle confirmed recording it: 500 that says what Netcash answered (do not resend). */
 function respondAnswerNotRecorded(res: NextApiResponse, claimId: string, result: NetcashSubmitResult): void {
   const ref = result.batchReference ? ` (Netcash reference ${result.batchReference})` : '';
   return apiResponse.error(res, ErrorCode.INTERNAL_ERROR,
-    `Netcash answered ${result.outcome}${ref}, but the answer could not be recorded: submission ${claimId} stays pending and the batch `
-    + 'closed. Do not resend it - check Netcash, then resolve the submission.',
+    `Netcash answered ${result.outcome}${ref}, but the answer may not have been recorded: submission ${claimId} may still be pending, `
+    + 'and the batch stays closed. Do not resend it - check the submission row and Netcash before doing anything, then resolve it if needed.',
     { reason: 'NETCASH_ANSWER_NOT_RECORDED', submissionId: claimId, netcashOutcome: result.outcome, batchReference: result.batchReference ?? null });
 }
 
 /** Refused before anything was claimed or sent (ap/netcashSendCapacity, the send lock): safe to try again. */
-function respondSendBusy(res: NextApiResponse, reason: 'sends' | 'connection' | 'lock'): void {
+function respondSendBusy(res: NextApiResponse, reason: 'sends' | 'company_sends' | 'connection' | 'lock'): void {
   if (reason === 'lock') {
     return apiResponse.conflict(res, 'Another Netcash send is in progress on this server. Nothing was sent - try again in a moment.',
       { reason: 'NETCASH_SEND_LOCK_BUSY' });
+  }
+  if (reason === 'company_sends') {
+    return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE,
+      "This company's other Netcash sends are still in progress. Nothing was sent - try again in a moment.",
+      { reason: 'NETCASH_COMPANY_SENDS_BUSY' });
   }
   return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE,
     'Another Netcash send is in progress, or the server is busy. Nothing was sent - try again in a moment.',
