@@ -83,6 +83,7 @@ export default function MigrationHubPage() {
             <SourceSelection onSelect={selectSource} selecting={selecting} isSuperAdmin={user?.role === 'super_admin'} />
           ) : (
             <div className="space-y-6">
+              <SageFilesOpener firstStepHref={STEPS[0]!.href} />
               <SessionSummary session={session} onReset={() => setSession(null)} />
               <SessionIssues issues={session.errors ?? []} />
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
@@ -124,11 +125,41 @@ export default function MigrationHubPage() {
   );
 }
 
+/**
+ * "Moving from Sage?" — a Sage move is the files exported from Sage (CSV /
+ * Excel), uploaded through this wizard's steps. Before a migration is started
+ * it points at the source cards below; during one it links to the first step.
+ */
+function SageFilesOpener({ firstStepHref }: { firstStepHref?: string }) {
+  const body = (
+    <>
+      <span className="hidden sm:inline text-2xl" aria-hidden>📄</span>
+      <div className="flex-1">
+        <p className="font-semibold text-[var(--ff-text-primary)]">Moving from Sage Business Cloud or Sage 50 / Pastel?</p>
+        <p className="text-sm text-[var(--ff-text-secondary)]">
+          {firstStepHref
+            ? 'Upload the CSV or Excel files you exported from Sage in the steps below, starting with your chart of accounts.'
+            : 'Export your chart of accounts, customers, suppliers, trial balance and unpaid invoices from Sage as CSV or Excel files, choose your Sage version below, then upload each file in turn.'}
+        </p>
+      </div>
+    </>
+  );
+  const box = 'flex flex-col gap-4 sm:flex-row sm:items-center rounded-lg border border-green-500/30 bg-green-500/5 p-5';
+  if (!firstStepHref) return <div className={box}>{body}</div>;
+  return (
+    <Link href={firstStepHref} className={`${box} hover:border-green-500 transition-colors`}>
+      {body}
+      <span className="w-full text-center sm:w-auto rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white">Upload Sage files</span>
+    </Link>
+  );
+}
+
 function SourceSelection({ onSelect, selecting, isSuperAdmin }: { onSelect: (s: string) => void; selecting: boolean; isSuperAdmin?: boolean }) {
   return (
     <div className="space-y-4">
+      <SageFilesOpener />
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-6">
-        <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Step 1: Choose Your Source System</h2>
+        <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-1">Step 1: Choose your source system</h2>
         <p className="text-sm text-[var(--ff-text-secondary)] mb-5">Select the accounting software you are migrating from.</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {SOURCE_SYSTEMS.map(sys => (

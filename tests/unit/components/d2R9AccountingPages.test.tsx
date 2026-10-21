@@ -101,10 +101,10 @@ describe('migration hub', () => {
     serve((u, m) => (fail && m === 'GET' && u.includes('migration/session') ? empty500() : undefined), on('GET', 'migration/session', () => ok({ session: null })));
     render(<MigrationHubPage />);
     expect(await screen.findByText('Could not load your migration - try again')).toBeTruthy();
-    expect(screen.queryByText(/Choose Your Source System/)).toBeNull();
+    expect(screen.queryByText(/choose your source system/i)).toBeNull();
     fail = false;
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText(/Choose Your Source System/)).toBeTruthy();
+    expect(await screen.findByText(/choose your source system/i)).toBeTruthy();
     expect(screen.queryByText('Could not load your migration - try again')).toBeNull();
   });
 });
