@@ -26,6 +26,25 @@ export function decideAllocationOutcome(suggested: CodingTarget, final: CodingTa
 }
 
 /**
+ * What a person's MATCH coded the line to: the journal it was matched to, read off that journal's other lines
+ * (their GL accounts) and the supplier / customer payment it records (their contact). The suggested target
+ * when the journal carries it, else the journal's one account / contact, else null (several, none named).
+ */
+export function matchedTarget(suggested: CodingTarget, glAccountIds: string[], contactIds: string[]): CodingTarget {
+  const pick = (want: string | null, have: string[]): string | null =>
+    have.find((h) => same(want, h)) ?? (have.length === 1 ? have[0]! : null);
+  return { glAccountId: pick(suggested.glAccountId, glAccountIds), contactId: pick(suggested.contactId, contactIds) };
+}
+
+/**
+ * A rule's "category" is the rule's free-text name, typed by a user and often naming a person or
+ * counterparty, so the log never stores it (data minimisation: PR 2 mines this table).
+ */
+export function isRuleSource(source: SuggestionSource): boolean {
+  return source === 'rule' || source === 'supplier_rule';
+}
+
+/**
  * The decision-log source for a value of `bank_transactions.suggested_strategy` (migration 493); anything
  * unrecognised (or a line whose suggestion came from somewhere that set no strategy) is `none`.
  */

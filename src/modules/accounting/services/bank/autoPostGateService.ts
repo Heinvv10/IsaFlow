@@ -20,7 +20,7 @@ import { feedStateOf } from './bankFeedStateGuard';
 import { BankControlError } from './bankControlRefusal';
 import { evaluate, AUTO_POST_AGENT } from './autoPostGate';
 import type { AutoPostSource, SweepResult, SweepWarning } from './autoPostGate';
-import { recordAutoPosted, type ShownSuggestion } from './codingDecisionLog';
+import { recordAutoPosted, type AutoPosting } from './codingDecisionLog';
 import { sourceFromStrategy } from './codingDecisionOutcome';
 
 // Settings live in the sibling `autoPostSettingsService`, re-exported here
@@ -162,10 +162,7 @@ export async function sweep(
     let rowJournalId = '';
     try {
       const skipReason = await withSavepoint(SWEEP_ROW_SAVEPOINT, async (): Promise<string | null> => {
-        let decision: ShownSuggestion = {
-          txId: row.id, source: sourceFromStrategy(row.suggested_strategy),
-          glAccountId: row.suggested_gl_account_id, confidence,
-        };
+        let decision: AutoPosting;
         if (isImport) {
           const res = await postProvisional(companyId, row.id, userId, { minConfidence: settings.minConfidence, triggeredBy });
           if (!res.journalEntryId) {
@@ -175,7 +172,8 @@ export async function sweep(
           rowJournalId = res.journalEntryId;
           // The import path posts the history predictor's coding, not the line's suggested_* columns.
           decision = { txId: row.id, source: 'historical', glAccountId: res.prediction.glAccountId,
-            contactId: res.prediction.supplierId, confidence: res.prediction.confidence };
+            contactId: res.prediction.supplierId, confidence: res.prediction.confidence,
+            journalEntryId: res.journalEntryId, target: 'own' };
         } else {
           // THE UNATTENDED POSTING BOUNDARY. `allocateTransaction` is the
           // ATTENDED path and deliberately coerces nothing — the screen warned
@@ -202,13 +200,18 @@ export async function sweep(
             ? guarded.vatCode : requestedVat;
           // Passes no cost-centre pick, so it has none to drop and `rowWarnings` stays empty on this path. If
           // allocateTransaction ever returns warnings they must be fed into `rowWarnings` here.
-          await allocateTransaction(
+          const allocated = await allocateTransaction(
             companyId, row.id, row.suggested_gl_account_id, userId,
             row.description ?? undefined, 'account', undefined,
             effectiveVat,
             undefined, undefined, undefined, undefined,
-            { postingAgent: AUTO_POST_AGENT },
+            { postingAgent: AUTO_POST_AGENT, unattended: true },
           );
+          // The line's suggested_* columns, which a person's save_selection also writes (see AutoPosting).
+          decision = {
+            txId: row.id, source: sourceFromStrategy(row.suggested_strategy), glAccountId: row.suggested_gl_account_id,
+            confidence, journalEntryId: allocated.journalEntryId, target: 'suggestion', triggeredBy,
+          };
           if (guarded.denied) vatDenied += 1;
           if (guarded.nonSupplyCoerced) nonSupplyCoerced += 1;
         }

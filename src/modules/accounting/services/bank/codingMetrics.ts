@@ -5,8 +5,9 @@
  *  1. autoCoded (headline, "no clicks"): bank lines coded in the period that ISAFlow posted without a
  *     person clicking, over all bank lines coded in the period. Backfilled from bank_transactions.
  *  2. suggestionsAccepted: decisions a PERSON made on an ISAFlow suggestion in the period that landed on the
- *     suggested target, over all such decisions (accepted + recoded + rejected). Auto-posted decisions are
- *     excluded (they are measured by 1 and 4). Decision log only, so it starts the day the log shipped.
+ *     suggested target, over all such decisions (accepted + recoded + rejected). Auto-posted decisions, and
+ *     suggestions ISAFlow itself superseded (decided_by NULL), are excluded. Matches count, judged by what
+ *     the matched journal posts. Decision log only, so it starts the day the log shipped.
  *  3. firstThirtyDays: of the bank lines whose FIRST decision fell in the client's first 30 days (from its
  *     first bank import), the share whose first suggestion was accepted as-is (a person accepted it, or it
  *     was auto-posted and still stands). Decision log only.

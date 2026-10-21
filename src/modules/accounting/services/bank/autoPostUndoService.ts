@@ -25,7 +25,7 @@ import { journalReversalState } from './journalReversalState';
 import { lockChainHead } from '../shared/journalChainHead';
 import { handOffsetOf, postingJournalOf, type HandOffset } from './autoPostHandOffset';
 import { assertMayUndoRun, auditRunUndo } from './bankReversalGate';
-import { recordAutoPostUndone } from './codingDecisionLog';
+import { postingRefOf, recordAutoPostUndone } from './codingDecisionLog';
 
 type Row = DbRow;
 
@@ -169,7 +169,9 @@ export async function undoRow(companyId: string, runId: string, userId: string, 
     UPDATE bank_transactions SET auto_post_run_id = NULL
     WHERE id = ${txId}::UUID AND company_id = ${companyId}::UUID
   `;
-  await recordAutoPostUndone(companyId, txId, userId); // non-fatal; inside the row's savepoint
+  // Non-fatal; inside the row's savepoint. A reversal above already recorded it; this covers the provisional
+  // and reversed-by-hand shapes. Keyed on the posting the locked row carried, never "the latest auto-post".
+  await recordAutoPostUndone(companyId, txId, userId, postingRefOf(tx));
   return { kind: outcome };
 }
 

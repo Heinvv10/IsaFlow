@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  decideAllocationOutcome, ruleSource, sourceFromStrategy,
+  decideAllocationOutcome, isRuleSource, matchedTarget, ruleSource, sourceFromStrategy,
 } from '@/modules/accounting/services/bank/codingDecisionOutcome';
 
 const A = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -38,5 +38,26 @@ describe('sourceFromStrategy / ruleSource', () => {
     expect(ruleSource(null, S)).toBe('supplier_rule');
     expect(ruleSource(A, S)).toBe('rule');
     expect(ruleSource(A, null)).toBe('rule');
+  });
+});
+
+describe('matchedTarget (what a match coded the line to)', () => {
+  it('the journal carries the suggested account among several: that account', () => {
+    expect(matchedTarget({ glAccountId: A, contactId: null }, [B, A.toUpperCase()], [])).toEqual({ glAccountId: A.toUpperCase(), contactId: null });
+  });
+  it('one other account: that account; several and none suggested: null', () => {
+    expect(matchedTarget({ glAccountId: A, contactId: null }, [B], []).glAccountId).toBe(B);
+    expect(matchedTarget({ glAccountId: A, contactId: null }, [B, S], []).glAccountId).toBeNull();
+  });
+  it('the supplier the rule suggested is the payment\'s supplier: accepted', () => {
+    const final = matchedTarget({ glAccountId: null, contactId: S }, [B], [S]);
+    expect(decideAllocationOutcome({ glAccountId: null, contactId: S }, final)).toBe('accepted');
+  });
+});
+
+describe('isRuleSource', () => {
+  it('rule and supplier_rule only', () => {
+    expect([isRuleSource('rule'), isRuleSource('supplier_rule'), isRuleSource('pattern'), isRuleSource('llm')])
+      .toEqual([true, true, false, false]);
   });
 });

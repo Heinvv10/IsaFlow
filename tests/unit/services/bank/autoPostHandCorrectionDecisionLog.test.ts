@@ -40,7 +40,8 @@ describe('markCorrectedByHand -> decision log', () => {
   it('records the line\'s auto-posted decision as re-coded by the person', async () => {
     offsetCandidate.mockResolvedValue(okJournal);
     await markCorrectedByHand('co-1', 'run-1', 'tx-1', 'je-hand', 'u-1');
-    expect(recordHandCorrected).toHaveBeenCalledWith('co-1', 'tx-1', 'u-1');
+    // Keyed on the journal the auto-post put on the books.
+    expect(recordHandCorrected).toHaveBeenCalledWith('co-1', 'tx-1', 'u-1', { journalEntryId: 'je-posting' });
   });
 
   it('a refused marking records nothing', async () => {

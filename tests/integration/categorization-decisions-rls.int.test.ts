@@ -143,14 +143,16 @@ describe('codingDecisionLog under app_user (as withAuth runs it)', () => {
     const l1 = await seedLine(A);
     const l2 = await seedLine(A);
     await asUser(bothUser, A.id, async (c) => {
+      const je1 = crypto.randomUUID();
+      const je2 = crypto.randomUUID();
       await recordSuggestionsShown(A.id, [{ txId: l1, source: 'pattern', glAccountId: A.expense }]);
-      await recordAutoPosted(A.id, { txId: l1, source: 'pattern', glAccountId: A.expense, confidence: 0.97 });
-      await recordAutoPosted(A.id, { txId: l2, source: 'rule', glAccountId: A.expense });
+      await recordAutoPosted(A.id, { txId: l1, source: 'pattern', glAccountId: A.expense, confidence: 0.97, journalEntryId: je1, target: 'suggestion', triggeredBy: bothUser });
+      await recordAutoPosted(A.id, { txId: l2, source: 'rule', glAccountId: A.expense, journalEntryId: je2, target: 'own' });
       expect(await outcomeOf(c, l1)).toMatchObject({ outcome: 'accepted', was_auto_posted: true, decided_by: null });
       const rows = (await c.query<{ n: number }>('SELECT COUNT(*)::int n FROM categorization_decisions WHERE bank_transaction_id = $1', [l1])).rows[0]!.n;
       expect(rows).toBe(1); // the pending row became the auto-posted decision; no second row
-      await recordAutoPostUndone(A.id, l1, bothUser);
-      await recordHandCorrected(A.id, l2, bothUser);
+      await recordAutoPostUndone(A.id, l1, bothUser, { journalEntryId: je1 });
+      await recordHandCorrected(A.id, l2, bothUser, { journalEntryId: je2 });
       expect(await outcomeOf(c, l1)).toMatchObject({ outcome: 'undone', decided_by: bothUser });
       expect((await outcomeOf(c, l2))!.outcome).toBe('recoded');
     });

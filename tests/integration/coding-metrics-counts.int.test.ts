@@ -17,15 +17,17 @@ let F: Co; // no import batch: the window falls back to its first line
 let E: Co; // nothing at all
 let user = '';
 
+/** A person's decision unless `auto` (ISAFlow posted it) or `byIsaflow` (ISAFlow superseded its own suggestion). */
 async function decision(co: Co, txId: string, over: {
-  outcome: string; auto?: boolean; at: string; createdAt?: string;
+  outcome: string; auto?: boolean; byIsaflow?: boolean; at: string; createdAt?: string;
 }) {
+  const person = !over.auto && !over.byIsaflow && over.outcome !== 'pending';
   await pool.query(
     `INSERT INTO categorization_decisions (company_id, bank_transaction_id, suggestion_source, suggested_gl_account_id,
-       was_auto_posted, auto_posted_at, outcome, decided_at, created_at, suggested_at)
-     VALUES ($1, $2, 'pattern', $3, $4, CASE WHEN $4 THEN $5::TIMESTAMPTZ END, $6,
-             CASE WHEN $6 = 'pending' THEN NULL ELSE $5::TIMESTAMPTZ END, COALESCE($7::TIMESTAMPTZ, $5::TIMESTAMPTZ), $5::TIMESTAMPTZ)`,
-    [co.id, txId, co.expense, over.auto ?? false, over.at, over.outcome, over.createdAt ?? null]);
+       was_auto_posted, auto_posted_at, posted_journal_entry_id, outcome, decided_at, decided_by, created_at, suggested_at)
+     VALUES ($1, $2, 'pattern', $3, $4, CASE WHEN $4 THEN $5::TIMESTAMPTZ END, CASE WHEN $4 THEN gen_random_uuid() END, $6,
+             CASE WHEN $6 = 'pending' THEN NULL ELSE $5::TIMESTAMPTZ END, $8, COALESCE($7::TIMESTAMPTZ, $5::TIMESTAMPTZ), $5::TIMESTAMPTZ)`,
+    [co.id, txId, co.expense, over.auto ?? false, over.at, over.outcome, over.createdAt ?? null, person ? user : null]);
 }
 
 beforeAll(async () => {
@@ -56,11 +58,14 @@ beforeAll(async () => {
   const d3 = await seedLine(C);
   const d4 = await seedLine(C);
   const d5 = await seedLine(C);
+  const d6 = await seedLine(C);
   await decision(C, d1, { outcome: 'accepted', at: '2026-10-06T10:00:00Z' });            // person, accepted, in window
   await decision(C, d2, { outcome: 'recoded', at: '2026-10-07T10:00:00Z' });             // person, recoded, in window
   await decision(C, d3, { outcome: 'rejected', at: '2026-10-08T10:00:00Z' });            // person, rejected
   await decision(C, d4, { outcome: 'accepted', auto: true, at: '2026-10-09T10:00:00Z' }); // auto-posted, stands
   await decision(C, d5, { outcome: 'undone', auto: true, at: '2026-10-10T10:00:00Z' });   // auto-posted, undone
+  // ISAFlow posted a different target over its own suggestion (decided_by NULL): not a person's decision.
+  await decision(C, d6, { outcome: 'recoded', byIsaflow: true, at: '2026-10-11T10:00:00Z', createdAt: '2026-11-15T00:00:00Z' });
   await decision(C, d1, { outcome: 'accepted', at: '2026-10-31T23:30:00Z' });            // 1 Nov SAST: next month; d1's 2nd decision
   await decision(C, d2, { outcome: 'pending', at: '2026-11-20T10:00:00Z' });             // after the window
 
@@ -90,7 +95,8 @@ describe('loadCodingCounts', () => {
 
   it('decision-log counts: human decisions by decided_at (SA month), auto-posts by auto_posted_at', async () => {
     const [c] = await loadCodingCounts([C.id], OCT);
-    // d1 accepted, d2 recoded, d3 rejected in October; d1's 1 Nov SAST decision is November's.
+    // d1 accepted, d2 recoded, d3 rejected in October; d1's 1 Nov SAST decision is November's; d6 was
+    // superseded by ISAFlow, not decided by a person.
     expect(c).toMatchObject({ suggestionsDecided: 3, suggestionsAccepted: 1, autoPosted: 2, autoPostedReversed: 1 });
   });
 

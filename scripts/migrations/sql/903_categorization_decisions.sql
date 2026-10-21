@@ -11,15 +11,23 @@
 --     pending   a suggestion was written to the line (rule / pattern / historical / llm / supplier_rule).
 --               At most ONE pending row per line (partial unique index below); a newer suggestion for a
 --               line still pending replaces the pending row's suggestion in place.
---     accepted  a person allocated the line to the suggested target, or ISAFlow auto-posted it
---               (was_auto_posted = true, decided_by NULL).
---     recoded   a person allocated the line to a different target, or marked an auto-posted line as
---               corrected by hand (autoPostHandCorrection.markCorrectedByHand).
+--     accepted  a person allocated or matched the line to the suggested target, or ISAFlow auto-posted the
+--               suggested target (was_auto_posted = true, decided_by NULL).
+--     recoded   a person allocated or matched the line to a different target, or marked an auto-posted line
+--               as corrected by hand (autoPostHandCorrection.markCorrectedByHand). decided_by NULL on a
+--               recoded row means ISAFlow itself posted a different target (a rule auto-post or the import
+--               predictor over an open suggestion); readers of "a person's decisions" filter decided_by.
 --     rejected  a person excluded a line that still carried a pending suggestion.
 --     undone    an auto-posted line was undone (autoPostUndoService) or reversed / unmatched by a person.
 --   Only pending -> decided and auto-posted accepted -> recoded / undone are written; a decided row is never
 --   re-opened. shared_pool is reserved for PR 2 (pooled suggestions); none is for a decision with no
 --   suggestion behind it.
+--
+--   posted_journal_entry_id is the journal an auto-post put on the books (set exactly when was_auto_posted).
+--   An undo / reverse / unmatch / hand correction closes an auto-posted row only while that journal is still
+--   the line's posting as it stood before the write, so a person undoing their OWN later allocation never
+--   lands on an older auto-post's row. Plain UUID, no FK: gl_journal_entries has no (id, company_id) key,
+--   a posted journal is never deleted, and nothing posts from the column.
 --
 --   Targets. suggested_gl_account_id / final_gl_account_id carry composite (id, company_id) FKs to
 --   gl_accounts (489's pattern), so a row can never name another tenant's account. suggested_contact_id /
@@ -32,9 +40,9 @@
 --   decided_by is the users.id (character varying) of the person, never a name; NULL when ISAFlow decided.
 --
 -- RLS: the standard tenant form (897): a row is visible and writable only for the ACTIVE company AND a
--- company the caller belongs to. Writers: the withAuth routes (smart-categorize, bank-rules-action,
--- bank-transactions-action, bank-auto-post, statement import) run as app_user with
--- app.current_company_id = req.companyId, and every write names that company. The LLM residual pass and
+-- company the caller belongs to. Writers: the bank services themselves (allocate, split, match, exclude,
+-- unmatch, reverse, the auto-post paths), reached from withAuth routes and the MCP tools, run as app_user
+-- with app.current_company_id = the request's company, and every write names that company. The LLM residual pass and
 -- cron / feed ingestion run on the BYPASSRLS pool role and are unaffected; their writes still name the
 -- company explicitly.
 --
@@ -59,6 +67,7 @@ CREATE TABLE IF NOT EXISTS categorization_decisions (
   confidence              NUMERIC(5,4) CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
   was_auto_posted         BOOLEAN NOT NULL DEFAULT false,
   auto_posted_at          TIMESTAMPTZ,
+  posted_journal_entry_id UUID,
   outcome                 TEXT NOT NULL DEFAULT 'pending' CHECK (outcome IN (
     'pending', 'accepted', 'recoded', 'rejected', 'undone')),
   final_gl_account_id     UUID,
@@ -78,6 +87,8 @@ CREATE TABLE IF NOT EXISTS categorization_decisions (
   CONSTRAINT categorization_decisions_decided_ck CHECK ((outcome = 'pending') = (decided_at IS NULL)),
   -- auto_posted_at is the auto-post's own time (decided_at moves on a later undo).
   CONSTRAINT categorization_decisions_auto_ck CHECK (was_auto_posted = (auto_posted_at IS NOT NULL)),
+  -- Every auto-post names its journal, so an undo can tell whether it is still the line's posting.
+  CONSTRAINT categorization_decisions_auto_journal_ck CHECK (was_auto_posted = (posted_journal_entry_id IS NOT NULL)),
   -- An auto-post is a decision: it is never pending, and nobody "rejected" a line ISAFlow posted.
   CONSTRAINT categorization_decisions_auto_outcome_ck CHECK (NOT (was_auto_posted AND outcome IN ('pending', 'rejected')))
 );
@@ -119,7 +130,7 @@ BEGIN
 END $$;
 GRANT SELECT, INSERT ON public.categorization_decisions TO app_user;
 GRANT UPDATE (suggestion_source, suggested_gl_account_id, suggested_contact_id, suggested_category, confidence,
-              was_auto_posted, auto_posted_at, outcome, final_gl_account_id, final_contact_id, decided_by,
+              was_auto_posted, auto_posted_at, posted_journal_entry_id, outcome, final_gl_account_id, final_contact_id, decided_by,
               suggested_at, decided_at)
   ON public.categorization_decisions TO app_user;
 

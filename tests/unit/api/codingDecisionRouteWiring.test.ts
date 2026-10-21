@@ -1,9 +1,9 @@
 /**
- * bank-transactions-action records the person's decision on ISAFlow's suggestion after each coding verb:
- * allocate (accepted / recoded by the final target), split and match (never the one suggested target),
- * exclude (rejected), reverse and unmatch (an auto-posted line undone). The writer is mocked here; its SQL
- * is pinned in tests/unit/bank/codingDecisionLog.test.ts and against a schema in the integration suite.
- * The company and user come from the authenticated request, never from the body.
+ * bank-transactions-action no longer writes the learning-loop log itself: each service records its own
+ * decision (codingDecisionLog, called from allocate / split / match / exclude / unmatch / reverse), so the MCP
+ * tools and the other routes are covered too. What the route owns is handing every service the company and
+ * the person from the authenticated request, never from the body. The services' own logging runs against a
+ * real schema in tests/integration/coding-decision-paths.int.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/bank/bankLineImporterGate', async () => (await import('../helpers/bankControlGateMocks')).importerGateOpen());
@@ -11,14 +11,6 @@ vi.mock('@/modules/accounting/services/bank/bankReversalGate', async () => (awai
 vi.mock('@/modules/accounting/services/bank/bankControlResponse', () => ({ respondIfBankControlRefused: () => false }));
 import type { NextApiResponse } from 'next';
 
-const { log } = vi.hoisted(() => ({
-  log: {
-    recordAllocationDecision: vi.fn(async () => undefined),
-    recordAutoPostUndone: vi.fn(async () => undefined),
-    recordExcluded: vi.fn(async () => undefined),
-  },
-}));
-vi.mock('@/modules/accounting/services/bank/codingDecisionLog', () => log);
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (fn: unknown) => fn, withWriteAccess: (fn: unknown) => fn }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
@@ -48,8 +40,12 @@ vi.mock('@/lib/apiResponse', () => ({
   },
 }));
 
+import { readFileSync } from 'node:fs';
 import handler from '../../../pages/api/accounting/bank-transactions-action';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import {
+  allocateTransaction, excludeTransaction, matchTransaction, reverseReconciledTransaction, splitAllocateTransaction,
+  unmatchTransaction,
+} from '@/modules/accounting/services/bank/bankReconciliationService';
 
 const CO = '00000000-0000-4000-8000-000000000001';
 const USER = 'user-1';
@@ -63,43 +59,39 @@ const call = (body: Record<string, unknown>) =>
 
 beforeEach(() => vi.clearAllMocks());
 
-describe('allocate', () => {
-  it('to an account: the decision names the account the person chose', async () => {
-    expect((await call({ action: 'allocate', bankTransactionId: TX, allocationType: 'account', contraAccountId: GL })).kind).toBe('success');
-    expect(log.recordAllocationDecision).toHaveBeenCalledWith(CO, TX, USER, { glAccountId: GL, contactId: null });
+const JL = '00000000-0000-4000-8000-000000000006';
+
+describe('every coding verb hands the service the authenticated person', () => {
+  it('match: the person, so the service can record the decision', async () => {
+    expect((await call({ action: 'match', bankTransactionId: TX, journalLineId: JL })).kind).toBe('success');
+    expect(matchTransaction).toHaveBeenCalledWith(CO, TX, JL, undefined, USER);
   });
-  it('to a supplier: the decision names the supplier', async () => {
-    await call({ action: 'allocate', bankTransactionId: TX, allocationType: 'supplier', entityId: SUP });
-    expect(log.recordAllocationDecision).toHaveBeenCalledWith(CO, TX, USER, { glAccountId: null, contactId: SUP });
+  it('unmatch and exclude', async () => {
+    await call({ action: 'unmatch', bankTransactionId: TX });
+    await call({ action: 'exclude', bankTransactionId: TX, excludeReason: 'dup' });
+    expect(unmatchTransaction).toHaveBeenCalledWith(CO, TX, USER);
+    expect(excludeTransaction).toHaveBeenCalledWith(CO, TX, 'dup', USER);
   });
-  it('a refused allocation records nothing', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValueOnce(new Error('period closed'));
-    expect((await call({ action: 'allocate', bankTransactionId: TX, allocationType: 'account', contraAccountId: GL })).kind).toBe('badRequest');
-    expect(log.recordAllocationDecision).not.toHaveBeenCalled();
+  it('allocate, split and reverse', async () => {
+    await call({ action: 'allocate', bankTransactionId: TX, allocationType: 'account', contraAccountId: GL });
+    await call({ action: 'split_allocate', bankTransactionId: TX, lines: [{ contraAccountId: GL, amount: 10 }] });
+    await call({ action: 'reverse', bankTransactionId: TX });
+    expect(vi.mocked(allocateTransaction).mock.calls[0]!.slice(0, 4)).toEqual([CO, TX, GL, USER]);
+    expect(vi.mocked(splitAllocateTransaction).mock.calls[0]!.slice(0, 1)).toEqual([CO]);
+    expect(vi.mocked(splitAllocateTransaction).mock.calls[0]![3]).toBe(USER);
+    expect(reverseReconciledTransaction).toHaveBeenCalledWith(CO, TX, USER);
   });
   it('a companyId in the body is not a field the route reads', async () => {
     await call({ action: 'allocate', bankTransactionId: TX, allocationType: 'account', contraAccountId: GL, companyId: FOREIGN_CO });
-    for (const c of log.recordAllocationDecision.mock.calls as unknown as unknown[][]) expect(c[0]).toBe(CO);
+    await call({ action: 'match', bankTransactionId: TX, journalLineId: JL, companyId: FOREIGN_CO });
+    expect(vi.mocked(allocateTransaction).mock.calls[0]![0]).toBe(CO);
+    expect(vi.mocked(matchTransaction).mock.calls[0]![0]).toBe(CO);
   });
 });
 
-describe('the other verbs', () => {
-  it('split: no single target, so recoded', async () => {
-    await call({ action: 'split_allocate', bankTransactionId: TX, lines: [{ contraAccountId: GL, amount: 10 }] });
-    expect(log.recordAllocationDecision).toHaveBeenCalledWith(CO, TX, USER, { glAccountId: null, contactId: null });
-  });
-  it('match to an existing journal line: no single suggested target either', async () => {
-    await call({ action: 'match', bankTransactionId: TX, journalLineId: GL });
-    expect(log.recordAllocationDecision).toHaveBeenCalledWith(CO, TX, USER, { glAccountId: null, contactId: null });
-  });
-  it('exclude: rejected', async () => {
-    await call({ action: 'exclude', bankTransactionId: TX });
-    expect(log.recordExcluded).toHaveBeenCalledWith(CO, TX, USER);
-  });
-  it('reverse and unmatch: an auto-posted decision undone', async () => {
-    await call({ action: 'reverse', bankTransactionId: TX });
-    await call({ action: 'unmatch', bankTransactionId: TX });
-    expect(log.recordAutoPostUndone).toHaveBeenCalledTimes(2);
-    expect(log.recordAutoPostUndone).toHaveBeenCalledWith(CO, TX, USER);
+describe('the route does not write the log itself', () => {
+  it('imports nothing from codingDecisionLog (a second write would double-count)', () => {
+    const src = readFileSync('pages/api/accounting/bank-transactions-action.ts', 'utf8');
+    expect(src).not.toMatch(/codingDecisionLog/);
   });
 });
