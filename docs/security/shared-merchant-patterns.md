@@ -52,7 +52,7 @@ stored:
 | Cron route | 200 with the job's skip result, so the nightly timer does not fail every night | `pages/api/cron/shared-merchant-pool.ts` |
 | Admin recompute | 409 with code `sharing_pending_legal_review` (the same answer PUT `/api/bureau/settings` gives); nothing queued, nothing audited | `pages/api/admin/shared-merchant-pool.ts` |
 | Reader / cold start | No suggestions, before the filter or any SQL, so no stored pool row is served. It does not rely on `shared_pool_lookup`, which reads the stored opt-in flags and cannot see the env | `sharedSuggestionService.ts` |
-| Merchant Categories page | Says shared suggestions are "Coming soon - pending legal review" and that nothing mapped is shared yet; mappings can still be set up | `GET /api/accounting/category-mappings` reports `sharingAvailable` |
+| Merchant Categories page | Says shared suggestions are "Coming soon - pending legal review" and that none of the company's coding is shared yet; mappings can still be set up | `GET /api/accounting/category-mappings` reports `sharingAvailable` |
 
 Entry points checked: the job starts only from the cron and admin routes (no script or MCP tool runs it).
 Every pool read goes through `getSharedSuggestions`, called only by `bulkCategorize`, which serves
@@ -185,10 +185,17 @@ The rule is "when unsure, reject". About 100 unit cases cover it. On top of that
    directly as app_user would be answered from the stored flags while the gate is off; the census test
    allows only the reader to call it. Switching the gate off does not delete pool rows already published,
    and a bank line that already carries a `shared_pool` suggestion keeps it (and its label) until someone
-   codes the line; switching off only stops new pool reads and runs.
+   codes the line; switching off only stops new pool reads and runs. Switching it back on serves those
+   stored rows at once, before any run, so a bureau that opted out while the gate was off stays in the
+   pool until the next recompute. Enabling must be followed straight away by a recompute (below).
 
-## Rollback
+## Enable and rollback
 
+- Turn it on (only after legal signs off the consent copy): set `MERCHANT_SHARING_ENABLED=true` in the
+  service env and restart, then immediately run `POST /api/admin/shared-merchant-pool` and check it
+  completed (a `shared pool: recomputed` line in the service log). The reader serves whatever rows are stored the
+  moment the flag is on; if the pool was filled before (dev, or the flag was on, off and on again), those
+  rows can include merchants from bureaus that opted out since, until the recompute replaces them.
 - Turn it off without a deploy: unset `MERCHANT_SHARING_ENABLED` (or set it to anything but `true`) in the
   service env and restart. The job and the reader then do nothing; the rows stay. To remove the rows too,
   publish an empty pool (`SELECT public.shared_pool_publish('[]', 1)` as migration_admin) and stop the
