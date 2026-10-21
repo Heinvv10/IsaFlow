@@ -10,7 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const h = vi.hoisted(() => ({
   session: { contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' } as unknown,
   live: [{ companyId: 'co-1', companyName: 'Alpha' }] as unknown[],
-  contactRows: [{ ok: 1 }] as unknown[],
+  contactRows: [{ role: 'director' }] as unknown[],
 }));
 
 vi.mock('@/lib/auth/portalJwt', () => ({ verifyPortalToken: vi.fn(async () => h.session) }));
@@ -35,7 +35,7 @@ async function call() {
 
 beforeEach(() => {
   h.live = [{ companyId: 'co-1', companyName: 'Alpha' }];
-  h.contactRows = [{ ok: 1 }];
+  h.contactRows = [{ role: 'director' }];
 });
 
 describe('withPortalAuth — the session must still be in standing', () => {
@@ -51,6 +51,12 @@ describe('withPortalAuth — the session must still be in standing', () => {
     expect(out.status).toBe(401);
     expect(JSON.stringify(out.body)).toContain('PORTAL_AUTH_INVALID');
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("hands the handler the contact's current role, not the one signed into the JWT", async () => {
+    h.contactRows = [{ role: 'shareholder_readonly' }];
+    const { handler } = await call();
+    expect((handler.mock.calls[0]?.[0] as { portalSession: { role: string } }).portalSession.role).toBe('shareholder_readonly');
   });
 
   it('refuses (401) a session whose contact was deactivated since sign-in', async () => {
