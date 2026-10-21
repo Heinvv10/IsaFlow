@@ -303,9 +303,17 @@ describe('K-021 reversal atomicity', () => {
       [company, fmtDate(new Date())]);
     expect(before.rows[0].n).toBe(0);
 
+    const dayBefore = fmtDate(new Date());
     const result = await reverse(noPeriodToday.bankTx, token, company);
+    const dayAfter = fmtDate(new Date());
     expect(result.state.statusCode).toBe(200);
     expect((await readState(noPeriodToday)).reversalJournals).toBe(1);
+    // The contra is dated the poster's today: either side of the call, only
+    // because the call may straddle midnight.
+    const booked = await pool.query(
+      'SELECT entry_date::text AS d FROM gl_journal_entries WHERE company_id=$1 AND reversal_of_id=$2',
+      [company, noPeriodToday.je]);
+    expect([dayBefore, dayAfter]).toContain(booked.rows[0].d);
 
     // The year was created on the way through, and the contra is IN it — a
     // reversal posted with a NULL period would be invisible to every
