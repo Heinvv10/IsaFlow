@@ -13,23 +13,17 @@ import { join } from 'node:path';
 import { assignShards, routeSuite } from './suiteRoute';
 
 /**
- * Seconds each of the slowest suites took in the gate, measured 2026-10-12 at
- * load ~110 (every other suite counts 3 s, about what one takes with its imports). Only the deal uses these: a stale
- * or missing entry costs wall time, never correctness. Re-measure from the
- * gate log's per-file times when one suite starts holding a shard back.
+ * Seconds each suite of 3 s or more took (suite-seconds.json, the median over
+ * local gate runs, written by measure-suites.ts); every other suite counts
+ * FALLBACK_SECONDS. Only the deal uses these: a stale or missing entry costs
+ * wall time, never correctness. A hand-kept list of ten went stale within a
+ * day (the audit-snapshots suites, ~1,100 s, all counted 3 s and landed on one
+ * shard, which then ran 10-13 min while the lightest ran 3). Re-measure when a
+ * new slow suite lands or one shard's `[integration] shard i/6 ... Ns` line in
+ * the gate log runs well past the others.
  */
-const SLOW: Record<string, number> = {
-  'tests/integration/d10-bank-reversal-interleave.int.test.ts': 477,
-  'tests/integration/d10-mcp-void.int.test.ts': 172,
-  'tests/integration/d8-r16-posting-wait.int.test.ts': 89,
-  'tests/integration/w2-28-system-role-round10.int.test.ts': 57,
-  'tests/integration/d11-held-row-routes.int.test.ts': 46,
-  'tests/integration/d8-r9-lock-budget.int.test.ts': 38,
-  'tests/integration/w2-28-brk593p3-new.int.test.ts': 37,
-  'tests/integration/d12-completed-races.int.test.ts': 35,
-  'tests/integration/brkr-c5-locks.int.test.ts': 33,
-  'tests/integration/w2-28-system-role-round12.int.test.ts': 31,
-};
+const SLOW = JSON.parse(readFileSync('scripts/ci/integration/suite-seconds.json', 'utf8')) as Record<string, number>;
+const FALLBACK_SECONDS = 1;
 
 const shards = Number(process.argv[2]);
 if (!Number.isInteger(shards) || shards < 1) {
@@ -54,6 +48,6 @@ if (conflicts.length > 0) {
   process.exit(1);
 }
 
-for (const { shard, db, file } of assignShards(routes, shards, SLOW, 3)) {
+for (const { shard, db, file } of assignShards(routes, shards, SLOW, FALLBACK_SECONDS)) {
   process.stdout.write(`${shard}\t${db}\t${file}\n`);
 }
