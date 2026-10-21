@@ -6,7 +6,7 @@
  * settle that stalls gives up, so its send slot is freed. Each settle writes a token into netcash_response, by which
  * the retry recognises a first settle that committed but lost its reply - whatever a poll changed since.
  */
-import type { PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg';
+import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { getPool } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
@@ -51,7 +51,7 @@ export interface Queryable {
 export function bounded(client: PoolClient): Queryable {
   return {
     query: <R extends QueryResultRow>(text: string, values?: unknown[]) =>
-      client.query<R>({ text, values, query_timeout: SETTLE_QUERY_TIMEOUT_MS } as QueryConfig),
+      client.query<R>({ text, values, query_timeout: SETTLE_QUERY_TIMEOUT_MS }),
   };
 }
 

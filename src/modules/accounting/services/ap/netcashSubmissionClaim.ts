@@ -28,7 +28,7 @@
  * Netcash has it, the batch stays closed; a note is required, compare-and-set, audit-logged) - not by raw UPDATE.
  */
 import { randomUUID } from 'crypto';
-import type { PoolClient, QueryConfig } from 'pg';
+import type { PoolClient } from 'pg';
 import { getPool } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
@@ -101,7 +101,7 @@ async function endClaim(conn: ClaimConnection, submissionId: string | null, keep
       const { rows } = await client.query<{ ok: boolean }>({
         text: 'SELECT pg_advisory_unlock($1::INT4, hashtext($2::UUID::TEXT)) AS ok',
         values: [NETCASH_SEND_LOCK_CLASS, submissionId], query_timeout: SETTLE_QUERY_TIMEOUT_MS,
-      } as QueryConfig);
+      });
       if (rows[0]?.ok !== true) unlockFailed = new Error('send lock was not held');
     } catch (err) {
       unlockFailed = err;
