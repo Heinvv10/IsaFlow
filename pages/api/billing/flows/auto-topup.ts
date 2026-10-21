@@ -9,6 +9,7 @@ import { UUID } from '@/lib/schemas/common';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { apiResponse } from '@/lib/apiResponse';
 import { setAutoTopup } from '@/modules/billing/services/flowWalletService';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
@@ -40,4 +41,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, { enabled: parsed.data.enabled, bundleId: parsed.data.bundleId ?? null });
 }
 
-export default withAuth(withErrorHandler(withCsrf(handler)));
+// Owner and admin only (the owner/admin that the mandate routes' withRole('admin') admits, without its system/super_admin):
+// a viewer must not switch on automatic Flow purchases.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));
