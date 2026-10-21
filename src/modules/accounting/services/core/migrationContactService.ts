@@ -44,15 +44,6 @@ export interface SupplierImportRow {
 
 export type DuplicateStrategy = 'skip' | 'overwrite' | 'merge';
 
-/**
- * How an imported name finds an existing contact. 'similar' (the wizard's
- * default, for hand-kept files) also takes a near spelling (Dice >= 0.8);
- * 'exact' takes the same name only (case and outer spaces aside), for a
- * source like Sage whose names are already the system's own — a near match
- * there is a DIFFERENT contact.
- */
-export type ContactNameMatch = 'similar' | 'exact';
-
 // ── Customers ────────────────────────────────────────────────────────────────
 
 export async function importCustomers(
@@ -60,7 +51,6 @@ export async function importCustomers(
   sessionId: string,
   customers: CustomerImportRow[],
   duplicateStrategy: DuplicateStrategy = 'skip',
-  nameMatch: ContactNameMatch = 'similar',
 ): Promise<ImportResult> {
   const errors: MigrationError[] = [];
   let imported = 0;
@@ -80,7 +70,7 @@ export async function importCustomers(
     }
 
     try {
-      const duplicate = findDuplicate(cust.name, existing, nameMatch);
+      const duplicate = findDuplicate(cust.name, existing);
 
       if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
 
@@ -103,7 +93,7 @@ export async function importCustomers(
       await sql`
         INSERT INTO customers (
           company_id, name, email, phone, vat_number, registration_number,
-          billing_address, contact_person, payment_terms, credit_limit, notes
+          address, contact_person, payment_terms, credit_limit, notes
         ) VALUES (
           ${companyId}::UUID, ${cust.name}, ${cust.email ?? null}, ${cust.phone ?? null},
           ${cust.vatNumber ?? null}, ${cust.registrationNumber ?? null},
@@ -133,7 +123,6 @@ export async function importSuppliers(
   duplicateStrategy: DuplicateStrategy,
   /** R-035 PR5: an overwrite that changes bank details makes them an author of the supplier's unpaid payments. */
   importedBy: string,
-  nameMatch: ContactNameMatch = 'similar',
 ): Promise<ImportResult> {
   const errors: MigrationError[] = [];
   let imported = 0;
@@ -154,7 +143,7 @@ export async function importSuppliers(
     }
 
     try {
-      const duplicate = findDuplicate(sup.name, existing, nameMatch);
+      const duplicate = findDuplicate(sup.name, existing);
 
       if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
 
@@ -218,11 +207,10 @@ export async function importSuppliers(
 function findDuplicate(
   name: string,
   existing: Array<{ id: string; name: string }>,
-  nameMatch: ContactNameMatch,
 ): { id: string; name: string } | null {
   const normalized = name.toLowerCase().trim();
   const exact = existing.find(e => e.name.toLowerCase().trim() === normalized);
-  if (exact || nameMatch === 'exact') return exact ?? null;
+  if (exact) return exact;
 
   for (const e of existing) {
     if (diceCoefficient(normalized, e.name.toLowerCase().trim()) >= 0.8) return e;
