@@ -50,8 +50,8 @@ export function withPortalAuth(handler: PortalHandler): NextApiHandler {
         });
       }
 
-      const liveRole = await portalSessionStanding(session);
-      if (!liveRole) {
+      const current = await currentPortalSession(session);
+      if (!current) {
         log.warn('Portal auth: company not live or contact inactive', {
           url: req.url, companyId: session.companyId, contactId: session.contactId,
         }, 'portalAuth');
@@ -61,8 +61,7 @@ export function withPortalAuth(handler: PortalHandler): NextApiHandler {
         });
       }
 
-      // The contact's role as it is now, not as it was at sign-in.
-      (req as PortalApiRequest).portalSession = { ...session, role: liveRole };
+      (req as PortalApiRequest).portalSession = current;
       return handler(req, res);
     } catch (err) {
       log.error(
@@ -78,13 +77,18 @@ export function withPortalAuth(handler: PortalHandler): NextApiHandler {
   };
 }
 
-// The same live-company test sign-in applies, re-read on every request, and
-// the contact still active on that company: its current role, or null.
-async function portalSessionStanding(session: PortalSession): Promise<PortalSession['role'] | null> {
+/**
+ * A verified portal session as it stands NOW: null when its company is no
+ * longer live or its contact was deactivated since sign-in, otherwise the
+ * session with the contact's current role (the JWT's is 8 hours old). Every
+ * server-side reader of the portal cookie uses this after verifyPortalToken.
+ */
+export async function currentPortalSession(session: PortalSession): Promise<PortalSession | null> {
   if ((await listLiveCompanies([session.companyId])).length === 0) return null;
   const rows = (await sql`
     SELECT role FROM portal_contacts
     WHERE id = ${session.contactId}::UUID AND company_id = ${session.companyId}::UUID AND active = true
   `) as Array<{ role: PortalSession['role'] }>;
-  return rows[0]?.role ?? null;
+  const role = rows[0]?.role;
+  return role ? { ...session, role } : null;
 }
