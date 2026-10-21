@@ -26,19 +26,23 @@ function computeAnnualMedicalCredits(
   return (mainAndFirst + additional) * 12;
 }
 
-export function calculatePAYE(input: PayeInput): PayeResult {
+/**
+ * Tax for the year on `input.annualTaxableIncome`, after the age rebates and
+ * the medical scheme fees tax credits, never below zero. Shared by the
+ * periodic calculation (calculatePAYE) and the annual-payment method
+ * (payeAnnualPayment.ts), which takes the difference of two of these.
+ */
+export function annualTaxAfterCredits(input: PayeInput): { annualTax: number; rebates: number; medicalCredits: number } {
   const config = getTaxYearConfig(input.taxYear);
-  const age = input.ageAtPeriodEnd;
-
-  const rebates = computeRebates(age, config);
-  const annualMedicalCredits = computeAnnualMedicalCredits(
-    input.monthlyMedicalBeneficiaries,
-    config,
-  );
-
+  const rebates = computeRebates(input.ageAtPeriodEnd, config);
+  const medicalCredits = computeAnnualMedicalCredits(input.monthlyMedicalBeneficiaries, config);
   const grossAnnualTax = computeAnnualTax(input.annualTaxableIncome, config.brackets);
   const taxAfterRebates = Math.max(0, grossAnnualTax - rebates);
-  const annualTax = Math.max(0, taxAfterRebates - annualMedicalCredits);
+  return { annualTax: Math.max(0, taxAfterRebates - medicalCredits), rebates, medicalCredits };
+}
+
+export function calculatePAYE(input: PayeInput): PayeResult {
+  const { annualTax, rebates, medicalCredits: annualMedicalCredits } = annualTaxAfterCredits(input);
   const monthlyPaye = Math.round((annualTax / 12) * 100) / 100;
 
   const effectiveRate =

@@ -14,7 +14,7 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { applyTaxDirective } from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
+import { applyTaxDirective, TaxDirectiveAlreadyAppliedError } from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
 import { log } from '@/lib/logger';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -47,12 +47,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('applyTaxDirective request', { companyId, directiveId, paymentDate }, 'taxDirective');
 
-  const result = await withJournalDateRefusal(res, () => applyTaxDirective(
-    companyId,
-    directiveId,
-    { paymentDate, bankAccountId },
-    user.id,
-  ));
+  let result: Awaited<ReturnType<typeof applyTaxDirective>> | typeof JOURNAL_DATE_REFUSED;
+  try {
+    result = await withJournalDateRefusal(res, () => applyTaxDirective(
+      companyId,
+      directiveId,
+      { paymentDate, bankAccountId },
+      user.id,
+    ));
+  } catch (err) {
+    // Raised before anything is written (taxDirectivePaymentService), so the
+    // 409 withAuth commits leaves nothing half-applied.
+    if (err instanceof TaxDirectiveAlreadyAppliedError) return apiResponse.conflict(res, err.message);
+    throw err;
+  }
   if (result === JOURNAL_DATE_REFUSED) return;
 
   return apiResponse.success(res, result);

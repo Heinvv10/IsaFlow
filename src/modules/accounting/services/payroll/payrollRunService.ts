@@ -9,17 +9,14 @@ import { validateEmployee, validateEti, validatePayrollLine } from './validation
 import { getTaxYear, getTaxYearConfig } from './taxTables';
 import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals } from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
-import type { EmployeeComponent, PayrollComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
-import {
-  buildTerminationComponents,
-  getTerminationDetails,
-  getAnnualLeaveBalance,
-  yearsOfService,
-  type TerminationReason,
-} from './payrollTerminationService';
-import { findPaidTerminationRun } from './payrollTerminationPaidCheck';
+import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
 import { applyRunLoans } from './payrollRunLoanApplication';
+import { appendLoanComponents } from './payrollRunLoanComponents';
+import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
+import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
+
+export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
 
 type Row = DbRow;
@@ -143,7 +140,6 @@ export async function calculatePayrollRun(
   let totalEti = 0;
   let totalNet = 0;
 
-  // Build all line inserts in memory before touching the DB
   type LineInsert = {
     employeeId: string;
     grossPay: number; taxableIncome: number; paye: number;
@@ -172,24 +168,29 @@ export async function calculatePayrollRun(
     employeeIds: new Set(employees.map(e => e.id)),
   });
 
-  for (const employee of employees) {
-    const components = await getEmployeeComponents(employee.id, companyId, periodDate);
-    const terminationWarnings: ValidationResult[] = [];
-    const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
-      companyId,
-      runId,
-      employee,
-      components,
-      period,
-      terminationWarnings,
-    );
+  // Leavers from earlier periods whose severance directive this run may pay:
+  // the severance line alone, no salary, recurring components or loans, and so
+  // no UIF or SDL (audit 2026-10-18 P3, payrollSeveranceDirective.ts).
+  const severanceOnly = await listSeveranceOnlyRunEmployees(companyId, runId, period);
+  const population: Array<{ employee: PayrollEmployee; severanceOnly: boolean }> = [
+    ...employees.map(employee => ({ employee, severanceOnly: false })),
+    ...severanceOnly.map(employee => ({ employee, severanceOnly: true })),
+  ];
 
-    const loanApplications: ApplyLoanResult[] = loansByEmployee.get(employee.id) ?? [];
-    const componentsWithLoans = await appendLoanComponents(
-      companyId,
-      componentsWithTermination,
-      loanApplications,
-    );
+  for (const { employee, severanceOnly: onlySeverance } of population) {
+    const terminationWarnings: ValidationResult[] = [];
+    let componentsWithLoans: EmployeeComponent[];
+    if (onlySeverance) {
+      componentsWithLoans = await severanceOnlyComponents(companyId, runId, employee, period, terminationWarnings);
+      if (componentsWithLoans.length === 0) continue;
+    } else {
+      const components = await getEmployeeComponents(employee.id, companyId, periodDate);
+      const componentsWithTermination = await appendTerminationIfEndingThisPeriod(
+        companyId, runId, employee, components, period, terminationWarnings,
+      );
+      const loanApplications: ApplyLoanResult[] = loansByEmployee.get(employee.id) ?? [];
+      componentsWithLoans = await appendLoanComponents(companyId, componentsWithTermination, loanApplications);
+    }
 
     const line = calculatePayrollLine({
       employee,
@@ -197,6 +198,7 @@ export async function calculatePayrollRun(
       period,
       taxYear,
       annualPayrollEstimate: 'defer',
+      notEmployedInPeriod: onlySeverance,
     });
 
     const otherTaxNumbers = allTaxNumbers.filter(t => t !== employee.taxNumber);
@@ -221,7 +223,7 @@ export async function calculatePayrollRun(
       componentBreakdown: JSON.stringify(line.componentBreakdown),
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
-        ...terminationWarnings,
+        ...line.validationResults, ...terminationWarnings,
       ]),
     });
 
@@ -286,228 +288,13 @@ export async function calculatePayrollRun(
 
   const updated = await saveCalculatedRunTotals(runId, companyId, {
     gross: r(totalGross), paye: r(totalPaye), uif: r(totalUifEmployee + totalUifEmployer),
-    sdl: r(totalSdl), eti: r(totalEti), net: r(totalNet), employeeCount: employees.length,
+    sdl: r(totalSdl), eti: r(totalEti), net: r(totalNet), employeeCount: lineInserts.length,
   });
 
   log.info(
     'Payroll run calculated',
-    { runId, employeeCount: employees.length, totalGross },
+    { runId, employeeCount: lineInserts.length, totalGross },
     'payrollRunService',
   );
   return mapRunRow(updated);
-}
-
-export interface PayrollRunLine {
-  id: string;
-  runId: string;
-  employeeId: string;
-  employeeNumber: string;
-  employeeName: string;
-  grossPay: number;
-  taxableIncome: number;
-  paye: number;
-  uifEmployee: number;
-  uifEmployer: number;
-  sdl: number;
-  eti: number;
-  netPay: number;
-  /**
-   * Warnings raised while calculating this line. Written since the run service
-   * was built, but dropped by this mapper until the ETI work — so every warning
-   * the validation engine produced was invisible to every caller.
-   */
-  validationResults: ValidationResult[];
-}
-
-/**
- * Read `payroll_run_lines.validation_results` defensively.
- *
- * pg hands back parsed jsonb, but a text column or a driver change would give a
- * string. A malformed value must degrade to "no warnings" rather than throw —
- * a broken warning payload may not take down the run detail page.
- */
-function parseValidationResults(raw: unknown): ValidationResult[] {
-  const value = typeof raw === 'string' ? safeJsonParse(raw) : raw;
-  return Array.isArray(value) ? (value as ValidationResult[]) : [];
-}
-
-function safeJsonParse(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Append synthetic termination components (leave pay-out, notice pay,
- * severance) when the employee's end_date falls within this payroll period
- * and a termination reason is captured on their profile. Silent no-op
- * otherwise so non-terminating employees are unaffected. Skipped, with a
- * warning pushed to `warnings`, when another approved or paid run already paid
- * them (an end date moved to a later month after the final pay).
- */
-async function appendTerminationIfEndingThisPeriod(
-  companyId: string,
-  runId: string,
-  employee: { id: string; endDate?: Date; startDate: Date },
-  components: EmployeeComponent[],
-  period: PayrollPeriod,
-  warnings: ValidationResult[],
-): Promise<EmployeeComponent[]> {
-  const { endDate, startDate } = employee;
-  if (!endDate) return components;
-  const endYear = endDate.getFullYear();
-  const endMonth = endDate.getMonth() + 1;
-  if (endYear !== period.year || endMonth !== period.month) return components;
-
-  const details = await getTerminationDetails(companyId, employee.id);
-  if (!details || !details.reason) return components;
-
-  const paid = await findPaidTerminationRun(companyId, employee.id, runId);
-  if (paid) {
-    warnings.push({
-      code: 'TERMINATION_ALREADY_PAID',
-      severity: 'warning',
-      message: `Leave, notice and severance pay-outs for this employee were already paid in the ${paid.year}-${String(paid.month).padStart(2, '0')} run, `
-        + 'so they are not paid again. If they were re-employed and have left again, the second pay-out must be captured by hand.',
-    });
-    return components;
-  }
-
-  const monthlySalary = components
-    .filter((c) => c.component.componentType === 'earning')
-    .reduce((sum, c) => sum + c.amount, 0);
-  if (monthlySalary <= 0) return components;
-
-  const unusedLeaveDays = details.includeLeavePayout
-    ? await getAnnualLeaveBalance(companyId, employee.id, period.year)
-    : 0;
-
-  const termination = buildTerminationComponents({
-    monthlySalary,
-    unusedLeaveDays,
-    noticePeriodDays: details.noticePeriodDays ?? 0,
-    servedNoticeDays: details.servedNoticeDays ?? 0,
-    severanceWeeksPerYear: details.severanceWeeksPerYear ?? 0,
-    yearsOfService: yearsOfService(
-      startDate.toISOString().slice(0, 10),
-      endDate.toISOString().slice(0, 10),
-    ),
-    includeLeavePayout: details.includeLeavePayout,
-    reason: details.reason as TerminationReason,
-  });
-
-  if (termination.length > 0) {
-    log.info('Termination components injected into payroll run', {
-      companyId, employeeId: employee.id, period, count: termination.length,
-    }, 'payrollRunService');
-  }
-  return [...components, ...termination];
-}
-
-/**
- * Resolves the SARS-coded payroll components used to represent loan impact
- * on a payslip:
- *   - code 'LOAN'  : earner-facing deduction for principal + interest.
- *   - code '3801'  : taxable fringe benefit (low-interest loan).
- * Callers pre-seed these components under Setup → Pay Components. Loans
- * silently skip the row if the component doesn't exist (the payment is
- * still recorded on payroll_loan_payments, just not shown on payslip
- * until the admin adds the component).
- */
-async function loadLoanComponents(companyId: string): Promise<{
-  deduction: PayrollComponent | null;
-  fringe: PayrollComponent | null;
-}> {
-  const rows = (await sql`
-    SELECT id, name, sars_source_code, component_type,
-           is_taxable, is_uif_applicable, is_sdl_applicable
-      FROM payroll_components
-     WHERE company_id = ${companyId}::uuid
-       AND is_active = true
-       AND sars_source_code IN ('LOAN', '3801')
-  `) as Row[];
-
-  let deduction: PayrollComponent | null = null;
-  let fringe: PayrollComponent | null = null;
-  for (const r of rows) {
-    const component: PayrollComponent = {
-      id: String(r.id),
-      name: String(r.name),
-      sarsSourceCode: String(r.sars_source_code),
-      componentType: r.component_type as PayrollComponent['componentType'],
-      isTaxable: r.is_taxable === true,
-      isUifApplicable: r.is_uif_applicable === true,
-      isSdlApplicable: r.is_sdl_applicable === true,
-    };
-    if (component.sarsSourceCode === 'LOAN') deduction = component;
-    if (component.sarsSourceCode === '3801') fringe = component;
-  }
-  return { deduction, fringe };
-}
-
-async function appendLoanComponents(
-  companyId: string,
-  components: EmployeeComponent[],
-  loanApplications: ApplyLoanResult[],
-): Promise<EmployeeComponent[]> {
-  if (loanApplications.length === 0) return components;
-
-  const { deduction, fringe } = await loadLoanComponents(companyId);
-  const injected: EmployeeComponent[] = [];
-
-  for (const app of loanApplications) {
-    const repayment = app.interest + app.principal;
-    if (repayment > 0 && deduction) {
-      injected.push({ component: deduction, amount: repayment });
-    }
-    if (app.fringeBenefit > 0 && fringe) {
-      injected.push({ component: fringe, amount: app.fringeBenefit });
-    }
-  }
-
-  if (injected.length > 0) {
-    log.info('Loan components injected into payroll run', {
-      companyId, count: injected.length,
-    }, 'payrollRunService');
-  }
-
-  return [...components, ...injected];
-}
-
-export async function getPayrollRunLines(
-  runId: string,
-  companyId: string,
-): Promise<PayrollRunLine[]> {
-  const rows = (await sql`
-    SELECT
-      prl.*,
-      pe.employee_number,
-      pe.first_name,
-      pe.last_name
-    FROM payroll_run_lines prl
-    JOIN payroll_run_headers prh ON prh.id = prl.run_id
-    JOIN payroll_employees    pe  ON pe.id  = prl.employee_id
-    WHERE prl.run_id = ${runId}::uuid
-      AND prh.company_id = ${companyId}::uuid
-    ORDER BY pe.employee_number
-  `) as Row[];
-
-  return rows.map(r => ({
-    id: String(r.id),
-    runId: String(r.run_id),
-    employeeId: String(r.employee_id),
-    employeeNumber: String(r.employee_number),
-    employeeName: `${r.first_name} ${r.last_name}`,
-    grossPay: Number(r.gross_pay),
-    taxableIncome: Number(r.taxable_income),
-    paye: Number(r.paye),
-    uifEmployee: Number(r.uif_employee),
-    uifEmployer: Number(r.uif_employer),
-    sdl: Number(r.sdl),
-    eti: Number(r.eti),
-    netPay: Number(r.net_pay),
-    validationResults: parseValidationResults(r.validation_results),
-  }));
 }

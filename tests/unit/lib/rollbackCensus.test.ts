@@ -53,6 +53,10 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
   'scripts/migrations/resolve-checksum-conflicts.ts': { rollbacks: 1, unreadable: 1, reason: `${IN_A_HELPER}; ${RUNS_SQL_FILE}` },
   'scripts/_pg.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
   'src/lib/neon/query.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
+  'src/modules/accounting/services/ap/netcashClaimSettle.ts': {
+    rollbacks: 0, unreadable: 1,
+    reason: `bounded(): ${PASSES_TEXT_ON}, with a query_timeout added (AP-01 round 12); its callers send no ROLLBACK (they use rollbackFailed)`,
+  },
   'src/lib/neon/sql.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
   'src/lib/neon/transaction.ts': { rollbacks: 0, unreadable: 2, reason: PASSES_TEXT_ON },
 };
