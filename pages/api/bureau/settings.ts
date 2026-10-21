@@ -6,6 +6,9 @@
  * bureaus.owner_user_id, and setBureauSharingSetting re-checks it inside its write transaction.
  * Every real change writes one bureau_audit_log row (who, when, old -> new). The setting is stored only:
  * nothing pools on it until PR 2 (poolEligibility.ts).
+ * Gate (merchantSharingGate.ts): while MERCHANT_SHARING_ENABLED is off, switching ON is a 409
+ * sharing_pending_legal_review for everyone, the owner included; switching OFF still works. GET reports
+ * the gate as `sharingAvailable`, so the page can say "Coming soon" without a NEXT_PUBLIC variable.
  */
 import type { NextApiResponse } from 'next';
 import { z } from 'zod';
@@ -17,6 +20,7 @@ import { log } from '@/lib/logger';
 import { UUID } from '@/lib/schemas/common';
 import { getBureauRole } from '@/modules/bureau/services/bureauService';
 import { getBureauSharingSetting, setBureauSharingSetting } from '@/modules/bureau/services/bureauSettingsService';
+import { isMerchantSharingEnabled, MERCHANT_SHARING_PENDING_CODE } from '@/modules/bureau/services/merchantSharingGate';
 
 const PutBody = z.object({ bureauId: UUID, shareMerchantPatterns: z.boolean() }).strict();
 
@@ -30,7 +34,9 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     if (!role) return apiResponse.forbidden(res, 'Not a member of this bureau');
     const setting = await getBureauSharingSetting(bureauId.data);
     if (!setting) return apiResponse.notFound(res, 'Bureau', bureauId.data);
-    return apiResponse.success(res, { bureauId: bureauId.data, role, canEdit: role === 'owner', ...setting });
+    return apiResponse.success(res, {
+      bureauId: bureauId.data, role, canEdit: role === 'owner', sharingAvailable: isMerchantSharingEnabled(), ...setting,
+    });
   }
 
   if (req.method === 'PUT') {
@@ -41,6 +47,10 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     const result = await setBureauSharingSetting({
       bureauId: parsed.data.bureauId, actorUserId: userId, value: parsed.data.shareMerchantPatterns,
     });
+    if (result.kind === 'pending_legal_review') {
+      return apiResponse.conflict(res, 'Merchant-pattern sharing cannot be switched on yet: the consent wording is pending legal review',
+        { code: MERCHANT_SHARING_PENDING_CODE });
+    }
     if (result.kind === 'forbidden') {
       return apiResponse.forbidden(res, 'Only the bureau owner can change merchant-pattern sharing');
     }

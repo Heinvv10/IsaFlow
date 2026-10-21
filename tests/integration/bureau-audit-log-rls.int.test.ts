@@ -3,7 +3,8 @@
  * every role, and outlives its bureau (the consent record); bureaus.share_merchant_patterns defaults to off;
  * the owner-only toggle (owner = bureaus.owner_user_id) writes exactly one audit row per change and refuses
  * accountants, viewers and a stale bureau_users 'owner' row; pool eligibility follows decision 3 (no bureau
- * -> out; every linked bureau must opt in).
+ * -> out; every linked bureau must opt in). The suites run with MERCHANT_SHARING_ENABLED=true except the
+ * last, which pins the gate off (merchantSharingGate.ts): ON refused for the owner, OFF allowed, pool empty.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -34,7 +35,10 @@ async function auditRows(bureauId: string) {
     'SELECT actor_user_id, old_value, new_value FROM bureau_audit_log WHERE bureau_id = $1 ORDER BY created_at, id', [bureauId])).rows;
 }
 
+const gateBefore = process.env.MERCHANT_SHARING_ENABLED;
+
 beforeAll(async () => {
+  process.env.MERCHANT_SHARING_ENABLED = 'true';
   co = await seedCompany('904 bureau client');
   solo = await seedCompany('904 direct company');
   shared = await seedCompany('904 two-bureau client');
@@ -62,6 +66,8 @@ afterAll(async () => {
     await pool.query('DELETE FROM bureaus WHERE id = ANY($1::uuid[])', [[bureau1, bureau2, bureau3]]);
     await teardownCompanies([co.id, solo.id, shared.id], [owner, accountant, viewer, owner2, staleOwner, rowlessOwner]);
   } finally {
+    if (gateBefore === undefined) delete process.env.MERCHANT_SHARING_ENABLED;
+    else process.env.MERCHANT_SHARING_ENABLED = gateBefore;
     await pool.end();
   }
 });
@@ -157,5 +163,37 @@ describe('pool eligibility (decision 3)', () => {
     await setBureauSharingSetting({ bureauId: bureau2, actorUserId: owner2, value: true });
     expect(await loadCompanyPoolEligibility(shared.id)).toBe(true);
     expect(await listPoolEligibleCompanyIds()).toContain(shared.id);
+  });
+});
+
+describe('the legal-review gate off (MERCHANT_SHARING_ENABLED unset)', () => {
+  it('the owner cannot switch it on; nothing is written', async () => {
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    const fresh = crypto.randomUUID();
+    await pool.query('INSERT INTO bureaus (id, name, owner_user_id) VALUES ($1, $2, $3)', [fresh, '904 gated', owner]);
+    try {
+      expect(await setBureauSharingSetting({ bureauId: fresh, actorUserId: owner, value: true })).toEqual({ kind: 'pending_legal_review' });
+      expect(await auditRows(fresh)).toEqual([]);
+      const r = await pool.query<{ share_merchant_patterns: boolean }>('SELECT share_merchant_patterns FROM bureaus WHERE id = $1', [fresh]);
+      expect(r.rows[0]!.share_merchant_patterns).toBe(false);
+    } finally {
+      await pool.query('DELETE FROM bureaus WHERE id = $1', [fresh]);
+    }
+  });
+
+  it('bureaus stored as on pool nothing, and the owner can still switch off', async () => {
+    // Stored on here, not left over from the describes above, so this test holds alone or reordered.
+    await pool.query('UPDATE bureaus SET share_merchant_patterns = true WHERE id = ANY($1::uuid[])', [[bureau1, bureau2]]);
+    const stored = await pool.query<{ share_merchant_patterns: boolean }>(
+      'SELECT share_merchant_patterns FROM bureaus WHERE id = ANY($1::uuid[])', [[bureau1, bureau2]]);
+    expect(stored.rows.map((r) => r.share_merchant_patterns)).toEqual([true, true]);
+    process.env.MERCHANT_SHARING_ENABLED = 'true';
+    expect(await loadCompanyPoolEligibility(co.id)).toBe(true); // the gate, not the stored value, turns it off below
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    expect(await loadCompanyPoolEligibility(co.id)).toBe(false);
+    expect(await loadCompanyPoolEligibility(shared.id)).toBe(false);
+    expect(await listPoolEligibleCompanyIds()).toEqual([]);
+    expect(await setBureauSharingSetting({ bureauId: bureau2, actorUserId: owner2, value: false }))
+      .toEqual({ kind: 'ok', changed: true, oldValue: true, newValue: false });
   });
 });

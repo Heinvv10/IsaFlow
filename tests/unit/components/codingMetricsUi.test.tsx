@@ -6,7 +6,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
 import { BureauCodingMetricsPanel } from '@/components/bureau/BureauCodingMetricsPanel';
-import { BureauSharingConsent } from '@/components/bureau/BureauSharingConsent';
+import { BureauSharingConsent, SHARING_COMING_SOON_LABEL, SHARING_PAUSED_LABEL } from '@/components/bureau/BureauSharingConsent';
 import { computeCodingMetrics, type CompanyCodingCounts } from '@/modules/accounting/services/bank/codingMetrics';
 import { SHARING_CONSENT_STATUS_LABEL } from '@/modules/bureau/services/sharingConsentCopy';
 
@@ -93,7 +93,7 @@ describe('a 200 without the expected shape', () => {
 });
 
 describe('BureauSharingConsent', () => {
-  const base = { enabled: false, saving: false, history: [], onChange: vi.fn() };
+  const base = { enabled: false, available: true, saving: false, history: [], onChange: vi.fn() };
 
   it('shows the draft label and the key promises', () => {
     render(<BureauSharingConsent {...base} canEdit />);
@@ -127,5 +127,31 @@ describe('BureauSharingConsent', () => {
     render(<BureauSharingConsent {...base} canEdit={false} />);
     expect((screen.getByRole('switch') as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText('Only the bureau owner can change this setting.')).toBeTruthy();
+  });
+
+  it('gate off: "Coming soon - pending legal review", and even the owner cannot switch it on', () => {
+    const onChange = vi.fn();
+    render(<BureauSharingConsent {...base} available={false} canEdit onChange={onChange} />);
+    const sw = screen.getByRole('switch') as HTMLInputElement;
+    expect(sw.disabled).toBe(true);
+    fireEvent.click(sw);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByText(SHARING_COMING_SOON_LABEL)).toBeTruthy();
+    expect(screen.getByText(/waiting for legal review/)).toBeTruthy();
+  });
+
+  it('gate off but already on: the owner can still switch it off', () => {
+    const onChange = vi.fn();
+    render(<BureauSharingConsent {...base} available={false} enabled canEdit onChange={onChange} />);
+    fireEvent.click(screen.getByRole('switch'));
+    expect(onChange).toHaveBeenCalledWith(false);
+  });
+
+  it('gate off but stored on: reads paused, never plain "On", and says nothing is shared', () => {
+    render(<BureauSharingConsent {...base} available={false} enabled canEdit={false} />);
+    expect(screen.getByText(SHARING_PAUSED_LABEL)).toBeTruthy();
+    expect(screen.queryByText('On')).toBeNull();
+    expect(screen.getByText(/paused .*nothing is shared/)).toBeTruthy();
+    expect(screen.queryByText(/can.t be switched on yet/)).toBeNull();
   });
 });
