@@ -33,8 +33,8 @@ describe('CodingMetricsStrip', () => {
       })),
     }));
     render(<CodingMetricsStrip />);
-    expect(await screen.findByText('Auto-coded by ISAFlow: 78% of lines this month (no clicks)')).toBeTruthy();
-    expect(screen.getByText('Suggestions accepted: 64% this month (since 21 Oct 2026)')).toBeTruthy();
+    expect(await screen.findByText('Auto-coded by ISAFlow: 78% of lines this month (no line-by-line coding)')).toBeTruthy();
+    expect(screen.getByText('Suggestions accepted: 64% this month (log started 21 Oct 2026)')).toBeTruthy();
     expect(apiFetch).toHaveBeenCalledWith('/api/accounting/coding-metrics', expect.anything());
   });
 
@@ -61,6 +61,17 @@ describe('BureauCodingMetricsPanel', () => {
     expect(await screen.findByText('Client A')).toBeTruthy();
     expect(screen.getByText('All clients')).toBeTruthy();
     expect(screen.getAllByText('40% of 10')).toHaveLength(2);
+  });
+
+  it('each column names its own scope: the first-30-days rate is not "this month"', async () => {
+    apiFetch.mockResolvedValue(ok({ minDecisions: 20, clients: [client], total: null }));
+    render(<BureauCodingMetricsPanel bureauId="b1" />);
+    await screen.findByText('Client A');
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Client', 'Auto-coded this month', 'Suggestions accepted this month', 'Accepted in client\'s first 30 days',
+      'Auto-posts this month later re-coded',
+    ]);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('ISAFlow coding');
   });
 
   it('viewer (total null): per-client rows only', async () => {
