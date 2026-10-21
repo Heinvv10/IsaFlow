@@ -70,7 +70,9 @@ describe('run-ci.sh: the merge check', () => {
     }
   });
 
-  it('no gate after the check sees CI_READ_TOKEN', () => {
+  // The environment only: .git/config is covered by workflowRunsCiRule, which
+  // requires persist-credentials: false on a job with the wider token.
+  it('no gate after the check has CI_READ_TOKEN in its environment', () => {
     const r = run(['scripts/ci/run-ci.sh'], { ...GH, GITHUB_EVENT_NAME: 'push', MQ_RC: '0', SCOPE_RC: '0' });
     const mq = r.calls.filter((c) => c.includes('mq-merge-already-tested.ts'));
     expect(mq).toEqual(['bun scripts/ci/mq-merge-already-tested.ts token=tok']);

@@ -85,8 +85,12 @@ const PERMISSIONS = { contents: 'read' };
 const JOB_PERMISSIONS = { contents: 'read', actions: 'read', 'pull-requests': 'read' };
 const MIN_TIMEOUT_MINUTES = 20;
 const CHECKOUT = /^actions\/checkout@v\d+$/;
-/** The one checkout input allowed: full history (the integration scope and the merge check read it). */
-const CHECKOUT_WITH = { 'fetch-depth': 0 };
+/**
+ * The only checkout inputs allowed: full history (the integration scope and the
+ * merge check read it), and no token left in .git/config. checkout persists the
+ * job token there by default, where any test or install script could read it.
+ */
+const CHECKOUT_WITH = { 'fetch-depth': 0, 'persist-credentials': false };
 const INSTALL = 'bun install --frozen-lockfile --ignore-scripts';
 const RUN_CI = 'bun run ci';
 /** The only env the gate step may set. CI_SKIP_BUILD / SKIP_CI would drop gates silently. */
@@ -172,6 +176,14 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
       .filter(([, j]) => isObj(j) && 'permissions' in j && !sameMap(j.permissions, JOB_PERMISSIONS))
       .map(([name]) => name);
     if (widened.length) errors.push(`jobs ${widened.join(', ')} set permissions other than exactly ${JSON.stringify(JOB_PERMISSIONS)}; a write scope lets a job cancel the run`);
+    // A job with the wider read token must not leave it in .git/config, where
+    // every later step (PR-authored tests, install scripts) can read it.
+    const persisting = Object.entries(jobs)
+      .filter(([, j]) => isObj(j) && 'permissions' in j && Array.isArray(j.steps) && j.steps.some((s) =>
+        isObj(s) && typeof s.uses === 'string' && CHECKOUT.test(s.uses)
+        && !(isObj(s.with) && s.with['persist-credentials'] === false)))
+      .map(([name]) => name);
+    if (persisting.length) errors.push(`jobs ${persisting.join(', ')} set permissions but check out without \`persist-credentials: false\`; the token would sit in .git/config for every later step`);
     const gp = jobs['golden-paths'];
     const gpc = isObj(gp) ? gp.concurrency : undefined;
     if (!isObj(gpc) || extraKeys(gpc, Object.keys(GOLDEN_PATHS_CONCURRENCY)).length
@@ -201,7 +213,7 @@ export function checkWorkflowRunsCi(workflow: unknown, scripts: unknown, workflo
 
   if (!isObj(checkout) || extraKeys(checkout, ['uses', 'with']).length || typeof checkout.uses !== 'string'
     || !CHECKOUT.test(checkout.uses) || (checkout.with !== undefined && !sameMap(checkout.with, CHECKOUT_WITH))) {
-    errors.push('step 1 must be only `uses: actions/checkout@vN`, optionally `with: {fetch-depth: 0}`');
+    errors.push('step 1 must be only `uses: actions/checkout@vN`, optionally `with: {fetch-depth: 0, persist-credentials: false}`');
   }
   if (!isObj(install) || extraKeys(install, ['name', 'run']).length || install.run !== INSTALL) {
     errors.push(`step 2 must be only \`run: ${INSTALL}\` (install scripts or a step before the gate can rewrite what it runs)`);

@@ -40,8 +40,9 @@ if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${GITHUB_EVENT_NAME:-}" = "push" ] &
     exit 0
   fi
 fi
-# Only the merge check needs the API token; no gate below (PR-authored tests
-# included) sees it.
+# Only the merge check needs the API token: drop it from the environment of
+# every gate below (PR-authored tests included). ci.yml's checkouts set
+# persist-credentials: false, so it is not in .git/config either.
 unset CI_READ_TOKEN
 run_step "type-check"        bun run type-check
 # `tsconfig.json` excludes `tests/**`, so a FIXTURE may omit a required field
