@@ -137,7 +137,7 @@ export default function MerchantCategoriesPage() {
                 ) : (
                   <p className="text-sm text-[var(--ff-text-secondary)]" data-testid="sharing-pending">
                     Which of your accounts each ISAFlow category means. Shared suggestions: {SHARING_COMING_SOON_LABEL}.
-                    Until then nothing you map here is shared with other ISAFlow clients, and no &ldquo;Common at other ISAFlow clients&rdquo; suggestions are made.
+                    Until then none of your coding is shared with other ISAFlow clients, and no &ldquo;Common at other ISAFlow clients&rdquo; suggestions are made.
                   </p>
                 )}
               </div>

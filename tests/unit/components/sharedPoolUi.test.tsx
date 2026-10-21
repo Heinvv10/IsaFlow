@@ -84,7 +84,7 @@ describe('Merchant Categories page', () => {
     render(<MerchantCategoriesPage />);
     const p = await screen.findByTestId('sharing-pending');
     expect(p.textContent).toContain('Shared suggestions: Coming soon - pending legal review.');
-    expect(p.textContent).toContain('nothing you map here is shared with other ISAFlow clients');
+    expect(p.textContent).toContain('none of your coding is shared with other ISAFlow clients');
     expect(screen.queryByText(/also counts \(anonymously\)/)).toBeNull();
   });
 
