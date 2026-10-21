@@ -13,29 +13,45 @@ import type { PortalContact } from './afsTypes';
 
 const APP_URL = 'https://app.isaflow.co.za';
 
+/** One company's sign-in link in the portal sign-in email (audit S-08). */
+export interface PortalSignInLink {
+  companyId: string;
+  companyName: string;
+  url: string;
+}
+
+/**
+ * One sign-in email listing every company the contact may sign in to, each
+ * with its own single-use link labelled by company name. Sends nothing when
+ * `links` is empty.
+ */
 export async function notifyMagicLinkRequested(
-  contact: PortalContact,
-  magicLinkUrl: string,
+  recipient: { name: string; email: string },
+  links: readonly PortalSignInLink[],
 ): Promise<void> {
+  if (links.length === 0) return;
   try {
+    const companies = links.map((l) => `
+      <p style="margin:16px 0 0;"><strong>${escapeHtml(l.companyName)}</strong></p>
+      ${ctaButton('Sign In to Portal', l.url)}`).join('');
     const html = emailLayout(`
       <h2>ISaFlow Portal — Sign-in Link</h2>
-      <p>Hi ${escapeHtml(contact.name)},</p>
-      <p>Click the button below to access your financial documents. This link expires in 30 minutes.</p>
-      ${ctaButton('Sign In to Portal', magicLinkUrl)}
+      <p>Hi ${escapeHtml(recipient.name)},</p>
+      <p>${links.length > 1 ? 'Choose the company whose financial documents you want to access.' : 'Click the button below to access your financial documents.'} Each link works once and expires in 30 minutes.</p>
+      ${companies}
       <p style="font-size:12px;color:#94a3b8;">If you did not request this link, you can safely ignore this email.</p>
     `);
     await sendEmail({
-      to: contact.email,
+      to: recipient.email,
       subject: 'ISaFlow Portal — Your sign-in link',
       html,
-      _log: { companyId: contact.companyId, emailType: 'other', sentBy: null },
+      _log: { companyId: links[0]!.companyId, emailType: 'other', sentBy: null },
     });
-    log.info('Magic link email sent', { contactId: contact.id, email: contact.email }, 'portalNotificationService');
+    log.info('Magic link email sent', { companyIds: links.map((l) => l.companyId), linkCount: links.length }, 'portalNotificationService');
   } catch (err) {
     log.error(
       'Failed to send magic link email',
-      { contactId: contact.id, error: err instanceof Error ? err.message : String(err) },
+      { companyIds: links.map((l) => l.companyId), error: err instanceof Error ? err.message : String(err) },
       'portalNotificationService',
     );
   }

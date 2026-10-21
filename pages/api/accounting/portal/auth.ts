@@ -10,8 +10,8 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { createMagicLink } from '@/modules/accounting/services/afs/magicLinkService';
-import { notifyMagicLinkRequested } from '@/modules/accounting/services/afs/portalNotificationService';
-import type { PortalRole } from '@/modules/accounting/services/afs/afsTypes';
+import { notifyMagicLinkRequested, type PortalSignInLink } from '@/modules/accounting/services/afs/portalNotificationService';
+import { listLiveCompanies } from '@/lib/auth/liveCompanies';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
 
@@ -38,34 +38,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const normalizedEmail = email.trim().toLowerCase();
 
-  // Cross-tenant lookup — user provides only their email, company_id comes from the record
+  // Cross-tenant lookup — the user provides only their email. One email can be
+  // a contact on several companies (audit S-08): every live one gets its own
+  // link, all in one email, so the contact chooses rather than LIMIT 1.
   const contacts = (await sql`
-    SELECT id, company_id, name, email, role
+    SELECT id, company_id, name, email
     FROM portal_contacts
     WHERE email = ${normalizedEmail} AND active = true
-    LIMIT 1
-  `) as Array<{ id: string; company_id: string; name: string; email: string; role: string }>;
+    ORDER BY created_at, id
+  `) as Array<{ id: string; company_id: string; name: string; email: string }>;
 
-  if (contacts.length > 0) {
-    const contact = contacts[0]!;
-    const { token } = await createMagicLink(contact.company_id, contact.id);
-    const magicLinkUrl = `${APP_URL}/api/accounting/portal/auth/verify?token=${token}`;
+  const live = new Map(
+    (await listLiveCompanies(contacts.map((c) => c.company_id))).map((c) => [c.companyId, c.companyName]),
+  );
+  const liveContacts = contacts.filter((c) => live.has(c.company_id));
 
-    await notifyMagicLinkRequested(
-      {
-        id: contact.id,
+  if (liveContacts.length > 0) {
+    const links: PortalSignInLink[] = [];
+    for (const contact of liveContacts) {
+      const { token } = await createMagicLink(contact.company_id, contact.id);
+      links.push({
         companyId: contact.company_id,
-        name: contact.name,
-        email: contact.email,
-        role: contact.role as PortalRole,
-        active: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      magicLinkUrl,
-    );
-
-    log.info('Magic link created for portal contact', { contactId: contact.id }, 'portal-auth-api');
+        companyName: live.get(contact.company_id)!,
+        url: `${APP_URL}/api/accounting/portal/auth/verify?token=${token}`,
+      });
+    }
+    const first = liveContacts[0]!;
+    await notifyMagicLinkRequested({ name: first.name, email: first.email }, links);
+    log.info('Magic links created for portal contact', { contactIds: liveContacts.map((c) => c.id) }, 'portal-auth-api');
   }
 
   // Always return success — prevent email enumeration
