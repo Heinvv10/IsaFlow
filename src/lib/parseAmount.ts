@@ -4,6 +4,9 @@
  * Handles `1234.56`, `1,234.56`, `1 234,56`, `1234,56`, `R1,234.00`,
  * `R 1 234,56`, `(1 234.00)` (negative), `1234.00 Cr` (negative), `1234 Dr`,
  * `-1234`, and non-breaking / narrow no-break spaces as thousands separators.
+ * A comma before exactly three digits groups thousands (`1,234`) unless the
+ * number before it is 0 (`0,500` is 0.5); a malformed grouping (`1,234,56`)
+ * is NaN.
  *
  * Empty or missing is 0 — a blank cell means "nothing". Anything else it cannot
  * read is NaN, never 0: the caller must report that row, because importing a
@@ -14,6 +17,18 @@
 
 const SPACES = /[\s   ]/g;
 
+/**
+ * The integer part with its thousands separator removed, or null when the
+ * grouping is not one a ledger writes: a first group of 1-3 digits, then
+ * groups of exactly three (`1,234,567`; not `1,234,56` or `1,23,456`).
+ */
+function ungroup(integer: string, separator: string): string | null {
+  if (!integer.includes(separator)) return integer;
+  const groups = integer.split(separator);
+  if (!/^\d{1,3}$/.test(groups[0]!) || groups.slice(1).some(g => !/^\d{3}$/.test(g))) return null;
+  return groups.join('');
+}
+
 /** Which character is the decimal separator, given the digits-and-separators body. */
 function normaliseSeparators(body: string): string | null {
   const commas = (body.match(/,/g) ?? []).length;
@@ -23,16 +38,20 @@ function normaliseSeparators(body: string): string | null {
     const decimal = body.lastIndexOf(',') > body.lastIndexOf('.') ? ',' : '.';
     const thousands = decimal === ',' ? '.' : ',';
     if ((body.match(new RegExp(`\\${decimal}`, 'g')) ?? []).length !== 1) return null;
-    if (body.indexOf(thousands) > body.indexOf(decimal)) return null;
-    return body.split(thousands).join('').replace(decimal, '.');
+    const [integer, fraction] = body.split(decimal) as [string, string];
+    const whole = ungroup(integer, thousands);
+    return whole === null ? null : `${whole}.${fraction}`;
   }
-  if (commas > 0) {
-    if (commas > 1) return body.split(',').join('');
-    // One comma: decimal unless exactly three digits follow it (`1,234` groups thousands).
-    const after = body.slice(body.indexOf(',') + 1);
-    return after.length === 3 ? body.replace(',', '') : body.replace(',', '.');
+  if (commas > 1) return ungroup(body, ',');
+  if (commas === 1) {
+    // One comma: it groups thousands only when exactly three digits follow and
+    // the part before it could lead a grouping (`1,234`). `0,500` is a half: no
+    // grouping writes a leading 0. Otherwise it is the decimal comma (`1,23`).
+    const [before, after] = body.split(',') as [string, string];
+    const grouping = after.length === 3 && /^[1-9]\d{0,2}$/.test(before);
+    return grouping ? before + after : `${before}.${after}`;
   }
-  if (dots > 1) return body.split('.').join('');
+  if (dots > 1) return ungroup(body, '.');
   return body;
 }
 

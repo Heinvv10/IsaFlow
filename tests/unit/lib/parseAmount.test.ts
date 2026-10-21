@@ -50,6 +50,28 @@ describe('parseAmount', () => {
     expect(Number.isNaN(parseAmount(Number.NaN))).toBe(true);
   });
 
+  // A comma followed by three digits groups thousands — unless the whole
+  // number before it is 0, which no thousands grouping produces.
+  it.each([
+    ['1,234', 1234],
+    ['1,23', 1.23],
+    ['0,500', 0.5],
+    ['0,5', 0.5],
+    ['1 234,56 Cr', -1234.56],
+    ['12.345.678', 12345678],
+  ])('pins the separator rule: %j is %d', (input, expected) => {
+    expect(parseAmount(input)).toBeCloseTo(expected, 6);
+  });
+
+  // Thousands groups after the first are exactly three digits; anything else
+  // is not a number a ledger exports, so it is refused rather than guessed.
+  it.each(['1,234,56', '1,23,456', '12,34.5', '1.23.456', '1234,567,890', '1.234,5,6'])(
+    'returns NaN for a malformed grouping %j',
+    input => {
+      expect(Number.isNaN(parseAmount(input))).toBe(true);
+    },
+  );
+
   it.each(['abc', '12x', '1-2', '--5', '1.2.3,4,5', 'R', '()', '12 Cr Dr', '1e5'])(
     'returns NaN for garbage %j, never 0',
     input => {

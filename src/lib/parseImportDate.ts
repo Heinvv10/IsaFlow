@@ -8,7 +8,8 @@
  *
  * Accepts `YYYY-MM-DD` (optionally with a time), `YYYY/MM/DD`, `DD/MM/YYYY`,
  * `DD-MM-YYYY`, `DD.MM.YYYY`, `D/M/YYYY`, two-digit years (20YY), `DD MMM YYYY`
- * / `D-MMM-YYYY` / `3 April 2026`, and Excel serial day numbers.
+ * / `D-MMM-YYYY` / `3 April 2026`, `Apr 3, 2026` / `April 3 2026`, and Excel
+ * serial day numbers.
  *
  * Pure, no dependencies — safe on the client and the server.
  */
@@ -74,6 +75,15 @@ export function parseImportDate(input: string | number | Date | null | undefined
     const month = MONTHS[m[2]!.toLowerCase()];
     if (!month) return null;
     return isoIfReal(fullYear(m[3]!), month, Number(m[1]));
+  }
+
+  // Month name, day, year: Apr 3, 2026 / April 3 2026 / Sept. 30, 2026. The
+  // form new Date() read for the GL import; a NAME is never ambiguous.
+  m = /^([A-Za-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})$/.exec(s);
+  if (m) {
+    const month = MONTHS[m[1]!.toLowerCase()];
+    if (!month) return null;
+    return isoIfReal(Number(m[3]), month, Number(m[2]));
   }
 
   return null;
