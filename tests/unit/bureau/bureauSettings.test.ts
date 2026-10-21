@@ -167,6 +167,25 @@ describe('the legal-review gate (MERCHANT_SHARING_ENABLED)', () => {
     expect(r.statusCode).toBe(200);
     expect(r.body).toMatchObject({ data: { shareMerchantPatterns: false, changed: true } });
   });
+  it.each(['accountant', 'viewer'] as const)('off: a %s switching it on is a 403, not the gate', async (role) => {
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    bureauRoles({ [OWNER]: 'owner', u: role }, false);
+    expect((await putAs('u', true)).statusCode).toBe(403);
+    expect(wrote()).toBe(false);
+  });
+  it('off: a non-member naming any bureau is a 403', async () => {
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    bureauRoles({ [OWNER]: 'owner' }, false);
+    expect((await putAs('stranger', true)).statusCode).toBe(403);
+  });
+  it('off: on again for a bureau already on is a no-op, not a 409', async () => {
+    delete process.env.MERCHANT_SHARING_ENABLED;
+    bureauRoles({ [OWNER]: 'owner' }, true);
+    const r = await putAs(OWNER, true);
+    expect(r.statusCode).toBe(200);
+    expect(r.body).toMatchObject({ data: { shareMerchantPatterns: true, changed: false } });
+    expect(wrote()).toBe(false);
+  });
   it('off: GET reports sharingAvailable false', async () => {
     delete process.env.MERCHANT_SHARING_ENABLED;
     bureauRoles({ [OWNER]: 'owner' }, false);

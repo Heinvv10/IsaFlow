@@ -11,7 +11,8 @@
  *     audit row reads the true old value.
  * A no-op change (same value) writes nothing and is reported `changed: false`.
  * Switching ON is refused for everyone while MERCHANT_SHARING_ENABLED is off (merchantSharingGate.ts: the
- * consent copy awaits legal review); switching OFF is always allowed.
+ * consent copy awaits legal review), checked after the owner and no-op checks so a non-owner still gets
+ * 403 and "on" for a bureau already on is a no-op; switching OFF is always allowed.
  */
 
 import { sql, withTransaction } from '@/lib/neon';
@@ -73,7 +74,6 @@ export async function getBureauSharingSetting(bureauId: string, historyLimit = 1
 export async function setBureauSharingSetting(opts: {
   bureauId: string; actorUserId: string; value: boolean;
 }): Promise<SetSharingResult> {
-  if (opts.value && !isMerchantSharingEnabled()) return { kind: 'pending_legal_review' };
   return withTransaction(async (tx) => {
     const rows = (await tx`
       SELECT b.share_merchant_patterns
@@ -84,6 +84,8 @@ export async function setBureauSharingSetting(opts: {
     if (rows.length === 0) return { kind: 'forbidden' } as const;
     const oldValue = rows[0]!.share_merchant_patterns === true;
     if (oldValue === opts.value) return { kind: 'ok', changed: false, oldValue, newValue: opts.value } as const;
+    // After the owner check, so a non-owner hears 403, not the gate; switching OFF never reaches it.
+    if (opts.value && !isMerchantSharingEnabled()) return { kind: 'pending_legal_review' } as const;
     await tx`
       UPDATE bureaus SET share_merchant_patterns = ${opts.value}, updated_at = now()
       WHERE id = ${opts.bureauId}::UUID

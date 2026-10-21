@@ -182,8 +182,14 @@ describe('the legal-review gate off (MERCHANT_SHARING_ENABLED unset)', () => {
   });
 
   it('bureaus stored as on pool nothing, and the owner can still switch off', async () => {
+    // Stored on here, not left over from the describes above, so this test holds alone or reordered.
+    await pool.query('UPDATE bureaus SET share_merchant_patterns = true WHERE id = ANY($1::uuid[])', [[bureau1, bureau2]]);
+    const stored = await pool.query<{ share_merchant_patterns: boolean }>(
+      'SELECT share_merchant_patterns FROM bureaus WHERE id = ANY($1::uuid[])', [[bureau1, bureau2]]);
+    expect(stored.rows.map((r) => r.share_merchant_patterns)).toEqual([true, true]);
+    process.env.MERCHANT_SHARING_ENABLED = 'true';
+    expect(await loadCompanyPoolEligibility(co.id)).toBe(true); // the gate, not the stored value, turns it off below
     delete process.env.MERCHANT_SHARING_ENABLED;
-    // bureau1 and bureau2 are on (above).
     expect(await loadCompanyPoolEligibility(co.id)).toBe(false);
     expect(await loadCompanyPoolEligibility(shared.id)).toBe(false);
     expect(await listPoolEligibleCompanyIds()).toEqual([]);
