@@ -61,7 +61,31 @@ describe('changes in equity: take-on postings', () => {
     arrange([]);
     await getChangesInEquity('co', '2026-01-01', '2026-12-31');
     const text = (mockSql.mock.calls[1]![0] as unknown as string[]).join('?');
-    expect(text).toMatch(/je\.source = \? AS is_take_on/);
+    expect(text).toMatch(/je\.source = \? AND COALESCE\(je\.entry_number, ''\) NOT LIKE \?\) AS is_take_on/);
     expect(mockSql.mock.calls[1]).toContain('auto_migration');
+    // scripts/import-sage-britech.ts's live Sage history, written as auto_migration before: not a take-on.
+    expect(mockSql.mock.calls[1]).toContain('SAGE-%');
+  });
+
+  // Round 6: when the years match, Sage's TB runs from its year start, so a
+  // take-on carries this year's dividends; the AFS SOCE (dividendsPaid.ts)
+  // counts an IS484 dividends account's postings as dividends paid, and so must
+  // this report, or the two statements disagree on the same journal.
+  it('a take-on onto an IS484 dividends account stays on the dividends row, in retained earnings', async () => {
+    arrange([
+      { account_subtype: 'dividends', is_dividends: true, is_take_on: true, amount: -100000 },
+      { account_subtype: 'retained_earnings', is_take_on: true, amount: 23000 },
+    ]);
+    const r = await getChangesInEquity('co', '2026-01-01', '2026-12-31');
+    const re = r.columns.find((c) => c.subtype === 'retained_earnings')!;
+    expect(re.dividends).toBeCloseTo(-100000, 2);
+    expect(re.takeOn).toBeCloseTo(23000, 2);
+    expect(r.columns.map((c) => c.subtype)).not.toContain('dividends');
+  });
+
+  it('names the Opening Balance Equity column, not its subtype key', async () => {
+    arrange([{ account_subtype: 'opening_balance_equity', is_take_on: true, amount: 2000 }]);
+    const r = await getChangesInEquity('co', '2026-01-01', '2026-12-31');
+    expect(r.columns.find((c) => c.subtype === 'opening_balance_equity')!.label).toBe('Opening Balance Equity');
   });
 });
