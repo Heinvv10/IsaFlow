@@ -41,7 +41,7 @@ const greenJobs = REQUIRED_JOBS.map((name) => ({ name, status: 'completed', conc
 type ApiState = { pr: Record<string, unknown>; runs: Array<Record<string, unknown>>; jobs: Record<string, Array<Record<string, unknown>>> };
 const GOOD_API: ApiState = {
   pr: { merged: true, merge_commit_sha: HEAD, head: { sha: P2, ref: BRANCH }, base: { ref: 'master' } },
-  runs: [{ id: 7, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH }],
+  runs: [{ id: 7, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH, head_repository: { full_name: REPO } }],
   jobs: { 7: greenJobs },
 };
 
@@ -64,7 +64,7 @@ describe('decide', () => {
   });
 
   it('a rerun attempt counts: a later run of the same head can carry the green jobs', async () => {
-    const runs = [{ id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH }, ...GOOD_API.runs];
+    const runs = [{ id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH, head_repository: { full_name: REPO } }, ...GOOD_API.runs];
     expect((await decide(ENV, EVENT, fakeGit(), fakeApi({ runs, jobs: { 8: [greenJobs[0]!], 7: greenJobs } }))).tested).toBe(true);
   });
 
@@ -87,6 +87,9 @@ describe('decide', () => {
     ['a green run of the same sha from another branch (another PR, another base)', () => decide(ENV, EVENT, fakeGit(), fakeApi({
       runs: [{ ...GOOD_API.runs[0], head_branch: 'feat/stacked' }],
     })), /no pull_request CI run for .* from fix\/s06/],
+    ['a green run from a fork branch of the same name', () => decide(ENV, EVENT, fakeGit(), fakeApi({
+      runs: [{ ...GOOD_API.runs[0], head_repository: { full_name: 'someone/IsaFlow' } }],
+    })), /no pull_request CI run/],
     ['the PR head is not the second parent', () => decide(ENV, EVENT, fakeGit(), fakeApi({ pr: { ...GOOD_API.pr, head: { sha: P1 } } })), /is not the second parent/],
     ['the PR merge commit is not HEAD', () => decide(ENV, EVENT, fakeGit(), fakeApi({ pr: { ...GOOD_API.pr, merge_commit_sha: P1 } })), /is not HEAD/],
     ['no pull_request run at all', () => decide(ENV, EVENT, fakeGit(), fakeApi({ runs: [] })), /no pull_request CI run/],
@@ -95,7 +98,7 @@ describe('decide', () => {
     ['quality still running', () => decide(ENV, EVENT, fakeGit(), fakeApi({ jobs: { 7: [{ ...greenJobs[0]!, status: 'in_progress', conclusion: null }, greenJobs[1]!] } })), /green/],
     ['quality failed', () => decide(ENV, EVENT, fakeGit(), fakeApi({ jobs: { 7: [{ ...greenJobs[0]!, conclusion: 'failure' }, greenJobs[1]!] } })), /green/],
     ['required jobs green in different runs only', () => decide(ENV, EVENT, fakeGit(), fakeApi({
-      runs: [...GOOD_API.runs, { id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH }],
+      runs: [...GOOD_API.runs, { id: 8, path: WORKFLOW_PATH, event: 'pull_request', head_sha: P2, head_branch: BRANCH, head_repository: { full_name: REPO } }],
       jobs: { 7: [greenJobs[0]!], 8: [greenJobs[1]!] },
     })), /green/],
     ['jobs for another sha', () => decide(ENV, EVENT, fakeGit(), fakeApi({ jobs: { 7: greenJobs.map((j) => ({ ...j, head_sha: P1 })) } })), /green/],
