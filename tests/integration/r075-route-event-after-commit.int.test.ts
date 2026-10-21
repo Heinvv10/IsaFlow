@@ -66,8 +66,9 @@ beforeAll(async () => {
   // write failed WITH CHECK and aborted the other company's request.
   await pool.query("INSERT INTO company_users (company_id,user_id,role) VALUES ($1,$3,'admin'),($2,$3,'admin')", [coA, coB, user]);
   await pool.query("INSERT INTO capture_inboxes (company_id,channel,address) VALUES ($1,'email',$2)", [coA, INBOX]);
-  await pool.query("INSERT INTO capture_api_keys (company_id,key_hash,key_prefix,label) VALUES ($1,$2,$3,'R075 fixture')",
-    [coA, createHash('sha256').update(API_KEY).digest('hex'), API_KEY.slice(0, 16)]);
+  // created_by: a key works only while its creator is an owner/admin/manager of its company (S-06).
+  await pool.query("INSERT INTO capture_api_keys (company_id,key_hash,key_prefix,label,created_by) VALUES ($1,$2,$3,'R075 fixture',$4)",
+    [coA, createHash('sha256').update(API_KEY).digest('hex'), API_KEY.slice(0, 16), user]);
   token = await new SignJWT({ sub: user, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET!));
   await installWriteLog(pool, [coA, coB]);
