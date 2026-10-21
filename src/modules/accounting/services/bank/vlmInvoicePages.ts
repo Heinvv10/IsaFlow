@@ -39,22 +39,32 @@ function markersOf(rawText: string): Marker[] {
   }));
 }
 
-/** Page count from pdf-parse's last "-- N of N --" page marker; 0 when absent. */
+/** Beyond any real PDF; a larger "N" is garbage, read as no count at all. */
+const MAX_PLAUSIBLE_PAGES = 100_000;
+
+/** Page count from pdf-parse's last "-- N of N --" page marker; 0 when absent or implausible. */
 export function pdfPageCount(rawText?: string): number {
   const last = markersOf(rawText ?? '').at(-1);
-  return last && last.page === last.total ? last.total : 0;
+  if (!last || last.page !== last.total || last.total > MAX_PLAUSIBLE_PAGES) return 0;
+  return last.total;
 }
 
-/** The text layer of page `k` (1-based) for k = 1..total, '' where a page has none or cannot be told apart. */
-export function pdfPageTexts(rawText: string, total: number): string[] {
-  const markers = markersOf(rawText).filter((m) => m.total === total);
+/**
+ * The text layer of pages 1..count of a `total`-page PDF, '' where a page has
+ * none or cannot be told apart. One forward pass over the markers.
+ */
+export function pdfPageTexts(rawText: string, total: number, count: number): string[] {
+  const markers = markersOf(rawText);
   const texts: string[] = [];
   let from = 0;
-  for (let page = 1; page <= total; page++) {
-    const end = markers.find((m) => m.page === page && m.start >= from);
-    if (!end) return [...texts, ...Array<string>(total - texts.length).fill('')];
+  let next = 0;
+  for (let page = 1; page <= count; page++) {
+    let end = markers[next];
+    while (end && (end.page !== page || end.total !== total)) end = markers[++next];
+    if (!end) return [...texts, ...Array<string>(count - texts.length).fill('')];
     texts.push(rawText.slice(from, end.start).trim());
     from = end.end;
+    next++;
   }
   return texts;
 }
@@ -64,10 +74,10 @@ export interface InvoicePagesRequest {
   warnings: string[];
 }
 
-/** "1-3", or "1 and 3" when a page in the range was left out. */
-function pageList(read: number[]): string {
+/** "1-3" (with `dash`), or "1 and 3" when a page in the range was left out. */
+function pageList(read: number[], dash = '-'): string {
   const contiguous = read.every((p, i) => p === i + 1);
-  if (contiguous) return `1-${read.length}`;
+  if (contiguous) return `1${dash}${read.length}`;
   return `${read.slice(0, -1).join(', ')} and ${read.at(-1)}`;
 }
 
@@ -99,7 +109,7 @@ export async function buildInvoicePagesRequest(
       warnings.push(`Page ${page} of ${total} could not be read — check it by hand.`);
     }
   }
-  if (total > last) warnings.push(`Read pages 1–${last} of ${total} — check later pages.`);
+  if (total > last) warnings.push(`Read pages ${pageList(read, '–')} of ${total} — check later pages.`);
 
   // With every page read, the instruction is word for word the benchmark's json-multi mode (~/isaflow-ocr-bench/scripts/bench.py).
   let prompt = `You are given pages ${pageList(read)} of a ${total}-page PDF, in page order. `
@@ -107,7 +117,7 @@ export async function buildInvoicePagesRequest(
     + 'extract the SUPPLIER INVOICE (or credit note). Its totals are usually on the last invoice page. '
     + 'If the pages hold more than one separate invoice, extract the first one and add '
     + '"multipleInvoices": true to the JSON.\n\nExtract all accounting data from these document images.';
-  const pageText = pdfPageTexts(rawText, total);
+  const pageText = pdfPageTexts(rawText, total, last);
   const text = read.map((p) => pageText[p - 1] ?? '').filter((t) => t.length > 0).join('\n\n');
   if (text) {
     prompt += '\n\nThe PDF text layer of these pages also contains the following text (use it to cross-check '
