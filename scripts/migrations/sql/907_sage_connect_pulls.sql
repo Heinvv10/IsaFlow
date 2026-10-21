@@ -1,4 +1,4 @@
--- 898_sage_connect_pulls.sql
+-- 907_sage_connect_pulls.sql
 --
 -- "Connect to Sage": a client signs in with their Sage Accounting login, picks
 -- a Sage company, reviews what will come across, then clicks Import. The review

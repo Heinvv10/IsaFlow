@@ -21,7 +21,7 @@ Not to be confused with the older Sage code: `core/sageImportService.ts` / `sage
 | `sageTakeOnContacts.ts` | Customers/suppliers + outstanding documents made to equal each contact's Sage balance |
 | `sageTakeOnBuilder.ts` | `buildSageTakeOn(pull, ctx)` — pure; composes the above, reconciles controls, collects issues |
 | `sageTakeOnTypes.ts` | `SageTakeOn`, `TakeOnContext`, `TakeOnIssue`, `round2`, `formatRand` |
-| `sageTakeOnStore.ts` | `sage_connect_pulls` (migration 898) + `readTakeOnContext(companyId)` |
+| `sageTakeOnStore.ts` | `sage_connect_pulls` (migration 907) + `readTakeOnContext(companyId)` |
 | `sageTakeOnImportService.ts` | `importSagePull(companyId, userId, pullId)` — runs the wizard steps, all-or-nothing |
 | `sageConnectRequest.ts` | Route plumbing: login → client, error answers, review/payload shapes registered in `src/lib/apiRoutes.ts` |
 
