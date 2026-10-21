@@ -91,9 +91,21 @@ export async function settleRows(client: Queryable, p: ClaimPrincipal, submissio
      SET netcash_response = COALESCE(netcash_response, '{}'::JSONB) || jsonb_build_object('lateSendResult', $3::JSONB)
      WHERE id = $1::UUID AND company_id = $2::UUID
      RETURNING status, batch_id`,
-    [submissionId, p.companyId, JSON.stringify({ status: s.status, batchReference: s.batchReference, response: s.netcashResponse })]);
+    [submissionId, p.companyId, JSON.stringify({ status: s.status, batchReference: s.batchReference, response: s.netcashResponse, settleToken })]);
   if (!rows[0]) throw new Error(`netcash claim ${submissionId} not found for settlement`);
-  if (rows[0].status !== 'failed' || s.status === 'failed') return { kind: 'lost', status: rows[0].status };
+  const result = await lateOutcome(client, p, submissionId, s, rows[0]);
+  // What this late answer did, beside its token: a retry after a COMMIT whose reply was lost reports it as it was.
+  await client.query(
+    `UPDATE netcash_submissions SET netcash_response = jsonb_set(netcash_response, '{lateSendResult,result}', $3::JSONB)
+     WHERE id = $1::UUID AND company_id = $2::UUID`,
+    [submissionId, p.companyId, JSON.stringify(result)]);
+  return result;
+}
+
+/** A late answer on a row no longer pending: reopen a 'failed' row Netcash may hold, or name the newer claim. */
+async function lateOutcome(client: Queryable, p: ClaimPrincipal, submissionId: string, s: ClaimSettlement,
+  row: { status: string; batch_id: string | null }): Promise<SettleResult> {
+  if (row.status !== 'failed' || s.status === 'failed') return { kind: 'lost', status: row.status };
   await client.query('SAVEPOINT netcash_reopen');
   try {
     await client.query(
@@ -108,7 +120,7 @@ export async function settleRows(client: Queryable, p: ClaimPrincipal, submissio
     const { rows: newer } = await client.query<{ id: string }>(
       `SELECT id FROM netcash_submissions
        WHERE company_id = $1::UUID AND batch_id = $2::UUID AND status <> 'failed' AND id <> $3::UUID LIMIT 1`,
-      [p.companyId, rows[0].batch_id, submissionId]);
+      [p.companyId, row.batch_id, submissionId]);
     return { kind: 'lost', status: 'failed', newerSubmissionId: newer[0]?.id ?? null };
   }
 }
@@ -117,8 +129,10 @@ export async function settleRows(client: Queryable, p: ClaimPrincipal, submissio
  * The settle, once more, on a fresh connection checked out within CLAIM_CONNECTION_TIMEOUT_MS (the send's slot is
  * still held, so the cap on sends in flight covers it), bounded like the first. If the first settle did commit and
  * only its reply was lost, the row carries this settle's token (`settleToken`; a poll since may have moved its status
- * or merged hints): that is reported as settled, not as a conflict. No send lock is taken - the compare-and-set on
- * 'pending' (or the late-answer branch) decides, as on the claim's connection.
+ * or merged hints): that is reported as settled, not as a conflict; a first settle that took the late-answer branch
+ * left its token and what it did (reopened, or the newer claim) in lateSendResult, and that is reported as it was.
+ * No send lock is taken - the compare-and-set on 'pending' (or the late-answer branch) decides, as on the claim's
+ * connection.
  */
 export async function settleOnFreshConnection(p: ClaimPrincipal, submissionId: string, s: ClaimSettlement,
   settleToken: string): Promise<SettleResult> {
@@ -134,11 +148,15 @@ export async function settleOnFreshConnection(p: ClaimPrincipal, submissionId: s
     begun = true;
     await actAsCaller(q, p);
     await tightenSettleTimeouts(q);
-    const { rows } = await q.query<{ ours: boolean }>(
-      `SELECT (netcash_response ->> 'settleToken') IS NOT DISTINCT FROM $3::TEXT AS ours /* netcash_settle_retry */
+    // This settle's own answer already on the row: settled (the token), or a late answer and what it did (lateSendResult).
+    const { rows } = await q.query<{ ours: boolean; late: SettleResult | null }>(
+      `SELECT (netcash_response ->> 'settleToken') IS NOT DISTINCT FROM $3::TEXT AS ours /* netcash_settle_retry */,
+              CASE WHEN netcash_response -> 'lateSendResult' ->> 'settleToken' = $3::TEXT
+                   THEN netcash_response -> 'lateSendResult' -> 'result' END AS late
        FROM netcash_submissions WHERE id = $1::UUID AND company_id = $2::UUID FOR UPDATE`,
       [submissionId, p.companyId, settleToken]);
-    const out: SettleResult = rows[0]?.ours === true ? { kind: 'settled' } : await settleRows(q, p, submissionId, s, settleToken);
+    const out: SettleResult = rows[0]?.ours === true ? { kind: 'settled' }
+      : rows[0]?.late ? rows[0].late : await settleRows(q, p, submissionId, s, settleToken);
     await q.query('COMMIT');
     return out;
   } catch (err) {
