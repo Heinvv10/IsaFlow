@@ -70,10 +70,14 @@ beforeAll(async () => {
       [c.id, c.expense]);
   }
   // Future coding (decision log): TELKOM recoded by a person at five eligible companies -> published;
-  // VODACOM merely accepted from the pool -> not a vote.
+  // VODACOM merely accepted from the pool -> not a vote, nor is the learned pattern that acceptance
+  // wrote (learnFromAllocation runs on every account allocation): the pool never votes for itself.
   for (const c of cos.slice(0, 5)) {
     await decidedLine(c, 'TELKOM DEBIT ORDER 0123456789', 'pattern', 'recoded');
     await decidedLine(c, 'VODACOM CONTRACT', 'shared_pool', 'accepted');
+    await pool.query(
+      `INSERT INTO categorization_patterns (company_id, pattern, match_type, gl_account_id, source) VALUES ($1, 'VODACOM CONTRACT', 'contains', $2, 'learned')`,
+      [c.id, c.other]);
   }
 });
 
@@ -102,7 +106,7 @@ describe('the aggregation job', () => {
     expect(await poolRow('TELKOM')).toMatchObject({ category_code: 'telephone', distinct_company_count: 5 });
   });
 
-  it('does not publish a merchant at four companies, on an unmapped account, or from pool-accepted decisions', async () => {
+  it('does not publish a merchant at four companies, on an unmapped account, or from pool-accepted decisions (nor their learned patterns)', async () => {
     expect(await poolRow('SHELL')).toBeUndefined();
     expect(await poolRow('CHECKERS')).toBeUndefined();
     expect(await poolRow('VODACOM')).toBeUndefined();
@@ -171,6 +175,36 @@ describe('deny-all and the single writer', () => {
       await c.query('BEGIN');
       await c.query('SET LOCAL ROLE platform_admin');
       await expect(c.query(q)).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await c.query('ROLLBACK');
+      c.release();
+    }
+  });
+
+  it('the runtime login, without SUPERUSER, can run the job: read its tables, list eligibility and publish', async () => {
+    // The suites connect as a superuser, for whom every privilege check passes. Production's runtime login
+    // (the role the job runs as) is the same role WITHOUT SUPERUSER, BYPASSRLS, a member of migration_admin.
+    // Dropping SUPERUSER inside this transaction makes every check below answer as production would.
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const me = (await c.query('SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user')).rows[0];
+      expect(me.rolbypassrls).toBe(true);
+      if (me.rolsuper) await c.query('ALTER ROLE CURRENT_USER NOSUPERUSER');
+      expect((await c.query('SELECT rolsuper FROM pg_roles WHERE rolname = current_user')).rows[0].rolsuper).toBe(false);
+      const p = (await c.query(`SELECT
+          has_function_privilege(current_user, 'public.shared_pool_publish(jsonb,int4)', 'EXECUTE') AS publish,
+          has_table_privilege(current_user, 'public.company_category_mappings', 'SELECT') AS mappings,
+          has_table_privilege(current_user, 'public.categorization_patterns', 'SELECT') AS patterns,
+          has_table_privilege(current_user, 'public.bank_categorisation_rules', 'SELECT') AS rules,
+          has_table_privilege(current_user, 'public.categorization_decisions', 'SELECT') AS decisions,
+          has_table_privilege(current_user, 'public.bank_transactions', 'SELECT') AS lines,
+          has_table_privilege(current_user, 'public.bureau_companies', 'SELECT') AS bureau_companies,
+          has_table_privilege(current_user, 'public.bureaus', 'SELECT') AS bureaus`)).rows[0];
+      expect(p).toEqual({ publish: true, mappings: true, patterns: true, rules: true, decisions: true, lines: true,
+        bureau_companies: true, bureaus: true });
+      // And the publish itself goes through as this role (rolled back below).
+      await c.query("SELECT public.shared_pool_publish('[]'::jsonb, 1)");
     } finally {
       await c.query('ROLLBACK');
       c.release();
