@@ -92,6 +92,8 @@ export async function xlsxBufferToCsv(buf: Buffer, limits: XlsxLimits = XLSX_LIM
       if (row.cellCount > limits.maxColumns) {
         throw new SpreadsheetTooLargeError(`The first sheet has more than ${limits.maxColumns} columns; IsaFlow reads at most ${limits.maxColumns}. Remove the columns you do not need and upload again.`);
       }
+      // A blank row is dropped, as parseMigrationCsv drops a blank CSV line: a
+      // "Row N" message counts non-blank rows under the header, for both.
       if (!row.hasValues) continue;
       const cells: string[] = [];
       for (let c = 1; c <= row.cellCount; c++) {
