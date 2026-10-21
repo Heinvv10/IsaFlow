@@ -3,8 +3,10 @@
  *
  * The shared merchant pool (learning loop PR 2) stores which CATEGORY merchants usually fall in, never an
  * account. A pool suggestion ("Common at other ISAFlow clients") reaches this company only for a category
- * mapped here, and this company's coding feeds the pool only through these mappings. Auto-map fills the
- * unmapped categories whose account name is an exact, unique match; every row stays editable.
+ * mapped here, and this company's coding feeds the pool only through these mappings (when its bureau shares
+ * merchant patterns; the subtitle says so). Auto-map fills the unmapped categories whose account name is an
+ * exact, unique match; every row stays editable. Header accounts are not offered (the server refuses them),
+ * and a row whose account another category also maps to is flagged as not shared.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -13,9 +15,38 @@ import { Tags, Loader2, AlertCircle, Wand2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CategoryMappingView } from '@/modules/accounting/services/sharedPool/categoryMappingService';
 
-interface Account { id: string; accountCode?: string; account_code?: string; accountName?: string; account_name?: string; isActive?: boolean; is_active?: boolean }
+interface Account {
+  id: string; accountCode?: string; account_code?: string; accountName?: string; account_name?: string; isActive?: boolean; is_active?: boolean;
+  parentAccountId?: string | null; parent_account_id?: string | null;
+}
 
 const accountLabel = (a: Account) => `${a.accountCode ?? a.account_code ?? ''} — ${a.accountName ?? a.account_name ?? ''}`;
+
+/** Active posting accounts: a header (any account's parent, inactive children included) cannot be mapped. */
+function mappableAccounts(all: Account[]): Account[] {
+  const parents = new Set(all.map((a) => a.parentAccountId ?? a.parent_account_id).filter((p): p is string => !!p));
+  return all.filter((a) => (a.isActive ?? a.is_active) !== false && !parents.has(a.id));
+}
+
+/** Accounts more than one category maps to: the pool cannot tell which category a line on them was. */
+function sharedAccounts(categories: CategoryMappingView[]): Set<string> {
+  const seen = new Set<string>();
+  const twice = new Set<string>();
+  for (const c of categories) {
+    const id = c.mapping?.glAccountId;
+    if (!id) continue;
+    if (seen.has(id)) twice.add(id);
+    seen.add(id);
+  }
+  return twice;
+}
+
+function mappingState(c: CategoryMappingView, shared: Set<string>): string {
+  if (!c.poolable) return 'Never shared with other clients';
+  if (c.mapping && shared.has(c.mapping.glAccountId)) return 'Not shared: this account is mapped to more than one category';
+  if (c.mapping?.source === 'auto') return 'Auto-mapped by account name';
+  return c.mapping ? 'Mapped' : 'Not mapped';
+}
 
 export default function MerchantCategoriesPage() {
   const [categories, setCategories] = useState<CategoryMappingView[]>([]);
@@ -29,7 +60,7 @@ export default function MerchantCategoriesPage() {
     setIsLoading(true);
     try {
       const [acctRes, mapRes] = await Promise.all([
-        apiFetch('/api/accounting/chart-of-accounts'),
+        apiFetch('/api/accounting/chart-of-accounts?includeInactive=true'),
         apiFetch('/api/accounting/category-mappings'),
       ]);
       await assertOk(acctRes, 'Could not load the merchant categories - try again');
@@ -38,7 +69,7 @@ export default function MerchantCategoriesPage() {
       const mapJson = await mapRes.json();
       const acctData = acctJson.data ?? acctJson;
       const list: Account[] = Array.isArray(acctData) ? acctData : (acctData.accounts ?? []);
-      setAccounts(list.filter((a) => (a.isActive ?? a.is_active) !== false));
+      setAccounts(mappableAccounts(list));
       const cats = (mapJson.data ?? mapJson).categories;
       if (!Array.isArray(cats)) throw new Error('Could not load the merchant categories - try again');
       setCategories(cats);
@@ -79,6 +110,8 @@ export default function MerchantCategoriesPage() {
     return `Auto-mapped ${n} ${n === 1 ? 'category' : 'categories'}${amb ? `; ${amb} matched more than one account and were left for you` : ''}`;
   });
 
+  const shared = sharedAccounts(categories);
+
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
@@ -90,6 +123,7 @@ export default function MerchantCategoriesPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Merchant Categories</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
                   Which of your accounts each ISAFlow category means. Suggestions marked &ldquo;Common at other ISAFlow clients&rdquo; use this map.
+                  If your bureau shares merchant patterns, your coding on mapped accounts also counts (anonymously) toward these suggestions for other ISAFlow clients.
                 </p>
               </div>
             </div>
@@ -118,7 +152,7 @@ export default function MerchantCategoriesPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[var(--ff-text-primary)]">{c.label}</p>
                     <p className="text-xs text-[var(--ff-text-tertiary)]">
-                      {!c.poolable ? 'Never shared with other clients' : c.mapping?.source === 'auto' ? 'Auto-mapped by account name' : c.mapping ? 'Mapped' : 'Not mapped'}
+                      {mappingState(c, shared)}
                     </p>
                   </div>
                   <select aria-label={c.label} value={c.mapping?.glAccountId ?? ''} disabled={busy !== null}
