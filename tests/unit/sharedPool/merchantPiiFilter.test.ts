@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  filterMerchant, poolMerchantKey, MAX_WORDS, type MerchantRejectReason,
+  BUSINESS_WORDS, filterMerchant, GENERIC_TOKENS, MAX_WORDS, NOISE_TOKENS, poolMerchantKey, type MerchantRejectReason,
 } from '@/modules/accounting/services/sharedPool/merchantPiiFilter';
 
 describe('filterMerchant — merchants it keeps (and the key it keeps)', () => {
@@ -120,8 +120,8 @@ describe('filterMerchant — what it rejects', () => {
   });
 
   it(`more than ${MAX_WORDS} words left is free text, even for invented business-like words`, () => {
-    expect(filterMerchant('ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT MOTORS')).toEqual({ ok: false, reason: 'free_text' });
-    expect(filterMerchant('ALPHA BRAVO CHARLIE DELTA ECHO MOTORS')).toEqual({ ok: true, merchant: 'ALPHA BRAVO' });
+    expect(filterMerchant('ALPHA MOTORS BRAVO CHARLIE DELTA ECHO FOXTROT')).toEqual({ ok: false, reason: 'free_text' });
+    expect(filterMerchant('ALPHA MOTORS BRAVO CHARLIE DELTA ECHO')).toEqual({ ok: true, merchant: 'ALPHA MOTORS' });
   });
 
   it('a first name anywhere in the line is a person, not just in front', () => {
@@ -134,8 +134,17 @@ describe('filterMerchant — what it rejects', () => {
     for (const raw of ['NONHLANHLA MOKOENA', 'VAN WYK', 'NOMALANGA DLAMINI', 'PURPLE RIDES', 'ZEBRA STRIPES']) {
       expect(filterMerchant(raw)).toEqual({ ok: false, reason: 'not_a_business' });
     }
-    // A company suffix counts as a trade word, even though it is dropped from the key.
-    expect(filterMerchant('MOKOENA DLAMINI PTY LTD')).toEqual({ ok: true, merchant: 'MOKOENA DLAMINI' });
+  });
+
+  it('the trade word must be in the key itself, not elsewhere in the line', () => {
+    for (const raw of ['INTERNET PMT NONHLANHLA MOKOENA', 'IB PAYMENT SERVICES NONHLANHLA MOKOENA', 'MOKOENA DLAMINI PTY LTD',
+      'NONHLANHLA MOKOENA PLUMBING', 'ONLINE BANKING DLAMINI MOKOENA']) {
+      expect(filterMerchant(raw)).toEqual({ ok: false, reason: 'not_a_business' });
+    }
+  });
+
+  it('trade words are never also noise or generic words (those never reach the key)', () => {
+    expect([...BUSINESS_WORDS].filter((w) => NOISE_TOKENS.has(w) || GENERIC_TOKENS.has(w))).toEqual([]);
   });
 
   it('a person-payment word wins over a known brand (a salary to a VODACOM employee is still a salary)', () => {
