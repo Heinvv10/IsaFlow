@@ -17,6 +17,7 @@ vi.mock('@/modules/accounting/services/ap/netcashService', () => hold);
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { faults, installQueryFaults, resetFaults } from './ap01-netcash-faults.helpers';
+import { bounded, tightenSettleTimeouts } from '@/modules/accounting/services/ap/netcashClaimSettle';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
 
@@ -93,6 +94,41 @@ describe('R3: a stalled settle is bounded and frees its slot; the cap is per com
     const res = await within(submit(A.c, (await A.batch()).id), 25_000);
     expect({ http: res === 'stuck' ? 'stuck' : res.state.statusCode, rows: await rowsOf(A.c) }).toEqual({ http: 200, rows: ['submitted'] });
   }, 30_000);
+
+  it('the send-lock unlock on a connection gone silent is bounded too: the request ends, the connection is dropped, the slot frees', async () => {
+    process.env.NETCASH_MAX_CONCURRENT_SENDS = '1';
+    const A = await company();
+    faults.rules.push({ match: /pg_advisory_unlock\(\$1::INT4/, claimOnly: true, act: async (run, client) => {
+      (client as unknown as { connection: { stream: { pause(): void } } }).connection.stream.pause();
+      return run();
+    } });
+    hold.submitEftBatch.mockResolvedValue(ACCEPTED);
+    const res = await within(submit(A.c, (await A.batch()).id), 20_000);
+    const next = res === 'stuck' ? null : await submit(A.c, (await A.batch()).id);
+    expect({ http: res === 'stuck' ? 'stuck' : res.state.statusCode, next: next?.state.statusCode }).toEqual({ http: 200, next: 200 });
+  }, 30_000);
+
+  it('the settle timeouts are tighten-only: a tighter session setting is kept, an unset one gets the bound', async () => {
+    const client = await pool.connect();
+    try {
+      const show = async () => (await client.query("SELECT current_setting('lock_timeout') AS l, current_setting('statement_timeout') AS s")).rows[0];
+      await client.query('BEGIN');
+      await client.query("SET LOCAL lock_timeout = '500ms'");
+      await client.query("SET LOCAL statement_timeout = '1s'");
+      await tightenSettleTimeouts(bounded(client));
+      const tighter = await show();
+      await client.query('ROLLBACK');
+      await client.query('BEGIN');
+      await client.query("SET LOCAL lock_timeout = 0");
+      await client.query("SET LOCAL statement_timeout = '1h'");
+      await tightenSettleTimeouts(bounded(client));
+      const looser = await show();
+      await client.query('ROLLBACK');
+      expect({ tighter, looser }).toEqual({ tighter: { l: '500ms', s: '1s' }, looser: { l: '2s', s: '4s' } });
+    } finally {
+      client.release();
+    }
+  });
 
   it('per company: with 2 of company A\'s sends stuck in flight, A\'s third is refused 503 and company B still sends', async () => {
     const A = await company();
