@@ -10,7 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { listCompanyUsers, updateCompanyUserRole, removeCompanyUser } from '@/modules/accounting/services/core/userAccessService';
+import { listCompanyUsers, updateCompanyUserRole, removeCompanyUser, OwnerProtectedError } from '@/modules/accounting/services/core/userAccessService';
 
 const ADMIN_ROLES = ['owner', 'admin'];
 
@@ -42,10 +42,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      await updateCompanyUserRole(companyId, userId, role);
+      await updateCompanyUserRole(companyId, userId, role, companyRole);
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {
+      if (err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Update failed.');
     }
   }
@@ -67,10 +68,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     try {
-      await removeCompanyUser(companyId, userId);
+      await removeCompanyUser(companyId, userId, companyRole);
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {
+      if (err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Remove failed.');
     }
   }

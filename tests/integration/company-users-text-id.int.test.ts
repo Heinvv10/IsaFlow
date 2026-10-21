@@ -147,15 +147,15 @@ describe('company_users.user_id is text — queries must not cast the parameter 
     });
 
     it('updates a role without an operator-does-not-exist error', async () => {
-      await updateCompanyUserRole(COMPANY, MEMBER, 'manager');
+      await updateCompanyUserRole(COMPANY, MEMBER, 'manager', 'owner');
       const rows = await listAsOwner();
       expect(rows.find(r => r.userId === MEMBER)?.role).toBe('manager');
       // restore so the remove test still has two owners to work with
-      await updateCompanyUserRole(COMPANY, MEMBER, 'owner');
+      await updateCompanyUserRole(COMPANY, MEMBER, 'owner', 'owner');
     });
 
     it('removes a company user without an operator-does-not-exist error', async () => {
-      await removeCompanyUser(COMPANY, MEMBER);
+      await removeCompanyUser(COMPANY, MEMBER, 'owner');
       const rows = await listAsOwner();
       expect(rows.map(r => r.userId)).toEqual([OWNER]);
       // put it back for afterAll symmetry

@@ -1,0 +1,106 @@
+/**
+ * Audit 2026-10-18 S-04 — an admin could demote or remove an owner.
+ *
+ * PUT/DELETE /api/accounting/company-users run the REAL userAccessService here;
+ * only `sql` is replaced, by a recorder that answers the target-role lookup.
+ * An admin acting on an owner gets 403 and no UPDATE or DELETE is issued; an
+ * owner acting on an owner, and an admin acting on a manager, still write.
+ * The real-PG proof (and the two-owner race) is
+ * tests/integration/s04-owner-protection.int.test.ts.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+const h = vi.hoisted(() => ({ statements: [] as string[], targetRole: 'owner', ownerCount: 2 }));
+
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn((strings: TemplateStringsArray) => {
+    const text = strings.join('?').replace(/\s+/g, ' ').trim();
+    h.statements.push(text);
+    if (/^SELECT role FROM company_users/.test(text)) return Promise.resolve([{ role: h.targetRole }]);
+    if (/^SELECT COUNT\(\*\)/.test(text)) return Promise.resolve([{ cnt: String(h.ownerCount) }]);
+    return Promise.resolve([]);
+  }),
+}));
+vi.mock('@/lib/auth', () => ({
+  withAuth: (fn: unknown) => fn,
+  withWriteAccess: (fn: unknown) => fn,
+}));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
+vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore — pages/ is outside src/ so the @/ alias won't resolve; relative path needed
+import handler from '../../../pages/api/accounting/company-users';
+
+type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
+const COMPANY_ID = '11111111-1111-4111-9111-111111111111';
+const TARGET = '44444444-4444-4444-9444-444444444444';
+
+function call(method: 'PUT' | 'DELETE', companyRole: string, body: Record<string, string>) {
+  const req = {
+    method, query: {}, body, headers: {},
+    companyId: COMPANY_ID, companyRole, user: { id: 'caller' },
+  } as unknown as NextApiRequest;
+  const res = { status: vi.fn(), json: vi.fn(), setHeader: vi.fn() } as unknown as NextApiResponse;
+  (res.status as ReturnType<typeof vi.fn>).mockReturnValue(res);
+  return { promise: (handler as Handler)(req, res), res };
+}
+
+const writes = () => h.statements.filter((s) => /^(UPDATE|DELETE)/.test(s));
+const statusOf = (res: NextApiResponse) => (res.status as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+
+describe('company-users S-04 — only an owner changes or removes an owner', () => {
+  beforeEach(() => {
+    h.statements.length = 0;
+    h.targetRole = 'owner';
+    h.ownerCount = 2;
+  });
+
+  it('answers 403 to an admin demoting an owner, and writes nothing', async () => {
+    const { promise, res } = call('PUT', 'admin', { userId: TARGET, role: 'viewer' });
+    await promise;
+    expect(statusOf(res)).toBe(403);
+    expect(JSON.stringify((res.json as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]))
+      .toContain('Only an owner can change or remove another owner.');
+    expect(writes()).toEqual([]);
+  });
+
+  it('answers 403 to an admin removing an owner, and writes nothing', async () => {
+    const { promise, res } = call('DELETE', 'admin', { userId: TARGET });
+    await promise;
+    expect(statusOf(res)).toBe(403);
+    expect(writes()).toEqual([]);
+  });
+
+  it('reads the target role under a row lock', async () => {
+    await call('PUT', 'admin', { userId: TARGET, role: 'viewer' }).promise;
+    expect(h.statements.find((s) => s.startsWith('SELECT role FROM company_users'))).toMatch(/FOR UPDATE$/);
+  });
+
+  it('lets an owner demote another owner when two exist', async () => {
+    const { promise, res } = call('PUT', 'owner', { userId: TARGET, role: 'admin' });
+    await promise;
+    expect(statusOf(res)).toBe(200);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('lets an owner remove another owner when two exist', async () => {
+    const { promise, res } = call('DELETE', 'owner', { userId: TARGET });
+    await promise;
+    expect(statusOf(res)).toBe(200);
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('still lets an admin change and remove a manager', async () => {
+    h.targetRole = 'manager';
+    const put = call('PUT', 'admin', { userId: TARGET, role: 'viewer' });
+    await put.promise;
+    expect(statusOf(put.res)).toBe(200);
+    const del = call('DELETE', 'admin', { userId: TARGET });
+    await del.promise;
+    expect(statusOf(del.res)).toBe(200);
+    expect(writes()).toHaveLength(2);
+  });
+});
