@@ -21,6 +21,7 @@
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { assertBillAllocatable, billsPayable, toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { assertAllocationShape } from './supplierAllocationShape';
 import { sql } from '@/lib/neon';
 import { requireRequestTransaction } from '../core/requestTransaction';
 import { isLockContention } from '../core/lockContention';
@@ -60,24 +61,6 @@ export interface BillCandidate extends DbRow {
 
 export function round2(n: number): number {
   return Math.round(n * 100) / 100;
-}
-
-/** Faults in the REQUEST — checked before any query, naming the offending bill. */
-export function assertAllocationShape(allocations: readonly SupplierAllocationInput[]): void {
-  if (allocations.length === 0) throw new SupplierPaymentRefusal('Provide at least one allocation.');
-  const seen = new Set<string>();
-  for (const alloc of allocations) {
-    if (!Number.isFinite(alloc.amount) || alloc.amount <= 0) {
-      throw new SupplierPaymentRefusal(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
-    }
-    if (seen.has(alloc.invoiceId)) {
-      // The unique index on (payment_id, invoice_id) would raise 23505 halfway
-      // through the write instead — a database error the caller cannot act on,
-      // arriving after earlier lines have been written.
-      throw new SupplierPaymentRefusal(`Invoice ${alloc.invoiceId} appears more than once in this request.`);
-    }
-    seen.add(alloc.invoiceId);
-  }
 }
 
 /**

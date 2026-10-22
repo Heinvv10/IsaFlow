@@ -51,6 +51,12 @@ export function checkTakeOnAmounts(inv: TakeOnAmounts, row: number): TakeOnAmoun
       + 'Load a credit as a credit note against the document it reduces.');
   }
 
+  // The row schema bounds `amountPaid`, but this function is the importer's own rule: NaN is a valid NUMERIC that
+  // sorts above every number, so it would store as paid beyond any total.
+  if (inv.amountPaid !== undefined && (!Number.isFinite(inv.amountPaid) || inv.amountPaid < 0)) {
+    return refuse('amountPaid', `${inv.invoiceNumber} has an amount paid a take-on bill may not carry (${String(inv.amountPaid)}).`);
+  }
+
   let warning: MigrationError | null = null;
   const amountsDrift = Math.abs(inv.subtotal + inv.taxAmount - inv.totalAmount);
   if (amountsDrift > 0.005) {
