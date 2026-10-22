@@ -13,7 +13,9 @@
  * only be soft-deleted (admin DELETE sets status='deleted'; the row and its
  * books stay), so a per-run sandbox would leave a dead company behind on every
  * post-deploy run against prod. The fixed requestKey makes creation
- * idempotent: a second complete-setup with it replays the first company.
+ * idempotent: a second complete-setup with it replays the first company. If
+ * an admin deactivates or deletes the sandbox, the key 409s; the spec then
+ * fails with the remedy rather than a bare status.
  *
  * Switching is per request context: POST /api/auth/switch-company sets the
  * active_company_id cookie of the context that called it, nothing server-side,
@@ -42,7 +44,7 @@ export async function findOrCreateMigrationSandbox(api: Api): Promise<string> {
   };
   const found = await find();
   if (found) return found;
-  await api.post('/api/onboarding/complete-setup', {
+  const setup = await api.postRaw('/api/onboarding/complete-setup', {
     requestKey: MIGRATION_SANDBOX_ONBOARDING_ID,
     entityType: 'other', // the one entity with no proof document to upload
     coaTemplate: 'isaflow_standard',
@@ -50,6 +52,12 @@ export async function findOrCreateMigrationSandbox(api: Api): Promise<string> {
     people: [],
     documents: [],
   });
+  // 409: the key's company exists but was deactivated or soft-deleted, so the
+  // finder above skips it and the key cannot create a second one.
+  expect(setup.status, setup.status === 409
+    ? `"${MIGRATION_SANDBOX_NAME}" was deactivated or deleted for this user; reactivate it (companies.is_active/status) `
+      + 'or change MIGRATION_SANDBOX_ONBOARDING_ID in _migrationSandbox.ts to create a fresh one'
+    : JSON.stringify(setup.json)).toBe(200);
   const created = await find();
   expect(created, 'onboarding must have created the migration sandbox').toBeTruthy();
   return created!;
