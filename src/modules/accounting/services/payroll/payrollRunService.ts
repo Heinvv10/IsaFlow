@@ -7,7 +7,9 @@ import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
-import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals } from './payrollRunLock';
+import {
+  isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals,
+} from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
@@ -114,6 +116,9 @@ export async function calculatePayrollRun(
   log.info('Calculating payroll run', { runId, companyId }, 'payrollRunService');
 
   // Locked for the whole calculation, with a bounded wait: see lockPayrollRunHeader.
+  // The company approval lock first, in approval's order (PAYE 4a follow-ups G4): a calculation then
+  // never reads its year-to-date and later-month warnings while an approval is in flight.
+  await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) throw new Error('Payroll run not found');
 
