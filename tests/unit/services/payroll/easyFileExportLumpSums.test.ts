@@ -66,7 +66,7 @@ describe('buildEmployeeRecord — 3605 and directive lump sums', () => {
 
 describe('splitCertificateIncome', () => {
   it('takes lump sums and 3605 out of 3601, and lump-sum PAYE out of 4102', () => {
-    expect(splitCertificateIncome({ gross: 60_000, paye: 7_307, annualPayments: 10_000, lumpSums: [{ amount: 30_000, paye: 3_000 }] }))
+    expect(splitCertificateIncome({ gross: 60_000, paye: 7_307, annualPayments: 10_000, lumpSums: [{ sourceCode: '3901', amount: 30_000, paye: 3_000 }] }))
       .toEqual({ grossSalary3601: 20_000, annualPayments3605: 10_000, paye4102: 4_307 });
   });
 
