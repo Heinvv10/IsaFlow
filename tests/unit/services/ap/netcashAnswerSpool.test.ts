@@ -261,25 +261,26 @@ describe('the answer\'s status is in the file name: a torn file of a never-sent 
 });
 
 describe('a slow writer whose temp the sweep reaches first', () => {
-  /** spoolAnswer with its rename held until `release()`: a writer stalled after the fsync. */
+  /** The writer's own rename held until `release()` (a writer stalled after the fsync); `reached` resolves once it is held. */
   function stalledRename() {
     let release!: () => void;
+    let reached!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
+    const held = new Promise<void>((r) => { reached = r; });
     const real = fs.promises.rename.bind(fs.promises);
-    let held = false;
+    let taken = false;
     vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
-      if (!held && String(from).endsWith('.tmp')) { held = true; await gate; } // only the writer's own rename (it is first)
+      if (!taken && String(from).endsWith('.tmp') && String(to).endsWith('.jsonl') && !String(to).includes('quarantine')) { taken = true; reached(); await gate; }
       return real(from, to);
     });
-    return release;
+    return { release, held };
   }
 
   it('temp complete and stale: the sweep promotes it; the writer\'s own rename then finds it gone - ONE final entry, nothing lost, and the writer is told it was spooled', async () => {
-    const release = stalledRename();
+    const { release, held } = stalledRename();
     const writing = spoolAnswer(record());
-    const tempNow = () => (fs.existsSync(spoolDir()) ? fs.readdirSync(spoolDir()).find((f) => f.endsWith('.tmp')) : undefined);
-    for (let i = 0; i < 500 && !tempNow(); i++) await new Promise((r) => setTimeout(r, 10)); // the writer reaches its (held) rename
-    const temp = tempNow()!;
+    await held; // the temp is complete and fsynced; its rename is held
+    const temp = fs.readdirSync(spoolDir()).find((f) => f.endsWith('.tmp'))!;
     expect(temp).toBeTruthy();
     const old = new Date(Date.now() - 10 * 60_000);
     fs.utimesSync(path.join(spoolDir(), temp), old, old);
