@@ -2,13 +2,17 @@
  * Import Sage data into ISAFlow for Brightsphere Technologies
  * Usage: DATABASE_URL="..." bun run /tmp/sage-pull-britech/import-sage-data.ts
  */
-import { createSql } from './_pg';
+import { createSql, withTransactionPg } from './_pg';
 import { deriveAmountPaid, parseAmountDue } from './lib/amountPaid';
+import { isSageOpeningBalanceJournal } from '../src/modules/accounting/services/sage/sageOpeningBalanceJournal';
 import { log } from '../src/lib/logger';
 import { readFileSync } from 'fs';
 
 const sql = createSql();
 const CID = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
+
+/** First 100 chars of a caught error's message (the script prints and carries on). */
+const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e)).slice(0, 100);
 
 const USER_ID = 'aeb3949e-6c93-4c17-bbdf-b6d2d99fa9a2'; // hein@isaflow.co.za
 const CAT_TYPE: Record<number, string> = { 1:'revenue', 2:'expense', 3:'revenue', 4:'expense', 5:'asset', 6:'asset', 7:'liability', 8:'liability', 9:'equity', 10:'expense' };
@@ -34,7 +38,7 @@ async function importAccounts() {
         VALUES (${CID}::UUID, ${code}, ${a.Name}, ${type}, ${sub}, ${norm}, ${a.Active}, ${a.AccountType === 2}, ${desc}, ${order}, 'sage_cloud')
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { errs++; console.error(`  ERR ${a.Name}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { errs++; console.error(`  ERR ${a.Name}: ${errMsg(e)}`); }
   }
   console.log(`  Accounts: ${ok} imported, ${errs} errors`);
 }
@@ -47,7 +51,7 @@ async function importCustomers() {
       await sql`INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, opening_balance, accepts_electronic_invoices, auto_allocate_receipts, mobile)
         VALUES (${CID}::UUID, ${c.Name}, ${c.Email || null}, ${c.Telephone || null}, ${c.TaxReference || null}, ${c.ContactName || null}, ${c.CreditLimit || 0}, ${c.Active}, ${c.Balance || 0}, ${c.AcceptsElectronicInvoices || false}, ${c.AutoAllocateToOldestInvoice || false}, ${c.Mobile || null})`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${c.Name}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${c.Name}: ${errMsg(e)}`); }
   }
   console.log(`  Customers: ${ok} imported`);
 }
@@ -60,7 +64,7 @@ async function importSuppliers() {
       await sql`INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, opening_balance, mobile, fax, web_address, auto_allocate_payments)
         VALUES (${CID}::UUID, ${s.Name}, ${s.Email || null}, ${s.Telephone || null}, ${s.TaxReference || null}, ${s.ContactName || null}, ${s.Active}, ${s.Balance || 0}, ${s.Mobile || null}, ${s.Fax || null}, ${s.WebAddress || null}, ${s.AutoAllocateToOldestInvoice || false})`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${s.Name}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${s.Name}: ${errMsg(e)}`); }
   }
   console.log(`  Suppliers: ${ok} imported`);
 }
@@ -110,7 +114,7 @@ async function importARInvoices() {
           ${status}, ${inv.Reference ? 'Sage ref: ' + inv.Reference : null}, ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${inv.DocumentNumber}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${inv.DocumentNumber}: ${errMsg(e)}`); }
   }
   console.log(`  AR Invoices: ${ok} imported, ${skip} skipped (no customer match)`);
 }
@@ -151,7 +155,7 @@ async function importAPInvoices() {
           ${status}, ${inv.Reference || null}, ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${inv.DocumentNumber}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${inv.DocumentNumber}: ${errMsg(e)}`); }
   }
   console.log(`  AP Invoices: ${ok} imported, ${skip} skipped (no supplier match)`);
 }
@@ -179,7 +183,7 @@ async function importCustomerReceipts() {
           ${r.Description || r.Comments || null}, 'confirmed', ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${r.DocumentNumber}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${r.DocumentNumber}: ${errMsg(e)}`); }
   }
   console.log(`  Customer Receipts: ${ok} imported, ${skip} skipped`);
 }
@@ -204,7 +208,7 @@ async function importSupplierPayments() {
           ${p.Description || p.Comments || null}, 'processed', ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${p.DocumentNumber}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${p.DocumentNumber}: ${errMsg(e)}`); }
   }
   console.log(`  Supplier Payments: ${ok} imported, ${skip} skipped`);
 }
@@ -226,30 +230,36 @@ async function importJournalEntries() {
     if (!glAccountId || !contraAccountId) { errs++; continue; }
 
     try {
-      // Create journal entry header
-      const jeRows = await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description,
-        source, status, created_by, reference)
-        VALUES (${CID}::UUID, ${'SAGE-' + je.ID}, ${entryDate}::DATE, ${je.Description || ''},
-          'auto_migration', 'posted', ${USER_ID}::UUID, ${je.Reference || null})
-        RETURNING id`;
-      const journalId = jeRows[0].id;
-
+      // Create journal entry header. Sage's LIVE journal history is a GL import; only
+      // Sage's own opening balances are a take-on, the source every reader takes for
+      // balances carried in (changesInEquityService's "Balances taken on" row).
+      const source = isSageOpeningBalanceJournal(je.Description, je.Reference) ? 'auto_migration' : 'auto_gl_import';
       // Effect: 1 = debit main account, 2 = credit main account
       const isDebit = je.Effect === 1;
       const amount = je.Total || je.Exclusive || 0;
 
-      // Main account line
-      await sql`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-        VALUES (${journalId}::UUID, ${glAccountId}::UUID,
-          ${isDebit ? amount : 0}, ${isDebit ? 0 : amount}, ${je.Description || ''})`;
+      // Header and both lines in one transaction: a failed line leaves no posted header without lines.
+      await withTransactionPg(async (tx) => {
+        const jeRows = await tx`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description,
+          source, status, created_by, reference)
+          VALUES (${CID}::UUID, ${'SAGE-' + je.ID}, ${entryDate}::DATE, ${je.Description || ''},
+            ${source}, 'posted', ${USER_ID}::UUID, ${je.Reference || null})
+          RETURNING id`;
+        const journalId = jeRows[0].id;
 
-      // Contra account line
-      await sql`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-        VALUES (${journalId}::UUID, ${contraAccountId}::UUID,
-          ${isDebit ? 0 : amount}, ${isDebit ? amount : 0}, ${je.Description || ''})`;
+        // Main account line
+        await tx`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+          VALUES (${CID}::UUID, ${journalId}::UUID, ${glAccountId}::UUID,
+            ${isDebit ? amount : 0}, ${isDebit ? 0 : amount}, ${je.Description || ''})`;
+
+        // Contra account line
+        await tx`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+          VALUES (${CID}::UUID, ${journalId}::UUID, ${contraAccountId}::UUID,
+            ${isDebit ? 0 : amount}, ${isDebit ? amount : 0}, ${je.Description || ''})`;
+      });
 
       ok++;
-    } catch (e: any) { errs++; console.error(`  ERR JE-${je.ID}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { errs++; console.error(`  ERR JE-${je.ID}: ${errMsg(e)}`); }
   }
   console.log(`  Journal Entries: ${ok} imported, ${errs} errors`);
 }
@@ -276,7 +286,7 @@ async function importBankTransactions() {
           ${t.desc || t.memo || ''}, ${t.ref || null},
           ${t.recon ? 'reconciled' : 'unmatched'})`;
       ok++;
-    } catch (e: any) { errs++; if (errs <= 5) console.error(`  ERR: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { errs++; if (errs <= 5) console.error(`  ERR: ${errMsg(e)}`); }
   }
   console.log(`  Bank Transactions: ${ok} imported, ${errs} errors`);
 }

@@ -2,7 +2,7 @@ import type { NextApiHandler } from 'next';
 import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
-import { emailLayout } from '@/lib/email-templates-shared';
+import { emailLayout, emailContentRow } from '@/lib/email-templates-shared';
 import { validateContactSubmission, buildContactEmail } from '@/lib/contactForm';
 import { log } from '@/lib/logger';
 
@@ -45,7 +45,7 @@ const handler: NextApiHandler = async (req, res) => {
   const sent = await sendEmail({
     to: CONTACT_INBOX,
     subject,
-    html: emailLayout(html),
+    html: emailLayout(emailContentRow(html)),
     _log: { companyId: null, emailType: 'other', sentBy: null },
   });
 

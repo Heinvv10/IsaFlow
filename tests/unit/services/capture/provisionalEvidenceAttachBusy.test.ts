@@ -32,6 +32,14 @@ describe('attachDocumentToProvisional: the claim refusal', () => {
     vi.mocked(claimCapturedDocumentForPosting).mockResolvedValueOnce('content_busy');
     expect(await attachDocumentToProvisional('c', 'je', 'd')).toMatchObject({ kind: 'contended' });
   });
+  it("being_read (the document's upload is still being read) -> reading, which the route answers 409", async () => {
+    vi.mocked(claimCapturedDocumentForPosting).mockResolvedValueOnce('being_read');
+    expect(await attachDocumentToProvisional('c', 'je', 'd')).toEqual({ kind: 'reading', message: 'This document is still being read.' });
+  });
+  it('not_read (the read failed or went silent) -> refused with the upload-again message (400)', async () => {
+    vi.mocked(claimCapturedDocumentForPosting).mockResolvedValueOnce('not_read');
+    expect(await attachDocumentToProvisional('c', 'je', 'd')).toEqual({ kind: 'refused', message: 'This document could not be read — upload it again.' });
+  });
   it('content_posted stays refused', async () => {
     vi.mocked(claimCapturedDocumentForPosting).mockResolvedValueOnce('content_posted');
     expect(await attachDocumentToProvisional('c', 'je', 'd')).toMatchObject({ kind: 'refused' });

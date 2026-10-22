@@ -56,7 +56,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // status only, raised before any write. No MCP tool approves a batch today.
   'BATCH_NOT_APPROVABLE',
   // R-035 PR5: a batch sent to the bank (eft-generate / netcash) while still a
-  // draft under enforcement; names its status only, raised before any write.
+  // draft (or cancelled / reversed), enforcement on or off; names its status
+  // only, raised before any write.
   'BATCH_NOT_SENDABLE',
   'BATCH_NOT_PROCESSABLE',
   'BILL_LINE_ACCOUNT_REFUSED',
@@ -191,6 +192,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_REFUSED',
   ...SYSTEM_ROLE_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
+  'TAX_DIRECTIVE_NOT_APPROVED',
+  'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
+  'TAX_DIRECTIVE_PAID',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.

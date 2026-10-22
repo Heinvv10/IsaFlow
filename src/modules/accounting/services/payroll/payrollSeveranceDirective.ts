@@ -25,6 +25,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { runHasPaid } from './payrollTerminationPaidCheck';
+import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
 import { mapPayrollEmployeeRow } from './payrollEmployeeService';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod } from './payrollTypes';
 
@@ -120,6 +121,9 @@ export async function listSeveranceOnlyRunEmployees(
   runId: string,
   period: PayrollPeriod,
 ): Promise<PayrollEmployee[]> {
+  // A stand-alone payment since reversed no longer pays its directive: free it
+  // first, so this run may pay it (taxDirectivePaidGuard).
+  await releaseReversedStandalonePayment(companyId, null);
   const rows = (await sql`
     SELECT e.* FROM payroll_employees e
     WHERE e.company_id = ${companyId}::uuid

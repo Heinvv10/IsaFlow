@@ -9,15 +9,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { pgTypesMock } from '../helpers/pgTypesMock';
 
-const h = vi.hoisted(() => ({ events: [] as string[], failCommit: false }));
+const h = vi.hoisted(() => ({ events: [] as string[], failCommit: false, failRollback: false, role: 'manager' }));
 const client = {
   query: vi.fn(async (text: string) => {
     const verb = String(text).trim().split(/\s+/)[0]!.toUpperCase();
+    if (/FROM company_users/i.test(String(text))) {
+      // The pairer is a manager in good standing (S-06b standing recheck).
+      return { rows: [{ role: h.role, account_user_id: 'user-1', is_active: true, status: 'active', suspended_at: null }] };
+    }
     if (/FROM bank_feed_connections/i.test(String(text))) {
       return { rows: [{ id: 'conn-1', company_id: 'company-1', bank_account_id: 'ba-1', provider: 'extension', is_active: true }] };
     }
     if (verb === 'COMMIT' || verb === 'ROLLBACK') h.events.push(verb);
     if (verb === 'COMMIT' && h.failCommit) throw new Error('could not serialize access');
+    if (verb === 'ROLLBACK' && h.failRollback) throw new Error('connection terminated');
     return { rows: [] };
   }),
   release: vi.fn(),
@@ -58,6 +63,9 @@ const settle = () => new Promise((r) => setTimeout(r, 5));
 beforeEach(() => {
   h.events.length = 0;
   h.failCommit = false;
+  h.failRollback = false;
+  h.role = 'manager';
+  client.release.mockClear();
   vi.stubEnv('DATABASE_URL', 'postgresql://dummy:dummy@dummy/test');
 });
 
@@ -112,5 +120,19 @@ describe('withExtensionToken finalize (mirrors withAuth)', () => {
     await settle();
     expect(h.events).toEqual(['ROLLBACK', 'END:500']);
     expect(JSON.parse(response.body ?? '{}')).toMatchObject({ success: false, code: 'INTERNAL_SERVER_ERROR' });
+  });
+
+  // S-06b: the standing refusal answers 401 itself; the handler never runs and nothing commits.
+  it.each([false, true])('a pairer below manager -> ROLLBACK, 401, handler not run (ROLLBACK fails: %s -> connection destroyed)', async (failRollback) => {
+    h.role = 'viewer';
+    h.failRollback = failRollback;
+    const handler = vi.fn();
+    const response = res();
+    await withExtensionToken(handler)(req(), response as never);
+    expect(handler).not.toHaveBeenCalled();
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body ?? '{}')).toEqual({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or revoked pairing token' } });
+    expect(h.events).toEqual(['ROLLBACK', 'END:401']);
+    expect(client.release).toHaveBeenCalledWith(failRollback);
   });
 });
