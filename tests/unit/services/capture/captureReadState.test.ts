@@ -6,10 +6,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   effectiveReadState, isBeingRead, readGateFor, STALE_AFTER_MINUTES, STALE_READ_ERROR, GENERIC_READ_ERROR, STILL_BEING_READ, NOT_READ, NOT_STORED_ERROR,
+  UPLOAD_AGAIN_ERROR, UPLOAD_AGAIN_STALE_ERROR,
 } from '@/modules/accounting/services/capture/captureReadState';
 
 const NOW = Date.parse('2026-10-22T10:00:00.000Z');
 const ago = (min: number) => new Date(NOW - min * 60_000);
+const RETRYABLE = { storage_path: 'co/doc', posted_at: null, status: 'pending' };
 const row = (over: Record<string, unknown> = {}) => ({
   read_state: 'reading', read_error: null, read_heartbeat_at: null, created_at: ago(1), ...over,
 });
@@ -19,10 +21,16 @@ describe('effectiveReadState', () => {
     expect(effectiveReadState(row(), NOW)).toMatchObject({ readState: 'reading', readError: null });
   });
 
-  it('reports a read silent for over 5 minutes as failed, with the upload-again message', () => {
-    const s = effectiveReadState(row({ created_at: ago(30), read_heartbeat_at: ago(6) }), NOW);
-    expect(s).toMatchObject({ readState: 'failed', readError: STALE_READ_ERROR });
+  it('reports a read silent for over 5 minutes as failed, with the retry message when it can be retried', () => {
+    const s = effectiveReadState(row({ created_at: ago(30), read_heartbeat_at: ago(6), ...RETRYABLE }), NOW);
+    expect(s).toMatchObject({ readState: 'failed', readError: STALE_READ_ERROR, retryable: true });
     expect(STALE_READ_ERROR).toBe('The read was interrupted — retry it.');
+  });
+
+  it('...and with the upload-again message when it cannot (no stored file)', () => {
+    const s = effectiveReadState(row({ created_at: ago(30), read_heartbeat_at: ago(6) }), NOW);
+    expect(s).toMatchObject({ readState: 'failed', readError: UPLOAD_AGAIN_STALE_ERROR, retryable: false });
+    expect(UPLOAD_AGAIN_STALE_ERROR).toBe('The read was interrupted — upload the document again.');
   });
 
   it('the messages on rows that can be retried say retry; only the not-stored one says upload again', () => {
@@ -53,8 +61,39 @@ describe('effectiveReadState', () => {
 
   it('shows the recorded error of a failed row, or a generic one when it is empty', () => {
     expect(effectiveReadState(row({ read_state: 'failed', read_error: 'Boom.' }), NOW)).toMatchObject({ readState: 'failed', readError: 'Boom.' });
-    expect(effectiveReadState(row({ read_state: 'failed', read_error: null }), NOW)).toMatchObject({ readState: 'failed', readError: GENERIC_READ_ERROR });
-    expect(effectiveReadState(row({ read_state: 'failed', read_error: '' }), NOW).readError).toBe(GENERIC_READ_ERROR);
+    expect(effectiveReadState(row({ read_state: 'failed', read_error: null, ...RETRYABLE }), NOW)).toMatchObject({ readState: 'failed', readError: GENERIC_READ_ERROR });
+    expect(effectiveReadState(row({ read_state: 'failed', read_error: '', ...RETRYABLE }), NOW).readError).toBe(GENERIC_READ_ERROR);
+  });
+
+  describe('wording follows retryable: a row that cannot be retried never says "retry"', () => {
+    const failed = (over: Record<string, unknown>) => effectiveReadState(
+      row({ read_state: 'failed', read_error: GENERIC_READ_ERROR, ...RETRYABLE, ...over }), NOW);
+
+    it('a retryable failed row keeps the retry wording', () => {
+      expect(failed({})).toMatchObject({ readError: GENERIC_READ_ERROR, retryable: true });
+      expect(GENERIC_READ_ERROR).toContain('retry');
+    });
+
+    it.each([
+      ['no stored file', { storage_path: null }],
+      ['rejected', { status: 'rejected' }],
+      ['confirmed', { status: 'reviewed' }],
+      ['matched', { status: 'matched' }],
+      ['posted', { posted_at: ago(1) }],
+    ])('a %s row says upload again', (_name, over) => {
+      expect(failed(over)).toMatchObject({ readError: UPLOAD_AGAIN_ERROR, retryable: false });
+      expect(UPLOAD_AGAIN_ERROR).toBe('The document could not be read — upload it again.');
+    });
+
+    it('so does a stale one, and a failed row with no recorded reason', () => {
+      expect(failed({ read_state: 'reading', read_error: null, created_at: ago(30), status: 'rejected' }).readError).toBe(UPLOAD_AGAIN_STALE_ERROR);
+      expect(failed({ read_error: null, storage_path: null }).readError).toBe(UPLOAD_AGAIN_ERROR);
+    });
+
+    it('a recorded reason of another kind (not-stored, or any other text) is left as it is', () => {
+      expect(failed({ read_error: NOT_STORED_ERROR })).toMatchObject({ readError: NOT_STORED_ERROR, retryable: false });
+      expect(failed({ read_error: 'Boom.', status: 'rejected' }).readError).toBe('Boom.');
+    });
   });
 
   it('leaves a done row alone however old, and ignores a stale error on it', () => {

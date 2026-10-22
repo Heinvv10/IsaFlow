@@ -372,12 +372,13 @@ describe('runCaptureRead — integrity of the stored file', () => {
     expect(callsOn("read_state = 'failed'")).toHaveLength(0);
   });
 
-  it('bytes that do not match the recorded hash fail the read as not stored (not retryable), and are never read', async () => {
+  it('bytes that do not match the recorded hash fail the read with the generic message (a truncated download can be retried), and are never read', async () => {
     m.fetch.mockResolvedValue(stored('pdf', sha256(Buffer.from('some other file'))));
     await runCaptureRead(CO, DOC, ATTEMPT);
     const [failed] = callsOn("read_state = 'failed'");
     expect(failed).toBeDefined();
-    expect(failed!.values).toContain(NOT_STORED_ERROR);
+    expect(failed!.values).toContain(GENERIC_READ_ERROR);
+    expect(failed!.values).not.toContain(NOT_STORED_ERROR);
     expect(m.read).not.toHaveBeenCalled();
     expect(callsOn('extracted_data =')).toHaveLength(0);
   });

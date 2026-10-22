@@ -28,8 +28,9 @@
  * starts a second job. EVERY write here is fenced on the attempt the job was
  * started for, so a read thought dead (stale) that finishes or fails late cannot
  * touch the row its retry is reading (the bank statement job's fence). A row with
- * no stored bytes, whose object is gone, or whose bytes do not match the recorded
- * sha256 ends 'failed' with NOT_STORED_ERROR, which is not retryable.
+ * no stored bytes or whose object is gone ends 'failed' with NOT_STORED_ERROR, which is
+ * not retryable. Bytes that do not match the recorded sha256 fail the read like any other
+ * error (generic message, retryable): a truncated download must not kill the row.
  *
  * Never throws: a failure is recorded on the row (a user-safe message) and the
  * row ends 'failed'. A job that dies outright leaves the row 'reading' with no
@@ -146,7 +147,8 @@ async function loadAndRead(companyId: string, documentId: string): Promise<Extra
   // Verify against the recorded COLUMN: fetchRawBytes fabricates `hash` from the bytes when the column is null (legacy rows).
   if (stored.storedHash && sha256(stored.buffer) !== stored.storedHash) {
     log.error('captureRead: stored file failed its integrity check', { documentId }, 'capture-read');
-    throw new NotStoredError('the stored bytes do not match their recorded hash');
+    // A plain failure, not NotStoredError: a truncated or corrupted DOWNLOAD must not kill the row for good; a retry reads again.
+    throw new Error('the stored bytes do not match their recorded hash');
   }
   return readUploadedDocument(stored.buffer, MIME_BY_FILE_TYPE[stored.fileType] ?? 'application/octet-stream');
 }
