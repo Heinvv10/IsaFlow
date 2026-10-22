@@ -186,6 +186,8 @@ describe('gl-lines-export with a Personal Access Token', () => {
     expect(res.statusCode).toBe(200);
     const body = res.body as { data: Record<string, unknown> };
     expect(body.data).toMatchObject({ controlTotal: 100, agedTotal: 100, difference: 0, rowCount: 2 });
+    expect(res.headers['X-Schema-Version']).toBe('isaflow-open-items-1.0');
+    expect(res.chunks.join('')).not.toContain('Doc_ID,');
   });
 });
 

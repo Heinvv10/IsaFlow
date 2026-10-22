@@ -63,6 +63,8 @@ describeIfDb('open-items export ties to the aged reports', () => {
   afterAll(async () => {
     await f.pool.query('DELETE FROM procurement_documents WHERE entity_id = ANY($1::UUID[])', [[ids.bill1, ids.bill2]]);
     await f.pool.query('DELETE FROM supplier_invoice_items WHERE supplier_invoice_id = ANY($1::UUID[])', [[ids.bill1, ids.bill2]]);
+    // credit_notes.cc1_id holds a cost centre; release it before the centres go.
+    await f.pool.query('UPDATE credit_notes SET cc1_id = NULL WHERE company_id = $1', [f.company]);
     await f.pool.query('DELETE FROM cost_centres WHERE company_id = $1', [f.company]);
     await f.cleanup();
   }, 60000);
