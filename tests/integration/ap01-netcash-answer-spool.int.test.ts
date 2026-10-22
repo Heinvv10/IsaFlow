@@ -53,7 +53,7 @@ afterAll(async () => {
 async function fresh() {
   const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  return { c, b: await plantApprovedBatch(pool, c, admin, bank) }; // a draft is refused (409 BATCH_NOT_SENDABLE) before any fence
+  return { c, b: await plantApprovedBatch(pool, c, admin, bank) };
 }
 const submit = (c: string, batchId: string) => callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: batchId }, '/api/accounting/netcash/submit');
 /** resolve through a FRESH module graph: a restarted process (no late settler, no in-process state). */
