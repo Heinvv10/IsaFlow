@@ -39,8 +39,11 @@
  * "tax" is annualTaxAfterCredits: rebates and medical credits are annual
  * figures, so they are pro-rated by the same n ÷ 12. Directive PAYE (lump
  * sums) is outside all of it. Figures use the statutory rate table, not
- * SARS's banded tables, so they differ by a few rand from the guide's worked
- * examples (G21 p. 8: R16 156 printed, R16 122.86 by the statutory table).
+ * SARS's deduction tables (PAYE-GEN-01-G01-A04 2027: R500 income bands, each
+ * taxed at its midpoint, e.g. R335 801–336 301 → 49 945 = tax(336 051)), so
+ * they differ by a few rand either way from the guide's worked examples
+ * (G21 p. 8: R16 156 printed for 188 571, the band 188 507–189 007; the
+ * statutory table gives R16 122.86).
  *
  * A month's PAYE depends on which earlier months are approved when it is
  * calculated (the year-to-date reads approved/paid runs only): a month
