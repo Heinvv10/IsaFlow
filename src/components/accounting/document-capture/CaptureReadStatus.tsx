@@ -1,6 +1,6 @@
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 
-export const READ_FAILED_FALLBACK = 'The document could not be read — upload it again.';
+export const READ_FAILED_FALLBACK = 'The document could not be read.';
 
 interface Props {
   readState: 'reading' | 'done' | 'failed';

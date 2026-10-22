@@ -124,8 +124,13 @@ export class CapturedDocumentMissingError extends Error {
 
 interface StorageFailure { message?: string; status?: number | string; statusCode?: number | string }
 
+/**
+ * Only a 404 whose message names the OBJECT is a missing file. "Bucket not found", "Project not found" or a gateway's bare
+ * 404 are configuration or transport faults that a retry can outlive, so they stay plain (retryable) errors.
+ */
 function isObjectMissing(error: StorageFailure): boolean {
-  return String(error.statusCode) === '404' || String(error.status) === '404' || /not found/i.test(error.message ?? '');
+  const is404 = String(error.statusCode) === '404' || String(error.status) === '404';
+  return is404 && /^object not found\b/i.test((error.message ?? '').trim());
 }
 
 export async function downloadCapturedDocument(

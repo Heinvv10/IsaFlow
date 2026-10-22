@@ -17,10 +17,10 @@
  */
 
 export const STALE_AFTER_MINUTES = 5;
-export const STALE_READ_ERROR = 'The read was interrupted — upload the document again.';
+export const STALE_READ_ERROR = 'The read was interrupted — retry it.';
 /** Recorded when the job finds no bytes behind the row; a row carrying it is not retryable. */
 export const NOT_STORED_ERROR = 'The file is not stored — upload it again.';
-export const GENERIC_READ_ERROR = 'The document could not be read. Upload it again.';
+export const GENERIC_READ_ERROR = 'The document could not be read — retry the read.';
 /** What a route answers (409) when asked to act on a document that is still being read. */
 export const STILL_BEING_READ = 'This document is still being read.';
 

@@ -18,6 +18,7 @@
 import { runAfterCommit } from '@/lib/afterCommit';
 import { sql } from '@/lib/neon';
 import { runCaptureRead } from './captureReadJob';
+import { lockWithTimeout } from './captureRowLock';
 import { effectiveReadState, NOT_STORED_ERROR, STALE_AFTER_MINUTES } from './captureReadState';
 
 type Row = Record<string, unknown>;
@@ -28,19 +29,25 @@ export const MAX_READS_IN_FLIGHT = 5;
 export type RetryRefusal = 'missing' | 'being_read' | 'not_retryable' | 'too_many' | 'rate_limited';
 export type RetryOutcome = { ok: true; row: Row; attempt: number } | { ok: false; reason: RetryRefusal };
 
-/** Why the row cannot be retried right now, or null when it can. */
+/**
+ * Why the row cannot be retried right now, or null when it can. The read takes the row FOR UPDATE (bounded wait, held to
+ * the end of the request), so a second retry of the same document waits for the first to COMMIT, then finds the row
+ * reading and is refused BEFORE it charges an AI unit.
+ */
 async function refusalFor(companyId: string, documentId: string): Promise<RetryRefusal | null> {
-  const [row] = (await sql`
+  const row = await lockWithTimeout(documentId, async () => (await sql`
     SELECT read_state, read_error, read_heartbeat_at, created_at, storage_path, posted_at, status
     FROM captured_documents
     WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-  `) as Row[];
+    FOR UPDATE
+  `) as Row[]);
   if (!row) return 'missing';
   const state = effectiveReadState(row);
   if (state.readState === 'reading') return 'being_read';
   return state.retryable ? null : 'not_retryable';
 }
 
+// SOFT cap: retries of DIFFERENT documents lock different rows, so concurrent ones can each see room and exceed it by a few.
 async function readsInFlight(companyId: string): Promise<number> {
   const [row] = (await sql`
     SELECT COUNT(*)::int AS n FROM captured_documents

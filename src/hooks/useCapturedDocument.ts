@@ -62,8 +62,13 @@ export function useCapturedDocument(docId: string | string[] | undefined, onLoad
   const poll = useCallback(() => reload(true), [reload]);
   usePollWhileReading(doc?.readState === 'reading' ? 'extracting' : undefined, poll);
 
-  const reloadSilently = useCallback(() => { void reload(true); }, [reload]);
-  const { retry, isRetrying } = useRetryCaptureRead(reloadSilently);
+  // Show the document the retry answered with FIRST (it is 'reading', which starts the polling), then refresh quietly:
+  // if that GET fails the page is already on the re-armed document instead of the failed one.
+  const onRetried = useCallback((rearmed: CapturedDocument) => {
+    if (String(currentId.current) === String(rearmed.id)) setDoc(rearmed);
+    void reload(true);
+  }, [reload]);
+  const { retry, isRetrying } = useRetryCaptureRead(onRetried);
   const readStatus = doc
     ? { readState: doc.readState, readError: doc.readError, retryable: doc.retryable, isRetrying, onRetry: () => { void retry(doc.id); } }
     : null;

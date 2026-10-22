@@ -25,15 +25,23 @@ describe('downloadCapturedDocument', () => {
   });
 
   it.each([
-    ['statusCode 404', { message: 'Object not found', status: 400, statusCode: '404' }],
-    ['status 404', { message: 'gone', status: 404, statusCode: '404' }],
-    ['message only', { message: 'Object not found' }],
-  ])('throws CapturedDocumentMissingError for a missing object (%s)', async (_n, error) => {
+    ['the Storage API\'s own shape (status 400, statusCode 404)', { message: 'Object not found', status: 400, statusCode: '404' }],
+    ['status 404', { message: 'Object not found', status: 404, statusCode: '404' }],
+    ['status 404 only', { message: 'Object not found', status: 404 }],
+    ['different case', { message: 'object not found', statusCode: '404' }],
+  ])('throws CapturedDocumentMissingError for a 404 that names the object (%s)', async (_n, error) => {
     m.download.mockResolvedValue({ data: null, error });
     await expect(downloadCapturedDocument('b', 'co/doc')).rejects.toBeInstanceOf(CapturedDocumentMissingError);
   });
 
   it.each([
+    ['a bucket that is not found', { message: 'Bucket not found', status: 404, statusCode: '404' }],
+    ['a project that is not found', { message: 'Project not found', status: 404, statusCode: '404' }],
+    ['a gateway 404 with no object in the message', { message: 'Not Found', status: 404, statusCode: '404' }],
+    ['a bare 404', { status: 404, statusCode: '404' }],
+    ['an empty 404 message', { message: '', status: 404 }],
+    ['"Object not found" with no 404 at all', { message: 'Object not found' }],
+    ['"Object not found" under a 500', { message: 'Object not found', status: 500, statusCode: '500' }],
     ['a gateway error', { message: 'Bad gateway', status: 502, statusCode: '502' }],
     ['an auth error', { message: 'Invalid JWT', status: 401, statusCode: '401' }],
     ['a fetch failure', { message: 'fetch failed' }],

@@ -4,6 +4,7 @@
 // upload from Storage (an in-memory stand-in; the pointer columns are real) and every write is fenced on read_attempt.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
+import { createHash } from 'node:crypto';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { objects } from './capture-read-storage.helpers';
@@ -214,6 +215,21 @@ describe('runCaptureRead against the database', () => {
     objects.clear();
     await runCaptureRead(companyA, id, 0);
     expect(await rowOf(id)).toMatchObject({ read_state: 'failed', read_error: NOT_STORED_ERROR });
+    expect(m.read).not.toHaveBeenCalled();
+  });
+
+  it('bytes that match the recorded sha256 are read; bytes that do not fail the read as not stored', async () => {
+    const good = await insertReading();
+    await pool.query('UPDATE captured_documents SET raw_bytes_sha256 = $2 WHERE id = $1', [good, createHash('sha256').update(BUF).digest('hex')]);
+    await runCaptureRead(companyA, good, 0);
+    expect(await rowOf(good)).toMatchObject({ read_state: 'done', vendor_name: 'Read Vendor' });
+
+    m.read.mockClear();
+    const bad = await insertReading();
+    await pool.query('UPDATE captured_documents SET raw_bytes_sha256 = $2 WHERE id = $1', [bad, createHash('sha256').update('another file').digest('hex')]);
+    await runCaptureRead(companyA, bad, 0);
+    const row = await rowOf(bad);
+    expect(row).toMatchObject({ read_state: 'failed', read_error: NOT_STORED_ERROR, vendor_name: null });
     expect(m.read).not.toHaveBeenCalled();
   });
 

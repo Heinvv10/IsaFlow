@@ -28,8 +28,8 @@
  * starts a second job. EVERY write here is fenced on the attempt the job was
  * started for, so a read thought dead (stale) that finishes or fails late cannot
  * touch the row its retry is reading (the bank statement job's fence). A row with
- * no stored bytes, or whose object is gone, ends 'failed' with NOT_STORED_ERROR,
- * which is not retryable.
+ * no stored bytes, whose object is gone, or whose bytes do not match the recorded
+ * sha256 ends 'failed' with NOT_STORED_ERROR, which is not retryable.
  *
  * Never throws: a failure is recorded on the row (a user-safe message) and the
  * row ends 'failed'. A job that dies outright leaves the row 'reading' with no
@@ -41,7 +41,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { withKeepAlive, KEEPALIVE_INTERVAL_MS, type KeepAliveLabel } from '../bank/extractionKeepAlive';
 import { GENERIC_READ_ERROR, NOT_STORED_ERROR, STALE_AFTER_MINUTES, STALE_READ_ERROR } from './captureReadState';
-import { fetchRawBytes } from '@/lib/documentStorage';
+import { fetchRawBytes, sha256 } from '@/lib/documentStorage';
 import { CapturedDocumentMissingError } from '@/lib/supabaseStorage';
 import { MIME_BY_FILE_TYPE, readUploadedDocument } from './captureUploadForm';
 import type { ExtractedDocument } from '../../types/documentCapture.types';
@@ -143,6 +143,11 @@ async function loadAndRead(companyId: string, documentId: string): Promise<Extra
     throw err;
   }
   if (!stored) throw new NotStoredError('no stored bytes behind the row');
+  // Verify against the recorded COLUMN: fetchRawBytes fabricates `hash` from the bytes when the column is null (legacy rows).
+  if (stored.storedHash && sha256(stored.buffer) !== stored.storedHash) {
+    log.error('captureRead: stored file failed its integrity check', { documentId }, 'capture-read');
+    throw new NotStoredError('the stored bytes do not match their recorded hash');
+  }
   return readUploadedDocument(stored.buffer, MIME_BY_FILE_TYPE[stored.fileType] ?? 'application/octet-stream');
 }
 
