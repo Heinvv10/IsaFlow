@@ -76,8 +76,8 @@ async function fresh() {
   return { c, b: await plantBatch(pool, c, admin, bank) };
 }
 const submit = (c: string, batchId: string) => callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: batchId }, '/api/accounting/netcash/submit');
-const resolve = (c: string, id: string) => callRoute(netcashResolve, tokens[admin]!, c, 'POST',
-  { submissionId: id, outcome: 'failed', note: 'portal shows nothing' }, '/api/accounting/netcash/resolve');
+const resolve = (c: string, id: string, outcome = 'failed') => callRoute(netcashResolve, tokens[admin]!, c, 'POST',
+  { submissionId: id, outcome, note: 'portal shows nothing' }, '/api/accounting/netcash/resolve');
 const rows = async (c: string) => (await pool.query(
   'SELECT id, status, netcash_response FROM netcash_submissions WHERE company_id = $1 ORDER BY created_at', [c])).rows as
   { id: string; status: string; netcash_response: { fenced?: boolean } | null }[];
@@ -135,6 +135,27 @@ describe('the sender-side fence (AP-01 residual 3b)', () => {
       freed: freed.state.statusCode, newer: newer.state.statusCode, woke: woke.state.statusCode, wokeReason: reason(woke),
       netcashCalls: netcashCalls.length, statuses: (await rows(c)).map((r) => r.status),
     }).toEqual({ freed: 200, newer: 200, woke: 503, wokeReason: 'NETCASH_SEND_FENCED', netcashCalls: 1, statuses: ['failed', 'submitted'] });
+    // Never sent, so no "answer after release" note (lateSendResult drives the page's red "may be held twice" text).
+    const [fencedRow] = await rows(c);
+    expect(fencedRow!.netcash_response).not.toHaveProperty('lateSendResult');
+    expect(fencedRow!.netcash_response).toHaveProperty('resolved');
+  }, 30_000);
+
+  it('an operator who recorded the claim as SUBMITTED during the pause keeps that: the fenced sender leaves the row alone, no late-answer note, and says so', async () => {
+    const { c, b } = await fresh();
+    const { first, claimId, resume } = await pausedSubmit(c, b.id);
+    await pool.query(`SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND objsubid = 2
+      AND classid = $1::BIGINT::OID AND objid = (hashtext($2::UUID::TEXT)::BIGINT & 4294967295)::OID`, [NETCASH_SEND_LOCK_CLASS, claimId]);
+    await new Promise((r) => setTimeout(r, 300));
+    await pool.query("UPDATE netcash_submissions SET created_at = NOW() - INTERVAL '10 minutes' WHERE id = $1", [claimId]);
+    stoppedMs += TEN_MINUTES;
+    expect((await resolve(c, claimId, 'submitted')).state.statusCode).toBe(200);
+    resume(0);
+    const woke = await first;
+    const [row] = await rows(c);
+    expect({ http: woke.state.statusCode, reason: reason(woke), calls: netcashCalls.length, status: row!.status, late: 'lateSendResult' in (row!.netcash_response ?? {}),
+      says: /resolved this submission \(now submitted\)/.test(JSON.stringify(woke.state.body)) })
+      .toEqual({ http: 503, reason: 'NETCASH_SEND_FENCED', calls: 0, status: 'submitted', late: false, says: true });
   }, 30_000);
 
   it('the fence starts BEFORE the claim transaction: a pause inside it (claim row written, not yet committed) is counted too', async () => {

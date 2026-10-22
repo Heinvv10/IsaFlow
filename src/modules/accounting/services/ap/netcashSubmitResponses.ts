@@ -71,10 +71,12 @@ export function respondSendBusy(res: NextApiResponse, reason: 'sends' | 'company
  * The sender-side fence refused the send (residual 3b): it started too late to be safe, nothing reached Netcash, the
  * claim is settled failed. Retryable - the batch may be submitted again.
  */
-export function respondSendFenced(res: NextApiResponse, claimId: string, elapsedMs: number): void {
-  log.warn('Netcash send refused by the fence - it started too late to be safe; nothing was sent', { submissionId: claimId, elapsedMs }, 'netcash-api');
+export function respondSendFenced(res: NextApiResponse, claimId: string, elapsedMs: number, rowStatus = 'failed'): void {
+  log.warn('Netcash send refused by the fence - it started too late to be safe; nothing was sent', { submissionId: claimId, elapsedMs, rowStatus }, 'netcash-api');
+  const next = rowStatus === 'failed'
+    ? 'The batch can be submitted again.'
+    : `Meanwhile an operator resolved this submission (now ${rowStatus}), so it was left as it is: check its status before submitting the batch again.`;
   return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE,
-    'Nothing was sent to Netcash: the server was too slow to start this send safely (a send that waited too long could be paid '
-    + 'twice). The batch can be submitted again.',
-    { reason: 'NETCASH_SEND_FENCED', submissionId: claimId });
+    `Nothing was sent to Netcash: the server was too slow to start this send safely (a send that waited too long could be paid twice). ${next}`,
+    { reason: 'NETCASH_SEND_FENCED', submissionId: claimId, status: rowStatus });
 }
