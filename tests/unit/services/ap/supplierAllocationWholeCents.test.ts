@@ -34,10 +34,13 @@ describe('toCents', () => {
 });
 
 describe('assertAllocationShape', () => {
-  const alloc = (amount: number, invoiceId = 'a') => ({ invoiceId, amount });
+  const A = '44444444-4444-4444-8444-44444444444a';
+  const B = '44444444-4444-4444-8444-44444444444b';
+  const C = '00000000-0000-0000-0000-000000000001'; // seeded, non-v4: must stay valid
+  const alloc = (amount: number, invoiceId = A) => ({ invoiceId, amount });
 
   it('accepts whole-cent amounts', () => {
-    expect(() => assertAllocationShape([alloc(0.01), alloc(282543.34, "b"), alloc(99.99, "c")])).not.toThrow();
+    expect(() => assertAllocationShape([alloc(0.01), alloc(282543.34, B), alloc(99.99, C)])).not.toThrow();
   });
 
   it.each([1.005, 0.005, 10.0049, 0.001])('refuses %s as not a whole number of cents', (amount) => {
