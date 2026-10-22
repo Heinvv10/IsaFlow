@@ -119,8 +119,10 @@ export default function Irp5Page() {
   };
 
   const [easyFileError, setEasyFileError] = useState<string | null>(null);
+  const [easyFileWarnings, setEasyFileWarnings] = useState<string[]>([]);
   const handleEasyFileExport = async () => {
     setEasyFileError(null);
+    setEasyFileWarnings([]);
     try {
       const res = await apiFetch(`/api/payroll/irp5/easyfile-export?taxYear=${taxYear}`);
       if (!res.ok) {
@@ -132,6 +134,8 @@ export default function Irp5Page() {
         return;
       }
       saveBlob(await res.blob(), `IRP5_${taxYear - 1}_${taxYear}.irp5`);
+      const warned = res.headers.get('X-IsaFlow-Warnings'); // e.g. a 3231 that fell back to the effective date
+      if (warned) setEasyFileWarnings(JSON.parse(decodeURIComponent(warned)) as string[]);
     } catch (err) {
       setEasyFileError(apiErrorMessage(err, 'Could not export the EasyFile file - try again'));
     }
@@ -189,6 +193,12 @@ export default function Irp5Page() {
             <div className="rounded-lg border border-red-500/30 bg-red-500/5 text-sm text-red-300 px-3 py-2 flex items-start gap-2">
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
               <span>{easyFileError}</span>
+            </div>
+          )}
+          {easyFileWarnings.length > 0 && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 text-sm text-amber-300 px-3 py-2 flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <ul className="space-y-1">{easyFileWarnings.map(w => <li key={w}>{w}</li>)}</ul>
             </div>
           )}
           {isLoading ? (

@@ -33,12 +33,19 @@ function wholeNumberArg(value: unknown, min: number, max: number): number | null
   return Number.isInteger(n) && n >= min && n <= max ? n : null;
 }
 
+/** The last date declared (a run's first-of-month or a directive payment's date), or NO_LEDGER_ROWS. */
+function lastDeclared(runDates: string[], paymentDates: string[]): string {
+  const last = [...runDates, ...paymentDates].sort().pop();
+  return last ? `${last}T00:00:00.000Z` : NO_LEDGER_ROWS;
+}
+
 export const emp201StatusTool: McpTool = {
   name: 'emp201_status',
   description:
     'The SARS EMP201 position for a period: PAYE withheld, the ETI claimed against it, PAYE actually payable after that offset, UIF split into the employee and employer halves, SDL, and the pay runs each figure came from. ' +
     'It counts only runs in a DECLARABLE status — approved or paid. A draft or calculated run is not a finalised payroll and must not be declared, and a cancelled one never counts. It reports the runs it used so you can check that against list_pay_runs; if a month you expected is missing, the run was almost certainly never approved. ' +
     'The UIF split is an approximation. payroll_run_headers stores a single combined employee-plus-employer total, so this halves it. Where the two halves genuinely differ — an employee over the UIF ceiling, or one excluded from UIF — the split will be wrong even though the combined total is right. ' +
+    'It also declares SARS tax directives paid OUTSIDE payroll in the period, dated by their posted journal: their PAYE is in paye_withheld and their gross in taxable_remuneration, counted in directive_payments_count and directive_payments_paye. rows are the runs only, so with such payments the rows do not sum to paye_withheld. ' +
     'It does not file anything, does not compute penalties or interest, and does not know what was actually paid over to SARS. It tells you what the payroll says is owed for the period, not what is outstanding.',
   scope: 'read:payroll',
   write: false,
@@ -89,9 +96,7 @@ export const emp201StatusTool: McpTool = {
       as_at: end,
       // The EMP201 is built from run headers, not journal rows; the last period
       // it covers is the honest pin, and now() would prove nothing.
-      posted_through: rows.length > 0
-        ? `${rows[rows.length - 1]!.run_date}T00:00:00.000Z`
-        : NO_LEDGER_ROWS,
+      posted_through: lastDeclared(rows.map(r => r.run_date), data.directivePayments.map(p => p.paymentDate)),
       excludedRows: [],
     });
 
@@ -110,6 +115,12 @@ export const emp201StatusTool: McpTool = {
       total_declared: data.totalDeductions,
       employee_count: data.employeeCount,
       taxable_remuneration: data.totalTaxableRemuneration,
+      // SARS directives paid outside payroll in the period, already in paye_withheld and
+      // taxable_remuneration. Aggregates, like the run totals: no names or per-payment rows (this
+      // tool is open to roles without payroll-detail access); one payment's PAYE is as visible as
+      // one employee's run PAYE already is through a one-person run's totals.
+      directive_payments_count: data.directivePayments.length,
+      directive_payments_paye: Math.round(data.directivePayments.reduce((t, p) => t + p.paye, 0) * 100) / 100,
     });
   },
 };
@@ -172,10 +183,11 @@ export const irp5DataTool: McpTool = {
       eti: r.eti,
       net_pay: r.netPay,
       runs_included: r.runsIncluded,
-      // Inside gross_salary and paye; on the certificate under their own code with PAYE under 4115.
+      // Inside gross_salary and paye; on the certificate under their own code, PAYE under paye_code.
       lump_sums: r.lumpSums.map((l) => ({
         source_code: l.sourceCode, directive_number: l.directiveNumber,
-        directive_issued_date: l.directiveIssuedDate, amount: l.amount, paye: l.paye,
+        directive_issued_date: l.directiveIssuedDate, issued_date_is_effective_date: l.issuedDateFallback,
+        amount: l.amount, paye: l.paye, paye_code: l.payeCode, paid_by: l.paidBy,
       })),
     }));
 

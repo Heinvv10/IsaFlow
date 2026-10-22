@@ -42,7 +42,7 @@ import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import netcashResolve from '../../pages/api/accounting/netcash/resolve';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -63,7 +63,7 @@ afterAll(async () => {
 async function freshBatch() {
   const { company: c, bank } = await payCompany(pool, [[u.admin, 'admin'], [u.manager, 'manager']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  return { c, b: await plantBatch(pool, c, u.admin, bank) };
+  return { c, b: await plantApprovedBatch(pool, c, u.admin, bank) };
 }
 
 /** A company with a batch whose submission is 'unknown' (Netcash timed out). */
