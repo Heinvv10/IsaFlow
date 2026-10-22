@@ -35,6 +35,7 @@ import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { ReversalWithLateClaim } from '../gl/journalEntryPostingService';
 import { RowLockTimeoutError, underFlowLockBudget } from '../core/rowLockBudget';
 import { assertMayReverseMatchedLeg } from '../bank/bankReversalGate';
+import { assertBatchNotSentToNetcash } from './netcashBatchGuard';
 
 /** The batch is already reversed — a double-click's loser. Answered 409. */
 export class BatchAlreadyReversedError extends Error {
@@ -101,6 +102,8 @@ export async function reverseBatchWithLeg(
   if (batch.status !== 'processed') {
     throw new SupplierPaymentRefusal(`Batch ${number} is ${String(batch.status)} — only a processed batch can be reversed.`);
   }
+  // AP-01: a batch Netcash may hold is not reversed: its bills would reopen and be paid again.
+  await assertBatchNotSentToNetcash(companyId, batchId, number, 'reversed');
   const journalId = batch.gl_journal_entry_id ? String(batch.gl_journal_entry_id) : null;
   if (!journalId || !leg) throw new SupplierPaymentRefusal(`Batch ${number} has no journal to reverse.`);
   assertSameJournal(peekedJournal, journalId);

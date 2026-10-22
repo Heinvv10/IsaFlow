@@ -52,6 +52,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!body.effective_date) {
       return apiResponse.badRequest(res, 'effective_date is required');
     }
+    // A rate is a fraction of the gross (0.18 = 18%): above 1 the PAYE would exceed the lump sum.
+    if (body.tax_rate != null && (isNaN(Number(body.tax_rate)) || Number(body.tax_rate) < 0 || Number(body.tax_rate) > 1)) {
+      return apiResponse.badRequest(res, 'tax_rate must be a fraction between 0 and 1 (0.18 = 18%)');
+    }
 
     const input: TaxDirectiveCreateInput = {
       employee_id: body.employee_id,
