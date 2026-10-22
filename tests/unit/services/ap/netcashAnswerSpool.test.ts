@@ -293,6 +293,70 @@ describe('a slow writer whose temp the sweep reaches first', () => {
   });
 });
 
+describe('the sweep never builds a path from a temp\'s CONTENT', () => {
+  const old = () => new Date(Date.now() - 10 * 60_000);
+  const hostile = (over: Record<string, unknown>) => `${JSON.stringify({ v: 1, ...record(), spooledAt: 'x', ...over })}\n`;
+  const outside = () => fs.readdirSync(dir).filter((f) => f !== 'spool');
+
+  it('content with ../ company/submission ids: nothing is written outside the spool directory; the temp is quarantined under a safe name and still blocks its own submission', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
+    const t = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl.aaaa.tmp`);
+    fs.writeFileSync(t, hostile({ companyId: '../../evil', submissionId: '../x', metadata: { status: 'failed', outcome: 'rejected', batchReference: 'X', settleToken: '../../t', answer: '{}' } }));
+    fs.utimesSync(t, old(), old());
+    await sweepStaleTemps();
+    expect({ outside: outside(), pending: entries(), quarantined: fs.readdirSync(path.join(spoolDir(), 'quarantine')), tempGone: !fs.existsSync(t) })
+      .toEqual({ outside: [], pending: [], quarantined: [`${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.aaaa.stale.jsonl`], tempGone: true });
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).not.toBeNull(); // the name says submitted: it blocks
+  });
+
+  it('content naming ANOTHER submission than the temp\'s name: quarantined, never promoted under either name', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
+    const t = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl.bbbb.tmp`);
+    fs.writeFileSync(t, hostile({ submissionId: '55555555-5555-4555-8555-555555555555' }));
+    fs.utimesSync(t, old(), old());
+    await sweepStaleTemps();
+    expect({ pending: entries(), quarantined: fs.readdirSync(path.join(spoolDir(), 'quarantine')).length }).toEqual({ pending: [], quarantined: 1 });
+  });
+
+  it('a temp whose NAME is not ours (not UUIDs, a path-like token) is quarantined under a safe name', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
+    const t = path.join(spoolDir(), '.not-a-uuid.also-not.tok&en.submitted.jsonl.cccc.tmp');
+    fs.writeFileSync(t, hostile({}));
+    fs.utimesSync(t, old(), old());
+    await sweepStaleTemps();
+    const q = fs.readdirSync(path.join(spoolDir(), 'quarantine'));
+    expect({ pending: entries(), outside: outside(), safe: q.every((n) => /^[0-9a-zA-Z._-]+$/.test(n)), n: q.length }).toEqual({ pending: [], outside: [], safe: true, n: 1 });
+  });
+});
+
+describe('a writer stalled BEFORE its bytes reach the temp', () => {
+  it('the sweep quarantines the still-empty temp; the writer\'s late bytes land in that same file (same inode) and it blocks as a quarantined acceptance', async () => {
+    const handle = await fs.promises.open(path.join(dir, 'probe'), 'w');
+    const proto = Object.getPrototypeOf(handle) as { write: (...a: unknown[]) => Promise<unknown> };
+    await handle.close();
+    const realWrite = proto.write;
+    let release!: () => void;
+    let reached!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const held = new Promise<void>((r) => { reached = r; });
+    vi.spyOn(proto, 'write').mockImplementation(async function (this: unknown, ...a: unknown[]) { reached(); await gate; return realWrite.apply(this, a); });
+    const writing = spoolAnswer(record());
+    await held; // the temp exists, empty
+    const temp = path.join(spoolDir(), fs.readdirSync(spoolDir()).find((f) => f.endsWith('.tmp'))!);
+    expect(fs.statSync(temp).size).toBe(0);
+    const aged = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(temp, aged, aged);
+    await sweepStaleTemps();
+    const quarantineDir = path.join(spoolDir(), 'quarantine');
+    expect({ tempGone: !fs.existsSync(temp), quarantined: fs.readdirSync(quarantineDir).length }).toEqual({ tempGone: true, quarantined: 1 });
+    release();
+    expect(await writing).toBe(false); // its rename finds the temp gone and no final entry: the writer is told it failed (the 500 and log carry the answer)
+    const file = path.join(quarantineDir, fs.readdirSync(quarantineDir)[0]!);
+    expect({ finals: entries(), line: JSON.parse(fs.readFileSync(file, 'utf8')).metadata.batchReference }).toEqual({ finals: [], line: 'NC-SPOOL' });
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toMatchObject({ outcome: 'accepted', file: path.basename(file) });
+  });
+});
+
 describe('an unreadable entry is reported once per process, not on every replay', () => {
   it('pendingSpooled (every submit) and the resolve lookup log.error a torn final-named file ONCE; a second bad file is its own report', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
