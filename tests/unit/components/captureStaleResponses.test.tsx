@@ -173,6 +173,20 @@ describe('useCapturedDocument', () => {
     expect(result.current.doc?.readState).toBe('done');
   });
 
+  it('a later answer that applies clears an earlier manual-reload error', async () => {
+    const pending = hold();
+    const { result } = renderHook(() => useCapturedDocument('A', vi.fn()));
+    await flush();
+    await act(async () => { pending[0]!.answer(ok(doc('A'))); });
+    await act(async () => { void result.current.reload(); });
+    await act(async () => { pending[1]!.answer(new Response('', { status: 500 })); });
+    expect(result.current.error).toBe('Could not load the document - try again');
+    await act(async () => { void result.current.reload(true); });
+    await act(async () => { pending[2]!.answer(ok(doc('A', { readState: 'done' }))); });
+    expect(result.current.doc?.readState).toBe('done');
+    expect(result.current.error).toBe('');
+  });
+
   it('a stale poll answer is dropped too', async () => {
     const pending = hold();
     const onLoaded = vi.fn();
