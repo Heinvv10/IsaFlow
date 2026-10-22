@@ -11,17 +11,20 @@ export interface DerivedAmountPaid {
   clamped: boolean;
   /** True when the invoice should be stored as 'paid'. */
   paid: boolean;
+  /** True when amountDue was missing; payment is unknown so amount_paid is stored as 0 (owing). */
+  dueMissing: boolean;
 }
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
 
 /**
- * `amountDue` may be missing in the source; a missing value is treated as 0 for the
- * arithmetic but is NOT evidence of payment, so it never yields `paid`.
+ * `amountDue` may be missing in the source; payment is then unknown, so it is stored as
+ * unpaid (amount_paid 0, never `paid`) and flagged via `dueMissing`.
  * Throws on non-finite input rather than passing NaN into the insert.
  */
 export function deriveAmountPaid(total: number, amountDue: number | null | undefined): DerivedAmountPaid {
-  const due = amountDue ?? 0;
+  const dueMissing = amountDue == null;
+  const due = amountDue ?? total;
   if (!Number.isFinite(total) || !Number.isFinite(due)) {
     throw new Error(`deriveAmountPaid: non-finite input (total=${total}, amountDue=${amountDue})`);
   }
@@ -33,5 +36,6 @@ export function deriveAmountPaid(total: number, amountDue: number | null | undef
     clamped,
     // an over-payment is fully settled; otherwise keep the source rule (explicit zero due)
     paid: clamped || amountDue === 0,
+    dueMissing,
   };
 }
