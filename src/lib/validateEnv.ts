@@ -126,7 +126,7 @@ const LENGTH_CHECKED_SECRETS = [
   'PORTAL_JWT_SECRET',
 ] as const;
 
-// S-07b: isaflow_app (migration 910) holds nothing until a request transaction
+// S-07b: isaflow_app (migration 915) holds nothing until a request transaction
 // runs SET LOCAL ROLE app_user. The service pool falls back to DATABASE_URL
 // when SERVICE_DATABASE_URL is unset, so with DATABASE_URL on isaflow_app every
 // cron, login and public route would fail 42501 at request time. Refuse to boot.

@@ -6,9 +6,9 @@
 // and bypasses RLS. withAuth's `SET LOCAL ROLE app_user` is undone by injected
 // set_config('role','none',true) or RESET ROLE: the session user comes back,
 // and the owner can set users.role = 'super_admin' or read any tenant.
-// Migration 910 gives the request pools isaflow_app (NOINHERIT, member of
+// Migration 915 gives the request pools isaflow_app (NOINHERIT, member of
 // app_user only) and the no-transaction paths isaflow_service (app_service);
-// 911 makes the member guards judge app_service as they judge app_user.
+// 916 makes the member guards judge app_service as they judge app_user.
 //
 // Each attack runs on the pool the app itself builds (getAuthPool, getDbPool)
 // from the env production will have, logged in for real, and must be refused
@@ -70,7 +70,7 @@ describe('S-07b: the request pool cannot get back to the owner', () => {
     expect(await attempt(pool(), [[stmt]], asMe)).toMatchObject({ code: '42501', message: expect.stringMatching(msg) });
   });
 
-  // S-07b verifier P1: the owner-run views clients and app_settings (911 sets security_invoker).
+  // S-07b verifier P1: the owner-run views clients and app_settings (916 sets security_invoker).
   it.each([
     ['reads another tenant\'s customers through clients', `SELECT name FROM clients WHERE name = 'S07b other tenant customer'`],
     ['reads another tenant\'s settings through app_settings', `SELECT value FROM app_settings WHERE key = 's07b_secret'`],
@@ -89,8 +89,8 @@ describe('S-07b: the request pool cannot get back to the owner', () => {
     }
   });
 
-  it('app_user cannot rewrite the migration history (911)', async () => {
-    expect(await attempt(pool(), [[`DELETE FROM schema_migrations WHERE name LIKE '910%'`]], asMe))
+  it('app_user cannot rewrite the migration history (916)', async () => {
+    expect(await attempt(pool(), [[`DELETE FROM schema_migrations WHERE name LIKE '915%'`]], asMe))
       .toMatchObject({ code: '42501', message: 'permission denied for table schema_migrations' });
   });
 });
@@ -109,7 +109,7 @@ describe('S-07b: the service pool cannot get to the owner either', () => {
     ['disables triggers', ['ALTER TABLE users DISABLE TRIGGER ALL', []],
       /^(must be owner of table users|DDL \(ALTER TABLE\) refused for isaflow_service \(as isaflow_service\))$/],
     ['writes the forensic change log', ['DELETE FROM entity_changes', []], /^permission denied for table entity_changes$/],
-    ['rewrites the migration history', [`DELETE FROM schema_migrations WHERE name LIKE '910%'`, []], /^permission denied for table schema_migrations$/],
+    ['rewrites the migration history', [`DELETE FROM schema_migrations WHERE name LIKE '915%'`, []], /^permission denied for table schema_migrations$/],
     ['SET ROLE postgres', ['SET ROLE postgres', []], /permission denied to set role "postgres"/],
     ['SET ROLE migration_admin', ['SET ROLE migration_admin', []], /permission denied to set role/],
     ['SET ROLE platform_admin', ['SET ROLE platform_admin', []], /permission denied to set role/],
@@ -128,7 +128,7 @@ describe('S-07b: the service pool cannot get to the owner either', () => {
 });
 
 // S-07b breaker F1: the member guards let every role but app_user through.
-describe('S-07b (911): the service pool takes app_user\'s member rules', () => {
+describe('S-07b (916): the service pool takes app_user\'s member rules', () => {
   const pool = (): Pool => getDbPool();
   const asOwner = { claims: { sub: owner, companyId: company } };
 

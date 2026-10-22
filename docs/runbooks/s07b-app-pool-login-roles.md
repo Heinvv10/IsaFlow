@@ -2,7 +2,7 @@
 
 Do the steps in this order, after 17:00 SAST on a weekday, with Hein's approval for each.
 
-The PR that ships migrations 910 and 911 changes almost nothing at runtime by
+The PR that ships migrations 915 and 916 changes almost nothing at runtime by
 itself. Two things do take effect on deploy: POST /api/invite/[token] writes on
 the migration_admin pool (`MIGRATION_ADMIN_DATABASE_URL`, already required by
 /api/invitations/[token]/accept), and app_user can no longer write
@@ -13,15 +13,15 @@ creates have no password and no LOGIN, and every new env var falls back to
 ## 0. Before you start
 
 - Prod and dev share one PostgreSQL 15.8 cluster (`isaflow-supabase`, port 7772).
-  Roles are cluster-wide, so 910 creates `isaflow_app`, `isaflow_service` and
+  Roles are cluster-wide, so 915 creates `isaflow_app`, `isaflow_service` and
   `app_service` for every database the first time it runs anywhere. The first
   run is normally the deploy's parity gate applying it to `isaflow_dev`.
 - The prod env file is `/home/velo/isaflow/.env.local` (velo:velo 0600). You
   edit it as velo, or with sudo.
 
-## 1. Deploy the code (migrations 910 and 911 included)
+## 1. Deploy the code (migrations 915 and 916 included)
 
-910 refuses to apply if a role either app login can reach owns an object in ANY
+915 refuses to apply if a role either app login can reach owns an object in ANY
 database of the cluster (pg_shdepend). It fails safe, and the parity gate meets
 it on dev first. If it fires, the message names the role: reassign that
 object's ownership, do not weaken the check.
@@ -37,7 +37,7 @@ SELECT rolname, rolcanlogin, rolinherit, rolbypassrls FROM pg_roles
  WHERE rolname IN ('isaflow_app','isaflow_service','app_service');
 -- 3 rows, rolcanlogin = false, rolbypassrls = false; isaflow_app rolinherit = false
 SELECT count(*) FROM pg_policy WHERE polname LIKE 'app\_service\_%';   -- > 200, in isaflow
-SELECT has_table_privilege('app_user', 'schema_migrations', 'DELETE');  -- false (911)
+SELECT has_table_privilege('app_user', 'schema_migrations', 'DELETE');  -- false (916)
 ```
 
 ## 2. Refuse DDL from the app logins (once per cluster, as `supabase_admin`)
@@ -70,7 +70,7 @@ BEGIN
   -- app_user/app_service, or as a superuser (supautils runs a privileged
   -- CREATE EXTENSION as supabase_admin) is refused. A SECURITY DEFINER
   -- function owned by the non-superuser postgres is let through: the AR
-  -- cron's refresh_customer_invoice_view_summary() (910) runs REFRESH ...
+  -- cron's refresh_customer_invoice_view_summary() (915) runs REFRESH ...
   -- CONCURRENTLY, which creates a temp table internally. This relies on prod's
   -- postgres being NOSUPERUSER (it is: rolsuper = f).
   IF session_user IN ('isaflow_app', 'isaflow_service')
@@ -138,7 +138,7 @@ Verify, as isaflow_service:
 `"isaflow_service" is a reserved role, only superusers can modify it`.
 
 From then on, rotate either password as supabase_admin, not as postgres.
-Migration 910 changes the roles only when they differ from what it expects, so
+Migration 915 changes the roles only when they differ from what it expects, so
 re-running it, or applying it to another database of the cluster, still works
 (verified on supabase/postgres:15.8.1.085 with non-superuser postgres).
 

@@ -4,7 +4,7 @@
 # Prints the URL the deploy must use for work that needs the schema owner:
 # applying migrations, the schema-drift audit, the migration-parity gate and
 # verify-deploy's integrity check, and the backups. That is OWNER_DATABASE_URL. S-07b
-# (migration 910) moves the app's DATABASE_URL to isaflow_app, which owns
+# (migration 915) moves the app's DATABASE_URL to isaflow_app, which owns
 # nothing and cannot apply a migration.
 #
 # Until the env file names OWNER_DATABASE_URL it falls back to DATABASE_URL,

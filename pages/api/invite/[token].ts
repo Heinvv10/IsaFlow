@@ -90,7 +90,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // Lookup and the three writes run in ONE transaction on the migration_admin
   // pool, as /api/invitations/[token]/accept does. The caller is not yet a
   // member of the company, so no app_user or app_service rule admits this
-  // membership write (migration 911); the app pools must not be able to make
+  // membership write (migration 916); the app pools must not be able to make
   // it from a request (S-07b).
   const tokenHash = hashInviteToken(token);
   const userId = authReq.user.id;

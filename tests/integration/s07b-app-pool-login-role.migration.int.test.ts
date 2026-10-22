@@ -1,19 +1,19 @@
 // tests/integration/s07b-app-pool-login-role.migration.int.test.ts
 //
-// Audit 2026-10-18 S-07b: migrations 910 (login roles, app_service policies)
-// and 911 (member guards bind app_service; schema_migrations read-only to the
+// Audit 2026-10-18 S-07b: migrations 915 (login roles, app_service policies)
+// and 916 (member guards bind app_service; schema_migrations read-only to the
 // app). Each applies twice as a NON-superuser postgres, as production's deploy
 // runs, and each DO guard refuses the mutants it exists for.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { doBlock, fixture, migration, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
 const ids = newIds();
-const M910 = migration('910_app_pool_login_roles.sql');
-const M911 = migration('911_service_role_member_guards.sql');
-const GUARD_910 = doBlock(M910, 'outside its allowlist');
-const POLICIES_910 = doBlock(M910, `'app_service_' || r.cmd`);
-const GUARD_911 = doBlock(M911, 'exempts every role but app_user');
-const PATCH_911 = doBlock(M911, 'expected exactly once');
+const M915 = migration('915_app_pool_login_roles.sql');
+const M916 = migration('916_service_role_member_guards.sql');
+const GUARD_915 = doBlock(M915, 'outside its allowlist');
+const POLICIES_915 = doBlock(M915, `'app_service_' || r.cmd`);
+const GUARD_916 = doBlock(M916, 'exempts every role but app_user');
+const PATCH_916 = doBlock(M916, 'expected exactly once');
 
 beforeAll(() => setup(ids), 60000);
 afterAll(() => teardown(ids, []));
@@ -30,7 +30,7 @@ async function rolledBack(body: (q: (text: string) => Promise<unknown>) => Promi
   }
 }
 
-describe('S-07b: migration 910', () => {
+describe('S-07b: migration 915', () => {
   it('gives app_service exactly the commands app_user policies admit, where app_user holds the privilege', async () => {
     // users is the case a table-level privilege test misses: 902 left app_user only column UPDATE.
     const users = await fixture.query(`SELECT polname FROM pg_policy WHERE polrelid = 'public.users'::regclass
@@ -73,7 +73,7 @@ describe('S-07b: migration 910', () => {
       await q(`CREATE POLICY sel_ok ON public.s07b_policy_probe FOR SELECT TO app_user USING (x > 0)`);
       await q(`CREATE POLICY upd_check_never ON public.s07b_policy_probe FOR UPDATE TO app_user USING (true) WITH CHECK (false)`);
       await q(`CREATE POLICY all_read_only ON public.s07b_policy_probe FOR ALL TO app_user USING (x > 0) WITH CHECK (false)`);
-      await q(POLICIES_910);
+      await q(POLICIES_915);
       const r = (await q(`SELECT array_agg(polname::text ORDER BY polname) AS p FROM pg_policy
         WHERE polrelid = 'public.s07b_policy_probe'::regclass AND polname LIKE 'app\\_service\\_%'`)) as { rows: Array<{ p: string[] }> };
       // all_read_only admits SELECT and DELETE only; nothing admits INSERT or UPDATE.
@@ -81,34 +81,34 @@ describe('S-07b: migration 910', () => {
     });
   });
 
-  it('re-applies, with 911, as a NON-superuser postgres, twice', async () => {
+  it('re-applies, with 916, as a NON-superuser postgres, twice', async () => {
     await rolledBack(async (q) => {
       await q('ALTER ROLE postgres NOSUPERUSER');
-      for (let i = 0; i < 2; i++) { await q(M910); await q(M911); }
+      for (let i = 0; i < 2; i++) { await q(M915); await q(M916); }
       const r = (await q(`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`)) as { rows: Array<{ rolsuper: boolean }> };
       expect(r.rows[0]!.rolsuper).toBe(false);
     });
   });
 
   it.each([
-    ['isaflow_app granted an owner', 'GRANT migration_admin TO isaflow_app', /910: isaflow_app can reach role migration_admin/],
-    ['isaflow_app granted app_service', 'GRANT app_service TO isaflow_app', /910: isaflow_app can reach role app_service/],
-    ['isaflow_service granted migration_admin', 'GRANT migration_admin TO isaflow_service', /910: isaflow_service can reach role migration_admin/],
+    ['isaflow_app granted an owner', 'GRANT migration_admin TO isaflow_app', /915: isaflow_app can reach role migration_admin/],
+    ['isaflow_app granted app_service', 'GRANT app_service TO isaflow_app', /915: isaflow_app can reach role app_service/],
+    ['isaflow_service granted migration_admin', 'GRANT migration_admin TO isaflow_service', /915: isaflow_service can reach role migration_admin/],
     ['app_user made BYPASSRLS', 'ALTER ROLE app_user BYPASSRLS', /which is superuser, BYPASSRLS/],
     ['app_service owning a table', 'CREATE TABLE s07b_mutant (x int); ALTER TABLE s07b_mutant OWNER TO app_service', /app_service, which owns objects/],
-    ['isaflow_app INHERIT', 'ALTER ROLE isaflow_app INHERIT', /910: isaflow_app must be NOINHERIT/],
+    ['isaflow_app INHERIT', 'ALTER ROLE isaflow_app INHERIT', /915: isaflow_app must be NOINHERIT/],
     ['isaflow_app inheriting app_user through the grant (PG 16)', `DO $$ BEGIN IF current_setting('server_version_num')::int >= 160000
       THEN EXECUTE 'REVOKE app_user FROM isaflow_app'; EXECUTE 'GRANT app_user TO isaflow_app WITH INHERIT TRUE';
-      ELSE EXECUTE 'ALTER ROLE isaflow_app INHERIT'; END IF; END $$`, /910: isaflow_app must be NOINHERIT and must not inherit/],
-  ])('910\'s guard refuses the mutant: %s', async (_, mutate, msg) => {
+      ELSE EXECUTE 'ALTER ROLE isaflow_app INHERIT'; END IF; END $$`, /915: isaflow_app must be NOINHERIT and must not inherit/],
+  ])('915\'s guard refuses the mutant: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(mutate);
-      await expect(q(GUARD_910)).rejects.toThrow(msg);
+      await expect(q(GUARD_915)).rejects.toThrow(msg);
     });
   });
 });
 
-describe('S-07b: migration 911', () => {
+describe('S-07b: migration 916', () => {
   it.each([
     ['twice', 2, `IF current_user <> 'app_user' THEN RETURN NEW; END IF; IF current_user <> 'app_user' THEN RETURN NEW; END IF;`],
     ['not at all', 0, `IF current_user = 'platform_admin' THEN RETURN NEW; END IF;`],
@@ -116,23 +116,23 @@ describe('S-07b: migration 911', () => {
     await rolledBack(async (q) => {
       await q(`CREATE OR REPLACE FUNCTION public.company_users_role_guard() RETURNS trigger LANGUAGE plpgsql AS $f$
         BEGIN ${body} RETURN NEW; END $f$`);
-      await expect(q(PATCH_911)).rejects.toThrow(new RegExp(`911: company_users_role_guard\\(\\) holds the exemption line ${n} time`));
+      await expect(q(PATCH_916)).rejects.toThrow(new RegExp(`916: company_users_role_guard\\(\\) holds the exemption line ${n} time`));
     });
   });
 
   it('refuses settings rows with no company, which security_invoker would hide', async () => {
-    const block = doBlock(M911, 'accounting_settings holds rows with no company_id');
+    const block = doBlock(M916, 'accounting_settings holds rows with no company_id');
     await rolledBack(async (q) => {
       await q(`ALTER TABLE public.accounting_settings ALTER COLUMN company_id DROP NOT NULL`);
       await q(`INSERT INTO public.accounting_settings (company_id, key, value) VALUES (NULL, 's07b_global', '1')`);
-      await expect(q(block)).rejects.toThrow(/911: accounting_settings holds rows with no company_id/);
+      await expect(q(block)).rejects.toThrow(/916: accounting_settings holds rows with no company_id/);
     });
   });
 
   it('leaves a guard that already binds app_service as it is (a rewrite that merged the binding)', async () => {
     await rolledBack(async (q) => {
       const before = (await q(`SELECT md5(prosrc) AS m FROM pg_proc WHERE oid = 'public.company_users_role_guard()'::regprocedure`)) as { rows: Array<{ m: string }> };
-      await q(PATCH_911);
+      await q(PATCH_916);
       const after = (await q(`SELECT md5(prosrc) AS m FROM pg_proc WHERE oid = 'public.company_users_role_guard()'::regprocedure`)) as { rows: Array<{ m: string }> };
       expect(after.rows[0]!.m).toBe(before.rows[0]!.m);
     });
@@ -140,23 +140,23 @@ describe('S-07b: migration 911', () => {
 
   it.each([
     ['a trigger function in the old shape', `CREATE FUNCTION public.s07b_mutant_guard() RETURNS trigger LANGUAGE plpgsql AS $f$
-      BEGIN IF current_user <> 'app_user' THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_guard\(\) exempts every role but app_user/],
+      BEGIN IF current_user <> 'app_user' THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /916: s07b_mutant_guard\(\) exempts every role but app_user/],
     ['the old shape spelled !=', `CREATE FUNCTION public.s07b_mutant_neq() RETURNS trigger LANGUAGE plpgsql AS $f$
-      BEGIN IF current_user != 'app_user' THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_neq\(\) exempts every role/],
+      BEGIN IF current_user != 'app_user' THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /916: s07b_mutant_neq\(\) exempts every role/],
     ['the old shape spelled IS DISTINCT FROM, on current_role', `CREATE FUNCTION public.s07b_mutant_idf() RETURNS trigger LANGUAGE plpgsql AS $f$
-      BEGIN IF (current_role IS DISTINCT FROM 'app_user') THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_idf\(\) exempts every role/],
+      BEGIN IF (current_role IS DISTINCT FROM 'app_user') THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /916: s07b_mutant_idf\(\) exempts every role/],
     ['the old shape spelled the other way round', `CREATE FUNCTION public.s07b_mutant_rev() RETURNS trigger LANGUAGE plpgsql AS $f$
-      BEGIN IF 'app_user' <> current_user THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_rev\(\) exempts every role/],
+      BEGIN IF 'app_user' <> current_user THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /916: s07b_mutant_rev\(\) exempts every role/],
     ['an owner-run view app_user may read', `CREATE VIEW public.s07b_mutant_view AS SELECT id FROM public.customers;
-      GRANT SELECT ON public.s07b_mutant_view TO app_user`, /911: view s07b_mutant_view runs as an RLS-bypassing owner/],
-    ['app_user given schema_migrations back', 'GRANT DELETE ON public.schema_migrations TO app_user', /911: app_user .* can still write schema_migrations/],
+      GRANT SELECT ON public.s07b_mutant_view TO app_user`, /916: view s07b_mutant_view runs as an RLS-bypassing owner/],
+    ['app_user given schema_migrations back', 'GRANT DELETE ON public.schema_migrations TO app_user', /916: app_user .* can still write schema_migrations/],
     ['a definer app_user can run without pg_temp last', `CREATE FUNCTION public.s07b_mutant_definer() RETURNS int LANGUAGE sql
       SECURITY DEFINER SET search_path = public AS $f$ SELECT 1 $f$; GRANT EXECUTE ON FUNCTION public.s07b_mutant_definer() TO app_user`,
-    /911: definer function s07b_mutant_definer\(\) runs for app_user without pg_temp last/],
-  ])('911\'s guard refuses the mutant: %s', async (_, mutate, msg) => {
+    /916: definer function s07b_mutant_definer\(\) runs for app_user without pg_temp last/],
+  ])('916\'s guard refuses the mutant: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(mutate);
-      await expect(q(GUARD_911)).rejects.toThrow(msg);
+      await expect(q(GUARD_916)).rejects.toThrow(msg);
     });
   });
 });

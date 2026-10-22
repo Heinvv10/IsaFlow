@@ -1,4 +1,4 @@
--- Migration 910: the app's pools log in as roles that cannot become the owner.
+-- Migration 915: the app's pools log in as roles that cannot become the owner.
 --
 -- Audit 2026-10-18 S-07b. Every pool built from DATABASE_URL logged in as
 -- `postgres`, which owns nearly every table in public and has BYPASSRLS.
@@ -47,7 +47,7 @@
 -- user's email (change-email and the POPIA erasure need that column, and run
 -- with no tenant). 902 still holds for app_user, i.e. for every authenticated
 -- route. Triggers that judge current_user = 'app_user' must judge app_service
--- too: 911 does that for the member guards and refuses any function left in
+-- too: 916 does that for the member guards and refuses any function left in
 -- the old shape.
 --
 -- Roles are cluster-wide and prod and dev share a cluster (PG 15), so the
@@ -197,10 +197,10 @@ BEGIN
     FOR r IN SELECT oid, rolname, rolsuper, rolbypassrls, rolcreaterole, rolreplication
                FROM pg_roles WHERE pg_has_role(login, oid, 'MEMBER') LOOP
       IF NOT r.rolname = ANY (allowed) THEN
-        RAISE EXCEPTION '910: % can reach role %, outside its allowlist %', login, r.rolname, allowed;
+        RAISE EXCEPTION '915: % can reach role %, outside its allowlist %', login, r.rolname, allowed;
       END IF;
       IF r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolreplication THEN
-        RAISE EXCEPTION '910: % can reach %, which is superuser, BYPASSRLS, CREATEROLE or REPLICATION', login, r.rolname;
+        RAISE EXCEPTION '915: % can reach %, which is superuser, BYPASSRLS, CREATEROLE or REPLICATION', login, r.rolname;
       END IF;
       -- pg_shdepend records ownership in EVERY database of the cluster (prod
       -- and dev share one); the catalogs below cover this database even where
@@ -212,7 +212,7 @@ BEGIN
          OR EXISTS (SELECT 1 FROM pg_namespace WHERE nspowner = r.oid)
          OR EXISTS (SELECT 1 FROM pg_type WHERE typowner = r.oid)
          OR EXISTS (SELECT 1 FROM pg_database WHERE datdba = r.oid) THEN
-        RAISE EXCEPTION '910: % can reach %, which owns objects in this cluster', login, r.rolname;
+        RAISE EXCEPTION '915: % can reach %, which owns objects in this cluster', login, r.rolname;
       END IF;
     END LOOP;
   END LOOP;
@@ -221,6 +221,6 @@ BEGIN
   -- option (fixed when granted), so check the effect, not the attribute.
   IF (SELECT rolinherit FROM pg_roles WHERE rolname = 'isaflow_app')
      OR pg_has_role('isaflow_app', 'app_user', 'USAGE') THEN
-    RAISE EXCEPTION '910: isaflow_app must be NOINHERIT and must not inherit app_user';
+    RAISE EXCEPTION '915: isaflow_app must be NOINHERIT and must not inherit app_user';
   END IF;
 END $$;

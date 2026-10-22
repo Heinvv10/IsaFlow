@@ -10,7 +10,7 @@
  * NOTE: REFRESH MATERIALIZED VIEW CONCURRENTLY requires a unique index on
  * the MV (mig 427 provides idx_cust_inv_view_summary) and the view's owner.
  * The service pool is not the owner (S-07b), so it calls the SECURITY DEFINER
- * wrapper from migration 910, which refreshes this one view and takes no input.
+ * wrapper from migration 915, which refreshes this one view and takes no input.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
