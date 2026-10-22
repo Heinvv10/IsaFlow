@@ -27,6 +27,7 @@ import {
 } from '@/modules/accounting/services/gl/journalEntryService';
 import type { GLEntryStatus, GLEntrySource, JournalEntry, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { UUID_RE } from '@/lib/validation';
+import { readGateFor, READ_GATE_MESSAGE } from '@/modules/accounting/services/capture/captureReadState';
 import { markCreatedManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 import { placeCostCentres } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 
@@ -97,11 +98,14 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
         return apiResponse.badRequest(res, 'sourceDocumentId must be a captured document id');
       }
       const owned = (await sql`
-        SELECT 1 FROM captured_documents
-        WHERE id = ${sourceDocumentId}::UUID AND company_id = ${companyId}::UUID`) as unknown[];
+        SELECT read_state, read_heartbeat_at, created_at FROM captured_documents
+        WHERE id = ${sourceDocumentId}::UUID AND company_id = ${companyId}::UUID`) as Record<string, unknown>[];
       if (owned.length === 0) {
         return apiResponse.badRequest(res, 'sourceDocumentId must be a captured document id');
       }
+      // Only a finished read has an extraction (reading -> done is one-way, so a plain read is safe).
+      const gate = readGateFor(owned[0]!);
+      if (gate) return apiResponse.conflict(res, READ_GATE_MESSAGE[gate]);
     }
 
     // User identity comes from JWT (req.user), never from client request body
