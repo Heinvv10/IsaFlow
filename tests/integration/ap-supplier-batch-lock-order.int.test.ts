@@ -53,6 +53,7 @@ import { createSession } from '@/modules/accounting/services/core/migrationServi
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { SupplierBatchLockTimeoutError, lockBatchesBeforeSuppliers } from '@/modules/accounting/services/ap/batchBeforeSupplierLock';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
+import { lockOrderKit } from './ap-supplier-batch-lock-order.helpers';
 import { callRoute, createUser, plantRule } from './r035-approval.helpers';
 import { cleanupPr5, enforcePay, inRequest, payCompany, payRoutes, plantBatch, plantPayment, plantSupplier } from './r035-pr5.helpers';
 
@@ -96,34 +97,7 @@ async function startParkedFileRequest(c: string, batchId: string, when: 'before'
   return { file, release };
 }
 
-type Outcome = { ok: true } | { ok: false; code: string | undefined };
-const outcomeOf = (p: Promise<unknown>): Promise<Outcome> =>
-  p.then(() => ({ ok: true as const }), (err: { code?: string }) => ({ ok: false as const, code: err.code }));
-
-/** `fn` on one request transaction; `pid` is its backend, so a wait is attributed to it and to no other session. */
-function startWriter(c: string, fn: (client: PoolClient) => Promise<unknown>) {
-  let gotPid!: (pid: number) => void;
-  const pid = new Promise<number>((res) => { gotPid = res; });
-  const outcome = outcomeOf(inRequest(pool, u.a, c, async (client) => {
-    gotPid((await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
-    return fn(client);
-  }));
-  return { pid, outcome };
-}
-
-/** The statement backend `pid` is blocked on, once it waits on a lock. */
-async function blockedStatement(pid: number): Promise<string> {
-  for (let i = 0; i < 500; i += 1) {
-    const res = await pool.query(
-      "SELECT query FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", [pid]);
-    if (res.rowCount) return res.rows[0].query as string;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`backend ${pid} never waited on a lock`);
-}
-
-const accountOf = async (id: string) =>
-  (await pool.query('SELECT bank_account_number FROM suppliers WHERE id = $1', [id])).rows[0].bank_account_number as string;
+const { startWriter, blockedStatement, accountOf } = lockOrderKit(pool, () => u.a);
 
 /** A payment of `supplierId` placed in `batchId`: the only way a batch gains a payee. */
 const joinBatch = (db: Pool | PoolClient, c: string, supplierId: string, batchId: string) => db.query(
@@ -178,6 +152,27 @@ describe('supplier writers against the bank-file gate: batch, then supplier', ()
     expect(await accountOf(supplierId)).toBe(NEW_ACCOUNT); // landed only after the request committed
   });
 
+  it('a take-on import whose first row names no bank column and second one does does not deadlock with a file request', async () => {
+    const { c, b } = await approvedBatch(); // one batch paying both suppliers' rows below
+    const [s1, s2] = [b.members[0]!.supplierId, b.members[1]!.supplierId];
+    const names = { s1: 'Alpha Traders', s2: 'Zulu Holdings' };
+    await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [s1, names.s1]);
+    await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [s2, names.s2]);
+    const session = await inRequest(pool, u.a, c, () => createSession(c, 'sage', u.a));
+    const { file, release } = await startParkedFileRequest(c, b.id, 'before');
+    let result: Awaited<ReturnType<typeof importSuppliers>> | undefined;
+    const imp = startWriter(c, async () => {
+      result = await importSuppliers(c, session.id, [{ name: names.s1, email: 'a@example.com' }, { name: names.s2, bankAccountNumber: NEW_ACCOUNT }], 'overwrite', u.a);
+    });
+    expect(await blockedStatement(await imp.pid)).toContain(BATCHES);
+    release();
+    const [res, imported] = await Promise.all([file, imp.outcome]);
+
+    expect({ gate: gate.errorCode, import: imported, status: res.state.statusCode }).toEqual({ gate: undefined, import: { ok: true }, status: 200 });
+    expect({ imported: result?.imported, errors: result?.errors }).toEqual({ imported: 2, errors: [] });
+    expect(await accountOf(s2)).toBe(NEW_ACCOUNT);
+  });
+
   // Holds in EITHER order (it passed before the fix too): a guard that the fix adds no wait where there was none.
   it('regression guard: an edit that touches no bank detail takes no batch lock', async () => {
     const { c, b, supplierId } = await approvedBatch();
@@ -189,46 +184,6 @@ describe('supplier writers against the bank-file gate: batch, then supplier', ()
     release();
     expect(renamed).toEqual({ ok: true });
     expect((await file).state.statusCode).toBe(200);
-  });
-});
-
-describe('the take-on import: one id-ordered set, not a batch lock per row', () => {
-  it('an import whose rows run against id order does not deadlock with an id-ordered writer', async () => {
-    const { company: c, bank } = await payCompany(pool, [[u.a, 'admin']], companies);
-    const one = await plantBatch(pool, c, u.a, bank, [1000]);
-    const two = await plantBatch(pool, c, u.a, bank, [2000]);
-    const [lo, hi] = one.id < two.id ? [one, two] : [two, one];
-    const names = { lo: 'Alpha Traders', hi: 'Zulu Holdings' };
-    for (const k of ['lo', 'hi'] as const) await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [({ lo, hi })[k].members[0]!.supplierId, names[k]]);
-    const session = await inRequest(pool, u.a, c, () => createSession(c, 'sage', u.a));
-    const rows = [names.hi, names.lo].map((name) => ({ name, bankAccountNumber: NEW_ACCOUNT })); // the HIGH batch first
-
-    // A writer that has the LOW batch (as an id-ordered writer does first), then asks for the high one and the rows.
-    const writer: PoolClient = await pool.connect();
-    let writerCode: string | undefined;
-    try {
-      await writer.query('BEGIN');
-      await writer.query('SELECT id FROM supplier_payment_batches WHERE id = $1 FOR UPDATE', [lo.id]);
-      // importSuppliers catches a row's failure into `errors`, so a deadlock victim shows there, not as a rejection.
-      let result: Awaited<ReturnType<typeof importSuppliers>> | undefined;
-      const imp = startWriter(c, async () => { result = await importSuppliers(c, session.id, rows, 'overwrite', u.a); });
-      await blockedStatement(await imp.pid); // the import waits for the low batch
-      try {
-        await writer.query('SELECT id FROM supplier_payment_batches WHERE id = $1 FOR UPDATE', [hi.id]);
-        await writer.query('SELECT id FROM suppliers WHERE id = ANY($1) ORDER BY id FOR UPDATE',
-          [[lo.members[0]!.supplierId, hi.members[0]!.supplierId]]);
-        await writer.query('COMMIT');
-      } catch (err) {
-        writerCode = (err as { code?: string }).code;
-        await writer.query('ROLLBACK');
-      }
-      expect({ writer: writerCode, import: await imp.outcome }).toEqual({ writer: undefined, import: { ok: true } });
-      expect({ imported: result?.imported, errors: result?.errors }).toEqual({ imported: 2, errors: [] });
-    } finally {
-      writer.release();
-    }
-    expect(await accountOf(lo.members[0]!.supplierId)).toBe(NEW_ACCOUNT);
-    expect(await accountOf(hi.members[0]!.supplierId)).toBe(NEW_ACCOUNT);
   });
 });
 
