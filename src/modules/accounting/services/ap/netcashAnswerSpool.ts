@@ -62,6 +62,13 @@ const fileName = (r: AnswerRecord) =>
   `${r.companyId.toLowerCase()}.${r.submissionId.toLowerCase()}.${r.metadata.settleToken.replace(/[^0-9a-zA-Z-]/g, '_').slice(0, 64)}${SUFFIX}`;
 /** A final entry: not a dot-file (temps are), `.jsonl`. */
 const isEntry = (n: string) => n.endsWith(SUFFIX) && !n.startsWith('.');
+/** Unreadable entries already reported by this process: each is log.error'd once, not on every submit's replay. */
+const reportedUnreadable = new Set<string>();
+function reportUnreadable(file: string, message: string): void {
+  if (reportedUnreadable.has(file)) return;
+  reportedUnreadable.add(file);
+  log.error(message, { file }, 'netcash');
+}
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Flush a directory's entries (a new or renamed file) to disk; a filesystem that cannot is warned about, not fatal. */
@@ -190,7 +197,7 @@ export async function spooledAcceptedAnswer(companyId: string, submissionId: str
       const entry = await readEntry(path.join(dir, name));
       if (entry === 'gone') continue;
       if (!entry) {
-        log.error('netcash answer spool: an entry for this submission cannot be read - treated as an acceptance', { file: path.join(dir, name) }, 'netcash');
+        reportUnreadable(path.join(dir, name), 'netcash answer spool: an entry for this submission cannot be read - treated as an acceptance');
         return { outcome: 'accepted (spool entry unreadable)', batchReference: '' };
       }
       if (entry.companyId.toLowerCase() === companyId.toLowerCase() && entry.metadata.status === 'submitted') {
@@ -209,7 +216,7 @@ export async function pendingSpooled(): Promise<{ file: string; entry: AnswerRec
     const entry = await readEntry(file);
     if (entry === 'gone') continue;
     if (entry) out.push({ file, entry });
-    else log.error('netcash answer spool: an entry cannot be read - left in place, still blocks its submission', { file }, 'netcash');
+    else reportUnreadable(file, 'netcash answer spool: an entry cannot be read - left in place, still blocks its submission');
   }
   return out;
 }

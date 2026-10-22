@@ -205,6 +205,37 @@ describe('an accepted answer that not even audit_log could record survives on lo
       .toEqual({ audit: 1, handled: true, pending: 0, replayed: 1 });
   }, 60_000);
 
+  it('REPRO-1 (breaker): another process\'s replay commits audit_log and moves the file between resolve\'s two reads: the accepted row is still refused', async () => {
+    const { c, id } = await acceptedAndNothingRecorded();
+    // resolve's own replay fails (the database "still unwell"); then, in the gap after its spool read and before/at its
+    // audit_log read, another process's replay commits the audit row and moves the file to replayed/.
+    faults.rules.push({ match: /INSERT INTO audit_log/, claimOnly: false, act: injected('audit insert (resolve replay)') });
+    faults.rules.push({
+      match: /ORDER BY a\.created_at DESC/, claimOnly: false,
+      act: async (run) => {
+        const out = await run(); // audit_log: nothing yet
+        vi.resetModules();
+        const other = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay'); // "another process"
+        await other.replaySpooledAnswers();
+        return out;
+      },
+    });
+    const res = await resolveAfterRestart(c, id);
+    expect({ http: res.state.statusCode, reason: reason(res), status: await status(id), audit: (await auditRows(id)).length })
+      .toEqual({ http: 409, reason: 'ANSWER_PENDING_RECORD', status: 'pending', audit: 1 });
+  }, 60_000);
+
+  it('REPRO-2 (breaker): a second process replays completely before the first inserts: still ONE audit_log row (the lock holds the second off)', async () => {
+    const { id } = await acceptedAndNothingRecorded();
+    const one = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
+    vi.resetModules();
+    const two = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
+    expect(one).not.toBe(two);
+    faults.rules.push({ match: /INSERT INTO audit_log/, claimOnly: false, act: async (run) => { await two.replaySpooledAnswers(); return run(); } });
+    await one.replaySpooledAnswers();
+    expect({ audit: (await auditRows(id)).length, replayed: spoolFiles('.replayed').length, pending: spoolFiles('.jsonl').length }).toEqual({ audit: 1, replayed: 1, pending: 0 });
+  }, 60_000);
+
   it('a replay is bounded per call: maxEntries leaves the rest for the next call', async () => {
     const { id } = await acceptedAndNothingRecorded(); // one real entry...
     const [name] = spoolFiles('.jsonl');
