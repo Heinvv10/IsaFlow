@@ -25,6 +25,15 @@
 --   At an isolation level above READ COMMITTED the count reads a stale
 --   snapshot (886's reasoning), so the check refuses there with 40001, as 886
 --   does for app_user; it runs only when an owner row leaves.
+--   NOT exempt: a soft-deleted company (status 'deleted'). It can be restored,
+--   and would come back with no owner; the admin site's delete-user and
+--   reset-onboarding refuse its only owner too (409 naming the company).
+--   Scripts that clear members company by company (large-scale-seed,
+--   stress-test, the sandbox and acceptance seeds) rely on running as a
+--   superuser; as any other role they meet RC011.
+--   A statement that removes one person from several companies takes each
+--   company's owner lock in row order; two such statements at once can
+--   deadlock (40P01), which rolls one back whole.
 --
 --  B. S-04: an app_user write that changes the role of, or removes, an owner
 --   row needs the acting user to be an owner of that company. 886 let an admin
@@ -45,6 +54,7 @@
 -- S-07b fix.
 --
 -- Refusal codes: 883/886's RC001–RC009 and 40001, plus RC010 (B) and RC011 (A).
+-- (B runs after RC004, so an app_user move of an owner row is still RC004.)
 
 CREATE OR REPLACE FUNCTION public.company_users_role_guard() RETURNS trigger
 LANGUAGE plpgsql
@@ -56,12 +66,16 @@ DECLARE
   v_others pg_catalog.int8;
   v_isolation pg_catalog.text := pg_catalog.current_setting('transaction_isolation');
   v_fresh pg_catalog.bool := v_isolation IN ('read committed', 'read uncommitted');
-  -- An owner row is removed, or its role changes to one that is not owner.
+  -- An owner row is removed, its role changes to one that is not owner, or it
+  -- is moved to another company or person (app_user and platform_admin are
+  -- refused that move, RC004; any other role is judged as removing the owner).
   v_owner_leaves pg_catalog.bool := false;
 BEGIN
   IF TG_OP <> 'INSERT' THEN
     v_owner_leaves := public.company_member_role_is_owner(OLD.role)
-      AND (TG_OP = 'DELETE' OR public.company_member_role_is_owner(NEW.role) IS NOT TRUE);
+      AND (TG_OP = 'DELETE' OR public.company_member_role_is_owner(NEW.role) IS NOT TRUE
+           OR NEW.company_id IS DISTINCT FROM OLD.company_id
+           OR pg_catalog.lower(NEW.user_id::pg_catalog.text) IS DISTINCT FROM pg_catalog.lower(OLD.user_id::pg_catalog.text));
   END IF;
 
   IF current_user <> 'app_user' THEN

@@ -33,6 +33,17 @@ describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('909 — owner rules 
       expect(await roleOf(pool, c, o)).toBe('owner');
     });
 
+    it('a non-superuser cannot move the only owner\'s row to another company or person (RC011)', async () => {
+      const [o, x] = [id(), id()];
+      const c = await seedCompany(pool, companies, [[o, 'owner']]);
+      const d = await seedCompany(pool, companies, []);
+      expect(await outcome(asRole(pool, 'migration_admin', c,
+        'UPDATE company_users SET company_id = $3 WHERE company_id = $1 AND user_id = $2', [c, o, d]))).toBe('RC011');
+      expect(await outcome(asRole(pool, 'migration_admin', c,
+        'UPDATE company_users SET user_id = $3 WHERE company_id = $1 AND user_id = $2', [c, o, x]))).toBe('RC011');
+      expect(await ownersOf(pool, c)).toEqual([o]);
+    });
+
     it('the refusal names the rule in words the admin site shows', async () => {
       const o = id();
       const c = await seedCompany(pool, companies, [[o, 'owner']]);
