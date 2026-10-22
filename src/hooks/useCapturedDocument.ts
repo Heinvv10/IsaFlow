@@ -6,10 +6,14 @@
  * it keeps what is on screen and calls `onLoaded` only once the read has ended, so a half-empty document
  * never overwrites the form. A silent poll resolves to 'stop' when the document is gone or not ours (404/403)
  * and to 'bad' for any other error.
+ *
+ * `readStatus` is everything the read panel (CaptureReadStatus) needs, Retry included: a retry re-arms the document
+ * and the silent reload shows it 'reading', after which the polling above takes over.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiJson, apiErrorMessage, ApiRequestError } from '@/lib/apiFetch';
 import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
+import { useRetryCaptureRead } from '@/hooks/useRetryCaptureRead';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 export function useCapturedDocument(docId: string | string[] | undefined, onLoaded: (found: CapturedDocument) => void) {
@@ -58,5 +62,11 @@ export function useCapturedDocument(docId: string | string[] | undefined, onLoad
   const poll = useCallback(() => reload(true), [reload]);
   usePollWhileReading(doc?.readState === 'reading' ? 'extracting' : undefined, poll);
 
-  return { doc, isLoading, error, reload, isReading: doc?.readState === 'reading' };
+  const reloadSilently = useCallback(() => { void reload(true); }, [reload]);
+  const { retry, isRetrying } = useRetryCaptureRead(reloadSilently);
+  const readStatus = doc
+    ? { readState: doc.readState, readError: doc.readError, retryable: doc.retryable, isRetrying, onRetry: () => { void retry(doc.id); } }
+    : null;
+
+  return { doc, isLoading, error, reload, isReading: doc?.readState === 'reading', readStatus };
 }

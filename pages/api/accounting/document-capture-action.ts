@@ -1,7 +1,9 @@
 /**
  * Document Capture Action API
  * POST /api/accounting/document-capture-action
- *   { id, action: 'confirm' | 'match_bank_tx' | 'reject', data?: {...} }
+ *   { id, action: 'confirm' | 'match_bank_tx' | 'reject' | 'retry', data?: {...} }
+ *
+ * 'retry' re-runs a failed or interrupted read from the stored upload (captureReadRetry).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -12,9 +14,11 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { checkAiRateLimit } from '@/lib/rateLimit';
 import type { CapturedDocumentAction } from '@/modules/accounting/types/documentCapture.types';
 import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
+import { retryCaptureRead, type RetryRefusal } from '@/modules/accounting/services/capture/captureReadRetry';
 import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 import {
   type LifecycleGate,
@@ -36,11 +40,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Missing required fields: id, action');
   }
 
-  if (!['confirm', 'match_bank_tx', 'reject'].includes(action)) {
-    return apiResponse.badRequest(res, 'Invalid action. Allowed: confirm, match_bank_tx, reject');
+  if (!['confirm', 'match_bank_tx', 'reject', 'retry'].includes(action)) {
+    return apiResponse.badRequest(res, 'Invalid action. Allowed: confirm, match_bank_tx, reject, retry');
   }
 
   const { companyId } = req as CompanyAuthedRequest;
+
+  if (action === 'retry') return handleRetry(req, res, id, companyId);
 
   // Verify document exists and belongs to this company
   const [existing] = await sql`
@@ -95,6 +101,36 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('Document capture action failed', { error: msg, action, id }, 'document-capture');
+    return apiResponse.internalError(res, err, `Action failed: ${msg}`);
+  }
+}
+
+/** What each refusal of a retry answers. None of them has written anything. */
+function refuseRetry(res: NextApiResponse, id: string, reason: RetryRefusal) {
+  switch (reason) {
+    case 'missing': return apiResponse.notFound(res, 'Captured document', id);
+    case 'being_read': return apiResponse.conflict(res, STILL_BEING_READ);
+    case 'too_many': return apiResponse.tooManyRequests(res, 'Too many documents are being read — wait for one to finish.');
+    case 'rate_limited': return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
+    default: return apiResponse.badRequest(res, 'This document cannot be retried — upload it again.');
+  }
+}
+
+/**
+ * Retry — read a failed or interrupted upload again from Storage. Charges the upload's AI bucket (no refund: the read
+ * runs after COMMIT, where use cannot be recorded — quotaCallerCensus).
+ */
+async function handleRetry(req: NextApiRequest, res: NextApiResponse, id: string, companyId: string) {
+  try {
+    const out = await retryCaptureRead(
+      companyId, id, () => checkAiRateLimit(req, companyId, 'document-capture', { companyMax: 30, dailyMax: 300 }),
+    );
+    if (!out.ok) return refuseRetry(res, id, out.reason);
+    log.info('Document read retried', { id, attempt: out.attempt }, 'document-capture');
+    return apiResponse.success(res, mapRow(out.row), 'Reading the document again');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error('Document capture retry failed', { error: msg, id }, 'document-capture');
     return apiResponse.internalError(res, err, `Action failed: ${msg}`);
   }
 }

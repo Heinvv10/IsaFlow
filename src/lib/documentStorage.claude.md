@@ -21,3 +21,4 @@ Thin facade over Supabase Storage for captured-document bytes — plus a SHA-256
 
 ## Recent changes
 - 2026-04-22: Created as the Phase 1 deferral closeout (commit d043a22), then swapped from BYTEA to Supabase Storage (commit d55b296).
+- 2026-10-22: new callers: `document-capture` POST now calls `storeCapturedBytes` (the upload is stored before the answer), and the capture read job (`captureReadJob.runCaptureRead`) calls `fetchRawBytes` to read it back. `fetchRawBytes` lets `downloadCapturedDocument`'s errors through: `supabaseStorage.CapturedDocumentMissingError` (the object is not in the bucket: not retryable) versus a plain Error (an outage: retryable); it still returns null when no pointer is set.

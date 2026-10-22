@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  effectiveReadState, isBeingRead, readGateFor, STALE_AFTER_MINUTES, STALE_READ_ERROR, GENERIC_READ_ERROR, STILL_BEING_READ, NOT_READ,
+  effectiveReadState, isBeingRead, readGateFor, STALE_AFTER_MINUTES, STALE_READ_ERROR, GENERIC_READ_ERROR, STILL_BEING_READ, NOT_READ, NOT_STORED_ERROR,
 } from '@/modules/accounting/services/capture/captureReadState';
 
 const NOW = Date.parse('2026-10-22T10:00:00.000Z');
@@ -16,12 +16,12 @@ const row = (over: Record<string, unknown> = {}) => ({
 
 describe('effectiveReadState', () => {
   it('reports a fresh read as reading with no error', () => {
-    expect(effectiveReadState(row(), NOW)).toEqual({ readState: 'reading', readError: null });
+    expect(effectiveReadState(row(), NOW)).toMatchObject({ readState: 'reading', readError: null });
   });
 
   it('reports a read silent for over 5 minutes as failed, with the upload-again message', () => {
     const s = effectiveReadState(row({ created_at: ago(30), read_heartbeat_at: ago(6) }), NOW);
-    expect(s).toEqual({ readState: 'failed', readError: STALE_READ_ERROR });
+    expect(s).toMatchObject({ readState: 'failed', readError: STALE_READ_ERROR });
     expect(STALE_READ_ERROR).toBe('The read was interrupted — upload the document again.');
   });
 
@@ -46,18 +46,18 @@ describe('effectiveReadState', () => {
   });
 
   it('shows the recorded error of a failed row, or a generic one when it is empty', () => {
-    expect(effectiveReadState(row({ read_state: 'failed', read_error: 'Boom.' }), NOW)).toEqual({ readState: 'failed', readError: 'Boom.' });
-    expect(effectiveReadState(row({ read_state: 'failed', read_error: null }), NOW)).toEqual({ readState: 'failed', readError: GENERIC_READ_ERROR });
+    expect(effectiveReadState(row({ read_state: 'failed', read_error: 'Boom.' }), NOW)).toMatchObject({ readState: 'failed', readError: 'Boom.' });
+    expect(effectiveReadState(row({ read_state: 'failed', read_error: null }), NOW)).toMatchObject({ readState: 'failed', readError: GENERIC_READ_ERROR });
     expect(effectiveReadState(row({ read_state: 'failed', read_error: '' }), NOW).readError).toBe(GENERIC_READ_ERROR);
   });
 
   it('leaves a done row alone however old, and ignores a stale error on it', () => {
-    expect(effectiveReadState(row({ read_state: 'done', created_at: ago(9000), read_error: 'old' }), NOW)).toEqual({ readState: 'done', readError: null });
+    expect(effectiveReadState(row({ read_state: 'done', created_at: ago(9000), read_error: 'old' }), NOW)).toMatchObject({ readState: 'done', readError: null });
   });
 
   it('treats a row with no read columns as done', () => {
-    expect(effectiveReadState({}, NOW)).toEqual({ readState: 'done', readError: null });
-    expect(effectiveReadState({ read_state: null }, NOW)).toEqual({ readState: 'done', readError: null });
+    expect(effectiveReadState({}, NOW)).toMatchObject({ readState: 'done', readError: null });
+    expect(effectiveReadState({ read_state: null }, NOW)).toMatchObject({ readState: 'done', readError: null });
   });
 });
 
@@ -98,6 +98,50 @@ describe('readGateFor: what a writer that needs the extraction may do', () => {
   });
 
   it('has the upload-again wording', () => {
-    expect(NOT_READ).toBe('This document could not be read — upload it again.');
+    expect(NOT_READ).toBe("This document's read did not finish — retry the read or upload the document again.");
+  });
+});
+
+describe('effectiveReadState: retryable (the file is stored and nobody has acted on the document)', () => {
+  const failed = (over: Record<string, unknown> = {}) => row({
+    read_state: 'failed', read_error: 'Boom.', storage_path: 'co/doc', posted_at: null, status: 'pending', ...over,
+  });
+
+  it('is true for a failed row with a stored file, pending and unposted', () => {
+    expect(effectiveReadState(failed(), NOW).retryable).toBe(true);
+  });
+
+  it('is true for a read gone silent (shown as interrupted) with a stored file', () => {
+    const stale = row({ created_at: ago(30), storage_path: 'co/doc', posted_at: null, status: 'pending' });
+    expect(effectiveReadState(stale, NOW)).toMatchObject({ readState: 'failed', retryable: true });
+  });
+
+  it('is false while the read is fresh, and for a done row', () => {
+    expect(effectiveReadState(row({ storage_path: 'co/doc', posted_at: null, status: 'pending' }), NOW).retryable).toBe(false);
+    expect(effectiveReadState(failed({ read_state: 'done' }), NOW).retryable).toBe(false);
+    expect(effectiveReadState({}, NOW).retryable).toBe(false);
+  });
+
+  it('is false without a stored file (null, empty or absent path)', () => {
+    expect(effectiveReadState(failed({ storage_path: null }), NOW).retryable).toBe(false);
+    expect(effectiveReadState(failed({ storage_path: '' }), NOW).retryable).toBe(false);
+    const { storage_path: _omit, ...noPath } = failed();
+    expect(effectiveReadState(noPath, NOW).retryable).toBe(false);
+  });
+
+  it('is false once posted, and once a person rejected, confirmed or matched it', () => {
+    expect(effectiveReadState(failed({ posted_at: ago(1) }), NOW).retryable).toBe(false);
+    for (const status of ['rejected', 'reviewed', 'matched']) {
+      expect(effectiveReadState(failed({ status }), NOW).retryable).toBe(false);
+    }
+    const { status: _omit, ...noStatus } = failed();
+    expect(effectiveReadState(noStatus, NOW).retryable).toBe(false);
+  });
+
+  it('is false when the file was found missing: the job recorded that it is not stored', () => {
+    expect(NOT_STORED_ERROR).toBe('The file is not stored — upload it again.');
+    expect(effectiveReadState(failed({ read_error: NOT_STORED_ERROR }), NOW)).toMatchObject({
+      readState: 'failed', readError: NOT_STORED_ERROR, retryable: false,
+    });
   });
 });

@@ -8,7 +8,7 @@ import type { CapturedDocument } from '../../types/documentCapture.types';
 import { effectiveReadState } from './captureReadState';
 
 export function mapCapturedDocumentRow(row: Record<string, unknown>, now: number = Date.now()): CapturedDocument {
-  const { readState, readError } = effectiveReadState(row, now);
+  const { readState, readError, retryable } = effectiveReadState(row, now);
   return {
     id: row.id as string,
     fileName: row.file_name as string,
@@ -29,5 +29,6 @@ export function mapCapturedDocumentRow(row: Record<string, unknown>, now: number
     createdAt: new Date(row.created_at as string).toISOString(),
     readState,
     readError,
+    retryable,
   };
 }

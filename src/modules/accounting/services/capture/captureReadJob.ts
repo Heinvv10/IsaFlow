@@ -23,17 +23,27 @@
  * row the user was told to re-upload; any other (rejected, confirmed, posted)
  * ends 'done'.
  *
+ * The job reads the upload from Storage (the POST stored it before answering), so
+ * a failed or interrupted read can be retried: the retry bumps `read_attempt` and
+ * starts a second job. EVERY write here is fenced on the attempt the job was
+ * started for, so a read thought dead (stale) that finishes or fails late cannot
+ * touch the row its retry is reading (the bank statement job's fence). A row with
+ * no stored bytes, or whose object is gone, ends 'failed' with NOT_STORED_ERROR,
+ * which is not retryable.
+ *
  * Never throws: a failure is recorded on the row (a user-safe message) and the
  * row ends 'failed'. A job that dies outright leaves the row 'reading' with no
- * heartbeat, which readers report as interrupted (captureReadState). The file
- * is not stored, so the recovery for either is to upload it again.
+ * heartbeat, which readers report as interrupted (captureReadState); that is
+ * retryable too.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { withKeepAlive, KEEPALIVE_INTERVAL_MS, type KeepAliveLabel } from '../bank/extractionKeepAlive';
-import { GENERIC_READ_ERROR, STALE_AFTER_MINUTES, STALE_READ_ERROR } from './captureReadState';
-import { readUploadedDocument } from './captureUploadForm';
+import { GENERIC_READ_ERROR, NOT_STORED_ERROR, STALE_AFTER_MINUTES, STALE_READ_ERROR } from './captureReadState';
+import { fetchRawBytes } from '@/lib/documentStorage';
+import { CapturedDocumentMissingError } from '@/lib/supabaseStorage';
+import { MIME_BY_FILE_TYPE, readUploadedDocument } from './captureUploadForm';
 import type { ExtractedDocument } from '../../types/documentCapture.types';
 
 type DbRow = Record<string, unknown>;
@@ -51,15 +61,16 @@ function validIsoDate(value: string | null): string | null {
 }
 
 /** A sign of life with no progress to report: the job is alive and waiting for a VLM slot. */
-async function touch(companyId: string, documentId: string): Promise<void> {
+async function touch(companyId: string, documentId: string, attempt: number): Promise<void> {
   await sql`
     UPDATE captured_documents
     SET read_heartbeat_at = NOW()
     WHERE id = ${documentId}::uuid AND company_id = ${companyId} AND read_state = 'reading'
+      AND read_attempt = ${attempt}
   `;
 }
 
-async function save(companyId: string, documentId: string, extracted: ExtractedDocument): Promise<DbRow[]> {
+async function save(companyId: string, documentId: string, attempt: number, extracted: ExtractedDocument): Promise<DbRow[]> {
   return (await sql`
     UPDATE captured_documents
     SET extracted_data = ${JSON.stringify(extracted)}::jsonb,
@@ -71,17 +82,18 @@ async function save(companyId: string, documentId: string, extracted: ExtractedD
         vat_amount = COALESCE(vat_amount, ${extracted.vatAmount}::numeric),
         read_state = 'done', read_error = NULL, read_heartbeat_at = NOW()
     WHERE id = ${documentId}::uuid AND company_id = ${companyId} AND read_state = 'reading'
-      AND posted_at IS NULL AND status = 'pending'
+      AND read_attempt = ${attempt} AND posted_at IS NULL AND status = 'pending'
       AND COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => ${STALE_AFTER_MINUTES})
     RETURNING id
   `) as DbRow[];
 }
 
 /**
- * The save matched nothing: the row was settled by a person, or went stale. End "reading" and touch nothing else.
+ * The save matched nothing: the row was settled by a person, went stale, or was re-armed by a retry (then this ends
+ * nothing: the attempt fence matches no row). End "reading" and touch nothing else.
  * Which of the two is decided inside the statement, from the same sign-of-life clock the save used.
  */
-async function finishWithoutSaving(companyId: string, documentId: string): Promise<void> {
+async function finishWithoutSaving(companyId: string, documentId: string, attempt: number): Promise<void> {
   const ended = (await sql`
     UPDATE captured_documents
     SET read_state = CASE WHEN COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => ${STALE_AFTER_MINUTES})
@@ -90,6 +102,7 @@ async function finishWithoutSaving(companyId: string, documentId: string): Promi
                           THEN NULL ELSE ${STALE_READ_ERROR} END,
         read_heartbeat_at = NOW()
     WHERE id = ${documentId}::uuid AND company_id = ${companyId} AND read_state = 'reading'
+      AND read_attempt = ${attempt}
     RETURNING id, read_state
   `) as DbRow[];
   if (ended.length === 0) {
@@ -102,43 +115,59 @@ async function finishWithoutSaving(companyId: string, documentId: string): Promi
     : 'captureRead: document was settled meanwhile, result dropped', { documentId }, 'capture-read');
 }
 
-async function markFailed(companyId: string, documentId: string, err: unknown): Promise<void> {
+/** The bytes behind the row are not there: no pointer, or the object is gone. Retrying cannot help. */
+class NotStoredError extends Error {}
+
+async function markFailed(companyId: string, documentId: string, attempt: number, err: unknown): Promise<void> {
   log.error('captureRead: read failed', {
     documentId, error: err instanceof Error ? err.message : String(err),
   }, 'capture-read');
+  const message = err instanceof NotStoredError ? NOT_STORED_ERROR : GENERIC_READ_ERROR;
   const failed = (await sql`
     UPDATE captured_documents
-    SET read_state = 'failed', read_error = ${GENERIC_READ_ERROR}, read_heartbeat_at = NOW()
+    SET read_state = 'failed', read_error = ${message}, read_heartbeat_at = NOW()
     WHERE id = ${documentId}::uuid AND company_id = ${companyId} AND read_state = 'reading'
+      AND read_attempt = ${attempt}
     RETURNING id
   `) as DbRow[];
   log.info('captureRead: read failure recorded', { documentId, recorded: failed.length === 1 }, 'capture-read');
 }
 
-/** Read the upload behind `documentId` and finish its row. See the file header. */
-export async function runCaptureRead(
-  companyId: string, documentId: string, buffer: Buffer, mimeType: string,
-): Promise<void> {
+/** Load the stored upload and read it with the VLM. A Storage outage throws as it is (retryable). */
+async function loadAndRead(companyId: string, documentId: string): Promise<ExtractedDocument> {
+  let stored: Awaited<ReturnType<typeof fetchRawBytes>>;
+  try {
+    stored = await fetchRawBytes(documentId, companyId);
+  } catch (err) {
+    if (err instanceof CapturedDocumentMissingError) throw new NotStoredError(err.message);
+    throw err;
+  }
+  if (!stored) throw new NotStoredError('no stored bytes behind the row');
+  return readUploadedDocument(stored.buffer, MIME_BY_FILE_TYPE[stored.fileType] ?? 'application/octet-stream');
+}
+
+/** Read the stored upload behind `documentId` for `attempt` and finish its row. See the file header. */
+export async function runCaptureRead(companyId: string, documentId: string, attempt: number): Promise<void> {
   try {
     try {
       const extracted = await withKeepAlive(
-        () => touch(companyId, documentId),
-        () => readUploadedDocument(buffer, mimeType),
+        () => touch(companyId, documentId, attempt),
+        () => loadAndRead(companyId, documentId),
         KEEPALIVE_INTERVAL_MS,
         CAPTURE_READ_CEILING_MS,
         KEEPALIVE_LABEL,
       );
-      const saved = await save(companyId, documentId, extracted);
+      const saved = await save(companyId, documentId, attempt, extracted);
       if (saved.length === 0) {
-        await finishWithoutSaving(companyId, documentId);
+        await finishWithoutSaving(companyId, documentId, attempt);
         return;
       }
       log.info('captureRead: read complete', {
-        documentId, confidence: extracted.confidence, documentType: extracted.documentType,
+        documentId, attempt, confidence: extracted.confidence, documentType: extracted.documentType,
         extractionMethod: extracted.extractionMethod,
       }, 'capture-read');
     } catch (err) {
-      await markFailed(companyId, documentId, err);
+      await markFailed(companyId, documentId, attempt, err);
     }
   } catch (err) {
     log.error('captureRead: could not record the read outcome', {

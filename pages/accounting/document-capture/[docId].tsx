@@ -76,7 +76,7 @@ export default function DocumentCaptureDetailPage() {
     setDocumentType(found.documentType || ext?.documentType || 'unknown');
     setNotes(found.notes || '');
   }, []);
-  const { doc, isLoading, error, reload: loadDocument, isReading } = useCapturedDocument(docId, applyLoaded);
+  const { doc, isLoading, error, reload: loadDocument, isReading, readStatus } = useCapturedDocument(docId, applyLoaded);
 
   async function handleConfirm() {
     if (!doc) return;
@@ -220,7 +220,7 @@ export default function DocumentCaptureDetailPage() {
         </div>
 
         <div className="p-6 space-y-6 max-w-4xl mx-auto">
-          <CaptureReadStatus readState={doc.readState} readError={doc.readError} />
+          {readStatus && <CaptureReadStatus {...readStatus} />}
 
           {/* Warnings */}
           {extracted && extracted.warnings.length > 0 && (
