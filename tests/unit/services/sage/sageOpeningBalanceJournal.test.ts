@@ -19,4 +19,10 @@ describe('isSageOpeningBalanceJournal', () => {
     expect(isSageOpeningBalanceJournal(null, undefined)).toBe(false);
     expect(isSageOpeningBalanceJournal('', '')).toBe(false);
   });
+
+  it('reads a numeric description or reference (untyped Sage JSON) without throwing', () => {
+    expect(isSageOpeningBalanceJournal('Bank transfer', 10045)).toBe(false);
+    expect(isSageOpeningBalanceJournal(0, 0)).toBe(false);
+    expect(isSageOpeningBalanceJournal(12, 'O/B')).toBe(true);
+  });
 });

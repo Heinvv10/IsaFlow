@@ -14,8 +14,11 @@
 const OPENING_DESCRIPTION = 'o/b from other system';
 const OPENING_REFERENCES: ReadonlySet<string> = new Set(['o/balance', 'o/b']);
 
-export function isSageOpeningBalanceJournal(description: string | null | undefined, reference: string | null | undefined): boolean {
-  const desc = (description ?? '').replace(/[ .,;:!]+$/, '').toLowerCase();
-  const ref = (reference ?? '').replace(/^ +| +$/g, '').toLowerCase();
+/** Sage's JSON is untyped: a reference can arrive as a number. */
+type SageText = string | number | null | undefined;
+
+export function isSageOpeningBalanceJournal(description: SageText, reference: SageText): boolean {
+  const desc = String(description ?? '').replace(/[ .,;:!]+$/, '').toLowerCase();
+  const ref = String(reference ?? '').replace(/^ +| +$/g, '').toLowerCase();
   return desc === OPENING_DESCRIPTION || OPENING_REFERENCES.has(ref);
 }
