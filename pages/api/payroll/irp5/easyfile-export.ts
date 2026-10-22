@@ -29,7 +29,8 @@ import {
 } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
-import { listRunAnnualPayments, listRunLumpSums } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
+import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
+import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 
 function firstTwoNames(fullFirst: string): string {
   return fullFirst.trim().split(/\s+/).slice(0, 2).join(' ');
@@ -79,11 +80,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // cancelled run declared here would over-state remuneration to SARS.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
-  // Severance paid in a run under its directive (own code, PAYE under 4115) and
-  // annual payments (3605): reported apart, so taken out of 3601 (and the lump
-  // sums' PAYE out of 4102) below (audit 2026-10-18 P3).
+  // Lump sums paid under a directive, in a run or outside payroll (own code,
+  // PAYE under 4115 or 4102 by code), and annual payments (3605): reported
+  // apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a
+  // follow-ups G1). The stand-alone payments are in no run line, so their
+  // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSumsByEmployee, annualByEmployee] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -120,7 +123,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         )
       GROUP BY prl.employee_id
     ` as Promise<DbRow[]>,
-    listRunLumpSums(companyId, bounds),
+    listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
   ]);
 
@@ -156,17 +159,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const yoaEndInclusive = `${endYear}0228`; // Feb 28 — good enough for periods heuristic
 
   const employees: EmployeeInput[] = [];
+  const warnings: string[] = [];
   let seq = 0;
   for (const row of empRows) {
-    const agg = aggMap.get(String(row.id));
+    const standalone = lumpSums.standaloneTotals.get(String(row.id)) ?? { gross: 0, paye: 0 };
+    const agg = aggMap.get(String(row.id)) ?? (standalone.gross > 0 ? ({} as DbRow) : undefined);
     if (!agg) continue;
-    const gross = Number(agg.total_gross ?? 0);
+    const gross = Number(agg.total_gross ?? 0) + standalone.gross;
     if (gross <= 0) continue; // skip non-active employees
 
-    const lumpSums = lumpSumsByEmployee.get(String(row.id)) ?? [];
+    const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
     const split = splitCertificateIncome({
-      gross, paye: Number(agg.total_paye ?? 0), annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums,
+      gross, paye: Number(agg.total_paye ?? 0) + standalone.paye,
+      annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums: employeeLumpSums,
     });
+    const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
+    warnings.push(...employeeLumpSums.filter(l => l.issuedDateFallback).map(l => issuedDateWarning(who, l)));
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
@@ -185,7 +193,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       ...split,
-      lumpSums: lumpSums.map(l => ({
+      lumpSums: employeeLumpSums.map(l => ({
         sourceCode: l.sourceCode,
         directiveNumber: l.directiveNumber ?? '',
         directiveIssuedDate: l.directiveIssuedDate.replace(/-/g, ''),
@@ -228,6 +236,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     log.info('e@syFile IRP5 export generated', {
       companyId, taxYear, employees: employees.length, bytes: fileBody.length,
     }, 'easyFileExport');
+    // A directive with no issued date files its effective date as 3231, and a
+    // payment under a directive linked to no employee is on no certificate
+    // (applyTaxDirective now refuses those): both said, naming the directive,
+    // and shown by the IRP5 page.
+    warnings.push(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
+      + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
+    if (warnings.length > 0) {
+      log.warn('e@syFile export warnings', { companyId, taxYear, warnings }, 'easyFileExport');
+      res.setHeader('X-IsaFlow-Warnings', encodeURIComponent(JSON.stringify(warnings)));
+    }
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
