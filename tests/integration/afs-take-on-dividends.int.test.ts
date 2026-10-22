@@ -124,6 +124,16 @@ describe('dividends in a take-on, across the AFS pack', () => {
     expect(await gap(t, 2025)).toBe(await gap(base, 2025));
   });
 
+  it('a company with no take-on has an ISTAKEON of 0 and prints no "Balances taken on" row', async () => {
+    const derived = (await isLines(base, 2025)).find((l) => l.code === 'ISTAKEON');
+    expect(derived).toBeDefined();
+    expect(derived!.currentAmount).toBeCloseTo(0, 2);
+    const table = (await generateIncomeStatement(base.company, 2025, 'ifrs_smes')).content.blocks
+      .find((x) => x.type === 'table') as { rows: string[][] };
+    expect(table.rows.some((r) => r[0]!.includes('Balances taken on'))).toBe(false);
+    expect(table.rows.some((r) => r[0]!.includes('Accumulated income (loss) end of year'))).toBe(true); // the chain is printed
+  });
+
   it('the next year opens on the take-on year\'s close: ISACCBF equals the prior year\'s IS485, on the same page', async () => {
     for (const tenant of [t, base]) {
       const is26 = await isLines(tenant, 2026);

@@ -21,8 +21,8 @@ import { sql } from '@/lib/neon';
 import { getRetainedEarningsBroughtForward } from '@/modules/accounting/services/gl/trialBalanceBasis';
 import { calculateRetainedEarnings } from '@/modules/accounting/services/reports/balanceSheetService';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
-import { TAKE_ON_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/takeOnJournalSource';
 import { DIVIDENDS_PAID_CODE, fetchDividendsPaid } from './dividendsPaid';
+import { fetchTakeOnByLine } from './takeOnEquity';
 import type { SectionLine } from './_helpers';
 
 /** The taxonomy's "Accumulated profit (loss)" line and its parent header. */
@@ -84,8 +84,9 @@ export const ACCUMULATED_BF_CODE = 'ISACCBF';
 
 /**
  * The derived "Balances taken on" line of the income statement's accumulated chain: what a take-on journal
- * dated inside the year carried onto retained earnings and IS484 dividends. A take-on is opening, so it
- * belongs beside ISACCBF, not in IS484 (which leaves take-on journals out) or nowhere: without it IS485
+ * dated inside the year carried onto the accumulated-profit row (by AFS mapping, as BS045) and IS484
+ * dividends. A take-on is opening, so it belongs beside ISACCBF, not in IS484 (which leaves take-on
+ * journals out) or nowhere: without it IS485
  * misses the take-on in the take-on year and disagrees with BS045, and the next year's ISACCBF (which counts
  * the take-on as before the year) disagrees with the IS485 it carries forward.
  */
@@ -115,50 +116,38 @@ async function fetchOpeningAccumulatedIncome(
   companyId: string,
   beforeDate: string,
 ): Promise<number> {
-  const [posted, broughtForward] = await Promise.all([
-    fetchPostedAccumulated(companyId, null, beforeDate, false),
+  const [postedRows, broughtForward] = await Promise.all([
+    sql`
+      SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS balance
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
+      WHERE je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
+        AND je.company_id = ${companyId}::uuid
+        AND jl.company_id = ${companyId}::uuid
+        AND ga.company_id = ${companyId}::uuid
+        AND ga.account_type = 'equity'
+        AND (ga.account_subtype = 'retained_earnings' OR ((ga.normal_balance = 'debit' OR ga.account_subtype = 'dividends') AND EXISTS (
+          SELECT 1 FROM afs_account_mappings am
+          WHERE am.company_id = ${companyId}::uuid AND am.gl_account_id = ga.id
+            AND am.afs_line_code = ${DIVIDENDS_PAID_CODE})))
+        AND je.entry_date < ${beforeDate}::date
+    ` as unknown as Promise<Array<{ balance: string | number }>>,
     getRetainedEarningsBroughtForward(companyId, beforeDate),
   ]);
-  return posted + broughtForward;
+
+  return Number(postedRows[0]?.balance ?? 0) + broughtForward;
 }
 
 /**
- * What was posted to the accumulated-income accounts (retained earnings, and dividends accounts mapped
- * to IS484) in [from, beforeDate), the year-end close skipped; with `takeOnOnly`, only take-on journals
- * (TAKE_ON_JOURNAL_SOURCE). CREDIT-POSITIVE.
+ * What take-on journals dated in [from, through] carried onto the accumulated-profit row, CREDIT-POSITIVE: the
+ * AFS SOCE's "Balances taken on" figure for that row (takeOnEquity.ts, placed by equity.ts), i.e. by AFS mapping
+ * like BS045 itself (BS045, or BSACCPL), plus a dividends account on IS484 — never by account subtype.
  */
-async function fetchPostedAccumulated(
-  companyId: string,
-  from: string | null,
-  beforeDate: string,
-  takeOnOnly: boolean,
-): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
-    WHERE je.status     = 'posted' AND je.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
-      AND je.company_id = ${companyId}::uuid
-      AND jl.company_id = ${companyId}::uuid
-      AND ga.company_id = ${companyId}::uuid
-      AND ga.account_type = 'equity'
-      AND (ga.account_subtype = 'retained_earnings' OR ((ga.normal_balance = 'debit' OR ga.account_subtype = 'dividends') AND EXISTS (
-        SELECT 1 FROM afs_account_mappings am
-        WHERE am.company_id = ${companyId}::uuid AND am.gl_account_id = ga.id
-          AND am.afs_line_code = ${DIVIDENDS_PAID_CODE})))
-      AND (${from}::date IS NULL OR je.entry_date >= ${from}::date)
-      AND je.entry_date < ${beforeDate}::date
-      AND (NOT ${takeOnOnly}::boolean OR je.source = ${TAKE_ON_JOURNAL_SOURCE})
-  `) as Array<{ balance: string | number }>;
-  return Number(rows[0]?.balance ?? 0);
-}
-
-/** The day after `date` (YYYY-MM-DD), the exclusive bound for a period that ends on `date`. */
-function dayAfter(date: string): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
+async function fetchAccumulatedTakeOn(companyId: string, from: string, through: string): Promise<number> {
+  const byLine = await fetchTakeOnByLine(companyId, from, through);
+  return [ACCUMULATED_PROFIT_CODE, DERIVED_ACCUMULATED_PROFIT_CODE, DIVIDENDS_PAID_CODE]
+    .reduce((sum, code) => sum + (byLine.get(code) ?? 0), 0);
 }
 
 /**
@@ -194,10 +183,10 @@ export async function addDerivedOpeningAccumulatedIncome(
     priorStart === null
       ? Promise.resolve(0)
       : fetchOpeningAccumulatedIncome(companyId, priorStart),
-    fetchPostedAccumulated(companyId, start, dayAfter(end), true),
+    fetchAccumulatedTakeOn(companyId, start, end),
     priorStart === null || priorEnd === null
       ? Promise.resolve(0)
-      : fetchPostedAccumulated(companyId, priorStart, dayAfter(priorEnd), true),
+      : fetchAccumulatedTakeOn(companyId, priorStart, priorEnd),
   ]);
 
   // Positioned RELATIVE to the accumulated-income total, never on a fixed
