@@ -18,6 +18,7 @@ import { log } from '@/lib/logger';
 import {
   SupplierMergeRefusal, assertSupplierMergeKeepsDrcFlag,
 } from '@/modules/accounting/services/core/duplicateMergeService';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '@/modules/accounting/services/ap/supplierPaymentAuthors';
 
 const MergeBodySchema = z.object({
@@ -112,6 +113,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, { merged: true, target_id });
   } catch (err: unknown) {
+    // A held row or a deadlock victim: 503 + Retry-After (the supplier lock helper's own timeout included).
+    if (respondIfLockTimeout(res, err)) return;
     const message = err instanceof Error ? err.message : String(err);
     log.error('supplier-merge POST failed', { error: message, module: 'accounting' });
 

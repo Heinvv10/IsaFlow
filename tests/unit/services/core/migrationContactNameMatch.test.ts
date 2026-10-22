@@ -9,7 +9,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/migrationService', () => ({ updateSession: vi.fn() }));
+vi.mock('@/modules/accounting/services/ap/batchBeforeSupplierLock', () => ({ lockBatchesThenSupplierSet: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierPaymentAuthors', () => ({
+  STAMPED_BATCH_STATUSES: ['draft', 'approved'],
   bankDetailsChange: vi.fn(() => 'none'), hasBankDetails: vi.fn(() => false),
   lockSupplierBankDetails: vi.fn(), recordBankDetailsSetter: vi.fn(),
 }));

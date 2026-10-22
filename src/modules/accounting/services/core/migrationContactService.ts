@@ -9,8 +9,9 @@ import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { DbRow } from '@/types/db';
 import {
-  bankDetailsChange, hasBankDetails, lockSupplierBankDetails, recordBankDetailsSetter,
+  STAMPED_BATCH_STATUSES, bankDetailsChange, hasBankDetails, lockSupplierBankDetails, recordBankDetailsSetter,
 } from '../ap/supplierPaymentAuthors';
+import { lockBatchesThenSupplierSet } from '../ap/batchBeforeSupplierLock';
 
 
 export interface CustomerImportRow {
@@ -134,6 +135,19 @@ export async function importSuppliers(
   `) as DbRow[];
   const existing = existingRows.map(r => ({ id: String(r.id), name: String(r.name) }));
 
+  // Batch before supplier, for the WHOLE import (bank/.claude.md): a row's supplier lock is held to the end of the
+  // request, so locking the next row's batches after it would take a batch while holding a supplier. Every
+  // overwritten supplier that may change a bank detail has its batches locked first, then the rows, in id order.
+  if (duplicateStrategy === 'overwrite') {
+    const targets = new Set<string>();
+    for (const sup of suppliers) {
+      if (!sup.name?.trim() || ![sup.bankName, sup.bankAccountNumber, sup.bankBranchCode, sup.bankAccountType].some((x) => x != null)) continue;
+      const duplicate = findDuplicate(sup.name, existing);
+      if (duplicate) targets.add(duplicate.id);
+    }
+    await lockBatchesThenSupplierSet(companyId, [...targets], STAMPED_BATCH_STATUSES);
+  }
+
   for (let i = 0; i < suppliers.length; i++) {
     const sup = suppliers[i]!;
     if (!sup.name?.trim()) {
@@ -149,8 +163,8 @@ export async function importSuppliers(
 
       if (duplicate && duplicateStrategy === 'overwrite') {
         // Judged against the row as locked, not the statement snapshot (R-035 PR5).
-        const bankMayChange = [sup.bankName, sup.bankAccountNumber, sup.bankBranchCode, sup.bankAccountType].some((x) => x != null);
-        const before = await lockSupplierBankDetails(companyId, duplicate.id, bankMayChange);
+        // The batches of every overwritten supplier were locked before any supplier row, up front (see above).
+        const before = await lockSupplierBankDetails(companyId, duplicate.id, false);
         const [after] = (await sql`
           UPDATE suppliers SET
             email               = COALESCE(${sup.email ?? null}, email),

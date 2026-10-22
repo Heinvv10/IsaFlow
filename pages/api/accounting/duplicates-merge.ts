@@ -14,6 +14,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import type { AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { mergeEntities } from '@/modules/accounting/services/core/duplicateDetectionService';
 import { SupplierMergeRefusal } from '@/modules/accounting/services/core/duplicateMergeService';
 import { ArRequestError } from '@/modules/accounting/services/ar/arErrors';
@@ -79,6 +80,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (err) {
     // An auto-posting bank rule names the merged-away customer under `bank_rule` (409, nothing merged).
     if (respondIfBankControlRefused(res, err)) return;
+    // A held row or a deadlock victim: 503 + Retry-After (the supplier lock helper's own timeout included).
+    if (respondIfLockTimeout(res, err)) return;
     // Refused before anything moved — the caller can act on the message.
     if (err instanceof SupplierMergeRefusal) return apiResponse.badRequest(res, err.message);
     if (err instanceof ArRequestError) {

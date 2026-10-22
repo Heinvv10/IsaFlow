@@ -151,7 +151,7 @@ describe('who changes where the money goes', () => {
     ]);
     for (const rel of editors) {
       const t = text(rel);
-      expect(t, rel).toMatch(/const before = await lockSupplierBankDetails\(companyId, [\w.]+, bankMayChange\);\s+const (rows|\[after\]) = \(await sql`\s+UPDATE suppliers SET/);
+      expect(t, rel).toMatch(/const before = await lockSupplierBankDetails\(companyId, [\w.]+, (bankMayChange|false)\);\s+const (rows|\[after\]) = \(await sql`\s+UPDATE suppliers SET/);
       expect(t, rel).toMatch(/bankDetailsChange\(before, (rows\[0\]!|after)\)/);
       expect(t, rel).toMatch(/if \(change !== 'none'\) await recordBankDetailsSetter\(companyId, [\w.]+, \w+, change\)/);
     }
@@ -176,5 +176,23 @@ describe('who changes where the money goes', () => {
     for (const rel of ['pages/api/accounting/supplier-merge.ts', 'src/modules/accounting/services/core/duplicateMergeService.ts']) {
       expect(text(rel), rel).toMatch(/lockBatchesPayingSupplier\(companyId, \w+, null\);[\s\S]{0,400}UPDATE supplier_payments/);
     }
+  });
+});
+
+// ap/batchBeforeSupplierLock relies on this: a payment joins a batch only by an INSERT naming its supplier, whose
+// foreign key takes KEY SHARE on the supplier row, so a held supplier `FOR UPDATE` blocks every way a batch can gain
+// that supplier. An UPDATE that attached an existing payment to a batch takes no supplier lock and would reopen the
+// supplier-then-batch order against the bank-file gate.
+describe('batch membership', () => {
+  const filesWhere = (test: (t: string) => boolean) => files.filter((f) => test(f.text)).map((f) => f.rel).sort();
+  const sets = (t: string) => [...t.matchAll(/UPDATE\s+supplier_payments\s+SET([\s\S]*?)(?:\bWHERE\b|`)/g)].map((m) => m[1]!);
+  const insertColumns = (t: string) => [...t.matchAll(/INSERT\s+INTO\s+supplier_payments\s*\(([^)]*)\)/g)].map((m) => m[1]!);
+
+  it('no UPDATE of supplier_payments assigns batch_id', () => {
+    expect(filesWhere((t) => sets(t).some((s) => /\bbatch_id\s*=/.test(s)))).toEqual([]);
+  });
+
+  it('batch_id is INSERTed only by createBatch, into the batch it just created', () => {
+    expect(filesWhere((t) => insertColumns(t).some((c) => /\bbatch_id\b/.test(c)))).toEqual([`${AP}batchPaymentService.ts`]);
   });
 });
