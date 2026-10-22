@@ -54,7 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'effective_date is required');
     }
     if (body.issued_date != null && !isIsoDate(body.issued_date)) {
-      return apiResponse.badRequest(res, 'issued_date must be a date in YYYY-MM-DD format');
+      return apiResponse.badRequest(res, 'issued_date must be a date in YYYY-MM-DD format from 2000 to today');
     }
     // A rate is a fraction of the gross (0.18 = 18%): above 1 the PAYE would exceed the lump sum.
     if (body.tax_rate != null && (isNaN(Number(body.tax_rate)) || Number(body.tax_rate) < 0 || Number(body.tax_rate) > 1)) {

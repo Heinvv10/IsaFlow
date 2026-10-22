@@ -50,7 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
     }
     if (issuedDate !== undefined && issuedDate !== null && !isIsoDate(issuedDate)) {
-      return apiResponse.badRequest(res, 'issued_date must be a date in YYYY-MM-DD format, or null');
+      return apiResponse.badRequest(res, 'issued_date must be a date in YYYY-MM-DD format from 2000 to today, or null');
     }
 
     let updated;

@@ -204,7 +204,7 @@ export async function getIrp5EmployeeTotals(
       taxNumber: maskTail(r.tax_number, reveal),
       identityNumbersMasked: !reveal,
       grossSalary: round2((Number(r.gross_pay) || 0) + t.gross),
-      taxableIncome: Number(r.taxable_income) || 0,
+      taxableIncome: round2((Number(r.taxable_income) || 0) + t.gross),
       paye: round2((Number(r.paye) || 0) + t.paye),
       uifEmployee: Number(r.uif_employee) || 0,
       uifEmployer: Number(r.uif_employer) || 0,

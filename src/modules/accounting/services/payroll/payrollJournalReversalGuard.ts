@@ -21,8 +21,12 @@
  * judged the chain or waits until approval has committed and is judged here
  * against what approval left.
  *
- * Scope: journals posted by a pay run only. UIF-declaration and tax-directive
- * payments also carry source 'auto_payroll'; they are not a run's journal.
+ * Scope: journals posted by a pay run, and one rule for a SARS directive paid
+ * outside payroll (applyTaxDirective, also source 'auto_payroll'): once its
+ * chain nets to zero the payment is undone (cancel and re-apply follow from
+ * that, taxDirectivePaidGuard), so reversing the reversal is refused rather
+ * than re-booking a payment the directive no longer records. UIF-declaration
+ * journals are not judged.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
@@ -53,6 +57,22 @@ export class PayrollRunBusyError extends Error {
   }
 }
 
+/** The description applyTaxDirective gives its journal ("SARS directive <number> — <employee>"). */
+const DIRECTIVE_JOURNAL = /^SARS directive /;
+
+/** The refusal for reversing a reversed directive payment's chain back into force, or null. */
+async function directiveRevival(companyId: string, rootId: string, description: string, db: TxSql): Promise<string | null> {
+  const paid = (await db`
+    SELECT 1 FROM tax_directive_payments WHERE company_id = ${companyId}::uuid AND journal_entry_id = ${rootId}::uuid LIMIT 1
+  `) as DbRow[];
+  if (paid.length === 0 && !DIRECTIVE_JOURNAL.test(description)) return null;
+  const chain = await readJournalChain(companyId, rootId, db);
+  if (!chain || chain.state !== 'out') return null;
+  return `Journal ${chain.journals[0]!.entryNumber} paid a SARS directive outside payroll and has been reversed `
+    + `(${chain.journals.map((j) => j.entryNumber).join(', ')} net to zero), so the payment is undone. Reversing its reversal is refused: `
+    + 'to pay the directive again, apply it again.';
+}
+
 /** The description postPayrollRunJournal gives a run's journal (payrollJournalBuilder). */
 const RUN_JOURNAL = /^Payroll run (\d{4})-(\d{2})$/;
 
@@ -78,7 +98,7 @@ async function judge(companyId: string, rootId: string, db: TxSql): Promise<stri
   const root = chain?.journals[0];
   if (!chain || !root) return null;
   const run = await payRunOf(companyId, rootId, root.description, db);
-  if (!run) return null; // 'auto_payroll', but not a pay run's journal
+  if (!run) return directiveRevival(companyId, rootId, root.description, db);
   const numbers = chain.journals.map((j) => j.entryNumber).join(', ');
   if (chain.broken) return brokenChain(numbers);
 
@@ -125,7 +145,12 @@ export async function refuseReversalAgainstPayRun(companyId: string, entry: { id
   const root = chain?.journals[0];
   if (!root) return;
   const run = await payRunOf(companyId, rootId, root.description, sql);
-  if (!run) return;
+  if (!run) {
+    // No run lock to take: a directive payment's chain only ever goes from in force to out.
+    const refusal = await directiveRevival(companyId, rootId, root.description, sql);
+    if (refusal) throw new PayrollJournalReversalRefusedError(refusal);
+    return;
+  }
 
   try {
     await lockPayrollRunHeader(run.id, companyId);

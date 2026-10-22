@@ -21,6 +21,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
 import { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
+import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
 
 export { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError };
 
@@ -138,6 +139,7 @@ export async function applyTaxDirective(
     SELECT 1 FROM payroll_employees WHERE company_id = ${companyId} AND id = ${dir.employee_id}
   `) as Row[];
   if (employee.length === 0) throw new TaxDirectiveWithoutEmployeeError(directiveId);
+  await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 2. Compute amounts
   const gross = round2(num(dir.amount));
