@@ -6,7 +6,8 @@
  *
  *  - the latest statement wins whatever its status, and its typed balance
  *    comes with it; the latest completed one is reported beside it
- *  - two sessions on the same statement date: the completed one's balance
+ *  - sessions on the same statement date: the completed one's balance, also
+ *    against a NULL-status session created after it
  *  - an account with no completed session: lastReconciledDate null
  *  - an account with no session at all: absent
  *  - another company's sessions, on an account of its own, never appear
@@ -31,7 +32,7 @@ async function bankAccount(fx: Fixture, code: string): Promise<string> {
   return String(rows[0].id);
 }
 
-async function session(fx: Fixture, account: string, date: string, balance: number, status: string): Promise<void> {
+async function session(fx: Fixture, account: string, date: string, balance: number, status: string | null): Promise<void> {
   await fx.pool.query(
     `INSERT INTO bank_reconciliations(company_id,bank_account_id,statement_date,statement_balance,status,started_by)
      VALUES($1,$2,$3,$4,$5,$6)`, [fx.company, account, date, balance, status, fx.user]);
@@ -53,6 +54,7 @@ describeIfDb('getLatestStatements', () => {
     // Same statement date: the in-progress one entered first, the completed one after.
     await session(f, acct.b, '2026-09-30', 5, 'in_progress');
     await session(f, acct.b, '2026-09-30', 6, 'completed');
+    await session(f, acct.b, '2026-09-30', 4, null); // a NULL status, created last, must not win
     await session(f, acct.c, '2026-07-31', 7, 'in_progress');
     await session(other, acct.other, '2026-12-31', 999, 'completed');
   }, 60000);

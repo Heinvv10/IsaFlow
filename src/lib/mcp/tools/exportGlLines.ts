@@ -16,10 +16,11 @@
  * reports/glExportComputedTables) are built whole on every call, so their
  * summary describes the complete table; it comes with the first page only, as
  * the lines' does. They are as at today: date_from, date_to and status are
- * refused. Their cursor is [as_at, row count, control total in cents, kind,
- * id]: a later page is a slice of a table rebuilt for it, so the cursor
- * carries the first page's table fingerprint, and a page whose rebuilt table
- * differs — a document posted, or midnight passed, mid-paging — is refused
+ * refused. Their cursor is [as_at, row count, table digest, kind, id]: a
+ * later page is a slice of a table rebuilt for it, so the cursor carries the
+ * first page's fingerprint — the digest covers every value of every row — and
+ * a page whose rebuilt table differs in anything (a document posted, a
+ * receipt applied, a feed line imported, midnight passed) is refused
  * rather than served as a slice of a table the first page's summary does not
  * describe.
  *
@@ -27,6 +28,7 @@
  * glLineExportTables.GL_EXPORT_EXTRA_SCOPE names — counterparties needs
  * read:contacts, bank_accounts read:bank-tx. The REST route reads the same map.
  */
+import { createHash } from 'crypto';
 import type { McpTool, McpToolContext, McpToolResult } from '../types';
 import { GL_LINE_EXPORT_COLUMNS, GL_LINE_EXPORT_SCHEMA_VERSION, toExportRow } from '@/modules/accounting/services/reports/glLineExportRows';
 import {
@@ -93,7 +95,15 @@ const DESCRIPTION = [
 
 /** A count carried in a cursor: digits only, so a forged one cannot reach a query. */
 const isCount = (v: string | undefined): v is string => v !== undefined && /^\d{1,12}$/.test(v);
-const isCents = (v: string | undefined): v is string => v !== undefined && /^-?\d{1,15}$/.test(v);
+/** A table digest carried in a cursor: 16 hex characters. */
+const isDigest = (v: string | undefined): v is string => v !== undefined && /^[0-9a-f]{16}$/.test(v);
+
+/** Every row's every value, in the table's order: any change to the table changes it. */
+function tableDigest(rows: ReadonlyArray<Record<string, unknown>>, columns: readonly string[]): string {
+  const h = createHash('sha256');
+  for (const r of rows) h.update(JSON.stringify(columns.map((c) => r[c] ?? null))).update('\n');
+  return h.digest('hex').slice(0, 16);
+}
 
 async function computedPage(
   table: GlComputedTable, args: Record<string, unknown>, ctx: McpToolContext,
@@ -104,24 +114,24 @@ async function computedPage(
   const limit = clampLimit(args, DEFAULT_LIMIT, MAX_LIMIT);
   const rawCursor = strArg(args, 'cursor');
   let cursor: readonly [string, string] | null = null;
-  let issued: { asAt: string; rowCount: number; controlCents: number } | null = null;
+  let issued: { asAt: string; rowCount: number; digest: string } | null = null;
   if (rawCursor !== undefined) {
     const [asAt, n, c, kind, id] = decodeCursor(rawCursor, 5)?.parts ?? [];
-    if (!isLedgerDate(asAt) || !isCount(n) || !isCents(c) || kind === undefined
+    if (!isLedgerDate(asAt) || !isCount(n) || !isDigest(c) || kind === undefined
       || !GL_COMPUTED_CURSOR_KINDS.includes(kind) || !UUID_RE.test(id ?? '')) {
       return toolError('invalid cursor');
     }
     cursor = [kind, id!];
-    issued = { asAt: asAt!, rowCount: Number(n), controlCents: Number(c) };
+    issued = { asAt: asAt!, rowCount: Number(n), digest: c! };
   }
   const built = await buildComputedTable(ctx.companyId, table);
   const fingerprint = {
     asAt: built.summary.asAt,
     rowCount: built.rows.length,
-    controlCents: Math.round(built.summary.controlTotal * 100),
+    digest: tableDigest(built.rows, built.columns),
   };
   if (issued !== null && (issued.asAt !== fingerprint.asAt || issued.rowCount !== fingerprint.rowCount
-    || issued.controlCents !== fingerprint.controlCents)) {
+    || issued.digest !== fingerprint.digest)) {
     return toolError(`table "${table}" changed since the first page (a document was posted, or the as-at date moved): start again without a cursor`);
   }
   const page = pageComputedTable(table, built, cursor, limit);
@@ -134,7 +144,7 @@ async function computedPage(
     rows: page.rows.map((r) => page.columns.map((c) => r[c] ?? null)),
     next_cursor: page.next === null
       ? null
-      : encodeCursor({ parts: [fingerprint.asAt, String(fingerprint.rowCount), String(fingerprint.controlCents), ...page.next] }),
+      : encodeCursor({ parts: [fingerprint.asAt, String(fingerprint.rowCount), fingerprint.digest, ...page.next] }),
     // The control block, first page only; the cursor's fingerprint holds every
     // later page to the table it describes.
     summary: cursor === null ? built.summary : null,
