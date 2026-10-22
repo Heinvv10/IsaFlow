@@ -26,6 +26,7 @@ import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
+import type { PayrollJournalNote } from './payrollJournalBuilder';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -114,4 +115,38 @@ export async function laterPeriodsWarnings(
       + 'among them, nothing follows and IsaFlow has no PAYE adjustment: the difference stays until the employee\'s assessment, '
       + 'unless those runs are reopened and recalculated in order.',
   }]));
+}
+
+/**
+ * The approval-gate blocker for a run whose year-to-date went stale: an
+ * earlier month of its tax year was approved AFTER this run's lines were
+ * calculated, so its cumulative PAYE left that month out (two months
+ * calculated before either was approved). Recalculating picks it up. Null
+ * when current. Read-only.
+ */
+export async function judgeYearToDateStale(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
+  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  const rows = (await sql`
+    WITH me AS (
+      SELECT h.period_year, h.period_month,
+             make_date(CASE WHEN h.period_month >= 3 THEN h.period_year ELSE h.period_year - 1 END, 3, 1) AS year_start,
+             (SELECT MAX(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
+      FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+    )
+    SELECT e.period_year, e.period_month
+    FROM payroll_run_headers e, me
+    WHERE e.company_id = ${companyId}::uuid AND e.id <> ${runId}::uuid
+      AND e.status = ANY(${declarable}::text[])
+      AND make_date(e.period_year, e.period_month, 1) >= me.year_start
+      AND make_date(e.period_year, e.period_month, 1) < make_date(me.period_year, me.period_month, 1)
+      AND e.approved_at > me.calculated_at
+    ORDER BY e.period_year, e.period_month
+  `) as DbRow[];
+  if (rows.length === 0) return null;
+  const months = rows.map(r => `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`).join(', ');
+  return {
+    code: 'paye_year_to_date_stale',
+    detail: `An earlier month of this tax year (${months}) was approved after this run was calculated. PAYE is cumulative over `
+      + 'the year, so this run\'s PAYE left that month out. Recalculate the run, then approve it.',
+  };
 }

@@ -73,4 +73,27 @@ describe('G4: months approved out of order', () => {
     expect((await codes(ids['2027-1']!, leaver)).map(c => c.code)).not.toContain('PAYE_LATER_PERIODS_APPROVED');
     expect(Math.round((inOrder - total) * 100) / 100).toBe(340);
   });
+
+  it('January and February both calculated before either is approved: February\'s approval is refused until recalculated, then the year is whole', async () => {
+    const f = await seedEmployee(pool, fixtures, 'P4fu order: both calculated', 20_000);
+    await setSalary(pool, f, 2027, 1, 60_000);
+    const ids: Record<string, string> = {};
+    for (const p of PERIODS) ids[`${p.year}-${p.month}`] = await mk(f, p.year, p.month);
+    let total = 0;
+    for (const p of PERIODS.slice(0, 10)) total += await calcApprove(f, ids[`${p.year}-${p.month}`]!);
+    const jan = ids['2027-1']!;
+    const feb = ids['2027-2']!;
+    for (const id of [jan, feb]) {
+      const calc = await f.call(calculate as Route, 'POST', `/api/payroll/runs/${id}/calculate`, id);
+      expect(calc.statusCode).toBe(200);
+    }
+    expect((await approveRun(f, jan)).statusCode).toBe(200);
+    total += (await runLine(pool, jan, f.employee)).paye;
+    const refused = await approveRun(f, feb);
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/2027-01.*Recalculate the run/);
+    total += await calcApprove(f, feb);
+    // R20 000 × 10 + R60 000 × 2 = R320 000: tax(320 000) = 45 772, the whole year's liability (no shortfall).
+    expect(Math.round(total * 100) / 100).toBe(45_772);
+  });
 });
