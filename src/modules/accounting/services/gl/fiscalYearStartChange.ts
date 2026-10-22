@@ -30,12 +30,10 @@ import type { FiscalPeriod } from '../../types/gl.types';
 import { createFiscalYear, resolveCompanyPeriodAlignment } from './fiscalYearCreateService';
 import { fiscalYearOfDate, normaliseStartMonth } from './fiscalYearCalendar';
 import { countFiscalPeriodReferences, periodsInUse, type FiscalPeriodReferences } from './fiscalPeriodReferences';
+import { YEAR_END_CHANGE_MESSAGE } from './financialYearStartMessages';
 
 export { countFiscalPeriodReferences, NO_REFERENCES, type FiscalPeriodReferences } from './fiscalPeriodReferences';
 
-/** True today: the guided change of year end is being built, not shipped. */
-const YEAR_END_CHANGE = 'Changing the financial year end will be possible through a guided change of year end '
-  + '(coming soon); contact support if you need it now.';
 
 /** The periods cannot be rebuilt: something already uses them. A 409, nothing was written. */
 export class FiscalPeriodsInUseError extends Error {
@@ -45,7 +43,7 @@ export class FiscalPeriodsInUseError extends Error {
     const used = Object.entries(references).filter(([, n]) => n > 0).map(([k, n]) => `${k}: ${n}`).join(', ');
     super(
       `The financial year start cannot be changed: this company's fiscal periods are already in use (${used}). `
-      + `If these are draft journals, delete them first. ${YEAR_END_CHANGE}`,
+      + `If these are draft journals, delete them first. ${YEAR_END_CHANGE_MESSAGE}`,
     );
     this.name = 'FiscalPeriodsInUseError';
     this.references = references;
@@ -56,7 +54,7 @@ export class FiscalPeriodsInUseError extends Error {
 export class FinancialYearStartLockedError extends Error {
   constructor(readonly postedJournals: number) {
     super(`The financial year start cannot be changed after the first posting (${postedJournals} posted journal(s)). `
-      + YEAR_END_CHANGE);
+      + YEAR_END_CHANGE_MESSAGE);
     this.name = 'FinancialYearStartLockedError';
   }
 }
@@ -108,10 +106,28 @@ async function readActualStartMonth(companyId: string): Promise<number | null> {
   return rows[0] ? Number(rows[0].m) : null;
 }
 
+export type FinancialYearStartLock =
+  | { reason: 'posted'; postedJournals: number }
+  | { reason: 'in_use'; references: FiscalPeriodReferences }
+  | null;
+
+/**
+ * Why the financial year start cannot change now, or null when it can: a
+ * posted (or reversed) journal first, else periods otherwise in use. The ONE
+ * predicate behind both the PUT's refusal (assertFinancialYearStartChange) and
+ * the GET's read-only flag (financialYearStartView), so the two cannot drift.
+ */
+export async function financialYearStartLock(companyId: string): Promise<FinancialYearStartLock> {
+  const postedJournals = await countPostedJournals(companyId);
+  if (postedJournals > 0) return { reason: 'posted', postedJournals };
+  const references = await countFiscalPeriodReferences(companyId);
+  return periodsInUse(references) ? { reason: 'in_use', references } : null;
+}
+
 /**
  * What Settings shows for the financial year start of the company it is
  * viewing. Locked exactly when assertFinancialYearStartChange would refuse a
- * change: a posted journal ('posted') or periods otherwise in use ('in_use'). Counted only for the request's ACTIVE company: for another one (a
+ * change (financialYearStartLock). Counted only for the request's ACTIVE company: for another one (a
  * super_admin viewing a tenant) RLS would scope the counts to the active
  * company and could report "unlocked", and the PUT refuses a change there
  * anyway, so the view is read-only and the actual month is not claimed.
@@ -124,12 +140,11 @@ export async function financialYearStartView(companyId: string, activeCompanyId:
   if (companyId !== activeCompanyId) {
     return { financialYearStartLocked: true, financialYearStartLockReason: 'not_active', financialYearStartActual: null };
   }
-  // The PUT's refusal predicate, so the field is never editable for a change the PUT would 409.
-  const posted = (await countPostedJournals(companyId)) > 0;
-  const inUse = !posted && periodsInUse(await countFiscalPeriodReferences(companyId));
+  // The PUT's own predicate (financialYearStartLock), so the field is never editable for a change the PUT would 409.
+  const lock = await financialYearStartLock(companyId);
   return {
-    financialYearStartLocked: posted || inUse,
-    financialYearStartLockReason: posted ? 'posted' : inUse ? 'in_use' : null,
+    financialYearStartLocked: lock !== null,
+    financialYearStartLockReason: lock?.reason ?? null,
     financialYearStartActual: await readActualStartMonth(companyId),
   };
 }
@@ -193,9 +208,8 @@ export async function assertFinancialYearStartChange(companyId: string, requeste
   // Lock, then decide again on what the lock now protects.
   const locked = await readDeclaredStartMonth(companyId, true);
   if (locked === null || locked === month) return false;
-  const posted = await countPostedJournals(companyId);
-  if (posted > 0) throw new FinancialYearStartLockedError(posted);
-  const refs = await countFiscalPeriodReferences(companyId);
-  if (periodsInUse(refs)) throw new FiscalPeriodsInUseError(refs);
+  const lock = await financialYearStartLock(companyId);
+  if (lock?.reason === 'posted') throw new FinancialYearStartLockedError(lock.postedJournals);
+  if (lock) throw new FiscalPeriodsInUseError(lock.references);
   return true;
 }
