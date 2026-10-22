@@ -1,6 +1,6 @@
 /**
  * S-07b deploy check (scripts/deploy.sh, after migrations, before the code
- * switch): the app's login roles (migration 915) still cannot
+ * switch): the app's login roles (migrations 915, 915b) still cannot
  * reach the owner, and, once either can log in, the runbook's out-of-band
  * controls are in place (docs/runbooks/s07b-app-pool-login-roles.md, steps 2
  * and 3b). Exits 1 on any violation, 0 otherwise.
@@ -23,7 +23,7 @@ async function main(): Promise<number> {
   try {
     const violations = await appLoginRoleViolations(sql);
     if (violations === null) {
-      console.log('app login roles: migration 915 not applied; nothing to check');
+      console.log('app login roles: migration 915b not applied; nothing to check');
       return 0;
     }
     for (const v of violations) console.error(`FAIL: ${v}`);
