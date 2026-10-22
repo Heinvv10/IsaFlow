@@ -85,14 +85,26 @@ describe('every UPDATE that changes batch_id is refused', () => {
   });
 
   it('INSERT ... ON CONFLICT DO UPDATE', async () => {
-    const { company, bank, b, member } = await fixture();
-    const sp = (await pool.query('SELECT supplier_id, total_amount FROM supplier_payments WHERE id = $1', [member])).rows[0];
+    const { b, member } = await fixture();
+    // The existing row's own values, every NOT NULL column included: only the trigger can refuse this upsert.
     await expect(pool.query(
-      `INSERT INTO supplier_payments(id, company_id, supplier_id, payment_date, total_amount, payment_method, status, batch_id, created_by)
-       VALUES($1,$2,$3,DATE '2026-09-01',$4,'eft','draft',$5,$6)
-       ON CONFLICT (id) DO UPDATE SET batch_id = EXCLUDED.batch_id`,
-      [member, company, sp.supplier_id, sp.total_amount, b.id, user])).rejects.toThrow(REFUSED);
-    void bank;
+      `INSERT INTO supplier_payments(id, company_id, supplier_id, payment_number, payment_date, total_amount, payment_method,
+         status, batch_id, created_by)
+       SELECT id, company_id, supplier_id, payment_number, payment_date, total_amount, payment_method, status, $2::uuid, created_by
+       FROM supplier_payments WHERE id = $1
+       ON CONFLICT (id) DO UPDATE SET batch_id = EXCLUDED.batch_id`, [member, b.id])).rejects.toThrow(REFUSED);
+  });
+
+  it('session_replication_role = replica does not bypass it (ENABLE ALWAYS)', async () => {
+    const { b, member } = await fixture();
+    const client = await pool.connect();
+    try {
+      await client.query('SET session_replication_role = replica');
+      await expect(client.query('UPDATE supplier_payments SET batch_id = $1 WHERE id = $2', [b.id, member])).rejects.toThrow(REFUSED);
+    } finally {
+      await client.query('RESET session_replication_role');
+      client.release();
+    }
   });
 
   it('MERGE', async () => {
@@ -152,12 +164,20 @@ describe('the batch flows never re-point a member', () => {
     expect(await batchState(pool, id)).toMatchObject({ status: 'cancelled', members: ['cancelled'] });
   });
 
-  it('process -> reverse keeps the members in the batch', async () => {
+  it('process -> reverse leaves every payment row, id and batch_id exactly as it was', async () => {
     const { company, bank } = await fixture();
     const id = await created(company, bank);
+    const rows = async () => (await pool.query(
+      'SELECT id, batch_id, status FROM supplier_payments WHERE company_id = $1 ORDER BY id', [company])).rows;
     await inRequest(pool, user, company, async () => { await approveBatch(company, id, user); await processBatch(company, id, user); });
+    const processed = await rows();
+    expect(processed).toHaveLength(2 + 2 + 1); // two planted batches of two members, plus the created one
     await inRequest(pool, user, company, () => reverseBatch(company, id, user));
-    expect((await batchState(pool, id)).members).toHaveLength(1);
-    expect((await pool.query('SELECT count(*)::INT AS n FROM supplier_payments WHERE batch_id = $1', [id])).rows[0].n).toBe(1);
+    const after = await rows();
+    // Same payment ids, same batch_id on every one (no reversal rows are added); only the reversed batch's member changed status.
+    expect(after.map((r) => [r.id, r.batch_id])).toEqual(processed.map((r) => [r.id, r.batch_id]));
+    expect(after.filter((r) => r.batch_id === id)).toEqual([{ id: expect.any(String), batch_id: id, status: 'cancelled' }]);
+    expect(after.filter((r) => r.batch_id !== id).map((r) => r.status)).toEqual(
+      processed.filter((r) => r.batch_id !== id).map((r) => r.status));
   });
 });
