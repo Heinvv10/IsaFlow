@@ -53,6 +53,13 @@ describe('G1 edges', () => {
     const f = await leaverPaidOutsidePayroll('P3fu only stand-alone');
     const d = await approvedDirective(f, 40_000, 0.2, '2026-04-01', '4440001112');
     expect((await applyStandalone(f, d, '2026-04-10')).statusCode).toBe(200);
+    // A run still only calculated (not declarable) also carries them: they are a certificate row, not an exclusion.
+    const draft = (await pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 5, 'calculated') RETURNING id`,
+      [f.company])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay) VALUES ($1, $2, 1000, 1000, 0, 1000)`,
+      [draft, f.employee]);
     const data = await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee });
     expect(data.rows).toHaveLength(1);
     expect(data.rows[0]).toMatchObject({ grossSalary: 40_000, paye: 8_000, runsIncluded: 0, netPay: 32_000 });
