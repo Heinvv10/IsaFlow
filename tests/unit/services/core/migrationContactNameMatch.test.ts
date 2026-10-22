@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withSavepoint: (_name: string, fn: () => unknown) => fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/core/migrationService', () => ({ updateSession: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/batchBeforeSupplierLock', () => ({ lockBatchesThenSupplierSet: vi.fn() }));
