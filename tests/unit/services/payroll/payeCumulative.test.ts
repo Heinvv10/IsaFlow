@@ -84,6 +84,12 @@ describe('cumulative PAYE', () => {
     expect([r.regular.monthlyPaye, r.annualPaymentPaye]).toEqual([0, 0]);
   });
 
+  it('a bonus-only period does not count as a period worked: the annual equivalent stays on the periods with pay', () => {
+    // n = 2, AE = 240 000: 25 380 × 2/12 + (tax(260 000) − tax(240 000)) − 4 230 = 4 792, all of it the bonus's.
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 20_000, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 4_230 } });
+    expect([r.regular.monthlyPaye, r.annualPaymentPaye, r.periods]).toEqual([0, 4_792, 2]);
+  });
+
   it('a bonus with no periodic pay this year: the whole bonus on a nil annual equivalent (#752: 3 780)', () => {
     const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 120_000, ytd: NONE });
     expect([r.regular.monthlyPaye, r.annualPaymentPaye]).toEqual([0, 3_780]);
