@@ -132,15 +132,17 @@ it('success: AR invoices import renders the data it received', async () => {
 });
 
 it('success: customers import renders the data it received', async () => {
-  answerOk('/migration/customers', { succeeded: 53, skipped: 7, failed: 2 });
+  // migrationContactService's real shape: `skipped` includes the rows in `errors`.
+  answerOk('/migration/customers', { imported: 53, skipped: 9, errors: [{ row: 3, message: 'Name is required' }, { row: 8, message: 'D2 bad row' }] });
   const { container } = render(<CustomersImportPage />);
   await upload(container);
   fireEvent.click(await screen.findByRole('button', { name: /Import 2 Customers/ }));
   expect(await screen.findByText(/Imported 53 customers\. Skipped: 7\. Failed: 2\./)).toBeTruthy();
+  expect(screen.getByText('Row 9: D2 bad row')).toBeTruthy();
 });
 
 it('success: suppliers import renders the data it received', async () => {
-  answerOk('/migration/suppliers', { succeeded: 29, skipped: 3, failed: 1 });
+  answerOk('/migration/suppliers', { imported: 29, skipped: 4, errors: [{ row: 2, message: 'D2 bad supplier row' }] });
   const { container } = render(<SuppliersImportPage />);
   await upload(container);
   fireEvent.click(await screen.findByRole('button', { name: /Import 2 Suppliers/ }));
@@ -148,10 +150,12 @@ it('success: suppliers import renders the data it received', async () => {
 });
 
 it('success: opening balances import renders the data it received', async () => {
-  answerOk('/migration/opening-balances', { balancesSet: 61, journalId: 'J-777' });
+  // The service's real shape: { journalEntryId, linesImported, errors }. The
+  // page used to read balancesSet / journalId, which it never returned.
+  answerOk('/migration/opening-balances', { journalEntryId: 'J-777', linesImported: 61, errors: [] });
   const { container } = render(<OpeningBalancesPage />);
   await upload(container);
   fireEvent.change(container.querySelector('input[type="date"]')!, { target: { value: '2026-03-01' } });
   fireEvent.click(await screen.findByRole('button', { name: /Set Opening Balances/ }));
-  expect(await screen.findByText(/Opening balances set for 61 accounts\. Journal ID: J-777/)).toBeTruthy();
+  expect(await screen.findByText(/Opening balances posted: 61 account line\(s\)\. Journal entry J-777/)).toBeTruthy();
 });

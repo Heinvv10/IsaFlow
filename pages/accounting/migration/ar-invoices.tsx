@@ -2,9 +2,13 @@ import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import InvoiceImportResult, { type InvoiceImportResultData } from '@/components/accounting/migration/InvoiceImportResult';
 import Link from 'next/link';
-import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Upload, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { parseMigrationCsv, type ParsedCsv } from '@/components/accounting/migration/parseMigrationCsv';
+import { TemplateDownloadCard } from '@/components/accounting/migration/TemplateDownloadCard';
+import { RowProblemsList } from '@/components/accounting/migration/RowProblemsList';
+import { buildInvoicePayload, matchRowContact, rowProblems, type MatchConfidence } from '@/components/accounting/migration/invoiceImportRows';
 
 const AR_FIELDS = [
   'invoice_number', 'customer_name', 'invoice_date', 'due_date',
@@ -13,7 +17,6 @@ const AR_FIELDS = [
 type ArField = typeof AR_FIELDS[number];
 
 type FieldMapping = Partial<Record<ArField, string>>;
-type MatchConfidence = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
 
 interface ParsedInvoice {
   raw: Record<string, string>;
@@ -38,76 +41,70 @@ export default function ArInvoicesPage() {
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const loadCustomers = async () => {
+  // Returns the list it loaded: the caller must match against THAT, not the
+  // state, which is still the stale empty array within the same handler —
+  // that is why every row of a first upload previewed as NONE.
+  const loadCustomers = async (): Promise<CustomerOption[]> => {
     try {
       const res = await apiFetch('/api/accounting/customers?limit=500');
       await assertOk(res, 'Could not load the customer list - try again');
       const json = await res.json();
       const list: CustomerOption[] = (json.data ?? json.customers ?? []).map((c: { id: string; name: string }) => ({ id: c.id, name: c.name }));
       setCustomers(list);
+      return list;
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not load the customer list - try again'));
+      return [];
     }
   };
 
-  const fuzzyMatch = (name: string, list: CustomerOption[]): { id?: string; confidence: MatchConfidence } => {
-    const n = name.toLowerCase().trim();
-    const exact = list.find(c => c.name.toLowerCase().trim() === n);
-    if (exact) return { id: exact.id, confidence: 'HIGH' };
-    const partial = list.find(c => c.name.toLowerCase().includes(n) || n.includes(c.name.toLowerCase()));
-    if (partial) return { id: partial.id, confidence: 'MEDIUM' };
-    return { confidence: 'NONE' };
+  const withMatch = (raw: Record<string, string>, mapping: FieldMapping, list: CustomerOption[], prev?: ParsedInvoice): ParsedInvoice => {
+    const mapped = Object.fromEntries(
+      AR_FIELDS.filter(f => mapping[f]).map(f => [f, raw[mapping[f]!] ?? ''])
+    ) as Partial<Record<ArField, string>>;
+    // The server's matcher, so the preview is the match the import makes.
+    const { id, confidence } = matchRowContact(mapped.customer_name ?? '', list);
+    return { raw, mapped, matchedCustomerId: id, matchConfidence: confidence, overrideCustomerId: prev?.overrideCustomerId };
   };
 
   const handleFile = async (file: File) => {
     setError('');
     setImportResult(null);
-    if (customers.length === 0) await loadCustomers();
-    const Papa = (await import('papaparse')).default;
-    Papa.parse<Record<string, string>>(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: ({ data, meta }) => {
-        const cols = meta.fields ?? [];
-        setColumns(cols);
-        const autoMapping: FieldMapping = {};
-        for (const field of AR_FIELDS) {
-          const match = cols.find(c => c.toLowerCase().replace(/[\s_-]/g, '') === field.replace(/_/g, ''));
-          if (match) autoMapping[field] = match;
-        }
-        setFieldMapping(autoMapping);
-        setRows(data.map(raw => {
-          const mapped = Object.fromEntries(
-            AR_FIELDS.filter(f => autoMapping[f]).map(f => [f, raw[autoMapping[f]!] ?? ''])
-          ) as Partial<Record<ArField, string>>;
-          const custName = mapped.customer_name ?? '';
-          const { id, confidence } = fuzzyMatch(custName, customers);
-          return { raw, mapped, matchedCustomerId: id, matchConfidence: confidence };
-        }));
-      },
-      error: err => {
-        log.warn('CSV parse error', { error: err }, 'migration');
-        setError('Could not read the CSV file - check it is a valid CSV and try again');
-      },
-    });
+    const customerList = customers.length === 0 ? await loadCustomers() : customers;
+    let csv: ParsedCsv;
+    try {
+      csv = await parseMigrationCsv(file);
+    } catch (err) {
+      log.warn('CSV parse error', { error: err }, 'migration');
+      setError('Could not read the CSV file - check it is a valid CSV and try again');
+      return;
+    }
+    const { data, fields: cols } = csv;
+    setColumns(cols);
+    const autoMapping: FieldMapping = {};
+    for (const field of AR_FIELDS) {
+      const match = cols.find(c => c.toLowerCase().replace(/[\s_-]/g, '') === field.replace(/_/g, ''));
+      if (match) autoMapping[field] = match;
+    }
+    setFieldMapping(autoMapping);
+    setRows(data.map(raw => withMatch(raw, autoMapping, customerList)));
   };
 
   const onFieldMapChange = (field: ArField, col: string) => {
     const updated = { ...fieldMapping, [field]: col };
     setFieldMapping(updated);
-    setRows(prev => prev.map(r => ({
-      ...r,
-      mapped: Object.fromEntries(
-        AR_FIELDS.filter(f => updated[f]).map(f => [f, r.raw[updated[f]!] ?? ''])
-      ) as Partial<Record<ArField, string>>,
-    })));
+    setRows(prev => prev.map(r => withMatch(r.raw, updated, customers, r)));
   };
 
   const setOverride = (i: number, customerId: string) => {
     setRows(prev => prev.map((r, idx) => idx === i ? { ...r, overrideCustomerId: customerId } : r));
   };
 
+  const built = rows.map(r => ({ ...buildInvoicePayload(r.mapped), label: r.mapped.invoice_number }));
+  const problems = rowProblems(built);
+
   const handleImport = async () => {
+    if (problems.length > 0) { setError(`${problems.length} row(s) have values that could not be read - fix them in the file and upload again`); return; }
     setIsImporting(true);
     setError('');
     try {
@@ -117,17 +114,12 @@ export default function ArInvoicesPage() {
       const sessionId = session?.id;
       if (!sessionId) throw new ApiEnvelopeError('No active migration session');
 
-      const invoices = rows.map(r => ({
-        invoiceNumber: r.mapped.invoice_number ?? '',
-        customerId: r.overrideCustomerId ?? r.matchedCustomerId ?? '',
+      // customerId ONLY when the operator picked one: an automatic match is
+      // the server's to make (same matcher), never sent as authoritative.
+      const invoices = rows.map((r, i) => ({
+        ...built[i]!.payload,
         customerName: r.mapped.customer_name ?? '',
-        invoiceDate: r.mapped.invoice_date ?? '',
-        dueDate: r.mapped.due_date ?? '',
-        subtotal: parseFloat(r.mapped.subtotal ?? '0') || 0,
-        taxAmount: parseFloat(r.mapped.tax_amount ?? '0') || 0,
-        totalAmount: parseFloat(r.mapped.total_amount ?? '0') || 0,
-        amountPaid: parseFloat(r.mapped.amount_paid ?? '0') || 0,
-        reference: r.mapped.reference,
+        ...(r.overrideCustomerId ? { customerId: r.overrideCustomerId } : {}),
       }));
 
       const res = await apiFetch('/api/accounting/migration/ar-invoices', {
@@ -142,22 +134,6 @@ export default function ArInvoicesPage() {
       setError(apiErrorMessage(err, 'Could not import the invoices - try again'));
     } finally {
       setIsImporting(false);
-    }
-  };
-
-  const downloadTemplate = async () => {
-    try {
-      const res = await apiFetch('/api/accounting/migration/templates?step=ar-invoices');
-      await assertOk(res, 'Could not download the template - try again');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'ar-invoices-template.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not download the template - try again'));
     }
   };
 
@@ -185,12 +161,7 @@ export default function ArInvoicesPage() {
         {importResult && <InvoiceImportResult result={importResult} />}
 
         <div className="space-y-6">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">1. Download Template</h2>
-            <button onClick={downloadTemplate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              <Download className="h-4 w-4" /> Download CSV Template
-            </button>
-          </div>
+          <TemplateDownloadCard step="ar-invoices" onError={setError} />
 
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">2. Upload Your CSV</h2>
@@ -270,10 +241,12 @@ export default function ArInvoicesPage() {
                 </div>
               </div>
 
+              <RowProblemsList problems={problems} />
+
               <div className="flex justify-end">
                 <button
                   onClick={handleImport}
-                  disabled={isImporting}
+                  disabled={isImporting || problems.length > 0}
                   className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                 >
                   {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}

@@ -18,6 +18,7 @@
 
 import { z } from 'zod';
 import type { MigrationError } from './migrationService';
+import { parseImportDate } from '@/lib/parseImportDate';
 
 /**
  * Deliberately not `z.uuid()`: zod 4 enforces the RFC version nibbles and this
@@ -28,8 +29,17 @@ const uuidish = z.string().regex(
   'Must be a UUID',
 );
 
-/** YYYY-MM-DD. The columns are DATE, and the service casts with `::DATE`. */
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a date as YYYY-MM-DD');
+/**
+ * Out as YYYY-MM-DD: the columns are DATE and the service casts with `::DATE`,
+ * whose default DateStyle reads 03/04/2026 month-first. In, anything
+ * `parseImportDate` reads day-first — a South African Excel export's
+ * `30/06/2026` used to fail the row. An unreadable value is left as it came so
+ * the regex names it.
+ */
+const isoDate = z.preprocess(
+  v => (typeof v === 'string' || typeof v === 'number' ? parseImportDate(v) ?? v : v),
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a date as YYYY-MM-DD or DD/MM/YYYY'),
+);
 
 const money = z.number().finite().nonnegative().max(1e13);
 
@@ -90,6 +100,12 @@ export const ARInvoiceRowSchema = z.object({
    */
   invoiceNumber: z.string().trim().min(1).max(50),
   customerName: z.string().trim().min(1).max(200),
+  /**
+   * The wizard page's manual customer correction, as AP's `supplierId`. It was
+   * missing here, so zod stripped it and the override was silently ignored.
+   * `''` means the page had nothing to send — the service matches on the name.
+   */
+  customerId: z.union([uuidish, z.literal('')]).optional(),
 });
 
 /**

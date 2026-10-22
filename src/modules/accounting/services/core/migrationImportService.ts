@@ -28,6 +28,11 @@ export { importOpeningBalances, type OpeningBalanceRow } from './migrationWizard
 export interface ARInvoiceRow {
   invoiceNumber: string;
   customerName: string;
+  /**
+   * The wizard page's manual customer correction. Honoured only when it is one
+   * of THIS company's customers; `''` / absent falls back to the name match.
+   */
+  customerId?: string;
   invoiceDate: string;
   dueDate: string;
   subtotal: number;
@@ -86,7 +91,18 @@ export async function importARInvoices(
   for (let i = 0; i < invoices.length; i++) {
     const inv = invoices[i]!;
     try {
-      const customerId = matchContact(inv.customerName, custRows);
+      // An operator's explicit pick wins over the name match — but only from
+      // this company's customers (custRows is scoped by company_id), so a
+      // forged or stale id can never post against another tenant's contact.
+      const overrideId = inv.customerId
+        ? custRows.find(c => String(c.id) === inv.customerId)?.id
+        : undefined;
+      if (inv.customerId && !overrideId) {
+        errors.push({ step: 'ar_invoices', row: fileRow(i), field: 'customerId', message: `Customer not found for this company: ${inv.customerId}` });
+        skipped++;
+        continue;
+      }
+      const customerId = overrideId ? String(overrideId) : matchContact(inv.customerName, custRows);
       if (!customerId) {
         errors.push({ step: 'ar_invoices', row: fileRow(i), field: 'customerName', message: `Customer not found: ${inv.customerName}` });
         skipped++;
