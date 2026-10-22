@@ -1,7 +1,7 @@
 /**
  * PAYE 4a follow-ups G4, breaker round 3 on PR B, ported: the approval gate
- * (paye_year_to_date_stale) under a reopened month and under CONCURRENT
- * approvals of January and February. Approvals of a company are serialised
+ * (paye_year_to_date_stale) under CONCURRENT approvals of January and
+ * February. Approvals of a company are serialised
  * (lockCompanyPayrollApprovals), so whichever lands second sees the other:
  * an earlier month approved after this run was calculated, or a later one,
  * both refuse until a recalculation. The year is never short without a
@@ -42,10 +42,8 @@ async function calcApprove(f: SeveranceFixture, id: string): Promise<number> {
   if (ok.statusCode !== 200) throw new Error(`approve ${ok.statusCode}`);
   return (await runLine(pool, id, f.employee)).paye;
 }
-const codesOf = async (id: string, e: string) =>
-  ((await runLine(pool, id, e)).validation_results as Array<{ code: string }>).map(c => c.code);
 
-describe('BRK3', () => {
+describe('G4: concurrent approvals of January and February', () => {
   it('January and February calculated, approved concurrently: exactly one is refused; recalculating it completes the year', async () => {
     const a = await seedEmployee(pool, fixtures, 'race ideal', 20_000);
     await setSalary(pool, a, 2027, 1, 60_000);
