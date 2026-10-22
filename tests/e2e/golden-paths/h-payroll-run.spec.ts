@@ -46,6 +46,18 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
       runId = run.id;
     }
 
+    // The reused run is reopened, not reversed (cleanup below), so it still
+    // links the journal the last execution posted. Calculate refuses a run whose
+    // journal is in force while it has loan work (PAYROLL_RUN_JOURNAL_POSTED),
+    // so take that journal out first; approval then posts a fresh one.
+    const linked = (await api.get<any>(`/api/payroll/runs/${runId}`)).journalEntryId;
+    if (linked) {
+      const journal = await api.get<any>(`/api/accounting/journal-entries-detail?id=${linked}`);
+      if (journal.status === 'posted' && !journal.reversedAt) {
+        await api.post('/api/accounting/journal-entries-action', { id: linked, action: 'reverse' });
+      }
+    }
+
     const calculated = await api.post<any>(`/api/payroll/runs/${runId}/calculate`);
     expect(Number(calculated.employeeCount ?? calculated.totalGross ?? 1)).toBeGreaterThan(0);
 
@@ -76,11 +88,11 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     // Cleanup IN FINALLY (late #196 review MEDIUM: an assertion failure used
     // to skip cleanup and strand the run 'approved', burning sandbox months).
     // Reopen the run (approved → calculated, needs a ≥5-char reason) so the
-    // NEXT execution reuses this same slot. Do NOT reverse the journal:
-    // reopen keeps payroll_run_headers.journal_entry_id, and approve's
-    // idempotent skip returns that same journal on reuse — reversing it here
-    // would make the next run's `status === 'posted'` assertion fail.
-    // Residue is bounded: one sandbox run + one posted journal, reused forever.
+    // NEXT execution reuses this same slot. The next execution reverses the
+    // journal before it calculates (above), which also heals a run an earlier
+    // failure left calculated with its journal in force. Approval of a run whose
+    // journal is out posts a fresh one, so each execution adds one netted pair
+    // to the sandbox month and leaves one live journal.
     try {
       if (approvedRunId) {
         await api.post(`/api/payroll/runs/${approvedRunId}/reopen`, {
