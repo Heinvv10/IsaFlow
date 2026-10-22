@@ -72,6 +72,7 @@ const OTHERS: Record<string, string> = {
   'tests/integration/sage-connect-soce.int.test.ts': 'test: both SOCE readers after a Sage take-on',
   'tests/integration/m908-relabel-sage-history.int.test.ts': 'test: migration 908',
   'tests/integration/afs-take-on-dividends.int.test.ts': 'test: take-on dividends across the AFS pack',
+  'tests/integration/afs-take-on-mapping-basis.int.test.ts': 'test: ISTAKEON by AFS mapping',
   'tests/integration/r001-r002-r020-takeon-posting.int.test.ts': 'test: take-on posting',
   'tests/unit/mcp/setOpeningBalanceTool.test.ts': 'test: MCP set_opening_balance',
   'tests/unit/services/ap/migrationApService.test.ts': 'test: AP take-on',
