@@ -20,6 +20,9 @@ export const GENERIC_READ_ERROR = 'The document could not be read. Upload it aga
 /** What a route answers (409) when asked to act on a document that is still being read. */
 export const STILL_BEING_READ = 'This document is still being read.';
 
+/** What a writer that needs the extraction answers (409 / 400) for a document whose read has not finished well. */
+export const NOT_READ = 'This document could not be read — upload it again.';
+
 export type ReadState = 'reading' | 'done' | 'failed';
 
 /** The read columns of a captured_documents row; a raw database row fits. */
@@ -57,3 +60,17 @@ export function effectiveReadState(row: ReadColumns, now: number = Date.now()): 
 export function isBeingRead(row: ReadColumns, now: number = Date.now()): boolean {
   return row.read_state === 'reading' && !isStale(row, now);
 }
+
+/**
+ * May a writer that needs the extraction (posting claim, expense claim line, journal source or link) take this
+ * document? null when the read finished ('done', or no read columns at all); otherwise why not: 'being_read' for a
+ * fresh read, 'not_read' for a failed one or one gone silent (shown as interrupted — upload again).
+ */
+export function readGateFor(row: ReadColumns, now: number = Date.now()): 'being_read' | 'not_read' | null {
+  const { readState } = effectiveReadState(row, now);
+  if (readState === 'done') return null;
+  return readState === 'reading' ? 'being_read' : 'not_read';
+}
+
+/** The message a refusal from `readGateFor` carries. */
+export const READ_GATE_MESSAGE = { being_read: STILL_BEING_READ, not_read: NOT_READ } as const;

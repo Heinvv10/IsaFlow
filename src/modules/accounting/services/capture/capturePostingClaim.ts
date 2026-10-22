@@ -15,7 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { ErrorCode } from '@/lib/apiResponse.types';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { isBeingRead, STALE_AFTER_MINUTES, STILL_BEING_READ } from './captureReadState';
+import { NOT_READ, readGateFor, STILL_BEING_READ } from './captureReadState';
 import {
   findPostedContent,
   lockPostedContent,
@@ -35,7 +35,7 @@ import {
  * (R-088): the same FILE is already booked from another upload, or another
  * request holds that file's fingerprint past the bounded wait.
  */
-export type CapturedDocumentRefusal = 'already_posted' | 'rejected' | 'content_posted' | 'content_busy' | 'being_read';
+export type CapturedDocumentRefusal = 'already_posted' | 'rejected' | 'content_posted' | 'content_busy' | 'being_read' | 'not_read';
 
 export const CAPTURED_DOCUMENT_REFUSAL_MESSAGE: Record<CapturedDocumentRefusal, string> = {
   already_posted: 'Document already posted',
@@ -44,6 +44,8 @@ export const CAPTURED_DOCUMENT_REFUSAL_MESSAGE: Record<CapturedDocumentRefusal, 
   content_busy: 'Another request is posting a document with the same content — retry in a moment',
   // An upload whose background read has not finished has no extraction to post (captureReadState).
   being_read: STILL_BEING_READ,
+  // A failed read, or one gone silent, left no extraction: the user uploads the document again.
+  not_read: NOT_READ,
 };
 
 /** The status a route answers each refusal with: a conflict with other content is a 409. */
@@ -53,6 +55,7 @@ export const CAPTURED_DOCUMENT_REFUSAL_ERROR_CODE: Record<CapturedDocumentRefusa
   content_posted: ErrorCode.CONFLICT,
   content_busy: ErrorCode.CONFLICT,
   being_read: ErrorCode.CONFLICT,
+  not_read: ErrorCode.CONFLICT,
 };
 
 /**
@@ -161,8 +164,9 @@ export type ClaimContent = { spend: ContentSpend } & Partial<PostedReceiptFinger
  * receipt path also stamps the key it posted under and, for a confirmed
  * repeat, the earlier document and who confirmed it.
  *
- * A document whose upload is still being read ('being_read') is refused first, before any lock or write; the
- * UPDATE carries the same fence for a caller that reaches it without the pre-check.
+ * Only a document whose read FINISHED is claimable: one still being read ('being_read') or whose read failed or went
+ * silent ('not_read') is refused first, before any lock or write; the UPDATE carries the same fence
+ * (`read_state = 'done'`) for a caller that reaches it without the pre-check.
  *
  * Returns null when the claim succeeded, otherwise the reason it did not.
  */
@@ -176,8 +180,9 @@ export async function claimCapturedDocumentForPosting(
   const [doc] = (await sql`
     SELECT raw_bytes_sha256, read_state, read_heartbeat_at, created_at FROM captured_documents
     WHERE id = ${documentId}::uuid AND company_id = ${companyId}`) as DbRow[];
-  // Before any lock or write: an upload still being read has no extraction yet, and reading -> done is one-way.
-  if (doc && isBeingRead(doc)) return 'being_read';
+  // Before any lock or write: only a FINISHED read has an extraction to post. reading -> done is one-way.
+  const gate = doc ? readGateFor(doc) : null;
+  if (gate) return gate;
   const contentSha256 = (doc?.raw_bytes_sha256 as string | null | undefined) ?? null;
   if (contentSha256) {
     // Every claim serialises on the file AND refuses a file another upload has
@@ -209,8 +214,7 @@ export async function claimCapturedDocumentForPosting(
        AND company_id = ${companyId}
        AND posted_at IS NULL
        AND status <> 'rejected'
-       AND NOT (read_state = 'reading'
-         AND COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => ${STALE_AFTER_MINUTES}))
+       AND read_state = 'done'
     RETURNING id`) as DbRow[];
   if (rows.length === 1) return null;
 
@@ -223,5 +227,5 @@ export async function claimCapturedDocumentForPosting(
     SELECT status, posted_at, read_state, read_heartbeat_at, created_at FROM captured_documents
     WHERE id = ${documentId}::uuid AND company_id = ${companyId}`) as DbRow[];
   if (!row) return 'already_posted';
-  return refusalForPosting(row) ?? (isBeingRead(row) ? 'being_read' : 'already_posted');
+  return refusalForPosting(row) ?? readGateFor(row) ?? 'already_posted';
 }

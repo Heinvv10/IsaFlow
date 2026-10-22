@@ -10,6 +10,7 @@ const m = vi.hoisted(() => ({
   runAfterCommit: vi.fn(),
   runCaptureRead: vi.fn(),
   rateLimit: vi.fn(),
+  uploadLimit: vi.fn(),
   parse: vi.fn(),
   bufferOf: vi.fn(),
   info: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h:
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: m.runAfterCommit }));
-vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: m.rateLimit }));
+vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: m.rateLimit, checkRateLimit: m.uploadLimit }));
 vi.mock('@/modules/accounting/services/capture/captureReadJob', () => ({ runCaptureRead: m.runCaptureRead }));
 vi.mock('@/modules/accounting/services/capture/captureUploadForm', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/capture/captureUploadForm')>()),
@@ -75,6 +76,7 @@ beforeEach(() => {
   calls = [];
   inFlight = 0;
   m.rateLimit.mockResolvedValue(true);
+  m.uploadLimit.mockResolvedValue(true);
   m.parse.mockResolvedValue({ files: { file: file() } });
   m.bufferOf.mockReturnValue(PDF);
   m.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -151,7 +153,31 @@ describe('POST /api/accounting/document-capture', () => {
     expect(m.rateLimit).not.toHaveBeenCalled();
   });
 
-  it('charges it once a valid file has been parsed, before the in-flight count and the insert', async () => {
+  it('bounds every request first, even one that ends in a 400: a per-company upload limiter before the form is parsed', async () => {
+    const order: string[] = [];
+    m.uploadLimit.mockImplementation(async () => { order.push('upload-limit'); return true; });
+    m.parse.mockImplementation(async () => { order.push('parse'); return { files: {} }; });
+    expect((await post()).statusCode).toBe(400);
+    expect(order).toEqual(['upload-limit', 'parse']);
+    expect(m.uploadLimit).toHaveBeenCalledWith(`upload:document-capture:co:${CO}`, { max: 60, windowSecs: 900 });
+  });
+
+  it('answers 429 when the upload limiter is used up: nothing parsed, no AI unit charged, nothing inserted', async () => {
+    m.uploadLimit.mockResolvedValue(false);
+    const res = await post();
+    expect(res.statusCode).toBe(429);
+    expect(m.parse).not.toHaveBeenCalled();
+    expect(m.rateLimit).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.text.includes('INSERT'))).toBe(false);
+  });
+
+  it('charges the AI unit only after validation AND the in-flight check, so a cap 429 burns no unit', async () => {
+    inFlight = 5;
+    expect((await post()).statusCode).toBe(429);
+    expect(m.rateLimit).not.toHaveBeenCalled();
+  });
+
+  it('charges it once a valid file has been parsed and there is room, just before the insert', async () => {
     const order: string[] = [];
     m.rateLimit.mockImplementation(async () => { order.push('rate'); return true; });
     m.sql.mockImplementation(async (strings: TemplateStringsArray) => {
@@ -160,7 +186,7 @@ describe('POST /api/accounting/document-capture', () => {
       return text.includes('COUNT(*)') ? [{ n: 0 }] : [insertedRow()];
     });
     await post();
-    expect(order).toEqual(['rate', 'count', 'insert']);
+    expect(order).toEqual(['count', 'rate', 'insert']);
   });
 
   it('still validates before it inserts: a file whose bytes do not match its type is a 400', async () => {

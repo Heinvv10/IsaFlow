@@ -9,7 +9,7 @@ import { assertDisposable, request, response } from './mfa-impersonation-postgre
 import { als } from '@/lib/als';
 import { claimCapturedDocumentForPosting } from '@/modules/accounting/services/capture/capturePostingClaim';
 import { ClaimSourceDocumentError, claimLineSourceDocuments } from '@/modules/accounting/services/expense/claimSourceDocuments';
-import { STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
+import { NOT_READ, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -100,21 +100,31 @@ describe('claimCapturedDocumentForPosting', () => {
     expect(await postedAt(id)).toBeNull();
   });
 
-  it.each([['finished', 'done', 1], ['failed', 'failed', 1], ['stale', 'reading', 30]] as const)(
-    'claims a document whose read is %s', async (_what, state, silent) => {
+  it.each([['failed', 'failed', 1], ['gone silent', 'reading', 30]] as const)(
+    "refuses a document whose read %s as 'not_read' and stamps nothing", async (_what, state, silent) => {
       const id = await seed(state, silent);
-      expect(await inTx(() => claimCapturedDocumentForPosting(company, id, null, { spend: 'invoice' }))).toBeNull();
-      expect(await postedAt(id)).not.toBeNull();
+      expect(await inTx(() => claimCapturedDocumentForPosting(company, id, null, { spend: 'invoice' }))).toBe('not_read');
+      expect(await postedAt(id)).toBeNull();
     });
+
+  it('claims a document whose read finished', async () => {
+    const id = await seed('done');
+    expect(await inTx(() => claimCapturedDocumentForPosting(company, id, null, { spend: 'invoice' }))).toBeNull();
+    expect(await postedAt(id)).not.toBeNull();
+  });
 
   it("the UPDATE itself refuses a fresh 'reading' row even when nothing checked first", async () => {
     // Reaches the fence the way a caller that skips the pre-check would: the statement only.
     const id = await seed('reading');
     const rows = (await pool.query(
       `UPDATE captured_documents SET posted_at = NOW() WHERE id = $1 AND company_id = $2 AND posted_at IS NULL
-         AND status <> 'rejected' AND NOT (read_state = 'reading' AND COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => 5))
+         AND status <> 'rejected' AND read_state = 'done'
        RETURNING id`, [id, company])).rows;
     expect(rows).toHaveLength(0);
+    const failed = await seed('failed');
+    expect((await pool.query(
+      `UPDATE captured_documents SET posted_at = NOW() WHERE id = $1 AND company_id = $2 AND posted_at IS NULL
+         AND status <> 'rejected' AND read_state = 'done' RETURNING id`, [failed, company])).rows).toHaveLength(0);
   });
 });
 
@@ -131,9 +141,22 @@ describe('claimLineSourceDocuments and the expense-claims route', () => {
     expect(await postedAt(fine)).toBeNull();
   });
 
-  it('claims documents whose read finished or went stale', async () => {
+  it.each([['failed', 'failed', 1], ['gone silent', 'reading', 30]] as const)(
+    "refuses a document whose read %s as 'not_read', all or nothing", async (_what, state, silent) => {
+      const bad = await seed(state, silent);
+      const fine = await seed('done');
+      const err = await inTx(() => claimLineSourceDocuments(company, [{ sourceDocumentId: fine }, { sourceDocumentId: bad }]))
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ClaimSourceDocumentError);
+      expect((err as ClaimSourceDocumentError).refusal).toBe('not_read');
+      expect((err as ClaimSourceDocumentError).message).toBe(NOT_READ);
+      expect(await postedAt(bad)).toBeNull();
+      expect(await postedAt(fine)).toBeNull();
+    });
+
+  it('claims documents whose read finished', async () => {
     const a = await seed('done');
-    const b = await seed('reading', 30);
+    const b = await seed('done');
     await inTx(() => claimLineSourceDocuments(company, [{ sourceDocumentId: a }, { sourceDocumentId: b }]));
     expect(await postedAt(a)).not.toBeNull();
     expect(await postedAt(b)).not.toBeNull();
@@ -147,6 +170,11 @@ describe('claimLineSourceDocuments and the expense-claims route', () => {
     expect(out.body.error?.message).toBe(STILL_BEING_READ);
     expect((await pool.query('SELECT COUNT(*)::int AS n FROM expense_claims WHERE company_id=$1', [company])).rows[0].n).toBe(before);
     expect(await postedAt(reading)).toBeNull();
+    const failed = await seed('failed');
+    const out2 = await createClaim([line(failed)]);
+    expect(out2.statusCode, JSON.stringify(out2.body)).toBe(409);
+    expect(out2.body.error?.message).toBe(NOT_READ);
+    expect(await postedAt(failed)).toBeNull();
     const ok = await createClaim([line(await seed('done'))]);
     expect(ok.statusCode, JSON.stringify(ok.body)).toBe(201);
   });
