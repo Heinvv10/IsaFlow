@@ -13,6 +13,11 @@ export function assertAllocationShape(allocations: readonly SupplierAllocationIn
   if (allocations.length === 0) throw new SupplierPaymentRefusal('Provide at least one allocation.');
   const seen = new Set<string>();
   for (const alloc of allocations) {
+    // The body is untyped JSON: an item that is `null` (or a number, string, array) is the caller's mistake, and
+    // reading `.amount` off `null` was a TypeError and a 500.
+    if (typeof alloc !== 'object' || alloc === null || Array.isArray(alloc)) {
+      throw new SupplierPaymentRefusal('Each allocation must be an object.');
+    }
     if (!Number.isFinite(alloc.amount) || alloc.amount <= 0) {
       throw new SupplierPaymentRefusal(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
     }
