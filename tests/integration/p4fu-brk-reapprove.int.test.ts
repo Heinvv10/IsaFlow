@@ -61,5 +61,7 @@ describe('G4: re-approving a reopened month', () => {
     await calcOnly(f, jan);
     const codes = ((await runLine(pool, jan, f.employee)).validation_results as Array<{ code: string; message: string }>);
     expect(codes.find(c => c.code === 'PAYE_LATER_PERIODS_APPROVED')?.message).toMatch(/2027-02/);
+    const reapproved = await approveRun(f, jan);
+    expect(reapproved.statusCode, JSON.stringify(reapproved.body)).toBe(200);
   });
 });

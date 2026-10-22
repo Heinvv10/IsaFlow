@@ -133,6 +133,9 @@ export async function laterPeriodsWarnings(
  *   recalculation, `updated_at`), when this run was not declarable. A later
  *   month calculated before the reopen saw this run, so an unchanged
  *   re-approval passes. Recalculating puts the warning on the lines.
+ *   (`updated_at` is NOW(), its transaction's start, and line times are
+ *   clock_timestamp(): the skew can only make this fire early, a refusal a
+ *   recalculation clears, never miss.)
  * Approvals of a company are serialised by lockCompanyPayrollApprovals, taken
  * before the gate, so a concurrent approval is either committed (and seen) or
  * waits. Null when current. Read-only. "Calculated" is the first line's clock
