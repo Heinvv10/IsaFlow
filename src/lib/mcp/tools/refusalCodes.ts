@@ -181,6 +181,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // names the caller's own suppliers, raised before anything is sent. Listed
   // because every `readonly code` must be; no MCP tool sends money.
   'SUPPLIER_BANK_DETAILS_UNVERIFIED',
+  'SUPPLIER_BATCH_LOCK_TIMEOUT',
   // A refund larger than the contact's on-account credit (migration 681). One fixed sentence written for the user, naming the contact, the two amounts
   // and the as-at date the caller itself supplied — no id, no table — and
   // raised BEFORE the journal posts, so there is nothing written to leak.
