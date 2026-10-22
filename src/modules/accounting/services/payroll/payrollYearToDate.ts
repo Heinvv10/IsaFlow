@@ -123,8 +123,13 @@ export async function laterPeriodsWarnings(
  * The approval-gate blocker for a run judged on a stale picture of its tax
  * year: another month of the same tax year was approved AFTER this run's
  * lines were calculated.
- * - An EARLIER month: this run's cumulative PAYE left it out (two months
- *   calculated before either was approved). Recalculating picks it up.
+ * - An EARLIER month: this run's cumulative PAYE may have left it out (two
+ *   months calculated before either was approved, or the earlier one reopened
+ *   at the time). Recalculating picks it up. Conservative: a re-approval of an
+ *   unchanged earlier month re-stamps approved_at (and lines_confirmed_at,
+ *   updated_at), so it is refused too, though that run had seen it: the stored
+ *   headers keep no reopen history to tell the two apart. One recalculation
+ *   clears it; an exact rule needs a reopen-history column.
  * - A LATER month whose PAYE left this one out, while this run's lines do not
  *   yet carry PAYE_LATER_PERIODS_APPROVED (a calculation now adds it,
  *   laterPeriodsWarnings): for a run never approved before (no journal), a
@@ -175,7 +180,8 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
     code: 'paye_year_to_date_stale',
     detail: (earlier.length > 0
       ? `An earlier month of this tax year (${earlier.join(', ')}) was approved after this run was calculated, so this run's `
-        + 'cumulative PAYE left it out. '
+        + 'cumulative PAYE may have left it out (it was not approved, or was reopened, when this run was calculated; a '
+        + 're-approval of an unchanged month looks the same). '
       : `A later month of this tax year (${later.join(', ')}) was approved after this run was calculated, so that month's `
         + 'cumulative PAYE left this one out. ')
       + 'Recalculate the run, then approve it.',
