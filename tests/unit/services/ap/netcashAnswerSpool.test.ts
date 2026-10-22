@@ -13,7 +13,7 @@ const logged = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(),
 vi.mock('@/lib/logger', () => ({ log: logged }));
 
 import {
-  markReplayed, pendingSpooled, spoolAnswer, spooledAcceptedAnswer, spoolDir, type AnswerRecord,
+  markReplayed, pendingSpooled, quarantineEntry, spoolAnswer, spooledAcceptedAnswer, spoolDir, sweepStaleTemps, type AnswerRecord,
 } from '@/modules/accounting/services/ap/netcashAnswerSpool';
 import { ANSWER_SPOOL_TIMEOUT_MS } from '@/modules/accounting/services/ap/netcashTimeouts';
 
@@ -39,10 +39,13 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+const entries = (d = spoolDir()) => fs.readdirSync(d).filter((f) => f.endsWith('.jsonl') && !f.startsWith('.'));
+
 describe('spoolAnswer', () => {
   it('appends ONE complete JSON line with the whole answer, in a 0700 directory, file 0600', async () => {
     expect(await spoolAnswer(record())).toBe(true);
-    const files = fs.readdirSync(spoolDir());
+    const files = entries();
+    expect(fs.readdirSync(spoolDir()).filter((f) => f.endsWith('.tmp'))).toEqual([]); // the temp was renamed away
     expect(files).toHaveLength(1);
     const text = fs.readFileSync(path.join(spoolDir(), files[0]!), 'utf8');
     expect(text.endsWith('\n')).toBe(true);
@@ -128,14 +131,89 @@ describe('spooledAcceptedAnswer (what resolve asks)', () => {
   });
 });
 
-describe('pendingSpooled / markReplayed', () => {
-  it('lists unreplayed entries; a replayed one is renamed, kept (never deleted) and no longer listed or blocking', async () => {
+describe('a file is complete or absent (written to a temp name, fsynced, renamed)', () => {
+  it('a write that dies half way leaves NO final-named file: nothing torn to block a later retry', async () => {
+    const handle = await fs.promises.open(path.join(dir, 'probe'), 'w');
+    const proto = Object.getPrototypeOf(handle) as { write: (...a: unknown[]) => Promise<unknown> };
+    await handle.close();
+    const realWrite = proto.write;
+    vi.spyOn(proto, 'write').mockImplementation(async function (this: unknown, data: unknown) {
+      await realWrite.call(this, String(data).slice(0, 20)); // half the line reaches the disk...
+      throw new Error('ENOSPC: no space left on device'); // ...then the disk fills
+    });
+    expect(await spoolAnswer(record())).toBe(false);
+    expect(entries()).toEqual([]);
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toBeNull();
+    expect(await pendingSpooled()).toEqual([]);
+  });
+
+  it('a stray temp file is never an entry (not listed, never blocks) and one older than the timeout is moved to quarantine/, kept', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
+    const stale = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl.aaaa.tmp`);
+    const fresh = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl.bbbb.tmp`);
+    fs.writeFileSync(stale, '{"v":1,"companyId":'); fs.writeFileSync(fresh, '{"v":1,"companyId":');
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(stale, old, old);
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toBeNull();
+    expect(await pendingSpooled()).toEqual([]);
+    await sweepStaleTemps();
+    expect({ staleMoved: !fs.existsSync(stale), kept: fs.readdirSync(path.join(spoolDir(), 'quarantine')).length, freshStays: fs.existsSync(fresh) })
+      .toEqual({ staleMoved: true, kept: 1, freshStays: true });
+  });
+
+  it('a FINAL-named entry that cannot be read stays fail-closed, with log.error', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`), '{"v":1,"companyId":');
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).not.toBeNull();
+    expect(logged.error).toHaveBeenCalled();
+  });
+});
+
+describe('the directory', () => {
+  it('an existing group/world-accessible directory is narrowed to 0700', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o755 });
+    fs.chmodSync(spoolDir(), 0o755);
+    expect(await spoolAnswer(record())).toBe(true);
+    expect(fs.statSync(spoolDir()).mode & 0o777).toBe(0o700);
+  });
+
+  it('probeSpoolWritable log.errors ONCE per process when the directory is not writable, and is silent when it is', async () => {
+    vi.resetModules();
+    const fresh = await import('@/modules/accounting/services/ap/netcashAnswerSpool');
+    const blocker = path.join(dir, 'a-file');
+    fs.writeFileSync(blocker, 'x');
+    process.env.NETCASH_ANSWER_SPOOL_DIR = path.join(blocker, 'spool');
+    const first = await fresh.probeSpoolWritable();
+    const second = await fresh.probeSpoolWritable();
+    expect({ first, second, errors: logged.error.mock.calls.filter(([m]) => /NOT writable/.test(String(m))).length }).toEqual({ first: false, second: true, errors: 1 });
+
+    vi.resetModules();
+    logged.error.mockReset();
+    process.env.NETCASH_ANSWER_SPOOL_DIR = path.join(dir, 'ok-spool');
+    const ok = await (await import('@/modules/accounting/services/ap/netcashAnswerSpool')).probeSpoolWritable();
+    expect({ ok, errors: logged.error.mock.calls.length, probeLeft: fs.readdirSync(path.join(dir, 'ok-spool')) }).toEqual({ ok: true, errors: 0, probeLeft: [] });
+  });
+});
+
+describe('pendingSpooled / markReplayed / quarantineEntry', () => {
+  it('lists unreplayed entries; a replayed one moves to replayed/ (kept, never deleted), is no longer listed or blocking; a repeat is not an error', async () => {
     await spoolAnswer(record());
     const [entry] = await pendingSpooled();
     expect(entry?.entry).toMatchObject({ companyId: COMPANY, submissionId: SUBMISSION, metadata: { settleToken: TOKEN } });
     await markReplayed(entry!.file);
+    await expect(markReplayed(entry!.file)).resolves.toBeUndefined(); // a peer got there first
     expect(await pendingSpooled()).toEqual([]);
-    expect(fs.readdirSync(spoolDir()).filter((f) => f.endsWith('.replayed'))).toHaveLength(1);
+    expect(fs.readdirSync(path.join(spoolDir(), 'replayed'))).toHaveLength(1);
+    expect(entries()).toEqual([]);
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toBeNull();
+  });
+
+  it('a QUARANTINED acceptance still blocks (the lookup reads quarantine/), and is not listed for replay', async () => {
+    await spoolAnswer(record());
+    const [entry] = await pendingSpooled();
+    await quarantineEntry(entry!.file);
+    expect(await pendingSpooled()).toEqual([]);
+    expect(fs.readdirSync(path.join(spoolDir(), 'quarantine'))).toHaveLength(1);
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toEqual({ outcome: 'accepted', batchReference: 'NC-SPOOL' });
   });
 });

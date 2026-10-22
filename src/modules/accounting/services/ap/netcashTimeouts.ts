@@ -78,3 +78,12 @@ export const SEND_START_DEADLINE_MS = 30_000;
  * counts in the settle budget (netcashSettleBudget.test.ts).
  */
 export const ANSWER_SPOOL_TIMEOUT_MS = 2_000;
+
+/**
+ * The spool replay (netcashAnswerSpoolReplay) is bounded per call - resolve awaits it: at most this many entries, and no
+ * new entry started past this long; the rest waits for the next call (and still blocks its submission meanwhile). An
+ * entry the database refuses for its own content (a deleted company or user) is quarantined after this many refusals.
+ */
+export const SPOOL_REPLAY_MAX_ENTRIES = 10;
+export const SPOOL_REPLAY_BUDGET_MS = 15_000;
+export const SPOOL_QUARANTINE_AFTER_FAILURES = 3;
