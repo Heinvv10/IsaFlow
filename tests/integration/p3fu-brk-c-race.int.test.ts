@@ -41,11 +41,25 @@ describe('BRK-A r3', () => {
       const rows = await directivePayments(pool, d);
       const e = await generateEMP201(f.company, '2026-09-01', '2026-09-30');
       const line = (await pool.query(
-        `SELECT count(*)::int n FROM payroll_run_lines l, jsonb_array_elements(l.component_breakdown) i WHERE l.run_id=$1 AND i->'directive' IS NOT NULL`, [sept])).rows[0].n;
+        // Only a declarable run pays: an approval refused leaves a calculated run, whose line pays nothing.
+        `SELECT count(*)::int n FROM payroll_run_lines l JOIN payroll_run_headers h ON h.id = l.run_id,
+           jsonb_array_elements(l.component_breakdown) i
+         WHERE l.run_id=$1 AND h.status IN ('approved', 'paid') AND i->'directive' IS NOT NULL`, [sept])).rows[0].n;
       const paidTwice = rows.length >= 1 && e.directivePayments.length + line > 1;
       expect(paidTwice, 'severance paid by standalone AND by the run').toBe(false);
     });
   }
+  it('G2 forced: calculate (releases the reversed payment), then apply, then approve: the approval is refused, paid once', async () => {
+    const { f, d, sept } = await setup('Brk3 forced order');
+    await calculateRun(f, sept);
+    expect((await applyStandalone(f, d, '2026-09-20')).statusCode).toBe(200);
+    const ap = await approveRun(f, sept);
+    expect(ap.statusCode).toBe(400);
+    expect(JSON.stringify(ap.body)).toMatch(/already paid outside payroll/);
+    expect((await directivePayments(pool, d)).map(r => r.payroll_run_id)).toEqual([null]);
+    expect((await generateEMP201(f.company, '2026-09-01', '2026-09-30')).directivePayments).toHaveLength(1);
+  });
+
   it('G3: cancel racing the release leaves no cancelled directive with a standing payment', async () => {
     const { f, d, sept } = await setup('Brk3 cancel');
     await Promise.all([calculateRun(f, sept), patch(f, d, { status: 'cancelled' })]);
