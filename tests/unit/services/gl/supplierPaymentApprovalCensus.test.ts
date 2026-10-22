@@ -196,11 +196,18 @@ describe('who changes where the money goes', () => {
 // supplier-then-batch order against the bank-file gate.
 describe('batch membership', () => {
   const filesWhere = (test: (t: string) => boolean) => files.filter((f) => test(f.text)).map((f) => f.rel).sort();
-  const sets = (t: string) => [...t.matchAll(/UPDATE\s+supplier_payments(?:\s+(?:AS\s+)?(?!SET\b)\w+)?\s+SET([\s\S]*?)(?:\bWHERE\b|`)/gi)].map((m) => m[1]!);
-  const insertColumns = (t: string) => [...t.matchAll(/INSERT\s+INTO\s+supplier_payments\s*\(([^)]*)\)/g)].map((m) => m[1]!);
+  const TABLE = String.raw`(?:ONLY\s+)?(?:"?\w+"?\.)?"?supplier_payments(?!\w)"?`; // optionally ONLY / schema-qualified / quoted
+  const sets = (t: string) => [...t.matchAll(new RegExp(String.raw`UPDATE\s+${TABLE}(?:\s+(?:AS\s+)?(?!SET\b)\w+)?\s+SET([\s\S]*?)(?:\bWHERE\b|\x60)`, 'gi'))].map((m) => m[1]!);
+  const insertColumns = (t: string) => [...t.matchAll(new RegExp(String.raw`INSERT\s+INTO\s+${TABLE}\s*\(([^)]*)\)`, 'gi'))].map((m) => m[1]!);
+  const insertsWithoutColumns = (t: string) => new RegExp(String.raw`INSERT\s+INTO\s+${TABLE}\s*(?!\s*\()\S`, 'i').test(t);
 
   it('no UPDATE of supplier_payments assigns batch_id', () => {
     expect(filesWhere((t) => sets(t).some((s) => /\bbatch_id\s*=/.test(s)))).toEqual([]);
+  });
+
+  // A column-less INSERT ... SELECT / VALUES would set batch_id without naming it, so it could not be counted above.
+  it('every INSERT into supplier_payments names its columns', () => {
+    expect(filesWhere(insertsWithoutColumns)).toEqual([]);
   });
 
   it('batch_id is INSERTed only by createBatch, into the batch it just created', () => {
