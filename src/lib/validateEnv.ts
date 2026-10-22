@@ -168,7 +168,7 @@ function assertPoolLogins(): void {
   }
   if (process.env.NODE_ENV === 'production' && app !== 'isaflow_app') {
     // process.stderr, as below: the no-console lint rule, and the logger is not set up this early.
-    process.stderr.write(`[env] S-07b: the request pool logs in as "${app}", not isaflow_app (${RUNBOOK})\n`);
+    process.stderr.write(`[env] S-07b: the request pool logs in as "${app ?? '(no user)'}", not isaflow_app (${RUNBOOK})\n`);
   }
 }
 
