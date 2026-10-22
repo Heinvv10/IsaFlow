@@ -5,6 +5,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const inserts: unknown[][] = [];
+// The year-to-date for cumulative PAYE (PAYE 4a follow-ups G4) has its own tests (p4fu-cumulative-paye).
+vi.mock('@/modules/accounting/services/payroll/payrollYearToDate', () => ({
+  loadPayeYearToDate: vi.fn(async () => new Map()),
+}));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
