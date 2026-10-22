@@ -168,7 +168,7 @@ describe('a file is complete or absent (written to a temp name, fsynced, renamed
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toEqual({ outcome: 'accepted', batchReference: 'NC-SPOOL' });
   });
 
-  it('a temp older than the timeout is swept to quarantine/ under a final-style name and STILL blocks (an unfinished acceptance must not stop blocking after 60 s)', async () => {
+  it('a COMPLETE stale temp (crash after fsync, before the rename) is promoted to a final entry - listed for replay, still blocking; an unparseable one goes to quarantine/ and keeps blocking', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
     const line = `${JSON.stringify({ v: 1, ...record(), spooledAt: 'x' })}\n`;
     const stale = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl.aaaa.tmp`);
@@ -177,17 +177,20 @@ describe('a file is complete or absent (written to a temp name, fsynced, renamed
     const old = new Date(Date.now() - 10 * 60_000);
     fs.utimesSync(stale, old, old);
     await sweepStaleTemps();
-    const quarantined = fs.readdirSync(path.join(spoolDir(), 'quarantine'));
-    expect({ staleMoved: !fs.existsSync(stale), quarantined: quarantined.length, finalStyle: quarantined.every((n) => n.endsWith('.jsonl') && !n.startsWith('.')), freshStays: fs.existsSync(fresh) })
-      .toEqual({ staleMoved: true, quarantined: 1, finalStyle: true, freshStays: true });
+    expect({ staleGone: !fs.existsSync(stale), freshStays: fs.existsSync(fresh), final: entries(), quarantine: fs.existsSync(path.join(spoolDir(), 'quarantine')) })
+      .toEqual({ staleGone: true, freshStays: true, final: [`${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`], quarantine: false });
+    expect((await pendingSpooled()).map((e) => e.entry.submissionId)).toEqual([SUBMISSION]); // replayed like any final entry
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toEqual({ outcome: 'accepted', batchReference: 'NC-SPOOL' });
-    // and a torn one swept the same way stays fail-closed
+    // an unparseable one swept the same way is quarantined under a final-style name and stays fail-closed
+    fs.rmSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`));
     const torn = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl.dddd.tmp`);
     fs.writeFileSync(torn, '{"v":1,');
     fs.utimesSync(torn, old, old);
-    fs.rmSync(path.join(spoolDir(), 'quarantine'), { recursive: true });
     await sweepStaleTemps();
+    const quarantined = fs.readdirSync(path.join(spoolDir(), 'quarantine'));
+    expect({ n: quarantined.length, finalStyle: quarantined.every((n) => n.endsWith('.jsonl') && !n.startsWith('.')) }).toEqual({ n: 1, finalStyle: true });
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).not.toBeNull();
+    expect(await pendingSpooled()).toEqual([]);
   });
 
   it('a FINAL-named entry that cannot be read stays fail-closed, with log.error', async () => {
@@ -195,6 +198,24 @@ describe('a file is complete or absent (written to a temp name, fsynced, renamed
     fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`), '{"v":1,"companyId":');
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).not.toBeNull();
     expect(logged.error).toHaveBeenCalled();
+  });
+});
+
+describe('pendingSpooled reads only what the caller will use', () => {
+  it('stops reading once max entries are read, and reads nothing past the deadline', async () => {
+    for (let i = 0; i < 5; i++) {
+      const rec = record({ submissionId: `0000000${i}-5555-4555-8555-555555555555` });
+      rec.metadata.settleToken = `0000000${i}-4444-4444-8444-444444444444`;
+      expect(await spoolAnswer(rec)).toBe(true);
+    }
+    const reads = vi.spyOn(fs.promises, 'readFile');
+    expect((await pendingSpooled({ max: 2 })).length).toBe(2);
+    expect(reads.mock.calls.length).toBe(2);
+    reads.mockClear();
+    expect(await pendingSpooled({ deadline: Date.now() - 1 })).toEqual([]);
+    expect(reads.mock.calls.length).toBe(0);
+    reads.mockClear();
+    expect((await pendingSpooled()).length).toBe(5);
   });
 });
 
