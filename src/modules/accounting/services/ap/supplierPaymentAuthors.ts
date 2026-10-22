@@ -18,16 +18,16 @@
  * payments. The bank-file gate (eft-generate, netcash/submit) holds the batch
  * row and then share-locks its payee suppliers, and approveBatch / processBatch
  * take batch then members, so every writer here takes the batches BEFORE the
- * supplier row (`lockBatchesBeforeSuppliers`): a supplier first, then a batch,
+ * supplier row (`lockBatchesBeforeSuppliers`, ./batchBeforeSupplierLock.ts): a supplier first, then a batch,
  * was a 40P01 cycle against the gate.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { lockBatchesBeforeSuppliers } from './batchBeforeSupplierLock';
 
 /** The batches `recordBankDetailsSetter` stamps: money not yet moved. */
-const STAMPED_BATCH_STATUSES = ['draft', 'approved'] as const;
-const MAX_LOCK_ATTEMPTS = 5;
+export const STAMPED_BATCH_STATUSES = ['draft', 'approved'] as const;
 const BANK_COLUMNS = ['bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type', 'bank_account_holder'] as const;
 /**
  * A new DESTINATION: only the account number resets the setters to its editor.
@@ -105,65 +105,6 @@ export async function lockBatchesPayingSupplier(companyId: string, supplierId: s
     FOR UPDATE OF b
   `) as DbRow[];
   return rows.map((r) => String(r.id));
-}
-
-/** Raised inside the savepoint to give back the locks of an attempt whose batch set was out of date. */
-class BatchSetGrew extends Error {
-  constructor(readonly batchIds: string[]) {
-    super('a batch started paying the supplier after the batches were read');
-    this.name = 'BatchSetGrew';
-  }
-}
-
-async function batchIdsPayingSuppliers(companyId: string, supplierIds: readonly string[],
-  statuses: readonly string[] | null): Promise<string[]> {
-  const rows = (await sql`
-    SELECT b.id FROM supplier_payment_batches b
-    WHERE b.company_id = ${companyId}::UUID
-      AND (${statuses === null} OR b.status = ANY(${statuses ?? []}::TEXT[]))
-      AND b.id IN (SELECT sp.batch_id FROM supplier_payments sp
-                   WHERE sp.company_id = ${companyId}::UUID AND sp.supplier_id = ANY(${supplierIds}::UUID[])
-                     AND sp.batch_id IS NOT NULL)
-    ORDER BY b.id
-  `) as DbRow[];
-  return rows.map((r) => String(r.id));
-}
-
-/**
- * Take the batches paying `supplierIds` (in `statuses`, null = any) `FOR UPDATE` in id order, THEN run
- * `lockSuppliers` (the caller's own `FOR UPDATE` on the supplier rows): batch before supplier, the order the
- * bank-file gate takes them in (`batchBankFileGate`: batch row, then its payees `FOR SHARE`). The reverse order
- * deadlocked against it (40P01).
- *
- * The batches are read unlocked, locked, and the suppliers locked; with the suppliers held no payment can be
- * added to or moved off them (the FK's KEY SHARE and the merge's row lock both wait), so the batch set is re-read
- * then. A batch that started paying them in between would have to be locked AFTER the supplier, so the attempt is
- * rolled back whole (its savepoint gives the supplier AND the batch locks back, keeping id order) and retried
- * with that batch in the set. Bounded: a set that keeps growing is an error, not a spin.
- */
-export async function lockBatchesBeforeSuppliers<T>(companyId: string, supplierIds: readonly string[],
-  statuses: readonly string[] | null, lockSuppliers: () => Promise<T>): Promise<T> {
-  let known: string[] = [];
-  for (let attempt = 1; attempt <= MAX_LOCK_ATTEMPTS; attempt += 1) {
-    try {
-      return await withSavepoint(`batch_before_supplier_${attempt}`, async () => {
-        known = [...new Set([...known, ...await batchIdsPayingSuppliers(companyId, supplierIds, statuses)])].sort();
-        await sql`
-          SELECT id FROM supplier_payment_batches
-          WHERE company_id = ${companyId}::UUID AND id = ANY(${known}::UUID[])
-          ORDER BY id FOR UPDATE
-        `;
-        const result = await lockSuppliers();
-        const missed = (await batchIdsPayingSuppliers(companyId, supplierIds, statuses)).filter((id) => !known.includes(id));
-        if (missed.length > 0) throw new BatchSetGrew(missed);
-        return result;
-      });
-    } catch (err) {
-      if (!(err instanceof BatchSetGrew)) throw err;
-      known = [...known, ...err.batchIds];
-    }
-  }
-  throw new Error('Supplier payment batches kept changing while the supplier was being locked; try again.');
 }
 
 /**

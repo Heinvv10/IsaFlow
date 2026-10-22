@@ -9,7 +9,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
-import { lockBatchesBeforeSuppliers, lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
+import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
+import { lockBatchesBeforeSuppliers } from '../ap/batchBeforeSupplierLock';
 
 export interface MergeResult {
   reassignedTransactions: number;
