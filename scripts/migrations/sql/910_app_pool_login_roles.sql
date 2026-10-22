@@ -74,13 +74,32 @@ END $$;
 -- non-superuser may not name those three in ALTER ROLE at all, even to turn
 -- them off, so the guard below asserts them instead. LOGIN is left alone:
 -- after the ops step enables it, a re-run must not undo it.
-ALTER ROLE app_service     NOCREATEDB NOCREATEROLE INHERIT NOLOGIN;
-ALTER ROLE isaflow_app     NOCREATEDB NOCREATEROLE NOINHERIT;
-ALTER ROLE isaflow_service NOCREATEDB NOCREATEROLE INHERIT;
-
-GRANT app_user TO app_service;
-GRANT app_user TO isaflow_app;
-GRANT app_service TO isaflow_service;
+--
+-- Each ALTER and GRANT runs only when the role is not already so: once the
+-- runbook adds the two logins to supautils.reserved_roles (only a superuser
+-- may then modify them), a re-run on another database of the cluster must
+-- not touch them.
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES ('app_service', true, false), ('isaflow_app', false, NULL::bool),
+                                 ('isaflow_service', true, NULL::bool)) v(name, inherit, login) LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r.name
+                 AND (rolcreatedb OR rolcreaterole OR rolinherit IS DISTINCT FROM r.inherit
+                      OR (r.login IS NOT NULL AND rolcanlogin IS DISTINCT FROM r.login))) THEN
+      EXECUTE format('ALTER ROLE %I NOCREATEDB NOCREATEROLE %s%s', r.name,
+                     CASE WHEN r.inherit THEN 'INHERIT' ELSE 'NOINHERIT' END,
+                     CASE WHEN r.login IS FALSE THEN ' NOLOGIN' ELSE '' END);
+    END IF;
+  END LOOP;
+  FOR r IN SELECT * FROM (VALUES ('app_user', 'app_service'), ('app_user', 'isaflow_app'),
+                                 ('app_service', 'isaflow_service')) v(grp, member) LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_auth_members m WHERE m.roleid = r.grp::regrole AND m.member = r.member::regrole) THEN
+      EXECUTE format('GRANT %I TO %I', r.grp, r.member);
+    END IF;
+  END LOOP;
+END $$;
 
 -- change-email.ts and the data-subject-rights erasure write email; both stamp
 -- updated_at. 902 withholds both from app_user.

@@ -70,6 +70,25 @@ describe('S-07b: the request pool cannot get back to the owner', () => {
     expect(await attempt(pool(), [[stmt]], asMe)).toMatchObject({ code: '42501', message: expect.stringMatching(msg) });
   });
 
+  // S-07b verifier P1: the owner-run views clients and app_settings (911 sets security_invoker).
+  it.each([
+    ['reads another tenant\'s customers through clients', `SELECT name FROM clients WHERE name = 'S07b other tenant customer'`],
+    ['reads another tenant\'s settings through app_settings', `SELECT value FROM app_settings WHERE key = 's07b_secret'`],
+    ['writes another tenant\'s customers through clients', `UPDATE clients SET notes = 'written' WHERE name = 'S07b other tenant customer' RETURNING id`],
+  ])('app_user no longer %s', async (_, text) => {
+    const c = await pool().connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query(`SELECT set_config('request.jwt.claims', $1, true), set_config('app.current_company_id', $2, true)`,
+        [JSON.stringify({ sub: me }), company]);
+      expect((await c.query(text)).rowCount).toBe(0);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release(true);
+    }
+  });
+
   it('app_user cannot rewrite the migration history (911)', async () => {
     expect(await attempt(pool(), [[`DELETE FROM schema_migrations WHERE name LIKE '910%'`]], asMe))
       .toMatchObject({ code: '42501', message: 'permission denied for table schema_migrations' });

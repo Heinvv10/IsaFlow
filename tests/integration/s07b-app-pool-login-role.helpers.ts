@@ -90,6 +90,8 @@ export async function setup(ids: S07bIds): Promise<void> {
   await q(`INSERT INTO personal_access_tokens (user_id, company_id, token_hash, token_prefix, name, scopes, expires_at)
     VALUES ($1, $2, $3, $4, 's07b', '{read:reports}', NOW() + interval '1 day')`,
   [ids.me, ids.company, createHash('sha256').update(ids.pat).digest('hex'), ids.pat.slice(0, 12)]);
+  await q(`INSERT INTO customers (company_id, name, notes) VALUES ($1, 'S07b other tenant customer', 'untouched')`, [ids.other]);
+  await q(`INSERT INTO accounting_settings (company_id, key, value) VALUES ($1, 's07b_secret', '"other"')`, [ids.other]);
   await q(`INSERT INTO impersonation_sessions (session_id, actor_user_id, target_user_id) VALUES ($1, $2, $3)`,
     [ids.session, ids.admin, ids.me]);
   const flag = await q(`INSERT INTO feature_flags (code, name) SELECT 'mcp_connector', 'MCP connector'
@@ -103,7 +105,7 @@ export async function setup(ids: S07bIds): Promise<void> {
 export async function teardown(ids: S07bIds, pools: Pool[]): Promise<void> {
   try {
     const companies = [ids.company, ids.other];
-    for (const t of ['company_feature_overrides', 'personal_access_tokens', 'company_invitations', 'company_users',
+    for (const t of ['customers', 'accounting_settings', 'company_feature_overrides', 'personal_access_tokens', 'company_invitations', 'company_users',
       'gl_journal_entries', 'flow_wallet']) {
       await fixture.query(`DELETE FROM ${t} WHERE company_id = ANY($1)`, [companies]);
     }

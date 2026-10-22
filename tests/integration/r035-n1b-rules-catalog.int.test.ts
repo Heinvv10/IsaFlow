@@ -111,7 +111,8 @@ const OTHERS = `
   WHERE NOT r.rolsuper AND r.rolname !~ '^pg_' AND r.oid <> $1::oid
     AND NOT (r.rolname = session_user AND pg_has_role(r.oid, $1::oid, 'USAGE'))
     -- S-07b (910): app_service and isaflow_service hold app_user's privileges by inheritance; that is app_user's grant.
-    AND NOT ($2::bool AND (r.rolname = 'app_user' OR pg_has_role(r.oid, 'app_user', 'USAGE')))
+    AND NOT ($2::bool AND (r.rolname IN ('app_user', 'app_service', 'isaflow_service')
+                           OR (r.rolname = session_user AND pg_has_role(r.oid, 'app_user', 'USAGE'))))
   UNION ALL SELECT 'public'`;
 
 describeIfDb('approval_rules / approval_enforcement catalogue (R-035 N1b B)', () => {

@@ -117,6 +117,31 @@ the pooler:
 psql "postgresql://isaflow_app:<pw>@100.96.203.105:7772/isaflow" -c 'select current_user'
 ```
 
+## 3b. Make the two logins reserved roles (once per cluster, after step 3)
+
+Any role may change its own password and its own session defaults, and the
+event trigger does not see ALTER ROLE. One injected statement could therefore
+run `ALTER ROLE isaflow_service SET default_transaction_read_only = on`, a
+read-only app that survives restarts, or change the login's password (S-07b
+verifier, P2). supautils refuses every change to a reserved role that does
+not come from a superuser:
+
+1. In the IsaFlow Supabase db container, append the two logins to
+   `supautils.reserved_roles` in `/etc/postgresql-custom/supautils.conf`:
+   `..., anon*, isaflow_app, isaflow_service'`. Check first that the file is
+   on a mounted volume (`docker inspect`), or the change is lost when the
+   container is recreated.
+2. As supabase_admin: `SELECT pg_reload_conf();`
+
+Verify, as isaflow_service:
+`ALTER ROLE isaflow_service SET statement_timeout = 1;` must fail with
+`"isaflow_service" is a reserved role, only superusers can modify it`.
+
+From then on, rotate either password as supabase_admin, not as postgres.
+Migration 910 changes the roles only when they differ from what it expects, so
+re-running it, or applying it to another database of the cluster, still works
+(verified on supabase/postgres:15.8.1.085 with non-superuser postgres).
+
 ## 4. Change the prod env (`/home/velo/isaflow/.env.local`)
 
 Keep a copy first: `sudo cp -p .env.local .env.local.pre-s07b`.
