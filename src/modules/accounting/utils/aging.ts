@@ -12,6 +12,17 @@ import type { AgingBucket, AgingBucketName, AgingInvoice } from '../types/ap.typ
 export type AgingDetailInvoice = AgingInvoice & { invoiceNumber: string };
 
 /**
+ * An open bill / invoice as the aging sees it (ap/apAgingInvoices,
+ * ar/arAgingInvoices), plus the two header fields an export row needs.
+ */
+export interface OpenAgingInvoice extends AgingDetailInvoice {
+  /** YYYY-MM-DD: the document date (AR: else the day it was created). */
+  invoiceDate: string;
+  /** AP: the supplier's own reference on the bill. AR: the invoice's number in the system it came from (external_document_number). Null when not captured. */
+  reference: string | null;
+}
+
+/**
  * Whole days a document is past `dueDate` as at `asAtDate` (0 or negative =
  * not yet due) — the count getAgingBucket buckets, so a row-level export can
  * state the same age the report used. NaN for an unusable date.

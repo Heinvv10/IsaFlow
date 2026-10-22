@@ -14,18 +14,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import type { AgingDetailInvoice } from '../../utils/aging';
+import type { OpenAgingInvoice } from '../../utils/aging';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
-
-/** An open bill as the aging sees it, plus the two header fields an export row needs. */
-export interface OpenAgingInvoice extends AgingDetailInvoice {
-  /** YYYY-MM-DD. */
-  invoiceDate: string;
-  /** The supplier's own reference on the bill, when captured. */
-  reference: string | null;
-}
 
 /**
  * Open bills as at `asAtStr`, oldest due first. `supplierId` narrows to one
@@ -37,6 +29,9 @@ export async function fetchAPAgingInvoices(
   todayStr: string,
   supplierId: string | null = null,
 ): Promise<OpenAgingInvoice[]> {
+  // A plain equality for the drill-down, nothing for the whole book: an
+  // `(x IS NULL OR col = x)` predicate hides the equality from the planner.
+  const oneEntity = supplierId === null ? sql`` : sql`AND si.supplier_id = ${supplierId}::UUID`;
   const rows = (await sql`
     SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
       COALESCE(si.due_date, si.invoice_date) AS due_date,
@@ -50,7 +45,7 @@ export async function fetchAPAgingInvoices(
       ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
     ) unpaid ON TRUE
     WHERE si.company_id = ${companyId}::UUID
-      AND (${supplierId}::UUID IS NULL OR si.supplier_id = ${supplierId}::UUID)
+      ${oneEntity}
       -- Status rule: shared/documentPopulation (NULL-safe, one definition).
       AND ${sql.unsafe(documentInPopulationExpr('si'))}
       -- A soft-deleted bill leaves this report exactly when the delete's

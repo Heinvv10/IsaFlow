@@ -15,18 +15,22 @@
  *    counts asset-typed accounts only, so an account it does not hold — a
  *    credit card kept on a liability account — exports a BLANK balance rather
  *    than a number from a second definition.
- *  - statements from bank/bankReconciliationService.getReconciliations: the
+ *  - statements from bank/latestStatementService.getLatestStatements: the
  *    latest statement date entered on a reconciliation of the account (any
- *    status) and its closing balance; Last_Reconciled_Date is the latest
- *    COMPLETED reconciliation's statement date.
+ *    status) and the closing balance typed from that statement;
+ *    Last_Reconciled_Date is the latest COMPLETED reconciliation's statement
+ *    date. Where Last_Statement_Date is later than Last_Reconciled_Date, that
+ *    statement sits on a reconciliation still in progress — its balance is
+ *    the bank's figure, but nobody has signed the reconciliation off.
  *
- * Account_Number_Masked keeps the last four characters only.
+ * Account_Number_Masked keeps the last four characters only, and only when at
+ * least four more stay hidden; a shorter number is '****' alone.
  */
 
 import { fmtDate } from '@/lib/fmtDate';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
-import { getReconciliations } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { getLatestStatements } from '@/modules/accounting/services/bank/latestStatementService';
 import type { ExportValue } from './glLineExportRows';
 
 export const BANK_ACCOUNTS_SCHEMA_VERSION = 'isaflow-bank-accounts-1.0';
@@ -58,35 +62,14 @@ export interface BankAccountsResult {
   summary: BankAccountsSummary;
 }
 
-/** '****' and the last four characters; blank when no number is captured. */
+/** Fewest characters a number must have before its last four are shown: four must stay hidden. */
+const MIN_REVEAL_LENGTH = 8;
+
+/** '****' and the last four characters (a number under eight characters: '****' alone); blank when none is captured. */
 export function maskAccountNumber(raw: string | null): string | null {
   const s = (raw ?? '').replace(/\s+/g, '');
   if (s === '') return null;
-  return `****${s.slice(-4)}`;
-}
-
-interface StatementFacts { lastDate: string; lastBalance: number; lastReconciled: string | null }
-
-/** Per bank account: the latest statement on any reconciliation and the latest completed one. */
-function statementFacts(
-  recons: ReadonlyArray<{ bankAccountId: string; statementDate: string; statementBalance: number; status: string }>,
-): Map<string, StatementFacts> {
-  const out = new Map<string, StatementFacts>();
-  for (const r of recons) {
-    const cur = out.get(r.bankAccountId);
-    const completed = r.status === 'completed';
-    const next: StatementFacts = cur ?? { lastDate: r.statementDate, lastBalance: r.statementBalance, lastReconciled: null };
-    // Latest statement wins; on a tie a completed session's balance wins.
-    if (cur && (r.statementDate > cur.lastDate || (r.statementDate === cur.lastDate && completed))) {
-      next.lastDate = r.statementDate;
-      next.lastBalance = r.statementBalance;
-    }
-    if (completed && (next.lastReconciled === null || r.statementDate > next.lastReconciled)) {
-      next.lastReconciled = r.statementDate;
-    }
-    out.set(r.bankAccountId, next);
-  }
-  return out;
+  return s.length < MIN_REVEAL_LENGTH ? '****' : `****${s.slice(-4)}`;
 }
 
 /** Every bank / card account, ordered by id. Reads run SEQUENTIALLY: one pg client per request. */
@@ -96,10 +79,9 @@ export async function buildBankAccounts(
 ): Promise<BankAccountsResult> {
   const accounts = await getBankAccountsStatus(companyId, { includeInactive: true });
   const cash = await getCashBalance(companyId, asAtStr);
-  const recons = await getReconciliations(companyId);
+  const statements = await getLatestStatements(companyId);
 
   const ledger = new Map(cash.accounts.map((a) => [a.accountId, a.glBalance]));
-  const statements = statementFacts(recons);
 
   const rows: BankAccountsRow[] = accounts
     .map((a): BankAccountsRow => {
@@ -112,9 +94,9 @@ export async function buildBankAccounts(
         // Bank accounts are ZAR-only (bank_accounts_currency_zar, companies_functional_currency_zar).
         Currency: 'ZAR',
         Ledger_Balance: ledger.get(a.id) ?? null,
-        Last_Statement_Date: st?.lastDate ?? null,
-        Last_Statement_Closing_Balance: st?.lastBalance ?? null,
-        Last_Reconciled_Date: st?.lastReconciled ?? null,
+        Last_Statement_Date: st?.lastStatementDate ?? null,
+        Last_Statement_Closing_Balance: st?.lastStatementBalance ?? null,
+        Last_Reconciled_Date: st?.lastReconciledDate ?? null,
         Unreconciled_Line_Count: a.unreconciledCount,
         Unallocated_Line_Count: a.unallocatedCount,
         Last_Transaction_Date: a.lastDate,

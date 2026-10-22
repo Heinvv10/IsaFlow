@@ -16,8 +16,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { AccountingEntityType } from '@/types/procurement/document.types';
 import { entityIdsWithDocuments } from '@/modules/accounting/services/core/documentQueryService';
-
-export const MIXED = 'MIXED';
+import { str } from './glLineExportRows';
 
 export interface DocDimensions {
   cc1: string | null;
@@ -25,10 +24,8 @@ export interface DocDimensions {
   bu: string | null;
 }
 
-const text = (v: unknown): string | null => (v == null || v === '' ? null : String(v));
-
 function toDims(r: DbRow): DocDimensions {
-  return { cc1: text(r.cc1_code), cc2: text(r.cc2_code), bu: text(r.bu_code) };
+  return { cc1: str(r.cc1_code), cc2: str(r.cc2_code), bu: str(r.bu_code) };
 }
 
 /** Line-derived dimensions of supplier ('ap') or customer ('ar') invoices, keyed by invoice id. */

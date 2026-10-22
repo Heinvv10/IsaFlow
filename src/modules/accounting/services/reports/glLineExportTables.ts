@@ -11,8 +11,8 @@
  * the wire (PR #688 round 2). Every read is this company's rows only.
  *
  * Counterparties carry names and VAT numbers (personal information for a sole
- * trader), so the MCP tool serves that table only to a token that also holds
- * read:contacts — see exportGlLines.ts.
+ * trader), so a token is served that table only when it also holds
+ * read:contacts — GL_EXPORT_EXTRA_SCOPE below.
  */
 
 import { sql } from '@/lib/neon';
@@ -20,10 +20,12 @@ import type { DbRow } from '@/types/db';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { clampPage } from './glLineExportService';
 import { GL_LINE_EXPORT_SCHEMA_VERSION, str, toNum, type ExportValue } from './glLineExportRows';
-import { GL_COMPUTED_TABLES } from './glExportComputedTables';
 
 export const GL_DIMENSION_TABLES = ['accounts', 'cost_centres', 'business_units', 'counterparties'] as const;
 export type GlDimensionTable = (typeof GL_DIMENSION_TABLES)[number];
+
+/** The computed tables, built by reports/glExportComputedTables; listed here so this registry imports nothing from it. */
+export const GL_COMPUTED_TABLES = ['ap_open_items', 'ar_open_items', 'bank_accounts'] as const;
 
 /** Every table the export serves: the lines, the dimension masters, then the computed tables. */
 export const GL_EXPORT_TABLES = ['lines', ...GL_DIMENSION_TABLES, ...GL_COMPUTED_TABLES] as const;
@@ -38,20 +40,25 @@ export function isGlDimensionTable(v: unknown): v is GlDimensionTable {
 }
 
 /**
- * The scope a table needs ON TOP OF read:reports, for the REST route and the
- * MCP tool alike — one map, so the two cannot disagree. Counterparties carry
- * names and VAT numbers, which list_customers / list_suppliers serve only
- * under read:contacts.
+ * The scope a table needs ON TOP OF read:reports, and why, for the REST route
+ * and the MCP tool alike — one map, so the two cannot disagree. Each names the
+ * scope the same facts are served under elsewhere:
+ *  - counterparties: names and VAT numbers, which list_customers /
+ *    list_suppliers serve only under read:contacts;
+ *  - bank_accounts: statement dates and balances, reconciliation dates and
+ *    unreconciled / unallocated feed counts, which bank_accounts_status and
+ *    list_bank_reconciliations serve only under read:bank-tx.
  */
-export const GL_EXPORT_EXTRA_SCOPE: Partial<Record<GlExportTable, string>> = {
-  counterparties: 'read:contacts',
+export const GL_EXPORT_EXTRA_SCOPE: Partial<Record<GlExportTable, { scope: string; reason: string }>> = {
+  counterparties: { scope: 'read:contacts', reason: 'lists customer and supplier names and VAT numbers' },
+  bank_accounts: { scope: 'read:bank-tx', reason: 'carries bank statement, reconciliation and feed facts' },
 };
 
 /** The extra scope `table` needs that `scopes` lacks, or null. Cookie sessions (no scopes) need none. */
 export function missingExportScope(table: GlExportTable, scopes: readonly string[] | undefined): string | null {
   const extra = GL_EXPORT_EXTRA_SCOPE[table];
   if (extra === undefined || scopes === undefined) return null;
-  return scopes.includes(extra) ? null : extra;
+  return scopes.includes(extra.scope) ? null : extra.scope;
 }
 
 /** Keyset position in a dimension table: the last row's kind ('' or Customer / Supplier) and id. */

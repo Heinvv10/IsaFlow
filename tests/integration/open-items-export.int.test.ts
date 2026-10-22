@@ -4,8 +4,12 @@
  * dimensions read MIXED when the lines disagree, and Has_Document reads the
  * entity document store (direct or linked) for this company's documents only.
  *
- * Fixture: l2-credit-note-fifo.helpers (one disposable company, documents by
- * plain SQL). Figures worked by hand in each test.
+ * Fixture: l2-credit-note-fifo.helpers (documents by plain SQL), twice: the
+ * company under test and a SECOND company holding an open bill, an open
+ * invoice, a credit note on each side and cash on account on each side. No
+ * second-company document may appear, and the totals must not move — the unit
+ * tests replace the SQL fetchers, so this file is what catches a query that
+ * lost its company_id. Figures worked by hand in each test.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -19,6 +23,8 @@ const payload = (r: unknown) => JSON.parse((r as { content: Array<{ text: string
 const cents = (n: unknown) => Math.round(Number(n) * 100);
 
 let f: Fixture;
+let other: Fixture;
+const otherIds: string[] = [];
 let ctx: McpToolContext;
 const ids = { bill1: '', bill2: '', ccA: randomUUID(), ccB: randomUUID(), supplier2: randomUUID(), note: '' };
 
@@ -58,6 +64,25 @@ describeIfDb('open-items export ties to the aged reports', () => {
     await f.pool.query(
       `INSERT INTO customer_payments(id,company_id,client_id,payment_date,total_amount,payment_method,status,created_by)
        VALUES($1,$2,$3,'2026-06-01',300,'eft','confirmed',$4)`, [randomUUID(), f.company, f.customer, f.user]);
+
+    // The second company: one of every document kind the export reads.
+    other = await setupFixture('OIX2');
+    otherIds.push(
+      await makeBill(other, 'OIX2-B1', 7000, '2026-03-01'),
+      await makeInvoice(other, 'OIX2-I1', 9000, '2026-02-01'),
+      await makeApprovedNote(other, { type: 'supplier', number: 'OIX2-SCN', total: 700, creditDate: '2026-05-01' }),
+      await makeApprovedNote(other, { type: 'customer', number: 'OIX2-CCN', total: 900, creditDate: '2026-05-01' }),
+    );
+    for (const [table, party, col, status] of [
+      ['supplier_payments', other.supplier, 'supplier_id', 'processed'],
+      ['customer_payments', other.customer, 'client_id', 'confirmed'],
+    ] as const) {
+      const id = randomUUID();
+      otherIds.push(id);
+      await other.pool.query(
+        `INSERT INTO ${table}(id,company_id,${col},payment_date,total_amount,payment_method,status,created_by)
+         VALUES($1,$2,$3,'2026-06-01',444,'eft',$4,$5)`, [id, other.company, party, status, other.user]);
+    }
   }, 60000);
 
   afterAll(async () => {
@@ -67,6 +92,18 @@ describeIfDb('open-items export ties to the aged reports', () => {
     await f.pool.query('UPDATE credit_notes SET cc1_id = NULL WHERE company_id = $1', [f.company]);
     await f.pool.query('DELETE FROM cost_centres WHERE company_id = $1', [f.company]);
     await f.cleanup();
+    await other?.cleanup();
+  }, 60000);
+
+  it('no document of another company reaches either table', async () => {
+    for (const side of ['ap', 'ar'] as const) {
+      const out = await buildOpenItems(f.company, side);
+      const docIds = new Set(out.rows.map((r) => r.Doc_ID));
+      for (const id of otherIds) expect(docIds.has(id)).toBe(false);
+      const ours = new Set<unknown>([f.supplier, f.customer, ids.supplier2]);
+      expect(out.rows.filter((r) => !ours.has(r.Counterparty_ID)).map((r) => [r.Doc_Type, r.Counterparty_ID, r.Counterparty_Name]))
+        .toEqual([]);
+    }
   }, 60000);
 
   it('AP: Σ Outstanding = aged_creditors total (3000 − 500 − 300 − 120.45 = 2079.55)', async () => {

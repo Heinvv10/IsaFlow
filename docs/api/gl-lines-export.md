@@ -6,7 +6,7 @@ The flat general-ledger export and the tables a finance dashboard needs, as CSV.
 
 Use a Personal Access Token when another system (for example FibreFlow on your own server) pulls the export on a schedule, with no browser session.
 
-1. In ISAFlow, open **Settings → Personal Access Tokens** (`/developer/personal-tokens`) and create a token with the scope **`read:reports`**. Add **`read:contacts`** only if you need `table=counterparties`, which lists customer and supplier names and VAT numbers. The token reads the company it was created in.
+1. In ISAFlow, open **Settings → Personal Access Tokens** (`/developer/personal-tokens`) and create a token with the scope **`read:reports`**. Add **`read:contacts`** only if you need `table=counterparties`, which lists customer and supplier names and VAT numbers, and **`read:bank-tx`** only if you need `table=bank_accounts`, which carries bank statement, reconciliation and feed facts. The token reads the company it was created in.
 2. Send it as a Bearer header on a `GET`:
 
    ```sh
@@ -17,7 +17,7 @@ Use a Personal Access Token when another system (for example FibreFlow on your o
 
 3. Check the control headers before loading the file (see below), or call with `manifest=1` first to get the JSON summary without rows.
 
-A token without `read:reports` gets `403 INSUFFICIENT_SCOPE`. `table=counterparties` without `read:contacts` gets the same. Token calls share the company's report rate limit, so a few pulls a day are fine and a tight loop is not. Keep the token in a secret store, never in source.
+A token without `read:reports` gets `403 INSUFFICIENT_SCOPE`. `table=counterparties` without `read:contacts`, and `table=bank_accounts` without `read:bank-tx`, get the same. Token calls share the company's report rate limit, so a few pulls a day are fine and a tight loop is not. Keep the token in a secret store, never in source.
 
 A browser download (signed-in session) works exactly as before and needs no token.
 
@@ -30,11 +30,13 @@ A browser download (signed-in session) works exactly as before and needs no toke
 | `lines` | One row per journal line (`?date_from`, `?date_to`, `?status=all\|posted`) | `X-Control-Total` (Σ posted amounts, must be 0.00), `X-Unbalanced-Txn-Count` |
 | `accounts`, `cost_centres`, `business_units` | Dimension masters | — |
 | `counterparties` | Customers and suppliers (needs `read:contacts`) | — |
-| `ap_open_items` | Open supplier bills, plus unconsumed supplier credit notes and unapplied supplier payments as negative rows, as at today | `X-Control-Total` = Σ Outstanding; `X-Aged-Total` = the aged creditors net total; `X-Control-Difference` (must be 0.00) |
+| `ap_open_items` | Open supplier bills, plus unconsumed supplier credit notes and unapplied supplier payments as negative rows, as at today | `X-Control-Total` = Σ Outstanding; `X-Aged-Total` = the aged creditors net total; `X-Control-Difference`; `X-Disputed-Total` |
 | `ar_open_items` | The same for customer invoices, customer credit notes and unapplied receipts | as above, against aged debtors |
-| `bank_accounts` | One row per bank or card account | `X-Control-Total` = Σ Ledger_Balance |
+| `bank_accounts` | One row per bank or card account (needs `read:bank-tx`) | `X-Control-Total` = Σ Ledger_Balance; `X-No-Ledger-Balance-Count` |
 
-Every file also carries `X-Export-Timestamp` and `X-Schema-Version`. The computed tables (`ap_open_items`, `ar_open_items`, `bank_accounts`) also carry `X-As-At` and `X-Row-Count`.
+Every file also carries `X-Export-Timestamp` and `X-Schema-Version`. The computed tables (`ap_open_items`, `ar_open_items`, `bank_accounts`) also carry `X-As-At` and `X-Row-Count`. They are always as at today: `date_from`, `date_to` and `status` are refused with `400` on them, so a caller expecting an earlier as-at date never silently gets today's figures.
+
+**`X-Control-Difference` is a consistency check, not a reconciliation.** `X-Aged-Total` is computed through the aged report's own functions from the same data the rows come from, so the difference is `0.00` unless the export itself is wrong. It does not tie the subledger to the AP/AR control account in the general ledger: a subledger that disagrees with its control account still shows `0.00` here. Use the `reconcile_subledger` MCP tool, or the trial balance, for that.
 
 ### `ap_open_items` / `ar_open_items` columns
 
@@ -42,8 +44,9 @@ Every file also carries `X-Export-Timestamp` and `X-Schema-Version`. The compute
 
 - `Doc_Type`: `invoice`, `credit_note`, `unapplied_payment` (AP) or `unapplied_receipt` (AR).
 - `Outstanding` is positive for what is owed and negative for credit and on-account cash, so the column sums to the aged report's net total. A refund carries its own sign.
-- `Due_Date` is the date the invoice is aged from: its due date, or its invoice date when it has none. `Age_Bucket` is `current`, `30`, `60`, `90` or `120+`, bucketed as the aged report does. Invoice rows' buckets add up to the report's buckets. Credit and cash rows have no due date and are aged from their own date, for information only.
-- `Disputed` is the part of an AR invoice under an open dispute. It is out of `Outstanding`, as it is out of the aged buckets.
+- `Due_Date` is the date the invoice is aged from: its due date, or its invoice date when it has none. `Age_Bucket` is `current`, `30`, `60`, `90` or `120+`, bucketed as the aged report does. Only invoice rows are aged: credit and cash rows have a blank `Due_Date`, `Days_Overdue` and `Age_Bucket`. So a pivot of `Outstanding` by `Age_Bucket` gives exactly the report's gross buckets, plus one blank-bucket line holding the unapplied total.
+- `Disputed` is the part of an AR invoice under an open dispute. It is out of `Outstanding`, as it is out of the aged buckets, so **`Outstanding` + `Disputed` is what the invoice still owes**, and Σ `Outstanding` is less than the receivable in the ledger by `X-Disputed-Total`. Add `X-Disputed-Total` back for the amount customers legally owe.
+- On `ap_open_items`, `Disputed` is always `0`: the aged creditors report has no dispute concept, so a supplier bill in status `disputed` is open at its full balance in `Outstanding`, as the report carries it.
 - `CC1_Code`, `CC2_Code` and `BU_Code` come from the invoice's lines when every line has the same value; otherwise they read `MIXED`. Credit notes use their header values.
 - `Has_Document` is `true` when a supporting document is filed against the document.
 
@@ -51,9 +54,9 @@ Every file also carries `X-Export-Timestamp` and `X-Schema-Version`. The compute
 
 `Bank_Account_ID, GL_Account_Code, Name, Account_Number_Masked, Currency, Ledger_Balance, Last_Statement_Date, Last_Statement_Closing_Balance, Last_Reconciled_Date, Unreconciled_Line_Count, Unallocated_Line_Count, Last_Transaction_Date, Is_Active, Schema_Version`
 
-- `Ledger_Balance` is the posted GL balance as at today. It is blank for an account that is not an asset-typed cash account, such as a credit card held on a liability account.
-- `Last_Statement_Date` and `Last_Statement_Closing_Balance` come from the latest reconciliation session of the account. `Last_Reconciled_Date` is the latest completed one.
-- `Account_Number_Masked` shows the last four characters only.
+- `Ledger_Balance` is the posted GL balance as at today. It is blank for an account that is not an asset-typed cash account, such as a credit card held on a liability account. `X-Control-Total` sums only the rows that carry one; `X-No-Ledger-Balance-Count` says how many rows it leaves out.
+- `Last_Statement_Date` and `Last_Statement_Closing_Balance` come from the latest statement entered on a reconciliation of the account, whatever its status. `Last_Reconciled_Date` is the statement date of the latest completed reconciliation. When `Last_Statement_Date` is later than `Last_Reconciled_Date`, that statement's reconciliation is still in progress: the closing balance is the bank's figure, but the reconciliation has not been signed off.
+- `Account_Number_Masked` shows `****` and the last four characters, and only `****` for a number shorter than eight characters, so at least four characters always stay hidden.
 
 ## Format
 
