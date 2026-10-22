@@ -12,7 +12,7 @@ import { submitEftBatch, type NetcashPayment } from '@/modules/accounting/servic
 const PAYMENTS: NetcashPayment[] = [
   { accountHolder: 'Acme', bankCode: '250655', accountNumber: '62000000001', amount: 115000, reference: 'R1' },
 ];
-const send = () => submitEftBatch('service-key', 'payouts-key', PAYMENTS);
+const send = () => submitEftBatch('service-key', 'payouts-key', PAYMENTS, { mayStart: () => true });
 const reply = (status: number, body: string) => vi.fn().mockResolvedValue(new Response(body, { status }));
 
 describe('submitEftBatch outcome', () => {
@@ -27,7 +27,7 @@ describe('submitEftBatch outcome', () => {
   it.each([['', ''], ['service-key', ''], ['', 'payouts-key'], ['  ', 'payouts-key'], ['service-key', ' \t ']])('keys (%j, %j): refused, not a mock success, and nothing is sent', async (service, payouts) => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
-    expect(await submitEftBatch(service, payouts, PAYMENTS)).toEqual({
+    expect(await submitEftBatch(service, payouts, PAYMENTS, { mayStart: () => true })).toEqual({
       success: false, outcome: 'rejected', error: 'Netcash credentials are not configured',
     });
     expect(fetchSpy).not.toHaveBeenCalled();
