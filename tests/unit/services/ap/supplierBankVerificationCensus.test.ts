@@ -68,7 +68,8 @@ describe('every way money leaves', () => {
 describe('both routes run the gate on what they send', () => {
   it('exactly the two routes call the gate (and the gate module defines it)', () => {
     expect(matching(/\bassertSuppliersBankVerified\(/)).toEqual([EFT, NETCASH, `${AP}supplierBankVerificationGate.ts`]);
-    expect(matching(/\bassertRawPaymentListAllowed\(/)).toEqual([NETCASH, `${AP}supplierBankVerificationGate.ts`]);
+    // AP-01: netcash/submit refuses every raw payment list (no gate function is left for it).
+    expect(matching(/\bassertRawPaymentListAllowed\b/)).toEqual([]);
   });
 
   it('eft-generate: the payee SELECT carries the fingerprint of its own bank columns; the gate runs before the file is built', () => {
@@ -80,18 +81,17 @@ describe('both routes run the gate on what they send', () => {
     expect(gate).toBeLessThan(t.indexOf('generator(header, eftPayments)'));
   });
 
-  it('netcash/submit: batch mode gates the rows it sends, raw mode is refused, both before anything is sent or recorded', () => {
+  it('netcash/submit: batch mode gates the rows it sends before anything is claimed or sent; a raw list is refused', () => {
     const t = text(NETCASH);
     expect(t).toMatch(/s\.bank_account_number as account_number,\s+supplier_bank_fingerprint\(s\.bank_name, s\.bank_account_number, s\.bank_branch_code, s\.bank_account_type,\s+s\.bank_account_holder\) AS bank_fingerprint\s+FROM supplier_payments sp/);
     const batchGate = t.indexOf('await assertSuppliersBankVerified(companyId, rows.map(');
-    const rawGate = t.indexOf('await assertRawPaymentListAllowed(companyId);');
     expect(batchGate).toBeGreaterThan(t.indexOf('AS bank_fingerprint'));
-    expect(rawGate).toBeLessThan(t.indexOf('payments = rawPayments;'));
-    for (const gate of [batchGate, rawGate]) {
-      expect(gate).toBeGreaterThan(0);
-      expect(gate).toBeLessThan(t.indexOf('await submitEftBatch('));
-      expect(gate).toBeLessThan(t.indexOf('INSERT INTO netcash_submissions'));
-    }
+    expect(batchGate).toBeGreaterThan(0);
+    expect(batchGate).toBeLessThan(t.indexOf('await claimBatch('));
+    expect(batchGate).toBeLessThan(t.indexOf('await submitEftBatch('));
+    // AP-01: no raw payments[] branch is left to send anything.
+    expect(t).not.toMatch(/rawPayments/);
+    expect(t).toMatch(/cannot be approved or claimed/);
   });
 });
 

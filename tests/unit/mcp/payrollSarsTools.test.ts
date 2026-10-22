@@ -70,6 +70,7 @@ const IRP5 = {
     grossSalary: 480000, taxableIncome: 470000, paye: 96000,
     uifEmployee: 2124, uifEmployer: 2124, sdl: 4800, eti: 0, netPay: 381876,
     runsIncluded: 12,
+    lumpSums: [{ sourceCode: '3901', directiveNumber: '1234567890', directiveIssuedDate: '2025-11-03', amount: 30000, paye: 3000 }],
   }],
   rowsTotal: 1,
   universeTotal: 2,
@@ -163,6 +164,10 @@ describe('irp5_data', () => {
     expect(env.as_at).toBe('2026-02-28');
     expect(env.rows[0].gross_salary).toBe(480000);
     expect(env.rows[0].runs_included).toBe(12);
+    // P3: severance paid under a directive, inside gross_salary / paye, also shown on its own.
+    expect(env.rows[0].lump_sums).toEqual([
+      { source_code: '3901', directive_number: '1234567890', directive_issued_date: '2025-11-03', amount: 30000, paye: 3000 },
+    ]);
   });
 
   it('masks identity numbers by default and reveals them only on request', async () => {
