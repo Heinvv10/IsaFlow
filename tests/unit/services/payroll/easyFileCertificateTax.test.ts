@@ -55,8 +55,8 @@ describe('certificate type', () => {
     expect(() => buildEmployeeRecord(base)).toThrow(/threshold is not known/);
   });
 
-  it('nil tax under a nil directive: IT3(a) with reason 04', () => {
-    const lines = buildEmployeeRecord({ ...base, lumpSums: [nilDirective] });
+  it('nil tax under a nil directive, pay under the threshold: IT3(a) with reason 04', () => {
+    const lines = buildEmployeeRecord({ ...base, taxThreshold: 99_000, lumpSums: [nilDirective] });
     expect(lines).toContain('3015,"IT3(a)"');
     expect(lines).toContain('4150,04');
     expect(validateCertificateTaxFields(lines)).toEqual([]);
