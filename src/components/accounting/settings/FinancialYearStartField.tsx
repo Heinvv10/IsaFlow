@@ -1,8 +1,9 @@
 /**
  * Settings -> General: the financial year start month.
  *
- * Read-only once a journal has posted, or for a company other than the active
- * one: PUT /api/accounting/companies refuses a change in both cases
+ * Read-only once a journal has posted, while the periods are otherwise in use,
+ * or for a company other than the active one: PUT /api/accounting/companies
+ * refuses a change in each case
  * (gl/fiscalYearStartChange.ts). When read-only it shows the month the BOOKS use
  * (period 1 of the latest fiscal year), which can differ from the declared
  * month: companies onboarded before 2026-10-22 declare March while their periods
@@ -16,6 +17,8 @@ const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'O
 const LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
   'November', 'December'];
 const NOTE_CLS = 'text-xs text-[var(--ff-text-tertiary)] mt-1';
+const YEAR_END_CHANGE = 'Changing the financial year end will be possible through a guided change of year end '
+  + '(coming soon); contact support if you need it now.';
 
 interface Props {
   company: Company;
@@ -39,16 +42,21 @@ export function FinancialYearStartField({ company, onChange }: Props) {
         {SHORT.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
       </select>
       {reason === 'not_active' && <p className={NOTE_CLS}>Switch to this company to change its financial year start.</p>}
-      {reason === 'posted' && (
+      {(reason === 'posted' || reason === 'in_use') && (
         <p className={NOTE_CLS}>
-          Locked because journals have been posted. Changing the financial year end will be possible through a guided
-          change of year end (coming soon); contact support if you need it now.
+          {reason === 'posted'
+            ? 'Locked because journals have been posted. '
+            : "Locked because this company's fiscal periods are already in use (draft journals, budgets, AFS documents or closed periods). "}
+          {YEAR_END_CHANGE}
         </p>
       )}
       {mismatch && (
         <p className="text-xs text-amber-400 mt-1">
           {`Your fiscal periods run from ${LONG[actual - 1]}, but the declared financial year start is ${LONG[declared - 1]}. `
-            + "Some reports use one and some the other until they're aligned; contact support to align them."}
+            // Editable means nothing uses the periods: a change to that month rebuilds them on it and aligns the two.
+            + (locked
+              ? "Some reports use one and some the other until they're aligned; contact support to align them."
+              : `Choose ${LONG[actual - 1]} and save to align them.`)}
         </p>
       )}
     </div>

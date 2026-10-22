@@ -23,9 +23,9 @@ export interface Company {
   bankBranchCode: string | null;
   bankAccountType: string | null;
   financialYearStart: number;
-  /** Read-only in Settings: a journal has posted, or this is not the active company (the PUT refuses both). */
+  /** Read-only in Settings: a journal has posted, the periods are in use, or this is not the active company (the PUT refuses each). */
   financialYearStartLocked: boolean;
-  financialYearStartLockReason: 'posted' | 'not_active' | null;
+  financialYearStartLockReason: 'posted' | 'in_use' | 'not_active' | null;
   /** The month period 1 of the latest fiscal year starts in (what the books use); null when unknown. */
   financialYearStartActual: number | null;
   vatPeriod: string;

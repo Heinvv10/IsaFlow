@@ -76,7 +76,10 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     const { u, companyId } = await onboarded();
     await journal(companyId, u.userId, 'draft');
     const before = await stored(companyId);
-    expect((await getCompany(u, companyId)).body.data!.financialYearStartLocked).toBe(false);
+    // The GET's lock follows the PUT's refusal, so the field is read-only rather than editable-then-409.
+    expect((await getCompany(u, companyId)).body.data).toMatchObject({
+      financialYearStartLocked: true, financialYearStartLockReason: 'in_use',
+    });
 
     const out = await put(u, { id: companyId, financialYearStart: 9 });
     expect(out.status, JSON.stringify(out.body)).toBe(409);
@@ -89,6 +92,9 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     const { u, companyId } = await onboarded();
     await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND period_number = 1`, [companyId]);
     const before = await stored(companyId);
+    expect((await getCompany(u, companyId)).body.data).toMatchObject({
+      financialYearStartLocked: true, financialYearStartLockReason: 'in_use',
+    });
     const out = await put(u, { id: companyId, financialYearStart: 6 });
     expect(out.status, JSON.stringify(out.body)).toBe(409);
     expect(out.body.error?.message).toMatch(/nonOpenPeriods: 1/);
@@ -146,5 +152,17 @@ describe('the same month never touches the periods, even when they start in anot
     expect((await pool.query(
       `SELECT id, start_date::text FROM fiscal_periods WHERE company_id = $1 ORDER BY start_date`, [companyId])).rows)
       .toEqual(before);
+  });
+
+  it('choosing the month the periods use, and saving, aligns them (what the editable mismatch note tells the user)', async () => {
+    const { u, companyId } = await onboarded();
+    await makeCalendarPeriods(companyId);
+    expect((await getCompany(u, companyId)).body.data).toMatchObject({
+      financialYearStartLocked: false, financialYearStart: 3, financialYearStartActual: 1,
+    });
+    const out = await put(u, { id: companyId, financialYearStart: 1 });
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(await stored(companyId)).toMatchObject({ fy: 1, first_month: 1, periods: 12 });
+    expect((await getCompany(u, companyId)).body.data).toMatchObject({ financialYearStart: 1, financialYearStartActual: 1 });
   });
 });

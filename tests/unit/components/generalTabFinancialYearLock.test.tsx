@@ -45,12 +45,24 @@ describe('GeneralTab financial year start', () => {
     expect(screen.queryByText(/Reports follow the periods/)).toBeNull();
   });
 
-  it('editable with periods on another month: shows the declared month (what a save writes) and the same mismatch note', () => {
+  it('editable with periods on another month: shows the declared month and says choosing the periods\' month aligns them', () => {
+    // Editable means nothing uses the periods (the GET locks on the PUT's refusal predicate), so a change to
+    // January rebuilds them on January and sets the declared month to match (integration-tested).
     render(<GeneralTab company={company({ financialYearStartLocked: false, financialYearStartActual: 1 })} onChange={vi.fn()} />);
     expect(fySelect().disabled).toBe(false);
     expect(shownMonth()).toBe('Mar');
-    expect(screen.getByText(/declared/i).textContent).toMatch(/January.*March.*contact support to align them/);
-    expect(screen.queryByText(/rebuil/i)).toBeNull();
+    expect(screen.getByText(/declared/i).textContent).toBe(
+      'Your fiscal periods run from January, but the declared financial year start is March. Choose January and save to align them.');
+    expect(screen.queryByText(/contact support/i)).toBeNull();
+  });
+
+  it('read-only while the periods are in use (draft journals, budgets, closed periods): the PUT would refuse', () => {
+    render(<GeneralTab company={company({
+      financialYearStartLocked: true, financialYearStartLockReason: 'in_use', financialYearStartActual: 3,
+    })} onChange={vi.fn()} />);
+    expect(fySelect().disabled).toBe(true);
+    expect(screen.getByText(/Locked because this company's fiscal periods are already in use/).textContent)
+      .toMatch(/guided change of year end \(coming soon\); contact support if you need it now/);
   });
 
   it('read-only for a company that is not the active one', () => {
@@ -74,5 +86,6 @@ describe('GeneralTab financial year start', () => {
     expect(company()).toMatchObject({
       financialYearStartLocked: false, financialYearStartLockReason: null, financialYearStartActual: null,
     });
+    expect(company({ financialYearStartLockReason: 'in_use' }).financialYearStartLockReason).toBe('in_use');
   });
 });
