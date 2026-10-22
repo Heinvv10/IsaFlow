@@ -194,18 +194,30 @@ describe('who changes where the money goes', () => {
 // foreign key takes KEY SHARE on the supplier row, so a held supplier `FOR UPDATE` blocks every way a batch can gain
 // that supplier. An UPDATE that attached an existing payment to a batch takes no supplier lock and would reopen the
 // supplier-then-batch order against the bank-file gate.
+//
+// The census matches the COLUMN, not the assignment (`SET batch_id =`, `SET (a, batch_id) =`, `SET "batch_id" =`, a
+// subselect with its own WHERE before it... each was a bypass of an assignment regex): any UPDATE statement on
+// supplier_payments, from UPDATE to its template's closing backtick, that mentions batch_id at all must be one of the
+// four below that only FILTER by it, pinned whole. NAMED LIMIT: SQL functions and migrations are not scanned, nor a
+// column name built at run time; a BEFORE UPDATE OF batch_id trigger would close that (pending Hein's migration decision).
 describe('batch membership', () => {
-  const filesWhere = (test: (t: string) => boolean) => files.filter((f) => test(f.text)).map((f) => f.rel).sort();
   const TABLE = String.raw`(?:ONLY\s+)?(?:"?\w+"?\.)?"?supplier_payments(?!\w)"?`; // optionally ONLY / schema-qualified / quoted
-  const sets = (t: string) => [...t.matchAll(new RegExp(String.raw`UPDATE\s+${TABLE}(?:\s+(?:AS\s+)?(?!SET\b)\w+)?\s+SET([\s\S]*?)(?:\bWHERE\b|\x60)`, 'gi'))].map((m) => m[1]!);
+  const filesWhere = (test: (t: string) => boolean) => files.filter((f) => test(f.text)).map((f) => f.rel).sort();
+  const updates = (t: string) => [...t.matchAll(new RegExp(String.raw`UPDATE\s+${TABLE}[^\x60]*`, 'gi'))].map((m) => m[0].replace(/\s+/g, ' ').trim());
   const insertColumns = (t: string) => [...t.matchAll(new RegExp(String.raw`INSERT\s+INTO\s+${TABLE}\s*\(([^)]*)\)`, 'gi'))].map((m) => m[1]!);
   const insertsWithoutColumns = (t: string) => new RegExp(String.raw`INSERT\s+INTO\s+${TABLE}\s*(?!\s*\()\S`, 'i').test(t);
 
-  it('no UPDATE of supplier_payments assigns batch_id', () => {
-    expect(filesWhere((t) => sets(t).some((s) => /\bbatch_id\s*=/.test(s)))).toEqual([]);
+  it('no UPDATE of supplier_payments mentions batch_id, but the four that only filter members by it', () => {
+    const mentioning = files.flatMap((f) => updates(f.text).filter((u) => /batch_id/i.test(u)).map((u) => `${f.rel}: ${u}`)).sort();
+    expect(mentioning).toEqual([
+      `${AP}batchPaymentApproval.ts: UPDATE supplier_payments SET status = 'approved', approved_by = \${userId}::UUID, approved_at = NOW() WHERE batch_id = \${id}::UUID AND company_id = \${companyId}::UUID AND status = 'draft'`,
+      `${AP}batchPaymentReversal.ts: UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW() WHERE batch_id = \${batchId}::UUID AND company_id = \${companyId}::UUID AND status = 'processed' RETURNING id`,
+      `${AP}batchPaymentService.ts: UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = \${id}::UUID AND status IN ('draft', 'approved') AND company_id = \${companyId}::UUID`,
+      `${AP}batchPaymentService.ts: UPDATE supplier_payments SET status = 'processed' WHERE batch_id = \${id}::UUID AND batch_id IN (SELECT id FROM supplier_payment_batches WHERE company_id = \${companyId}::UUID)`,
+    ]);
   });
 
-  // A column-less INSERT ... SELECT / VALUES would set batch_id without naming it, so it could not be counted above.
+  // A column-less INSERT ... SELECT / VALUES would set batch_id without naming it, so it could not be counted below.
   it('every INSERT into supplier_payments names its columns', () => {
     expect(filesWhere(insertsWithoutColumns)).toEqual([]);
   });
