@@ -46,6 +46,7 @@ describe('BRK-A', () => {
     const d = await approvedDirective(f, 50_000, 0.2, '2026-09-01');
     expect((await applyStandalone(f, d, '2026-09-15')).statusCode).toBe(200);
     const j = String((await directivePayments(pool, d))[0]!.journal_entry_id);
+    expect((await applyStandalone(f, d, '2026-09-16')).statusCode).toBe(409); // still paid: refused
     expect((await reverseJournal(f, j)).statusCode).toBe(200);
     const again = await applyStandalone(f, d, '2026-09-20');
     expect(again.statusCode, JSON.stringify(again.body)).toBe(200);
@@ -53,6 +54,9 @@ describe('BRK-A', () => {
     const e = await generateEMP201(f.company, '2026-09-01', '2026-09-30');
     expect(e.directivePayments.map(p => p.paymentDate)).toEqual(['2026-09-20']);
     expect(e.totalPAYE).toBe(10_000);
+    // The first payment's row is gone; reviving its journal is still refused (by its narrative).
+    expect((await reverseJournal(f, await reversalOf(j))).statusCode).not.toBe(200);
+    expect((await generateEMP201(f.company, '2026-09-01', '2026-09-30')).totalPAYE).toBe(10_000);
   });
 
   it('R3: an employee paid only outside payroll: taxableIncome carries the payment, as grossSalary does', async () => {
