@@ -149,7 +149,8 @@ export async function importSuppliers(
 
       if (duplicate && duplicateStrategy === 'overwrite') {
         // Judged against the row as locked, not the statement snapshot (R-035 PR5).
-        const before = await lockSupplierBankDetails(companyId, duplicate.id);
+        const bankMayChange = [sup.bankName, sup.bankAccountNumber, sup.bankBranchCode, sup.bankAccountType].some((x) => x != null);
+        const before = await lockSupplierBankDetails(companyId, duplicate.id, bankMayChange);
         const [after] = (await sql`
           UPDATE suppliers SET
             email               = COALESCE(${sup.email ?? null}, email),

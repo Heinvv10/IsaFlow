@@ -9,7 +9,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mergeCustomers } from '../ar/customerMergeService';
-import { lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
+import { lockBatchesBeforeSuppliers, lockBatchesPayingSupplier, stampBatchesOfMovedPayments } from '../ap/supplierPaymentAuthors';
 
 export interface MergeResult {
   reassignedTransactions: number;
@@ -40,14 +40,16 @@ export class SupplierMergeRefusal extends Error {
  * locks the same row) cannot land between this check and the re-parenting.
  */
 export async function assertSupplierMergeKeepsDrcFlag(
-  companyId: string, a: string, b: string,
+  companyId: string, a: string, b: string, movedFromId: string,
 ): Promise<void> {
-  const rows = (await sql`
+  // Batch before supplier (bank/.claude.md): the batches carrying the payments the merge re-points are locked before
+  // either supplier row, the order the bank-file gate takes them in. `movedFromId` is the supplier being merged away.
+  const rows = await lockBatchesBeforeSuppliers(companyId, [movedFromId], null, async () => (await sql`
     SELECT name, COALESCE(subject_to_drc_vat, false) AS drc FROM suppliers
     WHERE id IN (${a}::UUID, ${b}::UUID) AND company_id = ${companyId}::UUID AND deleted_at IS NULL
     ORDER BY id
     FOR UPDATE
-  `) as { name: string; drc: boolean }[];
+  `) as { name: string; drc: boolean }[]);
   if (rows.length !== 2) {
     throw new SupplierMergeRefusal('One or both suppliers not found or do not belong to this company');
   }
@@ -92,7 +94,7 @@ export async function mergeEntities(
 
 async function mergeSuppliers(companyId: string, primaryId: string, duplicateId: string, userId: string): Promise<MergeResult> {
   // Also the existence check: both live suppliers of this company.
-  await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId);
+  await assertSupplierMergeKeepsDrcFlag(companyId, primaryId, duplicateId, duplicateId);
 
   let count = 0;
 
