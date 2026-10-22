@@ -1,7 +1,8 @@
 /**
  * Tax Directives API — single resource
  * GET    — get directive by id
- * PATCH  — update status (approve / cancel)
+ * PATCH  — update status (approve / cancel) and/or issued_date (YYYY-MM-DD or null).
+ *          A paid directive cannot leave 'approved': 409 (taxDirectivePaidGuard).
  * DELETE — remove directive
  */
 
@@ -12,10 +13,12 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   getTaxDirective,
-  updateTaxDirectiveStatus,
+  updateTaxDirective,
   deleteTaxDirective,
+  TaxDirectivePaidError,
   type DirectiveStatus,
 } from '@/modules/accounting/services/payroll/taxDirectiveService';
+import { isIsoDate } from '@/modules/accounting/services/payroll/taxDirectiveDates';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,20 +39,33 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'PATCH') {
-    const { status } = req.body as { status?: string };
-    if (!status || !VALID_STATUSES.includes(status as DirectiveStatus)) {
+    const { status, issued_date: issuedDate } = (req.body ?? {}) as { status?: string; issued_date?: unknown };
+    if (status === undefined && issuedDate === undefined) {
+      return apiResponse.badRequest(res, 'Send status and/or issued_date');
+    }
+    if (status !== undefined && !VALID_STATUSES.includes(status as DirectiveStatus)) {
       return apiResponse.badRequest(
         res,
         `status must be one of: ${VALID_STATUSES.join(', ')}`,
       );
     }
+    if (issuedDate !== undefined && issuedDate !== null && !isIsoDate(issuedDate)) {
+      return apiResponse.badRequest(res, 'issued_date must be a date in YYYY-MM-DD format from 2000 to today, or null');
+    }
 
-    const updated = await updateTaxDirectiveStatus(
-      companyId,
-      directiveId,
-      status as DirectiveStatus,
-      status === 'approved' ? user.id : undefined,
-    );
+    let updated;
+    try {
+      updated = await updateTaxDirective(
+        companyId,
+        directiveId,
+        { status: status as DirectiveStatus | undefined, issued_date: issuedDate as string | null | undefined },
+        status === 'approved' ? user.id : undefined,
+      );
+    } catch (err) {
+      // Raised before anything is written, so the 409 withAuth commits changes nothing.
+      if (err instanceof TaxDirectivePaidError) return apiResponse.conflict(res, err.message);
+      throw err;
+    }
 
     if (!updated) return apiResponse.notFound(res, 'TaxDirective', directiveId);
     return apiResponse.success(res, updated);

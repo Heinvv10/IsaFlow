@@ -102,7 +102,7 @@ describe('admin: remove a company link', () => {
     await link(alice, company, 'owner');
     const refused = await remove(alice, company);
     expect(refused.status).toBe(409);
-    expect(refused.body.error?.message).toMatch(/last owner/);
+    expect(refused.body.error?.message).toBe("This user is the company's only owner. Make someone else owner first.");
     expect(await roleOf(alice, company)).toBe('owner');
 
     await link(bob, company, 'owner');

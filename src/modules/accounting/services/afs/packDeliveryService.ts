@@ -3,7 +3,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
-import { emailLayout } from '@/lib/email-templates';
+import { emailLayout, emailContentRow } from '@/lib/email-templates';
 import type { PackRecipient, KpiResult } from './afsTypes';
 import { getKpiScorecard } from './afsKpiService';
 
@@ -106,7 +106,7 @@ function buildPackEmailHtml(params: {
       </a>
     </div>`;
 
-  return emailLayout(body);
+  return emailLayout(emailContentRow(body));
 }
 
 // ── Delivery logic ────────────────────────────────────────────────────────────

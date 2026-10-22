@@ -19,7 +19,7 @@ import netcashResolve from '../../pages/api/accounting/netcash/resolve';
 import netcashStatus from '../../pages/api/accounting/netcash/status';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -38,7 +38,7 @@ afterAll(async () => {
 async function submittedWith(batchReference: unknown) {
   const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  const b = await plantBatch(pool, c, admin, bank);
+  const b = await plantApprovedBatch(pool, c, admin, bank);
   hold.submitEftBatch.mockResolvedValueOnce({ success: true, outcome: 'accepted', batchReference });
   await callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
   const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
@@ -89,7 +89,7 @@ describe('only a reference Netcash itself issued is polled (AP-01 round 17)', ()
   async function unknownResolvedSubmitted() {
     const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
     await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-    const b = await plantBatch(pool, c, admin, bank);
+    const b = await plantApprovedBatch(pool, c, admin, bank);
     hold.submitEftBatch.mockResolvedValueOnce({ success: false, outcome: 'unknown', error: 'The operation was aborted' });
     await callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
     const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
@@ -144,7 +144,7 @@ describe('only a reference Netcash itself issued is polled (AP-01 round 17)', ()
   it('round 18: a row reopened by a late ACCEPTED answer (released underneath, top level never written) is polled by the late reference', async () => {
     const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
     await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-    const b = await plantBatch(pool, c, admin, bank);
+    const b = await plantApprovedBatch(pool, c, admin, bank);
     let reply!: (r: unknown) => void;
     let entered!: () => void;
     const inSender = new Promise<void>((r) => { entered = r; });
@@ -164,7 +164,7 @@ describe('only a reference Netcash itself issued is polled (AP-01 round 17)', ()
   it('round 18: a resolve note that looks like an accepted answer supplies no reference - the row is not polled', async () => {
     const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
     await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-    const b = await plantBatch(pool, c, admin, bank);
+    const b = await plantApprovedBatch(pool, c, admin, bank);
     hold.submitEftBatch.mockResolvedValueOnce({ success: false, outcome: 'unknown', error: 'aborted' });
     await callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
     const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;

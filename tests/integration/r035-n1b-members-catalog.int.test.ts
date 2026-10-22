@@ -6,7 +6,7 @@
  *    UPDATE OR DELETE row trigger (and no rewrite rule) — plus, since 888,
  *    the change-history capture (AFTER, writes only entity_changes);
  *  - the guards, the role lookup and the owner predicate they share are the
- *    bodies 883 and 886 ship (md5) and SECURITY INVOKER — the guard judges
+ *    bodies 883, 886 and 908b ship (md5) and SECURITY INVOKER — the guard judges
  *    `current_user`, which a DEFINER would replace with its owner;
  *  - TRUNCATE (which fires no row trigger) and TRIGGER are held by no role
  *    but the owner, migration_admin and the session's role through the owner;
@@ -31,7 +31,7 @@ const TABLES = ['company_users', 'company_invitations'];
 const PINNED: Record<string, string> = {
   'company_member_actor_role(uuid)': 'b307f99b50ae088c96033164d96c80a3',
   'company_member_role_is_owner(text)': '78a4144a1b43a1698868ca0dc16e76e0',
-  'company_users_role_guard()': 'ad237d957ec9972f7e9fd12b84bed1ff',
+  'company_users_role_guard()': '62f7e686ca668c695e8e1c779e20e7c9', // 908b (S-04/S-08 follow-ups A, B)
   'company_invitations_role_guard()': '0c7cf4635edf43e1f8f80566160513a7',
 };
 
@@ -55,7 +55,7 @@ describeIfDb('company_users / company_invitations catalogue (R-035 N1b C)', () =
     expect((await pool.query('SELECT rulename FROM pg_rewrite WHERE ev_class = $1::regclass', [`public.${table}`])).rows).toEqual([]);
   });
 
-  it('the guards and their role lookup: the bodies 883 and 886 ship, SECURITY INVOKER', async () => {
+  it('the guards and their role lookup: the bodies 883, 886 and 908b ship, SECURITY INVOKER', async () => {
     const { rows } = await pool.query(`
       SELECT p.oid::regprocedure::text AS fn, md5(p.prosrc) AS md5, p.prosecdef FROM pg_proc p
       WHERE p.oid = ANY (SELECT to_regprocedure('public.' || f) FROM unnest($1::text[]) f) ORDER BY 1`, [Object.keys(PINNED)]);
