@@ -60,9 +60,12 @@ export function assertBillAllocatable(
  * where the column stores 101 and a R1.00 bill took R1.005 and read R1.01 paid.
  * Shifting the decimal point in the TEXT (`1.005e2` parses to exactly 100.5)
  * rounds the figure the database will round. A number whose text is exponential
- * (below 1e-6 or from 1e21) is far outside money and keeps the float round.
+ * (below 1e-6 or from 1e21) is far outside money and keeps the float round. A
+ * non-finite number THROWS: the arithmetic would return NaN, which every `>` guard passes.
  */
 export function toCents(n: number): number {
+  // Fail closed: Infinity would render as 'Infinitye2' and come back NaN, and NaN makes every `>` guard pass.
+  if (!Number.isFinite(n)) throw new RangeError(`Cannot round ${String(n)} to cents: not a finite number.`);
   const text = String(Math.abs(n));
   const cents = text.includes('e') ? Math.round(Math.abs(n) * 100) : Math.round(Number(`${text}e2`));
   return n < 0 && cents !== 0 ? -cents : cents;
