@@ -125,12 +125,14 @@ export async function laterPeriodsWarnings(
  * lines were calculated.
  * - An EARLIER month: this run's cumulative PAYE left it out (two months
  *   calculated before either was approved). Recalculating picks it up.
- * - A LATER month, for a run never approved before (no journal): that month's
- *   PAYE left this one out, and this run's lines do not yet carry
- *   PAYE_LATER_PERIODS_APPROVED, which a calculation now adds
- *   (laterPeriodsWarnings). Recalculating puts the warning on the lines. A
- *   reopened run was approved when the later month was calculated, so that
- *   month saw it; its own recalculation, if it changes, adds the warning.
+ * - A LATER month whose PAYE left this one out, while this run's lines do not
+ *   yet carry PAYE_LATER_PERIODS_APPROVED (a calculation now adds it,
+ *   laterPeriodsWarnings): for a run never approved before (no journal), a
+ *   later month approved after this run was calculated; for a reopened run, a
+ *   later month CALCULATED after this run's last change (its reopen or
+ *   recalculation, `updated_at`), when this run was not declarable. A later
+ *   month calculated before the reopen saw this run, so an unchanged
+ *   re-approval passes. Recalculating puts the warning on the lines.
  * Approvals of a company are serialised by lockCompanyPayrollApprovals, taken
  * before the gate, so a concurrent approval is either committed (and seen) or
  * waits. Null when current. Read-only. "Calculated" is the first line's clock
@@ -142,7 +144,7 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH me AS (
-      SELECT h.period_year, h.period_month, h.journal_entry_id,
+      SELECT h.period_year, h.period_month, h.journal_entry_id, h.updated_at,
              make_date(CASE WHEN h.period_month >= 3 THEN h.period_year ELSE h.period_year - 1 END, 3, 1) AS year_start,
              (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
       FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
@@ -154,9 +156,12 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
       AND e.status = ANY(${declarable}::text[])
       AND make_date(e.period_year, e.period_month, 1) >= me.year_start
       AND make_date(e.period_year, e.period_month, 1) < (me.year_start + INTERVAL '1 year')
-      AND e.approved_at > me.calculated_at
-      AND (make_date(e.period_year, e.period_month, 1) < make_date(me.period_year, me.period_month, 1)
-           OR me.journal_entry_id IS NULL)
+      AND CASE
+        WHEN make_date(e.period_year, e.period_month, 1) < make_date(me.period_year, me.period_month, 1)
+          THEN e.approved_at > me.calculated_at
+        WHEN me.journal_entry_id IS NULL THEN e.approved_at > me.calculated_at
+        ELSE (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = e.id) > me.updated_at
+      END
     ORDER BY e.period_year, e.period_month
   `) as DbRow[];
   if (rows.length === 0) return null;

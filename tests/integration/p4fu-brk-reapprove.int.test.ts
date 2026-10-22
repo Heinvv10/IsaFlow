@@ -32,13 +32,34 @@ async function calcOnly(f: SeveranceFixture, id: string) {
   const calc = await f.call(calculate as Route, 'POST', `/api/payroll/runs/${id}/calculate`, id);
   if (calc.statusCode !== 200) throw new Error(`calc ${calc.statusCode}`);
 }
-describe('BRK4', () => {
+describe('G4: re-approving a reopened month', () => {
   it('reopen an approved month, change nothing, re-approve it: not refused', async () => {
-    const f = await seedEmployee(pool, fixtures, 'brk6', 20_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu reopen unchanged', 20_000);
     const ids: string[] = [];
     for (const p of PERIODS.slice(0, 11)) { const id = await mk(f, p.year, p.month); await calcOnly(f, id); expect((await approveRun(f, id)).statusCode).toBe(200); ids.push(id); }
     expect((await reopenRun(f, ids[9]!)).statusCode).toBe(200);
     const r = await approveRun(f, ids[9]!);
     expect(r.statusCode, JSON.stringify(r.body).slice(0, 300)).toBe(200);
+  });
+
+  it('January reopened, February calculated and approved meanwhile, January re-approved unchanged: refused until recalculated, then warned', async () => {
+    const f = await seedEmployee(pool, fixtures, 'P4fu reopen then later month', 20_000);
+    await setSalary(pool, f, 2027, 1, 60_000);
+    const ids: string[] = [];
+    for (const p of PERIODS.slice(0, 11)) { const id = await mk(f, p.year, p.month); await calcOnly(f, id); expect((await approveRun(f, id)).statusCode).toBe(200); ids.push(id); }
+    const jan = ids[10]!;
+    expect((await reopenRun(f, jan)).statusCode).toBe(200);
+    // February, calculated while January is reopened (not declarable), leaves January out.
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb);
+    expect((await approveRun(f, feb)).statusCode).toBe(200);
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02.*Recalculate the run/);
+    // Recalculated, January carries the warning naming February, and its approval goes through
+    // (the journal it posted carries the same figures, so it is re-approved onto it).
+    await calcOnly(f, jan);
+    const codes = ((await runLine(pool, jan, f.employee)).validation_results as Array<{ code: string; message: string }>);
+    expect(codes.find(c => c.code === 'PAYE_LATER_PERIODS_APPROVED')?.message).toMatch(/2027-02/);
   });
 });
