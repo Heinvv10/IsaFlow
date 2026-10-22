@@ -19,7 +19,7 @@
 -- not 23505 (callers match that to detect a lost race), not 23503/23514
 -- (they would read as a missing parent or a failed CHECK).
 --
--- Idempotent: CREATE OR REPLACE FUNCTION, DROP TRIGGER IF EXISTS + CREATE.
+-- Idempotent: CREATE OR REPLACE FUNCTION, DROP TRIGGER IF EXISTS + CREATE, ENABLE ALWAYS.
 
 CREATE OR REPLACE FUNCTION public.supplier_payments_batch_id_immutable()
 RETURNS trigger
@@ -39,3 +39,7 @@ CREATE TRIGGER trg_supplier_payments_batch_id_immutable
   FOR EACH ROW
   WHEN (OLD.batch_id IS DISTINCT FROM NEW.batch_id)
   EXECUTE FUNCTION public.supplier_payments_batch_id_immutable();
+
+-- ALWAYS, as 692's triggers: session_replication_role = replica must not switch
+-- this barrier off for a session.
+ALTER TABLE public.supplier_payments ENABLE ALWAYS TRIGGER trg_supplier_payments_batch_id_immutable;
