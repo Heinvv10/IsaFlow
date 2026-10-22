@@ -14,6 +14,12 @@
 -- now writes on the migration_admin pool, as /api/invitations/[token]/accept
 -- already did.
 --
+-- Also, S-07b breaker round 2 (L1): three SECURITY DEFINER functions did not
+-- put pg_temp last on their search_path, so a caller's temporary table could
+-- shadow a table they read (no escalation was found: the shadow was refused).
+-- pg_temp is pinned last on each, and the DO block below refuses any definer
+-- function app_user can execute that leaves it out.
+--
 -- Also: app_user (and so both app pools) held INSERT/UPDATE/DELETE on
 -- schema_migrations, through 348's default privileges. A deleted row
 -- re-applies a migration on the next deploy; an inserted one skips it.
@@ -192,6 +198,10 @@ REVOKE ALL ON FUNCTION public.company_invitations_role_guard() FROM PUBLIC;
 
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.schema_migrations FROM app_user, PUBLIC;
 
+ALTER FUNCTION auth.user_admin_companies(text) SET search_path = public, pg_temp;
+ALTER FUNCTION auth.set_default_company(uuid, uuid) SET search_path = public, auth, pg_temp;
+ALTER FUNCTION public.invite_token_company_name() SET search_path = pg_catalog, public, pg_temp;
+
 -- Refuse the migration if any function in this database still exempts every
 -- role but app_user, the shape that let isaflow_service through, or if a role
 -- either app pool can reach may still write schema_migrations.
@@ -199,9 +209,19 @@ DO $$
 DECLARE
   r record;
 BEGIN
+  -- Any spelling of "the caller is not app_user" that is not followed by the
+  -- app_service clause (breaker round 2, L2).
   FOR r IN SELECT p.oid::regprocedure AS f FROM pg_catalog.pg_proc p
-            WHERE p.prosrc ~* $re$current_user\s*<>\s*'app_user'\s*then$re$ LOOP
+            WHERE p.prosrc ~* $re$(current_user|current_role|session_user|user)(\s*::\s*\w+)?\s*(<>|!=|is\s+distinct\s+from)\s*'app_user'(\s*::\s*\w+)?\s*(then|\))$re$ LOOP
     RAISE EXCEPTION '911: % exempts every role but app_user; app_service must take the same rules', r.f;
+  END LOOP;
+  FOR r IN SELECT p.oid::regprocedure AS f FROM pg_catalog.pg_proc p
+             JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+            WHERE p.prosecdef AND n.nspname IN ('public', 'auth', 'app', 'platform_shared')
+              AND pg_catalog.has_function_privilege('app_user', p.oid, 'EXECUTE')
+              AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(COALESCE(p.proconfig, '{}')) c
+                               WHERE c ~ '^search_path=.*pg_temp"?$') LOOP
+    RAISE EXCEPTION '911: definer function % runs for app_user without pg_temp last on its search_path', r.f;
   END LOOP;
   FOR r IN SELECT rolname FROM pg_catalog.pg_roles
             WHERE pg_catalog.pg_has_role('isaflow_app', oid, 'MEMBER')
