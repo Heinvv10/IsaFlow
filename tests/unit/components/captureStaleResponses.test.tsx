@@ -106,7 +106,7 @@ describe('useCapturedDocument', () => {
     expect(result.current.isLoading).toBe(false);
   });
 
-  it('a manual reload that a later poll superseded still ends its spinner, with no error', async () => {
+  it('a manual reload that errors while a later poll is still pending shows the error and ends its spinner', async () => {
     const pending = hold();
     const { result } = renderHook(() => useCapturedDocument('A', vi.fn()));
     await flush();
@@ -116,7 +116,7 @@ describe('useCapturedDocument', () => {
     expect(result.current.isLoading).toBe(true);
     await act(async () => { pending[1]!.answer(new Response('', { status: 500 })); });
     expect(result.current.isLoading).toBe(false);
-    expect(result.current.error).toBe('');
+    expect(result.current.error).toBe('Could not load the document - try again');
   });
 
   it('an older manual reload finishing first does not end the spinner of the newer one', async () => {
@@ -130,6 +130,47 @@ describe('useCapturedDocument', () => {
     expect(result.current.isLoading).toBe(true);
     await act(async () => { pending[2]!.answer(ok(doc('A', { readState: 'done' }))); });
     expect(result.current.isLoading).toBe(false);
+  });
+
+  it('a poll that errors does not block an older reload that resolves good', async () => {
+    const pending = hold();
+    const onLoaded = vi.fn();
+    const { result } = renderHook(() => useCapturedDocument('A', onLoaded));
+    await flush();
+    await act(async () => { pending[0]!.answer(ok(doc('A'))); });
+    await act(async () => { void result.current.reload(); });
+    await act(async () => { void result.current.reload(true); });
+    await act(async () => { pending[2]!.answer(new Response('', { status: 500 })); });
+    await act(async () => { pending[1]!.answer(ok(doc('A', { readState: 'done' }))); });
+    expect(result.current.doc?.readState).toBe('done');
+    expect(onLoaded).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toBe('');
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('a manual reload that errors shows it even while an earlier poll is still pending', async () => {
+    const pending = hold();
+    const { result } = renderHook(() => useCapturedDocument('A', vi.fn()));
+    await flush();
+    await act(async () => { pending[0]!.answer(ok(doc('A'))); });
+    await act(async () => { void result.current.reload(true); });
+    await act(async () => { void result.current.reload(); });
+    await act(async () => { pending[2]!.answer(new Response('', { status: 500 })); });
+    expect(result.current.error).toBe('Could not load the document - try again');
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('a manual reload that errors after a newer answer was applied shows no error', async () => {
+    const pending = hold();
+    const { result } = renderHook(() => useCapturedDocument('A', vi.fn()));
+    await flush();
+    await act(async () => { pending[0]!.answer(ok(doc('A'))); });
+    await act(async () => { void result.current.reload(); });
+    await act(async () => { void result.current.reload(true); });
+    await act(async () => { pending[2]!.answer(ok(doc('A', { readState: 'done' }))); });
+    await act(async () => { pending[1]!.answer(new Response('', { status: 500 })); });
+    expect(result.current.error).toBe('');
+    expect(result.current.doc?.readState).toBe('done');
   });
 
   it('a stale poll answer is dropped too', async () => {
