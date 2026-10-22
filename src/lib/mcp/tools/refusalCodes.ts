@@ -192,6 +192,9 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'SUPPLIER_PAYMENT_REFUSED',
   ...SYSTEM_ROLE_REFUSAL_CODES,
   'TAX_DIRECTIVE_ALREADY_APPLIED',
+  'TAX_DIRECTIVE_NOT_APPROVED',
+  'TAX_DIRECTIVE_WITHOUT_EMPLOYEE',
+  'TAX_DIRECTIVE_PAID',
   'TIME_ENTRIES_NOT_CLAIMED',
   'TIME_ENTRY_LOCK_TIMEOUT',
   // VAT adjustment approve/cancel refusals (reports/vatAdjustmentService): not found, not draft, contended.

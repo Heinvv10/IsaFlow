@@ -1,7 +1,7 @@
 /**
  * Tax Directive Service — SARS Lump Sum Tax Directives
  * Manages directives for retirement, severance, death, and lump sum payments.
- * SA tax table brackets per SARS 2024 retirement/severance schedule.
+ * SA tax table brackets: SARS retirement/severance lump-sum table, tax year LUMP_SUM_TAX_YEAR (src/lib/taxCalculations.ts).
  */
 
 import { sql } from '@/lib/neon';
