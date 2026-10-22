@@ -56,6 +56,9 @@ describe('cumulative PAYE', () => {
     // G21 p. 33: salary R28 000 + bonus R14 800; SARS prints tax(336 000) 49 945, tax(350 800) 53 723 (bonus
     // 3 778, salary 4 171 a month). The statutory table gives 49 932 and 53 780: 4 161 + 3 848.
     expect([tax(336_000), tax(350_800)]).toEqual([49_932, 53_780]);
+    // The printed figures are SARS's annual deduction tables (PAYE-GEN-01-G01-A04 2027): R500 bands taxed at
+    // their midpoint. R335 801–336 301 → 49 945, R350 330–350 830 → 53 723, R188 507–189 007 → 16 156.
+    expect([tax(336_051), tax(350_580), tax(188_757)].map(Math.round)).toEqual([49_945, 53_723, 16_156]);
   });
 
   it('a flat salary all year equals x12 every month', () => {
