@@ -10,6 +10,7 @@ import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { canWrite } from '@/lib/auth/writeRoles';
 import { log } from '@/lib/logger';
 import { isValidDate } from '@/lib/validation';
 import {
@@ -34,6 +35,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     try {
       const emp201 = await generateEMP201(companyId, from, to);
+      // One directive payment is one person's pay: the breakdown only for the payroll-detail roles
+      // (withPayrollDetailAccess's test); everyone sees the totals, which include it.
+      if (!canWrite((req as CompanyAuthedRequest).companyRole)) emp201.directivePayments = [];
       return apiResponse.success(res, emp201);
     } catch (err) {
       log.error('Failed to generate EMP201', { error: err }, 'sars-api');
@@ -53,6 +57,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     try {
       const emp201 = await generateEMP201(companyId, periodStart, periodEnd);
+      // The saved draft keeps the totals (which include them), not the per-payment breakdown:
+      // submissions are readable by roles that may not see one person's pay.
+      emp201.directivePayments = [];
       const submission = await saveDraftSubmission(
         companyId,
         'EMP201',

@@ -32,7 +32,7 @@ import {
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const company = crypto.randomUUID(), user = crypto.randomUUID();
+const company = crypto.randomUUID(), user = crypto.randomUUID(), employee = crypto.randomUUID();
 const uifPayable = crypto.randomUUID(), bank = crypto.randomUUID(), labour = crypto.randomUUID(), paye = crypto.randomUUID();
 
 /** How long the winner holds its transaction open while the loser is parked. */
@@ -79,16 +79,20 @@ async function seedDeclaration(): Promise<string> {
 async function seedDirective(): Promise<string> {
   const id = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO tax_directives(id,company_id,employee_name,directive_type,amount,tax_rate,
+    `INSERT INTO tax_directives(id,company_id,employee_id,employee_name,directive_type,amount,tax_rate,
        effective_date,status,directive_number)
-     VALUES($1,$2,'K107 R7 employee','lump_sum',10000,0.18,'2026-03-01','approved',$3)`,
-    [id, company, `K107R7-${id.slice(0, 8)}`]);
+     VALUES($1,$2,$4,'K107 R7 employee','lump_sum',10000,0.18,'2026-03-01','approved',$3)`,
+    [id, company, `K107R7-${id.slice(0, 8)}`, employee]);
   return id;
 }
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K107 R7 payroll fixture']);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
+  // A stand-alone directive payment must name its employee (PAYE 4a follow-ups G1: it goes on their certificate).
+  await pool.query(
+    `INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date)
+     VALUES ($1, $2, 'K107-1', 'K107', 'Employee', '2020-01-01')`, [employee, company]);
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active)
      VALUES($1,$2,'2150','UIF Payable','liability','other','credit',true),
@@ -106,6 +110,7 @@ afterAll(async () => {
     await pool.query('DELETE FROM gl_journal_entries WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM uif_declarations WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM tax_directives WHERE company_id=$1', [company]);
+    await pool.query('DELETE FROM payroll_employees WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id=$1)', [company]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM fiscal_periods WHERE company_id=$1', [company]);
