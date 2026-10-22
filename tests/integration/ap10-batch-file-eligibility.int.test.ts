@@ -84,6 +84,9 @@ describe('batch status, enforcement off', () => {
     expect(await submissions(c)).toBe(0);
   });
 
+  // No 'unknown status' case: supplier_payment_batches_status_check (migration 691) admits only draft, approved, processed,
+  // cancelled and reversed, so another status cannot be inserted. The gate's allow-list refuses one all the same.
+
   it('a batch approved afterwards is sent: the refusal left no claim and no record behind', async () => {
     const { c, batch } = await fixture('draft');
     expect((await eft(c, batch.id)).state.statusCode).toBe(409);
