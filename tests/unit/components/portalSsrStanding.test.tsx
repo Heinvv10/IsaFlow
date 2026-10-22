@@ -49,6 +49,14 @@ describe('AFS portal pages — server-side session standing', () => {
     });
   });
 
+  it('encodes the document id into the server-side fetch: a ../ cannot re-point it', async () => {
+    h.current = { contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' };
+    const traversal = { req: { cookies: { portal_session: 'tok' } }, params: { documentId: '../../reports/x' } } as never;
+    await documentProps(traversal);
+    const url = new URL(String(vi.mocked(fetch).mock.calls.at(-1)![0]));
+    expect(url.pathname).toBe('/api/accounting/portal/documents/..%2F..%2Freports%2Fx');
+  });
+
   it("judges annotation by the contact's current role, not the JWT's", async () => {
     h.current = { contactId: 'c1', companyId: 'co-1', role: 'shareholder_readonly', expiresAt: '' };
     const res = await documentProps(ctx) as { props: { canAnnotate: boolean } };

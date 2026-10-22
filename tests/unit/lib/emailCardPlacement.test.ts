@@ -135,7 +135,13 @@ describe('emails with bare content sit inside the card, after the logo', () => {
       return [];
     });
     await deliverPack('d1', 'co-1');
-    expectInsideCard(sentHtml(), 'Alpha (Pty) Ltd', 'Management Accounts — 2026-09');
+    const html = sentHtml();
+    expectInsideCard(html, 'Alpha (Pty) Ltd', 'Management Accounts — 2026-09');
+    // The KPI blocks and the button are in the same content row.
+    const doc = new new Window().DOMParser().parseFromString(html, 'text/html');
+    const row = doc.querySelectorAll('table[width="600"] > tbody > tr')[1]!;
+    expect(row.textContent).toContain('Net margin');
+    expect(row.querySelector('a')?.textContent?.trim()).toBe('View Full Report');
   });
 
   it('portal: sign-in link', async () => {
