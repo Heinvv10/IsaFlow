@@ -16,7 +16,7 @@ import { appendLoanComponents } from './payrollRunLoanComponents';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
 import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
-import { laterPeriodsWarning, loadPayeYearToDate } from './payrollYearToDate';
+import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
@@ -170,7 +170,7 @@ export async function calculatePayrollRun(
   ];
   // Earlier periods of the tax year, for the cumulative PAYE (PAYE 4a follow-ups G4).
   const ytdByEmployee = await loadPayeYearToDate(companyId, runId, period, population.map(p => p.employee.id));
-  const laterApproved = await laterPeriodsWarning(companyId, runId, period);
+  const laterApproved = await laterPeriodsWarnings(companyId, runId, period);
 
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
@@ -223,7 +223,7 @@ export async function calculatePayrollRun(
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
         ...line.validationResults, ...terminationWarnings,
         // Only a line taxed from the tables feeds the later months' cumulative PAYE.
-        ...(laterApproved && (line.periodicTaxable > 0 || line.annualTaxable > 0) ? [laterApproved] : []),
+        ...((line.periodicTaxable > 0 || line.annualTaxable > 0) && laterApproved.has(employee.id) ? [laterApproved.get(employee.id)!] : []),
       ]),
     });
 

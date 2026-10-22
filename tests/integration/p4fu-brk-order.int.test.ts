@@ -14,37 +14,13 @@ import type { Route } from './w3-01-payroll.helpers';
 import createRun from '../../pages/api/payroll/runs';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import {
-  approveRun, cleanSeveranceFixtures, runLine, seedRetrenchedEmployee, type SeveranceFixture,
+  approveRun, cleanSeveranceFixtures, runLine, type SeveranceFixture,
 } from './p3-severance.helpers';
+import { PERIODS, seedEmployee, setSalary } from './p4fu-cumulative.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const fixtures: SeveranceFixture[] = [];
-
-/** Tax year 2027: March 2026 (month 1) to February 2027 (month 12). */
-const PERIODS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2].map((m) => ({ month: m, year: m >= 3 ? 2026 : 2027 }));
-
-/** An employee in employment (not leaving), salary from 2020 at `monthly`. */
-async function seedEmployee(name: string, monthly: number): Promise<SeveranceFixture> {
-  const f = await seedRetrenchedEmployee(pool, '2030-12-31', name, monthly);
-  await pool.query("UPDATE payroll_employees SET end_date = NULL, status = 'active' WHERE id = $1", [f.employee]);
-  fixtures.push(f);
-  return f;
-}
-
-/** Salary from the first of (year, month): ends the open salary row, starts a new one. */
-async function setSalary(f: SeveranceFixture, year: number, month: number, amount: number) {
-  const from = `${year}-${String(month).padStart(2, '0')}-01`;
-  const row = (await pool.query(
-    `SELECT pec.id, pec.component_id FROM payroll_employee_components pec
-       JOIN payroll_components c ON c.id = pec.component_id
-      WHERE pec.employee_id = $1 AND c.sars_source_code = '3601' AND pec.effective_to IS NULL`, [f.employee])).rows[0]!;
-  await pool.query(`UPDATE payroll_employee_components SET effective_to = ($2::date - 1) WHERE id = $1`, [row.id, from]);
-  await pool.query(
-    `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, $3, $4)`,
-    [f.employee, row.component_id, amount, from]);
-}
-
 
 beforeAll(async () => { await pool.query('SELECT 1'); });
 afterAll(async () => {
@@ -66,8 +42,8 @@ async function calcApprove(f: SeveranceFixture, id: string): Promise<number> {
 
 describe('G4: months approved out of order', () => {
   it('January approved after February: the January line warns, naming February; the shortfall is the R340 the warning describes', async () => {
-    const inOrderEmployee = await seedEmployee('P4fu order: in order', 20_000);
-    await setSalary(inOrderEmployee, 2027, 1, 60_000);
+    const inOrderEmployee = await seedEmployee(pool, fixtures, 'P4fu order: in order', 20_000);
+    await setSalary(pool, inOrderEmployee, 2027, 1, 60_000);
     // Every month's run exists (as a draft) before the first is calculated: a later DRAFT must not warn.
     const inOrderIds: string[] = [];
     for (const p of PERIODS) inOrderIds.push(await mk(inOrderEmployee, p.year, p.month));
@@ -77,8 +53,16 @@ describe('G4: months approved out of order', () => {
       ((await runLine(pool, id, employee)).validation_results as Array<{ code: string; message: string }>);
     for (const id of inOrderIds) expect((await codes(id, inOrderEmployee.employee)).map(c => c.code)).not.toContain('PAYE_LATER_PERIODS_APPROVED');
 
-    const f = await seedEmployee('P4fu order: January late', 20_000);
-    await setSalary(f, 2027, 1, 60_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu order: January late', 20_000);
+    await setSalary(pool, f, 2027, 1, 60_000);
+    // A second employee who leaves at the end of January has no line in February: no warning for them.
+    const leaver = (await pool.query(
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, end_date, date_of_birth, tax_number)
+       VALUES ($1, 'W301-2', 'Lee', 'Leaver', '2020-01-01', '2027-01-31', '1980-01-01', '0123456780') RETURNING id`, [f.company])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from)
+       SELECT $1, c.id, 20000, '2020-01-01' FROM payroll_components c WHERE c.company_id = $2 AND c.sars_source_code = '3601'`,
+      [leaver, f.company]);
     const ids: Record<string, string> = {};
     for (const p of PERIODS) ids[`${p.year}-${p.month}`] = await mk(f, p.year, p.month);
     let total = 0;
@@ -86,6 +70,7 @@ describe('G4: months approved out of order', () => {
     total += await calcApprove(f, ids['2027-1']!);
     const warning = (await codes(ids['2027-1']!, f.employee)).find(c => c.code === 'PAYE_LATER_PERIODS_APPROVED');
     expect(warning?.message).toMatch(/2027-02/);
+    expect((await codes(ids['2027-1']!, leaver)).map(c => c.code)).not.toContain('PAYE_LATER_PERIODS_APPROVED');
     expect(Math.round((inOrder - total) * 100) / 100).toBe(340);
   });
 });
