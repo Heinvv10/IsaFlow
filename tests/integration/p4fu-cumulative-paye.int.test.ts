@@ -96,6 +96,12 @@ describe('G4: cumulative PAYE, month by month', () => {
       lines.push({ paye, line: await runLine(pool, id, f.employee) });
     }
     expect(lines.map(l => l.paye)).toEqual([2115, 2115, 2115, 2115, 2115, 2115, 4477, 4681, 4681, 4681, 4681, 9881]);
+    // Each line stores its split for the next period's year-to-date (migration 913).
+    const feb = (await pool.query(
+      `SELECT periodic_taxable::float8 AS p, annual_taxable::float8 AS a FROM payroll_run_lines l
+         JOIN payroll_run_headers h ON h.id = l.run_id WHERE l.employee_id = $1 AND h.period_year = 2027 AND h.period_month = 2`,
+      [f.employee])).rows[0]!;
+    expect(feb).toEqual({ p: 30_000, a: 20_000 });
     const row = (await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee })).rows[0]!;
     expect(row.paye).toBe(45_772);
     expect(row.paye).toBe(lines.reduce((t, l) => t + l.paye, 0));
@@ -190,6 +196,22 @@ describe('G4: the year-to-date', () => {
        VALUES ($1, $2, 60000, 30000, 7307, 52693, $3)`, [run, f.employee, JSON.stringify(breakdown)]);
     const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 4 }, [f.employee]);
     expect(ytd.get(f.employee)).toEqual({ periods: 1, periodicTaxable: 20_000, annualPayments: 10_000, tablePaye: 4_307 });
+    // April: a severance-only line on an approved run (no periodic pay: not a period worked);
+    // May: a run only calculated (not declarable: not in it).
+    const april = (await pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 4, 'approved') RETURNING id`,
+      [f.company])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, net_pay, component_breakdown)
+       VALUES ($1, $2, 30000, 0, 0, 0, 3000, 27000, $3)`, [april, f.employee, JSON.stringify([breakdown[2]])]);
+    const may = (await pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 5, 'calculated') RETURNING id`,
+      [f.company])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, net_pay)
+       VALUES ($1, $2, 20000, 20000, 20000, 0, 2115, 17885)`, [may, f.employee]);
+    const june = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 6 }, [f.employee]);
+    expect(june.get(f.employee)).toEqual({ periods: 1, periodicTaxable: 20_000, annualPayments: 10_000, tablePaye: 4_307 });
     // Not before the period itself, and not other tax years.
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2027, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();
