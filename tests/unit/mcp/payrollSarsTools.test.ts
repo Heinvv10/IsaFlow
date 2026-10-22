@@ -54,6 +54,7 @@ const EMP201 = {
   employeeCount: 10,
   totalTaxableRemuneration: 335800,
   totalDeductions: 69968.62,
+  directivePayments: [],
   payrollRuns: [{
     id: 'r1', runDate: '2026-01-01', employeeCount: 10,
     grossPay: 335800, paye: 63360.94, eti: 4000, uif: 3249.68, sdl: 3358,

@@ -11,7 +11,7 @@
  * irp5DataService and EMP201 count them.
  *
  * The directive issued date (BRS code 3231) is the directive's issued_date
- * (migration 909), else its effective_date with `issuedDateFallback` set, which
+ * (migration 912), else its effective_date with `issuedDateFallback` set, which
  * the callers turn into a warning naming the directive.
  *
  * Directives paid OUTSIDE payroll (tax_directive_payments with no
