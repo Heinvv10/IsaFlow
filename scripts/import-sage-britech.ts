@@ -87,20 +87,26 @@ async function importARInvoices() {
 
     const invDate = inv.Date?.split('T')[0] || null;
     const dueDate = inv.DueDate?.split('T')[0] || null;
-    const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue);
-    if (derived.clamped) {
-      log.warn('amount_paid clamped to customer_invoices_amount_paid_within_total', {
-        invoiceNumber: inv.DocumentNumber, total: inv.Total, amountDue: inv.AmountDue,
-        original: (inv.Total || 0) - (inv.AmountDue || 0), stored: derived.amountPaid,
-      }, 'import-sage-britech');
-    }
-    const status = derived.paid ? 'paid' : inv.Status === 'Draft' ? 'draft' : 'approved';
-
     try {
+      const total = Number(inv.Total || 0);
+      const amountDue = inv.AmountDue == null ? null : Number(inv.AmountDue);
+      const derived = deriveAmountPaid(total, amountDue);
+      if (derived.clamped) {
+        log.warn('amount_paid clamped to customer_invoices_amount_paid_within_total', {
+          invoiceNumber: inv.DocumentNumber, total, amountDue,
+          original: total - (amountDue ?? 0), stored: derived.amountPaid,
+        }, 'import-sage-britech');
+      }
+      if (derived.dueMissing) {
+        log.warn('Sage AmountDue missing; stored amount_paid 0 (treated as owing)', {
+          invoiceNumber: inv.DocumentNumber, total,
+        }, 'import-sage-britech');
+      }
+      const status = derived.paid ? 'paid' : inv.Status === 'Draft' ? 'draft' : 'approved';
       await sql`INSERT INTO customer_invoices (company_id, customer_id, invoice_number, invoice_date, due_date,
         subtotal, tax_amount, total_amount, amount_paid, status, notes, created_by)
         VALUES (${CID}::UUID, ${customerId}::UUID, ${inv.DocumentNumber}, ${invDate}::DATE, ${dueDate}::DATE,
-          ${inv.Exclusive || 0}, ${inv.Tax || 0}, ${inv.Total || 0}, ${derived.amountPaid},
+          ${inv.Exclusive || 0}, ${inv.Tax || 0}, ${total}, ${derived.amountPaid},
           ${status}, ${inv.Reference ? 'Sage ref: ' + inv.Reference : null}, ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
@@ -122,20 +128,26 @@ async function importAPInvoices() {
 
     const invDate = inv.Date?.split('T')[0] || null;
     const dueDate = inv.DueDate?.split('T')[0] || null;
-    const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue);
-    if (derived.clamped) {
-      log.warn('supplier invoice amount_paid clamped to total', {
-        invoiceNumber: inv.DocumentNumber, total: inv.Total, amountDue: inv.AmountDue,
-        original: (inv.Total || 0) - (inv.AmountDue || 0), stored: derived.amountPaid,
-      }, 'import-sage-britech');
-    }
-    const status = derived.paid ? 'paid' : 'approved';
-
     try {
+      const total = Number(inv.Total || 0);
+      const amountDue = inv.AmountDue == null ? null : Number(inv.AmountDue);
+      const derived = deriveAmountPaid(total, amountDue);
+      if (derived.clamped) {
+        log.warn('supplier invoice amount_paid clamped to total', {
+          invoiceNumber: inv.DocumentNumber, total, amountDue,
+          original: total - (amountDue ?? 0), stored: derived.amountPaid,
+        }, 'import-sage-britech');
+      }
+      if (derived.dueMissing) {
+        log.warn('Sage AmountDue missing; stored amount_paid 0 (treated as owing)', {
+          invoiceNumber: inv.DocumentNumber, total,
+        }, 'import-sage-britech');
+      }
+      const status = derived.paid ? 'paid' : 'approved';
       await sql`INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
         subtotal, tax_amount, total_amount, amount_paid, status, reference, created_by)
         VALUES (${CID}::UUID, ${supplierId}::UUID, ${inv.DocumentNumber}, ${invDate}::DATE, ${dueDate}::DATE,
-          ${inv.Exclusive || 0}, ${inv.Tax || 0}, ${inv.Total || 0}, ${derived.amountPaid},
+          ${inv.Exclusive || 0}, ${inv.Tax || 0}, ${total}, ${derived.amountPaid},
           ${status}, ${inv.Reference || null}, ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
