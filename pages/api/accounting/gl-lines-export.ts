@@ -1,19 +1,54 @@
 /**
  * GL Lines Export API — the flat ledger file for the finance model (ledger
- * brief §4 v1 fields, §9 export contract).
+ * brief §4 v1 fields, §9 export contract), plus the open-items and bank tables
+ * a finance dashboard needs.
  *
  * GET
- *   ?table=lines|accounts|cost_centres|business_units|counterparties  (default lines)
+ *   ?table=lines|accounts|cost_centres|business_units|counterparties
+ *         |ap_open_items|ar_open_items|bank_accounts   (default lines)
  *   ?date_from=YYYY-MM-DD  ?date_to=YYYY-MM-DD   (lines only; omitted = full history)
  *   ?status=all|posted                           (lines only; default all, labelled)
- *   ?manifest=1                                  (lines only; JSON summary, no rows)
+ *   ?manifest=1                                  (lines and the computed tables: JSON summary, no rows)
+ *
+ * AUTH: a browser session (cookie, as before) OR a Bearer token —
+ * `Authorization: Bearer pat_…` (Personal Access Token) or `oat_…` — through
+ * withBearerOrCookieAuth, which runs the shared Bearer pipeline: the token's
+ * company becomes req.companyId, under the same app_user role, RLS claims and
+ * per-company rate limit as withAuth. A token needs `read:reports` for every
+ * table (withScope) and ALSO `read:contacts` for table=counterparties —
+ * glLineExportTables.GL_EXPORT_EXTRA_SCOPE, the map the MCP tool
+ * export_gl_lines reads too, so REST and MCP agree. A cookie session carries
+ * no scopes and is not gated. GET only, so no CSRF wrapper (a Bearer caller
+ * would get 403s from one).
  *
  * CSV, UTF-8, one file per table, header row, fixed column order. §9.2's file
  * facts travel as response headers so the CSV itself stays a pure table:
  * X-Export-Timestamp, X-Schema-Version, X-Control-Total and
- * X-Unbalanced-Txn-Count. The row count is NOT a header — it is the manifest's
- * rowCount — because a header is sent before the first row and a posting
- * during the download can move it.
+ * X-Unbalanced-Txn-Count. The row count is NOT a header for lines — it is the
+ * manifest's rowCount — because a header is sent before the first row and a
+ * posting during the download can move it.
+ *
+ * COMPUTED TABLES (reports/glExportComputedTables) are built whole, as at
+ * today, before the first byte, so their facts are exact and go out as
+ * headers: X-As-At, X-Row-Count, X-Control-Total, and for the open items
+ * X-Aged-Total and X-Control-Difference.
+ *   ap_open_items / ar_open_items — one row per open bill / invoice plus the
+ *     unconsumed credit notes and on-account cash as NEGATIVE rows;
+ *     X-Control-Total = Σ Outstanding, which equals the aged_creditors /
+ *     aged_debtors net total to the cent (X-Aged-Total, computed through the
+ *     aged report's own functions; X-Control-Difference = 0.00). Columns:
+ *     Doc_ID, Doc_Type (invoice | credit_note | unapplied_payment /
+ *     unapplied_receipt), Doc_No, Supplier_Ref / Customer_Ref,
+ *     Counterparty_ID, Counterparty_Name, Doc_Date, Due_Date, Days_Overdue,
+ *     Age_Bucket (current | 30 | 60 | 90 | 120+), Total_Incl_VAT, Outstanding,
+ *     Disputed, CC1_Code, CC2_Code, BU_Code (single-valued over the lines,
+ *     else MIXED), Has_Document, Schema_Version. See reports/openItemsExport.
+ *   bank_accounts — Bank_Account_ID, GL_Account_Code, Name,
+ *     Account_Number_Masked, Currency, Ledger_Balance, Last_Statement_Date,
+ *     Last_Statement_Closing_Balance, Last_Reconciled_Date,
+ *     Unreconciled_Line_Count, Unallocated_Line_Count, Last_Transaction_Date,
+ *     Is_Active, Schema_Version; X-Control-Total = Σ Ledger_Balance. See
+ *     reports/bankAccountsExport.
  *
  * STREAMED page by page (keyset), so full history never sits in memory at
  * once, and each write waits for the socket to drain when its buffer is full.
@@ -26,8 +61,9 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { withBearerOrCookieAuth, type BearerAuthedRequest } from '@/lib/auth/withBearerOrCookieAuth';
+import { withScope } from '@/lib/auth/withScope';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { hasNul, NUL_MESSAGE } from '@/lib/validation';
@@ -50,9 +86,15 @@ import {
   GL_EXPORT_TABLES,
   getExportDimensionTablePage,
   isGlExportTable,
+  missingExportScope,
   type DimensionTablePage,
   type GlDimensionTable,
 } from '@/modules/accounting/services/reports/glLineExportTables';
+import {
+  buildComputedTable,
+  isGlComputedTable,
+  type GlComputedTable,
+} from '@/modules/accounting/services/reports/glExportComputedTables';
 
 function one(v: string | string[] | undefined): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
@@ -142,14 +184,47 @@ async function streamTable(res: NextApiResponse, companyId: string, table: GlDim
       : getExportDimensionTablePage(companyId, table, page.next, GL_LINE_EXPORT_MAX_PAGE)));
 }
 
+/** A computed table: built whole first (a failure is a clean 500), its exact facts as headers, then streamed in slices. */
+async function streamComputed(
+  res: NextApiResponse, companyId: string, table: GlComputedTable, manifest: boolean, exportTimestamp: string,
+): Promise<void> {
+  const built = await buildComputedTable(companyId, table);
+  const { summary } = built;
+  if (manifest) return apiResponse.success(res, { exportTimestamp, ...summary });
+  res.setHeader('X-Schema-Version', summary.schemaVersion);
+  res.setHeader('X-As-At', summary.asAt);
+  res.setHeader('X-Row-Count', String(summary.rowCount));
+  res.setHeader('X-Control-Total', summary.controlTotal.toFixed(2));
+  if ('agedTotal' in summary) {
+    res.setHeader('X-Aged-Total', summary.agedTotal.toFixed(2));
+    res.setHeader('X-Control-Difference', summary.difference.toFixed(2));
+  }
+  startCsv(res, `gl-export-${table}-${summary.asAt}.csv`);
+  const columns = built.columns;
+  const slice = (from: number) => built.rows.slice(from, from + GL_LINE_EXPORT_MAX_PAGE);
+  let at = 0;
+  await streamPages(res, companyId, columns.join(',') + '\n', slice(0),
+    (rows) => (rows.length === 0 ? '' : rows.map((r) => csvLine(columns, r)).join('\n') + '\n'),
+    async () => {
+      at += GL_LINE_EXPORT_MAX_PAGE;
+      return at < built.rows.length ? slice(at) : null;
+    });
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   if (hasNul(req.query)) return apiResponse.badRequest(res, NUL_MESSAGE);
 
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, scopes } = req as BearerAuthedRequest;
   const table = one(req.query.table) ?? 'lines';
   if (!isGlExportTable(table)) {
     return apiResponse.badRequest(res, `table must be one of ${GL_EXPORT_TABLES.join(', ')}`);
+  }
+  // read:reports is withScope's; a table that needs more (counterparties:
+  // read:contacts) is refused here, before any query, as the MCP tool does.
+  const missing = missingExportScope(table, scopes);
+  if (missing !== null) {
+    return apiResponse.error(res, ErrorCode.INSUFFICIENT_SCOPE, `Token missing required scope for table "${table}": ${missing}`);
   }
   const dateFrom = one(req.query.date_from);
   const dateTo = one(req.query.date_to);
@@ -175,6 +250,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('X-Export-Timestamp', exportTimestamp);
   res.setHeader('X-Schema-Version', GL_LINE_EXPORT_SCHEMA_VERSION);
 
+  if (isGlComputedTable(table)) {
+    return streamComputed(res, companyId, table, one(req.query.manifest) === '1', exportTimestamp);
+  }
   if (table !== 'lines') return streamTable(res, companyId, table);
 
   const opts: GlLineExportOptions = { dateFrom, dateTo, status };
@@ -209,4 +287,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-export default withAuth(withErrorHandler(handler));
+// Bearer (PAT / OAuth) or cookie; a token needs read:reports. Composed as
+// withScope's contract documents: the outer wrapper attaches the scopes.
+export default withBearerOrCookieAuth(withScope('read:reports')(withErrorHandler(handler)));

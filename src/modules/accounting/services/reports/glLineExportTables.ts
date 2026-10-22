@@ -20,13 +20,38 @@ import type { DbRow } from '@/types/db';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { clampPage } from './glLineExportService';
 import { GL_LINE_EXPORT_SCHEMA_VERSION, str, toNum, type ExportValue } from './glLineExportRows';
+import { GL_COMPUTED_TABLES } from './glExportComputedTables';
 
-export const GL_EXPORT_TABLES = ['lines', 'accounts', 'cost_centres', 'business_units', 'counterparties'] as const;
+export const GL_DIMENSION_TABLES = ['accounts', 'cost_centres', 'business_units', 'counterparties'] as const;
+export type GlDimensionTable = (typeof GL_DIMENSION_TABLES)[number];
+
+/** Every table the export serves: the lines, the dimension masters, then the computed tables. */
+export const GL_EXPORT_TABLES = ['lines', ...GL_DIMENSION_TABLES, ...GL_COMPUTED_TABLES] as const;
 export type GlExportTable = (typeof GL_EXPORT_TABLES)[number];
-export type GlDimensionTable = Exclude<GlExportTable, 'lines'>;
 
 export function isGlExportTable(v: unknown): v is GlExportTable {
   return typeof v === 'string' && (GL_EXPORT_TABLES as readonly string[]).includes(v);
+}
+
+export function isGlDimensionTable(v: unknown): v is GlDimensionTable {
+  return typeof v === 'string' && (GL_DIMENSION_TABLES as readonly string[]).includes(v);
+}
+
+/**
+ * The scope a table needs ON TOP OF read:reports, for the REST route and the
+ * MCP tool alike — one map, so the two cannot disagree. Counterparties carry
+ * names and VAT numbers, which list_customers / list_suppliers serve only
+ * under read:contacts.
+ */
+export const GL_EXPORT_EXTRA_SCOPE: Partial<Record<GlExportTable, string>> = {
+  counterparties: 'read:contacts',
+};
+
+/** The extra scope `table` needs that `scopes` lacks, or null. Cookie sessions (no scopes) need none. */
+export function missingExportScope(table: GlExportTable, scopes: readonly string[] | undefined): string | null {
+  const extra = GL_EXPORT_EXTRA_SCOPE[table];
+  if (extra === undefined || scopes === undefined) return null;
+  return scopes.includes(extra) ? null : extra;
 }
 
 /** Keyset position in a dimension table: the last row's kind ('' or Customer / Supplier) and id. */

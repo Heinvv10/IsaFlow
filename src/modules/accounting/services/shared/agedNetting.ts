@@ -39,6 +39,7 @@ import type { DbRow } from '@/lib/neon';
 import type { AgingBucket } from '../../types/ap.types';
 import type { CreditNoteSide } from './creditNoteFifo';
 import { EPS, round2 } from './autoAllocateStrategy';
+import { getUnappliedDocuments, type UnappliedDocument } from './unappliedDocuments';
 
 export type AgedSide = 'ar' | 'ap';
 
@@ -138,66 +139,19 @@ export async function getUnappliedByEntity(
   side: AgedSide,
   asAt: string,
 ): Promise<Map<string, EntityUnapplied>> {
-  const cashRows = (side === 'ar'
-    ? await sql`
-        SELECT cp.client_id AS entity_id, COALESCE(c.name, '') AS entity_name,
-               SUM(cp.total_amount
-                   - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0))) AS amount
-        FROM customer_payments cp
-        JOIN customers c ON c.id = cp.client_id AND c.company_id = cp.company_id
-        LEFT JOIN LATERAL (
-          SELECT SUM(cpa.amount_allocated) AS allocated
-          FROM customer_payment_allocations cpa
-          WHERE cpa.payment_id = cp.id
-        ) alloc ON TRUE
-        WHERE cp.company_id = ${companyId}::UUID
-          AND cp.status <> 'cancelled'
-          AND cp.payment_date <= ${asAt}::DATE
-          AND ABS(cp.total_amount
-                  - LEAST(COALESCE(alloc.allocated, 0), GREATEST(cp.total_amount, 0))) > ${EPS}
-        GROUP BY cp.client_id, c.name`
-    : await sql`
-        SELECT sp.supplier_id AS entity_id, COALESCE(s.name, '') AS entity_name,
-               SUM(sp.total_amount
-                   - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0))) AS amount
-        FROM supplier_payments sp
-        JOIN suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
-        LEFT JOIN LATERAL (
-          SELECT SUM(pa.amount_allocated) AS allocated
-          FROM payment_allocations pa
-          WHERE pa.payment_id = sp.id
-        ) alloc ON TRUE
-        WHERE sp.company_id = ${companyId}::UUID
-          AND sp.status IN ('processed', 'reconciled')
-          AND sp.payment_date <= ${asAt}::DATE
-          AND ABS(sp.total_amount
-                  - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0))) > ${EPS}
-        GROUP BY sp.supplier_id, s.name`) as DbRow[];
+  // Per document from shared/unappliedDocuments — the same rows the open-items
+  // export lists — summed per entity here, so the export's negative rows and
+  // this netting cannot drift apart.
+  return aggregateUnappliedByEntity(await getUnappliedDocuments(companyId, side, asAt));
+}
 
-  // The credit half is one query either way: `type` discriminates and the
-  // entity column is whichever of the two is populated.
-  const creditRows = (await sql`
-    SELECT COALESCE(cn.client_id, cn.supplier_id) AS entity_id,
-           COALESCE(c.name, s.name, '') AS entity_name,
-           SUM(cn.total_amount - cn.applied_amount) AS amount
-    FROM credit_notes cn
-    LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
-    LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
-    WHERE cn.company_id = ${companyId}::UUID
-      AND cn.type = ${side === 'ar' ? 'customer' : 'supplier'}
-      AND cn.status IN ('approved', 'partially_applied')
-      AND cn.credit_date <= ${asAt}::DATE
-      AND (cn.total_amount - cn.applied_amount) > ${EPS}
-      AND COALESCE(cn.client_id, cn.supplier_id) IS NOT NULL
-    GROUP BY COALESCE(cn.client_id, cn.supplier_id), COALESCE(c.name, s.name, '')
-  `) as DbRow[];
-
+/** Per-document on-account credit summed per entity: cash under `payments`, credit notes under `creditNotes`. */
+export function aggregateUnappliedByEntity(
+  docs: readonly UnappliedDocument[],
+): Map<string, EntityUnapplied> {
   const map = new Map<string, EntityUnapplied>();
-  for (const r of cashRows) {
-    merge(map, String(r.entity_id), String(r.entity_name ?? ''), 'payments', Number(r.amount));
-  }
-  for (const r of creditRows) {
-    merge(map, String(r.entity_id), String(r.entity_name ?? ''), 'creditNotes', Number(r.amount));
+  for (const d of docs) {
+    merge(map, d.entityId, d.entityName, d.kind === 'payment' ? 'payments' : 'creditNotes', d.amount);
   }
   return map;
 }
