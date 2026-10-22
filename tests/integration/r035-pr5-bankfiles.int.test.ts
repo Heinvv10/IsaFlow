@@ -91,8 +91,18 @@ describe('eft-generate', () => {
     expect(data.content).toContain('62000000001');
   });
 
-  it('enforcement off: a draft batch gets its file as before, now with its real amounts', async () => {
+  it('enforcement off: a draft batch is refused 409 BATCH_NOT_SENDABLE and gets no file', async () => {
     const { c, b } = await fixture([]);
+    const res = await eft(c, b.id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+    expect(reasonOf(res)).toBe('BATCH_NOT_SENDABLE');
+    expect(messageOf(res)).toBe(DRAFT);
+    expect(JSON.stringify(res.state.body)).not.toContain('"content"');
+  });
+
+  it('enforcement off: an approved batch gets its file as before, now with its real amounts', async () => {
+    const { c, b } = await fixture([]);
+    expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(200);
     const res = await eft(c, b.id);
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(dataOf<{ totalAmount: number }>(res).totalAmount).toBe(3450);

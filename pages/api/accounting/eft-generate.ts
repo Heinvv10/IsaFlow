@@ -75,7 +75,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     await assertBatchMayBeSent(companyId, String(batches[0].id), String(batches[0].status));
   } catch (err) {
     if (respondIfApprovalRequired(res, err)) return;
-    if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message);
+    if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message, { reason: err.code, batchStatus: err.batchStatus });
     throw err;
   }
 
