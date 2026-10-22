@@ -26,12 +26,12 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import {
-  assertAllocationShape,
   buildLine,
   fetchBillCandidates,
   round2,
   type SupplierAllocationInput,
 } from './supplierAllocationLines';
+import { assertAllocationShape } from './supplierAllocationShape';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
 export interface BatchPaymentLines {
