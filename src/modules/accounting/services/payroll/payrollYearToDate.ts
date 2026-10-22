@@ -105,7 +105,9 @@ export async function laterPeriodsWarnings(
   const months = new Map<string, string[]>();
   for (const r of rows) {
     const key = String(r.employee_id);
-    months.set(key, [...(months.get(key) ?? []), `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`]);
+    const list = months.get(key) ?? [];
+    list.push(`${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`);
+    months.set(key, list);
   }
   return new Map([...months].map(([employee, list]) => [employee, {
     code: 'PAYE_LATER_PERIODS_APPROVED',
@@ -118,11 +120,20 @@ export async function laterPeriodsWarnings(
 }
 
 /**
- * The approval-gate blocker for a run whose year-to-date went stale: an
- * earlier month of its tax year was approved AFTER this run's lines were
- * calculated, so its cumulative PAYE left that month out (two months
- * calculated before either was approved). Recalculating picks it up. Null
- * when current. Read-only.
+ * The approval-gate blocker for a run judged on a stale picture of its tax
+ * year: another month of the same tax year was approved AFTER this run's
+ * lines were calculated.
+ * - An EARLIER month: this run's cumulative PAYE left it out (two months
+ *   calculated before either was approved). Recalculating picks it up.
+ * - A LATER month: that month's PAYE left this one out, and this run's lines
+ *   do not yet carry PAYE_LATER_PERIODS_APPROVED, which a calculation now
+ *   adds (laterPeriodsWarnings). Recalculating puts the warning on the lines.
+ * Approvals of a company are serialised by lockCompanyPayrollApprovals, taken
+ * before the gate, so a concurrent approval is either committed (and seen) or
+ * waits. Null when current. Read-only. "Calculated" is the first line's clock
+ * time, the nearest stored point to the year-to-date read; an approval
+ * committed in the moments between that read and the first line insert is not
+ * seen (a narrow race; the next month's calculation still trues it up).
  */
 export async function judgeYearToDateStale(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
@@ -130,23 +141,30 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
     WITH me AS (
       SELECT h.period_year, h.period_month,
              make_date(CASE WHEN h.period_month >= 3 THEN h.period_year ELSE h.period_year - 1 END, 3, 1) AS year_start,
-             (SELECT MAX(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
+             (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
       FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
     )
-    SELECT e.period_year, e.period_month
+    SELECT e.period_year, e.period_month,
+           make_date(e.period_year, e.period_month, 1) > make_date(me.period_year, me.period_month, 1) AS later
     FROM payroll_run_headers e, me
     WHERE e.company_id = ${companyId}::uuid AND e.id <> ${runId}::uuid
       AND e.status = ANY(${declarable}::text[])
       AND make_date(e.period_year, e.period_month, 1) >= me.year_start
-      AND make_date(e.period_year, e.period_month, 1) < make_date(me.period_year, me.period_month, 1)
+      AND make_date(e.period_year, e.period_month, 1) < (me.year_start + INTERVAL '1 year')
       AND e.approved_at > me.calculated_at
     ORDER BY e.period_year, e.period_month
   `) as DbRow[];
   if (rows.length === 0) return null;
-  const months = rows.map(r => `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`).join(', ');
+  const month = (r: DbRow) => `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`;
+  const earlier = rows.filter(r => r.later !== true).map(month);
+  const later = rows.filter(r => r.later === true).map(month);
   return {
     code: 'paye_year_to_date_stale',
-    detail: `An earlier month of this tax year (${months}) was approved after this run was calculated. PAYE is cumulative over `
-      + 'the year, so this run\'s PAYE left that month out. Recalculate the run, then approve it.',
+    detail: (earlier.length > 0
+      ? `An earlier month of this tax year (${earlier.join(', ')}) was approved after this run was calculated, so this run's `
+        + 'cumulative PAYE left it out. '
+      : `A later month of this tax year (${later.join(', ')}) was approved after this run was calculated, so that month's `
+        + 'cumulative PAYE left this one out. ')
+      + 'Recalculate the run, then approve it.',
   };
 }
