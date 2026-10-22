@@ -7,10 +7,11 @@
  *
  * Authentication: X-Cron-Secret header must match CRON_SECRET env var.
  *
- * NOTE: REFRESH MATERIALIZED VIEW CONCURRENTLY requires a unique index on
- * the MV (mig 427 provides idx_cust_inv_view_summary) and the view's owner.
- * The service pool is not the owner (S-07b), so it calls the SECURITY DEFINER
- * wrapper from migration 915, which refreshes this one view and takes no input.
+ * NOTE: REFRESH MATERIALIZED VIEW CONCURRENTLY needs a unique index on the
+ * MV (mig 427 provides idx_cust_inv_view_summary), must be run by the view's
+ * owner, and cannot run inside a transaction block. The service pool is not
+ * the owner (S-07b), so it calls the SECURITY DEFINER wrapper from migration
+ * 915, which refreshes this one view and takes no input.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';

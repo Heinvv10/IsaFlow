@@ -32,6 +32,9 @@ const asMe = { asRequest: { sub: me, companyId: company } };
 const ownerWrite: [string, unknown[]] = [`UPDATE users SET role = 'super_admin' WHERE id = $1`, [me]];
 const otherTenantRead: [string, unknown[]] = ['SELECT name FROM companies WHERE id = $1', [other]];
 const otherJournalRead: [string, unknown[]] = ['SELECT description FROM gl_journal_entries WHERE id = $1', [otherJournal]];
+// The member guards still exempt isaflow_app itself (it holds no app_service):
+// what keeps this out is that, after RESET ROLE, isaflow_app holds no grant at all.
+const memberWrite: [string, unknown[]] = [`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')`, [other, me]];
 
 describe('S-07b: the request pool cannot get back to the owner', () => {
   const pool = (): Pool => getAuthPool();
@@ -45,10 +48,11 @@ describe('S-07b: the request pool cannot get back to the owner', () => {
   it.each([
     ['set_config(role, none)', `SELECT set_config('role', 'none', true)`],
     ['RESET ROLE', 'RESET ROLE'],
-  ])('after %s, the owner write and other tenants\' rows are refused outright', async (_, escape) => {
-    for (const probe of [ownerWrite, otherTenantRead, otherJournalRead]) {
+  ])('after %s, the owner write, a member write and other tenants\' rows are refused outright', async (_, escape) => {
+    for (const [probe, table] of [[ownerWrite, 'users'], [otherTenantRead, 'companies'], [otherJournalRead, 'gl_journal_entries'],
+      [memberWrite, 'company_users']] as Array<[[string, unknown[]], string]>) {
       expect(await attempt(pool(), [[escape], probe], asMe))
-        .toMatchObject({ code: '42501', message: expect.stringMatching(/^permission denied for table (users|companies|gl_journal_entries)$/) });
+        .toMatchObject({ code: '42501', message: `permission denied for table ${table}` });
     }
   });
 
@@ -70,7 +74,7 @@ describe('S-07b: the request pool cannot get back to the owner', () => {
     expect(await attempt(pool(), [[stmt]], asMe)).toMatchObject({ code: '42501', message: expect.stringMatching(msg) });
   });
 
-  // S-07b verifier P1: the owner-run views clients and app_settings (916 sets security_invoker).
+  // S-07b verifier P1: the owner-run views clients and app_settings (917 sets security_invoker).
   it.each([
     ['reads another tenant\'s customers through clients', `SELECT name FROM clients WHERE name = 'S07b other tenant customer'`],
     ['reads another tenant\'s settings through app_settings', `SELECT value FROM app_settings WHERE key = 's07b_secret'`],
@@ -89,7 +93,7 @@ describe('S-07b: the request pool cannot get back to the owner', () => {
     }
   });
 
-  it('app_user cannot rewrite the migration history (916)', async () => {
+  it('app_user cannot rewrite the migration history (917)', async () => {
     expect(await attempt(pool(), [[`DELETE FROM schema_migrations WHERE name LIKE '915%'`]], asMe))
       .toMatchObject({ code: '42501', message: 'permission denied for table schema_migrations' });
   });

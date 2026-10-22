@@ -107,7 +107,8 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         WHERE token = $1
           AND accepted_at IS NULL
           AND expires_at > NOW()
-        LIMIT 1`,
+        LIMIT 1
+          FOR UPDATE`,
       [tokenHash],
     )).rows as Row[];
 

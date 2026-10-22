@@ -7,6 +7,9 @@
 #   3. accounting integrity check passes against the instance's DB
 #      (with the committed prod baseline waiving ONLY the known
 #      HUMAN-GATED failure — new failures still fail the gate)
+#   4. the app's login roles cannot reach the owner, and once they can log
+#      in, the S-07b runbook's event trigger and reserved roles are in place
+#      (scripts/check-app-login-roles.ts; skipped with step 3)
 #
 # Usage:
 #   scripts/verify-deploy.sh <BASE_URL>
@@ -32,7 +35,7 @@ BUN="${BUN:-/home/hein/.bun/bin/bun}"
 echo "=== Post-deploy verification: $BASE_URL ==="
 
 # ── 1. Health ────────────────────────────────────────────────────────────────
-echo "[1/3] Health check..."
+echo "[1/4] Health check..."
 HEALTHY=0
 for _ in $(seq 1 60); do
   if curl -sf --max-time 5 "$BASE_URL/api/health" >/dev/null; then HEALTHY=1; break; fi
@@ -45,7 +48,7 @@ fi
 echo "OK: health endpoint responding"
 
 # ── 2. Golden-paths suite ────────────────────────────────────────────────────
-echo "[2/3] Golden-paths E2E suite..."
+echo "[2/4] Golden-paths E2E suite..."
 if [ -z "$E2E_ADMIN_EMAIL" ] || [ -z "$E2E_ADMIN_PASSWORD" ]; then
   if [ -f "$CREDS_FILE" ]; then
     # Read only the two expected keys, literally — never `.`/source, which
@@ -72,9 +75,9 @@ echo "OK: golden paths green"
 
 # ── 3. Integrity check (baseline-waived) ─────────────────────────────────────
 if [ "${VERIFY_SKIP_INTEGRITY:-0}" = "1" ]; then
-  echo "[3/3] Integrity check SKIPPED (VERIFY_SKIP_INTEGRITY=1 — drill mode)"
+  echo "[3/4] Integrity check and [4/4] app login roles SKIPPED (VERIFY_SKIP_INTEGRITY=1 — drill mode)"
 else
-  echo "[3/3] Integrity check..."
+  echo "[3/4] Integrity check..."
   if [ -z "$DATABASE_URL" ]; then
     echo "FAIL: DATABASE_URL not set for the integrity check (set it or VERIFY_SKIP_INTEGRITY=1 for drills)"
     exit 1
@@ -84,6 +87,11 @@ else
     exit 1
   fi
   echo "OK: integrity green (baseline-waived failures reported above, if any)"
+  echo "[4/4] App login roles (S-07b)..."
+  if ! "$BUN" "$REPO_DIR/scripts/check-app-login-roles.ts"; then
+    echo "FAIL: an app login role can reach the owner, or a runbook control is missing (docs/runbooks/s07b-app-pool-login-roles.md)"
+    exit 1
+  fi
 fi
 
 echo "=== Post-deploy verification PASSED ==="

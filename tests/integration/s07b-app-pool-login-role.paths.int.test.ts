@@ -1,7 +1,7 @@
 // tests/integration/s07b-app-pool-login-role.paths.int.test.ts
 //
 // Audit 2026-10-18 S-07b: every kind of legitimate path still works when the
-// app's pools log in as production will have them (migrations 915, 916):
+// app's pools log in as production will have them (migrations 915-917):
 // DATABASE_URL as isaflow_app, SERVICE_DATABASE_URL as isaflow_service,
 // MIGRATION_ADMIN_DATABASE_URL as migration_admin. Each runs through its real
 // route or service. The attacks: s07b-app-pool-login-role.int.test.ts.
@@ -110,7 +110,7 @@ describe('S-07b: every kind of legitimate path still works on the new logins', (
     expect(token).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('app_settings under security_invoker (916): app_user still reads its own company\'s settings', async () => {
+  it('app_settings under security_invoker (917): app_user still reads its own company\'s settings', async () => {
     await fixture.query(`INSERT INTO accounting_settings (company_id, key, value) VALUES ($1, 'accounting_default_accounts', '{"s07b":"mine"}')`, [company]);
     let mappings: Record<string, unknown> = {};
     await inServiceContext('app_user', me, async () => { mappings = await readDefaultAccountMappings(company); });

@@ -15,20 +15,7 @@ import { poolSizeFromEnv, MIN_PG_POOL_MAX } from '@/lib/limits/poolLimits';
 // date columns arrive as 'YYYY-MM-DD' strings instead of local-midnight Dates.
 // See src/lib/pgTypes.ts for why that matters.
 import '@/lib/pgTypes';
-
-/**
- * The service pool's URL (S-07b). This pool serves every statement with no
- * request transaction (crons, after-commit work, public routes, login), so in
- * production it logs in as isaflow_service (migration 915), not as the request
- * pools' isaflow_app. Falls back to DATABASE_URL until the env names it.
- */
-function serviceDatabaseUrl(): string {
-  const url = process.env.SERVICE_DATABASE_URL || process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error('DATABASE_URL is not set. Please configure it in your environment.');
-  }
-  return url;
-}
+import { serviceDatabaseUrl } from '@/lib/serviceDatabaseUrl';
 
 let _pool: pg.Pool | null = null;
 

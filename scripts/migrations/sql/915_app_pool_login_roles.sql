@@ -9,9 +9,10 @@
 -- forensic triggers). 902's column privileges bind app_user only.
 --
 -- This migration creates two login roles and one group role. It sets no
--- password and does not let either role log in: the ops step (runbook in the
--- S-07b handoff) runs ALTER ROLE ... LOGIN PASSWORD out of band, then points
--- the app's env at them. Until then nothing uses them.
+-- password and does not let either role log in: the ops step
+-- (docs/runbooks/s07b-app-pool-login-roles.md) runs ALTER ROLE ... LOGIN
+-- PASSWORD out of band, then points the app's env at them. Until then nothing
+-- uses them.
 --
 --   isaflow_app      DATABASE_URL. Every request transaction: withAuth,
 --                    bearer/MCP, extension tokens, invite tokens and
@@ -19,7 +20,7 @@
 --                    SET LOCAL ROLE app_user as its first statement after
 --                    BEGIN. NOINHERIT and a member of app_user only, so
 --                    RESET ROLE / set_config('role','none') lands on a role
---                    that holds nothing.
+--                    that holds only what PUBLIC holds.
 --   isaflow_service  SERVICE_DATABASE_URL. The `sql` fallback pool and the
 --                    rate-limit pool: every path with no request transaction
 --                    (crons, after-commit work, public webhooks, login /
@@ -40,8 +41,15 @@
 --                    wrapper for the one REFRESH MATERIALIZED VIEW.
 --
 -- Neither login role can reach a superuser, a BYPASSRLS role, or any role
--- that owns an object in this database; isaflow_app cannot reach
--- app_service. The DO block at the end refuses the migration otherwise.
+-- that owns an object anywhere in the cluster; isaflow_app cannot reach
+-- app_service. public.app_login_role_violations() states those rules; the
+-- DO block at the end refuses the migration on any violation, and
+-- scripts/verify-deploy.sh runs it again after every deploy.
+--
+-- public.app_service_sync_policies() creates app_service's policies. The
+-- migration runner (scripts/apply-migrations.ts) calls it after every run, so
+-- a table a later migration adds, in whatever order migrations reach a
+-- database, gets its policies on the same run.
 --
 -- RESIDUAL, DELIBERATE: injected SQL on an isaflow_service path can write any
 -- user's email (change-email and the POPIA erasure need that column, and run
@@ -136,10 +144,23 @@ GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO app_
 -- CHECK falls back to USING. A policy whose USING or WITH CHECK is the
 -- constant `false` admits nothing for the commands that read it, so a FOR ALL
 -- policy contributes only the commands its predicates leave open. Policies
--- named app_service_<cmd> are owned by this migration; re-runs skip them.
-DO $$
+-- named app_service_<cmd> are owned by this function; re-runs skip them.
+--
+-- USING (true) drops every predicate of the policy it mirrors, not only the
+-- tenant: tests/integration/s07b-app-pool-login-role.policies.int.test.ts
+-- pins every app_user predicate that is not a forgeable claim, so one that
+-- limits rows by their state cannot arrive unreviewed.
+--
+-- Not SECURITY DEFINER: it runs as the migration runner, which owns the
+-- tables. Returns how many policies it created.
+CREATE OR REPLACE FUNCTION public.app_service_sync_policies()
+RETURNS integer
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
 DECLARE
   r record;
+  n integer := 0;
 BEGIN
   FOR r IN
     WITH pol AS (
@@ -148,8 +169,8 @@ BEGIN
              coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS check_false
         FROM pg_policy p
         JOIN pg_class c ON c.oid = p.polrelid
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-       WHERE n.nspname = 'public'
+        JOIN pg_namespace ns ON ns.oid = c.relnamespace
+       WHERE ns.nspname = 'public'
          AND c.relname <> 'impersonation_sessions'
          AND p.polpermissive
          AND p.polname NOT LIKE 'app\_service\_%'
@@ -176,19 +197,42 @@ BEGIN
         EXECUTE format('CREATE POLICY %I ON %s FOR UPDATE TO app_service USING (true) WITH CHECK (true)',
                        'app_service_' || r.cmd, r.tbl);
       END IF;
+      n := n + 1;
     END IF;
   END LOOP;
-END $$;
+  RETURN n;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.app_service_sync_policies() FROM PUBLIC;
 
--- Refuse the migration unless each login role's reach is exactly its
--- allowlist, and nothing in that reach is a superuser, bypasses RLS, can
--- create roles or replicate, or owns an object in this database. pg_has_role(.., 'MEMBER')
--- is transitive and ignores INHERIT, i.e. it is what SET ROLE can reach.
-DO $$
+SELECT public.app_service_sync_policies();
+
+-- Every way a login role's reach could reach the owner, one row each:
+--   - a role either login can SET ROLE to (pg_has_role MEMBER is transitive and
+--     ignores INHERIT) outside its allowlist;
+--   - one in reach that is superuser, BYPASSRLS, CREATEROLE or REPLICATION;
+--   - one in reach that owns anything, in ANY database of the cluster (prod and
+--     dev share one): pg_shdepend records the owner of every table, function,
+--     schema, type and database not owned by the bootstrap superuser;
+--   - isaflow_app holding app_user's privileges without SET ROLE ('USAGE': on
+--     PG 15 the member's INHERIT attribute decides it, on PG 16 the grant's own
+--     INHERIT option, fixed when granted, so check the effect);
+--   - any table, view or sequence granted to PUBLIC, which a login reaches
+--     after RESET ROLE without being any of these roles.
+-- With p_runtime_controls (once the logins can log in), also the runbook's
+-- out-of-band controls: the DDL event trigger in this database, and both
+-- logins in supautils.reserved_roles.
+CREATE OR REPLACE FUNCTION public.app_login_role_violations(p_runtime_controls boolean DEFAULT false)
+RETURNS SETOF text
+LANGUAGE plpgsql
+STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
 DECLARE
   login text;
   allowed text[];
   r record;
+  reserved text[];
 BEGIN
   FOR login, allowed IN VALUES
     ('isaflow_app',     ARRAY['isaflow_app', 'app_user']),
@@ -197,30 +241,48 @@ BEGIN
     FOR r IN SELECT oid, rolname, rolsuper, rolbypassrls, rolcreaterole, rolreplication
                FROM pg_roles WHERE pg_has_role(login, oid, 'MEMBER') LOOP
       IF NOT r.rolname = ANY (allowed) THEN
-        RAISE EXCEPTION '915: % can reach role %, outside its allowlist %', login, r.rolname, allowed;
+        RETURN NEXT format('%s can reach role %s, outside its allowlist %s', login, r.rolname, allowed);
       END IF;
       IF r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolreplication THEN
-        RAISE EXCEPTION '915: % can reach %, which is superuser, BYPASSRLS, CREATEROLE or REPLICATION', login, r.rolname;
+        RETURN NEXT format('%s can reach %s, which is superuser, BYPASSRLS, CREATEROLE or REPLICATION', login, r.rolname);
       END IF;
-      -- pg_shdepend records ownership in EVERY database of the cluster (prod
-      -- and dev share one); the catalogs below cover this database even where
-      -- pg_shdepend skips pinned objects.
       IF EXISTS (SELECT 1 FROM pg_shdepend WHERE refclassid = 'pg_authid'::regclass
-                    AND refobjid = r.oid AND deptype = 'o')
-         OR EXISTS (SELECT 1 FROM pg_class WHERE relowner = r.oid)
-         OR EXISTS (SELECT 1 FROM pg_proc WHERE proowner = r.oid)
-         OR EXISTS (SELECT 1 FROM pg_namespace WHERE nspowner = r.oid)
-         OR EXISTS (SELECT 1 FROM pg_type WHERE typowner = r.oid)
-         OR EXISTS (SELECT 1 FROM pg_database WHERE datdba = r.oid) THEN
-        RAISE EXCEPTION '915: % can reach %, which owns objects in this cluster', login, r.rolname;
+                    AND refobjid = r.oid AND deptype = 'o') THEN
+        RETURN NEXT format('%s can reach %s, which owns objects in this cluster', login, r.rolname);
       END IF;
     END LOOP;
   END LOOP;
-  -- 'USAGE' is "holds the role's privileges without SET ROLE": on PG 15 the
-  -- member's INHERIT attribute decides it, on PG 16 the grant's own INHERIT
-  -- option (fixed when granted), so check the effect, not the attribute.
   IF (SELECT rolinherit FROM pg_roles WHERE rolname = 'isaflow_app')
      OR pg_has_role('isaflow_app', 'app_user', 'USAGE') THEN
-    RAISE EXCEPTION '915: isaflow_app must be NOINHERIT and must not inherit app_user';
+    RETURN NEXT 'isaflow_app must be NOINHERIT and must not inherit app_user';
   END IF;
+  FOR r IN SELECT c.oid::regclass AS rel, a.privilege_type
+             FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace,
+                  aclexplode(c.relacl) a
+            WHERE a.grantee = 0 AND ns.nspname NOT IN ('pg_catalog', 'information_schema') LOOP
+    RETURN NEXT format('%s grants %s to PUBLIC, which every login holds after RESET ROLE', r.rel, r.privilege_type);
+  END LOOP;
+  IF p_runtime_controls THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_event_trigger WHERE evtname = 'refuse_app_pool_ddl'
+                     AND evtevent = 'ddl_command_start' AND evtenabled <> 'D') THEN
+      RETURN NEXT 'event trigger refuse_app_pool_ddl is missing or disabled in this database (runbook step 2)';
+    END IF;
+    reserved := regexp_split_to_array(coalesce(current_setting('supautils.reserved_roles', true), ''), '\s*,\s*');
+    FOREACH login IN ARRAY ARRAY['isaflow_app', 'isaflow_service'] LOOP
+      IF NOT login = ANY (reserved) THEN
+        RETURN NEXT format('%s is not in supautils.reserved_roles (runbook step 3b)', login);
+      END IF;
+    END LOOP;
+  END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.app_login_role_violations(boolean) FROM PUBLIC;
+
+DO $$
+DECLARE
+  v text;
+BEGIN
+  FOR v IN SELECT public.app_login_role_violations(false) LOOP
+    RAISE EXCEPTION '915: %', v;
+  END LOOP;
 END $$;
