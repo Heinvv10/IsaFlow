@@ -10,7 +10,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 
 import {
   getVlmExtractJob, registerVlmExtractJob, runVlmExtractJob, VLM_JOBS_KEY,
-  JOB_TTL_MS, QUEUED_START_MS, MAX_UNFINISHED_PER_COMPANY, MAX_UNFINISHED_TOTAL, SCAN_FAILED, SCAN_NOT_STARTED,
+  JOB_TTL_MS, QUEUED_START_MS, JOB_RUN_CEILING_MS, SCAN_TOO_LONG, checkVlmExtractCapacity, MAX_UNFINISHED_PER_COMPANY, MAX_UNFINISHED_TOTAL, SCAN_FAILED, SCAN_NOT_STARTED,
 } from '@/modules/accounting/services/bank/vlmExtractJobs';
 
 const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -79,7 +79,7 @@ describe('registerVlmExtractJob', () => {
     for (let i = 0; i < MAX_UNFINISHED_PER_COMPANY; i++) {
       void settle(register(), () => new Promise<ExtractedDocument>(() => undefined));
     }
-    const later = T0 + JOB_TTL_MS * 3;
+    const later = T0 + JOB_RUN_CEILING_MS;
     expect(registerVlmExtractJob(CO, USER, later)).toEqual({ refused: 'company' });
     const store = (globalThis as Record<string, Map<string, unknown>>)[VLM_JOBS_KEY]!;
     expect(store.size).toBe(MAX_UNFINISHED_PER_COMPANY);
@@ -89,8 +89,8 @@ describe('registerVlmExtractJob', () => {
     const id = register();
     let release: (d: ExtractedDocument) => void = () => undefined;
     const running = settle(id, () => new Promise<ExtractedDocument>((resolve) => { release = resolve; }));
-    expect(getVlmExtractJob(id, CO, USER, T0 + JOB_TTL_MS * 2)).toEqual({ state: 'reading' });
-    clock = T0 + JOB_TTL_MS * 2;
+    expect(getVlmExtractJob(id, CO, USER, T0 + JOB_TTL_MS * 1.5)).toEqual({ state: 'reading' });
+    clock = T0 + JOB_TTL_MS * 1.5;
     release(doc);
     await running;
     expect(getVlmExtractJob(id, CO, USER, clock)).toEqual({ state: 'done', extracted: doc });
@@ -98,7 +98,7 @@ describe('registerVlmExtractJob', () => {
 
   it('counts running jobs toward the platform cap whatever their age', () => {
     for (let i = 0; i < MAX_UNFINISHED_TOTAL; i++) void settle(register(`co-${i}`), () => new Promise<ExtractedDocument>(() => undefined));
-    expect(registerVlmExtractJob('co-new', USER, T0 + JOB_TTL_MS * 5)).toEqual({ refused: 'platform' });
+    expect(registerVlmExtractJob('co-new', USER, T0 + JOB_RUN_CEILING_MS)).toEqual({ refused: 'platform' });
   });
 });
 
@@ -162,5 +162,79 @@ describe('getVlmExtractJob', () => {
   it('keeps the store on globalThis, so a second module instance sees the same jobs', () => {
     const id = register();
     expect((globalThis as Record<string, Map<string, unknown>>)[VLM_JOBS_KEY]!.has(id)).toBe(true);
+  });
+});
+
+describe('a hard ceiling on a running scan', () => {
+  const hang = () => new Promise<ExtractedDocument>(() => undefined);
+
+  it('keeps a running scan reading until the ceiling, then reports it failed: the scan took too long', () => {
+    expect(JOB_RUN_CEILING_MS).toBe(30 * 60_000);
+    const id = register();
+    void settle(id, hang);
+    expect(getVlmExtractJob(id, CO, USER, T0 + JOB_RUN_CEILING_MS)).toEqual({ state: 'reading' });
+    expect(getVlmExtractJob(id, CO, USER, T0 + JOB_RUN_CEILING_MS + 1)).toEqual({ state: 'failed', error: SCAN_TOO_LONG });
+    expect(SCAN_TOO_LONG).toBe('The scan took too long — try again.');
+  });
+
+  it('stops counting a scan past the ceiling against the company and platform caps', () => {
+    for (let i = 0; i < MAX_UNFINISHED_PER_COMPANY; i++) void settle(register(), hang);
+    expect(registerVlmExtractJob(CO, USER, T0 + JOB_RUN_CEILING_MS)).toEqual({ refused: 'company' });
+    expect('jobId' in registerVlmExtractJob(CO, USER, T0 + JOB_RUN_CEILING_MS + 1)).toBe(true);
+  });
+
+  it('stops counting a scan past the ceiling against the platform cap', () => {
+    for (let i = 0; i < MAX_UNFINISHED_TOTAL; i++) void settle(register(`co-${i}`), hang);
+    expect(registerVlmExtractJob('co-new', USER, T0 + JOB_RUN_CEILING_MS)).toEqual({ refused: 'platform' });
+    expect('jobId' in registerVlmExtractJob('co-new', USER, T0 + JOB_RUN_CEILING_MS + 1)).toBe(true);
+  });
+
+  it('ignores a settle that arrives after the ceiling, even if nobody looked at the job in between', async () => {
+    const id = register();
+    let release: (d: ExtractedDocument) => void = () => undefined;
+    const running = settle(id, () => new Promise<ExtractedDocument>((resolve) => { release = resolve; }));
+    clock = T0 + JOB_RUN_CEILING_MS + 5;
+    release(doc);
+    await running;
+    expect(getVlmExtractJob(id, CO, USER, clock)).toEqual({ state: 'failed', error: SCAN_TOO_LONG });
+  });
+
+  it('ignores a rejection that arrives after the ceiling, keeping the too-long message', async () => {
+    const id = register();
+    let fail: (e: Error) => void = () => undefined;
+    const running = settle(id, () => new Promise<ExtractedDocument>((_r, reject) => { fail = reject; }));
+    clock = T0 + JOB_RUN_CEILING_MS + 5;
+    fail(new Error('late'));
+    await running;
+    expect(getVlmExtractJob(id, CO, USER, clock)).toEqual({ state: 'failed', error: SCAN_TOO_LONG });
+  });
+
+  it('still accepts a settle just inside the ceiling', async () => {
+    const id = register();
+    await settle(id, async () => { clock = T0 + JOB_RUN_CEILING_MS; return doc; });
+    expect(getVlmExtractJob(id, CO, USER, clock)).toEqual({ state: 'done', extracted: doc });
+  });
+
+  it('forgets the failed entry JOB_TTL_MS after the ceiling', () => {
+    const id = register();
+    void settle(id, hang);
+    const gone = T0 + JOB_RUN_CEILING_MS + JOB_TTL_MS + 1;
+    expect(getVlmExtractJob(id, CO, USER, gone)).toBeNull();
+  });
+});
+
+describe('checkVlmExtractCapacity: the same caps, without registering', () => {
+  it('is null with room, and registers nothing', () => {
+    expect(checkVlmExtractCapacity(CO, T0)).toBeNull();
+    const store = (globalThis as Record<string, Map<string, unknown>>)[VLM_JOBS_KEY];
+    expect(store?.size ?? 0).toBe(0);
+  });
+
+  it('says which cap is full', () => {
+    for (let i = 0; i < MAX_UNFINISHED_PER_COMPANY; i++) register();
+    expect(checkVlmExtractCapacity(CO, T0)).toEqual({ refused: 'company' });
+    expect(checkVlmExtractCapacity(CO2, T0)).toBeNull();
+    for (let i = 0; i < MAX_UNFINISHED_TOTAL - MAX_UNFINISHED_PER_COMPANY; i++) register(`co-${i}`);
+    expect(checkVlmExtractCapacity(CO2, T0)).toEqual({ refused: 'platform' });
   });
 });

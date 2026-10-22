@@ -21,10 +21,17 @@ export function useCapturedDocument(docId: string | string[] | undefined, onLoad
   // The id being shown now. An answer for any other id (the page moved on while it was in flight) is dropped.
   const currentId = useRef(docId);
   currentId.current = docId;
+  // Every request takes a ticket; only the latest ticket's answer is applied, so an earlier poll landing late
+  // cannot undo a newer reload. `loadSeq` counts the manual loads (spinner) so a superseded one still ends it.
+  const seq = useRef(0);
+  const loadSeq = useRef(0);
 
   const reload = useCallback(async (silent = false): Promise<PollOutcome> => {
     if (!docId) return 'ok';
-    const stale = () => String(currentId.current) !== String(docId);
+    const ticket = ++seq.current;
+    const loadTicket = silent ? loadSeq.current : ++loadSeq.current;
+    const wrongDoc = () => String(currentId.current) !== String(docId);
+    const stale = () => wrongDoc() || ticket !== seq.current;
     if (!silent) { setIsLoading(true); setError(''); }
     try {
       const found = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`, undefined, 'Could not load the document - try again');
@@ -38,7 +45,7 @@ export function useCapturedDocument(docId: string | string[] | undefined, onLoad
       setError(apiErrorMessage(err, 'Could not load document - try again'));
       return 'bad';
     } finally {
-      if (!silent && !stale()) setIsLoading(false);
+      if (!silent && !wrongDoc() && loadTicket === loadSeq.current) setIsLoading(false);
     }
   }, [docId]);
 

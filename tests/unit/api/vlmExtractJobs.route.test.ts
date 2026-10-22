@@ -8,6 +8,7 @@ import type { NextApiRequest } from 'next';
 const m = vi.hoisted(() => ({
   runAfterCommit: vi.fn(),
   rateLimit: vi.fn(),
+  uploadLimit: vi.fn(),
   parse: vi.fn(),
   bufferOf: vi.fn(),
   readDoc: vi.fn(),
@@ -17,7 +18,7 @@ vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h:
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: m.runAfterCommit }));
-vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: m.rateLimit }));
+vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: m.rateLimit, checkRateLimit: m.uploadLimit }));
 vi.mock('@/modules/accounting/services/capture/captureUploadForm', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/capture/captureUploadForm')>()),
   parseUploadForm: m.parse,
@@ -54,6 +55,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   delete (globalThis as Record<string, unknown>)[VLM_JOBS_KEY];
   m.rateLimit.mockResolvedValue(true);
+  m.uploadLimit.mockResolvedValue(true);
   m.parse.mockResolvedValue({ files: { file: { originalFilename: 'x.pdf', mimetype: 'application/pdf', size: PDF.length } } });
   m.bufferOf.mockReturnValue(PDF);
   m.readDoc.mockResolvedValue(extracted);
@@ -77,9 +79,28 @@ describe('POST /api/accounting/vlm-extract', () => {
     expect((await call('POST', A)).statusCode).toBe(429);
   });
 
-  it('answers 429 for a 4th unfinished scan of the same company', async () => {
-    for (let i = 0; i < 3; i++) expect((await call('POST', A)).statusCode).toBe(202);
+  it('bounds every request first, even one that ends in a 400: a per-company upload limiter before the form is parsed', async () => {
+    const order: string[] = [];
+    m.uploadLimit.mockImplementation(async () => { order.push('upload-limit'); return true; });
+    m.parse.mockImplementation(async () => { order.push('parse'); return { files: {} }; });
+    expect((await call('POST', A)).statusCode).toBe(400);
+    expect(order).toEqual(['upload-limit', 'parse']);
+    expect(m.uploadLimit).toHaveBeenCalledWith(`upload:vlm-extract:co:${CO}`, { max: 60, windowSecs: 900 });
+  });
+
+  it('answers 429 when the upload limiter is used up: nothing parsed, no AI unit charged, no job registered', async () => {
+    m.uploadLimit.mockResolvedValue(false);
     expect((await call('POST', A)).statusCode).toBe(429);
+    expect(m.parse).not.toHaveBeenCalled();
+    expect(m.rateLimit).not.toHaveBeenCalled();
+    expect(m.runAfterCommit).not.toHaveBeenCalled();
+  });
+
+  it('answers 429 for a 4th unfinished scan of the same company, and the refused one burns no AI unit', async () => {
+    for (let i = 0; i < 3; i++) expect((await call('POST', A)).statusCode).toBe(202);
+    expect(m.rateLimit).toHaveBeenCalledTimes(3);
+    expect((await call('POST', A)).statusCode).toBe(429);
+    expect(m.rateLimit).toHaveBeenCalledTimes(3);
     expect((await call('POST', { companyId: CO2, userId: 'user-b' })).statusCode).toBe(202);
   });
 

@@ -15,7 +15,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { checkAiRateLimit } from '@/lib/rateLimit';
+import { checkAiRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
 import { runCaptureRead } from '@/modules/accounting/services/capture/captureReadJob';
@@ -99,6 +99,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const user = (req as NextApiRequest & { user: { id: string } }).user;
 
+  // Bounds EVERY upload request, including one that ends in a 400 below: buffering a 10 MB body costs memory whether or
+  // not it is valid, and the AI limiter further down is charged only for a request that gets as far as a read.
+  if (!(await checkRateLimit(`upload:document-capture:co:${companyId}`, { max: 60, windowSecs: 900 }))) {
+    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
+  }
+
   try {
     const { files } = await parseUploadForm(req);
 
@@ -132,12 +138,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'File content does not match declared type');
     }
 
-    // Charged only for a request that will start a read, so a 400 above costs no unit. No refund of the unused
-    // unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
-    if (!(await checkAiRateLimit(req, companyId, 'document-capture', { companyMax: 30, dailyMax: 300 }))) {
-      return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
-    }
-
     const [inFlight] = await sql`
       SELECT COUNT(*)::int AS n FROM captured_documents
       WHERE company_id = ${companyId} AND read_state = 'reading'
@@ -145,6 +145,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     ` as Record<string, unknown>[];
     if (Number(inFlight?.n ?? 0) >= MAX_READS_IN_FLIGHT) {
       return apiResponse.tooManyRequests(res, 'Too many documents are being read — wait for one to finish.');
+    }
+
+    // Charged last, only for a request that is valid AND has room, so no refusal above burns a unit. No refund of the
+    // unused unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
+    if (!(await checkAiRateLimit(req, companyId, 'document-capture', { companyMax: 30, dailyMax: 300 }))) {
+      return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
     }
 
     log.info('Starting document capture extraction', {

@@ -79,11 +79,9 @@ describe('attachDocumentToProvisional', () => {
 });
 
 describe('listLinkableDocuments', () => {
-  it('leaves out documents being read, by the same 5-minute staleness the row state uses', async () => {
+  it("offers only documents whose read finished: linking one that is being read or failed would be refused", async () => {
     await listLinkableDocuments('c');
     const t = texts.find((x) => x.includes('FROM captured_documents cd'))!;
-    expect(t).toContain("cd.read_state = 'reading'");
-    expect(t).toContain('COALESCE(cd.read_heartbeat_at, cd.created_at) >');
-    expect(m.sql.mock.calls.find((c) => (c[0] as TemplateStringsArray).join('?').includes('FROM captured_documents cd'))!.slice(1)).toContain(5);
+    expect(t).toContain("cd.read_state = 'done'");
   });
 });

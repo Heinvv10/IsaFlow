@@ -15,14 +15,14 @@ import { runAfterCommit } from '@/lib/afterCommit';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { checkAiRateLimit } from '@/lib/rateLimit';
+import { checkAiRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import {
   ALLOWED_MIME_TYPES, parseUploadForm, readUploadedDocument, uploadedBuffer,
 } from '@/modules/accounting/services/capture/captureUploadForm';
 import {
-  getVlmExtractJob, registerVlmExtractJob, runVlmExtractJob,
+  checkVlmExtractCapacity, getVlmExtractJob, registerVlmExtractJob, runVlmExtractJob,
 } from '@/modules/accounting/services/bank/vlmExtractJobs';
 
 export const config = {
@@ -47,8 +47,17 @@ function handleGet(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.success(res, view);
 }
 
+const tooManyScans = (res: NextApiResponse) =>
+  apiResponse.tooManyRequests(res, 'Too many scans are running — wait for one to finish and try again.');
+
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
+
+  // Bounds EVERY upload request, including one that ends in a 400 below: buffering a 10 MB body costs memory whether or
+  // not it is valid, and the AI limiter further down is charged only for a request that gets as far as a read.
+  if (!(await checkRateLimit(`upload:vlm-extract:co:${companyId}`, { max: 60, windowSecs: 900 }))) {
+    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
+  }
 
   try {
     const { files } = await parseUploadForm(req);
@@ -76,15 +85,18 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'File content does not match declared type');
     }
 
-    // Charged only for a request that will start a read, so a 400 above costs no unit. No refund of the unused
-    // unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
+    // Capacity first, then the charge, then the registration: a refusal for room burns no AI unit. Two requests
+    // racing between the check and the registration can still be refused by the registration after being charged;
+    // that race is tolerated (it needs concurrent requests from one company, bounded by the upload limiter above).
+    // No refund of the unused unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
+    if (checkVlmExtractCapacity(companyId)) return tooManyScans(res);
     if (!(await checkAiRateLimit(req, companyId, 'vlm-extract', { companyMax: 30, dailyMax: 300 }))) {
       return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
     }
 
     const registered = registerVlmExtractJob(companyId, user?.id ?? '');
     if ('refused' in registered) {
-      return apiResponse.tooManyRequests(res, 'Too many scans are running — wait for one to finish and try again.');
+      return tooManyScans(res);
     }
     const { jobId } = registered;
 

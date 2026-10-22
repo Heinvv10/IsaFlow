@@ -17,7 +17,7 @@ import {
   CAPTURED_DOCUMENT_REFUSAL_MESSAGE, CapturedDocumentAlreadyPostedError, claimCapturedDocumentForPosting,
   respondCapturedDocumentRefusal,
 } from '@/modules/accounting/services/capture/capturePostingClaim';
-import { STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
+import { NOT_READ, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000);
 let doc: Record<string, unknown>;
@@ -48,12 +48,17 @@ describe('claimCapturedDocumentForPosting and a document being read', () => {
     expect(m.lock).not.toHaveBeenCalled();
   });
 
-  it('claims a row whose read went stale, finished or failed', async () => {
+  it("refuses a row whose read failed, or went silent (shown as interrupted), as not_read — nothing to post", async () => {
     doc = { ...doc, created_at: minutesAgo(30) };
-    expect(await claim()).toBeNull();
+    expect(await claim()).toBe('not_read');
+    doc = { ...doc, read_state: 'failed', created_at: minutesAgo(1) };
+    expect(await claim()).toBe('not_read');
+    expect(wrote()).toBe(false);
+    expect(m.lock).not.toHaveBeenCalled();
+  });
+
+  it('claims a row whose read finished', async () => {
     doc = { ...doc, read_state: 'done', created_at: minutesAgo(1) };
-    expect(await claim()).toBeNull();
-    doc = { ...doc, read_state: 'failed' };
     expect(await claim()).toBeNull();
   });
 
@@ -62,12 +67,10 @@ describe('claimCapturedDocumentForPosting and a document being read', () => {
     expect(await claim()).toBeNull();
   });
 
-  it("the claiming UPDATE carries the fence itself, and a refusal it causes reads back as being_read", async () => {
-    doc = { ...doc, created_at: minutesAgo(30) }; // pre-check passes: stale
-    updateRows = []; // but the statement refused (the row became fresh-reading between the two, or the clocks differ)
-    doc = { ...doc, created_at: minutesAgo(1) };
-    // the pre-check reads the same row, so make only the re-read see it: first call stale, then fresh
-    const rows = [{ ...doc, created_at: minutesAgo(30) }, { ...doc, created_at: minutesAgo(1) }];
+  it("the claiming UPDATE carries the fence itself (read_state = 'done'), and a refusal it causes reads back as the gate's", async () => {
+    // the pre-check sees a finished read; the statement then refuses (the row went back to reading between the two
+    // — impossible today, but the fence must not depend on it) and the re-read says why
+    const rows = [{ ...doc, read_state: 'done' }, { ...doc, created_at: minutesAgo(1) }];
     let reads = 0;
     m.sql.mockImplementation(async (strings: TemplateStringsArray) => {
       const t = strings.join('?').replace(/\s+/g, ' ').trim();
@@ -77,8 +80,18 @@ describe('claimCapturedDocumentForPosting and a document being read', () => {
     });
     expect(await claim()).toBe('being_read');
     const update = texts.find((t) => t.startsWith('UPDATE'))!;
-    expect(update).toContain("read_state = 'reading'");
-    expect(update).toContain('COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => ?)');
+    expect(update).toContain("AND read_state = 'done'");
+  });
+
+  it("the re-read reports a failed row as not_read", async () => {
+    const rows = [{ ...doc, read_state: 'done' }, { ...doc, read_state: 'failed' }];
+    let reads = 0;
+    m.sql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const t = strings.join('?').replace(/\s+/g, ' ').trim();
+      if (t.startsWith('UPDATE captured_documents')) return [];
+      return [rows[Math.min(reads++, 1)]];
+    });
+    expect(await claim()).toBe('not_read');
   });
 });
 
@@ -86,6 +99,8 @@ describe('answering being_read', () => {
   it('has the shared wording and a thrown form callers can answer', () => {
     expect(CAPTURED_DOCUMENT_REFUSAL_MESSAGE.being_read).toBe(STILL_BEING_READ);
     expect(new CapturedDocumentAlreadyPostedError('being_read').message).toBe(STILL_BEING_READ);
+    expect(CAPTURED_DOCUMENT_REFUSAL_MESSAGE.not_read).toBe(NOT_READ);
+    expect(new CapturedDocumentAlreadyPostedError('not_read').message).toBe(NOT_READ);
   });
 
   it('is a 409 conflict through respondCapturedDocumentRefusal (post, post-expense, receipt-to-journal, ai-invoice-pipeline)', () => {
@@ -93,5 +108,8 @@ describe('answering being_read', () => {
     respondCapturedDocumentRefusal(res as unknown as NextApiResponse, 'being_read');
     expect(res.statusCode).toBe(409);
     expect(JSON.stringify(res.sent)).toContain(STILL_BEING_READ);
+    respondCapturedDocumentRefusal(res as unknown as NextApiResponse, 'not_read');
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toContain(NOT_READ);
   });
 });

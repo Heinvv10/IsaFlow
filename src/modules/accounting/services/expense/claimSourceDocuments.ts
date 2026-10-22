@@ -28,10 +28,10 @@ import {
   PostedContentBusyError,
 } from '@/modules/accounting/services/capture/postedContentFence';
 import { receiptContentKey } from '@/modules/accounting/services/capture/receiptFingerprint';
-import { isBeingRead, STALE_AFTER_MINUTES, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
+import { NOT_READ, readGateFor, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 
 export type ClaimSourceDocumentRefusal =
-  'not_found' | 'already_posted' | 'on_claim' | 'rejected' | 'duplicate' | 'duplicate_file' | 'busy' | 'content_posted' | 'being_read';
+  'not_found' | 'already_posted' | 'on_claim' | 'rejected' | 'duplicate' | 'duplicate_file' | 'busy' | 'content_posted' | 'being_read' | 'not_read';
 
 const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   not_found: 'Source document not found',
@@ -43,6 +43,7 @@ const MESSAGE: Record<ClaimSourceDocumentRefusal, string> = {
   busy: 'A source document is being posted by another request — retry in a moment',
   content_posted: 'The same file was already posted from another upload — it cannot be booked twice',
   being_read: STILL_BEING_READ,
+  not_read: NOT_READ,
 };
 
 /**
@@ -94,8 +95,9 @@ async function refuseFilesAlreadyPosted(companyId: string, ids: string[]): Promi
   const byHash = new Map<string, string>();
   for (const row of rows) {
     const id = String(row.id);
-    // An upload still being read has no extraction yet; refused before any fingerprint lock or stamp.
-    if (isBeingRead(row)) throw new ClaimSourceDocumentError('being_read', id);
+    // Only a finished read has an extraction; refused before any fingerprint lock or stamp.
+    const gate = readGateFor(row);
+    if (gate) throw new ClaimSourceDocumentError(gate, id);
     keys.set(id, receiptContentKey((row.extracted_data as Record<string, unknown> | null) ?? {}));
     if (!row.raw_bytes_sha256) continue;
     const hash = String(row.raw_bytes_sha256);
@@ -176,8 +178,7 @@ export async function claimLineSourceDocuments(
          AND company_id = ${companyId}
          AND posted_at IS NULL
          AND status <> 'rejected'
-         AND NOT (read_state = 'reading'
-           AND COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => ${STALE_AFTER_MINUTES}))
+         AND read_state = 'done'
          -- Lines written before R-105 never stamped posted_at: a slip on a live
          -- claim line is taken whatever its posted_at says.
          AND NOT EXISTS (
@@ -226,7 +227,8 @@ export async function claimLineSourceDocuments(
     if (row.posted_at != null) throw new ClaimSourceDocumentError('already_posted', id);
     if (row.on_claim === true) throw new ClaimSourceDocumentError('on_claim', id);
     if (row.status === 'rejected') throw new ClaimSourceDocumentError('rejected', id);
-    if (isBeingRead(row)) throw new ClaimSourceDocumentError('being_read', id);
+    const gate = readGateFor(row);
+    if (gate) throw new ClaimSourceDocumentError(gate, id);
   }
   // Every slip read as claimable a moment after the claim refused one: a
   // concurrent claim came and went. Refuse rather than guess.

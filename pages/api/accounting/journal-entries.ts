@@ -27,7 +27,7 @@ import {
 } from '@/modules/accounting/services/gl/journalEntryService';
 import type { GLEntryStatus, GLEntrySource, JournalEntry, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { UUID_RE } from '@/lib/validation';
-import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
+import { readGateFor, READ_GATE_MESSAGE } from '@/modules/accounting/services/capture/captureReadState';
 import { markCreatedManualJournal } from '@/modules/accounting/services/gl/manualJournalApproval';
 import { placeCostCentres } from '@/modules/accounting/services/gl/dimensions/costCentrePick';
 
@@ -103,8 +103,9 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
       if (owned.length === 0) {
         return apiResponse.badRequest(res, 'sourceDocumentId must be a captured document id');
       }
-      // An upload still being read has no extraction yet (reading -> done is one-way, so a plain read is safe).
-      if (isBeingRead(owned[0]!)) return apiResponse.badRequest(res, STILL_BEING_READ);
+      // Only a finished read has an extraction (reading -> done is one-way, so a plain read is safe).
+      const gate = readGateFor(owned[0]!);
+      if (gate) return apiResponse.conflict(res, READ_GATE_MESSAGE[gate]);
     }
 
     // User identity comes from JWT (req.user), never from client request body

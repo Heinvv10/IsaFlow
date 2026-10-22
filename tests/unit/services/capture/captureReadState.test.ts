@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  effectiveReadState, isBeingRead, STALE_AFTER_MINUTES, STALE_READ_ERROR, GENERIC_READ_ERROR, STILL_BEING_READ,
+  effectiveReadState, isBeingRead, readGateFor, STALE_AFTER_MINUTES, STALE_READ_ERROR, GENERIC_READ_ERROR, STILL_BEING_READ, NOT_READ,
 } from '@/modules/accounting/services/capture/captureReadState';
 
 const NOW = Date.parse('2026-10-22T10:00:00.000Z');
@@ -78,5 +78,26 @@ describe('isBeingRead', () => {
 
   it('has the message the refusal sites answer', () => {
     expect(STILL_BEING_READ).toBe('This document is still being read.');
+  });
+});
+
+describe('readGateFor: what a writer that needs the extraction may do', () => {
+  it('lets a finished read, and a row with no read columns, through', () => {
+    expect(readGateFor(row({ read_state: 'done' }), NOW)).toBeNull();
+    expect(readGateFor({}, NOW)).toBeNull();
+    expect(readGateFor({ status: 'pending' }, NOW)).toBeNull();
+  });
+
+  it("refuses a fresh read as 'being_read'", () => {
+    expect(readGateFor(row(), NOW)).toBe('being_read');
+  });
+
+  it("refuses a failed read, and a read gone silent (shown as interrupted), as 'not_read'", () => {
+    expect(readGateFor(row({ read_state: 'failed', read_error: 'x' }), NOW)).toBe('not_read');
+    expect(readGateFor(row({ created_at: ago(30) }), NOW)).toBe('not_read');
+  });
+
+  it('has the upload-again wording', () => {
+    expect(NOT_READ).toBe('This document could not be read — upload it again.');
   });
 });

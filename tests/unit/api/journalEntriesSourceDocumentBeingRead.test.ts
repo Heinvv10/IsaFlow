@@ -1,4 +1,4 @@
-/** POST /api/accounting/journal-entries refuses a sourceDocumentId whose upload is still being read (400), nothing written. */
+/** POST /api/accounting/journal-entries refuses (409) a sourceDocumentId whose read has not finished, nothing written. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
@@ -32,24 +32,37 @@ beforeEach(() => {
   createJournalEntry.mockResolvedValue({ id: 'je-1', status: 'draft' });
 });
 
-describe('journal-entries POST: sourceDocumentId and a document being read', () => {
-  it('400s a document being read and creates nothing', async () => {
+describe('journal-entries POST: sourceDocumentId and a document whose read has not finished', () => {
+  it('409s a document being read and creates nothing', async () => {
     sql.mockResolvedValue([{ read_state: 'reading', read_heartbeat_at: null, created_at: minutesAgo(1) }]);
     const out = await post();
-    expect(out.status).toBe(400);
+    expect(out.status).toBe(409);
     expect(JSON.stringify(out.body)).toContain('This document is still being read.');
     expect(createJournalEntry).not.toHaveBeenCalled();
   });
 
-  it('accepts a document whose read went stale or finished', async () => {
-    sql.mockResolvedValue([{ read_state: 'reading', read_heartbeat_at: null, created_at: minutesAgo(30) }]);
-    expect((await post()).status).toBe(200);
+  it('409s a document whose read failed or went silent: upload it again', async () => {
+    for (const row of [
+      { read_state: 'failed', read_heartbeat_at: null, created_at: minutesAgo(1) },
+      { read_state: 'reading', read_heartbeat_at: null, created_at: minutesAgo(30) },
+    ]) {
+      sql.mockResolvedValue([row]);
+      const out = await post();
+      expect(out.status).toBe(409);
+      expect(JSON.stringify(out.body)).toContain('This document could not be read — upload it again.');
+    }
+    expect(createJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('accepts a document whose read finished, and one with no read columns', async () => {
     sql.mockResolvedValue([{ read_state: 'done', read_heartbeat_at: null, created_at: minutesAgo(1) }]);
+    expect((await post()).status).toBe(200);
+    sql.mockResolvedValue([{}]);
     expect((await post()).status).toBe(200);
     expect(createJournalEntry).toHaveBeenCalledTimes(2);
   });
 
-  it('still 400s a document that is not this company\'s', async () => {
+  it("still 400s a document that is not this company's", async () => {
     sql.mockResolvedValue([]);
     expect((await post()).status).toBe(400);
   });
