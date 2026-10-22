@@ -1,0 +1,77 @@
+/**
+ * An employee's earlier periods of the tax year, for the cumulative PAYE
+ * (payeCumulative.ts; PAYE 4a follow-ups G4).
+ *
+ * From the employee's lines on DECLARABLE runs (EMP201_DECLARABLE_STATUSES:
+ * approved, paid) of the same SA tax year (March to February) whose period is
+ * BEFORE the run being calculated, so the run itself, a reopened run (no longer
+ * declarable) and any later period are never in it. Lines are what the
+ * employee was paid and what EMP201 and the IRP5 declare, so the cumulative
+ * deduction trues up to exactly those.
+ *
+ * - periods: lines with periodic pay (a severance-only line has none);
+ * - periodicTaxable / annualPayments: the line's periodic_taxable /
+ *   annual_taxable (migration 913). A line written before 913 has NULLs, and
+ *   its split is derived from the stored breakdown: annual payments = its
+ *   taxable 3605 items, netted and floored at nil, capped at taxable_income;
+ *   periodic = taxable_income less that;
+ * - tablePaye: the line's PAYE less its directive PAYE (lump sums are taxed
+ *   only at their directive's figures, outside the tables).
+ *
+ * Every query is scoped by company_id.
+ */
+
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
+import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { getTaxYear } from './taxTables';
+import type { PayeYearToDate, PayrollPeriod } from './payrollTypes';
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** By employee id; an employee with no earlier line this tax year is absent (none to date). */
+export async function loadPayeYearToDate(
+  companyId: string,
+  runId: string,
+  period: PayrollPeriod,
+  employeeIds: string[],
+): Promise<Map<string, PayeYearToDate>> {
+  if (employeeIds.length === 0) return new Map();
+  const taxYear = getTaxYear(period.month, period.year);
+  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  const rows = (await sql`
+    WITH split AS (
+      SELECT l.employee_id, l.paye, b.directive_paye,
+             COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
+             COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
+      FROM payroll_run_lines l
+      JOIN payroll_run_headers h ON h.id = l.run_id
+      CROSS JOIN LATERAL (
+        SELECT COALESCE(SUM((item->'directive'->>'paye')::numeric) FILTER (WHERE item->'directive' IS NOT NULL), 0) AS directive_paye,
+               GREATEST(COALESCE(SUM((item->>'amount')::numeric) FILTER (
+                 WHERE regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '3605'
+                   AND (item->>'isTaxable')::boolean), 0), 0) AS annual_3605
+        FROM jsonb_array_elements(l.component_breakdown) AS item
+      ) b
+      WHERE h.company_id = ${companyId}::uuid
+        AND h.id <> ${runId}::uuid
+        AND h.status = ANY(${declarable}::text[])
+        AND make_date(h.period_year, h.period_month, 1) >= make_date(${taxYear - 1}::int, 3, 1)
+        AND make_date(h.period_year, h.period_month, 1) < make_date(${period.year}::int, ${period.month}::int, 1)
+        AND l.employee_id = ANY(${employeeIds}::uuid[])
+    )
+    SELECT employee_id,
+           COUNT(*) FILTER (WHERE periodic > 0)::int AS periods,
+           SUM(periodic)::numeric AS periodic,
+           SUM(annual)::numeric AS annual,
+           SUM(paye - directive_paye)::numeric AS table_paye
+    FROM split
+    GROUP BY employee_id
+  `) as DbRow[];
+  return new Map(rows.map(r => [String(r.employee_id), {
+    periods: Number(r.periods),
+    periodicTaxable: round2(Number(r.periodic)),
+    annualPayments: round2(Number(r.annual)),
+    tablePaye: round2(Number(r.table_paye)),
+  }]));
+}
