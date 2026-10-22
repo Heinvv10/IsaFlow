@@ -37,6 +37,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     amount: '',
     tax_rate: '',
     effective_date: '',
+    issued_date: '',
     expiry_date: '',
     sars_reference: '',
     notes: '',
@@ -55,6 +56,9 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
         ...form,
         amount: parseFloat(form.amount),
         tax_rate: form.tax_rate ? parseFloat(form.tax_rate) / 100 : undefined,
+        // A blank date input is '', which the DATE columns refuse (expiry_date was a 500 on every create without one).
+        issued_date: form.issued_date || undefined,
+        expiry_date: form.expiry_date || undefined,
       };
       const res = await apiFetch('/api/accounting/tax-directives', {
         method: 'POST',
@@ -111,6 +115,10 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
             <div>
               <label className={labelCls}>Effective Date *</label>
               <input className={inputCls} type="date" value={form.effective_date} onChange={set('effective_date')} required />
+            </div>
+            <div>
+              <label className={labelCls}>Issued Date (by SARS)</label>
+              <input className={inputCls} type="date" value={form.issued_date} onChange={set('issued_date')} aria-label="Issued Date" />
             </div>
             <div>
               <label className={labelCls}>Expiry Date</label>

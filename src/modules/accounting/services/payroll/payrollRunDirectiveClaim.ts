@@ -20,13 +20,21 @@
  * LOCK ORDER. approvePayrollRun takes the company approval lock, the run
  * header, the linked journal's chain (payrollRunLock), and then this: the
  * directive rows FOR SHARE, then the payment row (the INSERT's unique-index
- * wait on a peer's uncommitted row). applyTaxDirective takes only the payment
- * row and then posts a new journal, which touches no payroll header, no run
- * journal and no directive row lock, so the two cannot wait on each other in a
- * cycle: whichever inserts first wins, the other waits on the row and is then
- * refused. calculatePayrollRun takes none of these rows. All waits are bounded
- * at 5s (withBoundedLockWait). Race test:
- * tests/integration/p3-severance-directive-race.int.test.ts.
+ * wait on a peer's uncommitted row). applyTaxDirective takes the directive row
+ * FOR SHARE (compatible with this one), then the payment row, and then posts a
+ * new journal, which touches no payroll header and no run journal, so the two
+ * cannot wait on each other in a cycle: whichever inserts first wins, the
+ * other waits on the row and is then refused. updateTaxDirective (a cancel)
+ * takes the directive row FOR UPDATE and nothing after it, so it waits for a
+ * claim in flight and is then refused, or a claim waits for it and then reads
+ * the new status. calculatePayrollRun takes no directive row; it only DELETEs
+ * stand-alone payment rows whose journal chain is undone
+ * (releaseReversedStandalonePayment), under its own run header and after its
+ * loan work, and takes nothing after that which an approval holds, so an
+ * approval's claim of the same directive merely waits for it. All waits are
+ * bounded at 5s (withBoundedLockWait, claimUnderLockTimeout). Race tests:
+ * tests/integration/p3-severance-directive-race.int.test.ts,
+ * tests/integration/p3fu-directive-cancel-guard.int.test.ts.
  */
 
 import type { DbRow, TxSql } from '@/lib/neon';
