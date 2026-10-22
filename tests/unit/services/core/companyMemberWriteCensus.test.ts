@@ -85,7 +85,7 @@ const KNOWN_WRITERS = [
   'src/modules/accounting/services/core/userAccessService.ts: locks', // S-04: the target's row, FOR UPDATE before the owner check — app_user
   'src/modules/accounting/services/core/userAccessService.ts: writes', // W1/W2 — app_user
   'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — app_user
-  'src/modules/admin/services/adminUserActionsService.ts: writes', // W13–W14 delete-user, reset-onboarding — platform_admin; refused whole for a company's only owner (909)
+  'src/modules/admin/services/adminUserActionsService.ts: writes', // W13–W14 delete-user, reset-onboarding — platform_admin; refused whole for a company's only owner (908b)
   'src/modules/admin/services/companyMembershipService.ts: locks', // the membership row, FOR UPDATE — platform_admin
   'src/modules/admin/services/companyMembershipService.ts: writes', // W11–W12 link, re-role, remove — platform_admin, last-owner rule
   'src/modules/onboarding/services/tenantProvisioningService.ts: writes', // W15 — migration_admin pool
@@ -98,7 +98,7 @@ const KNOWN_WRITERS = [
  * versions of create_company_with_owner (the creator as owner); 516 is
  * set_default_company (is_default only); 662 expires stale invitations once.
  * After: 886 re-writes both guards and adds their owner predicate (PR #691
- * review round 5, PR #693 reviews), read as 883 was; 909 re-writes the
+ * review round 5, PR #693 reviews), read as 883 was; 908b re-writes the
  * member guard with two owner rules (S-04/S-08 follow-ups A and B).
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
@@ -115,7 +115,7 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '516_set_default_company_fn.sql': ['writes'],
   '662_invite_token_encoding_retire_stale.sql': ['writes'],
   '886_company_member_role_guard_round5.sql': ['alters'],
-  '909_company_member_owner_rules.sql': ['alters'],
+  '908b_company_member_owner_rules.sql': ['alters'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();

@@ -1,4 +1,4 @@
-// Helpers for the migration 909 owner-rule suites (audit S-04/S-08 follow-ups
+// Helpers for the migration 908b owner-rule suites (audit S-04/S-08 follow-ups
 // A and B): companies and members seeded as the (superuser) test pool, writes
 // made as the real roles inside their own transactions.
 
@@ -77,7 +77,7 @@ export async function waitsOnLock(pool: Pool, pid: number, event?: string): Prom
 /** A company with `members` ([user, role]); ids are pushed to `companies` for cleanup. */
 export async function seedCompany(pool: Pool, companies: string[], members: [string, string][]): Promise<string> {
   const id = crypto.randomUUID();
-  await pool.query('INSERT INTO companies(id, name) VALUES ($1, $2)', [id, `909 ${id.slice(0, 8)}`]);
+  await pool.query('INSERT INTO companies(id, name) VALUES ($1, $2)', [id, `908b ${id.slice(0, 8)}`]);
   companies.push(id);
   for (const [user, role] of members) {
     await pool.query('INSERT INTO company_users(company_id, user_id, role) VALUES ($1, $2, $3)', [id, user, role]);

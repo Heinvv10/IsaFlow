@@ -6,7 +6,7 @@
  * Migration 883's trigger already refuses a portal grant outside
  * ALLOWED_COMPANY_ROLES (never `owner`). The portal never demotes or removes a
  * company's last owner (Hein, 2026-10-16): checked here first, for the
- * message, and since migration 909 by the trigger too (RC011), which this
+ * message, and since migration 908b by the trigger too (RC011), which this
  * service answers as the same LAST_OWNER refusal. Linking never changes an existing link
  * (it used to upsert the role, which demoted an owner unchecked); the role is
  * changed only through setUserCompanyRole.

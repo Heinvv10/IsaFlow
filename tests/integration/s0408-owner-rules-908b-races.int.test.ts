@@ -1,4 +1,4 @@
-// Migration 909 races and lock order (audit S-04/S-08 follow-ups A and B).
+// Migration 908b races and lock order (audit S-04/S-08 follow-ups A and B).
 //
 // - Two concurrent removals of two co-owners leave exactly one owner, whoever
 //   writes (platform_admin twice, or platform_admin against an app owner).
@@ -15,13 +15,13 @@ import {
   cleanup, openTx, outcome, ownerLockKey, ownersOf, roleOf, seedCompany, waitsOnLock, type Role,
 } from './s0408-owner-rules.helpers';
 
-assertDisposableDb('909 races seed companies and members.');
+assertDisposableDb('908b races seed companies and members.');
 
 const id = () => crypto.randomUUID();
 const DEL = 'DELETE FROM company_users WHERE company_id = $1 AND user_id = $2';
 const ROUNDS = 10;
 
-describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('909 — races and lock order', () => {
+describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('908b — races and lock order', () => {
   let pool: Pool;
   const companies: string[] = [];
 

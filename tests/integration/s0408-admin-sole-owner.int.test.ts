@@ -1,6 +1,6 @@
 /**
  * Audit S-04/S-08 follow-up A, through the real admin routes (withAdmin /
- * withPlatformAdmin on platform_admin, migration 909's trigger, the audit write):
+ * withPlatformAdmin on platform_admin, migration 908b's trigger, the audit write):
  *
  * - DELETE /api/admin/users/[id] and POST …/reset-onboarding remove a user from
  *   every company. When the user is the only owner of any of them, both are a
@@ -23,7 +23,7 @@ import { signSession } from './r-032-fake-gotrue.helpers';
 
 assertDisposable();
 // The admin routes' pool logs in as platform_admin, as on production. The
-// fixture's URL logs in as a superuser, which 909 exempts, so the session's
+// fixture's URL logs in as a superuser, which 908b exempts, so the session's
 // role is set at connect (the pools are created on first use, after this).
 const asPlatformAdmin = new URL(process.env.DATABASE_URL!);
 asPlatformAdmin.searchParams.set('options', '-c role=platform_admin');

@@ -129,7 +129,7 @@ export const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'view
 /** The refusal for removing or demoting a company's last owner (the admin site shows it). */
 export const ONLY_OWNER_MESSAGE = "This user is the company's only owner. Make someone else owner first.";
 
-/** Migration 909's trigger refusal (RC011): no writer but app_user removes or demotes a last owner. */
+/** Migration 908b's trigger refusal (RC011): no writer but app_user removes or demotes a last owner. */
 export const isOnlyOwnerRefusal = (err: unknown): boolean => (err as { code?: string } | null)?.code === 'RC011';
 
 /**
@@ -147,7 +147,7 @@ export class SoleOwnerError extends Error {
   }
 }
 
-/** Throws SoleOwnerError naming each company `userId` is the only owner of (counted as migration 909 counts). */
+/** Throws SoleOwnerError naming each company `userId` is the only owner of (counted as migration 908b counts). */
 async function assertOwnsNoCompanyAlone(userId: string): Promise<void> {
   const rows = await sql<{ name: string }>`
     SELECT DISTINCT c.name FROM company_users cu

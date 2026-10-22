@@ -92,7 +92,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, { deleted: true });
     } catch (err) {
-      // A company's only owner (migration 909): nothing was deleted.
+      // A company's only owner (migration 908b): nothing was deleted.
       if (err instanceof SoleOwnerError) return apiResponse.conflict(res, err.message);
       log.error('Failed to delete user', { userId, error: err }, 'admin-api');
       return apiResponse.badRequestFromError(res, err, 'Failed to delete user');

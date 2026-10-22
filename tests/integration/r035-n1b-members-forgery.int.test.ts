@@ -61,7 +61,7 @@ describe('as app_user, an admin cannot by raw SQL', () => {
     expect(await roleOf(pool, c, p.a)).toBe('admin');
   });
 
-  it('demote or remove an owner, the last one included (RC010: only an owner may, 909)', async () => {
+  it('demote or remove an owner, the last one included (RC010: only an owner may, 908b)', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.a, 'admin']]);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
       "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.o])))).toBe('RC010');
