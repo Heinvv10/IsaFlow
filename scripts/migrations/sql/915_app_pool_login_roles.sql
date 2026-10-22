@@ -238,10 +238,12 @@ DECLARE
   n integer := 0;
 BEGIN
   FOR r IN SELECT * FROM public.app_service_policy_drift() WHERE why IN ('missing', 'extra') LOOP
+    -- An extra mirror is only dropped; a missing one replaces any same-named
+    -- policy in another shape.
     EXECUTE format('DROP POLICY IF EXISTS %I ON %s', 'app_service_' || r.what, r.tbl);
-    IF r.why = 'extra' THEN
-      NULL;
-    ELSIF r.what = 'select' OR r.what = 'delete' THEN
+    n := n + 1;
+    CONTINUE WHEN r.why = 'extra';
+    IF r.what = 'select' OR r.what = 'delete' THEN
       EXECUTE format('CREATE POLICY %I ON %s FOR %s TO app_service USING (true)',
                      'app_service_' || r.what, r.tbl, r.what);
     ELSIF r.what = 'insert' THEN
@@ -251,7 +253,6 @@ BEGIN
       EXECUTE format('CREATE POLICY %I ON %s FOR UPDATE TO app_service USING (true) WITH CHECK (true)',
                      'app_service_' || r.what, r.tbl);
     END IF;
-    n := n + 1;
   END LOOP;
   RETURN n;
 END;
