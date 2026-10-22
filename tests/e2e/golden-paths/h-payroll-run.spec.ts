@@ -2,8 +2,9 @@
  * Golden path (h): payroll run → calculate → approve → GL journal.
  *
  * Known-good at baseline (payroll VIP-parity phases 1-4 shipped). The spec
- * picks an unused period, runs the full cycle, asserts the GL journal, then
- * best-effort reverses/reopens so repeated runs don't accumulate books noise.
+ * reuses one sandbox period, reverses the journal a previous execution left in
+ * force, runs the full cycle, asserts the GL journal, then best-effort reopens
+ * the run so the next execution can reuse it.
  */
 import { test, expect } from '@playwright/test';
 import { Api, PAYROLL_SANDBOX_MONTH } from './_api';
@@ -90,7 +91,9 @@ test('payroll run: create → calculate → approve posts a GL journal', async (
     // Reopen the run (approved → calculated, needs a ≥5-char reason) so the
     // NEXT execution reuses this same slot. The next execution reverses the
     // journal before it calculates (above), which also heals a run an earlier
-    // failure left calculated with its journal in force. Approval of a run whose
+    // failure left calculated with its journal in force. It goes by the linked
+    // journal's reversedAt only, so a chain someone un-reversed back into force
+    // is not taken out: calculate then refuses loudly. Approval of a run whose
     // journal is out posts a fresh one, so each execution adds one netted pair
     // to the sandbox month and leaves one live journal.
     try {
