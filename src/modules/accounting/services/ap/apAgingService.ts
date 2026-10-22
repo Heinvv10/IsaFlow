@@ -9,9 +9,7 @@ import { log } from '@/lib/logger';
 import { calculateAgingBuckets, type AgingDetailInvoice } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
-import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
-import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
+import { fetchAPAgingInvoices } from './apAgingInvoices';
 type Row = DbRow;
 
 
@@ -74,45 +72,9 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
     // invariant would hold only by two clocks happening to agree.
     const todayStr = fmtDate(new Date());
 
-    const rows = (await sql`
-      SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
-        COALESCE(si.due_date, si.invoice_date) AS due_date,
-        (si.due_date IS NULL) AS due_date_missing,
-        si.total_amount,
-        ${sql.unsafe(effectivePaidExpr('ap'))} AS amount_paid,
-        (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) AS balance
-      FROM supplier_invoices si
-      JOIN suppliers s ON s.id = si.supplier_id
-      LEFT JOIN LATERAL (
-        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
-      ) unpaid ON TRUE
-      WHERE si.company_id = ${companyId}::UUID
-        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
-        AND ${sql.unsafe(documentInPopulationExpr('si'))}
-        -- A soft-deleted bill leaves this report exactly when the delete's
-        -- reversal reaches the ledger, and not one day earlier: the reversal is
-        -- dated TODAY whenever the bill's own period is closed, so an undated
-        -- exclusion drops the document from every earlier as-at date while the
-        -- control account still carries it. See shared/softDeleteLedgerPresence.
-        AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
-        AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
-      -- Same omission as AR, and larger: 357 supplier invoices worth
-      -- R37,703,816.94 — a third of all open payables — were absent from the
-      -- aging because they carry no due date. Aged from invoice_date instead.
-      ORDER BY COALESCE(si.due_date, si.invoice_date)
-    `) as Row[];
-
-    const invoices: AgingInvoice[] = rows.map((r: Row) => ({
-      id: String(r.id),
-      entityId: String(r.entity_id),
-      entityName: String(r.entity_name),
-      dueDate: String(r.due_date),
-      dueDateMissing: r.due_date_missing === true,
-      totalAmount: Number(r.total_amount),
-      amountPaid: Number(r.amount_paid),
-      balance: Number(r.balance),
-    }));
+    // One query for the aging, its drill-down and the open-items export:
+    // ap/apAgingInvoices. A bill is open here exactly when it is open there.
+    const invoices: AgingInvoice[] = await fetchAPAgingInvoices(companyId, asAtStr, todayStr);
 
     return calculateAgingBuckets(invoices, asAt);
   } catch (err) {
@@ -144,48 +106,9 @@ export async function getAPAgingDetail(companyId: string,
     const supplierRows = (await sql`SELECT id, name FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     if (supplierRows.length === 0) throw new Error(`Supplier ${supplierId} not found`);
 
-    const rows = (await sql`
-      SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
-        COALESCE(si.due_date, si.invoice_date) AS due_date,
-        (si.due_date IS NULL) AS due_date_missing,
-        si.invoice_number, si.total_amount,
-        ${sql.unsafe(effectivePaidExpr('ap'))} AS amount_paid,
-        (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) AS balance
-      FROM supplier_invoices si
-      JOIN suppliers s ON s.id = si.supplier_id
-      LEFT JOIN LATERAL (
-        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
-      ) unpaid ON TRUE
-      WHERE si.company_id = ${companyId}::UUID
-        AND si.supplier_id = ${supplierId}::UUID
-        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
-        AND ${sql.unsafe(documentInPopulationExpr('si'))}
-        -- A soft-deleted bill leaves this report exactly when the delete's
-        -- reversal reaches the ledger, and not one day earlier: the reversal is
-        -- dated TODAY whenever the bill's own period is closed, so an undated
-        -- exclusion drops the document from every earlier as-at date while the
-        -- control account still carries it. See shared/softDeleteLedgerPresence.
-        AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
-        AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
-      -- Undated invoices belong here for the same reason they belong in the
-      -- summary. A drill-down that omits them contradicts the total it drills
-      -- into, which is worse than the original omission because it reads as a
-      -- reconciled figure.
-      ORDER BY COALESCE(si.due_date, si.invoice_date)
-    `) as Row[];
-
-    const invoices: AgingDetailInvoice[] = rows.map((r: Row) => ({
-      id: String(r.id),
-      invoiceNumber: String(r.invoice_number),
-      entityId: String(r.entity_id),
-      entityName: String(r.entity_name),
-      dueDate: String(r.due_date),
-      dueDateMissing: r.due_date_missing === true,
-      totalAmount: Number(r.total_amount),
-      amountPaid: Number(r.amount_paid),
-      balance: Number(r.balance),
-    }));
+    // The drill-down's row shape is unchanged: the export-only header fields stay out of it.
+    const invoices: AgingDetailInvoice[] = (await fetchAPAgingInvoices(companyId, asAtStr, todayStr, supplierId))
+      .map(({ invoiceDate: _d, reference: _r, ...inv }) => inv);
 
     const buckets = calculateAgingBuckets(invoices, asAt);
 

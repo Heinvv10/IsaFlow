@@ -12,6 +12,26 @@ import type { AgingBucket, AgingBucketName, AgingInvoice } from '../types/ap.typ
 export type AgingDetailInvoice = AgingInvoice & { invoiceNumber: string };
 
 /**
+ * An open bill / invoice as the aging sees it (ap/apAgingInvoices,
+ * ar/arAgingInvoices), plus the two header fields an export row needs.
+ */
+export interface OpenAgingInvoice extends AgingDetailInvoice {
+  /** YYYY-MM-DD: the document date (AR: else the day it was created). */
+  invoiceDate: string;
+  /** AP: the supplier's own reference on the bill. AR: the invoice's number in the system it came from (external_document_number). Null when not captured. */
+  reference: string | null;
+}
+
+/**
+ * Whole days a document is past `dueDate` as at `asAtDate` (0 or negative =
+ * not yet due) — the count getAgingBucket buckets, so a row-level export can
+ * state the same age the report used. NaN for an unusable date.
+ */
+export function daysOverdue(dueDate: Date, asAtDate: Date): number {
+  return Math.floor((asAtDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/**
  * Classify a single invoice into an aging bucket based on due date.
  *
  * - Current: not yet due (due date >= as-at date)
@@ -29,13 +49,12 @@ export function getAgingBucket(dueDate: Date, asAtDate: Date): AgingBucketName {
   // because an unchased debt of unknown age is the one worth looking at.
   if (Number.isNaN(dueDate.getTime())) return 'days120Plus';
 
-  const diffMs = asAtDate.getTime() - dueDate.getTime();
-  const daysOverdue = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const days = daysOverdue(dueDate, asAtDate);
 
-  if (daysOverdue <= 0) return 'current';
-  if (daysOverdue <= 30) return 'days30';
-  if (daysOverdue <= 60) return 'days60';
-  if (daysOverdue <= 90) return 'days90';
+  if (days <= 0) return 'current';
+  if (days <= 30) return 'days30';
+  if (days <= 60) return 'days60';
+  if (days <= 90) return 'days90';
   return 'days120Plus';
 }
 
