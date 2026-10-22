@@ -29,7 +29,7 @@ import eftGenerate from '../../pages/api/accounting/eft-generate';
 import { cancelBatch } from '@/modules/accounting/services/ap/batchPaymentService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -57,7 +57,7 @@ async function waitsOnLock(table: string): Promise<'waiting'> {
 describe('eft-generate vs cancelBatch', () => {
   it('a cancel cannot commit between the status the request judged and the file it builds', async () => {
     const { company: c, bank } = await payCompany(pool, [[user, 'admin']], companies);
-    const batch = await plantBatch(pool, c, user, bank);
+    const batch = await plantApprovedBatch(pool, c, user, bank);
     await pool.query("UPDATE supplier_payment_batches SET status = 'approved' WHERE id = $1", [batch.id]);
 
     let release!: () => void;

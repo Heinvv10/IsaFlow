@@ -10,8 +10,11 @@
 // auth boundary). Verification path:
 //   1. Pull token from Authorization: Bearer <jwt>
 //   2. Verify signature + scope
-//   3. Load bank_feed_connections row, assert is_active + provider='extension'
-//   4. Open a tx pinned to app_user role with company GUC set, run handler
+//   3. Open a tx pinned to app_user role with company GUC set
+//   4. Recheck the pairer's standing (pairerRefusal): 401 unless the company
+//      is live and the pairer is still an owner/admin/manager in good standing
+//   5. Load bank_feed_connections row, assert is_active + provider='extension'
+//   6. Run handler
 
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import { connectObserved } from './poolTelemetry';
@@ -26,6 +29,9 @@ import { log } from '@/lib/logger';
 import { authPoolMax } from '@/lib/limits/poolLimits';
 import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { extractBearerToken } from './captureApiKeyAuth';
+import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
+import { isActiveUserAccount } from './userAccountStatus';
+import { canWrite } from './writeRoles';
 import { verifyExtensionToken } from './extensionJwt';
 import { deferEnd, answerThrow, replayEnd, answerCommitFailed, reportFinalizeFailure, type DeferredEnd } from './deferredEnd';
 
@@ -59,6 +65,24 @@ function pool(): pg.Pool {
   // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
   _pool.on('error', (err) => log.warn('withExtensionToken pool error', { message: err.message }, 'Auth'));
   return _pool;
+}
+
+/**
+ * Why a pairing token may no longer act for its company, or null when it may.
+ * The token is a 90-day standing credential that bypasses withAuth, so it holds
+ * only while what pairing demanded (extension-pair.ts: withAuth + withWriteAccess)
+ * still holds of the pairer named in its `sub` (S-06b, mirrors S-06's keyRefusal):
+ * a member of the live company (getCompanyMembership joins LIVE_COMPANY_SQL, so a
+ * suspended or deleted company returns no row), an owner, admin or manager, with
+ * an account in good standing. The JWT, not bank_feed_connections.created_by, is
+ * the pairer: re-pairing reuses the connection, so created_by can name someone else.
+ */
+function pairerRefusal(row: CompanyMembershipRow | undefined): string | null {
+  if (!row) return 'pairer is not a member of a live company';
+  if (!canWrite(row.role)) return 'pairer is no longer an owner, admin or manager';
+  if (row.account_user_id === null) return 'pairer has no users profile';
+  if (!isActiveUserAccount(row)) return 'pairer account is not in good standing';
+  return null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,6 +129,22 @@ export function withExtensionToken(handler: Handler): NextApiHandler {
         `SELECT set_config('request.jwt.claims', $1, true)`,
         [JSON.stringify({ sub: claims.userId, company_id: claims.companyId })],
       );
+
+      // Before the connection read: RLS hides the connection from a pairer who has
+      // left, which would otherwise answer 403 CONNECTION_INACTIVE instead of 401.
+      // Nothing is written on refusal; the token and connection stay as they are.
+      const membership = await getCompanyMembership(client, claims.userId, claims.companyId);
+      const refusal = pairerRefusal(membership.rows[0]);
+      if (refusal) {
+        unusable = await rollbackFailed(client, 'withExtensionToken');
+        log.warn('withExtensionToken: token refused', {
+          reason: refusal, userId: claims.userId, companyId: claims.companyId, connectionId: claims.connectionId,
+        }, 'Auth');
+        return res.status(401).json({
+          success: false,
+          error: { code: 'INVALID_TOKEN', message: 'Invalid or revoked pairing token' },
+        });
+      }
 
       const conn = await client.query<{
         id: string;
