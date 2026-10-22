@@ -21,6 +21,11 @@ creates have no password and no LOGIN, and every new env var falls back to
 
 ## 1. Deploy the code (migrations 910 and 911 included)
 
+910 refuses to apply if a role either app login can reach owns an object in ANY
+database of the cluster (pg_shdepend). It fails safe, and the parity gate meets
+it on dev first. If it fires, the message names the role: reassign that
+object's ownership, do not weaken the check.
+
 `bash scripts/deploy.sh`, from a clean worktree at master.
 
 The deploy logs a `WARNING: OWNER_DATABASE_URL is not set` line. That is expected

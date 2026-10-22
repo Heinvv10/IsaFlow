@@ -30,30 +30,36 @@ async function rolledBack(body: (q: (text: string) => Promise<unknown>) => Promi
 }
 
 describe('S-07b: migration 910', () => {
-  it('gives app_service a policy for every command an app_user or PUBLIC policy admits, where app_user holds the privilege', async () => {
+  it('gives app_service exactly the commands app_user policies admit, where app_user holds the privilege', async () => {
     // users is the case a table-level privilege test misses: 902 left app_user only column UPDATE.
     const users = await fixture.query(`SELECT polname FROM pg_policy WHERE polrelid = 'public.users'::regclass
       AND polname LIKE 'app\\_service\\_%' ORDER BY 1`);
     expect(users.rows.map((r) => r.polname)).toEqual(['app_service_select', 'app_service_update']);
-    const missing = await fixture.query(`
-      SELECT DISTINCT p.polrelid::regclass::text AS t, p.polcmd AS c FROM pg_policy p
-       WHERE p.polpermissive AND p.polname NOT LIKE 'app\\_service\\_%'
-         AND p.polrelid <> 'public.impersonation_sessions'::regclass
-         AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
-         AND NOT CASE p.polcmd
-               WHEN 'r' THEN coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-               WHEN 'd' THEN coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-               WHEN 'a' THEN coalesce(pg_get_expr(p.polwithcheck, p.polrelid), 'true') = 'false'
-               ELSE coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-                    AND coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-             END
-         AND CASE p.polcmd WHEN 'd' THEN has_table_privilege('app_user', p.polrelid, 'DELETE')
-               ELSE has_any_column_privilege('app_user', p.polrelid, CASE p.polcmd WHEN 'r' THEN 'SELECT'
-                      WHEN 'a' THEN 'INSERT' WHEN 'w' THEN 'UPDATE' ELSE 'SELECT, INSERT, UPDATE' END)
-                    OR (p.polcmd = '*' AND has_table_privilege('app_user', p.polrelid, 'DELETE')) END
-         AND NOT EXISTS (SELECT 1 FROM pg_policy s WHERE s.polrelid = p.polrelid
-                         AND 'app_service'::regrole = ANY (s.polroles) AND s.polcmd IN (p.polcmd, '*'))`);
-    expect(missing.rows).toEqual([]);
+    // Both directions: none missing (a service path would be refused) and none extra (app_service would reach more).
+    const diff = await fixture.query(`
+      WITH pol AS (
+        SELECT p.polrelid, p.polcmd,
+               coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS uf,
+               coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS cf
+          FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+         WHERE n.nspname = 'public' AND c.relname <> 'impersonation_sessions' AND p.polpermissive
+           AND NOT ('app_service'::regrole = ANY (p.polroles))
+           AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
+      ), want AS (
+        SELECT polrelid, 'r' AS c FROM pol WHERE polcmd IN ('r', '*') AND NOT uf
+        UNION SELECT polrelid, 'd' FROM pol WHERE polcmd IN ('d', '*') AND NOT uf
+        UNION SELECT polrelid, 'a' FROM pol WHERE polcmd IN ('a', '*') AND NOT cf
+        UNION SELECT polrelid, 'w' FROM pol WHERE polcmd IN ('w', '*') AND NOT uf AND NOT cf
+      ), wanted AS (
+        SELECT polrelid, c FROM want WHERE CASE c WHEN 'd' THEN has_table_privilege('app_user', polrelid, 'DELETE')
+          ELSE has_any_column_privilege('app_user', polrelid, CASE c WHEN 'r' THEN 'SELECT' WHEN 'a' THEN 'INSERT' ELSE 'UPDATE' END) END
+      ), have AS (
+        SELECT polrelid, polcmd::text AS c FROM pg_policy WHERE 'app_service'::regrole = ANY (polroles)
+      )
+      SELECT 'missing' AS why, polrelid::regclass::text AS t, c FROM (SELECT * FROM wanted EXCEPT SELECT * FROM have) m
+      UNION ALL
+      SELECT 'extra', polrelid::regclass::text, c FROM (SELECT * FROM have EXCEPT SELECT * FROM wanted) e`);
+    expect(diff.rows).toEqual([]);
   });
 
   it('opens nothing an app_user policy keeps shut, for each command (blind review M1)', async () => {
@@ -64,10 +70,13 @@ describe('S-07b: migration 910', () => {
       await q(`CREATE POLICY ins_never ON public.s07b_policy_probe FOR INSERT TO app_user WITH CHECK (false)`);
       await q(`CREATE POLICY upd_never ON public.s07b_policy_probe FOR UPDATE TO app_user USING (false)`);
       await q(`CREATE POLICY sel_ok ON public.s07b_policy_probe FOR SELECT TO app_user USING (x > 0)`);
+      await q(`CREATE POLICY upd_check_never ON public.s07b_policy_probe FOR UPDATE TO app_user USING (true) WITH CHECK (false)`);
+      await q(`CREATE POLICY all_read_only ON public.s07b_policy_probe FOR ALL TO app_user USING (x > 0) WITH CHECK (false)`);
       await q(POLICIES_910);
       const r = (await q(`SELECT array_agg(polname::text ORDER BY polname) AS p FROM pg_policy
         WHERE polrelid = 'public.s07b_policy_probe'::regclass AND polname LIKE 'app\\_service\\_%'`)) as { rows: Array<{ p: string[] }> };
-      expect(r.rows[0]!.p).toEqual(['app_service_select']);
+      // all_read_only admits SELECT and DELETE only; nothing admits INSERT or UPDATE.
+      expect(r.rows[0]!.p).toEqual(['app_service_delete', 'app_service_select']);
     });
   });
 
