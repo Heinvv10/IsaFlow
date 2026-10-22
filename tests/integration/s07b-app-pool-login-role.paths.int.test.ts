@@ -22,7 +22,8 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { createEmailVerificationToken } from '@/lib/auth/emailVerificationService';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { runAuditTx } from '@/modules/accounting/services/audit/auditTx';
-import { callRoute, userRow } from './s07-users-privilege-columns.helpers';
+import { readDefaultAccountMappings } from '@/modules/accounting/services/gl/defaultAccountsService';
+import { callRoute, inServiceContext, userRow } from './s07-users-privilege-columns.helpers';
 import { response } from './mfa-impersonation-postgres.helpers';
 import { CRON, callCron, fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -107,6 +108,13 @@ describe('S-07b: every kind of legitimate path still works on the new logins', (
     const { token } = await createEmailVerificationToken(admin, { email: `${admin}@test.local`, firstName: 'A', lastName: 'B',
       companyName: 'S07b', phone: null, annualTurnoverCents: null, signupType: 'direct' });
     expect(token).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('app_settings under security_invoker (911): app_user still reads its own company\'s settings', async () => {
+    await fixture.query(`INSERT INTO accounting_settings (company_id, key, value) VALUES ($1, 'accounting_default_accounts', '{"s07b":"mine"}')`, [company]);
+    let mappings: Record<string, unknown> = {};
+    await inServiceContext('app_user', me, async () => { mappings = await readDefaultAccountMappings(company); });
+    expect(mappings).toMatchObject({ s07b: 'mine' });
   });
 
   it('runAuditTx (service pool, then SET LOCAL ROLE app_user) runs as app_user', async () => {

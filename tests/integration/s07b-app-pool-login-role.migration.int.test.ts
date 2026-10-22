@@ -120,6 +120,15 @@ describe('S-07b: migration 911', () => {
     });
   });
 
+  it('refuses settings rows with no company, which security_invoker would hide', async () => {
+    const block = doBlock(M911, 'accounting_settings holds rows with no company_id');
+    await rolledBack(async (q) => {
+      await q(`ALTER TABLE public.accounting_settings ALTER COLUMN company_id DROP NOT NULL`);
+      await q(`INSERT INTO public.accounting_settings (company_id, key, value) VALUES (NULL, 's07b_global', '1')`);
+      await expect(q(block)).rejects.toThrow(/911: accounting_settings holds rows with no company_id/);
+    });
+  });
+
   it('leaves a guard that already binds app_service as it is (a rewrite that merged the binding)', async () => {
     await rolledBack(async (q) => {
       const before = (await q(`SELECT md5(prosrc) AS m FROM pg_proc WHERE oid = 'public.company_users_role_guard()'::regprocedure`)) as { rows: Array<{ m: string }> };
@@ -136,6 +145,10 @@ describe('S-07b: migration 911', () => {
       BEGIN IF current_user != 'app_user' THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_neq\(\) exempts every role/],
     ['the old shape spelled IS DISTINCT FROM, on current_role', `CREATE FUNCTION public.s07b_mutant_idf() RETURNS trigger LANGUAGE plpgsql AS $f$
       BEGIN IF (current_role IS DISTINCT FROM 'app_user') THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_idf\(\) exempts every role/],
+    ['the old shape spelled the other way round', `CREATE FUNCTION public.s07b_mutant_rev() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN IF 'app_user' <> current_user THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_rev\(\) exempts every role/],
+    ['an owner-run view app_user may read', `CREATE VIEW public.s07b_mutant_view AS SELECT id FROM public.customers;
+      GRANT SELECT ON public.s07b_mutant_view TO app_user`, /911: view s07b_mutant_view runs as an RLS-bypassing owner/],
     ['app_user given schema_migrations back', 'GRANT DELETE ON public.schema_migrations TO app_user', /911: app_user .* can still write schema_migrations/],
     ['a definer app_user can run without pg_temp last', `CREATE FUNCTION public.s07b_mutant_definer() RETURNS int LANGUAGE sql
       SECURITY DEFINER SET search_path = public AS $f$ SELECT 1 $f$; GRANT EXECUTE ON FUNCTION public.s07b_mutant_definer() TO app_user`,
