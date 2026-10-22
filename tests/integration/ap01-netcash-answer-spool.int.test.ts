@@ -64,7 +64,12 @@ async function resolveAfterRestart(c: string, id: string, outcome = 'failed') {
 }
 const status = async (id: string) => (await pool.query('SELECT status FROM netcash_submissions WHERE id = $1', [id])).rows[0].status as string;
 const reason = (r: { state: { body: unknown } }) => JSON.stringify(r.state.body).match(/"reason":"([A-Z_]+)"/)?.[1];
-const spoolFiles = (suffix: string) => (fs.existsSync(path.join(spool, 'spool')) ? fs.readdirSync(path.join(spool, 'spool')) : []).filter((f) => f.endsWith(suffix));
+/** Pending entries ('.jsonl' in the directory itself), or what is in replayed/ / quarantine/ ('.replayed' / '.quarantined'). */
+const spoolFiles = (kind: '.jsonl' | '.replayed' | '.quarantined') => {
+  const base = path.join(spool, 'spool');
+  const dir = kind === '.jsonl' ? base : path.join(base, kind === '.replayed' ? 'replayed' : 'quarantine');
+  return (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((f) => f.endsWith('.jsonl') && !f.startsWith('.'));
+};
 const auditRows = async (id: string) => (await pool.query(
   "SELECT changes -> 'metadata' AS m, entity_ref FROM audit_log WHERE entity_type = 'netcash_unrecorded_answer' AND entity_id = $1", [id])).rows as
   { m: Record<string, string>; entity_ref: string | null }[];
@@ -137,8 +142,8 @@ describe('an accepted answer that not even audit_log could record survives on lo
     const { replaySpooledAnswers } = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
     // Crash between the insert and the rename: the file comes back as pending after the first replay.
     await replaySpooledAnswers();
-    const replayed = path.join(spool, 'spool', spoolFiles('.replayed')[0]!);
-    fs.renameSync(replayed, replayed.replace(/\.replayed$/, ''));
+    const name = spoolFiles('.replayed')[0]!;
+    fs.renameSync(path.join(spool, 'spool', 'replayed', name), path.join(spool, 'spool', name));
     const again = await replaySpooledAnswers();
     expect({ again, audit: (await auditRows(id)).length, pending: spoolFiles('.jsonl').length, replayed: spoolFiles('.replayed').length })
       .toEqual({ again: 1, audit: 1, pending: 0, replayed: 1 });
@@ -159,6 +164,78 @@ describe('an accepted answer that not even audit_log could record survives on lo
     for (let i = 0; i < 50 && spoolFiles('.jsonl').length > 0; i++) await new Promise((r) => setTimeout(r, 100));
     expect({ audit: (await auditRows(id)).length, pending: spoolFiles('.jsonl').length, replayed: spoolFiles('.replayed').length })
       .toEqual({ audit: 1, pending: 0, replayed: 1 });
+  }, 30_000);
+
+  it('an entry the database refuses for its own content (a deleted user) does not block the entries behind it; after 3 refusals it is quarantined and STILL blocks its submission', async () => {
+    const { c, id: goodId } = await acceptedAndNothingRecorded(); // a good entry
+    const bad = await fresh();
+    const badSub = (await pool.query(
+      `INSERT INTO netcash_submissions (company_id, submission_type, batch_reference, total_amount_cents, record_count, status, created_by, created_at)
+       VALUES ($1, 'eft_payment', 'BAT-X', 100, 1, 'pending', 'x', NOW() - INTERVAL '3 minutes') RETURNING id`, [bad.c])).rows[0].id as string;
+    const token = crypto.randomUUID();
+    // The bad entry sorts BEFORE the good one (renamed to start with 'z'): the old replay stopped at it and never reached the good one.
+    const goodFile = spoolFiles('.jsonl')[0]!;
+    fs.renameSync(path.join(spool, 'spool', goodFile), path.join(spool, 'spool', `zz-${goodFile}`));
+    fs.writeFileSync(path.join(spool, 'spool', `${bad.c}.${badSub}.${token}.jsonl`), `${JSON.stringify({
+      v: 1, companyId: bad.c, userId: crypto.randomUUID(), sub: admin, submissionId: badSub, entityRef: 'NC-BAD',
+      metadata: { status: 'submitted', outcome: 'accepted', batchReference: 'NC-BAD', settleToken: token, answer: '{}' }, spooledAt: new Date().toISOString(),
+    })}\n`);
+    const { replaySpooledAnswers } = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
+    const first = await replaySpooledAnswers();
+    const afterFirst = { good: (await auditRows(goodId)).length, pending: spoolFiles('.jsonl').length };
+    await replaySpooledAnswers();
+    const third = await replaySpooledAnswers();
+    const blocked = await resolveAfterRestart(bad.c, badSub);
+    expect({ first, afterFirst, third, pendingAfter: spoolFiles('.jsonl').length, quarantined: spoolFiles('.quarantined').length, blocked: blocked.state.statusCode, reason: reason(blocked), c: c.length > 0 })
+      .toEqual({ first: 1, afterFirst: { good: 1, pending: 1 }, third: 0, pendingAfter: 0, quarantined: 1, blocked: 409, reason: 'ANSWER_PENDING_RECORD', c: true });
+  }, 60_000);
+
+  it('two processes replaying the same entry at once write it to audit_log exactly once (advisory lock on the settle token)', async () => {
+    const { id } = await acceptedAndNothingRecorded();
+    // Widen the window between the exists-check and the insert in both replayers.
+    for (let i = 0; i < 2; i++) {
+      faults.rules.push({ match: /netcash_spool_replay_exists/, claimOnly: false, act: async (run) => { const out = await run(); await new Promise((r) => setTimeout(r, 500)); return out; } });
+    }
+    vi.resetModules();
+    const a = (await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay')).replaySpooledAnswers;
+    vi.resetModules();
+    const b = (await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay')).replaySpooledAnswers; // another "process": its own state
+    const [x, y] = await Promise.all([a(), b()]);
+    expect({ audit: (await auditRows(id)).length, handled: x + y >= 1, pending: spoolFiles('.jsonl').length, replayed: spoolFiles('.replayed').length })
+      .toEqual({ audit: 1, handled: true, pending: 0, replayed: 1 });
+  }, 60_000);
+
+  it('a replay is bounded per call: maxEntries leaves the rest for the next call', async () => {
+    const { id } = await acceptedAndNothingRecorded(); // one real entry...
+    const [name] = spoolFiles('.jsonl');
+    const entry = fs.readFileSync(path.join(spool, 'spool', name!), 'utf8');
+    for (let i = 0; i < 2; i++) { // ...and two more answers (other tokens) for the same company
+      const token = crypto.randomUUID();
+      const e = JSON.parse(entry) as { companyId: string; submissionId: string; metadata: Record<string, string> };
+      e.metadata.settleToken = token;
+      fs.writeFileSync(path.join(spool, 'spool', `${e.companyId}.${e.submissionId}.${token}.jsonl`), `${JSON.stringify(e)}\n`);
+    }
+    const { replaySpooledAnswers } = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
+    const moved = await replaySpooledAnswers({ maxEntries: 1 });
+    expect({ moved, pending: spoolFiles('.jsonl').length, replayed: spoolFiles('.replayed').length }).toEqual({ moved: 1, pending: 2, replayed: 1 });
+    expect(await replaySpooledAnswers()).toBe(2);
+    expect((await auditRows(id)).length).toBe(3);
+  }, 60_000);
+
+  it('the first submit logs an error, once, when the spool directory is not writable', async () => {
+    const blocker = path.join(spool, 'a-file');
+    fs.writeFileSync(blocker, 'x');
+    process.env.NETCASH_ANSWER_SPOOL_DIR = path.join(blocker, 'spool');
+    vi.resetModules();
+    const route = (await import('../../pages/api/accounting/netcash/submit')).default;
+    const freshLog = (await import('@/lib/logger')).log;
+    const errors = vi.spyOn(freshLog, 'error');
+    const A = await fresh();
+    const B = await fresh();
+    hold.submitEftBatch.mockResolvedValue(ACCEPTED);
+    for (const x of [A, B]) await callRoute(route, tokens[admin]!, x.c, 'POST', { batchPaymentId: x.b.id }, '/api/accounting/netcash/submit');
+    await new Promise((r) => setTimeout(r, 300));
+    expect(errors.mock.calls.filter(([m]) => /NOT writable/.test(String(m)))).toHaveLength(1);
   }, 30_000);
 
   it('the spool directory is unwritable: the request still answers its 500 with the answer in the body, log.error carries it, nothing crashes', async () => {

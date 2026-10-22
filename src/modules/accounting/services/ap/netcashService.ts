@@ -97,14 +97,14 @@ async function fetchJsonWithTimeout(url: string, init: RequestInit, fence?: Pick
 
 /**
  * Submit an EFT batch payment to Netcash.
- * Refuses (nothing sent) when either API key is absent, or when `fence` (the sender's, taken before its claim) says the
+ * Refuses (nothing sent) when either API key is absent, or when `fence` (REQUIRED: the sender's, taken before its claim) says the
  * send has waited too long to start safely (residual 3b): `{ outcome: 'rejected', fenced: true }`, nothing sent.
  */
 export async function submitEftBatch(
   serviceKey: string,
   payoutsKey: string,
   payments: NetcashPayment[],
-  fence?: Pick<SendFence, 'mayStart'>,
+  fence: Pick<SendFence, 'mayStart'>,
 ): Promise<NetcashSubmitResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   if (!serviceKey.trim() || !payoutsKey.trim()) {

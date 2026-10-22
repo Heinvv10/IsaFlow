@@ -6,10 +6,14 @@
  * netcashAnswerSpoolReplay moves entries into audit_log once the database is back.
  *
  * One file per answer, named `<company>.<submission>.<settleToken>.jsonl` (all three are ours, never Netcash's): a
- * lookup by company and submission is a directory listing, and "replayed" is a rename to `<name>.replayed` - the line is
- * never deleted or rewritten. Written through fs.promises with a timeout (ANSWER_SPOOL_TIMEOUT_MS) rather than the sync
- * calls, so a stalled disk cannot freeze the event loop or hold the 500; a write that outlives the timeout may still
- * complete, which only adds evidence. Never throws into the request: a failure is log.error'd with the answer.
+ * lookup by company and submission is a directory listing. A file is COMPLETE OR ABSENT: it is written under a temporary
+ * name (`.<name>.<random>.tmp`, ignored by every lookup), fsynced, renamed to its final name and the directory fsynced,
+ * so a crash mid-write leaves at most a stray temp (swept into quarantine/ once older than STALE_TEMP_MS), never a torn
+ * entry. "Replayed" is a move to `replayed/`, and an entry the database keeps refusing for its own content moves to
+ * `quarantine/` - lines are never deleted or rewritten; a quarantined acceptance still blocks resolve. Written through
+ * fs.promises with a timeout (ANSWER_SPOOL_TIMEOUT_MS) rather than the sync calls, so a stalled disk cannot freeze the
+ * event loop or hold the 500; a write that outlives the timeout may still complete, which only adds evidence. Never
+ * throws into the request: a failure is log.error'd with the answer.
  *
  * Location: NETCASH_ANSWER_SPOOL_DIR, else `<STATE_DIRECTORY>/netcash-spool` (systemd StateDirectory=), else
  * ~/.isaflow/netcash-spool - never under the deploy directory (deploy.sh rsyncs --delete over /home/velo/isaflow). The
@@ -17,6 +21,7 @@
  * to it until the unit also lists it (an ops step) or sets StateDirectory= / NETCASH_ANSWER_SPOOL_DIR. A test run
  * defaults to a per-process directory under the OS temp dir, so no test writes into a home directory.
  */
+import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import { homedir, tmpdir } from 'os';
 import path from 'path';
@@ -39,7 +44,8 @@ interface SpooledLine extends AnswerRecord { v: 1; spooledAt: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SUFFIX = '.jsonl';
-const REPLAYED = '.replayed';
+/** A temp file this old was left by a write that did not finish (the write itself is given up on after ANSWER_SPOOL_TIMEOUT_MS). */
+const STALE_TEMP_MS = 60_000;
 
 export function spoolDir(): string {
   const configured = process.env.NETCASH_ANSWER_SPOOL_DIR?.trim();
@@ -49,9 +55,14 @@ export function spoolDir(): string {
   if (process.env.NODE_ENV === 'test') return path.join(tmpdir(), `isaflow-netcash-spool-test-${process.pid}`);
   return path.join(homedir(), '.isaflow', 'netcash-spool');
 }
+const replayedDir = () => path.join(spoolDir(), 'replayed');
+const quarantineDir = () => path.join(spoolDir(), 'quarantine');
 
 const fileName = (r: AnswerRecord) =>
   `${r.companyId.toLowerCase()}.${r.submissionId.toLowerCase()}.${r.metadata.settleToken.replace(/[^0-9a-zA-Z-]/g, '_').slice(0, 64)}${SUFFIX}`;
+/** A final entry: not a dot-file (temps are), `.jsonl`. */
+const isEntry = (n: string) => n.endsWith(SUFFIX) && !n.startsWith('.');
+const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Flush a directory's entries (a new or renamed file) to disk; a filesystem that cannot is warned about, not fatal. */
 async function syncDir(dir: string): Promise<void> {
@@ -59,21 +70,36 @@ async function syncDir(dir: string): Promise<void> {
     const handle = await fs.open(dir, 'r');
     try { await handle.sync(); } finally { await handle.close(); }
   } catch (err) {
-    log.warn('netcash answer spool: directory fsync failed', { dir, error: err instanceof Error ? err.message : String(err) }, 'netcash');
+    log.warn('netcash answer spool: directory fsync failed', { dir, error: errText(err) }, 'netcash');
+  }
+}
+
+/** The directory, 0700: made so, and an existing wider one narrowed (the entries hold payment answers). */
+async function ensureDir(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  const { mode } = await fs.stat(dir);
+  if ((mode & 0o077) === 0) return;
+  try {
+    await fs.chmod(dir, 0o700);
+  } catch (err) {
+    log.warn('netcash answer spool: directory is group/world accessible and could not be narrowed to 0700', { dir, mode: (mode & 0o777).toString(8), error: errText(err) }, 'netcash');
   }
 }
 
 async function appendDurably(rec: AnswerRecord): Promise<void> {
   const dir = spoolDir();
-  await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+  await ensureDir(dir);
   const line = `${JSON.stringify({ v: 1, ...rec, spooledAt: new Date().toISOString() } satisfies SpooledLine)}\n`;
-  const handle = await fs.open(path.join(dir, fileName(rec)), 'a', 0o600);
+  const final = path.join(dir, fileName(rec));
+  const temp = path.join(dir, `.${fileName(rec)}.${randomUUID()}.tmp`);
+  const handle = await fs.open(temp, 'wx', 0o600);
   try {
     await handle.write(line);
     await handle.sync();
   } finally {
     await handle.close();
   }
+  await fs.rename(temp, final); // complete or absent
   await syncDir(dir);
 }
 
@@ -91,7 +117,7 @@ export async function spoolAnswer(rec: AnswerRecord): Promise<boolean> {
   } catch (err) {
     log.error('netcash answer could not be spooled either - only this log and the 500 carry it', {
       submissionId: rec.submissionId, companyId: rec.companyId, status: rec.metadata.status, batchReference: rec.metadata.batchReference,
-      answer: rec.metadata.answer, error: err instanceof Error ? err.message : String(err),
+      answer: rec.metadata.answer, error: errText(err),
     }, 'netcash');
     return false;
   } finally {
@@ -99,10 +125,33 @@ export async function spoolAnswer(rec: AnswerRecord): Promise<boolean> {
   }
 }
 
-/** The directory's pending entries' names; none when the directory does not exist yet. Throws on any other failure. */
-async function pendingNames(): Promise<string[]> {
+let probed = false;
+/**
+ * Once per process, on the first submit: is the spool directory writable? The service unit may leave it read-only
+ * (ProtectSystem=strict), and without this nobody learns that until the outage the spool was for. log.error once; never throws.
+ */
+export async function probeSpoolWritable(): Promise<boolean> {
+  if (probed) return true;
+  probed = true;
+  const dir = spoolDir();
+  const probe = path.join(dir, `.probe-${process.pid}-${randomUUID()}.tmp`);
   try {
-    return (await fs.readdir(spoolDir())).filter((n) => n.endsWith(SUFFIX));
+    await ensureDir(dir);
+    await (await fs.open(probe, 'wx', 0o600)).close();
+    await fs.unlink(probe);
+    return true;
+  } catch (err) {
+    log.error('netcash answer spool directory is NOT writable - an accepted answer the database cannot record would be lost on restart; fix the service unit (ReadWritePaths / StateDirectory) or NETCASH_ANSWER_SPOOL_DIR', {
+      dir, error: errText(err),
+    }, 'netcash');
+    return false;
+  }
+}
+
+/** Names of the entries in `dir`; none when it does not exist. Throws on any other failure. */
+async function entryNames(dir: string): Promise<string[]> {
+  try {
+    return (await fs.readdir(dir)).filter(isEntry);
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') return [];
@@ -110,48 +159,94 @@ async function pendingNames(): Promise<string[]> {
   }
 }
 
-function parse(text: string): SpooledLine | null {
+/** The entry in `file`; 'gone' when it was moved meanwhile (a peer replayed it); null when it cannot be read. */
+async function readEntry(file: string): Promise<SpooledLine | 'gone' | null> {
+  let text: string;
+  try {
+    text = await fs.readFile(file, 'utf8');
+  } catch (err) {
+    return (err as { code?: string }).code === 'ENOENT' ? 'gone' : null;
+  }
   try {
     const v = JSON.parse(text) as Partial<SpooledLine> | null;
     return v && v.v === 1 && typeof v.companyId === 'string' && typeof v.submissionId === 'string' && v.metadata && typeof v.metadata.settleToken === 'string'
       ? v as SpooledLine : null;
   } catch {
-    return null; // a torn or foreign file: the caller decides what that means
+    return null;
   }
 }
 
 /**
- * A spooled ACCEPTANCE for this submission in this company that is not in audit_log yet; null if none. resolve calls
- * it for a pending row it is asked to free. Company and submission come from the file NAME (ours), so an entry that
- * cannot be read still counts - fail closed, as `outcome: 'unreadable'` - and a directory that cannot be listed throws
- * (the resolve fails, never frees on a guess).
+ * A spooled ACCEPTANCE for this submission in this company that is not in audit_log yet (pending or quarantined); null
+ * if none. resolve calls it for a pending row it is asked to free. Only an acceptance blocks - a spooled `unknown` or
+ * rejected answer does not, exactly as audit_log's record. Company and submission come from the file NAME (ours): a
+ * final-named entry that cannot be read still counts - fail closed, log.error - and a directory that cannot be listed
+ * throws (the resolve fails, never frees on a guess). Temp files are never entries.
  */
 export async function spooledAcceptedAnswer(companyId: string, submissionId: string): Promise<{ outcome: string; batchReference: string } | null> {
   const prefix = `${companyId.toLowerCase()}.${submissionId.toLowerCase()}.`;
-  for (const name of (await pendingNames()).filter((n) => n.startsWith(prefix))) {
-    const entry = parse(await fs.readFile(path.join(spoolDir(), name), 'utf8').catch(() => ''));
-    if (!entry) return { outcome: 'accepted (spool entry unreadable)', batchReference: '' };
-    if (entry.companyId.toLowerCase() === companyId.toLowerCase() && entry.metadata.status === 'submitted') {
-      return { outcome: entry.metadata.outcome || 'accepted', batchReference: entry.metadata.batchReference ?? '' };
+  for (const dir of [spoolDir(), quarantineDir()]) {
+    for (const name of (await entryNames(dir)).filter((n) => n.startsWith(prefix))) {
+      const entry = await readEntry(path.join(dir, name));
+      if (entry === 'gone') continue;
+      if (!entry) {
+        log.error('netcash answer spool: an entry for this submission cannot be read - treated as an acceptance', { file: path.join(dir, name) }, 'netcash');
+        return { outcome: 'accepted (spool entry unreadable)', batchReference: '' };
+      }
+      if (entry.companyId.toLowerCase() === companyId.toLowerCase() && entry.metadata.status === 'submitted') {
+        return { outcome: entry.metadata.outcome || 'accepted', batchReference: entry.metadata.batchReference ?? '' };
+      }
     }
   }
   return null;
 }
 
-/** Entries not yet replayed (an unreadable one is logged and left where it is). */
+/** Entries not yet replayed, oldest name first (an unreadable one is logged and left where it is). */
 export async function pendingSpooled(): Promise<{ file: string; entry: AnswerRecord }[]> {
   const out: { file: string; entry: AnswerRecord }[] = [];
-  for (const name of await pendingNames()) {
+  for (const name of (await entryNames(spoolDir())).sort()) {
     const file = path.join(spoolDir(), name);
-    const entry = parse(await fs.readFile(file, 'utf8').catch(() => ''));
+    const entry = await readEntry(file);
+    if (entry === 'gone') continue;
     if (entry) out.push({ file, entry });
     else log.error('netcash answer spool: an entry cannot be read - left in place, still blocks its submission', { file }, 'netcash');
   }
   return out;
 }
 
-/** Mark an entry replayed: renamed, never deleted - the line stays on disk. */
-export async function markReplayed(file: string): Promise<void> {
-  await fs.rename(file, `${file}${REPLAYED}`);
+/** Move an entry into `to` (replayed/ or quarantine/): never deleted. An entry a peer already moved is not an error. */
+async function moveEntry(file: string, to: string): Promise<void> {
+  await ensureDir(to);
+  try {
+    await fs.rename(file, path.join(to, path.basename(file)));
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'ENOENT') throw err;
+    return;
+  }
   await syncDir(path.dirname(file));
+  await syncDir(to);
+}
+export const markReplayed = (file: string) => moveEntry(file, replayedDir());
+export const quarantineEntry = (file: string) => moveEntry(file, quarantineDir());
+
+/** Temp files left by writes that never finished go to quarantine/ (kept, never deleted); a fresh one is a write in flight. */
+export async function sweepStaleTemps(): Promise<void> {
+  try {
+    for (const name of (await fs.readdir(spoolDir())).filter((n) => n.startsWith('.') && n.endsWith('.tmp') && !n.startsWith('.probe-'))) {
+      const file = path.join(spoolDir(), name);
+      let mtimeMs: number;
+      try {
+        mtimeMs = (await fs.stat(file)).mtimeMs;
+      } catch (err) {
+        if ((err as { code?: string }).code === 'ENOENT') continue; // finished (renamed) meanwhile
+        throw err;
+      }
+      if (Date.now() - mtimeMs > STALE_TEMP_MS) {
+        log.warn('netcash answer spool: an unfinished temp file moved to quarantine', { file }, 'netcash');
+        await moveEntry(file, quarantineDir());
+      }
+    }
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'ENOENT') log.warn('netcash answer spool: temp sweep failed', { error: errText(err) }, 'netcash');
+  }
 }

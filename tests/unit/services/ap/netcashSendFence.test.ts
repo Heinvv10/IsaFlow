@@ -6,6 +6,7 @@
  * may be stepped by NTP and is not what the fence reads.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'fs';
 
 vi.mock('@/lib/auth/impersonationGuard', () => ({ assertNotImpersonating: vi.fn().mockResolvedValue(undefined) }));
 
@@ -65,11 +66,15 @@ describe('submitEftBatch with a fence', () => {
     expect(result).toMatchObject({ success: true, outcome: 'accepted', batchReference: 'NC-1' });
   });
 
-  it('a fence that allows, or none: the request goes (a fast send is unchanged)', async () => {
+  it('a fence that allows: the request goes (a fast send is unchanged)', async () => {
     const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ batchReference: 'NC-2' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
     await submitEftBatch('service-key', 'payouts-key', PAYMENTS, startSendFence());
-    await submitEftBatch('service-key', 'payouts-key', PAYMENTS);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('the fence is a REQUIRED parameter: no caller can send without one (type-level, pinned by the census below)', () => {
+    // tests/** is outside tsconfig, so the compiler cannot pin this; read the signature.
+    expect(readFileSync('src/modules/accounting/services/ap/netcashService.ts', 'utf8')).toMatch(/payments: NetcashPayment\[\],\s+fence: Pick<SendFence, 'mayStart'>,\s+\): Promise<NetcashSubmitResult>/);
   });
 });

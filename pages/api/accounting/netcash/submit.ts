@@ -20,6 +20,7 @@ import {
   respondAnswerNotRecorded, respondClaimLost, respondSendBusy, respondSendFenced,
 } from '@/modules/accounting/services/ap/netcashSubmitResponses';
 import { replaySpooledAnswers } from '@/modules/accounting/services/ap/netcashAnswerSpoolReplay';
+import { probeSpoolWritable } from '@/modules/accounting/services/ap/netcashAnswerSpool';
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
@@ -34,6 +35,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
 
   await assertNotImpersonating(); // R-032 L5: first, before any read or write; nothing is claimed for a Login-as session
+  void probeSpoolWritable(); // once per process: log.error if the spool directory is not writable, before an outage needs it
   void replaySpooledAnswers(); // residual 3a: answers spooled while the database was unwell move into audit_log; bounded, never throws
 
   // Load company to get Netcash credentials
