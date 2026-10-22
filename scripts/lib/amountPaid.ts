@@ -39,3 +39,10 @@ export function deriveAmountPaid(total: number, amountDue: number | null | undef
     dueMissing,
   };
 }
+
+/** Coerce a raw Sage AmountDue: null/undefined/blank string are missing (null); anything else via Number(). */
+export function parseAmountDue(raw: unknown): number | null {
+  if (raw == null) return null;
+  if (typeof raw === 'string' && raw.trim() === '') return null;
+  return Number(raw);
+}

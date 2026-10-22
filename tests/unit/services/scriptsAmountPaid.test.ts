@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveAmountPaid } from '../../../scripts/lib/amountPaid';
+import { deriveAmountPaid, parseAmountDue } from '../../../scripts/lib/amountPaid';
 
 // CHECK customer_invoices_amount_paid_within_total: amount_paid <= GREATEST(total_amount, 0)
 describe('deriveAmountPaid', () => {
@@ -44,5 +44,15 @@ describe('deriveAmountPaid', () => {
     expect(() => deriveAmountPaid(NaN, 0)).toThrow(/non-finite/);
     expect(() => deriveAmountPaid(100, NaN)).toThrow(/non-finite/);
     expect(() => deriveAmountPaid(Infinity, 0)).toThrow(/non-finite/);
+  });
+  it('parseAmountDue treats null, undefined and blank strings as missing', () => {
+    for (const raw of [null, undefined, '', '   ']) expect(parseAmountDue(raw)).toBeNull();
+    expect(parseAmountDue(0)).toBe(0);
+    expect(parseAmountDue('0')).toBe(0);
+    expect(parseAmountDue('12.5')).toBe(12.5);
+    expect(parseAmountDue('abc')).toBeNaN();
+  });
+  it('a blank AmountDue is stored as owing, not paid', () => {
+    expect(deriveAmountPaid(1000, parseAmountDue(''))).toEqual({ amountPaid: 0, clamped: false, paid: false, dueMissing: true });
   });
 });
