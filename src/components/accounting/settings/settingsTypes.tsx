@@ -23,6 +23,8 @@ export interface Company {
   bankBranchCode: string | null;
   bankAccountType: string | null;
   financialYearStart: number;
+  /** True once the company has a posted journal: the start month can no longer change (read-only in Settings). */
+  financialYearStartLocked: boolean;
   vatPeriod: string;
   vatPeriodAlignment: 'odd' | 'even';
   defaultCurrency: string | null;

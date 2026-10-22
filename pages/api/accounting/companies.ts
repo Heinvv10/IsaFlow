@@ -18,6 +18,10 @@ import {
 import { ENTITY_TYPE_CODES, isEntityTypeCode } from '@/lib/entityTypes';
 import { isValidVatPeriod, isValidVatSystemType } from '@/modules/accounting/services/core/vatSettingValidation';
 import { EntityTypeChangeRefused } from '@/modules/onboarding/services/entityTypeChange';
+import {
+  FinancialYearStartLockedError, FinancialYearStartScopeError, FiscalPeriodsInUseError,
+  InvalidFinancialYearStartError, countPostedJournals,
+} from '@/modules/accounting/services/gl/fiscalYearStartChange';
 
 // Re-exported: tests and older imports name them from this route.
 export { isValidVatPeriod, isValidVatSystemType };
@@ -60,7 +64,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       const company = await getCompany(req.query.id as string);
       if (!company) return apiResponse.notFound(res, 'Company');
-      return apiResponse.success(res, company);
+      // Settings shows the financial year start read-only once anything has posted (PUT refuses the change).
+      const financialYearStartLocked = (await countPostedJournals(company.id)) > 0;
+      return apiResponse.success(res, { ...company, financialYearStartLocked });
     }
     // Default: only return companies the user belongs to
     const companies = await getUserCompanies(userId);
@@ -111,6 +117,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } catch (err) {
       // updateCompany checks a new entity type's proof (entityTypeChange.ts) before it writes.
       if (err instanceof EntityTypeChangeRefused) return apiResponse.badRequest(res, err.message, { issues: err.issues });
+      // ...and a financial year start change (fiscalYearStartChange.ts), also before it writes.
+      if (err instanceof FinancialYearStartLockedError) {
+        return apiResponse.conflict(res, err.message, { postedJournals: err.postedJournals });
+      }
+      if (err instanceof FiscalPeriodsInUseError) return apiResponse.conflict(res, err.message, { references: err.references });
+      if (err instanceof InvalidFinancialYearStartError || err instanceof FinancialYearStartScopeError) {
+        return apiResponse.badRequest(res, err.message);
+      }
       throw err;
     }
   }
