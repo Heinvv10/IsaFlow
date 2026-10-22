@@ -19,7 +19,7 @@ import '@/lib/pgTypes';
 /**
  * The service pool's URL (S-07b). This pool serves every statement with no
  * request transaction (crons, after-commit work, public routes, login), so in
- * production it logs in as isaflow_service (migration 910), not as the request
+ * production it logs in as isaflow_service (migration 915), not as the request
  * pools' isaflow_app. Falls back to DATABASE_URL until the env names it.
  */
 function serviceDatabaseUrl(): string {

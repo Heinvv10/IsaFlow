@@ -2,7 +2,7 @@
  * The memoised pool on MIGRATION_ADMIN_DATABASE_URL (BYPASSRLS, not the table
  * owner), for the two invite-accept routes. They write a membership for a
  * user who is not yet a member: no app_user or app_service policy and guard
- * admits that write, by design (S-07b, migration 911), so it runs on this
+ * admits that write, by design (S-07b, migration 916), so it runs on this
  * role from fixed, parameterised statements and never from the app pools.
  */
 import pg from 'pg';

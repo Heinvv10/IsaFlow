@@ -1,6 +1,6 @@
 /**
  * Fixture for the s07b-app-pool-login-role*.int.test.ts suites: real logins as
- * the app's login roles (migrations 910, 911), one tenant pair seeded per
+ * the app's login roles (migrations 915, 916), one tenant pair seeded per
  * file, and probes that report how a statement was refused.
  *
  * The roles must be reached by a real LOGIN, not `options=-c role=X` on the
@@ -19,7 +19,7 @@ import { pool as fixture, urlAsRole } from './s07-users-privilege-columns.helper
 
 export { fixture };
 
-/** The login roles migration 910 creates, and the pool each one serves. */
+/** The login roles migration 915 creates, and the pool each one serves. */
 export type LoginRole = 'isaflow_app' | 'isaflow_service';
 
 export const CRON = 's07b-cron-secret-0123456789abcdef0123456789';

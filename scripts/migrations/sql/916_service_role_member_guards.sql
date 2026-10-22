@@ -1,8 +1,8 @@
--- Migration 911: the member guards bind app_service as they bind app_user.
+-- Migration 916: the member guards bind app_service as they bind app_user.
 --
--- Audit 2026-10-18 S-07b, after 910. company_users_role_guard and
+-- Audit 2026-10-18 S-07b, after 915. company_users_role_guard and
 -- company_invitations_role_guard (883, 886) apply their rules only when
--- current_user = 'app_user' and let every other role through. 910's
+-- current_user = 'app_user' and let every other role through. 915's
 -- isaflow_service pool runs as itself (inheriting app_service, which inherits
 -- app_user), so it was let through: with no claims at all it could add a
 -- super_admin member, move a membership, remove a company's last owner, or
@@ -52,7 +52,7 @@ BEGIN
     CONTINUE WHEN v_src ~ $b$pg_has_role\(current_user,\s*'app_service'$b$;
     v_hits := (pg_catalog.length(v_src) - pg_catalog.length(pg_catalog.replace(v_src, v_old, ''))) / pg_catalog.length(v_old);
     IF v_hits <> 1 THEN
-      RAISE EXCEPTION '911: % holds the exemption line % time(s), expected exactly once; merge the app_service binding by hand', v_fn, v_hits;
+      RAISE EXCEPTION '916: % holds the exemption line % time(s), expected exactly once; merge the app_service binding by hand', v_fn, v_hits;
     END IF;
     -- CREATE OR REPLACE keeps the owner, the grants and the triggers.
     EXECUTE pg_catalog.replace(pg_catalog.pg_get_functiondef(v_fn), v_old, v_new);
@@ -76,7 +76,7 @@ DO $$
 BEGIN
   IF pg_catalog.to_regclass('public.accounting_settings') IS NOT NULL
      AND EXISTS (SELECT 1 FROM public.accounting_settings WHERE company_id IS NULL) THEN
-    RAISE EXCEPTION '911: accounting_settings holds rows with no company_id; under security_invoker app_settings would hide them from every request. Assign or remove them first.';
+    RAISE EXCEPTION '916: accounting_settings holds rows with no company_id; under security_invoker app_settings would hide them from every request. Assign or remove them first.';
   END IF;
   IF pg_catalog.to_regclass('public.clients') IS NOT NULL THEN
     ALTER VIEW public.clients SET (security_invoker = true);
@@ -115,7 +115,7 @@ BEGIN
   FOR r IN SELECT p.oid::regprocedure AS f FROM pg_catalog.pg_proc p
             WHERE p.prosrc ~* $re$(current_user|current_role|session_user|user)(\s*::\s*\w+)?\s*(<>|!=|is\s+distinct\s+from)\s*'app_user'(\s*::\s*\w+)?\s*(then|\))$re$
                OR p.prosrc ~* $re$'app_user'(\s*::\s*\w+)?\s*(<>|!=|is\s+distinct\s+from)\s*(current_user|current_role|session_user|user)(\s*::\s*\w+)?\s*(then|\))$re$ LOOP
-    RAISE EXCEPTION '911: % exempts every role but app_user; app_service must take the same rules', r.f;
+    RAISE EXCEPTION '916: % exempts every role but app_user; app_service must take the same rules', r.f;
   END LOOP;
   FOR r IN SELECT p.oid::regprocedure AS f FROM pg_catalog.pg_proc p
              JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
@@ -123,7 +123,7 @@ BEGIN
               AND pg_catalog.has_function_privilege('app_user', p.oid, 'EXECUTE')
               AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(COALESCE(p.proconfig, '{}')) c
                                WHERE c ~ '^search_path=.*pg_temp"?$') LOOP
-    RAISE EXCEPTION '911: definer function % runs for app_user without pg_temp last on its search_path', r.f;
+    RAISE EXCEPTION '916: definer function % runs for app_user without pg_temp last on its search_path', r.f;
   END LOOP;
   -- A view runs as its owner unless security_invoker is set; an owner that
   -- bypasses RLS turns any view app_user may use into a cross-tenant table.
@@ -134,19 +134,19 @@ BEGIN
               AND (o.rolsuper OR o.rolbypassrls)
               AND pg_catalog.has_table_privilege('app_user', c.oid, 'SELECT, INSERT, UPDATE, DELETE')
               AND NOT COALESCE(c.reloptions && ARRAY['security_invoker=true', 'security_invoker=on', 'security_invoker=1'], false) LOOP
-    RAISE EXCEPTION '911: view % runs as an RLS-bypassing owner and app_user may use it; set security_invoker', r.v;
+    RAISE EXCEPTION '916: view % runs as an RLS-bypassing owner and app_user may use it; set security_invoker', r.v;
   END LOOP;
   FOR r IN SELECT rolname FROM pg_catalog.pg_roles
             WHERE pg_catalog.pg_has_role('isaflow_app', oid, 'MEMBER')
                OR pg_catalog.pg_has_role('isaflow_service', oid, 'MEMBER') LOOP
     IF pg_catalog.has_table_privilege(r.rolname, 'public.schema_migrations', 'INSERT, UPDATE, DELETE, TRUNCATE') THEN
-      RAISE EXCEPTION '911: % (reachable from an app pool) can still write schema_migrations', r.rolname;
+      RAISE EXCEPTION '916: % (reachable from an app pool) can still write schema_migrations', r.rolname;
     END IF;
   END LOOP;
   -- The runner applying this file records it, and every later one, in
   -- schema_migrations: refuse the migration rather than a deploy whose own
   -- write was taken away with app_user's (blind review r2).
   IF NOT pg_catalog.has_table_privilege(current_user, 'public.schema_migrations', 'INSERT, UPDATE') THEN
-    RAISE EXCEPTION '911: % (running this migration) could no longer record migrations', current_user;
+    RAISE EXCEPTION '916: % (running this migration) could no longer record migrations', current_user;
   END IF;
 END $$;
