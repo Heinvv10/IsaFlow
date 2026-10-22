@@ -45,27 +45,6 @@ async function setSalary(f: SeveranceFixture, year: number, month: number, amoun
     [f.employee, row.component_id, amount, from]);
 }
 
-async function bonus(f: SeveranceFixture, year: number, month: number, amount: number) {
-  const comp = (await pool.query(
-    `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
-     VALUES ($1, $2, '3605', 'earning') RETURNING id`, [f.company, `Bonus ${year}-${month}`])).rows[0]!.id;
-  const from = `${year}-${String(month).padStart(2, '0')}-01`;
-  await pool.query(
-    `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
-     VALUES ($1, $2, $3, $4, ($4::date + INTERVAL '1 month - 1 day')::date)`, [f.employee, comp, amount, from]);
-}
-
-/** Create, calculate and approve the run for (year, month); returns its id and the employee's PAYE. */
-async function payMonth(f: SeveranceFixture, year: number, month: number): Promise<{ id: string; paye: number }> {
-  const made = await f.call(createRun as Route, 'POST', '/api/payroll/runs', undefined, { body: { month, year } });
-  if (made.statusCode !== 201) throw new Error(`create ${year}-${month}: ${made.statusCode} ${JSON.stringify(made.body)}`);
-  const id = String(made.body.data!.id);
-  const calc = await f.call(calculate as Route, 'POST', `/api/payroll/runs/${id}/calculate`, id);
-  if (calc.statusCode !== 200) throw new Error(`calculate: ${calc.statusCode} ${JSON.stringify(calc.body)}`);
-  const ok = await approveRun(f, id);
-  if (ok.statusCode !== 200) throw new Error(`approve ${year}-${month}: ${ok.statusCode} ${JSON.stringify(ok.body)}`);
-  return { id, paye: (await runLine(pool, id, f.employee)).paye };
-}
 
 beforeAll(async () => { await pool.query('SELECT 1'); });
 afterAll(async () => {
