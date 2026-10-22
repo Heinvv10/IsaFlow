@@ -57,6 +57,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     try {
       const emp201 = await generateEMP201(companyId, periodStart, periodEnd);
+      // The saved draft keeps the totals (which include them), not the per-payment breakdown:
+      // submissions are readable by roles that may not see one person's pay.
+      emp201.directivePayments = [];
       const submission = await saveDraftSubmission(
         companyId,
         'EMP201',
