@@ -93,7 +93,7 @@ export async function importCustomers(
       await sql`
         INSERT INTO customers (
           company_id, name, email, phone, vat_number, registration_number,
-          billing_address, contact_person, payment_terms, credit_limit, notes
+          address, contact_person, payment_terms, credit_limit, notes
         ) VALUES (
           ${companyId}::UUID, ${cust.name}, ${cust.email ?? null}, ${cust.phone ?? null},
           ${cust.vatNumber ?? null}, ${cust.registrationNumber ?? null},
@@ -169,10 +169,13 @@ export async function importSuppliers(
         continue;
       }
 
+      // suppliers has `address`, not customers' `billing_address`: naming the
+      // latter failed every new supplier (42703) and, with no savepoint per row,
+      // aborted the request's transaction.
       const [created] = (await sql`
         INSERT INTO suppliers (
           company_id, name, email, phone, vat_number, registration_number,
-          billing_address, contact_person, payment_terms,
+          address, contact_person, payment_terms,
           bank_name, bank_account_number, bank_branch_code, bank_account_type, notes
         ) VALUES (
           ${companyId}::UUID, ${sup.name}, ${sup.email ?? null}, ${sup.phone ?? null},

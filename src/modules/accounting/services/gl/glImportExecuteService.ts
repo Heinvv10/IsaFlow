@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { ImportRow, ImportResult } from './glImportService';
+import { normaliseImportRowDate, type ImportRow, type ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import { journalDayWindowError } from '../../utils/journalDateWindow';
@@ -89,10 +89,12 @@ interface ResolvedGroup {
  */
 export async function importJournalEntries(
   companyId: string,
-  rows: ImportRow[],
+  inputRows: ImportRow[],
   userId: string,
   postImmediately: boolean,
 ): Promise<ImportResult> {
+  // Day-first ISO before grouping and before Postgres reads it (its default DateStyle is month-first).
+  const rows = inputRows.map(normaliseImportRowDate);
   try {
     const accountRows = (await sql`
       SELECT account_code, id
