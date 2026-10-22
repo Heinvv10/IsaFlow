@@ -14,8 +14,8 @@ import { effectiveReadState } from './captureReadState';
  */
 function extractedDataOf(value: unknown): CapturedDocument['extractedData'] {
   if (!value) return null;
-  const parsed = (typeof value === 'string' ? JSON.parse(value) : value) as Record<string, unknown>;
-  return Object.keys(parsed).length > 0 ? (parsed as unknown as CapturedDocument['extractedData']) : null;
+  const parsed = (typeof value === 'string' ? JSON.parse(value) : value) as Record<string, unknown> | null;
+  return parsed && Object.keys(parsed).length > 0 ? (parsed as unknown as CapturedDocument['extractedData']) : null;
 }
 
 export function mapCapturedDocumentRow(row: Record<string, unknown>, now: number = Date.now()): CapturedDocument {
