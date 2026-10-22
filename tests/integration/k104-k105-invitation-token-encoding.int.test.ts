@@ -229,7 +229,8 @@ it('round-2 L2: the SECURITY DEFINER function pins pg_catalog first and is not o
   // a superuser's. Migration 663 pins the catalog and hands ownership to
   // migration_admin, whose rolbypassrls is the only privilege the body needs.
   expect(meta.rows).toEqual([
-    { owner: 'migration_admin', superuser: false, config: ['search_path=pg_catalog, public'] },
+    // 917 (S-07b breaker L1) puts pg_temp last, so a caller's temporary table cannot shadow one either.
+    { owner: 'migration_admin', superuser: false, config: ['search_path=pg_catalog, public, pg_temp'] },
   ]);
 });
 
