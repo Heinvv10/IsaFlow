@@ -86,14 +86,17 @@ export async function lockBatchesBeforeSuppliers<T>(companyId: string, supplierI
 }
 
 /**
- * The batches paying any of `supplierIds`, then those supplier rows (id order, `FOR UPDATE`), as ONE set: for a
- * writer that touches several suppliers in one transaction (the take-on import). Taking each supplier's batches only
- * when its row comes up would lock a batch while holding an earlier supplier, the cycle this file exists to prevent.
+ * The batches paying any of `batchSupplierIds`, then ALL of `supplierIds` (id order, `FOR UPDATE`), as ONE set: for a
+ * writer that touches several suppliers in one transaction (the take-on import). The batches are those of the
+ * suppliers whose bank details may change; every supplier the transaction will write is in `supplierIds`, so two such
+ * writers take the same rows in the same (id) order whatever order their rows are in. Taking each supplier's batches
+ * or row only when its turn comes would lock a batch while holding an earlier supplier, or one supplier while holding
+ * another, the cycles this file exists to prevent.
  */
-export async function lockBatchesThenSupplierSet(companyId: string, supplierIds: readonly string[],
-  statuses: readonly string[] | null): Promise<void> {
+export async function lockBatchesThenSupplierSet(companyId: string, batchSupplierIds: readonly string[],
+  supplierIds: readonly string[], statuses: readonly string[] | null): Promise<void> {
   if (supplierIds.length === 0) return;
-  await lockBatchesBeforeSuppliers(companyId, supplierIds, statuses, () => sql`
+  await lockBatchesBeforeSuppliers(companyId, batchSupplierIds, statuses, () => sql`
     SELECT id FROM suppliers
     WHERE company_id = ${companyId}::UUID AND id = ANY(${supplierIds}::UUID[])
     ORDER BY id FOR UPDATE

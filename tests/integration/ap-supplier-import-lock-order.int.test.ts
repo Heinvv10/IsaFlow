@@ -5,13 +5,32 @@
  * writer (40P01). Contention is rethrown (503), never recorded as a per-row error with the import carrying on, and a
  * row that fails for any other reason leaves the transaction usable. Disposable fixture DB only.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
+
+// Pauses an import after its FIRST row, until a second import has also finished its first row (or 3 s have passed: an
+// import that cannot get past its up-front locks never arrives, which is the point). Off unless a test arms it.
+const barrier = vi.hoisted(() => ({ armed: false, arrived: 0, open: () => {}, opened: Promise.resolve() }));
+vi.mock('@/lib/neon', async (orig) => {
+  const actual = await orig<typeof import('@/lib/neon')>();
+  return {
+    ...actual,
+    withSavepoint: async (name: string, fn: () => Promise<unknown>) => {
+      const out = await actual.withSavepoint(name, fn);
+      if (barrier.armed && name === 'import_supplier_0') {
+        barrier.arrived += 1;
+        if (barrier.arrived >= 2) barrier.open();
+        await Promise.race([barrier.opened, new Promise((res) => setTimeout(res, 3000))]);
+      }
+      return out;
+    },
+  };
+});
 import { importSuppliers } from '@/modules/accounting/services/core/migrationContactService';
 import { createSession } from '@/modules/accounting/services/core/migrationService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser } from './r035-approval.helpers';
-import { cleanupPr5, inRequest, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, inRequest, payCompany, plantBatch, plantSupplier } from './r035-pr5.helpers';
 import { lockOrderKit } from './ap-supplier-batch-lock-order.helpers';
 
 assertDisposable();
@@ -66,6 +85,26 @@ describe('importSuppliers (overwrite)', () => {
       writer.release();
     }
     expect([await accountOf(t.supplier.lo), await accountOf(t.supplier.hi)]).toEqual([NEW_ACCOUNT, NEW_ACCOUNT]);
+  });
+
+  it('two imports with their rows in opposite orders (no bank column) do not deadlock supplier against supplier', async () => {
+    const { company: c } = await payCompany(pool, [[user, 'admin']], companies);
+    const names = ['Alpha Traders', 'Zulu Holdings'];
+    for (const name of names) await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [await plantSupplier(pool, c), name]);
+    const rows = names.map((name) => ({ name, email: 'a@example.com' }));
+    const sessions = [await inRequest(pool, user, c, () => createSession(c, 'sage', user)), await inRequest(pool, user, c, () => createSession(c, 'sage', user))];
+    barrier.armed = true;
+    barrier.arrived = 0;
+    barrier.opened = new Promise<void>((res) => { barrier.open = res; });
+    const results: (Result | undefined)[] = [];
+    try {
+      const outcomes = await Promise.all([rows, [...rows].reverse()].map((r, i) =>
+        startWriter(c, async () => { results[i] = await importSuppliers(c, sessions[i]!.id, r, 'overwrite', user); }).outcome));
+      expect(outcomes).toEqual([{ ok: true }, { ok: true }]);
+      expect(results.map((r) => ({ imported: r?.imported, errors: r?.errors }))).toEqual([{ imported: 2, errors: [] }, { imported: 2, errors: [] }]);
+    } finally {
+      barrier.armed = false;
+    }
   });
 
   it('a held row is rethrown and the whole import rolls back, not recorded as a row error', async () => {
