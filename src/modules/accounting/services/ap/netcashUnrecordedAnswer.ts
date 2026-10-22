@@ -112,7 +112,7 @@ export async function recordUnrecordedAnswer(p: ClaimPrincipal, submissionId: st
  * never carries its settle token (a settle that writes it moves the row out of 'pending'), so a record found for a
  * pending row is by construction one whose answer is not on the row.
  */
-export async function unappliedAcceptedAnswer(companyId: string, submissionId: string): Promise<{ outcome: string; batchReference: string } | null> {
+export async function unappliedAcceptedAnswer(companyId: string, submissionId: string): Promise<{ outcome: string; batchReference: string; file?: string } | null> {
   // The spool FIRST, then audit_log (breaker REPRO-1): a replay in another process commits the audit_log row and only THEN
   // moves the file out of the spool's directory, so a spool read that finds nothing (the file moved to replayed/ already)
   // is followed by an audit_log read that sees the row. Reading audit_log first left a gap where both were empty. The

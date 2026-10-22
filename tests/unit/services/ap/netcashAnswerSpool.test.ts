@@ -11,6 +11,10 @@ import path from 'path';
 
 const logged = vi.hoisted(() => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: logged }));
+// A long write timeout: the stalled-writer test must not race the real 2 s bound on a loaded box (the hang test advances fake timers by it).
+vi.mock('@/modules/accounting/services/ap/netcashTimeouts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/ap/netcashTimeouts')>()), ANSWER_SPOOL_TIMEOUT_MS: 30_000,
+}));
 
 import {
   markReplayed, pendingSpooled, quarantineEntry, spoolAnswer, spooledAcceptedAnswer, spoolDir, sweepStaleTemps, type AnswerRecord,
@@ -126,7 +130,7 @@ describe('spooledAcceptedAnswer (what resolve asks)', () => {
 
   it('a spool entry that cannot be read is treated as an acceptance (fail closed), never skipped', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`), '{"v":1,"companyId":');
+    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`), '{"v":1,"companyId":');
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).not.toBeNull();
   });
 });
@@ -150,7 +154,7 @@ describe('a file is complete or absent (written to a temp name, fsynced, renamed
 
   it('a temp for this submission blocks (fail closed: its write may be in flight or never reached the rename), is never replayed, and unrelated temps do not block', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
-    const tempOf = (sub: string, rand: string) => path.join(spoolDir(), `.${COMPANY}.${sub}.${TOKEN}.jsonl.${rand}.tmp`);
+    const tempOf = (sub: string, rand: string) => path.join(spoolDir(), `.${COMPANY}.${sub}.${TOKEN}.submitted.jsonl.${rand}.tmp`);
     fs.writeFileSync(tempOf('55555555-5555-4555-8555-555555555555', 'aaaa'), '{"v":1,"companyId":');
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toBeNull(); // another submission's temp
     fs.writeFileSync(tempOf(SUBMISSION, 'bbbb'), '{"v":1,"companyId":'); // torn: cannot be judged
@@ -161,29 +165,29 @@ describe('a file is complete or absent (written to a temp name, fsynced, renamed
   it('a COMPLETE temp is judged by what it says: an acceptance blocks, an unknown answer does not', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
     const line = (status: string) => `${JSON.stringify({ v: 1, ...record({ status, outcome: status === 'submitted' ? 'accepted' : 'unknown' }), spooledAt: 'x' })}\n`;
-    const temp = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl.cccc.tmp`);
+    const temp = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl.cccc.tmp`);
     fs.writeFileSync(temp, line('unknown'));
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toBeNull();
     fs.writeFileSync(temp, line('submitted'));
-    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toEqual({ outcome: 'accepted', batchReference: 'NC-SPOOL' });
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toMatchObject({ outcome: 'accepted', batchReference: 'NC-SPOOL', file: path.basename(temp) });
   });
 
   it('a COMPLETE stale temp (crash after fsync, before the rename) is promoted to a final entry - listed for replay, still blocking; an unparseable one goes to quarantine/ and keeps blocking', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
     const line = `${JSON.stringify({ v: 1, ...record(), spooledAt: 'x' })}\n`;
-    const stale = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl.aaaa.tmp`);
-    const fresh = path.join(spoolDir(), `.${COMPANY}.55555555-5555-4555-8555-555555555555.${TOKEN}.jsonl.bbbb.tmp`);
+    const stale = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl.aaaa.tmp`);
+    const fresh = path.join(spoolDir(), `.${COMPANY}.55555555-5555-4555-8555-555555555555.${TOKEN}.submitted.jsonl.bbbb.tmp`);
     fs.writeFileSync(stale, line); fs.writeFileSync(fresh, '{"v":1,"companyId":');
     const old = new Date(Date.now() - 10 * 60_000);
     fs.utimesSync(stale, old, old);
     await sweepStaleTemps();
     expect({ staleGone: !fs.existsSync(stale), freshStays: fs.existsSync(fresh), final: entries(), quarantine: fs.existsSync(path.join(spoolDir(), 'quarantine')) })
-      .toEqual({ staleGone: true, freshStays: true, final: [`${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`], quarantine: false });
+      .toEqual({ staleGone: true, freshStays: true, final: [`${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`], quarantine: false });
     expect((await pendingSpooled()).map((e) => e.entry.submissionId)).toEqual([SUBMISSION]); // replayed like any final entry
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toEqual({ outcome: 'accepted', batchReference: 'NC-SPOOL' });
     // an unparseable one swept the same way is quarantined under a final-style name and stays fail-closed
-    fs.rmSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`));
-    const torn = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl.dddd.tmp`);
+    fs.rmSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`));
+    const torn = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl.dddd.tmp`);
     fs.writeFileSync(torn, '{"v":1,');
     fs.utimesSync(torn, old, old);
     await sweepStaleTemps();
@@ -195,7 +199,7 @@ describe('a file is complete or absent (written to a temp name, fsynced, renamed
 
   it('a FINAL-named entry that cannot be read stays fail-closed, with log.error', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`), '{"v":1,"companyId":');
+    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`), '{"v":1,"companyId":');
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).not.toBeNull();
     expect(logged.error).toHaveBeenCalled();
   });
@@ -219,14 +223,83 @@ describe('pendingSpooled reads only what the caller will use', () => {
   });
 });
 
+describe('the answer\'s status is in the file name: a torn file of a never-sent answer does not block', () => {
+  const dirp = () => { fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 }); return spoolDir(); };
+  const torn = '{"v":1,"companyId":';
+
+  it('torn: a name saying failed/unknown does not block; one saying submitted, or one with no status, does - and says which file', async () => {
+    for (const st of ['failed', 'unknown']) {
+      fs.writeFileSync(path.join(dirp(), `${COMPANY}.${SUBMISSION}.${TOKEN}.${st}.jsonl`), torn);
+      expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toBeNull();
+      fs.rmSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.${st}.jsonl`));
+    }
+    fs.writeFileSync(path.join(dirp(), `${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`), torn);
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toMatchObject({ file: `${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl` });
+    fs.rmSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`));
+    fs.writeFileSync(path.join(dirp(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`), torn); // no status in the name: cannot tell
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).not.toBeNull();
+  });
+
+  it('a stale torn temp keeps its status through the sweep: a failed one stays non-blocking in quarantine/, a submitted one keeps blocking, and quarantined files are named', async () => {
+    const old = new Date(Date.now() - 10 * 60_000);
+    for (const st of ['failed', 'submitted']) {
+      const t = path.join(dirp(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.${st}.jsonl.aaaa.tmp`);
+      fs.writeFileSync(t, torn); fs.utimesSync(t, old, old);
+      await sweepStaleTemps();
+      const blocked = await spooledAcceptedAnswer(COMPANY, SUBMISSION);
+      if (st === 'failed') expect(blocked).toBeNull(); else expect(blocked?.file).toMatch(/\.stale\.jsonl$/);
+      fs.rmSync(path.join(spoolDir(), 'quarantine'), { recursive: true });
+    }
+  });
+
+  it('a quarantined readable acceptance names its file too', async () => {
+    await spoolAnswer(record());
+    const [e] = await pendingSpooled();
+    await quarantineEntry(e!.file);
+    expect((await spooledAcceptedAnswer(COMPANY, SUBMISSION))?.file).toBe(path.basename(e!.file));
+  });
+});
+
+describe('a slow writer whose temp the sweep reaches first', () => {
+  /** spoolAnswer with its rename held until `release()`: a writer stalled after the fsync. */
+  function stalledRename() {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const real = fs.promises.rename.bind(fs.promises);
+    let held = false;
+    vi.spyOn(fs.promises, 'rename').mockImplementation(async (from, to) => {
+      if (!held && String(from).endsWith('.tmp')) { held = true; await gate; } // only the writer's own rename (it is first)
+      return real(from, to);
+    });
+    return release;
+  }
+
+  it('temp complete and stale: the sweep promotes it; the writer\'s own rename then finds it gone - ONE final entry, nothing lost, and the writer is told it was spooled', async () => {
+    const release = stalledRename();
+    const writing = spoolAnswer(record());
+    const tempNow = () => (fs.existsSync(spoolDir()) ? fs.readdirSync(spoolDir()).find((f) => f.endsWith('.tmp')) : undefined);
+    for (let i = 0; i < 500 && !tempNow(); i++) await new Promise((r) => setTimeout(r, 10)); // the writer reaches its (held) rename
+    const temp = tempNow()!;
+    expect(temp).toBeTruthy();
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(path.join(spoolDir(), temp), old, old);
+    await sweepStaleTemps();
+    release();
+    expect(await writing).toBe(true);
+    expect({ finals: entries(), temps: fs.readdirSync(spoolDir()).filter((f) => f.endsWith('.tmp')), pending: (await pendingSpooled()).length })
+      .toEqual({ finals: [`${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`], temps: [], pending: 1 });
+    expect(JSON.parse(fs.readFileSync(path.join(spoolDir(), entries()[0]!), 'utf8')).metadata.batchReference).toBe('NC-SPOOL');
+  });
+});
+
 describe('an unreadable entry is reported once per process, not on every replay', () => {
   it('pendingSpooled (every submit) and the resolve lookup log.error a torn final-named file ONCE; a second bad file is its own report', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`), '{"v":1,"companyId":');
+    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`), '{"v":1,"companyId":');
     for (let i = 0; i < 4; i++) await pendingSpooled();
     await spooledAcceptedAnswer(COMPANY, SUBMISSION);
     expect(logged.error).toHaveBeenCalledTimes(1);
-    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.55555555-5555-4555-8555-555555555555.${TOKEN}.jsonl`), 'not json');
+    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.55555555-5555-4555-8555-555555555555.${TOKEN}.submitted.jsonl`), 'not json');
     for (let i = 0; i < 3; i++) await pendingSpooled();
     expect(logged.error).toHaveBeenCalledTimes(2);
   });
@@ -277,6 +350,6 @@ describe('pendingSpooled / markReplayed / quarantineEntry', () => {
     await quarantineEntry(entry!.file);
     expect(await pendingSpooled()).toEqual([]);
     expect(fs.readdirSync(path.join(spoolDir(), 'quarantine'))).toHaveLength(1);
-    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toEqual({ outcome: 'accepted', batchReference: 'NC-SPOOL' });
+    expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).toEqual({ outcome: 'accepted', batchReference: 'NC-SPOOL', file: path.basename(entry!.file) });
   });
 });

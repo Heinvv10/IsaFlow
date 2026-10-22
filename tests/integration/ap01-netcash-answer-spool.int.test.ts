@@ -176,7 +176,7 @@ describe('an accepted answer that not even audit_log could record survives on lo
     // The bad entry sorts BEFORE the good one (renamed to start with 'z'): the old replay stopped at it and never reached the good one.
     const goodFile = spoolFiles('.jsonl')[0]!;
     fs.renameSync(path.join(spool, 'spool', goodFile), path.join(spool, 'spool', `zz-${goodFile}`));
-    fs.writeFileSync(path.join(spool, 'spool', `${bad.c}.${badSub}.${token}.jsonl`), `${JSON.stringify({
+    fs.writeFileSync(path.join(spool, 'spool', `${bad.c}.${badSub}.${token}.submitted.jsonl`), `${JSON.stringify({
       v: 1, companyId: bad.c, userId: crypto.randomUUID(), sub: admin, submissionId: badSub, entityRef: 'NC-BAD',
       metadata: { status: 'submitted', outcome: 'accepted', batchReference: 'NC-BAD', settleToken: token, answer: '{}' }, spooledAt: new Date().toISOString(),
     })}\n`);
@@ -282,6 +282,33 @@ describe('an accepted answer that not even audit_log could record survives on lo
     expect({ audit: (await auditRows(id)).length, replayed: spoolFiles('.replayed').length }).toEqual({ audit: 1, replayed: 1 });
   }, 60_000);
 
+  it('REPRO-4 (breaker): a torn STALE temp of a never-sent answer does not block "failed"; a torn one of a submitted answer does, and the 409 names the file and the manual step', async () => {
+    const a = await fresh();
+    const aSub = (await pool.query(
+      `INSERT INTO netcash_submissions (company_id, submission_type, batch_reference, total_amount_cents, record_count, status, created_by, created_at)
+       VALUES ($1, 'eft_payment', 'BAT-X', 100, 1, 'pending', 'x', NOW() - INTERVAL '3 minutes') RETURNING id`, [a.c])).rows[0].id as string;
+    fs.mkdirSync(path.join(spool, 'spool'), { recursive: true });
+    const old = new Date(Date.now() - 10 * 60_000);
+    const tornTemp = (status: string, sub: string) => {
+      const t = path.join(spool, 'spool', `.${a.c}.${sub}.${crypto.randomUUID()}.${status}.jsonl.${crypto.randomUUID().slice(0, 8)}.tmp`);
+      fs.writeFileSync(t, '{"v":1,"companyId":'); fs.utimesSync(t, old, old);
+    };
+    tornTemp('failed', aSub); // crash mid-write of a FAILED answer: nothing was ever sent
+    const first = await resolveAfterRestart(a.c, aSub);
+    expect({ http: first.state.statusCode, status: await status(aSub) }).toEqual({ http: 200, status: 'failed' });
+
+    const bSub = (await pool.query(
+      `INSERT INTO netcash_submissions (company_id, submission_type, batch_reference, total_amount_cents, record_count, status, created_by, created_at)
+       VALUES ($1, 'eft_payment', 'BAT-Y', 100, 1, 'pending', 'x', NOW() - INTERVAL '3 minutes') RETURNING id`, [a.c])).rows[0].id as string;
+    tornTemp('submitted', bSub);
+    const blocked = await resolveAfterRestart(a.c, bSub); // its replay sweeps it to quarantine/
+    const again = await resolveAfterRestart(a.c, bSub);
+    const text = JSON.stringify(blocked.state.body);
+    expect({ http: blocked.state.statusCode, reason: reason(blocked), again: again.state.statusCode, status: await status(bSub),
+      names: /\.stale\.jsonl/.test(text), step: /move that file out of the (answer )?spool directory/i.test(text) })
+      .toEqual({ http: 409, reason: 'ANSWER_PENDING_RECORD', again: 409, status: 'pending', names: true, step: true });
+  }, 60_000);
+
   it('a replay is bounded per call: maxEntries leaves the rest for the next call', async () => {
     const { id } = await acceptedAndNothingRecorded(); // one real entry...
     const [name] = spoolFiles('.jsonl');
@@ -290,7 +317,7 @@ describe('an accepted answer that not even audit_log could record survives on lo
       const token = crypto.randomUUID();
       const e = JSON.parse(entry) as { companyId: string; submissionId: string; metadata: Record<string, string> };
       e.metadata.settleToken = token;
-      fs.writeFileSync(path.join(spool, 'spool', `${e.companyId}.${e.submissionId}.${token}.jsonl`), `${JSON.stringify(e)}\n`);
+      fs.writeFileSync(path.join(spool, 'spool', `${e.companyId}.${e.submissionId}.${token}.submitted.jsonl`), `${JSON.stringify(e)}\n`);
     }
     const { replaySpooledAnswers } = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
     const moved = await replaySpooledAnswers({ maxEntries: 1 });
@@ -336,7 +363,7 @@ describe('an accepted answer that not even audit_log could record survives on lo
     const spoolEntry = (companyId: string, submissionId: string, st: string) => {
       fs.mkdirSync(path.join(spool, 'spool'), { recursive: true });
       const token = crypto.randomUUID();
-      fs.writeFileSync(path.join(spool, 'spool', `${companyId}.${submissionId}.${token}.jsonl`), `${JSON.stringify({
+      fs.writeFileSync(path.join(spool, 'spool', `${companyId}.${submissionId}.${token}.${st}.jsonl`), `${JSON.stringify({
         v: 1, companyId, userId: admin, sub: admin, submissionId, entityRef: 'NC-OTHER',
         metadata: { status: st, outcome: st === 'submitted' ? 'accepted' : 'unknown', batchReference: 'NC-OTHER', settleToken: token, answer: '{}' }, spooledAt: new Date().toISOString(),
       })}\n`);
