@@ -59,8 +59,9 @@ export interface BillCandidate extends DbRow {
   already_allocated: string | number | null;
 }
 
+/** Two decimals the way the column rounds (`toCents`), so the figure planned is the figure stored. */
 export function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+  return toCents(n) / 100;
 }
 
 /**
