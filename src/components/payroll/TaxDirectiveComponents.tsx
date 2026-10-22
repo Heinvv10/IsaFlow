@@ -56,7 +56,9 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
         ...form,
         amount: parseFloat(form.amount),
         tax_rate: form.tax_rate ? parseFloat(form.tax_rate) / 100 : undefined,
+        // A blank date input is '', which the DATE columns refuse (expiry_date was a 500 on every create without one).
         issued_date: form.issued_date || undefined,
+        expiry_date: form.expiry_date || undefined,
       };
       const res = await apiFetch('/api/accounting/tax-directives', {
         method: 'POST',
