@@ -47,6 +47,8 @@ const GUARD_OFF = [
   /\b(?:drop|alter)\s+trigger\b[^;]*\bcompany_(?:users|invitations)_role_guard\b/i,
   /\b(?:create\s+(?:or\s+replace\s+)?|alter\s+|drop\s+)function\s+(?:if\s+exists\s+)?(?:"?public"?\.)?"?(?:company_users_role_guard|company_invitations_role_guard|company_member_actor_role|company_member_role_is_owner)\b/i,
   /\balter\s+table\s+(?:only\s+)?(?:if\s+exists\s+)?(?:"?public"?\.)?"?company_(?:users|invitations)"?\b/i,
+  // A guard rewritten from its own definition at apply time (911) names neither CREATE nor the function together.
+  /\bpg_get_functiondef\b[\s\S]*\bcompany_(?:users|invitations)_role_guard\b|\bcompany_(?:users|invitations)_role_guard\b[\s\S]*\bpg_get_functiondef\b/i,
 ];
 const GRANTED = [
   /\bgrant\b[^;]*\bon\s+(?:table\s+)?(?:[\w".\s]+,\s*)*(?:"?public"?\.)?"?company_(?:users|invitations)\b[^;]*\bto\b/i,
@@ -99,7 +101,8 @@ const KNOWN_WRITERS = [
  * set_default_company (is_default only); 662 expires stale invitations once.
  * After: 886 re-writes both guards and adds their owner predicate (PR #691
  * review round 5, PR #693 reviews), read as 883 was; 911 re-writes them so
- * app_service (S-07b's service pool) takes app_user's rules, read as 886 was.
+ * app_service (S-07b's service pool) takes app_user's rules, patching the
+ * exemption line in place (pg_get_functiondef), read as 886 was.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -167,6 +170,7 @@ describe('the census detects (counterexamples)', () => {
     'GRANT INSERT ON public.company_invitations TO anon;',
     'GRANT ALL ON ALL TABLES IN SCHEMA public TO app_user;',
     'GRANT migration_admin TO platform_admin;',
+    "DO $$ BEGIN EXECUTE replace(pg_get_functiondef('public.company_users_role_guard()'::regprocedure), 'x', 'y'); END $$;",
   ])('a later migration: %s', (stmt) => {
     expect(migrationViolations(stmt)).not.toEqual([]);
   });

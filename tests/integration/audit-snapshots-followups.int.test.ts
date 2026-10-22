@@ -207,6 +207,13 @@ describe('migration 893', { timeout: 120_000 }, () => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      // 893's check predates S-07b: 910 gives app_service (the service pool, which serves the public audit-portal
+      // download) a SELECT policy of its own on these tables. Set those aside to judge app_user's read policy.
+      await client.query(`DO $d$ DECLARE t text; BEGIN
+        FOREACH t IN ARRAY ARRAY['audit_check_runs','audit_check_results','audit_snapshots','audit_snapshot_tb',
+          'audit_snapshot_journals','audit_snapshot_lines'] LOOP
+          EXECUTE format('DROP POLICY IF EXISTS app_service_select ON public.%I', t);
+        END LOOP; END $d$`);
       await client.query(check);
       await client.query('DROP POLICY audit_snapshot_lines_read ON public.audit_snapshot_lines');
       await client.query('CREATE POLICY audit_snapshot_lines_read ON public.audit_snapshot_lines FOR SELECT TO app_user USING (true)');
