@@ -62,6 +62,17 @@
 -- Refusal codes: 883/886's RC001–RC009 and 40001, plus RC010 (B) and RC011 (A).
 -- (B runs after RC004, so an app_user move of an owner row is still RC004.)
 
+-- S-07b (911, another branch) binds app_service in this same function. If it
+-- is already applied here, replacing the body below would silently drop that
+-- binding: refuse, so the two are merged by hand instead.
+DO $$
+BEGIN
+  IF pg_catalog.strpos((SELECT p.prosrc FROM pg_catalog.pg_proc p
+                        WHERE p.oid = 'public.company_users_role_guard()'::pg_catalog.regprocedure), 'app_service') > 0 THEN
+    RAISE EXCEPTION 'migration 908b: company_users_role_guard() already binds app_service (S-07b, 911); merge 908b''s rules into it instead of replacing it';
+  END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION public.company_users_role_guard() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
