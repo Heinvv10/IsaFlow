@@ -81,6 +81,21 @@ describe('G1 edges', () => {
     expect((await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee })).rows).toEqual([]);
   });
 
+  it('a payment whose reversal is only a draft still stands: it is not released', async () => {
+    const f = await leaverPaidOutsidePayroll('P3fu draft reversal');
+    const d = await approvedDirective(f, 40_000, 0.2, '2026-04-01', '4440001114');
+    expect((await applyStandalone(f, d, '2026-04-10')).statusCode).toBe(200);
+    const journal = String((await directivePayments(pool, d))[0]!.journal_entry_id);
+    // A reversal drafted but not posted: the chain is 'unclear', not 'out'.
+    await pool.query('UPDATE gl_journal_entries SET reversed_at = NOW() WHERE id = $1', [journal]);
+    await pool.query(
+      `INSERT INTO gl_journal_entries (company_id, entry_date, description, status, source, reversal_of_id, created_by)
+       VALUES ($1, '2026-04-11', 'Draft reversal', 'draft', 'auto_payroll', $2, $3)`, [f.company, journal, f.admin]);
+    const { releaseReversedStandalonePayment } = await import('@/modules/accounting/services/payroll/taxDirectivePaidGuard');
+    await releaseReversedStandalonePayment(f.company, null);
+    expect(await directivePayments(pool, d)).toHaveLength(1);
+  });
+
   it('a payment under a directive linked to no employee is warned about by name, first, and the warnings are capped by size', async () => {
     const f = await leaverPaidOutsidePayroll('P3fu warnings');
     // Twelve stand-alone payments under directives with no issued date: twelve 3231 fallbacks.

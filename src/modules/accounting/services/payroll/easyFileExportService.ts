@@ -195,7 +195,8 @@ function assertUnderThreshold(emp: EmployeeInput): void {
     + (emp.taxThreshold == null
       ? 'and the tax threshold is not known (capture the employee\'s date of birth or ID number: the threshold depends on age), '
       : `which is above the tax threshold of R${emp.taxThreshold.toFixed(2)}, `)
-    + 'so no reason for non-deduction (4150) can be stated: 02 is only for income under the threshold, and 08 (medical credits) '
+    + ((emp.lumpSums ?? []).length > 0 ? 'beside a nil-tax directive, ' : '')
+    + 'so no reason for non-deduction (4150) can be stated: 02 and 04 are only for pay under the threshold, and 08 (medical credits) '
     + 'needs code 4116, which this file does not produce. Check the payroll, or file this certificate by hand.');
 }
 
