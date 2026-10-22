@@ -9,7 +9,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withAdmin } from '@/modules/admin/middleware/withAdmin';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { resetOnboarding } from '@/modules/admin/services/adminUserActionsService';
+import { resetOnboarding, SoleOwnerError } from '@/modules/admin/services/adminUserActionsService';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
 
@@ -32,6 +32,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, { reset: true });
     } catch (err) {
+      // A company's only owner (migration 909): nothing was reset.
+      if (err instanceof SoleOwnerError) return apiResponse.conflict(res, err.message);
       log.error('Failed to reset onboarding', { userId, error: err }, 'admin-api');
       return apiResponse.badRequest(res, 'Failed to reset onboarding');
     }

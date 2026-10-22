@@ -4,9 +4,10 @@
  * Runs on the platform_admin pool inside withPlatformAdmin's request
  * transaction, so the row lock and the advisory lock below hold until COMMIT.
  * Migration 883's trigger already refuses a portal grant outside
- * ALLOWED_COMPANY_ROLES (never `owner`); it keeps no last-owner rule for the
- * portal, so that rule lives here (Hein, 2026-10-16): the portal never demotes
- * or removes a company's last owner. Linking never changes an existing link
+ * ALLOWED_COMPANY_ROLES (never `owner`). The portal never demotes or removes a
+ * company's last owner (Hein, 2026-10-16): checked here first, for the
+ * message, and since migration 909 by the trigger too (RC011), which this
+ * service answers as the same LAST_OWNER refusal. Linking never changes an existing link
  * (it used to upsert the role, which demoted an owner unchecked); the role is
  * changed only through setUserCompanyRole.
  *
@@ -23,7 +24,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { ErrorCode } from '@/lib/apiResponse';
-import { ALLOWED_COMPANY_ROLES } from './adminUserActionsService';
+import { ALLOWED_COMPANY_ROLES, ONLY_OWNER_MESSAGE, isOnlyOwnerRefusal } from './adminUserActionsService';
 
 export type CompanyMembershipErrorCode = 'NOT_FOUND' | 'LAST_OWNER' | 'INVALID_ROLE' | 'ALREADY_LINKED';
 
@@ -41,6 +42,16 @@ export const MEMBERSHIP_ERROR_CODE: Record<CompanyMembershipErrorCode, ErrorCode
 };
 
 const isOwner = (role: string) => role.trim().toLowerCase() === 'owner';
+
+/** `write`, with the trigger's last-owner refusal (a write that raced the check below) answered as LAST_OWNER. */
+async function lastOwnerGuarded(write: Promise<unknown>): Promise<void> {
+  try {
+    await write;
+  } catch (err) {
+    if (isOnlyOwnerRefusal(err)) throw new CompanyMembershipError('LAST_OWNER', ONLY_OWNER_MESSAGE);
+    throw err;
+  }
+}
 
 function assertGrantable(role: string): void {
   if (!ALLOWED_COMPANY_ROLES.includes(role)) {
@@ -70,7 +81,7 @@ async function lockMembership(userId: string, companyId: string): Promise<string
 }
 
 /** Throws LAST_OWNER when no OTHER person owns the company (counted as migration 883 counts). */
-async function assertAnotherOwner(userId: string, companyId: string, refusal: string): Promise<void> {
+async function assertAnotherOwner(userId: string, companyId: string): Promise<void> {
   // The count below sees a racing demotion only because each statement takes a
   // fresh snapshot after the lock: READ COMMITTED. Refuse to judge under any other.
   const iso = await sql<{ level: string }>`SELECT current_setting('transaction_isolation') AS level`;
@@ -83,7 +94,7 @@ async function assertAnotherOwner(userId: string, companyId: string, refusal: st
     WHERE company_id = ${companyId}::uuid AND lower(btrim(role)) = 'owner'
       AND lower(user_id::text) <> lower(${userId})
   `;
-  if ((rows[0]?.n ?? 0) === 0) throw new CompanyMembershipError('LAST_OWNER', refusal);
+  if ((rows[0]?.n ?? 0) === 0) throw new CompanyMembershipError('LAST_OWNER', ONLY_OWNER_MESSAGE);
 }
 
 /** Link a user to a company. An existing link is refused (ALREADY_LINKED), never re-roled. */
@@ -115,12 +126,12 @@ export async function addUserToCompany(userId: string, companyId: string, role: 
 export async function removeUserFromCompany(userId: string, companyId: string): Promise<{ previousRole: string }> {
   const previousRole = await lockMembership(userId, companyId);
   if (isOwner(previousRole)) {
-    await assertAnotherOwner(userId, companyId, 'Cannot remove the last owner of the company');
+    await assertAnotherOwner(userId, companyId);
   }
-  await sql`
+  await lastOwnerGuarded(sql`
     DELETE FROM company_users
     WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
-  `;
+  `);
   log.info('removeUserFromCompany', { userId, companyId, previousRole }, 'AdminCompanyMembership');
   return { previousRole };
 }
@@ -135,12 +146,12 @@ export async function setUserCompanyRole(
   const previousRole = await lockMembership(userId, companyId);
   if (previousRole === role) return { previousRole, changed: false };
   if (isOwner(previousRole)) {
-    await assertAnotherOwner(userId, companyId, "Cannot change role: this is the company's last owner");
+    await assertAnotherOwner(userId, companyId);
   }
-  await sql`
+  await lastOwnerGuarded(sql`
     UPDATE company_users SET role = ${role}
     WHERE lower(user_id::text) = lower(${userId}) AND company_id = ${companyId}::uuid
-  `;
+  `);
   log.info('setUserCompanyRole', { userId, companyId, previousRole, role }, 'AdminCompanyMembership');
   return { previousRole, changed: true };
 }
