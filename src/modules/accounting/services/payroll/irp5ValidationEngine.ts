@@ -13,6 +13,8 @@ import {
   categoryToComponentType,
 } from '@/modules/accounting/services/payroll/sarsCodesService';
 
+import { PAYE_4115_CODES } from './payrollLumpSumFiling';
+
 export type ValidationSeverity = 'error' | 'warning' | 'info';
 
 export interface ValidationMessage {
@@ -228,7 +230,6 @@ export async function validateEmployeeIrp5(
   return msgs;
 }
 
-const LUMP_SUM_4115_CODES = ['3901', '3951', '3915', '3920', '3921', '3922', '3923', '3924'];
 
 /**
  * The certificate-type and tax-field rules of one e@syFile employee record
@@ -261,7 +262,7 @@ export function validateCertificateTaxFields(lines: string[]): ValidationMessage
     err('IRP5_NO_TAX', 'An IRP5 needs 4101, 4102 or 4115 above nil; a certificate with no tax deducted is an IT3(a).');
   }
   if (reason != null) err('IRP5_WITH_REASON_CODE', 'An IRP5 must not carry a reason code (4150).');
-  if (LUMP_SUM_4115_CODES.some(c => field.has(c)) && !field.has('4115')) {
+  if ([...PAYE_4115_CODES].some(c => field.has(c)) && !field.has('4115')) {
     err('LUMP_SUM_WITHOUT_4115', 'A lump sum under 3901, 3915 or 3920-3924 needs its PAYE under 4115 (0.00 if nil).');
   }
   return msgs;
