@@ -137,16 +137,20 @@ export async function importSuppliers(
   const existing = existingRows.map(r => ({ id: String(r.id), name: String(r.name) }));
 
   // Batch before supplier, for the WHOLE import (bank/.claude.md): a row's supplier lock is held to the end of the
-  // request, so locking the next row's batches after it would take a batch while holding a supplier. Every
-  // overwritten supplier that may change a bank detail has its batches locked first, then the rows, in id order.
+  // request, so locking the next row's batches or supplier after it would take one while holding another, and two
+  // imports with their rows in opposite orders would deadlock. Every overwritten supplier, bank column or not, is
+  // locked up front in id order; the batches of those that may change a bank detail first.
   if (duplicateStrategy === 'overwrite') {
-    const targets = new Set<string>();
+    const overwritten = new Set<string>();
+    const bankChanging = new Set<string>();
     for (const sup of suppliers) {
-      if (!sup.name?.trim() || ![sup.bankName, sup.bankAccountNumber, sup.bankBranchCode, sup.bankAccountType].some((x) => x != null)) continue;
+      if (!sup.name?.trim()) continue;
       const duplicate = findDuplicate(sup.name, existing);
-      if (duplicate) targets.add(duplicate.id);
+      if (!duplicate) continue;
+      overwritten.add(duplicate.id);
+      if ([sup.bankName, sup.bankAccountNumber, sup.bankBranchCode, sup.bankAccountType].some((x) => x != null)) bankChanging.add(duplicate.id);
     }
-    await lockBatchesThenSupplierSet(companyId, [...targets], STAMPED_BATCH_STATUSES);
+    await lockBatchesThenSupplierSet(companyId, [...bankChanging], [...overwritten], STAMPED_BATCH_STATUSES);
   }
 
   for (let i = 0; i < suppliers.length; i++) {

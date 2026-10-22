@@ -151,10 +151,21 @@ describe('who changes where the money goes', () => {
     ]);
     for (const rel of editors) {
       const t = text(rel);
-      expect(t, rel).toMatch(/const before = await lockSupplierBankDetails\(companyId, [\w.]+, (bankMayChange|false)\);\s+const (rows|\[after\]) = \(await sql`\s+UPDATE suppliers SET/);
+      // The take-on import locks every overwritten supplier (and its batches) up front, so its per-row call passes a literal
+      // false; updateSupplier decides per write.
+      const arg = rel.endsWith('migrationContactService.ts') ? 'false' : 'bankMayChange';
+      expect(t, rel).toMatch(new RegExp(String.raw`const before = await lockSupplierBankDetails\(companyId, [\w.]+, ${arg}\);\s+const (rows|\[after\]) = \(await sql\x60\s+UPDATE suppliers SET`));
       expect(t, rel).toMatch(/bankDetailsChange\(before, (rows\[0\]!|after)\)/);
       expect(t, rel).toMatch(/if \(change !== 'none'\) await recordBankDetailsSetter\(companyId, [\w.]+, \w+, change\)/);
     }
+  });
+
+  // A literal `false` tells lockSupplierBankDetails no batch need locking first: right only where the caller already
+  // locked every batch of every supplier it writes, up front (the take-on import).
+  it('a literal false bankMayChange is passed only by the take-on import', () => {
+    expect(matching(/lockSupplierBankDetails\(\s*\w+,\s*[\w.]+,\s*false\s*\)/)).toEqual([
+      'src/modules/accounting/services/core/migrationContactService.ts',
+    ]);
   });
 
   // Decision (b): a supplier CREATED with bank details records its creator as their setter.
@@ -185,7 +196,7 @@ describe('who changes where the money goes', () => {
 // supplier-then-batch order against the bank-file gate.
 describe('batch membership', () => {
   const filesWhere = (test: (t: string) => boolean) => files.filter((f) => test(f.text)).map((f) => f.rel).sort();
-  const sets = (t: string) => [...t.matchAll(/UPDATE\s+supplier_payments\s+SET([\s\S]*?)(?:\bWHERE\b|`)/g)].map((m) => m[1]!);
+  const sets = (t: string) => [...t.matchAll(/UPDATE\s+supplier_payments(?:\s+(?:AS\s+)?(?!SET\b)\w+)?\s+SET([\s\S]*?)(?:\bWHERE\b|`)/gi)].map((m) => m[1]!);
   const insertColumns = (t: string) => [...t.matchAll(/INSERT\s+INTO\s+supplier_payments\s*\(([^)]*)\)/g)].map((m) => m[1]!);
 
   it('no UPDATE of supplier_payments assigns batch_id', () => {
