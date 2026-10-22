@@ -255,12 +255,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // A payment on no certificate first: the cap below must never hide one.
     warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
       + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
-    // Capped, so a company with many such directives cannot outgrow a proxy's header buffer.
-    const WARNINGS_SHOWN = 10;
+    // Capped by encoded size (a proxy's header buffer is often 4 KB), so many such directives cannot break the download.
+    const HEADER_BUDGET = 2_000;
     const warningsTotal = warnings.length;
-    if (warnings.length > WARNINGS_SHOWN) {
-      warnings.splice(WARNINGS_SHOWN, warnings.length, `… and ${warnings.length - WARNINGS_SHOWN} more like these.`);
-    }
+    const more = (n: number) => `… and ${warningsTotal - n} more like these.`;
+    const fits = (n: number) => encodeURIComponent(JSON.stringify(
+      n === warningsTotal ? warnings : [...warnings.slice(0, n), more(n)])).length <= HEADER_BUDGET;
+    let shown = warningsTotal;
+    while (shown > 0 && !fits(shown)) shown -= 1;
+    if (shown < warningsTotal) warnings.splice(shown, warningsTotal, more(shown));
     if (warnings.length > 0) {
       // Counts only in the log: the text names employees and is for the authorised caller.
       log.warn('e@syFile export warnings', {
