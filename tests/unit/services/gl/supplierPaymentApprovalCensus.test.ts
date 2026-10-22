@@ -195,17 +195,51 @@ describe('who changes where the money goes', () => {
 // that supplier. An UPDATE that attached an existing payment to a batch takes no supplier lock and would reopen the
 // supplier-then-batch order against the bank-file gate.
 //
-// The census matches the COLUMN, not the assignment (`SET batch_id =`, `SET (a, batch_id) =`, `SET "batch_id" =`, a
-// subselect with its own WHERE before it... each was a bypass of an assignment regex): any UPDATE statement on
-// supplier_payments, from UPDATE to its template's closing backtick, that mentions batch_id at all must be one of the
-// four below that only FILTER by it, pinned whole. NAMED LIMIT: SQL functions and migrations are not scanned, nor a
-// column name built at run time; a BEFORE UPDATE OF batch_id trigger would close that (pending Hein's migration decision).
+// Two layers, neither parsing SQL well enough to be trusted alone. FILE level (the one that cannot be argued with):
+// a source file that mentions both `supplier_payments` and `batch_id` must be in the pinned list below, each with the
+// reason it may. STATEMENT level, inside those files: any UPDATE on supplier_payments mentioning batch_id must be one of
+// the four that only FILTER members by it, pinned whole. NAMED LIMITS: an edit inside an allowlisted file that the
+// statement layer misparses (ON CONFLICT DO UPDATE, MERGE, a nested template backtick, a comment between UPDATE and
+// the table), a statement assembled from fragments in different files, SQL functions and migrations, and a table or
+// column name built at run time are not caught; a
+// BEFORE UPDATE OF batch_id trigger would close them (pending Hein's migration decision).
 describe('batch membership', () => {
   const TABLE = String.raw`(?:ONLY\s+)?(?:"?\w+"?\.)?"?supplier_payments(?!\w)"?`; // optionally ONLY / schema-qualified / quoted
   const filesWhere = (test: (t: string) => boolean) => files.filter((f) => test(f.text)).map((f) => f.rel).sort();
   const updates = (t: string) => [...t.matchAll(new RegExp(String.raw`UPDATE\s+${TABLE}[^\x60]*`, 'gi'))].map((m) => m[0].replace(/\s+/g, ' ').trim());
   const insertColumns = (t: string) => [...t.matchAll(new RegExp(String.raw`INSERT\s+INTO\s+${TABLE}\s*\(([^)]*)\)`, 'gi'))].map((m) => m[1]!);
   const insertsWithoutColumns = (t: string) => new RegExp(String.raw`INSERT\s+INTO\s+${TABLE}\s*(?!\s*\()\S`, 'i').test(t);
+
+  const READS = 'reads batch_id (a SELECT or filter, or a comment)';
+  const PINNED_FILES: Record<string, string> = {
+    'scripts/ap-backfill-supplier-payments.ts': 'l.batch_id of its own backfill log, not the payment column',
+    'src/lib/mcp/tools/listSupplierPayments.ts': 'maps a read row to the tool output',
+    'pages/api/accounting/eft-generate.ts': READS,
+    'pages/api/accounting/netcash/submit.ts': READS,
+    [`${AP}batchBankFileGate.ts`]: READS,
+    [`${AP}batchBeforeSupplierLock.ts`]: 'the lock helper: reads the batch set, and says why it may',
+    [`${AP}batchPaymentApproval.ts`]: 'approveBatch: UPDATE filters members by batch_id (pinned below)',
+    [`${AP}batchPaymentMembers.ts`]: READS,
+    [`${AP}batchPaymentReversal.ts`]: 'reverseBatch: UPDATE filters members by batch_id (pinned below)',
+    [`${AP}batchPaymentService.ts`]: 'createBatch: the ONLY INSERT of batch_id (pinned below); process / cancel filter by it',
+    [`${AP}provisionalSettlementClaim.ts`]: 'bt.import_batch_id (bank_transactions); the substring matches',
+    [`${AP}supplierBatchAllocationPlan.ts`]: READS,
+    [`${AP}supplierPaymentAuthors.ts`]: 'reads the batch set of a supplier (stamping authors writes content_authors only)',
+    [`${AP}supplierPaymentCancel.ts`]: READS,
+    [`${AP}supplierPaymentListService.ts`]: READS,
+    [`${AP}supplierPaymentRow.ts`]: 'row mapper',
+    [`${AP}supplierPaymentUnapply.ts`]: READS,
+    'src/modules/accounting/services/bank/bankAllocationService.ts': 'allocation_batch_id (bank_transactions); the substring matches',
+    'src/modules/accounting/services/bank/bankChainLineReversal.ts': 'reads a batch label (id::TEXT AS batch_id)',
+    'src/modules/accounting/services/core/costCentreUsageGuard.ts': 'dimension_tag_batches.batch_id, not the payment column',
+    'src/modules/accounting/services/gl/approvalDocuments.ts': READS,
+    'src/modules/accounting/services/gl/approvalEnforcementPreview.ts': READS,
+    'src/modules/accounting/services/gl/approvalMatching.ts': READS,
+    'scripts/seed-demo-data.ts': 'import_batch_id of bank rows in an offline seed; it only DELETEs supplier_payments',
+  };
+  it('only the pinned files mention both supplier_payments and batch_id', () => {
+    expect(filesWhere((t) => /supplier_payments/i.test(t) && /batch_id/i.test(t))).toEqual(Object.keys(PINNED_FILES).sort());
+  });
 
   it('no UPDATE of supplier_payments mentions batch_id, but the four that only filter members by it', () => {
     const mentioning = files.flatMap((f) => updates(f.text).filter((u) => /batch_id/i.test(u)).map((u) => `${f.rel}: ${u}`)).sort();
