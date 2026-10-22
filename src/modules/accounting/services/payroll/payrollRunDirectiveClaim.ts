@@ -27,7 +27,11 @@
  * other waits on the row and is then refused. updateTaxDirective (a cancel)
  * takes the directive row FOR UPDATE and nothing after it, so it waits for a
  * claim in flight and is then refused, or a claim waits for it and then reads
- * the new status. calculatePayrollRun takes none of these rows. All waits are
+ * the new status. calculatePayrollRun takes no directive row; it only DELETEs
+ * stand-alone payment rows whose journal chain is undone
+ * (releaseReversedStandalonePayment), under its own run header and after its
+ * loan work, and takes nothing after that which an approval holds, so an
+ * approval's claim of the same directive merely waits for it. All waits are
  * bounded at 5s (withBoundedLockWait, claimUnderLockTimeout). Race tests:
  * tests/integration/p3-severance-directive-race.int.test.ts,
  * tests/integration/p3fu-directive-cancel-guard.int.test.ts.
