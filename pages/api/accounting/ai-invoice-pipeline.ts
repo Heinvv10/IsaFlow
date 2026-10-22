@@ -36,6 +36,7 @@ import {
   markCaptureEventsPosted,
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
+import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 import { performThreeWayMatch } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { attachEvidenceAndSettleApproved } from '@/modules/accounting/services/capture/provisionalAttachSettle';
 import { resolvePendingAlertForInvoice } from '@/modules/accounting/services/capture/alertResolutionService';
@@ -91,6 +92,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
+  if (isBeingRead(doc)) return apiResponse.conflict(res, STILL_BEING_READ);
 
   const readRefusal = refusalForPosting(doc);
   if (readRefusal) {
