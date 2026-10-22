@@ -26,6 +26,10 @@ describe('mapCapturedDocumentRow — an empty extraction is no extraction', () =
     expect(mapCapturedDocumentRow(row('{}', 'failed'), NOW).extractedData).toBeNull();
   });
 
+  it('maps the string "null" to null without throwing', () => {
+    expect(mapCapturedDocumentRow(row('null', 'done'), NOW).extractedData).toBeNull();
+  });
+
   it('keeps a real extraction', () => {
     const data = { vendorName: 'Karoo', warnings: [], lineItems: [] };
     expect(mapCapturedDocumentRow(row(data, 'done'), NOW).extractedData).toEqual(data);
