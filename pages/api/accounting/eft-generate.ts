@@ -67,10 +67,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     FOR NO KEY UPDATE
   ` as Row[];
   if (!batches[0]) return apiResponse.notFound(res, 'Batch', batchId);
-  // R-035 PR5: a bank file is money leaving, so under payment_batch
-  // enforcement only an approved batch the approval gate clears gets one —
-  // its payees share-locked first (ap/batchBankFileGate). 409 otherwise.
-  // Enforcement off: unchanged.
+  // R-035 PR5: a bank file is money leaving, so only an approved (or processed)
+  // batch gets one, enforcement on or off; under payment_batch enforcement the
+  // approval gate must also clear it, its payees share-locked first
+  // (ap/batchBankFileGate). 409 BATCH_NOT_SENDABLE for a draft, cancelled or
+  // reversed batch, 409 from the approval gate otherwise.
   try {
     await assertBatchMayBeSent(companyId, String(batches[0].id), String(batches[0].status));
   } catch (err) {
