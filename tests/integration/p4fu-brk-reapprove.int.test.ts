@@ -1,11 +1,7 @@
 /**
- * PAYE 4a follow-ups G4, breaker round 3 on PR B, ported: the approval gate
- * (paye_year_to_date_stale) under a reopened month and under CONCURRENT
- * approvals of January and February. Approvals of a company are serialised
- * (lockCompanyPayrollApprovals), so whichever lands second sees the other:
- * an earlier month approved after this run was calculated, or a later one,
- * both refuse until a recalculation. The year is never short without a
- * refusal or a warning.
+ * PAYE 4a follow-ups G4, breaker round 4 on PR B, ported: reopening an approved
+ * month and approving it again unchanged is not refused by the stale
+ * year-to-date gate (a later month calculated after its first approval saw it).
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
