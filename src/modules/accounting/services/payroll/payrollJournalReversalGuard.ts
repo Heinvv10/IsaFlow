@@ -25,8 +25,8 @@
  * outside payroll (applyTaxDirective, also source 'auto_payroll'): once its
  * chain nets to zero the payment is undone (cancel and re-apply follow from
  * that, taxDirectivePaidGuard), so reversing the reversal is refused rather
- * than re-booking a payment the directive no longer records. UIF-declaration
- * journals are not judged.
+ * than re-booking a payment the directive no longer records (recognised by its
+ * narrative). UIF-declaration journals are not judged.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
@@ -62,10 +62,9 @@ const DIRECTIVE_JOURNAL = /^SARS directive /;
 
 /** The refusal for reversing a reversed directive payment's chain back into force, or null. */
 async function directiveRevival(companyId: string, rootId: string, description: string, db: TxSql): Promise<string | null> {
-  const paid = (await db`
-    SELECT 1 FROM tax_directive_payments WHERE company_id = ${companyId}::uuid AND journal_entry_id = ${rootId}::uuid LIMIT 1
-  `) as DbRow[];
-  if (paid.length === 0 && !DIRECTIVE_JOURNAL.test(description)) return null;
+  // By narrative, as a run's journal is (RUN_JOURNAL): the payment row may be gone (released when the
+  // directive was paid again, taxDirectivePaidGuard).
+  if (!DIRECTIVE_JOURNAL.test(description)) return null;
   const chain = await readJournalChain(companyId, rootId, db);
   if (!chain || chain.state !== 'out') return null;
   return `Journal ${chain.journals[0]!.entryNumber} paid a SARS directive outside payroll and has been reversed `
