@@ -64,4 +64,19 @@ describe('G4: re-approving a reopened month', () => {
     const reapproved = await approveRun(f, jan);
     expect(reapproved.statusCode, JSON.stringify(reapproved.body)).toBe(200);
   });
+
+  it('December then January reopened and re-approved unchanged: January is refused conservatively (no reopen history), one recalculation clears it', async () => {
+    const f = await seedEmployee(pool, fixtures, 'P4fu reopen chain', 20_000);
+    const ids: string[] = [];
+    for (const p of PERIODS.slice(0, 11)) { const id = await mk(f, p.year, p.month); await calcOnly(f, id); expect((await approveRun(f, id)).statusCode).toBe(200); ids.push(id); }
+    expect((await reopenRun(f, ids[9]!)).statusCode).toBe(200);
+    expect((await approveRun(f, ids[9]!)).statusCode).toBe(200);
+    expect((await reopenRun(f, ids[10]!)).statusCode).toBe(200);
+    const refused = await approveRun(f, ids[10]!);
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/2026-12.*may have left it out.*looks the same.*Recalculate the run/);
+    await calcOnly(f, ids[10]!);
+    const again = await approveRun(f, ids[10]!);
+    expect(again.statusCode, JSON.stringify(again.body)).toBe(200);
+  });
 });

@@ -47,7 +47,8 @@ describe('G4: calculate takes the company approval lock', () => {
         reopenRun(f, ids[0]!),
         f.call(calculate as Route, 'POST', `/api/payroll/runs/${c}/calculate`, c),
       ]);
-      expect(rs.every(r => r.statusCode < 500)).toBe(true);
+      // No deadlock and no server error; a 503 is the deliberate retryable refusal after the 5 s lock wait.
+      expect(rs.filter(r => r.statusCode >= 500 && r.statusCode !== 503).map(r => r.statusCode)).toEqual([]);
     }
   });
 });
