@@ -27,6 +27,7 @@ sudo install -m 0755 -o root -g root "$SRC/backup-isaflow.sh"        "$DEST/back
 sudo install -m 0755 -o root -g root "$SRC/restore-drill-isaflow.sh" "$DEST/restore-drill-isaflow.sh"
 sudo install -m 0755 -o root -g root "$SRC/alert-email.py"           "$DEST/alert-email.py"
 sudo install -m 0644 -o root -g root "$SRC/lib-pgconn.sh"             "$DEST/lib-pgconn.sh"
+sudo install -m 0644 -o root -g root "$SRC/ownerDatabaseUrl.sh"       "$DEST/ownerDatabaseUrl.sh"
 sudo install -m 0755 -o root -g root "$SRC/wal-archive-isaflow.sh"   "$DEST/wal-archive-isaflow.sh"
 sudo install -m 0755 -o root -g root "$SRC/basebackup-isaflow.sh"    "$DEST/basebackup-isaflow.sh"
 
