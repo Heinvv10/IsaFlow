@@ -122,13 +122,20 @@ async function importAPInvoices() {
 
     const invDate = inv.Date?.split('T')[0] || null;
     const dueDate = inv.DueDate?.split('T')[0] || null;
-    const status = inv.AmountDue === 0 ? 'paid' : 'approved';
+    const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue || 0);
+    if (derived.clamped) {
+      log.warn('supplier invoice amount_paid clamped to total', {
+        invoiceNumber: inv.DocumentNumber, total: inv.Total, amountDue: inv.AmountDue,
+        original: (inv.Total || 0) - (inv.AmountDue || 0), stored: derived.amountPaid,
+      }, 'import-sage-britech');
+    }
+    const status = derived.paid ? 'paid' : 'approved';
 
     try {
       await sql`INSERT INTO supplier_invoices (company_id, supplier_id, invoice_number, invoice_date, due_date,
         subtotal, tax_amount, total_amount, amount_paid, status, reference, created_by)
         VALUES (${CID}::UUID, ${supplierId}::UUID, ${inv.DocumentNumber}, ${invDate}::DATE, ${dueDate}::DATE,
-          ${inv.Exclusive || 0}, ${inv.Tax || 0}, ${inv.Total || 0}, ${(inv.Total || 0) - (inv.AmountDue || 0)},
+          ${inv.Exclusive || 0}, ${inv.Tax || 0}, ${inv.Total || 0}, ${derived.amountPaid},
           ${status}, ${inv.Reference || null}, ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
