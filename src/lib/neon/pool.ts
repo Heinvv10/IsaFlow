@@ -16,8 +16,14 @@ import { poolSizeFromEnv, MIN_PG_POOL_MAX } from '@/lib/limits/poolLimits';
 // See src/lib/pgTypes.ts for why that matters.
 import '@/lib/pgTypes';
 
-function getDatabaseUrl(): string {
-  const url = process.env.DATABASE_URL;
+/**
+ * The service pool's URL (S-07b). This pool serves every statement with no
+ * request transaction (crons, after-commit work, public routes, login), so in
+ * production it logs in as isaflow_service (migration 910), not as the request
+ * pools' isaflow_app. Falls back to DATABASE_URL until the env names it.
+ */
+function serviceDatabaseUrl(): string {
+  const url = process.env.SERVICE_DATABASE_URL || process.env.DATABASE_URL;
   if (!url) {
     throw new Error('DATABASE_URL is not set. Please configure it in your environment.');
   }
@@ -37,7 +43,7 @@ let _pool: pg.Pool | null = null;
 export function getPool(): pg.Pool {
   if (!_pool) {
     _pool = new pg.Pool({
-      connectionString: getDatabaseUrl(),
+      connectionString: serviceDatabaseUrl(),
       max: poolSizeFromEnv('PG_POOL_MAX', 10, 'pool', MIN_PG_POOL_MAX),
       connectionTimeoutMillis: 15000,
       idleTimeoutMillis: 30000,
