@@ -40,10 +40,10 @@ export interface EMP201Data {
   directivePayments: EMP201DirectivePayment[];
 }
 
+/** No employee name: the EMP201 is readable by roles that may not see one person's pay. */
 export interface EMP201DirectivePayment {
   paymentId: string;
   directiveNumber: string | null;
-  employeeName: string;
   paymentDate: string;
   gross: number;
   paye: number;
@@ -146,8 +146,7 @@ export async function generateEMP201(
     const directivePayments: EMP201DirectivePayment[] = (
       await listStandaloneDirectivePayments(companyId, { start: startDate, end: endDate })
     ).map(p => ({
-      paymentId: p.paymentId, directiveNumber: p.directiveNumber, employeeName: p.employeeName,
-      paymentDate: p.paymentDate, gross: p.gross, paye: p.paye,
+      paymentId: p.paymentId, directiveNumber: p.directiveNumber, paymentDate: p.paymentDate, gross: p.gross, paye: p.paye,
     }));
 
     if (runs.length === 0 && directivePayments.length === 0) return emptyResult;

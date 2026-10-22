@@ -110,11 +110,10 @@ export const emp201StatusTool: McpTool = {
       total_declared: data.totalDeductions,
       employee_count: data.employeeCount,
       taxable_remuneration: data.totalTaxableRemuneration,
-      // SARS directives paid outside payroll in the period: in paye_withheld and taxable_remuneration.
-      directive_payments: data.directivePayments.map((p) => ({
-        payment_id: p.paymentId, directive_number: p.directiveNumber, employee_name: p.employeeName,
-        payment_date: p.paymentDate, gross: p.gross, paye: p.paye,
-      })),
+      // SARS directives paid outside payroll in the period, already in paye_withheld and
+      // taxable_remuneration. Totals only: this tool is open to roles that may not see one person's pay.
+      directive_payments_count: data.directivePayments.length,
+      directive_payments_paye: Math.round(data.directivePayments.reduce((t, p) => t + p.paye, 0) * 100) / 100,
     });
   },
 };

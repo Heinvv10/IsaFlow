@@ -243,7 +243,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     warnings.push(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
       + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
     if (warnings.length > 0) {
-      log.warn('e@syFile export warnings', { companyId, taxYear, warnings }, 'easyFileExport');
+      // Counts only in the log: the text names employees and is for the authorised caller.
+      log.warn('e@syFile export warnings', {
+        companyId, taxYear, warnings: warnings.length, unlinkedPayments: lumpSums.unlinked.map(p => p.paymentId),
+      }, 'easyFileExport');
       res.setHeader('X-IsaFlow-Warnings', encodeURIComponent(JSON.stringify(warnings)));
     }
 
