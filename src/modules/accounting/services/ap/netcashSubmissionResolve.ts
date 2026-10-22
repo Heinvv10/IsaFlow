@@ -25,7 +25,7 @@ export type ResolveResult =
   | { kind: 'not_found' }
   | { kind: 'not_resolvable'; status: string }
   | { kind: 'changed'; from: string; to: string }
-  | { kind: 'answer_pending'; outcome?: string; batchReference?: string }
+  | { kind: 'answer_pending'; outcome?: string; batchReference?: string; file?: string }
   | { kind: 'in_flight' };
 
 export interface ResolveInput {
@@ -57,7 +57,7 @@ export async function resolveSubmission(input: ResolveInput): Promise<ResolveRes
   // in the local spool when audit_log could not take it either, residual 3a) is not freed - recording it as submitted is allowed, and so is anything once the answer is on the row.
   if (previous === 'pending' && outcome === 'failed') {
     const kept = await unappliedAcceptedAnswer(companyId, submissionId);
-    if (kept) return { kind: 'answer_pending', outcome: kept.outcome, batchReference: kept.batchReference };
+    if (kept) return { kind: 'answer_pending', outcome: kept.outcome, batchReference: kept.batchReference, file: kept.file };
   }
   // pending/unknown: either outcome. submitted/processing (Netcash accepted it): 'failed' only, on the operator's word -
   // whatever the last poll said, which is a display hint and never consulted here.

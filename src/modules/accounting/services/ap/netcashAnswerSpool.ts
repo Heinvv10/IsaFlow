@@ -55,7 +55,12 @@ async function appendDurably(rec: AnswerRecord): Promise<void> {
   } finally {
     await handle.close();
   }
-  await fs.rename(temp, final); // complete or absent
+  try {
+    await fs.rename(temp, final); // complete or absent
+  } catch (err) {
+    // The sweep reached a stalled writer's complete temp first and promoted it to this very name: the entry exists.
+    if ((err as { code?: string }).code !== 'ENOENT' || !(await fs.stat(final).then(() => true, () => false))) throw err;
+  }
   await syncDir(dir);
 }
 

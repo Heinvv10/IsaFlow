@@ -38,8 +38,19 @@ export function spoolDir(): string {
 export const replayedDir = () => path.join(spoolDir(), 'replayed');
 export const quarantineDir = () => path.join(spoolDir(), 'quarantine');
 
+/**
+ * `<company>.<submission>.<token>.<status>.jsonl`: the answer's status is IN the name, so a file that cannot be read
+ * (torn, a temp that never finished) can still be judged: a name that says failed / unknown is not an acceptance.
+ */
 export const fileName = (r: AnswerRecord) =>
-  `${r.companyId.toLowerCase()}.${r.submissionId.toLowerCase()}.${r.metadata.settleToken.replace(/[^0-9a-zA-Z-]/g, '_').slice(0, 64)}${SUFFIX}`;
+  `${r.companyId.toLowerCase()}.${r.submissionId.toLowerCase()}.${r.metadata.settleToken.replace(/[^0-9a-zA-Z-]/g, '_').slice(0, 64)}`
+  + `.${r.metadata.status.replace(/[^a-zA-Z]/g, '').toLowerCase() || 'unknown'}${SUFFIX}`;
+/**
+ * The status a spool file's NAME carries (`<c>.<s>.<token>.<status>.jsonl`, the same with a leading dot and `.jsonl.<rand>.tmp`
+ * for a temp, or `.<status>.<rand>.stale.jsonl` swept), or null when it carries none (it cannot be told, so it blocks).
+ */
+export const nameStatus = (name: string): 'submitted' | 'failed' | 'unknown' | null =>
+  (/^\.?[0-9a-f-]{36}\.[0-9a-f-]{36}\.[0-9a-zA-Z_-]+\.(submitted|failed|unknown)\./i.exec(name)?.[1]?.toLowerCase() as 'submitted' | 'failed' | 'unknown' | undefined) ?? null;
 /** A final entry: not a dot-file (temps are), `.jsonl`. */
 export const isEntry = (n: string) => n.endsWith(SUFFIX) && !n.startsWith('.');
 /** A temp of a write in flight or never finished: `.<company>.<submission>.<token>.jsonl.<rand>.tmp`. */

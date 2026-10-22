@@ -6,7 +6,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { log } from '@/lib/logger';
 import {
-  ensureDir, errText, isEntry, isTemp, quarantineDir, quarantineNameOf, replayedDir, spoolDir, STALE_TEMP_MS, syncDir,
+  ensureDir, errText, isEntry, isTemp, nameStatus, quarantineDir, quarantineNameOf, replayedDir, spoolDir, STALE_TEMP_MS, syncDir,
   fileName, type AnswerRecord, type SpooledLine,
 } from './netcashAnswerSpoolFiles';
 
@@ -46,15 +46,20 @@ async function readEntry(file: string): Promise<SpooledLine | 'gone' | null> {
   }
 }
 
+/** What the resolve lookup found: Netcash's outcome and reference, and the file when it is not a plain pending entry. */
+export interface SpooledAcceptance { outcome: string; batchReference: string; file?: string }
+
 /**
  * A spooled ACCEPTANCE for this submission in this company that is not in audit_log yet (pending or quarantined); null
  * if none. resolve calls it for a pending row it is asked to free. Only an acceptance blocks - a spooled `unknown` or
- * rejected answer does not, exactly as audit_log's record. Company and submission come from the file NAME (ours): an
- * entry - or a temp (in flight, or left by a write that never reached its rename, in the directory or swept to
- * quarantine/) - that cannot be read still counts: fail closed, log.error once. A directory that cannot be listed
- * throws (the resolve fails, never frees on a guess).
+ * rejected answer does not, exactly as audit_log's record. Company and submission come from the file NAME (ours), and so
+ * does the answer's status: an entry - or a temp (in flight, or left by a write that never reached its rename, in the
+ * directory or swept to quarantine/) - that cannot be read blocks unless its name says failed / unknown; with
+ * `submitted`, or no status at all, it counts as an acceptance (fail closed, log.error once, and `file` names it for the
+ * operator). A quarantined readable acceptance names its file too. A directory that cannot be listed throws (the
+ * resolve fails, never frees on a guess).
  */
-export async function spooledAcceptedAnswer(companyId: string, submissionId: string): Promise<{ outcome: string; batchReference: string } | null> {
+export async function spooledAcceptedAnswer(companyId: string, submissionId: string): Promise<SpooledAcceptance | null> {
   const prefix = `${companyId.toLowerCase()}.${submissionId.toLowerCase()}.`;
   const mine = (n: string) => (isEntry(n) && n.startsWith(prefix)) || (isTemp(n) && n.startsWith(`.${prefix}`));
   for (const dir of [spoolDir(), quarantineDir()]) {
@@ -65,11 +70,13 @@ export async function spooledAcceptedAnswer(companyId: string, submissionId: str
         const entry = await readEntry(path.join(dir, name));
         if (entry === 'gone') { again = true; continue; }
         if (!entry) {
+          const said = nameStatus(name);
+          if (said === 'failed' || said === 'unknown') continue; // its name says it was never an acceptance
           reportUnreadable(path.join(dir, name), 'netcash answer spool: an entry (or unfinished temp) for this submission cannot be read - treated as an acceptance');
-          return { outcome: 'accepted (spool entry unreadable)', batchReference: '' };
+          return { outcome: 'accepted (spool entry unreadable)', batchReference: '', file: name };
         }
         if (entry.companyId.toLowerCase() === companyId.toLowerCase() && entry.metadata.status === 'submitted') {
-          return { outcome: entry.metadata.outcome || 'accepted', batchReference: entry.metadata.batchReference ?? '' };
+          return { outcome: entry.metadata.outcome || 'accepted', batchReference: entry.metadata.batchReference ?? '', ...(dir === spoolDir() && !isTemp(name) ? {} : { file: name }) };
         }
       }
     }
