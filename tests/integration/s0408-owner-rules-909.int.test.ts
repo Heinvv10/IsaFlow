@@ -44,6 +44,14 @@ describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('909 — owner rules 
       expect(await ownersOf(pool, c)).toEqual([o]);
     });
 
+    it.each(['OWNER', 'Owner ', 'owner\u00a0'])('a non-superuser cannot re-spell the only owner as %j (RC011)', async (spelling) => {
+      const o = id();
+      const c = await seedCompany(pool, companies, [[o, 'owner']]);
+      expect(await outcome(asRole(pool, 'migration_admin', c,
+        'UPDATE company_users SET role = $3 WHERE company_id = $1 AND user_id = $2', [c, o, spelling]))).toBe('RC011');
+      expect(await roleOf(pool, c, o)).toBe('owner');
+    });
+
     it('the refusal names the rule in words the admin site shows', async () => {
       const o = id();
       const c = await seedCompany(pool, companies, [[o, 'owner']]);

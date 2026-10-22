@@ -25,6 +25,12 @@
 --   At an isolation level above READ COMMITTED the count reads a stale
 --   snapshot (886's reasoning), so the check refuses there with 40001, as 886
 --   does for app_user; it runs only when an owner row leaves.
+--   Outside app_user an owner row whose role is rewritten to anything but
+--   the exact 'owner' (e.g. 'OWNER') is leaving: the counts and RLS read the
+--   exact value. The reverse (an owner stored as 'OWNER' is not counted as an
+--   owner left behind) can refuse a removal 886's precondition makes moot.
+--   Not covered: TRUNCATE (no row trigger fires; only the table owner holds
+--   it) and DISABLE TRIGGER (the owner) — the owner role is the boundary.
 --   NOT exempt: a soft-deleted company (status 'deleted'). It can be restored,
 --   and would come back with no owner; the admin site's delete-user and
 --   reset-onboarding refuse its only owner too (409 naming the company).
@@ -90,7 +96,13 @@ BEGIN
       END IF;
     END IF;
     -- A (909): the last owner, outside app_user. platform_admin always; any
-    -- other role unless it is a superuser (see the header).
+    -- other role unless it is a superuser (see the header). Leaving is judged
+    -- against the exact 'owner' here: these roles have no role allow-list, and
+    -- an owner rewritten as 'OWNER' is no owner to the exact counts and to RLS
+    -- (auth.user_admin_companies) — policy-breaker REPRO 2.
+    IF TG_OP = 'UPDATE' AND public.company_member_role_is_owner(OLD.role) AND NEW.role IS DISTINCT FROM 'owner' THEN
+      v_owner_leaves := true;
+    END IF;
     IF v_owner_leaves AND (current_user = 'platform_admin'
         OR NOT COALESCE((SELECT r.rolsuper FROM pg_catalog.pg_roles r WHERE r.rolname = current_user), false)) THEN
       -- The lock app_user's last-owner check takes: a portal demotion and an
