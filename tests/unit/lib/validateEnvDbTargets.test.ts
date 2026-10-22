@@ -29,6 +29,7 @@ beforeEach(() => {
   saved = { ...process.env };
   for (const [k, v] of Object.entries(REQUIRED)) process.env[k] = v;
   delete process.env.MIGRATION_ADMIN_DATABASE_URL;
+  delete process.env.SERVICE_DATABASE_URL;
   // PGDATABASE participates in pg's resolution order, so a stray value would
   // silently change what every case below resolves to.
   delete process.env.PGDATABASE;
@@ -55,6 +56,18 @@ describe('validateEnv — privileged pool database targets', () => {
     process.env.MIGRATION_ADMIN_DATABASE_URL =
       `postgresql://migration_admin@db.internal:7772/isaflow_staging?sslmode=disable`;
     expect(() => validateEnv()).toThrow(/MIGRATION_ADMIN_DATABASE_URL/);
+  });
+
+  it('throws when SERVICE_DATABASE_URL names a different database (S-07b)', () => {
+    process.env.SERVICE_DATABASE_URL = 'postgresql://isaflow_service@db.internal:7772/isaflow_dev?sslmode=disable';
+    expect(() => validateEnv()).toThrow(/SERVICE_DATABASE_URL targets database "isaflow_dev" but DATABASE_URL targets "isaflow"/);
+  });
+
+  it('accepts SERVICE_DATABASE_URL naming the app database, and its absence', () => {
+    process.env.SERVICE_DATABASE_URL = 'postgresql://isaflow_service@db.internal:7772/isaflow?sslmode=disable';
+    expect(() => validateEnv()).not.toThrow();
+    delete process.env.SERVICE_DATABASE_URL;
+    expect(() => validateEnv()).not.toThrow();
   });
 
   it('ignores MIGRATION_ADMIN_DATABASE_URL when it is not set', () => {

@@ -31,9 +31,16 @@ load_pg_conn() {
   local env_file="$1"
   local raw
 
-  raw=$(grep -E "^DATABASE_URL=" "$env_file" | head -1 | cut -d= -f2-)
+  # The schema owner's URL: pg_dump and the restore drill must read every
+  # table, and the app's DATABASE_URL logs in as isaflow_app, which owns
+  # nothing (S-07b). Falls back to DATABASE_URL until the env names it.
+  raw=$(grep -E "^OWNER_DATABASE_URL=" "$env_file" | head -1 | cut -d= -f2- || true)
   if [[ -z "$raw" ]]; then
-    echo "load_pg_conn: DATABASE_URL not found in $env_file" >&2
+    raw=$(grep -E "^DATABASE_URL=" "$env_file" | head -1 | cut -d= -f2- || true)
+    [[ -n "$raw" ]] && echo "load_pg_conn: WARNING: OWNER_DATABASE_URL not set in $env_file - using DATABASE_URL" >&2
+  fi
+  if [[ -z "$raw" ]]; then
+    echo "load_pg_conn: neither OWNER_DATABASE_URL nor DATABASE_URL found in $env_file" >&2
     return 2
   fi
 

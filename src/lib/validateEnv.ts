@@ -58,9 +58,12 @@ function assertProductionUrl(name: string, expectedHost?: string): void {
 // cannot catch that — compare the database names the URLs actually target.
 // Host and port are deliberately NOT compared: reaching the same database via
 // a pooler endpoint on a different port is a legitimate configuration.
+// SERVICE_DATABASE_URL (S-07b) is the pool every path with no request
+// transaction uses; it must reach the same database as the request pool.
 const PRIVILEGED_DB_URL_VARS = [
   'PLATFORM_ADMIN_DATABASE_URL',
   'MIGRATION_ADMIN_DATABASE_URL',
+  'SERVICE_DATABASE_URL',
 ] as const;
 
 // Read the database a connection string names, and require that it names one.
@@ -99,8 +102,8 @@ function assertPrivilegedPoolsTargetAppDatabase(): void {
   const appDb = requireDatabaseName('DATABASE_URL', process.env.DATABASE_URL as string);
   for (const varName of PRIVILEGED_DB_URL_VARS) {
     const value = process.env[varName];
-    // MIGRATION_ADMIN_DATABASE_URL is optional; PLATFORM_ADMIN_DATABASE_URL is
-    // already guaranteed present by REQUIRED_VARS above.
+    // MIGRATION_ADMIN_DATABASE_URL and SERVICE_DATABASE_URL are optional;
+    // PLATFORM_ADMIN_DATABASE_URL is already guaranteed present by REQUIRED_VARS above.
     if (!value) continue;
     const db = requireDatabaseName(varName, value, appDb);
     if (db !== appDb) {

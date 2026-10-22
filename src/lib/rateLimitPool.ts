@@ -66,7 +66,8 @@ let _pool: pg.Pool | null = null;
 
 export function getRateLimitPool(): pg.Pool {
   if (!_pool) {
-    const connectionString = process.env.DATABASE_URL;
+    // The service pool's login (S-07b): this pool never sets a role.
+    const connectionString = process.env.SERVICE_DATABASE_URL || process.env.DATABASE_URL;
     if (!connectionString) {
       throw new Error('DATABASE_URL is not set. Please configure it in your environment.');
     }
