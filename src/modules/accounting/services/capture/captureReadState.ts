@@ -20,6 +20,9 @@ export const STALE_AFTER_MINUTES = 5;
 export const STALE_READ_ERROR = 'The read was interrupted — retry it.';
 /** Recorded when the job finds no bytes behind the row; a row carrying it is not retryable. */
 export const NOT_STORED_ERROR = 'The file is not stored — upload it again.';
+/** What a reader sees INSTEAD of the two retry messages below when the row cannot be retried (see `effectiveReadState`). */
+export const UPLOAD_AGAIN_ERROR = 'The document could not be read — upload it again.';
+export const UPLOAD_AGAIN_STALE_ERROR = 'The read was interrupted — upload the document again.';
 export const GENERIC_READ_ERROR = 'The document could not be read — retry the read.';
 /** What a route answers (409) when asked to act on a document that is still being read. */
 export const STILL_BEING_READ = 'This document is still being read.';
@@ -57,16 +60,29 @@ function canRetry(row: ReadColumns, readError: string | null): boolean {
     && readError !== NOT_STORED_ERROR;
 }
 
+/**
+ * The wording follows `retryable`: GENERIC_READ_ERROR and STALE_READ_ERROR tell the user to retry, so a row that cannot
+ * be retried shows their upload-again counterparts instead. Any other recorded reason is shown as it is.
+ */
+function shownError(recorded: string, retryable: boolean): string {
+  if (retryable) return recorded;
+  if (recorded === GENERIC_READ_ERROR) return UPLOAD_AGAIN_ERROR;
+  return recorded === STALE_READ_ERROR ? UPLOAD_AGAIN_STALE_ERROR : recorded;
+}
+
+function failedState(row: ReadColumns, recorded: string): EffectiveReadState {
+  const retryable = canRetry(row, recorded);
+  return { readState: 'failed', readError: shownError(recorded, retryable), retryable };
+}
+
 /** The state a reader should show for `row`, with a stale 'reading' row reported as failed. */
 export function effectiveReadState(row: ReadColumns, now: number = Date.now()): EffectiveReadState {
   if (row.read_state === 'reading') {
-    return isStale(row, now)
-      ? { readState: 'failed', readError: STALE_READ_ERROR, retryable: canRetry(row, STALE_READ_ERROR) }
-      : { readState: 'reading', readError: null, retryable: false };
+    return isStale(row, now) ? failedState(row, STALE_READ_ERROR) : { readState: 'reading', readError: null, retryable: false };
   }
   if (row.read_state === 'failed') {
     const recorded = typeof row.read_error === 'string' && row.read_error ? row.read_error : GENERIC_READ_ERROR;
-    return { readState: 'failed', readError: recorded, retryable: canRetry(row, recorded) };
+    return failedState(row, recorded);
   }
   return { readState: 'done', readError: null, retryable: false };
 }

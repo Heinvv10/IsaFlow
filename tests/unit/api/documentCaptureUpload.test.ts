@@ -311,7 +311,15 @@ describe('GET /api/accounting/document-capture — read state', () => {
     m.sql.mockResolvedValue([insertedRow({ created_at: minutesAgo(30), read_heartbeat_at: minutesAgo(6) })]);
     const res = await get({ id: DOC });
     expect((res.sent as { data: Record<string, unknown> }).data).toMatchObject({
-      readState: 'failed', readError: 'The read was interrupted — retry it.',
+      readState: 'failed', readError: 'The read was interrupted — upload the document again.',
+    });
+  });
+
+  it('says retry only for a stale row that can be retried (stored file, pending, unposted)', async () => {
+    m.sql.mockResolvedValue([insertedRow({ created_at: minutesAgo(30), storage_path: 'co/doc', posted_at: null })]);
+    const res = await get({ id: DOC });
+    expect((res.sent as { data: Record<string, unknown> }).data).toMatchObject({
+      readState: 'failed', readError: 'The read was interrupted — retry it.', retryable: true,
     });
   });
 

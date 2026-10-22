@@ -17,6 +17,7 @@ vi.mock('@/modules/accounting/services/capture/captureUploadForm', async (orig) 
 vi.mock('@/lib/supabaseStorage', async (orig) => (await import('./capture-read-storage.helpers')).fakeSupabaseStorage(await orig()));
 
 import { runCaptureRead } from '@/modules/accounting/services/capture/captureReadJob';
+import { mapCapturedDocumentRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
 import { GENERIC_READ_ERROR, NOT_STORED_ERROR, STALE_READ_ERROR } from '@/modules/accounting/services/capture/captureReadState';
 
 assertDisposable();
@@ -218,7 +219,7 @@ describe('runCaptureRead against the database', () => {
     expect(m.read).not.toHaveBeenCalled();
   });
 
-  it('bytes that match the recorded sha256 are read; bytes that do not fail the read as not stored', async () => {
+  it('bytes that match the recorded sha256 are read; bytes that do not fail the read, retryable (a truncated download)', async () => {
     const good = await insertReading();
     await pool.query('UPDATE captured_documents SET raw_bytes_sha256 = $2 WHERE id = $1', [good, createHash('sha256').update(BUF).digest('hex')]);
     await runCaptureRead(companyA, good, 0);
@@ -229,8 +230,10 @@ describe('runCaptureRead against the database', () => {
     await pool.query('UPDATE captured_documents SET raw_bytes_sha256 = $2 WHERE id = $1', [bad, createHash('sha256').update('another file').digest('hex')]);
     await runCaptureRead(companyA, bad, 0);
     const row = await rowOf(bad);
-    expect(row).toMatchObject({ read_state: 'failed', read_error: NOT_STORED_ERROR, vendor_name: null });
+    expect(row).toMatchObject({ read_state: 'failed', read_error: GENERIC_READ_ERROR, vendor_name: null });
     expect(m.read).not.toHaveBeenCalled();
+    // still retryable: the stored file is there, only this download did not match
+    expect(mapCapturedDocumentRow(row)).toMatchObject({ readState: 'failed', retryable: true });
   });
 
   it('a job holding an old attempt writes nothing to a row that moved on: not the save, not the failure, not the finish', async () => {
