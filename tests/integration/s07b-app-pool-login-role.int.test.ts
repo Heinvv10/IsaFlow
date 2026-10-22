@@ -86,7 +86,9 @@ describe('S-07b: the service pool cannot get to the owner either', () => {
 
   it.each([
     ['writes users.role', ownerWrite, /^permission denied for table users$/],
-    ['disables triggers', ['ALTER TABLE users DISABLE TRIGGER ALL', []], /^must be owner of table users$/],
+    // With the runbook's event trigger installed (production), DDL is refused before the ownership check.
+    ['disables triggers', ['ALTER TABLE users DISABLE TRIGGER ALL', []],
+      /^(must be owner of table users|DDL \(ALTER TABLE\) refused for isaflow_service \(as isaflow_service\))$/],
     ['writes the forensic change log', ['DELETE FROM entity_changes', []], /^permission denied for table entity_changes$/],
     ['rewrites the migration history', [`DELETE FROM schema_migrations WHERE name LIKE '910%'`, []], /^permission denied for table schema_migrations$/],
     ['SET ROLE postgres', ['SET ROLE postgres', []], /permission denied to set role "postgres"/],

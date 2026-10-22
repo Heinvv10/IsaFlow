@@ -111,7 +111,14 @@ describe('S-07b: migration 911', () => {
   it.each([
     ['a trigger function in the old shape', `CREATE FUNCTION public.s07b_mutant_guard() RETURNS trigger LANGUAGE plpgsql AS $f$
       BEGIN IF current_user <> 'app_user' THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_guard\(\) exempts every role but app_user/],
+    ['the old shape spelled !=', `CREATE FUNCTION public.s07b_mutant_neq() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN IF current_user != 'app_user' THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_neq\(\) exempts every role/],
+    ['the old shape spelled IS DISTINCT FROM, on current_role', `CREATE FUNCTION public.s07b_mutant_idf() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN IF (current_role IS DISTINCT FROM 'app_user') THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_idf\(\) exempts every role/],
     ['app_user given schema_migrations back', 'GRANT DELETE ON public.schema_migrations TO app_user', /911: app_user .* can still write schema_migrations/],
+    ['a definer app_user can run without pg_temp last', `CREATE FUNCTION public.s07b_mutant_definer() RETURNS int LANGUAGE sql
+      SECURITY DEFINER SET search_path = public AS $f$ SELECT 1 $f$; GRANT EXECUTE ON FUNCTION public.s07b_mutant_definer() TO app_user`,
+    /911: definer function s07b_mutant_definer\(\) runs for app_user without pg_temp last/],
   ])('911\'s guard refuses the mutant: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(mutate);
