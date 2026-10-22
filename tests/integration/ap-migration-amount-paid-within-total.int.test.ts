@@ -124,6 +124,58 @@ describeIfDb('AP migration import: amount paid within total', () => {
     }
   }, 60000);
 
+  // NUMERIC(15,2) rounds the decimal text half away from zero (1.005 -> 1.01, 0.004 -> 0.00), so the comparison
+  // has to be made on the figures as STORED. `Math.round(x * 100)` saw 1.005 as 100 cents and stored 101.
+  it.each([
+    ['total 1.004 paid 1.005', 1.005, 1.004],
+    ['total 100.0049 paid 100.005', 100.005, 100.0049],
+    ['total 0.004 paid 0.005', 0.005, 0.004],
+  ])('refuses a sub-cent over-payment that the column would round up: %s', async (_label, paid, total) => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const r = await run(c, () => importAPInvoices(COMPANY, sessionId, [apRow('frac', paid, total)], USER));
+      expect(await overPaid(c)).toEqual([]);
+      expect(await stored(c, 'frac')).toBeUndefined();
+      expect(r.errors[0]).toMatchObject({ field: 'amountPaid' });
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('imports a bill paid exactly its sub-cent total (both round to the same cent)', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const r = await run(c, () => importAPInvoices(COMPANY, sessionId, [apRow('same-cent', 1.005, 1.005)], USER));
+      expect(r.imported).toBe(1);
+      expect(await overPaid(c)).toEqual([]);
+      expect((await stored(c, 'same-cent'))!.status).toBe('paid');
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('refuses a NaN or negative amountPaid handed straight to the service', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const rows = [
+        { ...apRow('nan', 0), amountPaid: Number.NaN },
+        { ...apRow('neg', 0), amountPaid: -5 },
+      ];
+      const r = await run(c, () => importAPInvoices(COMPANY, sessionId, rows, USER));
+      expect(r.imported).toBe(0);
+      expect(r.errors.map((e) => e.field)).toEqual(['amountPaid', 'amountPaid']);
+      expect((await c.query(`SELECT 1 FROM supplier_invoices WHERE company_id = $1`, [COMPANY])).rows).toEqual([]);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
   it('imports the rows around a refused one, and a bill paid exactly its total', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');

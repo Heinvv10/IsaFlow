@@ -50,12 +50,22 @@ export function assertBillAllocatable(
 }
 
 /**
- * Integer cents. A BILL's outstanding is compared in cents with no tolerance:
- * the old `amount > outstanding + EPS` let a fully paid bill take R0.01 and a
- * R100.00 bill take R100.01.
+ * Integer cents, rounded the way the column rounds. A BILL's outstanding is
+ * compared in cents with no tolerance: the old `amount > outstanding + EPS` let
+ * a fully paid bill take R0.01 and a R100.00 bill take R100.01.
+ *
+ * DECIMAL-exact, not `Math.round(n * 100)`: Postgres binds the number's decimal
+ * text ("1.005") and NUMERIC(15,2) rounds that half away from zero (1.01), but
+ * `1.005 * 100` is 100.49999999999999 in IEEE-754, so a float round saw 100 cents
+ * where the column stores 101 and a R1.00 bill took R1.005 and read R1.01 paid.
+ * Shifting the decimal point in the TEXT (`1.005e2` parses to exactly 100.5)
+ * rounds the figure the database will round. A number whose text is exponential
+ * (below 1e-6 or from 1e21) is far outside money and keeps the float round.
  */
 export function toCents(n: number): number {
-  return Math.round(n * 100);
+  const text = String(Math.abs(n));
+  const cents = text.includes('e') ? Math.round(Math.abs(n) * 100) : Math.round(Number(`${text}e2`));
+  return n < 0 && cents !== 0 ? -cents : cents;
 }
 
 /**

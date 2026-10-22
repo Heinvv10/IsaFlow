@@ -29,6 +29,18 @@ describe('checkTakeOnAmounts', () => {
     expect(v.error!.message).toContain('exceeds its total of 100.00');
   });
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -5])('refuses an amount paid of %s the schema would have caught', (amountPaid) => {
+    const v = checkTakeOnAmounts(bill({ amountPaid }), 6);
+    expect(v.warning).toBeNull();
+    expect(v.error).toMatchObject({ step: 'ap_invoices', row: 6, field: 'amountPaid' });
+  });
+
+  it.each([[1.005, 1.004], [100.005, 100.0049], [0.005, 0.004]])(
+    'refuses %s paid on a total of %s: the column stores a cent more than the total', (amountPaid, total) => {
+      const v = checkTakeOnAmounts(bill({ subtotal: total, totalAmount: total, amountPaid }), 0);
+      expect(v.error).toMatchObject({ field: 'amountPaid' });
+    });
+
   it('does not refuse float dust: 0.1 + 0.2 paid on a total of 0.3', () => {
     const v = checkTakeOnAmounts(bill({ subtotal: 0.3, totalAmount: 0.3, amountPaid: 0.1 + 0.2 }), 0);
     expect(v).toEqual({ error: null, warning: null });
