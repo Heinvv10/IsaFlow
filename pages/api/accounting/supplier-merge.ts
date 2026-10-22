@@ -42,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     // Before the transaction: a refusal moves nothing.
-    await assertSupplierMergeKeepsDrcFlag(companyId, source_id, target_id);
+    await assertSupplierMergeKeepsDrcFlag(companyId, source_id, target_id, source_id);
     await withTransaction(async (tx) => {
       // 1. Validate both suppliers belong to this company and are active
       const suppliers = await tx`

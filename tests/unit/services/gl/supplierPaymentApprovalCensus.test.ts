@@ -151,7 +151,7 @@ describe('who changes where the money goes', () => {
     ]);
     for (const rel of editors) {
       const t = text(rel);
-      expect(t, rel).toMatch(/const before = await lockSupplierBankDetails\(companyId, [\w.]+\);\s+const (rows|\[after\]) = \(await sql`\s+UPDATE suppliers SET/);
+      expect(t, rel).toMatch(/const before = await lockSupplierBankDetails\(companyId, [\w.]+, bankMayChange\);\s+const (rows|\[after\]) = \(await sql`\s+UPDATE suppliers SET/);
       expect(t, rel).toMatch(/bankDetailsChange\(before, (rows\[0\]!|after)\)/);
       expect(t, rel).toMatch(/if \(change !== 'none'\) await recordBankDetailsSetter\(companyId, [\w.]+, \w+, change\)/);
     }
