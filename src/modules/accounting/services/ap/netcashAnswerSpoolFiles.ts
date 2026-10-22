@@ -7,6 +7,7 @@ import { promises as fs } from 'fs';
 import { homedir, tmpdir } from 'os';
 import path from 'path';
 import { log } from '@/lib/logger';
+import type { ClaimSettlement } from './netcashClaimSettle';
 
 /** What the audit record carries, plus who/where: enough to write the record again later, company-scoped. */
 export interface AnswerRecord {
@@ -39,6 +40,17 @@ export const replayedDir = () => path.join(spoolDir(), 'replayed');
 export const quarantineDir = () => path.join(spoolDir(), 'quarantine');
 
 /**
+ * The statuses a spool file name can carry: one list for fileName, nameStatus and promotionOf, typed to the settle's own
+ * statuses (the type check below fails the build when ClaimSettlement gains one). A status missing from this list makes
+ * its temps fail promotionOf's name check: they are never promoted, they are quarantined and they BLOCK (a name that
+ * says nothing). So a new ClaimSettlement status is added HERE, and to nameStatus's judgement of what blocks.
+ */
+export const NAME_STATUSES = ['submitted', 'failed', 'unknown'] as const satisfies readonly ClaimSettlement['status'][];
+export type NameStatus = (typeof NAME_STATUSES)[number];
+const _everyStatusNamed: Exclude<ClaimSettlement['status'], NameStatus> extends never ? true : never = true;
+const STATUS_ALT = NAME_STATUSES.join('|');
+
+/**
  * `<company>.<submission>.<token>.<status>.jsonl`: the answer's status is IN the name, so a file that cannot be read
  * (torn, a temp that never finished) can still be judged: a name that says failed / unknown is not an acceptance.
  */
@@ -49,8 +61,8 @@ export const fileName = (r: AnswerRecord) =>
  * The status a spool file's NAME carries (`<c>.<s>.<token>.<status>.jsonl`, the same with a leading dot and `.jsonl.<rand>.tmp`
  * for a temp, or `.<status>.<rand>.stale.jsonl` swept), or null when it carries none (it cannot be told, so it blocks).
  */
-export const nameStatus = (name: string): 'submitted' | 'failed' | 'unknown' | null =>
-  (/^\.?[0-9a-f-]{36}\.[0-9a-f-]{36}\.[0-9a-zA-Z_-]+\.(submitted|failed|unknown)\./i.exec(name)?.[1]?.toLowerCase() as 'submitted' | 'failed' | 'unknown' | undefined) ?? null;
+export const nameStatus = (name: string): NameStatus | null =>
+  (new RegExp(`^\\.?[0-9a-f-]{36}\\.[0-9a-f-]{36}\\.[0-9a-zA-Z_-]+\\.(${STATUS_ALT})\\.`, 'i').exec(name)?.[1]?.toLowerCase() as NameStatus | undefined) ?? null;
 /** A final entry: not a dot-file (temps are), `.jsonl`. */
 export const isEntry = (n: string) => n.endsWith(SUFFIX) && !n.startsWith('.');
 /** A temp of a write in flight or never finished: `.<company>.<submission>.<token>.jsonl.<rand>.tmp`. */
@@ -60,7 +72,8 @@ export const quarantineNameOf = (temp: string) => {
   const m = /^\.(.+)\.jsonl\.([^.]+)\.tmp$/.exec(temp);
   return (m ? `${m[1]}.${m[2]}.stale${SUFFIX}` : `stale-${temp.replace(/^\./, '')}${SUFFIX}`).replace(/[^0-9a-zA-Z._-]/g, '_');
 };
-const TEMP_NAME = /^\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([0-9a-zA-Z_-]+)\.(submitted|failed|unknown)\.jsonl\.[0-9a-zA-Z-]+\.tmp$/i;
+const UUID_PART = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const TEMP_NAME = new RegExp(`^\\.(${UUID_PART})\\.(${UUID_PART})\\.([0-9a-zA-Z_-]+)\\.(${STATUS_ALT})\\.jsonl\\.[0-9a-zA-Z-]+\\.tmp$`, 'i');
 /**
  * What a temp's own FILE NAME says it is - company, submission and the final name it would be promoted to - or null
  * when the name is not exactly ours (UUID company and submission, a plain token, a known status). The promotion never
