@@ -3,6 +3,7 @@
  * Usage: DATABASE_URL="..." bun run /tmp/sage-pull-britech/import-sage-data.ts
  */
 import { createSql } from './_pg';
+import { deriveAmountPaid } from './lib/amountPaid';
 import { readFileSync } from 'fs';
 
 const sql = createSql();
@@ -85,13 +86,17 @@ async function importARInvoices() {
 
     const invDate = inv.Date?.split('T')[0] || null;
     const dueDate = inv.DueDate?.split('T')[0] || null;
-    const status = inv.AmountDue === 0 ? 'paid' : inv.Status === 'Draft' ? 'draft' : 'approved';
+    const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue || 0);
+    if (derived.clamped) {
+      console.warn(`  CLAMP ${inv.DocumentNumber}: amount_paid ${(inv.Total || 0) - (inv.AmountDue || 0)} -> ${derived.amountPaid} (Total ${inv.Total}, AmountDue ${inv.AmountDue}; customer_invoices_amount_paid_within_total)`);
+    }
+    const status = derived.paid ? 'paid' : inv.Status === 'Draft' ? 'draft' : 'approved';
 
     try {
       await sql`INSERT INTO customer_invoices (company_id, customer_id, invoice_number, invoice_date, due_date,
         subtotal, tax_amount, total_amount, amount_paid, status, notes, created_by)
         VALUES (${CID}::UUID, ${customerId}::UUID, ${inv.DocumentNumber}, ${invDate}::DATE, ${dueDate}::DATE,
-          ${inv.Exclusive || 0}, ${inv.Tax || 0}, ${inv.Total || 0}, ${(inv.Total || 0) - (inv.AmountDue || 0)},
+          ${inv.Exclusive || 0}, ${inv.Tax || 0}, ${inv.Total || 0}, ${derived.amountPaid},
           ${status}, ${inv.Reference ? 'Sage ref: ' + inv.Reference : null}, ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
