@@ -107,7 +107,8 @@ describe('export_gl_lines computed tables', () => {
     const first = payload(await exportGlLinesTool.handler({ table: 'ap_open_items', limit: 3 }, ctx(['read:reports'])));
     const cursor = first.next_cursor as string;
     for (const changed of [
-      { rows: ROWS, summary: { ...SUMMARY, controlTotal: 1790.01 } },     // same rows, an amount moved
+      // Same count and same total: an amount moved from one row to another (a receipt applied).
+      { rows: [{ ...ROWS[0]!, Outstanding: -11 }, { ...ROWS[1]!, Outstanding: 8 }, ...ROWS.slice(2)], summary: SUMMARY },
       { rows: ROWS.slice(1), summary: SUMMARY },                          // a row gone
       { rows: ROWS, summary: { ...SUMMARY, asAt: '2026-10-23' } },        // midnight passed
     ]) {

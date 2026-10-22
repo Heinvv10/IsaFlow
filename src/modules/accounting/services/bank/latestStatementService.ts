@@ -8,7 +8,8 @@
  * pay for the company's whole reconciliation history.
  *
  * Latest statement: the session with the latest statement_date, any status; on
- * a tie a completed session wins, then the most recently created. Its
+ * a tie a completed session wins, then the most recently created (status is
+ * nullable — a NULL sorts with the not-completed, never first). Its
  * statement_balance is the closing balance typed from the bank statement. On
  * an in-progress session that reconciliation is not yet signed off: the
  * statement is latest but unconfirmed exactly when lastStatementDate is later
@@ -36,7 +37,7 @@ export async function getLatestStatements(companyId: string): Promise<Map<string
         OVER (PARTITION BY br.bank_account_id) AS last_reconciled
     FROM bank_reconciliations br
     WHERE br.company_id = ${companyId}::UUID
-    ORDER BY br.bank_account_id, br.statement_date DESC, (br.status = 'completed') DESC, br.created_at DESC, br.id
+    ORDER BY br.bank_account_id, br.statement_date DESC, (br.status = 'completed') DESC NULLS LAST, br.created_at DESC, br.id
   `) as DbRow[];
   return new Map(rows.map((r) => [String(r.bank_account_id), {
     bankAccountId: String(r.bank_account_id),
