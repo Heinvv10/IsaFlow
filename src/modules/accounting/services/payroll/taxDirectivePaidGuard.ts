@@ -20,6 +20,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { log } from '@/lib/logger';
 import { payrollJournalInForce } from './payrollJournalChain';
 
 /** A route answers this with 409. Raised before anything is written. */
@@ -58,4 +59,23 @@ export async function directivePaidBy(companyId: string, directiveId: string, di
   }
   return `${which} was paid outside payroll on ${fmtDate(p.payment_date)}, so it stays approved: the payment is `
     + `declared to SARS under it. To cancel it, reverse ${journal} first.`;
+}
+
+/**
+ * A stand-alone payment whose journal has been reversed is undone (and its
+ * reversal can no longer be reversed: payrollJournalReversalGuard), so its row
+ * no longer pays the directive: delete it, freeing the directive's one payment
+ * row (UNIQUE, migration 403) for a new payment. The reversed journals stay in
+ * the ledger. Called by applyTaxDirective under its FOR SHARE on the directive.
+ */
+export async function releaseReversedStandalonePayment(companyId: string, directiveId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT id, journal_entry_id FROM tax_directive_payments
+    WHERE company_id = ${companyId}::uuid AND tax_directive_id = ${directiveId}::uuid
+      AND payroll_run_id IS NULL AND journal_entry_id IS NOT NULL
+  `) as DbRow[];
+  const p = rows[0];
+  if (!p || await payrollJournalInForce(companyId, String(p.journal_entry_id))) return;
+  await sql`DELETE FROM tax_directive_payments WHERE id = ${p.id}::uuid AND company_id = ${companyId}::uuid`;
+  log.info('Reversed directive payment released', { companyId, directiveId, paymentId: String(p.id) }, 'taxDirective');
 }
