@@ -91,7 +91,7 @@ describe('migration 908', () => {
       expect((await c.query('SHOW row_security')).rows[0]!.row_security).toBe('on');
 
       expect(await label(c, history)).toBe('auto_gl_import');
-            expect(await label(c, historyReversal)).toBe('auto_gl_import');
+      expect(await label(c, historyReversal)).toBe('auto_gl_import');
       expect(await label(c, deeper)).toBe('auto_gl_import');
       for (const kept of [openingBalance, obVariant, obByReference, obReferenceCase, obReversal, wizardTakeOn]) expect(await label(c, kept)).toBe('auto_migration');
       // The script's predicate and the migration's agree on every Sage journal it numbered.
@@ -145,6 +145,8 @@ describe('migration 908', () => {
     ["'opening' in the description", (a) => a.journal('SAGE-1010', 'Opening stock adjustment')],
     ["'o/b' in the description", (a) => a.journal('SAGE-1010', 'Sage O/B 2023 adj')],
     ["'o/b' in the reference", (a) => a.journal('SAGE-1010', 'Bank charges', 'auto_migration', null, 'O/B-2023')],
+    ["a near-miss description ('O/B from other system 2')", (a) => a.journal('SAGE-1010', 'O/B from other system 2')],
+    ["a near-miss reference ('O/balances')", (a) => a.journal('SAGE-1010', 'Bank charges', 'auto_migration', null, 'O/balances')],
     ["'opening' in the reference", (a) => a.journal('SAGE-1010', 'Bank charges', 'auto_migration', null, 'Opening')],
     ['kept O/B date + an equity account', (a) => a.journal('SAGE-1010', 'Share capital intro', 'auto_migration', null, null, { date: OB_DATE, credit: 1 })],
     ['kept O/B date + accumulated depreciation', (a) => a.journal('SAGE-1010', 'Plant', 'auto_migration', null, null, { date: OB_DATE, credit: 3 })],
