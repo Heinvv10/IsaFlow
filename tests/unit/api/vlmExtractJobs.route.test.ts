@@ -100,6 +100,17 @@ describe('POST /api/accounting/vlm-extract', () => {
     expect(JSON.stringify(res.sent)).not.toContain('127.0.0.1');
   });
 
+  it('does not charge the rate limit for a request that fails validation', async () => {
+    m.parse.mockResolvedValue({ files: {} });
+    expect((await call('POST', A)).statusCode).toBe(400);
+    m.parse.mockResolvedValue({ files: { file: { originalFilename: 'x.txt', mimetype: 'text/plain', size: 3 } } });
+    expect((await call('POST', A)).statusCode).toBe(400);
+    m.parse.mockResolvedValue({ files: { file: { originalFilename: 'x.pdf', mimetype: 'application/pdf', size: 3 } } });
+    m.bufferOf.mockReturnValue(Buffer.from('PK\u0003\u0004 not a pdf'));
+    expect((await call('POST', A)).statusCode).toBe(400);
+    expect(m.rateLimit).not.toHaveBeenCalled();
+  });
+
   it('registers no job for a file that fails validation', async () => {
     m.bufferOf.mockReturnValue(Buffer.from('PK\u0003\u0004 not a pdf'));
     expect((await call('POST', A)).statusCode).toBe(400);

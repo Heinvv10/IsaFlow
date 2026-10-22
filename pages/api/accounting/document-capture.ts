@@ -30,7 +30,10 @@ export const config = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Reads in flight per company. Soft: two uploads racing past the count can exceed it by one or two. */
+/**
+ * Reads in flight per company. SOFT: the count and the insert are not serialised, so uploads racing the count can
+ * exceed it (a handful at most; the rate limit bounds a burst).
+ */
 const MAX_READS_IN_FLIGHT = 5;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -96,11 +99,6 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const user = (req as NextApiRequest & { user: { id: string } }).user;
 
-  // No refund of the unused unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
-  if (!(await checkAiRateLimit(req, companyId, 'document-capture', { companyMax: 30, dailyMax: 300 }))) {
-    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
-  }
-
   try {
     const { files } = await parseUploadForm(req);
 
@@ -132,6 +130,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // files from reaching the OCR pipeline.
     if (!magicBytesMatchMime(buffer, mimeType)) {
       return apiResponse.badRequest(res, 'File content does not match declared type');
+    }
+
+    // Charged only for a request that will start a read, so a 400 above costs no unit. No refund of the unused
+    // unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
+    if (!(await checkAiRateLimit(req, companyId, 'document-capture', { companyMax: 30, dailyMax: 300 }))) {
+      return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
     }
 
     const [inFlight] = await sql`

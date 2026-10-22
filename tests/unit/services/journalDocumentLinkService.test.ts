@@ -121,6 +121,31 @@ describe('linkDocumentToJournal', () => {
   });
 });
 
+describe('linkDocumentToJournal: a document still being read', () => {
+  const reading = (minutesAgo: number) => ({
+    id: DOC, read_state: 'reading', read_heartbeat_at: null, created_at: new Date(Date.now() - minutesAgo * 60_000),
+  });
+
+  it('is refused with the shared wording before any write (the MCP tool answers this refusal too)', async () => {
+    m.sql
+      .mockResolvedValueOnce([{ id: JOURNAL }]) // loadLinkableJournal
+      .mockResolvedValueOnce([reading(1)]); // the document, with its read columns
+    await expect(linkDocumentToJournal(COMPANY, JOURNAL, DOC, USER, 'Invoice attached'))
+      .rejects.toThrow(new JournalDocumentLinkRefusal('This document is still being read.'));
+    expect(m.sql).toHaveBeenCalledTimes(2);
+    expect(m.logAuditOrThrow).not.toHaveBeenCalled();
+  });
+
+  it('is linked once the read went stale', async () => {
+    m.sql
+      .mockResolvedValueOnce([{ id: JOURNAL }])
+      .mockResolvedValueOnce([reading(30)])
+      .mockResolvedValueOnce([]).mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'link-1', journal_entry_id: JOURNAL, captured_document_id: DOC, linked_by: USER, linked_at: new Date(), reason: 'r' }]);
+    await expect(linkDocumentToJournal(COMPANY, JOURNAL, DOC, USER, 'Invoice attached')).resolves.toMatchObject({ id: 'link-1' });
+  });
+});
+
 describe('unlinkDocumentFromJournal', () => {
   it('refuses a blank reason before any write', async () => {
     await expect(unlinkDocumentFromJournal(COMPANY, JOURNAL, DOC, USER, ''))

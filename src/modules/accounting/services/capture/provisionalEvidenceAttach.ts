@@ -123,6 +123,7 @@ export async function attachDocumentToProvisional(
   // An evidence attach books nothing new, so it neither checks nor stamps posted content (R-088).
   const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'evidence' });
   // `content_busy` is a lock a peer still held after the bounded wait (D11): contended, retryable, never a refusal.
+  if (claimRefusal === 'being_read') return { kind: 'reading', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
   if (claimRefusal === 'content_busy') return { kind: 'contended', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
   if (claimRefusal) return { kind: 'refused', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
 

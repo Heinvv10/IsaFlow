@@ -56,6 +56,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (err instanceof ClaimSourceDocumentError) {
         // A receipt fingerprint a peer holds past the bounded wait is a held lock: 503 + Retry-After (D11).
         if (err.refusal === 'busy') return respondRowHeld(res, err.message, 'RECEIPT_POST_BUSY');
+        // The upload is still being read: nothing was written, and asking again later works.
+        if (err.refusal === 'being_read') return apiResponse.conflict(res, err.message);
         return apiResponse.badRequest(res, err.message);
       }
       if (err instanceof DocumentLineAccountRefusal) return apiResponse.badRequest(res, err.message);
