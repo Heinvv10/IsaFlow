@@ -66,16 +66,26 @@ export async function directivePaidBy(companyId: string, directiveId: string, di
  * reversal can no longer be reversed: payrollJournalReversalGuard), so its row
  * no longer pays the directive: delete it, freeing the directive's one payment
  * row (UNIQUE, migration 403) for a new payment. The reversed journals stay in
- * the ledger. Called by applyTaxDirective under its FOR SHARE on the directive.
+ * the ledger. An undone chain never comes back into force, so this needs no
+ * lock to be safe. Called by applyTaxDirective (for its directive, under its
+ * FOR SHARE) and by a pay run's calculation (directiveId null: the company's,
+ * so a run can pay a severance directive whose stand-alone payment was
+ * reversed).
  */
-export async function releaseReversedStandalonePayment(companyId: string, directiveId: string): Promise<void> {
+export async function releaseReversedStandalonePayment(companyId: string, directiveId: string | null): Promise<void> {
   const rows = (await sql`
-    SELECT id, journal_entry_id FROM tax_directive_payments
-    WHERE company_id = ${companyId}::uuid AND tax_directive_id = ${directiveId}::uuid
-      AND payroll_run_id IS NULL AND journal_entry_id IS NOT NULL
+    SELECT tdp.id, tdp.tax_directive_id, tdp.journal_entry_id
+    FROM tax_directive_payments tdp
+    JOIN gl_journal_entries je ON je.id = tdp.journal_entry_id AND je.company_id = tdp.company_id
+    WHERE tdp.company_id = ${companyId}::uuid
+      AND (${directiveId}::uuid IS NULL OR tdp.tax_directive_id = ${directiveId}::uuid)
+      AND tdp.payroll_run_id IS NULL AND je.reversed_at IS NOT NULL
   `) as DbRow[];
-  const p = rows[0];
-  if (!p || await payrollJournalInForce(companyId, String(p.journal_entry_id))) return;
-  await sql`DELETE FROM tax_directive_payments WHERE id = ${p.id}::uuid AND company_id = ${companyId}::uuid`;
-  log.info('Reversed directive payment released', { companyId, directiveId, paymentId: String(p.id) }, 'taxDirective');
+  for (const p of rows) {
+    if (await payrollJournalInForce(companyId, String(p.journal_entry_id))) continue;
+    await sql`DELETE FROM tax_directive_payments WHERE id = ${p.id}::uuid AND company_id = ${companyId}::uuid`;
+    log.info('Reversed directive payment released', {
+      companyId, directiveId: String(p.tax_directive_id), paymentId: String(p.id),
+    }, 'taxDirective');
+  }
 }
