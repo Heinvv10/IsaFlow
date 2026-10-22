@@ -20,6 +20,10 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { directivePaye } from './payrollSeveranceDirective';
+import { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
+import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
+
+export { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError };
 
 type Row = DbRow;
 
@@ -115,21 +119,27 @@ export async function applyTaxDirective(
 ): Promise<ApplyDirectiveResult> {
   log.info('applyTaxDirective start', { companyId, directiveId }, 'taxDirective');
 
-  // 1. Load directive — scoped by company_id
-  const dirRows = (await sql`
+  // 1. Load and lock the directive — scoped by company_id. FOR SHARE, held to
+  // the end of the request: a concurrent cancel (updateTaxDirective, FOR
+  // UPDATE) waits for this payment and is then refused, or, if it got there
+  // first, this reads the cancelled status. Lock order there.
+  const dirRows = await claimUnderLockTimeout('tax directive', async () => (await sql`
     SELECT * FROM tax_directives
     WHERE company_id = ${companyId} AND id = ${directiveId}
-    LIMIT 1
-  `) as Row[];
+    FOR SHARE
+  `) as Row[]);
   if (dirRows.length === 0) throw new Error(`Tax directive ${directiveId} not found`);
   const dir = dirRows[0]!;
 
   const currentStatus = String(dir.status);
-  if (currentStatus !== 'approved') {
-    throw new Error(
-      `Cannot apply tax directive with status '${currentStatus}' — directive must be 'approved' first`,
-    );
-  }
+  if (currentStatus !== 'approved') throw new TaxDirectiveNotApprovedError(directiveId, currentStatus);
+  // The payment goes on the employee's tax certificate (directivePaymentFiling):
+  // a directive linked to nobody here would be declared on the EMP201 and on no IRP5.
+  const employee = dir.employee_id == null ? [] : (await sql`
+    SELECT 1 FROM payroll_employees WHERE company_id = ${companyId} AND id = ${dir.employee_id}
+  `) as Row[];
+  if (employee.length === 0) throw new TaxDirectiveWithoutEmployeeError(directiveId);
+  await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 2. Compute amounts
   const gross = round2(num(dir.amount));
