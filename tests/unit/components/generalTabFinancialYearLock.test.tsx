@@ -38,17 +38,19 @@ describe('GeneralTab financial year start', () => {
       financialYearStartLocked: true, financialYearStartLockReason: 'posted', financialYearStartActual: 1,
     })} onChange={vi.fn()} />);
     expect(shownMonth()).toBe('Jan');
-    const note = screen.getByText(/declared/i).textContent!;
-    expect(note).toMatch(/January/);
-    expect(note).toMatch(/March/);
+    expect(screen.getByText(/declared/i).textContent).toBe(
+      'Your fiscal periods run from January, but the declared financial year start is March. '
+      + "Some reports use one and some the other until they're aligned; contact support to align them.");
+    // Not claimed: the trial balance YTD, AFS ranges and the year-end close read the DECLARED month.
+    expect(screen.queryByText(/Reports follow the periods/)).toBeNull();
   });
 
-  it('editable with periods on another month: shows the declared month and says a save rebuilds unused periods', () => {
-    const onChange = vi.fn();
-    render(<GeneralTab company={company({ financialYearStartLocked: false, financialYearStartActual: 1 })} onChange={onChange} />);
+  it('editable with periods on another month: shows the declared month (what a save writes) and the same mismatch note', () => {
+    render(<GeneralTab company={company({ financialYearStartLocked: false, financialYearStartActual: 1 })} onChange={vi.fn()} />);
     expect(fySelect().disabled).toBe(false);
     expect(shownMonth()).toBe('Mar');
-    expect(screen.getByText(/declared/i).textContent).toMatch(/January.*rebuil/);
+    expect(screen.getByText(/declared/i).textContent).toMatch(/January.*March.*contact support to align them/);
+    expect(screen.queryByText(/rebuil/i)).toBeNull();
   });
 
   it('read-only for a company that is not the active one', () => {

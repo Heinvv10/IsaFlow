@@ -8,7 +8,7 @@
  * one drifted apart. PUT /api/accounting/companies (the one writer of the
  * column after creation) now refuses a change after the first posting with a
  * 409, and before it rebuilds the periods in the same transaction. A save of the
- * SAME month on a company whose unused periods disagree repairs them.
+ * SAME month is a no-op, even over periods that start in another month.
  *
  * Disposable schema fixture only (assertDisposable). The real withAuth runs.
  */
@@ -130,23 +130,21 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
   });
 });
 
-describe('the same month repairs periods that disagree with it, when nothing uses them', () => {
-  it('unused calendar periods on a March company are rebuilt on March by a plain save', async () => {
+describe('the same month never touches the periods, even when they start in another month', () => {
+  // Existing companies are not realigned by a routine save (Hein, 2026-10-22): the settings page PUTs the
+  // whole company, financialYearStart included, so a "repair" here would rebuild periods on every save.
+  it('unused calendar periods on a March company stay as they are after a plain save', async () => {
     const { u, companyId } = await onboarded();
     await makeCalendarPeriods(companyId);
     expect((await getCompany(u, companyId)).body.data).toMatchObject({ financialYearStart: 3, financialYearStartActual: 1 });
+    const before = (await pool.query(
+      `SELECT id, start_date::text FROM fiscal_periods WHERE company_id = $1 ORDER BY start_date`, [companyId])).rows;
 
-    const out = await put(u, { id: companyId, financialYearStart: 3 });
+    const out = await put(u, { id: companyId, financialYearStart: 3, tradingName: 'No realign' });
     expect(out.status, JSON.stringify(out.body)).toBe(200);
-    expect(await stored(companyId)).toMatchObject({ fy: 3, first_month: 3, periods: 12 });
-  });
-
-  it('with a posted journal the save succeeds and the periods are left as they are', async () => {
-    const { u, companyId } = await onboarded();
-    await makeCalendarPeriods(companyId);
-    await journal(companyId, u.userId, 'posted');
-    const out = await put(u, { id: companyId, financialYearStart: 3, tradingName: 'No repair' });
-    expect(out.status, JSON.stringify(out.body)).toBe(200);
-    expect(await stored(companyId)).toMatchObject({ trading_name: 'No repair', first_month: 1, periods: 12 });
+    expect(await stored(companyId)).toMatchObject({ fy: 3, trading_name: 'No realign', first_month: 1, periods: 12 });
+    expect((await pool.query(
+      `SELECT id, start_date::text FROM fiscal_periods WHERE company_id = $1 ORDER BY start_date`, [companyId])).rows)
+      .toEqual(before);
   });
 });

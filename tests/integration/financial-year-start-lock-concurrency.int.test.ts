@@ -51,23 +51,6 @@ describe('financial year start: company-row lock', () => {
     }
   });
 
-  it('a same-month save over misaligned periods that are in use does not wait either (no repair, no lock)', async () => {
-    const { u, companyId } = await fx.onboarded();
-    await fx.makeCalendarPeriods(companyId);
-    await fx.journal(companyId, u.userId, 'posted');
-    const holder = await holdKeyShare(companyId);
-    try {
-      const save = fx.put(u, { id: companyId, financialYearStart: 3 });
-      const first = await within(save, 3000);
-      expect(first, 'the doomed repair took FOR UPDATE').not.toBe(PENDING);
-      expect((first as Awaited<typeof save>).status).toBe(200);
-    } finally {
-      await holder.query('COMMIT');
-      holder.release();
-    }
-    expect(await fx.stored(companyId)).toMatchObject({ first_month: 1, periods: 12 });
-  });
-
   it('a real change waits for the in-flight insert, then sees what it wrote and refuses', async () => {
     const { u, companyId } = await fx.onboarded();
     const holder = await holdKeyShare(companyId);
