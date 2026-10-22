@@ -236,6 +236,23 @@ describe('an accepted answer that not even audit_log could record survives on lo
     expect({ audit: (await auditRows(id)).length, replayed: spoolFiles('.replayed').length, pending: spoolFiles('.jsonl').length }).toEqual({ audit: 1, replayed: 1, pending: 0 });
   }, 60_000);
 
+  it('an acceptance whose spool write never reached the rename keeps blocking resolve, also after the stale-temp sweep moved it to quarantine/', async () => {
+    const { c, id } = await acceptedAndNothingRecorded();
+    const dirPath = path.join(spool, 'spool');
+    const [name] = spoolFiles('.jsonl');
+    // The write that "never reached the rename": the complete line sits under its temp name, older than the timeout.
+    const temp = path.join(dirPath, `.${name}.${crypto.randomUUID().slice(0, 8)}.tmp`);
+    fs.renameSync(path.join(dirPath, name!), temp);
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(temp, old, old);
+    faults.rules.push({ match: /INSERT INTO audit_log/, claimOnly: false, act: injected('audit insert (replay)') });
+    const res = await resolveAfterRestart(c, id); // its replay sweeps the stale temp into quarantine/
+    expect({ http: res.state.statusCode, reason: reason(res), swept: !fs.existsSync(temp), quarantined: fs.readdirSync(path.join(dirPath, 'quarantine')).length, status: await status(id) })
+      .toEqual({ http: 409, reason: 'ANSWER_PENDING_RECORD', swept: true, quarantined: 1, status: 'pending' });
+    const again = await resolveAfterRestart(c, id); // and a minute later, still
+    expect(again.state.statusCode).toBe(409);
+  }, 60_000);
+
   it('a replay is bounded per call: maxEntries leaves the rest for the next call', async () => {
     const { id } = await acceptedAndNothingRecorded(); // one real entry...
     const [name] = spoolFiles('.jsonl');

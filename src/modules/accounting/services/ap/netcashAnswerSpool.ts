@@ -8,8 +8,11 @@
  * One file per answer, named `<company>.<submission>.<settleToken>.jsonl` (all three are ours, never Netcash's): a
  * lookup by company and submission is a directory listing. A file is COMPLETE OR ABSENT: it is written under a temporary
  * name (`.<name>.<random>.tmp`, ignored by every lookup), fsynced, renamed to its final name and the directory fsynced,
- * so a crash mid-write leaves at most a stray temp (swept into quarantine/ once older than STALE_TEMP_MS), never a torn
- * entry. "Replayed" is a move to `replayed/`, and an entry the database keeps refusing for its own content moves to
+ * so a crash mid-write leaves at most a stray temp, never a torn entry. A temp is not replayed, but it is NOT ignored
+ * by the lookup either (fail closed): one carrying the company and submission blocks like an entry would - judged by
+ * its content when it parses, blocking when it does not. One older than STALE_TEMP_MS is swept to quarantine/ under a
+ * final-style name (`<company>.<submission>.<token>.<rand>.stale.jsonl`) so it keeps blocking. "Replayed" is a move to
+ * `replayed/`, and an entry the database keeps refusing for its own content moves to
  * `quarantine/` - lines are never deleted or rewritten; a quarantined acceptance still blocks resolve. Written through
  * fs.promises with a timeout (ANSWER_SPOOL_TIMEOUT_MS) rather than the sync calls, so a stalled disk cannot freeze the
  * event loop or hold the 500; a write that outlives the timeout may still complete, which only adds evidence. Never
@@ -62,6 +65,13 @@ const fileName = (r: AnswerRecord) =>
   `${r.companyId.toLowerCase()}.${r.submissionId.toLowerCase()}.${r.metadata.settleToken.replace(/[^0-9a-zA-Z-]/g, '_').slice(0, 64)}${SUFFIX}`;
 /** A final entry: not a dot-file (temps are), `.jsonl`. */
 const isEntry = (n: string) => n.endsWith(SUFFIX) && !n.startsWith('.');
+/** A temp of a write in flight or never finished: `.<company>.<submission>.<token>.jsonl.<rand>.tmp`. */
+const isTemp = (n: string) => n.startsWith('.') && n.endsWith('.tmp') && !n.startsWith('.probe-');
+/** The final-style name a swept temp takes in quarantine/, which the company/submission prefix lookup matches. */
+const quarantineNameOf = (temp: string) => {
+  const m = /^\.(.+)\.jsonl\.([^.]+)\.tmp$/.exec(temp);
+  return m ? `${m[1]}.${m[2]}.stale${SUFFIX}` : `stale-${temp.replace(/^\./, '')}${SUFFIX}`;
+};
 /** Unreadable entries already reported by this process: each is log.error'd once, not on every submit's replay. */
 const reportedUnreadable = new Set<string>();
 function reportUnreadable(file: string, message: string): void {
@@ -155,16 +165,17 @@ export async function probeSpoolWritable(): Promise<boolean> {
   }
 }
 
-/** Names of the entries in `dir`; none when it does not exist. Throws on any other failure. */
-async function entryNames(dir: string): Promise<string[]> {
+/** Names in `dir` for `keep`; none when it does not exist. Throws on any other failure. */
+async function namesIn(dir: string, keep: (n: string) => boolean): Promise<string[]> {
   try {
-    return (await fs.readdir(dir)).filter(isEntry);
+    return (await fs.readdir(dir)).filter(keep);
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') return [];
     throw err;
   }
 }
+const entryNames = (dir: string) => namesIn(dir, isEntry);
 
 /** The entry in `file`; 'gone' when it was moved meanwhile (a peer replayed it); null when it cannot be read. */
 async function readEntry(file: string): Promise<SpooledLine | 'gone' | null> {
@@ -186,22 +197,28 @@ async function readEntry(file: string): Promise<SpooledLine | 'gone' | null> {
 /**
  * A spooled ACCEPTANCE for this submission in this company that is not in audit_log yet (pending or quarantined); null
  * if none. resolve calls it for a pending row it is asked to free. Only an acceptance blocks - a spooled `unknown` or
- * rejected answer does not, exactly as audit_log's record. Company and submission come from the file NAME (ours): a
- * final-named entry that cannot be read still counts - fail closed, log.error - and a directory that cannot be listed
- * throws (the resolve fails, never frees on a guess). Temp files are never entries.
+ * rejected answer does not, exactly as audit_log's record. Company and submission come from the file NAME (ours): an
+ * entry - or a temp (in flight, or left by a write that never reached its rename, in the directory or swept to
+ * quarantine/) - that cannot be read still counts: fail closed, log.error once. A directory that cannot be listed
+ * throws (the resolve fails, never frees on a guess).
  */
 export async function spooledAcceptedAnswer(companyId: string, submissionId: string): Promise<{ outcome: string; batchReference: string } | null> {
   const prefix = `${companyId.toLowerCase()}.${submissionId.toLowerCase()}.`;
+  const mine = (n: string) => (isEntry(n) && n.startsWith(prefix)) || (isTemp(n) && n.startsWith(`.${prefix}`));
   for (const dir of [spoolDir(), quarantineDir()]) {
-    for (const name of (await entryNames(dir)).filter((n) => n.startsWith(prefix))) {
-      const entry = await readEntry(path.join(dir, name));
-      if (entry === 'gone') continue;
-      if (!entry) {
-        reportUnreadable(path.join(dir, name), 'netcash answer spool: an entry for this submission cannot be read - treated as an acceptance');
-        return { outcome: 'accepted (spool entry unreadable)', batchReference: '' };
-      }
-      if (entry.companyId.toLowerCase() === companyId.toLowerCase() && entry.metadata.status === 'submitted') {
-        return { outcome: entry.metadata.outcome || 'accepted', batchReference: entry.metadata.batchReference ?? '' };
+    // A temp renamed to its final name between the listing and the read is 'gone' - list again, or the final name is missed.
+    for (let pass = 0, again = true; again && pass < 3; pass += 1) {
+      again = false;
+      for (const name of await namesIn(dir, mine)) {
+        const entry = await readEntry(path.join(dir, name));
+        if (entry === 'gone') { again = true; continue; }
+        if (!entry) {
+          reportUnreadable(path.join(dir, name), 'netcash answer spool: an entry (or unfinished temp) for this submission cannot be read - treated as an acceptance');
+          return { outcome: 'accepted (spool entry unreadable)', batchReference: '' };
+        }
+        if (entry.companyId.toLowerCase() === companyId.toLowerCase() && entry.metadata.status === 'submitted') {
+          return { outcome: entry.metadata.outcome || 'accepted', batchReference: entry.metadata.batchReference ?? '' };
+        }
       }
     }
   }
@@ -222,10 +239,10 @@ export async function pendingSpooled(): Promise<{ file: string; entry: AnswerRec
 }
 
 /** Move an entry into `to` (replayed/ or quarantine/): never deleted. An entry a peer already moved is not an error. */
-async function moveEntry(file: string, to: string): Promise<void> {
+async function moveEntry(file: string, to: string, as = path.basename(file)): Promise<void> {
   await ensureDir(to);
   try {
-    await fs.rename(file, path.join(to, path.basename(file)));
+    await fs.rename(file, path.join(to, as));
   } catch (err) {
     if ((err as { code?: string }).code !== 'ENOENT') throw err;
     return;
@@ -236,10 +253,14 @@ async function moveEntry(file: string, to: string): Promise<void> {
 export const markReplayed = (file: string) => moveEntry(file, replayedDir());
 export const quarantineEntry = (file: string) => moveEntry(file, quarantineDir());
 
-/** Temp files left by writes that never finished go to quarantine/ (kept, never deleted); a fresh one is a write in flight. */
+/**
+ * Temp files left by writes that never finished go to quarantine/ under a final-style name (kept, never deleted, and
+ * still found by the lookup - an acceptance whose write never reached its rename must not stop blocking after a minute);
+ * a fresh one is a write in flight.
+ */
 export async function sweepStaleTemps(): Promise<void> {
   try {
-    for (const name of (await fs.readdir(spoolDir())).filter((n) => n.startsWith('.') && n.endsWith('.tmp') && !n.startsWith('.probe-'))) {
+    for (const name of (await fs.readdir(spoolDir())).filter(isTemp)) {
       const file = path.join(spoolDir(), name);
       let mtimeMs: number;
       try {
@@ -249,8 +270,8 @@ export async function sweepStaleTemps(): Promise<void> {
         throw err;
       }
       if (Date.now() - mtimeMs > STALE_TEMP_MS) {
-        log.warn('netcash answer spool: an unfinished temp file moved to quarantine', { file }, 'netcash');
-        await moveEntry(file, quarantineDir());
+        log.warn('netcash answer spool: an unfinished temp file moved to quarantine (it still blocks its submission)', { file }, 'netcash');
+        await moveEntry(file, quarantineDir(), quarantineNameOf(name));
       }
     }
   } catch (err) {
