@@ -13,6 +13,7 @@ const M911 = migration('911_service_role_member_guards.sql');
 const GUARD_910 = doBlock(M910, 'outside its allowlist');
 const POLICIES_910 = doBlock(M910, `'app_service_' || r.cmd`);
 const GUARD_911 = doBlock(M911, 'exempts every role but app_user');
+const PATCH_911 = doBlock(M911, 'expected exactly once');
 
 beforeAll(() => setup(ids), 60000);
 afterAll(() => teardown(ids, []));
@@ -108,6 +109,26 @@ describe('S-07b: migration 910', () => {
 });
 
 describe('S-07b: migration 911', () => {
+  it.each([
+    ['twice', 2, `IF current_user <> 'app_user' THEN RETURN NEW; END IF; IF current_user <> 'app_user' THEN RETURN NEW; END IF;`],
+    ['not at all', 0, `IF current_user = 'platform_admin' THEN RETURN NEW; END IF;`],
+  ])('patches a guard only where it holds the exemption line exactly once: refuses one holding it %s', async (_, n, body) => {
+    await rolledBack(async (q) => {
+      await q(`CREATE OR REPLACE FUNCTION public.company_users_role_guard() RETURNS trigger LANGUAGE plpgsql AS $f$
+        BEGIN ${body} RETURN NEW; END $f$`);
+      await expect(q(PATCH_911)).rejects.toThrow(new RegExp(`911: company_users_role_guard\\(\\) holds the exemption line ${n} time`));
+    });
+  });
+
+  it('leaves a guard that already binds app_service as it is (a rewrite that merged the binding)', async () => {
+    await rolledBack(async (q) => {
+      const before = (await q(`SELECT md5(prosrc) AS m FROM pg_proc WHERE oid = 'public.company_users_role_guard()'::regprocedure`)) as { rows: Array<{ m: string }> };
+      await q(PATCH_911);
+      const after = (await q(`SELECT md5(prosrc) AS m FROM pg_proc WHERE oid = 'public.company_users_role_guard()'::regprocedure`)) as { rows: Array<{ m: string }> };
+      expect(after.rows[0]!.m).toBe(before.rows[0]!.m);
+    });
+  });
+
   it.each([
     ['a trigger function in the old shape', `CREATE FUNCTION public.s07b_mutant_guard() RETURNS trigger LANGUAGE plpgsql AS $f$
       BEGIN IF current_user <> 'app_user' THEN RETURN NEW; END IF; RETURN NEW; END $f$`, /911: s07b_mutant_guard\(\) exempts every role but app_user/],

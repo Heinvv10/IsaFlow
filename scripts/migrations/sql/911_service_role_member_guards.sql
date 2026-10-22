@@ -7,8 +7,8 @@
 -- app_user), so it was let through: with no claims at all it could add a
 -- super_admin member, move a membership, remove a company's last owner, or
 -- write an invitation at any role (S-07b breaker, F1), none of which
--- app_user can do even with forged claims. The functions below are 886's,
--- byte for byte, except that exemption line.
+-- app_user can do even with forged claims. The DO block below rewrites only
+-- that exemption line, in place, so it binds app_service-holding roles too.
 --
 -- The one service-pool path that wrote either table, POST /api/invite/[token],
 -- now writes on the migration_admin pool, as /api/invitations/[token]/accept
@@ -26,181 +26,56 @@
 -- Nothing in the app writes it; the deploy's migration runner runs as the
 -- owner. Revoked (S-07b breaker, F3).
 
-CREATE OR REPLACE FUNCTION public.company_users_role_guard() RETURNS trigger
-LANGUAGE plpgsql
-SET search_path = pg_catalog, public, pg_temp
-AS $$
+-- Patch the exemption line in place, on whatever body each guard has now
+-- (886's, or a later rewrite that sorts before this file, e.g. 908b), rather
+-- than re-creating either function from an older text and dropping rules
+-- added since. A guard that already binds app_service is left alone; any
+-- other must contain the old line exactly once, or the migration stops.
+DO $$
 DECLARE
-  v_company pg_catalog.uuid := CASE TG_OP WHEN 'DELETE' THEN OLD.company_id ELSE NEW.company_id END;
-  v_actor_role pg_catalog.text;
-  v_others pg_catalog.int8;
-  v_isolation pg_catalog.text := pg_catalog.current_setting('transaction_isolation');
-  v_fresh pg_catalog.bool := v_isolation IN ('read committed', 'read uncommitted');
-BEGIN
-  IF current_user = 'platform_admin' THEN
-    -- The portal keeps its power to demote or remove an owner (no last-owner
-    -- rule there today), but takes the same per-company lock app_user's
-    -- last-owner check takes: a portal demotion and an app demotion of the
-    -- other owner are then judged one after the other, and the app's is
-    -- refused rather than both passing (adversarial review of PR #691, F2).
-    IF TG_OP <> 'INSERT' AND OLD.role = 'owner' AND (TG_OP = 'DELETE' OR NEW.role IS DISTINCT FROM 'owner') THEN
-      PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('company_owners:' || OLD.company_id::pg_catalog.text, 0));
-    END IF;
-    IF TG_OP = 'UPDATE' AND (NEW.company_id IS DISTINCT FROM OLD.company_id OR NEW.user_id IS DISTINCT FROM OLD.user_id) THEN
-      RAISE EXCEPTION 'A company membership cannot be moved to another company or user' USING ERRCODE = 'RC004';
-    END IF;
-    IF TG_OP <> 'DELETE' AND (TG_OP = 'INSERT' OR NEW.role IS DISTINCT FROM OLD.role)
-       AND COALESCE(NEW.role <> ALL (ARRAY['admin', 'accountant', 'bookkeeper', 'viewer']::pg_catalog.text[]), true) THEN
-      RAISE EXCEPTION 'The admin portal may only grant the admin, accountant, bookkeeper or viewer role (got %)', NEW.role
-        USING ERRCODE = 'RC007';
-    END IF;
-    RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
-  END IF;
-  -- app_service (S-07b, 910) holds app_user's privileges and policies, so a
-  -- role holding it takes app_user's rules too. pg_has_role is true for every
-  -- superuser, so the roles that bypass RLS (the owners, migration_admin, the
-  -- deploy role, superusers) are still let through, as before.
-  IF current_user <> 'app_user'
+  v_fn pg_catalog.regprocedure;
+  v_src pg_catalog.text;
+  v_old CONSTANT pg_catalog.text := $o$IF current_user <> 'app_user' THEN$o$;
+  v_new CONSTANT pg_catalog.text := $n$IF current_user <> 'app_user'
      AND NOT (pg_catalog.pg_has_role(current_user, 'app_service', 'USAGE')
               AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
-                              WHERE r.rolname = current_user AND (r.rolsuper OR r.rolbypassrls))) THEN
-    RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
-  END IF;
-
-  v_actor_role := public.company_member_actor_role(v_company);
-  IF v_actor_role IS DISTINCT FROM 'owner' AND v_actor_role IS DISTINCT FROM 'admin' THEN
-    RAISE EXCEPTION 'Only owners and admins can change the members of a company' USING ERRCODE = 'RC001';
-  END IF;
-
-  IF TG_OP = 'UPDATE' AND (NEW.id IS DISTINCT FROM OLD.id OR NEW.company_id IS DISTINCT FROM OLD.company_id
-       OR NEW.user_id IS DISTINCT FROM OLD.user_id OR NEW.is_default IS DISTINCT FROM OLD.is_default
-       OR NEW.created_at IS DISTINCT FROM OLD.created_at) THEN
-    RAISE EXCEPTION 'Only a member''s role can be changed' USING ERRCODE = 'RC004';
-  END IF;
-
-  IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND NEW.role IS DISTINCT FROM OLD.role) THEN
-    IF COALESCE(NEW.role <> ALL (ARRAY['owner', 'admin', 'manager', 'viewer']::pg_catalog.text[]), true) THEN
-      RAISE EXCEPTION 'Invalid role. Must be one of: owner, admin, manager, viewer' USING ERRCODE = 'RC002';
-    END IF;
-    IF public.company_member_role_is_owner(NEW.role) AND v_actor_role <> 'owner' THEN
-      RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
-    END IF;
-  END IF;
-
-  IF TG_OP = 'DELETE' AND pg_catalog.lower(OLD.user_id::pg_catalog.text) = pg_catalog.lower(auth.uid()) THEN
-    RAISE EXCEPTION 'You cannot remove yourself from the company.' USING ERRCODE = 'RC006';
-  END IF;
-
-  -- The last owner: never demoted, never removed. Counted by PERSON, not by
-  -- row (a second row for the same user in another case is still that user),
-  -- under a per-company lock so two owners demoting each other at once are
-  -- judged one after the other — the second sees the first's demotion and is
-  -- refused (adversarial review of PR #691, REPRO 3 and 4). An advisory lock,
-  -- not FOR UPDATE on the owner rows: each UPDATE already holds its own row,
-  -- so row locks taken in id order would deadlock the pair. The second sees
-  -- the first only at READ COMMITTED, so any other level is refused below.
-  IF public.company_member_role_is_owner(OLD.role)
-     AND (TG_OP = 'DELETE' OR public.company_member_role_is_owner(NEW.role) IS NOT TRUE) THEN
-    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('company_owners:' || OLD.company_id::pg_catalog.text, 0));
-    SELECT pg_catalog.count(DISTINCT pg_catalog.lower(cu.user_id::pg_catalog.text)) INTO v_others FROM public.company_users cu
-    WHERE cu.company_id = OLD.company_id AND cu.role = 'owner'
-      AND pg_catalog.lower(cu.user_id::pg_catalog.text) <> pg_catalog.lower(OLD.user_id::pg_catalog.text);
-    IF v_others = 0 THEN
-      RAISE EXCEPTION '%', CASE TG_OP WHEN 'DELETE' THEN 'Cannot remove the last owner of the company.'
-                               ELSE 'Cannot change role: this is the last owner of the company.' END
-        USING ERRCODE = 'RC005';
-    END IF;
-  END IF;
-  -- Last, after every rule (a write a rule refuses gets the rule's code): the
-  -- checks above read the snapshot, which only READ COMMITTED re-takes.
-  IF NOT v_fresh THEN
-    RAISE EXCEPTION 'Members and invitations are written only at READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
-      USING ERRCODE = '40001';
-  END IF;
-  RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
-END
-$$;
-
-CREATE OR REPLACE FUNCTION public.company_invitations_role_guard() RETURNS trigger
-LANGUAGE plpgsql
-SET search_path = pg_catalog, public, pg_temp
-AS $$
-DECLARE
-  v_company pg_catalog.uuid := CASE TG_OP WHEN 'DELETE' THEN OLD.company_id ELSE NEW.company_id END;
-  v_actor_role pg_catalog.text;
-  v_isolation pg_catalog.text := pg_catalog.current_setting('transaction_isolation');
-  v_fresh pg_catalog.bool := v_isolation IN ('read committed', 'read uncommitted');
+                              WHERE r.rolname = current_user AND (r.rolsuper OR r.rolbypassrls))) THEN$n$;
+  v_hits pg_catalog.int4;
 BEGIN
-  IF current_user = 'platform_admin' THEN
-    RAISE EXCEPTION 'The admin portal does not write invitations' USING ERRCODE = 'RC008';
-  END IF;
-  -- app_service (S-07b, 910) holds app_user's privileges and policies, so a
-  -- role holding it takes app_user's rules too. pg_has_role is true for every
-  -- superuser, so the roles that bypass RLS (the owners, migration_admin, the
-  -- deploy role, superusers) are still let through, as before.
-  IF current_user <> 'app_user'
-     AND NOT (pg_catalog.pg_has_role(current_user, 'app_service', 'USAGE')
-              AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
-                              WHERE r.rolname = current_user AND (r.rolsuper OR r.rolbypassrls))) THEN
-    RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
-  END IF;
-
-  v_actor_role := public.company_member_actor_role(v_company);
-  IF v_actor_role IS DISTINCT FROM 'owner' AND v_actor_role IS DISTINCT FROM 'admin' THEN
-    RAISE EXCEPTION 'Only owners and admins can invite users.' USING ERRCODE = 'RC001';
-  END IF;
-  IF TG_OP = 'DELETE' THEN
-    IF NOT v_fresh THEN
-      RAISE EXCEPTION 'Members and invitations are written only at READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
-        USING ERRCODE = '40001';
+  FOREACH v_fn IN ARRAY ARRAY['public.company_users_role_guard()'::pg_catalog.regprocedure,
+                              'public.company_invitations_role_guard()'::pg_catalog.regprocedure] LOOP
+    SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p WHERE p.oid = v_fn;
+    CONTINUE WHEN v_src ~ 'app_service';
+    v_hits := (pg_catalog.length(v_src) - pg_catalog.length(pg_catalog.replace(v_src, v_old, ''))) / pg_catalog.length(v_old);
+    IF v_hits <> 1 THEN
+      RAISE EXCEPTION '911: % holds the exemption line % time(s), expected exactly once; merge the app_service binding by hand', v_fn, v_hits;
     END IF;
-    RETURN OLD;
-  END IF;
-
-  IF TG_OP = 'UPDATE' AND NEW.company_id IS DISTINCT FROM OLD.company_id THEN
-    RAISE EXCEPTION 'An invitation cannot be moved to another company' USING ERRCODE = 'RC004';
-  END IF;
-  IF TG_OP = 'INSERT' OR NEW.role IS DISTINCT FROM OLD.role THEN
-    IF COALESCE(NEW.role <> ALL (ARRAY['owner', 'admin', 'manager', 'viewer', 'storeman', 'technician']::pg_catalog.text[]), true) THEN
-      RAISE EXCEPTION 'Invalid role. Must be one of: owner, admin, manager, viewer, storeman, technician' USING ERRCODE = 'RC002';
-    END IF;
-    IF public.company_member_role_is_owner(NEW.role) AND v_actor_role <> 'owner' THEN
-      RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
-    END IF;
-  END IF;
-  -- A live owner invitation is an owner's to shape. Re-pointing one that stays
-  -- `owner` — its email, token or GoTrue user — or re-opening it (accepted_at,
-  -- expires_at) is how a non-owner would take it over and accept it as owner
-  -- (blind H1 / adversarial REPRO 1–2 on PR #691), so it takes an owner. The
-  -- send-status columns stay writable; turning it into a lesser invitation
-  -- (a re-invite at another role) does not need an owner. `Owner ` is an owner
-  -- invitation too: the accept routes copy the role verbatim (886).
-  IF TG_OP = 'UPDATE' AND public.company_member_role_is_owner(NEW.role) AND v_actor_role <> 'owner'
-     AND (NEW.email, NEW.token, NEW.gotrue_user_id, NEW.accepted_at, NEW.expires_at, NEW.invited_by)
-         IS DISTINCT FROM (OLD.email, OLD.token, OLD.gotrue_user_id, OLD.accepted_at, OLD.expires_at, OLD.invited_by) THEN
-    RAISE EXCEPTION 'Only an owner can grant the owner role.' USING ERRCODE = 'RC003';
-  END IF;
-  IF (TG_OP = 'INSERT' OR NEW.invited_by IS DISTINCT FROM OLD.invited_by)
-     AND pg_catalog.lower(NEW.invited_by::pg_catalog.text) IS DISTINCT FROM pg_catalog.lower(auth.uid()) THEN
-    RAISE EXCEPTION 'An invitation records the person who sent it' USING ERRCODE = 'RC009';
-  END IF;
-  -- Last, after every rule, as in company_users_role_guard().
-  IF NOT v_fresh THEN
-    RAISE EXCEPTION 'Members and invitations are written only at READ COMMITTED (this transaction is %); retry at READ COMMITTED', v_isolation
-      USING ERRCODE = '40001';
-  END IF;
-  RETURN NEW;
-END
-$$;
+    -- CREATE OR REPLACE keeps the owner, the grants and the triggers.
+    EXECUTE pg_catalog.replace(pg_catalog.pg_get_functiondef(v_fn), v_old, v_new);
+  END LOOP;
+END $$;
 
 REVOKE ALL ON FUNCTION public.company_users_role_guard() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.company_invitations_role_guard() FROM PUBLIC;
 
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.schema_migrations FROM app_user, PUBLIC;
 
-ALTER FUNCTION auth.user_admin_companies(text) SET search_path = public, pg_temp;
-ALTER FUNCTION auth.set_default_company(uuid, uuid) SET search_path = public, auth, pg_temp;
-ALTER FUNCTION public.invite_token_company_name() SET search_path = pg_catalog, public, pg_temp;
+-- Each only where it exists: the user_admin_companies(text) overload is in
+-- dev's schema but no migration creates it (blind review r3). The DO block at
+-- the end still refuses any app_user-executable definer left without pg_temp.
+DO $$
+DECLARE
+  v pg_catalog.text[];
+BEGIN
+  FOREACH v SLICE 1 IN ARRAY ARRAY[
+    ARRAY['auth.user_admin_companies(text)', 'public, pg_temp'],
+    ARRAY['auth.set_default_company(uuid, uuid)', 'public, auth, pg_temp'],
+    ARRAY['public.invite_token_company_name()', 'pg_catalog, public, pg_temp']] LOOP
+    IF pg_catalog.to_regprocedure(v[1]) IS NOT NULL THEN
+      EXECUTE pg_catalog.format('ALTER FUNCTION %s SET search_path = %s', pg_catalog.to_regprocedure(v[1]), v[2]);
+    END IF;
+  END LOOP;
+END $$;
 
 -- Refuse the migration if any function in this database still exempts every
 -- role but app_user, the shape that let isaflow_service through, or if a role
