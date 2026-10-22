@@ -55,11 +55,21 @@ export const nameStatus = (name: string): 'submitted' | 'failed' | 'unknown' | n
 export const isEntry = (n: string) => n.endsWith(SUFFIX) && !n.startsWith('.');
 /** A temp of a write in flight or never finished: `.<company>.<submission>.<token>.jsonl.<rand>.tmp`. */
 export const isTemp = (n: string) => n.startsWith('.') && n.endsWith('.tmp') && !n.startsWith('.probe-');
-/** The final-style name a swept temp takes in quarantine/, which the company/submission prefix lookup matches. */
+/** The final-style name a swept temp takes in quarantine/, which the company/submission prefix lookup matches. Always a plain file name. */
 export const quarantineNameOf = (temp: string) => {
   const m = /^\.(.+)\.jsonl\.([^.]+)\.tmp$/.exec(temp);
-  return m ? `${m[1]}.${m[2]}.stale${SUFFIX}` : `stale-${temp.replace(/^\./, '')}${SUFFIX}`;
+  return (m ? `${m[1]}.${m[2]}.stale${SUFFIX}` : `stale-${temp.replace(/^\./, '')}${SUFFIX}`).replace(/[^0-9a-zA-Z._-]/g, '_');
 };
+const TEMP_NAME = /^\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([0-9a-zA-Z_-]+)\.(submitted|failed|unknown)\.jsonl\.[0-9a-zA-Z-]+\.tmp$/i;
+/**
+ * What a temp's own FILE NAME says it is - company, submission and the final name it would be promoted to - or null
+ * when the name is not exactly ours (UUID company and submission, a plain token, a known status). The promotion never
+ * trusts the temp's CONTENT for a path: a name built from content could carry `../`.
+ */
+export function promotionOf(temp: string): { companyId: string; submissionId: string; finalName: string } | null {
+  const m = TEMP_NAME.exec(temp);
+  return m ? { companyId: m[1]!.toLowerCase(), submissionId: m[2]!.toLowerCase(), finalName: temp.slice(1).replace(/\.jsonl\.[^.]+\.tmp$/, SUFFIX) } : null;
+}
 export const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Flush a directory's entries (a new or renamed file) to disk; a filesystem that cannot is warned about, not fatal. */

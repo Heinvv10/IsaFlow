@@ -6,8 +6,8 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { log } from '@/lib/logger';
 import {
-  ensureDir, errText, isEntry, isTemp, nameStatus, quarantineDir, quarantineNameOf, replayedDir, spoolDir, STALE_TEMP_MS, syncDir,
-  fileName, type AnswerRecord, type SpooledLine,
+  ensureDir, errText, isEntry, isTemp, nameStatus, promotionOf, quarantineDir, quarantineNameOf, replayedDir, spoolDir, STALE_TEMP_MS, syncDir,
+  type AnswerRecord, type SpooledLine,
 } from './netcashAnswerSpoolFiles';
 
 /** Unreadable entries already reported by this process: each is log.error'd once, not on every submit's replay. */
@@ -69,13 +69,16 @@ export async function spooledAcceptedAnswer(companyId: string, submissionId: str
       for (const name of await namesIn(dir, mine)) {
         const entry = await readEntry(path.join(dir, name));
         if (entry === 'gone') { again = true; continue; }
-        if (!entry) {
+        // A file whose NAME says it is this company's and submission's but whose CONTENT says otherwise is as unreadable
+        // as a torn one (a hostile or corrupt file): never trusted to say "not an acceptance".
+        const contradicts = entry && (entry.companyId.toLowerCase() !== companyId.toLowerCase() || entry.submissionId.toLowerCase() !== submissionId.toLowerCase());
+        if (!entry || contradicts) {
           const said = nameStatus(name);
           if (said === 'failed' || said === 'unknown') continue; // its name says it was never an acceptance
           reportUnreadable(path.join(dir, name), 'netcash answer spool: an entry (or unfinished temp) for this submission cannot be read - treated as an acceptance');
           return { outcome: 'accepted (spool entry unreadable)', batchReference: '', file: name };
         }
-        if (entry.companyId.toLowerCase() === companyId.toLowerCase() && entry.metadata.status === 'submitted') {
+        if (entry.metadata.status === 'submitted') {
           return { outcome: entry.metadata.outcome || 'accepted', batchReference: entry.metadata.batchReference ?? '', ...(dir === spoolDir() && !isTemp(name) ? {} : { file: name }) };
         }
       }
@@ -138,11 +141,14 @@ export async function sweepStaleTemps(): Promise<void> {
       if (Date.now() - mtimeMs <= STALE_TEMP_MS) continue;
       const entry = await readEntry(file);
       if (entry === 'gone') continue;
-      if (entry) {
+      // The final name comes from the temp's own NAME (validated: UUIDs, a plain token, a known status), never from its
+      // content; a content that disagrees with the name, or a name that is not ours, is quarantined under a safe name.
+      const named = promotionOf(name);
+      if (entry && named && entry.companyId.toLowerCase() === named.companyId && entry.submissionId.toLowerCase() === named.submissionId) {
         log.warn('netcash answer spool: a complete but unrenamed temp promoted to an entry (it will be replayed)', { file }, 'netcash');
-        await moveEntry(file, spoolDir(), fileName(entry));
+        await moveEntry(file, spoolDir(), named.finalName);
       } else {
-        log.warn('netcash answer spool: an unreadable unfinished temp moved to quarantine (it still blocks its submission)', { file }, 'netcash');
+        log.warn('netcash answer spool: an unreadable, foreign or mismatched unfinished temp moved to quarantine (it still blocks its submission)', { file }, 'netcash');
         await moveEntry(file, quarantineDir(), quarantineNameOf(name));
       }
     }
