@@ -132,7 +132,7 @@ async function computedPage(
   };
   if (issued !== null && (issued.asAt !== fingerprint.asAt || issued.rowCount !== fingerprint.rowCount
     || issued.digest !== fingerprint.digest)) {
-    return toolError(`table "${table}" changed since the first page (a document was posted, or the as-at date moved): start again without a cursor`);
+    return toolError(`table "${table}" changed since the first page (a value in some row moved — a posting, an allocation, a feed import — or the as-at date did): start again without a cursor`);
   }
   const page = pageComputedTable(table, built, cursor, limit);
   return ok({
