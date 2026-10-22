@@ -18,46 +18,13 @@ import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import { calculateUIF } from '@/modules/accounting/services/payroll/uifEngine';
 import {
-  approveRun, cleanSeveranceFixtures, reopenRun, runLine, seedRetrenchedEmployee, type SeveranceFixture,
+  approveRun, cleanSeveranceFixtures, reopenRun, runLine, type SeveranceFixture,
 } from './p3-severance.helpers';
+import { bonus, PERIODS, seedEmployee, setSalary } from './p4fu-cumulative.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const fixtures: SeveranceFixture[] = [];
-
-/** Tax year 2027: March 2026 (month 1) to February 2027 (month 12). */
-const PERIODS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2].map((m) => ({ month: m, year: m >= 3 ? 2026 : 2027 }));
-
-/** An employee in employment (not leaving), salary from 2020 at `monthly`. */
-async function seedEmployee(name: string, monthly: number): Promise<SeveranceFixture> {
-  const f = await seedRetrenchedEmployee(pool, '2030-12-31', name, monthly);
-  await pool.query("UPDATE payroll_employees SET end_date = NULL, status = 'active' WHERE id = $1", [f.employee]);
-  fixtures.push(f);
-  return f;
-}
-
-/** Salary from the first of (year, month): ends the open salary row, starts a new one. */
-async function setSalary(f: SeveranceFixture, year: number, month: number, amount: number) {
-  const from = `${year}-${String(month).padStart(2, '0')}-01`;
-  const row = (await pool.query(
-    `SELECT pec.id, pec.component_id FROM payroll_employee_components pec
-       JOIN payroll_components c ON c.id = pec.component_id
-      WHERE pec.employee_id = $1 AND c.sars_source_code = '3601' AND pec.effective_to IS NULL`, [f.employee])).rows[0]!;
-  await pool.query(`UPDATE payroll_employee_components SET effective_to = ($2::date - 1) WHERE id = $1`, [row.id, from]);
-  await pool.query(
-    `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, $3, $4)`,
-    [f.employee, row.component_id, amount, from]);
-}
-
-async function bonus(f: SeveranceFixture, year: number, month: number, amount: number) {
-  const comp = (await pool.query(
-    `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
-     VALUES ($1, $2, '3605', 'earning') RETURNING id`, [f.company, `Bonus ${year}-${month}`])).rows[0]!.id;
-  const from = `${year}-${String(month).padStart(2, '0')}-01`;
-  await pool.query(
-    `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
-     VALUES ($1, $2, $3, $4, ($4::date + INTERVAL '1 month - 1 day')::date)`, [f.employee, comp, amount, from]);
-}
 
 /** Create, calculate and approve the run for (year, month); returns its id and the employee's PAYE. */
 async function payMonth(f: SeveranceFixture, year: number, month: number): Promise<{ id: string; paye: number }> {
@@ -78,7 +45,7 @@ afterAll(async () => {
 
 describe('G4: cumulative PAYE, month by month', () => {
   it('a flat R20 000 all year: 2 115 every month (= x12); IRP5 4102 = the sum of the run PAYE', async () => {
-    const f = await seedEmployee('P4fu flat year', 20_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu flat year', 20_000);
     const paye: number[] = [];
     for (const p of PERIODS) paye.push((await payMonth(f, p.year, p.month)).paye);
     expect(paye).toEqual(Array(12).fill(2_115));
@@ -87,9 +54,9 @@ describe('G4: cumulative PAYE, month by month', () => {
   });
 
   it('R20 000, R30 000 from September, a R20 000 bonus in February: the increase is spread, the year deducts its liability', async () => {
-    const f = await seedEmployee('P4fu increase and bonus', 20_000);
-    await setSalary(f, 2026, 9, 30_000);
-    await bonus(f, 2027, 2, 20_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu increase and bonus', 20_000);
+    await setSalary(pool, f, 2026, 9, 30_000);
+    await bonus(pool, f, 2027, 2, 20_000);
     const lines = [];
     for (const p of PERIODS) {
       const { id, paye } = await payMonth(f, p.year, p.month);
@@ -115,17 +82,17 @@ describe('G4: cumulative PAYE, month by month', () => {
   });
 
   it('#752\'s figures hold in October for a flat R28 000 (the annual equivalent is unchanged): 4 161 + 3 848', async () => {
-    const f = await seedEmployee('P4fu 752 October', 28_000);
-    await bonus(f, 2026, 10, 14_800);
+    const f = await seedEmployee(pool, fixtures, 'P4fu 752 October', 28_000);
+    await bonus(pool, f, 2026, 10, 14_800);
     let october = 0;
     for (const p of PERIODS.slice(0, 8)) october = (await payMonth(f, p.year, p.month)).paye;
     expect(october).toBe(4_161 + 3_848);
   });
 
   it('an earlier bonus stays in the base: the December bonus is taxed on top of the May one', async () => {
-    const f = await seedEmployee('P4fu second bonus', 20_000);
-    await bonus(f, 2026, 5, 10_000);
-    await bonus(f, 2026, 12, 20_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu second bonus', 20_000);
+    await bonus(pool, f, 2026, 5, 10_000);
+    await bonus(pool, f, 2026, 12, 20_000);
     const paye = [];
     for (const p of PERIODS.slice(0, 10)) paye.push((await payMonth(f, p.year, p.month)).paye);
     expect(paye[2]).toBe(2_115 + 2_192);
@@ -133,9 +100,9 @@ describe('G4: cumulative PAYE, month by month', () => {
   });
 
   it('an over-deduction is floored at nil and carried: it absorbs the tax when pay rises again', async () => {
-    const f = await seedEmployee('P4fu over-deduction', 40_000);
-    await setSalary(f, 2026, 6, 5_000);
-    await setSalary(f, 2026, 8, 40_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu over-deduction', 40_000);
+    await setSalary(pool, f, 2026, 6, 5_000);
+    await setSalary(pool, f, 2026, 8, 40_000);
     const paye = [];
     for (const p of PERIODS.slice(0, 6)) paye.push((await payMonth(f, p.year, p.month)).paye);
     // August: AE = 170 000 × 12 / 6 = 340 000, 50 972 × 6/12 = 25 486 − 23 054.25 deducted (x12: 7 684.75).
@@ -143,7 +110,7 @@ describe('G4: cumulative PAYE, month by month', () => {
   });
 
   it('a mid-year joiner: periods count from the start month, so the first month is x12', async () => {
-    const f = await seedEmployee('P4fu joiner', 20_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu joiner', 20_000);
     await pool.query("UPDATE payroll_employees SET start_date = '2026-07-01' WHERE id = $1", [f.employee]);
     await pool.query("UPDATE payroll_employee_components SET effective_from = '2026-07-01' WHERE employee_id = $1", [f.employee]);
     const july = await payMonth(f, 2026, 7);
@@ -152,8 +119,8 @@ describe('G4: cumulative PAYE, month by month', () => {
   });
 
   it('the final month of a short tax period: R15 000 × 6, R25 000 in September, leaving 30 September', async () => {
-    const f = await seedEmployee('P4fu leaver', 15_000);
-    await setSalary(f, 2026, 9, 25_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu leaver', 15_000);
+    await setSalary(pool, f, 2026, 9, 25_000);
     await pool.query("UPDATE payroll_employees SET end_date = '2026-09-30' WHERE id = $1", [f.employee]);
     const paye = [];
     for (const p of PERIODS.slice(0, 7)) paye.push((await payMonth(f, p.year, p.month)).paye);
@@ -162,8 +129,8 @@ describe('G4: cumulative PAYE, month by month', () => {
   });
 
   it('a reopened, recalculated earlier run counts neither itself nor a later run', async () => {
-    const f = await seedEmployee('P4fu reopen', 20_000);
-    await setSalary(f, 2026, 4, 30_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu reopen', 20_000);
+    await setSalary(pool, f, 2026, 4, 30_000);
     const march = await payMonth(f, 2026, 3);
     const april = await payMonth(f, 2026, 4);
     const may = await payMonth(f, 2026, 5);
@@ -179,7 +146,7 @@ describe('G4: cumulative PAYE, month by month', () => {
 describe('G4: the year-to-date', () => {
   it('leaves directive PAYE out of the table PAYE and derives a line written before the split columns', async () => {
     const { loadPayeYearToDate } = await import('@/modules/accounting/services/payroll/payrollYearToDate');
-    const f = await seedEmployee('P4fu ytd', 20_000);
+    const f = await seedEmployee(pool, fixtures, 'P4fu ytd', 20_000);
     // February 2026 belongs to the PREVIOUS tax year (2026): never in tax year 2027's year-to-date.
     const february = (await pool.query(
       `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 2, 'approved') RETURNING id`,
