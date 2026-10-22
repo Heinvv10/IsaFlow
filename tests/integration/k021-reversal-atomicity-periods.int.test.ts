@@ -35,10 +35,10 @@ describe('K-021 reversal atomicity', () => {
   // Refusing `no_period` in the pre-flight would turn that into a 400.
   // Mutation: refuse on `status !== 'open'` and this goes red.
   it('still reverses when NO period covers today, because the poster creates the year', async () => {
-    // Moved out of today's range rather than deleted: a contra posted into this
-    // period would hold an FK to it from both gl_journal_entries and
-    // gl_account_balances. Parking it leaves today uncovered, which is the
-    // condition under test.
+    // Moved out of today's range rather than deleted. Nothing in this file has
+    // posted into it yet, but parking stays safe if an earlier test ever does:
+    // gl_journal_entries and gl_account_balances both carry an FK to it.
+    // Parking it leaves today uncovered, which is the condition under test.
     await pool.query('UPDATE fiscal_periods SET start_date=$2::date, end_date=$3::date WHERE id=$1',
       [nowPeriod, parkedStart, parkedEnd]);
     // Today is the process's local date the poster books on (SAST on the
@@ -78,7 +78,9 @@ describe('K-021 reversal atomicity', () => {
     expect(contra.rows[0].fiscal_period_id).not.toBeNull();
   });
 
-  // Runs LAST: it closes every period covering today for the rest of the file.
+  // Runs LAST, after the no-period test: the year that test auto-created is
+  // the period covering today it closes, for the rest of the file. Vitest runs
+  // a file's it()s in order.
   it('refuses BEFORE the unwind when the fallback reversal date has no open period', async () => {
     // Today and tomorrow (local dates): the fallback is the poster's own today,
     // which is tomorrow if the call straddles midnight.
