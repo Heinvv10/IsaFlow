@@ -97,6 +97,31 @@ describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('909 — races and lo
     }
   });
 
+  // The last-owner count is read after the lock: two owners each demoting
+  // THEMSELVES at once — the second stays an owner while it waits (so B passes)
+  // and then counts no other owner (RC005).
+  it(`two owners each demoting themselves at once: the second waits, then is refused (RC005) (${ROUNDS} rounds)`, async () => {
+    for (let i = 0; i < ROUNDS; i++) {
+      const [o1, o2] = [id(), id()];
+      const c = await seedCompany(pool, companies, [[o1, 'owner'], [o2, 'owner']]);
+      const DEMOTE_SELF = "UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2";
+      const t1 = await openTx(pool, 'app_user', c, o1);
+      const t2 = await openTx(pool, 'app_user', c, o2);
+      try {
+        await t1.q(DEMOTE_SELF, [c, o1]);
+        const r2 = outcome(t2.q(DEMOTE_SELF, [c, o2]));
+        await waitsOnLock(pool, t2.pid, 'advisory');
+        await t1.end(true);
+        expect(await r2).toBe('RC005');
+        await t2.end(false);
+        expect(await ownersOf(pool, c)).toEqual([o2]);
+      } finally {
+        await t1.end(false);
+        await t2.end(false);
+      }
+    }
+  });
+
   it('B re-reads the actor after the owner lock: an owner demoted in flight cannot remove an owner (RC010)', async () => {
     const [o1, o2, o3] = [id(), id(), id()];
     const c = await seedCompany(pool, companies, [[o1, 'owner'], [o2, 'owner'], [o3, 'owner']]);
