@@ -210,4 +210,10 @@ BEGIN
       RAISE EXCEPTION '911: % (reachable from an app pool) can still write schema_migrations', r.rolname;
     END IF;
   END LOOP;
+  -- The runner applying this file records it, and every later one, in
+  -- schema_migrations: refuse the migration rather than a deploy whose own
+  -- write was taken away with app_user's (blind review r2).
+  IF NOT pg_catalog.has_table_privilege(current_user, 'public.schema_migrations', 'INSERT, UPDATE') THEN
+    RAISE EXCEPTION '911: % (running this migration) could no longer record migrations', current_user;
+  END IF;
 END $$;

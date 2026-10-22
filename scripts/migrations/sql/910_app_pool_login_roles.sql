@@ -106,47 +106,44 @@ REVOKE ALL ON FUNCTION public.refresh_customer_invoice_view_summary() FROM PUBLI
 GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO app_service;
 
 -- One permissive policy per (table, command) that some app_user or PUBLIC
--- policy admits with a predicate other than `false`, and only where app_user
--- holds the command's privilege (a policy on a table app_user cannot touch
--- would only widen app_service's reach if a grant arrived later). Excluded:
--- impersonation_sessions, which app_user reads only by its own session id and
--- no service path reads at all. Policies named app_service_<cmd> are owned by
--- this migration; re-runs skip existing ones.
+-- policy admits, and only where app_user holds the command's privilege (a
+-- policy on a table app_user cannot touch would only widen app_service's reach
+-- if a grant arrived later; column privileges count, 902 leaves app_user only
+-- column UPDATE on users). Excluded: impersonation_sessions, which app_user
+-- reads only by its own session id and no service path reads at all.
+--
+-- What a policy admits, per command, judged as Postgres judges it: SELECT and
+-- DELETE by USING, INSERT by WITH CHECK, UPDATE by both, and an absent WITH
+-- CHECK falls back to USING. A policy whose USING or WITH CHECK is the
+-- constant `false` admits nothing for the commands that read it, so a FOR ALL
+-- policy contributes only the commands its predicates leave open. Policies
+-- named app_service_<cmd> are owned by this migration; re-runs skip them.
 DO $$
 DECLARE
   r record;
 BEGIN
   FOR r IN
-    SELECT DISTINCT p.polrelid::regclass AS tbl,
-           CASE p.polcmd WHEN 'r' THEN 'select' WHEN 'a' THEN 'insert'
-                         WHEN 'w' THEN 'update' WHEN 'd' THEN 'delete' ELSE 'all' END AS cmd
-      FROM pg_policy p
-      JOIN pg_class c ON c.oid = p.polrelid
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public'
-       AND c.relname <> 'impersonation_sessions'
-       AND p.polpermissive
-       AND p.polname NOT LIKE 'app\_service\_%'
-       AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
-       -- Always false for its command: SELECT and DELETE are judged by USING,
-       -- INSERT by WITH CHECK, UPDATE and ALL by both (an absent WITH CHECK
-       -- falls back to USING).
-       AND NOT CASE p.polcmd
-             WHEN 'r' THEN coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-             WHEN 'd' THEN coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-             WHEN 'a' THEN coalesce(pg_get_expr(p.polwithcheck, p.polrelid), 'true') = 'false'
-             ELSE coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-                  AND coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-           END
-       -- has_any_column_privilege: 902 leaves app_user only column UPDATE on users.
-       AND CASE p.polcmd
-             WHEN 'r' THEN has_any_column_privilege('app_user', p.polrelid, 'SELECT')
-             WHEN 'a' THEN has_any_column_privilege('app_user', p.polrelid, 'INSERT')
-             WHEN 'w' THEN has_any_column_privilege('app_user', p.polrelid, 'UPDATE')
-             WHEN 'd' THEN has_table_privilege('app_user', p.polrelid, 'DELETE')
-             ELSE has_any_column_privilege('app_user', p.polrelid, 'SELECT, INSERT, UPDATE')
-                  OR has_table_privilege('app_user', p.polrelid, 'DELETE')
-           END
+    WITH pol AS (
+      SELECT p.polrelid, p.polcmd,
+             coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS using_false,
+             coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS check_false
+        FROM pg_policy p
+        JOIN pg_class c ON c.oid = p.polrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public'
+         AND c.relname <> 'impersonation_sessions'
+         AND p.polpermissive
+         AND p.polname NOT LIKE 'app\_service\_%'
+         AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
+    ), admitted AS (
+      SELECT polrelid, 'select' AS cmd FROM pol WHERE polcmd IN ('r', '*') AND NOT using_false
+      UNION SELECT polrelid, 'delete' FROM pol WHERE polcmd IN ('d', '*') AND NOT using_false
+      UNION SELECT polrelid, 'insert' FROM pol WHERE polcmd IN ('a', '*') AND NOT check_false
+      UNION SELECT polrelid, 'update' FROM pol WHERE polcmd IN ('w', '*') AND NOT using_false AND NOT check_false
+    )
+    SELECT polrelid::regclass AS tbl, cmd FROM admitted
+     WHERE CASE cmd WHEN 'delete' THEN has_table_privilege('app_user', polrelid, 'DELETE')
+                    ELSE has_any_column_privilege('app_user', polrelid, upper(cmd)) END
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_policy
                     WHERE polrelid = r.tbl AND polname = 'app_service_' || r.cmd) THEN
@@ -157,8 +154,8 @@ BEGIN
         EXECUTE format('CREATE POLICY %I ON %s FOR INSERT TO app_service WITH CHECK (true)',
                        'app_service_' || r.cmd, r.tbl);
       ELSE
-        EXECUTE format('CREATE POLICY %I ON %s FOR %s TO app_service USING (true) WITH CHECK (true)',
-                       'app_service_' || r.cmd, r.tbl, r.cmd);
+        EXECUTE format('CREATE POLICY %I ON %s FOR UPDATE TO app_service USING (true) WITH CHECK (true)',
+                       'app_service_' || r.cmd, r.tbl);
       END IF;
     END IF;
   END LOOP;
