@@ -169,6 +169,19 @@ describe('a file is complete or absent (written to a temp name, fsynced, renamed
   });
 });
 
+describe('an unreadable entry is reported once per process, not on every replay', () => {
+  it('pendingSpooled (every submit) and the resolve lookup log.error a torn final-named file ONCE; a second bad file is its own report', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.jsonl`), '{"v":1,"companyId":');
+    for (let i = 0; i < 4; i++) await pendingSpooled();
+    await spooledAcceptedAnswer(COMPANY, SUBMISSION);
+    expect(logged.error).toHaveBeenCalledTimes(1);
+    fs.writeFileSync(path.join(spoolDir(), `${COMPANY}.55555555-5555-4555-8555-555555555555.${TOKEN}.jsonl`), 'not json');
+    for (let i = 0; i < 3; i++) await pendingSpooled();
+    expect(logged.error).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('the directory', () => {
   it('an existing group/world-accessible directory is narrowed to 0700', async () => {
     fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o755 });

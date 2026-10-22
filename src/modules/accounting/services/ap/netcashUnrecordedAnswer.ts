@@ -113,6 +113,11 @@ export async function recordUnrecordedAnswer(p: ClaimPrincipal, submissionId: st
  * pending row is by construction one whose answer is not on the row.
  */
 export async function unappliedAcceptedAnswer(companyId: string, submissionId: string): Promise<{ outcome: string; batchReference: string } | null> {
+  // The spool FIRST, then audit_log (breaker REPRO-1): a replay in another process commits the audit_log row and only THEN
+  // moves the file out of the spool's directory, so a spool read that finds nothing (the file moved to replayed/ already)
+  // is followed by an audit_log read that sees the row. Reading audit_log first left a gap where both were empty. The
+  // spool lookup itself reads the directory, then quarantine/ (a move is dir -> quarantine, same order).
+  const spooled = await spooledAcceptedAnswer(companyId, submissionId);
   const rows = (await sql`
     SELECT a.changes -> 'metadata' ->> 'outcome' AS outcome, a.changes -> 'metadata' ->> 'batchReference' AS batch_reference
     FROM audit_log a
@@ -123,5 +128,5 @@ export async function unappliedAcceptedAnswer(companyId: string, submissionId: s
   `) as DbRow[];
   if (rows[0]) return { outcome: String(rows[0].outcome ?? 'accepted'), batchReference: String(rows[0].batch_reference ?? '') };
   // Residual 3a: not in audit_log (yet) - an answer spooled to local disk counts the same way, company-scoped.
-  return spooledAcceptedAnswer(companyId, submissionId);
+  return spooled;
 }
