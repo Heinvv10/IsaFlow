@@ -3,14 +3,16 @@
  * PRD: Customer Migration Wizard — Phase 1
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { isHeldRowError } from '@/lib/lockTimeout';
 import { log } from '@/lib/logger';
 import { updateSession } from './migrationService';
 import type { ImportResult, MigrationError } from './migrationService';
 import type { DbRow } from '@/types/db';
 import {
-  bankDetailsChange, hasBankDetails, lockSupplierBankDetails, recordBankDetailsSetter,
+  STAMPED_BATCH_STATUSES, bankDetailsChange, hasBankDetails, lockSupplierBankDetails, recordBankDetailsSetter,
 } from '../ap/supplierPaymentAuthors';
+import { lockBatchesThenSupplierSet } from '../ap/batchBeforeSupplierLock';
 
 
 export interface CustomerImportRow {
@@ -134,6 +136,23 @@ export async function importSuppliers(
   `) as DbRow[];
   const existing = existingRows.map(r => ({ id: String(r.id), name: String(r.name) }));
 
+  // Batch before supplier, for the WHOLE import (bank/.claude.md): a row's supplier lock is held to the end of the
+  // request, so locking the next row's batches or supplier after it would take one while holding another, and two
+  // imports with their rows in opposite orders would deadlock. Every overwritten supplier, bank column or not, is
+  // locked up front in id order; the batches of those that may change a bank detail first.
+  if (duplicateStrategy === 'overwrite') {
+    const overwritten = new Set<string>();
+    const bankChanging = new Set<string>();
+    for (const sup of suppliers) {
+      if (!sup.name?.trim()) continue;
+      const duplicate = findDuplicate(sup.name, existing);
+      if (!duplicate) continue;
+      overwritten.add(duplicate.id);
+      if ([sup.bankName, sup.bankAccountNumber, sup.bankBranchCode, sup.bankAccountType].some((x) => x != null)) bankChanging.add(duplicate.id);
+    }
+    await lockBatchesThenSupplierSet(companyId, [...bankChanging], [...overwritten], STAMPED_BATCH_STATUSES);
+  }
+
   for (let i = 0; i < suppliers.length; i++) {
     const sup = suppliers[i]!;
     if (!sup.name?.trim()) {
@@ -143,54 +162,14 @@ export async function importSuppliers(
     }
 
     try {
-      const duplicate = findDuplicate(sup.name, existing);
-
-      if (duplicate && duplicateStrategy === 'skip') { skipped++; continue; }
-
-      if (duplicate && duplicateStrategy === 'overwrite') {
-        // Judged against the row as locked, not the statement snapshot (R-035 PR5).
-        const before = await lockSupplierBankDetails(companyId, duplicate.id);
-        const [after] = (await sql`
-          UPDATE suppliers SET
-            email               = COALESCE(${sup.email ?? null}, email),
-            phone               = COALESCE(${sup.phone ?? null}, phone),
-            vat_number          = COALESCE(${sup.vatNumber ?? null}, vat_number),
-            bank_name           = COALESCE(${sup.bankName ?? null}, bank_name),
-            bank_account_number = COALESCE(${sup.bankAccountNumber ?? null}, bank_account_number),
-            bank_branch_code    = COALESCE(${sup.bankBranchCode ?? null}, bank_branch_code),
-            bank_account_type   = COALESCE(${sup.bankAccountType ?? null}, bank_account_type)
-          WHERE id = ${duplicate.id}::UUID AND company_id = ${companyId}::UUID
-          RETURNING bank_name, bank_account_number, bank_branch_code, bank_account_type
-        `) as DbRow[];
-        // Re-routes every unpaid payment to this supplier (R-035 PR5).
-        const change = before && after ? bankDetailsChange(before, after) : 'none';
-        if (change !== 'none') await recordBankDetailsSetter(companyId, duplicate.id, importedBy, change);
-        imported++;
-        continue;
-      }
-
-      // suppliers has `address`, not customers' `billing_address`: naming the
-      // latter failed every new supplier (42703) and, with no savepoint per row,
-      // aborted the request's transaction.
-      const [created] = (await sql`
-        INSERT INTO suppliers (
-          company_id, name, email, phone, vat_number, registration_number,
-          address, contact_person, payment_terms,
-          bank_name, bank_account_number, bank_branch_code, bank_account_type, notes
-        ) VALUES (
-          ${companyId}::UUID, ${sup.name}, ${sup.email ?? null}, ${sup.phone ?? null},
-          ${sup.vatNumber ?? null}, ${sup.registrationNumber ?? null},
-          ${sup.billingAddress ?? null}, ${sup.contactPerson ?? null},
-          ${sup.paymentTerms ?? 30},
-          ${sup.bankName ?? null}, ${sup.bankAccountNumber ?? null},
-          ${sup.bankBranchCode ?? null}, ${sup.bankAccountType ?? null}, ${sup.notes ?? null}
-        )
-        RETURNING id, bank_name, bank_account_number, bank_branch_code, bank_account_type
-      `) as DbRow[];
-      // A new supplier imported WITH bank details: the importer set where its money goes (decision (b)).
-      if (created && hasBankDetails(created)) await recordBankDetailsSetter(companyId, String(created.id), importedBy, 'repointed');
-      imported++;
+      // Its own savepoint: a row that fails leaves the request transaction usable for the next one.
+      const outcome = await withSavepoint(`import_supplier_${i}`,
+        () => importSupplierRow(companyId, sup, existing, duplicateStrategy, importedBy));
+      if (outcome === 'imported') imported++; else skipped++;
     } catch (err) {
+      // A held row or a deadlock victim is not a bad row: it is rethrown so the request rolls back whole and is retried
+      // (503), never carried on past as a per-row error with the rest of the import running on.
+      if (isHeldRowError(err)) throw err;
       const msg = err instanceof Error ? err.message : String(err);
       errors.push({ step: 'suppliers', row: i, message: msg });
       skipped++;
@@ -200,6 +179,63 @@ export async function importSuppliers(
   await updateSession(sessionId, companyId, { suppliersImported: imported, stepsCompleted: { suppliers: true } });
   log.info('Supplier import complete', { companyId, imported, skipped }, 'migration');
   return { imported, skipped, errors };
+}
+
+/** One supplier row, on the caller's savepoint. */
+async function importSupplierRow(
+  companyId: string,
+  sup: SupplierImportRow,
+  existing: Array<{ id: string; name: string }>,
+  duplicateStrategy: DuplicateStrategy,
+  importedBy: string,
+): Promise<'imported' | 'skipped'> {
+  const duplicate = findDuplicate(sup.name, existing);
+
+  if (duplicate && duplicateStrategy === 'skip') return 'skipped';
+
+  if (duplicate && duplicateStrategy === 'overwrite') {
+    // Judged against the row as locked, not the statement snapshot (R-035 PR5).
+    // The batches of every overwritten supplier were locked before any supplier row, up front, by importSuppliers.
+    const before = await lockSupplierBankDetails(companyId, duplicate.id, false);
+    const [after] = (await sql`
+      UPDATE suppliers SET
+        email               = COALESCE(${sup.email ?? null}, email),
+        phone               = COALESCE(${sup.phone ?? null}, phone),
+        vat_number          = COALESCE(${sup.vatNumber ?? null}, vat_number),
+        bank_name           = COALESCE(${sup.bankName ?? null}, bank_name),
+        bank_account_number = COALESCE(${sup.bankAccountNumber ?? null}, bank_account_number),
+        bank_branch_code    = COALESCE(${sup.bankBranchCode ?? null}, bank_branch_code),
+        bank_account_type   = COALESCE(${sup.bankAccountType ?? null}, bank_account_type)
+      WHERE id = ${duplicate.id}::UUID AND company_id = ${companyId}::UUID
+      RETURNING bank_name, bank_account_number, bank_branch_code, bank_account_type
+    `) as DbRow[];
+    // Re-routes every unpaid payment to this supplier (R-035 PR5).
+    const change = before && after ? bankDetailsChange(before, after) : 'none';
+    if (change !== 'none') await recordBankDetailsSetter(companyId, duplicate.id, importedBy, change);
+    return 'imported';
+  }
+
+  // suppliers has `address`, not customers' `billing_address`: naming the
+  // latter failed every new supplier (42703) and, with no savepoint per row,
+  // aborted the request's transaction.
+  const [created] = (await sql`
+    INSERT INTO suppliers (
+      company_id, name, email, phone, vat_number, registration_number,
+      address, contact_person, payment_terms,
+      bank_name, bank_account_number, bank_branch_code, bank_account_type, notes
+    ) VALUES (
+      ${companyId}::UUID, ${sup.name}, ${sup.email ?? null}, ${sup.phone ?? null},
+      ${sup.vatNumber ?? null}, ${sup.registrationNumber ?? null},
+      ${sup.billingAddress ?? null}, ${sup.contactPerson ?? null},
+      ${sup.paymentTerms ?? 30},
+      ${sup.bankName ?? null}, ${sup.bankAccountNumber ?? null},
+      ${sup.bankBranchCode ?? null}, ${sup.bankAccountType ?? null}, ${sup.notes ?? null}
+    )
+    RETURNING id, bank_name, bank_account_number, bank_branch_code, bank_account_type
+  `) as DbRow[];
+  // A new supplier imported WITH bank details: the importer set where its money goes (decision (b)).
+  if (created && hasBankDetails(created)) await recordBankDetailsSetter(companyId, String(created.id), importedBy, 'repointed');
+  return 'imported';
 }
 
 // ── Duplicate detection ──────────────────────────────────────────────────────

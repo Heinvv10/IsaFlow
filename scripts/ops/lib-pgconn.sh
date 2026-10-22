@@ -27,13 +27,20 @@
 #   psql "$PG_URL" -c '...'
 # =============================================================================
 
+# shellcheck source=ownerDatabaseUrl.sh
+. "$(dirname "${BASH_SOURCE[0]}")/ownerDatabaseUrl.sh"
+
 load_pg_conn() {
   local env_file="$1"
   local raw
 
-  raw=$(grep -E "^DATABASE_URL=" "$env_file" | head -1 | cut -d= -f2-)
+  # The schema owner's URL: pg_dump and the restore drill must read every
+  # table, and the app's DATABASE_URL logs in as isaflow_app, which owns
+  # nothing (S-07b). ownerDatabaseUrl.sh falls back to DATABASE_URL, with a
+  # warning, until the env names OWNER_DATABASE_URL.
+  raw=$(owner_database_url "$env_file" < "$env_file" || true)
   if [[ -z "$raw" ]]; then
-    echo "load_pg_conn: DATABASE_URL not found in $env_file" >&2
+    echo "load_pg_conn: neither OWNER_DATABASE_URL nor DATABASE_URL found in $env_file" >&2
     return 2
   fi
 

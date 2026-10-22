@@ -39,6 +39,10 @@ const PUBLIC_PATHS = [
   '/invite',
   '/api/invite',
   '/accounting/afs/sign/',
+  // AFS portal pages are for outside directors with no staff login. Each page's
+  // getServerSideProps checks the portal session; the trailing slash keeps the
+  // staff page /accounting/afs/portal-contacts behind the staff cookie.
+  '/accounting/afs/portal/',
   '/audit-portal',
   '/api/audit-portal',
 ];
