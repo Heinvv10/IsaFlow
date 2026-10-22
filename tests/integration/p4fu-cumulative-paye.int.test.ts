@@ -190,4 +190,20 @@ describe('G4: the year-to-date', () => {
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2027, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();
   });
+
+  it('the stale-year-to-date gate looks only at earlier months of the same tax year', async () => {
+    const { judgeYearToDateStale } = await import('@/modules/accounting/services/payroll/payrollYearToDate');
+    const f = await seedEmployee(pool, fixtures, 'P4fu stale gate', 20_000);
+    const march = (await pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 3, 'calculated') RETURNING id`,
+      [f.company])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay, created_at)
+       VALUES ($1, $2, 20000, 20000, 2115, 17885, NOW() - INTERVAL '1 hour')`, [march, f.employee]);
+    // February 2026 (the previous tax year) approved after March was calculated: not March's year-to-date.
+    await pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, approved_at) VALUES ($1, 2026, 2, 'approved', NOW())`,
+      [f.company]);
+    expect(await judgeYearToDateStale(f.company, march)).toBeNull();
+  });
 });
