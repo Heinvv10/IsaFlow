@@ -19,6 +19,7 @@ import { log } from '@/lib/logger';
 import { journalStandsFragment, journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { brokenChainMessage, findJournalChainHead } from '../shared/journalChainHead';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { STALE_AFTER_MINUTES } from '../capture/captureReadState';
 import {
   assertDocumentNotAlreadyPosted, DocumentAlreadyPostedRefusal, DocumentAlreadyLinkedRefusal,
 } from './documentJournalClaimGuard';
@@ -221,7 +222,8 @@ export interface LinkableDocument {
 
 /**
  * Captured documents of the company, newest first, not currently backing
- * another claim (source_document_id OR active link), for the "pick a
+ * another claim (source_document_id OR active link) and not still being
+ * read in the background (its extraction is not there yet), for the "pick a
  * document" UI. `q` filters on file name, case-insensitive substring.
  */
 export async function listLinkableDocuments(
@@ -233,6 +235,8 @@ export async function listLinkableDocuments(
     FROM captured_documents cd
     WHERE cd.company_id = ${companyId}::UUID
       AND (${pattern}::TEXT IS NULL OR cd.file_name ILIKE ${pattern})
+      AND NOT (cd.read_state = 'reading'
+        AND COALESCE(cd.read_heartbeat_at, cd.created_at) > NOW() - make_interval(mins => ${STALE_AFTER_MINUTES}))
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_entries je
         WHERE je.company_id = ${companyId}::UUID AND je.source_document_id = cd.id
