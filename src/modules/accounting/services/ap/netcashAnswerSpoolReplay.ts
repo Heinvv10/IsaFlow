@@ -10,7 +10,7 @@
  * the insert committed, and a move a peer already made is not an error.
  *
  * Bounded per call (SPOOL_REPLAY_MAX_ENTRIES, SPOOL_REPLAY_BUDGET_MS): the rest waits for the next call. One entry that
- * the database refuses for its OWN content (SQLSTATE 22xxx / 23xxx / 42501: a deleted company or user) never blocks the
+ * the database refuses for its OWN content (SQLSTATE 22xxx / 23xxx: a deleted company or user; 42501, a permission error, is NOT - a deploy-time grant gap must not quarantine valid entries) never blocks the
  * entries behind it: the run goes on, and after SPOOL_QUARANTINE_AFTER_FAILURES refusals (counted per process) the file
  * moves to quarantine/ with a log.error. A quarantined acceptance still blocks resolve (the spool lookup reads it). Any
  * other failure (the database or the disk is unwell) stops the run - every later entry would fail the same way.
@@ -47,7 +47,7 @@ async function replayOne(entry: AnswerRecord): Promise<void> {
 /** The database refused this entry for what it contains (retrying cannot clear it), as opposed to being unwell. */
 function refusedForItsContent(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
-  return typeof code === 'string' && (code.startsWith('22') || code.startsWith('23') || code === '42501');
+  return typeof code === 'string' && (code.startsWith('22') || code.startsWith('23'));
 }
 
 async function replayAll(opts: ReplayOptions): Promise<number> {
@@ -57,7 +57,7 @@ async function replayAll(opts: ReplayOptions): Promise<number> {
   try {
     await sweepStaleTemps();
     let tried = 0;
-    for (const { file, entry } of await pendingSpooled()) {
+    for (const { file, entry } of await pendingSpooled({ max, deadline })) {
       if (tried >= max || Date.now() >= deadline) break;
       tried += 1;
       try {
@@ -67,20 +67,21 @@ async function replayAll(opts: ReplayOptions): Promise<number> {
         done += 1;
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
+        const code = (err as { code?: unknown } | null)?.code;
         if (!refusedForItsContent(err)) {
           // The database (or the disk) is unwell: stop; nothing is lost - the entry stays pending and keeps blocking its submission.
-          log.warn('netcash spool replay stopped - the database or disk is not answering', { submissionId: entry.submissionId, error }, 'netcash');
+          log.warn('netcash spool replay stopped - the database or disk is not answering', { submissionId: entry.submissionId, error, code }, 'netcash');
           break;
         }
         const n = (refusals.get(file) ?? 0) + 1;
         refusals.set(file, n);
         if (n < SPOOL_QUARANTINE_AFTER_FAILURES) {
-          log.warn('netcash spool replay: the database refused this entry - going on with the next', { submissionId: entry.submissionId, attempt: n, error }, 'netcash');
+          log.warn('netcash spool replay: the database refused this entry - going on with the next', { submissionId: entry.submissionId, attempt: n, error, code }, 'netcash');
           continue;
         }
         refusals.delete(file);
         log.error('netcash spool entry quarantined - the database keeps refusing it; it still blocks freeing its submission (check Netcash)', {
-          submissionId: entry.submissionId, companyId: entry.companyId, file, error,
+          submissionId: entry.submissionId, companyId: entry.companyId, file, error, code,
         }, 'netcash');
         await quarantineEntry(file);
       }

@@ -181,11 +181,13 @@ describe('an accepted answer that not even audit_log could record survives on lo
       metadata: { status: 'submitted', outcome: 'accepted', batchReference: 'NC-BAD', settleToken: token, answer: '{}' }, spooledAt: new Date().toISOString(),
     })}\n`);
     const { replaySpooledAnswers } = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
+    const warnings = vi.spyOn((await import('@/lib/logger')).log, 'warn');
     const first = await replaySpooledAnswers();
     const afterFirst = { good: (await auditRows(goodId)).length, pending: spoolFiles('.jsonl').length };
     await replaySpooledAnswers();
     const third = await replaySpooledAnswers();
     const blocked = await resolveAfterRestart(bad.c, badSub);
+    expect(warnings.mock.calls.some(([, data]) => (data as { code?: string } | undefined)?.code === '23503')).toBe(true); // the SQLSTATE is logged
     expect({ first, afterFirst, third, pendingAfter: spoolFiles('.jsonl').length, quarantined: spoolFiles('.quarantined').length, blocked: blocked.state.statusCode, reason: reason(blocked), c: c.length > 0 })
       .toEqual({ first: 1, afterFirst: { good: 1, pending: 1 }, third: 0, pendingAfter: 0, quarantined: 1, blocked: 409, reason: 'ANSWER_PENDING_RECORD', c: true });
   }, 60_000);
@@ -236,7 +238,7 @@ describe('an accepted answer that not even audit_log could record survives on lo
     expect({ audit: (await auditRows(id)).length, replayed: spoolFiles('.replayed').length, pending: spoolFiles('.jsonl').length }).toEqual({ audit: 1, replayed: 1, pending: 0 });
   }, 60_000);
 
-  it('an acceptance whose spool write never reached the rename keeps blocking resolve, also after the stale-temp sweep moved it to quarantine/', async () => {
+  it('an acceptance whose spool write never reached the rename keeps blocking resolve after the stale sweep (and the database being unwell for its replay)', async () => {
     const { c, id } = await acceptedAndNothingRecorded();
     const dirPath = path.join(spool, 'spool');
     const [name] = spoolFiles('.jsonl');
@@ -246,11 +248,38 @@ describe('an accepted answer that not even audit_log could record survives on lo
     const old = new Date(Date.now() - 10 * 60_000);
     fs.utimesSync(temp, old, old);
     faults.rules.push({ match: /INSERT INTO audit_log/, claimOnly: false, act: injected('audit insert (replay)') });
-    const res = await resolveAfterRestart(c, id); // its replay sweeps the stale temp into quarantine/
-    expect({ http: res.state.statusCode, reason: reason(res), swept: !fs.existsSync(temp), quarantined: fs.readdirSync(path.join(dirPath, 'quarantine')).length, status: await status(id) })
-      .toEqual({ http: 409, reason: 'ANSWER_PENDING_RECORD', swept: true, quarantined: 1, status: 'pending' });
-    const again = await resolveAfterRestart(c, id); // and a minute later, still
-    expect(again.state.statusCode).toBe(409);
+    const res = await resolveAfterRestart(c, id); // its replay sweeps the stale temp
+    expect({ http: res.state.statusCode, reason: reason(res), swept: !fs.existsSync(temp), pending: spoolFiles('.jsonl').length, status: await status(id) })
+      .toEqual({ http: 409, reason: 'ANSWER_PENDING_RECORD', swept: true, pending: 1, status: 'pending' });
+    expect((await resolveAfterRestart(c, id)).state.statusCode).toBe(409); // and a minute later, still
+  }, 60_000);
+
+  it('a COMPLETE stale temp is REPLAYED like a final entry once the database answers: one audit_log row, then moved to replayed/', async () => {
+    const { id } = await acceptedAndNothingRecorded();
+    const dirPath = path.join(spool, 'spool');
+    const [name] = spoolFiles('.jsonl');
+    const temp = path.join(dirPath, `.${name}.${crypto.randomUUID().slice(0, 8)}.tmp`);
+    fs.renameSync(path.join(dirPath, name!), temp);
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(temp, old, old);
+    const { replaySpooledAnswers } = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
+    const first = await replaySpooledAnswers();
+    const second = await replaySpooledAnswers();
+    expect({ first, second, audit: (await auditRows(id)).length, temp: fs.existsSync(temp), pending: spoolFiles('.jsonl').length, replayed: spoolFiles('.replayed').length })
+      .toEqual({ first: 1, second: 0, audit: 1, temp: false, pending: 0, replayed: 1 });
+  }, 60_000);
+
+  it('a permission error (42501: a deploy-time grant gap) is NOT the entry\'s fault: the entry is never quarantined and replays once the grant is back; a 23503 is logged with its SQLSTATE', async () => {
+    const { id } = await acceptedAndNothingRecorded();
+    for (let i = 0; i < 4; i++) {
+      faults.rules.push({ match: /netcash_spool_replay_exists/, claimOnly: false, act: async () => { throw Object.assign(new Error('permission denied for table audit_log'), { code: '42501' }); } });
+    }
+    const { replaySpooledAnswers } = await import('@/modules/accounting/services/ap/netcashAnswerSpoolReplay');
+    for (let i = 0; i < 4; i++) await replaySpooledAnswers();
+    expect({ pending: spoolFiles('.jsonl').length, quarantined: spoolFiles('.quarantined').length }).toEqual({ pending: 1, quarantined: 0 });
+    faults.rules.length = 0;
+    expect(await replaySpooledAnswers()).toBe(1); // the grant is back
+    expect({ audit: (await auditRows(id)).length, replayed: spoolFiles('.replayed').length }).toEqual({ audit: 1, replayed: 1 });
   }, 60_000);
 
   it('a replay is bounded per call: maxEntries leaves the rest for the next call', async () => {
