@@ -166,6 +166,8 @@ describe('POST /api/accounting/document-capture', () => {
     m.uploadLimit.mockResolvedValue(false);
     const res = await post();
     expect(res.statusCode).toBe(429);
+    expect(JSON.stringify(res.sent)).toContain('Too many uploads — wait a few minutes and try again.');
+    expect(JSON.stringify(res.sent)).not.toContain('AI request limit');
     expect(m.parse).not.toHaveBeenCalled();
     expect(m.rateLimit).not.toHaveBeenCalled();
     expect(calls.some((c) => c.text.includes('INSERT'))).toBe(false);

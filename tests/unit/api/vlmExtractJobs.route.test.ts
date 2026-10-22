@@ -90,7 +90,10 @@ describe('POST /api/accounting/vlm-extract', () => {
 
   it('answers 429 when the upload limiter is used up: nothing parsed, no AI unit charged, no job registered', async () => {
     m.uploadLimit.mockResolvedValue(false);
-    expect((await call('POST', A)).statusCode).toBe(429);
+    const res = await call('POST', A);
+    expect(res.statusCode).toBe(429);
+    expect(JSON.stringify(res.sent)).toContain('Too many uploads — wait a few minutes and try again.');
+    expect(JSON.stringify(res.sent)).not.toContain('AI request limit');
     expect(m.parse).not.toHaveBeenCalled();
     expect(m.rateLimit).not.toHaveBeenCalled();
     expect(m.runAfterCommit).not.toHaveBeenCalled();

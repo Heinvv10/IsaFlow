@@ -102,7 +102,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   // Bounds EVERY upload request, including one that ends in a 400 below: buffering a 10 MB body costs memory whether or
   // not it is valid, and the AI limiter further down is charged only for a request that gets as far as a read.
   if (!(await checkRateLimit(`upload:document-capture:co:${companyId}`, { max: 60, windowSecs: 900 }))) {
-    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
+    return apiResponse.tooManyRequests(res, 'Too many uploads — wait a few minutes and try again.');
   }
 
   try {
