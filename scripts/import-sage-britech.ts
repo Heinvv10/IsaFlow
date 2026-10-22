@@ -4,6 +4,7 @@
  */
 import { createSql } from './_pg';
 import { deriveAmountPaid } from './lib/amountPaid';
+import { log } from '../src/lib/logger';
 import { readFileSync } from 'fs';
 
 const sql = createSql();
@@ -88,7 +89,10 @@ async function importARInvoices() {
     const dueDate = inv.DueDate?.split('T')[0] || null;
     const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue || 0);
     if (derived.clamped) {
-      console.warn(`  CLAMP ${inv.DocumentNumber}: amount_paid ${(inv.Total || 0) - (inv.AmountDue || 0)} -> ${derived.amountPaid} (Total ${inv.Total}, AmountDue ${inv.AmountDue}; customer_invoices_amount_paid_within_total)`);
+      log.warn('amount_paid clamped to customer_invoices_amount_paid_within_total', {
+        invoiceNumber: inv.DocumentNumber, total: inv.Total, amountDue: inv.AmountDue,
+        original: (inv.Total || 0) - (inv.AmountDue || 0), stored: derived.amountPaid,
+      }, 'import-sage-britech');
     }
     const status = derived.paid ? 'paid' : inv.Status === 'Draft' ? 'draft' : 'approved';
 

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import type { TaggedSql, Customer, Supplier } from './types';
 import { deriveAmountPaid } from '../lib/amountPaid';
+import { log } from '../../src/lib/logger';
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -35,7 +36,9 @@ export async function seedCustomerInvoices(
     const invId = randomUUID();
     const { amountPaid, clamped } = deriveAmountPaid(total, total - inv.paid);
     if (clamped) {
-      console.warn(`[customer_invoices] ${inv.num}: amount_paid ${inv.paid} -> ${amountPaid} (total ${total}; customer_invoices_amount_paid_within_total)`);
+      log.warn('amount_paid clamped to customer_invoices_amount_paid_within_total', {
+        invoiceNumber: inv.num, total, original: inv.paid, stored: amountPaid,
+      }, 'qa-seed');
     }
 
     await sql`
