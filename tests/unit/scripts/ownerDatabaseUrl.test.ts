@@ -1,5 +1,5 @@
 /**
- * scripts/lib/ownerDatabaseUrl.sh (S-07b): the deploy's migrations, parity
+ * scripts/ops/ownerDatabaseUrl.sh (S-07b): the deploy's migrations, parity
  * gate and verify step take the schema owner's URL. Behaviour is run for real
  * through bash; the deploy.sh wiring is pinned as text, because running
  * deploy.sh deploys production.
@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-const LIB = join(process.cwd(), 'scripts', 'lib', 'ownerDatabaseUrl.sh');
+const LIB = join(process.cwd(), 'scripts', 'ops', 'ownerDatabaseUrl.sh');
 
 function run(envText: string): { status: number | null; stdout: string; stderr: string } {
   const r = spawnSync('bash', ['-c', `set -e; . "${LIB}"; owner_database_url /fixture/.env.local`],
@@ -47,7 +47,7 @@ describe('deploy.sh uses the owner URL for every schema-owner step', () => {
   const code = deploy.split('\n').filter((l) => !l.trim().startsWith('#')).join('\n');
 
   it('sources the helper', () => {
-    expect(code).toContain('. "$REPO_DIR/scripts/lib/ownerDatabaseUrl.sh"');
+    expect(code).toContain('. "$REPO_DIR/scripts/ops/ownerDatabaseUrl.sh"');
   });
 
   it('reads prod\'s URL through it for the parity gate and for migrations (which verify-deploy reuses)', () => {
@@ -69,6 +69,11 @@ describe('deploy.sh uses the owner URL for every schema-owner step', () => {
 });
 
 describe('load_pg_conn (backups and the restore drill) takes the owner URL too', () => {
+  it('is installed with the helper it sources', () => {
+    const install = readFileSync(join(process.cwd(), 'scripts', 'ops', 'install-backup-ops.sh'), 'utf8');
+    expect(install).toMatch(/install [^\n]*"\$SRC\/ownerDatabaseUrl\.sh"\s+"\$DEST\/ownerDatabaseUrl\.sh"/);
+  });
+
   const PGCONN = join(process.cwd(), 'scripts', 'ops', 'lib-pgconn.sh');
   function load(envText: string): { status: number | null; stdout: string; stderr: string } {
     const dir = mkdtempSync(join(tmpdir(), 's07b-pgconn-'));
@@ -89,6 +94,6 @@ describe('load_pg_conn (backups and the restore drill) takes the owner URL too',
   it('falls back to DATABASE_URL with a warning', () => {
     const r = load('DATABASE_URL=postgresql://postgres:p@h:7772/isaflow\n');
     expect(r.stdout).toBe('postgresql://postgres@h:7772/isaflow\n');
-    expect(r.stderr).toMatch(/OWNER_DATABASE_URL not set/);
+    expect(r.stderr).toMatch(/WARNING: OWNER_DATABASE_URL is not set in .*\.env\.local - falling back to DATABASE_URL/);
   });
 });

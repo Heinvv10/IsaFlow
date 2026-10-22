@@ -126,12 +126,29 @@ const LENGTH_CHECKED_SECRETS = [
   'PORTAL_JWT_SECRET',
 ] as const;
 
+// S-07b: isaflow_app (migration 910) holds nothing until a request transaction
+// runs SET LOCAL ROLE app_user. The service pool falls back to DATABASE_URL
+// when SERVICE_DATABASE_URL is unset, so with DATABASE_URL on isaflow_app every
+// cron, login and public route would fail 42501 at request time. Refuse to boot.
+function assertServicePoolHasItsOwnLogin(): void {
+  if (process.env.SERVICE_DATABASE_URL) return;
+  const user = parseConnectionString(process.env.DATABASE_URL as string).user;
+  if (user === 'isaflow_app') {
+    throw new Error(
+      'DATABASE_URL logs in as isaflow_app but SERVICE_DATABASE_URL is not set: the service pool ' +
+        'would log in as isaflow_app too and every path outside a request transaction would be refused. ' +
+        'Set SERVICE_DATABASE_URL to the isaflow_service login (docs/runbooks/s07b-app-pool-login-roles.md).'
+    );
+  }
+}
+
 export function validateEnv(): void {
   const missing = REQUIRED_VARS.filter(v => !process.env[v]);
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
   assertPrivilegedPoolsTargetAppDatabase();
+  assertServicePoolHasItsOwnLogin();
   if (process.env.NODE_ENV === 'production') {
     assertProductionUrl('NEXT_PUBLIC_ADMIN_URL', 'admin.isaflow.co.za');
     // M7: enforce minimum secret strength in production only (dev/test may use

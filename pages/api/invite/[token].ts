@@ -12,6 +12,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withUserAuth, type AuthenticatedNextApiRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { serialize } from 'cookie';
+import { rollbackFailed } from '@/lib/rollbackFailed';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 type Row = Record<string, unknown>;
 
 /**
@@ -85,54 +87,74 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Unexpected fields in request body');
   }
 
-  // Look up the invitation using the hashed token
+  // Lookup and the three writes run in ONE transaction on the migration_admin
+  // pool, as /api/invitations/[token]/accept does. The caller is not yet a
+  // member of the company, so no app_user or app_service rule admits this
+  // membership write (migration 911); the app pools must not be able to make
+  // it from a request (S-07b).
   const tokenHash = hashInviteToken(token);
-  const rows = (await sql`
-    SELECT id, company_id, email, role
-    FROM company_invitations
-    WHERE token = ${tokenHash}
-      AND accepted_at IS NULL
-      AND expires_at > NOW()
-    LIMIT 1
-  `) as Row[];
-
-  if (rows.length === 0) {
-    return apiResponse.notFound(res, 'Invitation');
-  }
-
-  const inv = rows[0]!;
   const userId = authReq.user.id;
+  const client = await migrationAdminPool().connect();
+  let opened = false;
+  let unusable = false;
+  let inv: Row;
+  try {
+    opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
+    await client.query('BEGIN');
+    const rows = (await client.query(
+      `SELECT id, company_id, email, role
+         FROM company_invitations
+        WHERE token = $1
+          AND accepted_at IS NULL
+          AND expires_at > NOW()
+        LIMIT 1`,
+      [tokenHash],
+    )).rows as Row[];
 
-  // Verify invited email matches the logged-in user's email
-  if ((inv.email as string).toLowerCase() !== (authReq.user.email ?? '').toLowerCase()) {
-    return apiResponse.forbidden(res, 'This invitation was sent to a different email address');
+    if (rows.length === 0) {
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      return apiResponse.notFound(res, 'Invitation');
+    }
+    inv = rows[0]!;
+
+    // Verify invited email matches the logged-in user's email
+    if ((inv.email as string).toLowerCase() !== (authReq.user.email ?? '').toLowerCase()) {
+      unusable = await rollbackFailed(client, 'invite accept');
+      opened = false;
+      return apiResponse.forbidden(res, 'This invitation was sent to a different email address');
+    }
+
+    // Insert into company_users.
+    // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
+    // invitation row when the same address is re-invited, so an existing member
+    // kept their old role while the invitation claimed the new one. Same fix as
+    // pages/api/invitations/[token]/accept.ts — both routes accept the same rows.
+    // Never an owner's role (886's company_member_role_is_owner, the guards' own
+    // test, so `Owner ` too): an admin may invite any address at a lesser role, the
+    // owner's own included, and accepting that demoted the company's last owner
+    // (PR #691 review round 5). The invitation is still accepted.
+    await client.query(
+      `INSERT INTO company_users (company_id, user_id, role)
+       VALUES ($1::UUID, $2::UUID, $3)
+       ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role
+         WHERE public.company_member_role_is_owner(company_users.role) IS NOT TRUE`,
+      [inv.company_id, userId, inv.role],
+    );
+
+    // Mark invitation accepted
+    await client.query(`UPDATE company_invitations SET accepted_at = NOW() WHERE id = $1::UUID`, [inv.id]);
+
+    // Mark onboarding completed for this user (they're joining an existing company)
+    await client.query(`UPDATE users SET onboarding_completed = true WHERE id = $1`, [userId]);
+    await client.query('COMMIT');
+    opened = false;
+  } catch (err) {
+    if (opened) unusable = await rollbackFailed(client, 'invite accept');
+    throw err;
+  } finally {
+    client.release(unusable);
   }
-
-  // Insert into company_users.
-  // DO UPDATE, not DO NOTHING: POST /api/invitations rewrites `role` on the
-  // invitation row when the same address is re-invited, so an existing member
-  // kept their old role while the invitation claimed the new one. Same fix as
-  // pages/api/invitations/[token]/accept.ts — both routes accept the same rows.
-  // Never an owner's role (886's company_member_role_is_owner, the guards' own
-  // test, so `Owner ` too): an admin may invite any address at a lesser role, the
-  // owner's own included, and accepting that demoted the company's last owner
-  // (PR #691 review round 5). The invitation is still accepted.
-  await sql`
-    INSERT INTO company_users (company_id, user_id, role)
-    VALUES (${inv.company_id}::UUID, ${userId}::UUID, ${inv.role})
-    ON CONFLICT (company_id, user_id) DO UPDATE SET role = EXCLUDED.role
-      WHERE public.company_member_role_is_owner(company_users.role) IS NOT TRUE
-  `;
-
-  // Mark invitation accepted
-  await sql`
-    UPDATE company_invitations SET accepted_at = NOW() WHERE id = ${inv.id}::UUID
-  `;
-
-  // Mark onboarding completed for this user (they're joining an existing company)
-  await sql`
-    UPDATE users SET onboarding_completed = true WHERE id = ${userId}
-  `;
 
   // The invitation id, not the raw token: src/lib/auth/inviteToken.ts exists so
   // the secret never leaves the request, and a log line is exactly where it must

@@ -3,7 +3,7 @@
 #
 # Prints the URL the deploy must use for work that needs the schema owner:
 # applying migrations, the schema-drift audit, the migration-parity gate and
-# verify-deploy's integrity check. That is OWNER_DATABASE_URL. S-07b
+# verify-deploy's integrity check, and the backups. That is OWNER_DATABASE_URL. S-07b
 # (migration 910) moves the app's DATABASE_URL to isaflow_app, which owns
 # nothing and cannot apply a migration.
 #
@@ -12,7 +12,9 @@
 # Prints nothing (and returns 1) when the file names neither.
 #
 # The env file comes on stdin so the caller can read a root-only file with
-# `sudo cat`; <label> names it in the warning.
+# `sudo cat`; <label> names it in the warning. scripts/ops/lib-pgconn.sh (the
+# backups and the restore drill) uses it too, so install-backup-ops.sh installs
+# it beside lib-pgconn.sh.
 owner_database_url() {
   local label="$1" text url
   text=$(cat)
