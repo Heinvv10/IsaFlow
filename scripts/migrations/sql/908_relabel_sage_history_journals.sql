@@ -39,8 +39,9 @@
 -- (audit_log.user_id REFERENCES users, so a journal whose author is not a user
 -- refuses the migration, with a clear message, rather than fail on the foreign
 -- key half-way; created_by is NOT NULL, so there is always an author to check).
--- A forensic comparison against a snapshot sealed before this ran shows each of them as a changed journal
--- (source auto_migration -> auto_gl_import), and the audit trail carries why.
+-- A forensic comparison against a snapshot sealed before this ran shows each
+-- of them as a changed journal (source auto_migration -> auto_gl_import), and
+-- the audit trail carries why.
 --
 -- SANITY GUARD, because production was not inspected: the migration refuses,
 -- writing nothing, if a journal it is about to relabel looks like an opening

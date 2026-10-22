@@ -20,6 +20,11 @@ describe('isSageOpeningBalanceJournal', () => {
     expect(isSageOpeningBalanceJournal('', '')).toBe(false);
   });
 
+  it('matches exactly, not by substring: the near misses migration 908 relabels are not opening balances', () => {
+    expect(isSageOpeningBalanceJournal('O/B from other system 2', null)).toBe(false);
+    expect(isSageOpeningBalanceJournal('Bank charges', 'O/balances')).toBe(false);
+  });
+
   it('reads a numeric description or reference (untyped Sage JSON) without throwing', () => {
     expect(isSageOpeningBalanceJournal('Bank transfer', 10045)).toBe(false);
     expect(isSageOpeningBalanceJournal(0, 0)).toBe(false);
