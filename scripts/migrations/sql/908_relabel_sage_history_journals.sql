@@ -35,11 +35,19 @@
 --
 -- RECORDED like 855's migration-time correction: one audit_log row per
 -- relabelled journal ('update' of gl_journal_entry, the field before and
--- after, the reason and this file), by the user whose import wrote it. A
--- forensic comparison against a snapshot sealed before this ran shows each of
--- them as a changed journal (source auto_migration -> auto_gl_import), and the
--- audit trail carries why. A journal whose author is not a user refuses the
--- migration rather than go unrecorded.
+-- after, the reason and this file), by the user whose import wrote it
+-- (audit_log.user_id REFERENCES users, so a journal whose author is not a user
+-- refuses the migration, with a clear message, rather than fail on the foreign
+-- key half-way; created_by is NOT NULL, so there is always an author to check).
+-- A forensic comparison against a snapshot sealed before this ran shows each of them as a changed journal
+-- (source auto_migration -> auto_gl_import), and the audit trail carries why.
+--
+-- SANITY GUARD, because production was not inspected: the migration refuses,
+-- writing nothing, if a journal it is about to relabel looks like an opening
+-- balance the predicate missed: its description or reference contains 'o/b' or
+-- 'opening' (any case), or it has the same entry_date as a kept opening-balance
+-- journal and posts to an equity, accumulated-depreciation, opening-balance or
+-- suspense account. Someone then decides per journal before it is relabelled.
 --
 -- LABEL ONLY: `source` is the one column written (trg_gl_je_updated_at bumps
 -- updated_at). No amount, date, status, line or period changes; the balance
@@ -49,8 +57,9 @@
 -- ROW SECURITY: gl_journal_entries and audit_log FORCE RLS. row_security is
 -- turned off for this transaction (as 855 does), so a role subject to RLS gets
 -- an error ("query would be affected by row-level security policy") instead of
--- matching, relabelling and counting nothing and passing. It applies as the
--- owner, a superuser or a BYPASSRLS role. The setting is restored at the end
+-- matching, relabelling and counting nothing and passing. Both tables FORCE
+-- RLS, so the owner is subject to it too: the migration role needs BYPASSRLS
+-- (or be a superuser), as 855 notes. The setting is restored at the end
 -- for the rest of the runner's transaction (as 855 does).
 --
 -- Rollback: set source back to 'auto_migration' on the journals the audit_log
@@ -65,6 +74,7 @@ DECLARE
   v_relabelled integer;
   v_kept integer;
   v_left integer;
+  v_suspect integer;
   prev_row_security text := current_setting('row_security');
 BEGIN
   PERFORM set_config('row_security', 'off', true);
@@ -91,7 +101,24 @@ BEGIN
   SELECT DISTINCT id, company_id, created_by FROM history;
 
   IF EXISTS (SELECT 1 FROM tmp_908 t WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = t.created_by::text)) THEN
-    RAISE EXCEPTION 'migration 908: a journal to relabel has no author in users, so its change cannot be recorded';
+    RAISE EXCEPTION 'migration 908: a journal to relabel has no author in users, so its change cannot be recorded (audit_log.user_id references users)';
+  END IF;
+
+  -- Sanity guard: refuse on anything that looks like an opening balance the
+  -- predicate missed (see the header). Nothing has been written yet.
+  SELECT count(*) INTO v_suspect
+    FROM tmp_908 t
+    JOIN gl_journal_entries je ON je.id = t.id
+   WHERE je.description ~* '(o/b|opening)' OR je.reference ~* '(o/b|opening)'
+      OR (je.entry_date IN (SELECT k.entry_date FROM gl_journal_entries k
+                             WHERE k.company_id = v_company AND k.source = 'auto_migration'
+                               AND k.entry_number LIKE 'SAGE-%' AND k.id NOT IN (SELECT id FROM tmp_908))
+          AND EXISTS (SELECT 1 FROM gl_journal_lines l JOIN gl_accounts a ON a.id = l.gl_account_id
+                       WHERE l.journal_entry_id = je.id
+                         AND (a.account_type = 'equity' OR a.account_subtype = 'accumulated_depreciation'
+                              OR a.account_name ~* '(accumulated depreciation|suspense|opening balance)')));
+  IF v_suspect <> 0 THEN
+    RAISE EXCEPTION 'migration 908: % journals to relabel look like Sage opening balances the predicate missed (o/b or opening in the description or reference, or dated with a kept opening balance and posted to equity, accumulated depreciation or suspense); decide per journal before relabelling', v_suspect;
   END IF;
 
   INSERT INTO audit_log (company_id, user_id, action, entity_type, entity_id, entity_ref, changes)
@@ -123,6 +150,7 @@ BEGIN
     SELECT je.id, je.company_id
       FROM gl_journal_entries je
      WHERE je.company_id = v_company
+       AND je.source = 'auto_migration'
        AND je.entry_number LIKE 'SAGE-%'
        AND lower(rtrim(COALESCE(je.description, ''), ' .,;:!')) <> 'o/b from other system'
        AND lower(COALESCE(btrim(je.reference), '')) NOT IN ('o/balance', 'o/b')

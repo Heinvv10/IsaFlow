@@ -9,6 +9,9 @@ import { readFileSync } from 'fs';
 const sql = createSql();
 const CID = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
 
+/** First 100 chars of a caught error's message (the script prints and carries on). */
+const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e)).slice(0, 100);
+
 const USER_ID = 'aeb3949e-6c93-4c17-bbdf-b6d2d99fa9a2'; // hein@isaflow.co.za
 const CAT_TYPE: Record<number, string> = { 1:'revenue', 2:'expense', 3:'revenue', 4:'expense', 5:'asset', 6:'asset', 7:'liability', 8:'liability', 9:'equity', 10:'expense' };
 const CAT_SUB: Record<number, string> = { 1:'sales', 2:'cost_of_sales', 3:'other_income', 4:'operating_expenses', 5:'fixed_assets', 6:'current_assets', 7:'long_term_liabilities', 8:'current_liabilities', 9:'equity', 10:'tax' };
@@ -33,7 +36,7 @@ async function importAccounts() {
         VALUES (${CID}::UUID, ${code}, ${a.Name}, ${type}, ${sub}, ${norm}, ${a.Active}, ${a.AccountType === 2}, ${desc}, ${order}, 'sage_cloud')
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { errs++; console.error(`  ERR ${a.Name}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { errs++; console.error(`  ERR ${a.Name}: ${errMsg(e)}`); }
   }
   console.log(`  Accounts: ${ok} imported, ${errs} errors`);
 }
@@ -46,7 +49,7 @@ async function importCustomers() {
       await sql`INSERT INTO customers (company_id, name, email, phone, vat_number, contact_person, credit_limit, is_active, opening_balance, accepts_electronic_invoices, auto_allocate_receipts, mobile)
         VALUES (${CID}::UUID, ${c.Name}, ${c.Email || null}, ${c.Telephone || null}, ${c.TaxReference || null}, ${c.ContactName || null}, ${c.CreditLimit || 0}, ${c.Active}, ${c.Balance || 0}, ${c.AcceptsElectronicInvoices || false}, ${c.AutoAllocateToOldestInvoice || false}, ${c.Mobile || null})`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${c.Name}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${c.Name}: ${errMsg(e)}`); }
   }
   console.log(`  Customers: ${ok} imported`);
 }
@@ -59,7 +62,7 @@ async function importSuppliers() {
       await sql`INSERT INTO suppliers (company_id, name, email, phone, vat_number, contact_person, is_active, opening_balance, mobile, fax, web_address, auto_allocate_payments)
         VALUES (${CID}::UUID, ${s.Name}, ${s.Email || null}, ${s.Telephone || null}, ${s.TaxReference || null}, ${s.ContactName || null}, ${s.Active}, ${s.Balance || 0}, ${s.Mobile || null}, ${s.Fax || null}, ${s.WebAddress || null}, ${s.AutoAllocateToOldestInvoice || false})`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${s.Name}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${s.Name}: ${errMsg(e)}`); }
   }
   console.log(`  Suppliers: ${ok} imported`);
 }
@@ -96,7 +99,7 @@ async function importARInvoices() {
           ${status}, ${inv.Reference ? 'Sage ref: ' + inv.Reference : null}, ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${inv.DocumentNumber}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${inv.DocumentNumber}: ${errMsg(e)}`); }
   }
   console.log(`  AR Invoices: ${ok} imported, ${skip} skipped (no customer match)`);
 }
@@ -124,7 +127,7 @@ async function importAPInvoices() {
           ${status}, ${inv.Reference || null}, ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${inv.DocumentNumber}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${inv.DocumentNumber}: ${errMsg(e)}`); }
   }
   console.log(`  AP Invoices: ${ok} imported, ${skip} skipped (no supplier match)`);
 }
@@ -152,7 +155,7 @@ async function importCustomerReceipts() {
           ${r.Description || r.Comments || null}, 'confirmed', ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${r.DocumentNumber}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${r.DocumentNumber}: ${errMsg(e)}`); }
   }
   console.log(`  Customer Receipts: ${ok} imported, ${skip} skipped`);
 }
@@ -177,7 +180,7 @@ async function importSupplierPayments() {
           ${p.Description || p.Comments || null}, 'processed', ${USER_ID}::UUID)
         ON CONFLICT DO NOTHING`;
       ok++;
-    } catch (e: any) { console.error(`  ERR ${p.DocumentNumber}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { console.error(`  ERR ${p.DocumentNumber}: ${errMsg(e)}`); }
   }
   console.log(`  Supplier Payments: ${ok} imported, ${skip} skipped`);
 }
@@ -228,7 +231,7 @@ async function importJournalEntries() {
       });
 
       ok++;
-    } catch (e: any) { errs++; console.error(`  ERR JE-${je.ID}: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { errs++; console.error(`  ERR JE-${je.ID}: ${errMsg(e)}`); }
   }
   console.log(`  Journal Entries: ${ok} imported, ${errs} errors`);
 }
@@ -255,7 +258,7 @@ async function importBankTransactions() {
           ${t.desc || t.memo || ''}, ${t.ref || null},
           ${t.recon ? 'reconciled' : 'unmatched'})`;
       ok++;
-    } catch (e: any) { errs++; if (errs <= 5) console.error(`  ERR: ${e.message?.slice(0, 100)}`); }
+    } catch (e: unknown) { errs++; if (errs <= 5) console.error(`  ERR: ${errMsg(e)}`); }
   }
   console.log(`  Bank Transactions: ${ok} imported, ${errs} errors`);
 }
