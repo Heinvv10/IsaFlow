@@ -39,6 +39,7 @@ export function useCapturedDocument(docId: string | string[] | undefined, onLoad
       const found = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`, undefined, 'Could not load the document - try again');
       if (stale()) return 'ok';
       appliedSeq.current = ticket;
+      setError('');
       setDoc(found);
       if (!(silent && found.readState === 'reading')) onLoadedRef.current(found);
       return 'ok';
