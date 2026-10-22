@@ -110,23 +110,26 @@ async function readActualStartMonth(companyId: string): Promise<number | null> {
 
 /**
  * What Settings shows for the financial year start of the company it is
- * viewing. Counted only for the request's ACTIVE company: for another one (a
+ * viewing. Locked exactly when assertFinancialYearStartChange would refuse a
+ * change: a posted journal ('posted') or periods otherwise in use ('in_use'). Counted only for the request's ACTIVE company: for another one (a
  * super_admin viewing a tenant) RLS would scope the counts to the active
  * company and could report "unlocked", and the PUT refuses a change there
  * anyway, so the view is read-only and the actual month is not claimed.
  */
 export async function financialYearStartView(companyId: string, activeCompanyId: string | undefined): Promise<{
   financialYearStartLocked: boolean;
-  financialYearStartLockReason: 'posted' | 'not_active' | null;
+  financialYearStartLockReason: 'posted' | 'in_use' | 'not_active' | null;
   financialYearStartActual: number | null;
 }> {
   if (companyId !== activeCompanyId) {
     return { financialYearStartLocked: true, financialYearStartLockReason: 'not_active', financialYearStartActual: null };
   }
+  // The PUT's refusal predicate, so the field is never editable for a change the PUT would 409.
   const posted = (await countPostedJournals(companyId)) > 0;
+  const inUse = !posted && periodsInUse(await countFiscalPeriodReferences(companyId));
   return {
-    financialYearStartLocked: posted,
-    financialYearStartLockReason: posted ? 'posted' : null,
+    financialYearStartLocked: posted || inUse,
+    financialYearStartLockReason: posted ? 'posted' : inUse ? 'in_use' : null,
     financialYearStartActual: await readActualStartMonth(companyId),
   };
 }
@@ -176,9 +179,12 @@ export async function rebuildUnusedFiscalPeriods(companyId: string, today: Date 
  *   insert (a close run, a journal) cannot land between the count and the rebuild.
  */
 export async function assertFinancialYearStartChange(companyId: string, requested: unknown): Promise<boolean> {
-  if (requested === undefined || requested === null || requested === '') return false;
-  const month = Number(requested);
-  if (!Number.isInteger(month) || month < 1 || month > 12) throw new InvalidFinancialYearStartError(requested);
+  if (requested === undefined || requested === null) return false;
+  // A real integer only: Number() would read true as 1 and [6] as 6. The settings page sends a number.
+  if (typeof requested !== 'number' || !Number.isInteger(requested) || requested < 1 || requested > 12) {
+    throw new InvalidFinancialYearStartError(requested);
+  }
+  const month = requested;
 
   const unlocked = await readDeclaredStartMonth(companyId, false);
   if (unlocked === null || unlocked === month) return false; // no row: the UPDATE finds nothing either
