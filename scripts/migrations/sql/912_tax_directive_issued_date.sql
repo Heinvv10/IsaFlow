@@ -1,4 +1,4 @@
--- 909: the date SARS issued a tax directive (PAYE 4a follow-ups, G3).
+-- 912: the date SARS issued a tax directive (PAYE 4a follow-ups, G3).
 --
 -- e@syFile code 3231 is the directive's ISSUED date (SARS BRS PAYE Employer
 -- Reconciliation V25.3.0, "Directive Information", p. 42: "The date the
