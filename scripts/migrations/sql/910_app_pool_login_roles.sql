@@ -5,8 +5,8 @@
 -- withAuth runs `SET LOCAL ROLE app_user`, but injected SQL can call
 -- set_config('role', 'none', true) (or RESET ROLE) and land back on the
 -- session user: one statement then reads any table as the owner, and the next
--- writes as the owner (users.role = 'super_admin', DDL, DISABLE TRIGGER on the
--- forensic tables). 902's column privileges bind app_user only.
+-- writes as the owner (users.role = 'super_admin', DDL, switching off the
+-- forensic triggers). 902's column privileges bind app_user only.
 --
 -- This migration creates two login roles and one group role. It sets no
 -- password and does not let either role log in: the ops step (runbook in the
@@ -46,7 +46,9 @@
 -- RESIDUAL, DELIBERATE: injected SQL on an isaflow_service path can write any
 -- user's email (change-email and the POPIA erasure need that column, and run
 -- with no tenant). 902 still holds for app_user, i.e. for every authenticated
--- route.
+-- route. Triggers that judge current_user = 'app_user' must judge app_service
+-- too: 911 does that for the member guards and refuses any function left in
+-- the old shape.
 --
 -- Roles are cluster-wide and prod and dev share a cluster (PG 15), so the
 -- first database this runs on creates them for every database; each step is
@@ -104,8 +106,12 @@ REVOKE ALL ON FUNCTION public.refresh_customer_invoice_view_summary() FROM PUBLI
 GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO app_service;
 
 -- One permissive policy per (table, command) that some app_user or PUBLIC
--- policy admits with a predicate other than `false`. Policies named
--- app_service_<cmd> are owned by this migration; re-runs skip existing ones.
+-- policy admits with a predicate other than `false`, and only where app_user
+-- holds the command's privilege (a policy on a table app_user cannot touch
+-- would only widen app_service's reach if a grant arrived later). Excluded:
+-- impersonation_sessions, which app_user reads only by its own session id and
+-- no service path reads at all. Policies named app_service_<cmd> are owned by
+-- this migration; re-runs skip existing ones.
 DO $$
 DECLARE
   r record;
@@ -118,11 +124,29 @@ BEGIN
       JOIN pg_class c ON c.oid = p.polrelid
       JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public'
+       AND c.relname <> 'impersonation_sessions'
        AND p.polpermissive
        AND p.polname NOT LIKE 'app\_service\_%'
        AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
-       AND NOT (coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
-                AND coalesce(pg_get_expr(p.polwithcheck, p.polrelid), 'false') = 'false')
+       -- Always false for its command: SELECT and DELETE are judged by USING,
+       -- INSERT by WITH CHECK, UPDATE and ALL by both (an absent WITH CHECK
+       -- falls back to USING).
+       AND NOT CASE p.polcmd
+             WHEN 'r' THEN coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
+             WHEN 'd' THEN coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
+             WHEN 'a' THEN coalesce(pg_get_expr(p.polwithcheck, p.polrelid), 'true') = 'false'
+             ELSE coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
+                  AND coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false'
+           END
+       -- has_any_column_privilege: 902 leaves app_user only column UPDATE on users.
+       AND CASE p.polcmd
+             WHEN 'r' THEN has_any_column_privilege('app_user', p.polrelid, 'SELECT')
+             WHEN 'a' THEN has_any_column_privilege('app_user', p.polrelid, 'INSERT')
+             WHEN 'w' THEN has_any_column_privilege('app_user', p.polrelid, 'UPDATE')
+             WHEN 'd' THEN has_table_privilege('app_user', p.polrelid, 'DELETE')
+             ELSE has_any_column_privilege('app_user', p.polrelid, 'SELECT, INSERT, UPDATE')
+                  OR has_table_privilege('app_user', p.polrelid, 'DELETE')
+           END
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_policy
                     WHERE polrelid = r.tbl AND polname = 'app_service_' || r.cmd) THEN
@@ -162,12 +186,17 @@ BEGIN
       IF r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolreplication THEN
         RAISE EXCEPTION '910: % can reach %, which is superuser, BYPASSRLS, CREATEROLE or REPLICATION', login, r.rolname;
       END IF;
-      IF EXISTS (SELECT 1 FROM pg_class WHERE relowner = r.oid)
+      -- pg_shdepend records ownership in EVERY database of the cluster (prod
+      -- and dev share one); the catalogs below cover this database even where
+      -- pg_shdepend skips pinned objects.
+      IF EXISTS (SELECT 1 FROM pg_shdepend WHERE refclassid = 'pg_authid'::regclass
+                    AND refobjid = r.oid AND deptype = 'o')
+         OR EXISTS (SELECT 1 FROM pg_class WHERE relowner = r.oid)
          OR EXISTS (SELECT 1 FROM pg_proc WHERE proowner = r.oid)
          OR EXISTS (SELECT 1 FROM pg_namespace WHERE nspowner = r.oid)
          OR EXISTS (SELECT 1 FROM pg_type WHERE typowner = r.oid)
-         OR EXISTS (SELECT 1 FROM pg_database WHERE datname = current_database() AND datdba = r.oid) THEN
-        RAISE EXCEPTION '910: % can reach %, which owns objects in this database', login, r.rolname;
+         OR EXISTS (SELECT 1 FROM pg_database WHERE datdba = r.oid) THEN
+        RAISE EXCEPTION '910: % can reach %, which owns objects in this cluster', login, r.rolname;
       END IF;
     END LOOP;
   END LOOP;

@@ -106,8 +106,8 @@ $BUN install
 # Both sides use the schema owner's URL (OWNER_DATABASE_URL, falling back to
 # DATABASE_URL with a warning): --apply-dev applies migrations to dev, and the
 # app's own login role cannot (S-07b).
-# shellcheck source=lib/ownerDatabaseUrl.sh
-. "$REPO_DIR/scripts/lib/ownerDatabaseUrl.sh"
+# shellcheck source=ops/ownerDatabaseUrl.sh
+. "$REPO_DIR/scripts/ops/ownerDatabaseUrl.sh"
 PARITY_PROD_ENV="$DEPLOY_DIR/.env.local"
 PARITY_PROD_DB=""
 if sudo test -f "$PARITY_PROD_ENV"; then

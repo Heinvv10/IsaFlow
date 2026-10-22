@@ -70,6 +70,13 @@ describe('validateEnv — privileged pool database targets', () => {
     expect(() => validateEnv()).not.toThrow();
   });
 
+  it('refuses DATABASE_URL on isaflow_app without SERVICE_DATABASE_URL (S-07b)', () => {
+    process.env.DATABASE_URL = 'postgresql://isaflow_app:pw@db.internal:7772/isaflow?sslmode=disable';
+    expect(() => validateEnv()).toThrow(/DATABASE_URL logs in as isaflow_app but SERVICE_DATABASE_URL is not set/);
+    process.env.SERVICE_DATABASE_URL = 'postgresql://isaflow_service:pw@db.internal:7772/isaflow?sslmode=disable';
+    expect(() => validateEnv()).not.toThrow();
+  });
+
   it('ignores MIGRATION_ADMIN_DATABASE_URL when it is not set', () => {
     delete process.env.MIGRATION_ADMIN_DATABASE_URL;
     expect(() => validateEnv()).not.toThrow();

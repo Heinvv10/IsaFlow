@@ -71,7 +71,7 @@ const KNOWN_WRITERS = [
   'pages/api/invitations/[token]/accept.ts: writes', // W9 invite accept — migration_admin pool, invitation's role
   'pages/api/invitations/index.ts: writes', // W7 second invitation system — app_user
   'pages/api/invitations/revoke/[id].ts: writes', // W8 revoke — app_user
-  'pages/api/invite/[token].ts: writes', // W10 /invite accept — the login role, invitation's role
+  'pages/api/invite/[token].ts: writes', // W10 /invite accept — migration_admin pool since S-07b (911), invitation's role
   'scripts/ci/userIdCastRules.ts: names as a string', // a lint's table list
   'scripts/acceptance/entity-onboarding-admin.ts: writes', // browser acceptance admin scenarios — throwaway DB via psql
   'scripts/acceptance/entity-onboarding-seed.ts: writes', // browser acceptance seed — throwaway DB via psql
@@ -98,7 +98,8 @@ const KNOWN_WRITERS = [
  * versions of create_company_with_owner (the creator as owner); 516 is
  * set_default_company (is_default only); 662 expires stale invitations once.
  * After: 886 re-writes both guards and adds their owner predicate (PR #691
- * review round 5, PR #693 reviews), read as 883 was.
+ * review round 5, PR #693 reviews), read as 883 was; 911 re-writes them so
+ * app_service (S-07b's service pool) takes app_user's rules, read as 886 was.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -114,6 +115,7 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '516_set_default_company_fn.sql': ['writes'],
   '662_invite_token_encoding_retire_stale.sql': ['writes'],
   '886_company_member_role_guard_round5.sql': ['alters'],
+  '911_service_role_member_guards.sql': ['alters'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();
