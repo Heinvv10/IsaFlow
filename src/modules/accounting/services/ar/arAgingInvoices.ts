@@ -31,9 +31,6 @@ export async function fetchARAgingInvoices(
   todayStr: string,
   clientId: string | null = null,
 ): Promise<OpenAgingInvoice[]> {
-  // A plain equality for the drill-down, nothing for the whole book: an
-  // `(x IS NULL OR col = x)` predicate hides the equality from the planner.
-  const oneEntity = clientId === null ? sql`` : sql`AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID`;
   const rows = (await sql`
     SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
       COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
@@ -48,7 +45,7 @@ export async function fetchARAgingInvoices(
       ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
     ) unpaid ON TRUE
     WHERE ci.company_id = ${companyId}
-      ${oneEntity}
+      AND (${clientId}::UUID IS NULL OR COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID)
       -- Status rule: shared/documentPopulation (NULL-safe, one definition).
       AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       -- A soft-deleted invoice leaves this report exactly when the delete's
