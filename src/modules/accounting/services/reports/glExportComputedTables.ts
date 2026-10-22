@@ -13,9 +13,9 @@
 import { buildOpenItems, openItemKey, type OpenItemsSummary } from './openItemsExport';
 import { buildBankAccounts, type BankAccountsSummary } from './bankAccountsExport';
 import type { ExportValue } from './glLineExportRows';
-import type { GlTableCursor } from './glLineExportTables';
+import { GL_COMPUTED_TABLES, type GlTableCursor } from './glLineExportTables';
 
-export const GL_COMPUTED_TABLES = ['ap_open_items', 'ar_open_items', 'bank_accounts'] as const;
+export { GL_COMPUTED_TABLES };
 export type GlComputedTable = (typeof GL_COMPUTED_TABLES)[number];
 
 export function isGlComputedTable(v: unknown): v is GlComputedTable {
@@ -45,6 +45,29 @@ export interface ComputedTablePage {
 export async function buildComputedTable(companyId: string, table: GlComputedTable): Promise<ComputedTable> {
   if (table === 'bank_accounts') return buildBankAccounts(companyId);
   return buildOpenItems(companyId, table === 'ap_open_items' ? 'ap' : 'ar');
+}
+
+/**
+ * The summary facts a CSV download carries as headers, exact because the
+ * table is built whole before the first byte. Open items: X-Aged-Total and
+ * X-Control-Difference (an internal consistency check, not a GL tie — see
+ * openItemsExport) and X-Disputed-Total (what Outstanding leaves out). Bank
+ * accounts: X-No-Ledger-Balance-Count, the rows X-Control-Total leaves out.
+ */
+export function computedHeaders(summary: ComputedSummary): Record<string, string> {
+  const headers: Record<string, string> = {
+    'X-As-At': summary.asAt,
+    'X-Row-Count': String(summary.rowCount),
+    'X-Control-Total': summary.controlTotal.toFixed(2),
+  };
+  if ('agedTotal' in summary) {
+    headers['X-Aged-Total'] = summary.agedTotal.toFixed(2);
+    headers['X-Control-Difference'] = summary.difference.toFixed(2);
+    headers['X-Disputed-Total'] = summary.disputedTotal.toFixed(2);
+  } else {
+    headers['X-No-Ledger-Balance-Count'] = String(summary.noLedgerBalanceCount);
+  }
+  return headers;
 }
 
 /** A row's position in the table's total order. */

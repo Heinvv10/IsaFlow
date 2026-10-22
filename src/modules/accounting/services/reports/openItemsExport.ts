@@ -8,17 +8,23 @@
  *    aging runs (ap/apAgingInvoices, ar/arAgingInvoices), so the same status
  *    population, ledger presence and point-in-time rewind. Outstanding is the
  *    balance less any open dispute (AR), which is what the buckets carry;
- *    Disputed states the rest.
+ *    Disputed states the rest, so Outstanding + Disputed is what the document
+ *    still owes. AP has no dispute concept: Disputed is 0 on every AP row, a
+ *    bill in status 'disputed' included (it is open at its full balance, as
+ *    the aged creditors report carries it).
  *  - `credit_note` and `unapplied_payment` / `unapplied_receipt` — NEGATIVE
  *    rows: the unconsumed credit and on-account cash the aged report nets off
  *    each entity, from shared/unappliedDocuments (the rows
  *    agedNetting.getUnappliedByEntity sums). A refund carries its own sign.
  *
- * THE CONTROL: Σ Outstanding equals the aged report's net `total` to the cent.
- * The summary proves it on every call rather than asserting it: `agedTotal`
- * is computed through the aged tools' own functions (calculateAgingBuckets →
- * netAgingRows over aggregateUnappliedByEntity) from the same fetched data,
- * and `difference` is controlTotal − agedTotal. The one population rule taken
+ * Σ Outstanding equals the aged report's net `total` to the cent. `agedTotal`
+ * is that total computed through the aged tools' own functions
+ * (calculateAgingBuckets → netAgingRows over aggregateUnappliedByEntity), and
+ * `difference` is controlTotal − agedTotal. Both read the SAME fetched data,
+ * so `difference` is an internal consistency check — that this table's rows
+ * rebuild the report's figure — NOT a tie to the GL control account (a
+ * subledger that disagrees with its control account shows here as 0.00 all
+ * the same; reconcile_subledger answers that question). The one population rule taken
  * from the report: an entity with no open invoice whose on-account entries
  * net to R0.01 or less has no row in the report, so its documents have none
  * here either.
@@ -27,14 +33,16 @@
  * tools' default). Invoice rows age from Due_Date (the due date, else the
  * invoice date, exactly as the aging does) through utils/aging's
  * getAgingBucket, so their buckets sum to the report's gross buckets. Credit
- * and cash rows have no due date; they age from their own date, for
- * information only — the report does not bucket them.
+ * and cash rows are not aged at all — Days_Overdue and Age_Bucket are blank —
+ * because the report does not bucket them: a pivot of Outstanding by
+ * Age_Bucket gives the report's gross buckets plus one blank-bucket line, the
+ * unapplied total.
  */
 
 import { fmtDate } from '@/lib/fmtDate';
-import { calculateAgingBuckets, daysOverdue, getAgingBucket } from '@/modules/accounting/utils/aging';
+import { calculateAgingBuckets, daysOverdue, getAgingBucket, type OpenAgingInvoice } from '@/modules/accounting/utils/aging';
 import type { AgingBucketName } from '@/modules/accounting/types/ap.types';
-import { fetchAPAgingInvoices, type OpenAgingInvoice } from '@/modules/accounting/services/ap/apAgingInvoices';
+import { fetchAPAgingInvoices } from '@/modules/accounting/services/ap/apAgingInvoices';
 import { fetchARAgingInvoices } from '@/modules/accounting/services/ar/arAgingInvoices';
 import { getUnappliedDocuments, type UnappliedDocument } from '@/modules/accounting/services/shared/unappliedDocuments';
 import { aggregateUnappliedByEntity, netAgingRows } from '@/modules/accounting/services/shared/agedNetting';
@@ -69,12 +77,14 @@ export interface OpenItemsSummary {
   grossTotal: number;
   /** Σ Outstanding over credit-note and unapplied-cash rows (negative). */
   unappliedTotal: number;
+  /** Σ Disputed over invoice rows: what grossTotal leaves out of the documents' balances (AR; 0 on AP). */
+  disputedTotal: number;
   /** Σ Outstanding over every row. */
   controlTotal: number;
   /** The aged report's net total, computed through its own functions. */
   agedTotal: number;
   agedGrossTotal: number;
-  /** controlTotal − agedTotal. 0.00 is the control holding. */
+  /** controlTotal − agedTotal: an internal consistency check on the same data, not a GL tie. */
   difference: number;
   /** Invoice rows' Outstanding per Age_Bucket — the report's gross buckets. */
   buckets: Record<string, number>;
@@ -117,14 +127,13 @@ function invoiceRow(side: OpenItemsSide, inv: OpenAgingInvoice, asAt: Date): Ope
   };
 }
 
-function creditRow(side: OpenItemsSide, doc: UnappliedDocument, asAt: Date): OpenItemsRow {
-  const { days, bucket } = age(doc.date, asAt);
+function creditRow(side: OpenItemsSide, doc: UnappliedDocument): OpenItemsRow {
   const cashType = side === 'ap' ? 'unapplied_payment' : 'unapplied_receipt';
   return {
     Doc_ID: doc.id, Doc_Type: doc.kind === 'credit_note' ? 'credit_note' : cashType, Doc_No: doc.number,
     [side === 'ap' ? 'Supplier_Ref' : 'Customer_Ref']: doc.reference,
     Counterparty_ID: doc.entityId, Counterparty_Name: doc.entityName,
-    Doc_Date: doc.date, Due_Date: null, Days_Overdue: days, Age_Bucket: bucket,
+    Doc_Date: doc.date, Due_Date: null, Days_Overdue: null, Age_Bucket: null,
     Total_Incl_VAT: money(-cents(doc.totalAmount)),
     Outstanding: money(-cents(doc.amount)),
     Disputed: 0,
@@ -155,9 +164,13 @@ export async function buildOpenItems(
 ): Promise<OpenItemsResult> {
   const todayStr = fmtDate(new Date());
   const asAt = new Date(asAtStr);
-  const invoices = side === 'ap'
+  const fetched = side === 'ap'
     ? await fetchAPAgingInvoices(companyId, asAtStr, todayStr)
     : await fetchARAgingInvoices(companyId, asAtStr, todayStr);
+  // calculateAgingBuckets' own rule: only a positive balance is open. The
+  // query already says so (balance > 0); held here too, so a row the report
+  // drops can never reach the file.
+  const invoices = fetched.filter((i) => i.balance > 0);
   const allDocs = await getUnappliedDocuments(companyId, side, asAtStr);
 
   // The aged report's own arithmetic over the same data.
@@ -179,18 +192,20 @@ export async function buildOpenItems(
   const rows: OpenItemsRow[] = [];
   const bucketCents: Record<string, number> = { current: 0, '30': 0, '60': 0, '90': 0, '120+': 0 };
   let grossCents = 0;
+  let disputedCents = 0;
   for (const inv of invoices) {
     const row = invoiceRow(side, inv, asAt);
     dims(row, invDims.get(inv.id));
     row.Has_Document = onFile.has(inv.id);
     grossCents += cents(row.Outstanding as number);
+    disputedCents += cents(row.Disputed as number);
     const bucket = String(row.Age_Bucket);
     bucketCents[bucket] = (bucketCents[bucket] ?? 0) + cents(row.Outstanding as number);
     rows.push(row);
   }
   let unappliedCents = 0;
   for (const doc of docs) {
-    const row = creditRow(side, doc, asAt);
+    const row = creditRow(side, doc);
     dims(row, doc.kind === 'credit_note' ? cnDims.get(doc.id) : undefined);
     row.Has_Document = onFile.has(doc.id);
     unappliedCents += cents(row.Outstanding as number);
@@ -211,6 +226,7 @@ export async function buildOpenItems(
       invoiceCount: invoices.length,
       grossTotal: money(grossCents),
       unappliedTotal: money(unappliedCents),
+      disputedTotal: money(disputedCents),
       controlTotal,
       agedTotal,
       agedGrossTotal: money(netted.reduce((s, r) => s + cents(r.total), 0)),

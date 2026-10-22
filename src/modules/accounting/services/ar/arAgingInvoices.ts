@@ -15,19 +15,11 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import type { AgingDetailInvoice } from '../../utils/aging';
+import type { OpenAgingInvoice } from '../../utils/aging';
 import { getOpenDisputeTotals } from './disputeService';
 import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
-
-/** An open invoice as the aging sees it, plus the two header fields an export row needs. */
-export interface OpenAgingInvoice extends AgingDetailInvoice {
-  /** YYYY-MM-DD: invoice_date, else the day it was created. */
-  invoiceDate: string;
-  /** The invoice's number in the system it came from (external_document_number), when captured. */
-  reference: string | null;
-}
 
 /**
  * Open customer invoices as at `asAtStr`, oldest due first. `clientId` narrows
@@ -39,6 +31,9 @@ export async function fetchARAgingInvoices(
   todayStr: string,
   clientId: string | null = null,
 ): Promise<OpenAgingInvoice[]> {
+  // A plain equality for the drill-down, nothing for the whole book: an
+  // `(x IS NULL OR col = x)` predicate hides the equality from the planner.
+  const oneEntity = clientId === null ? sql`` : sql`AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID`;
   const rows = (await sql`
     SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
       COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
@@ -53,7 +48,7 @@ export async function fetchARAgingInvoices(
       ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
     ) unpaid ON TRUE
     WHERE ci.company_id = ${companyId}
-      AND (${clientId}::UUID IS NULL OR COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID)
+      ${oneEntity}
       -- Status rule: shared/documentPopulation (NULL-safe, one definition).
       AND ${sql.unsafe(documentInPopulationExpr('ci'))}
       -- A soft-deleted invoice leaves this report exactly when the delete's

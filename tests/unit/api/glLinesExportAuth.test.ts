@@ -10,7 +10,8 @@
  *  - a PAT with read:reports is served, under the TOKEN's company, inside the
  *    pipeline's app_user transaction with the RLS claims set
  *  - a PAT without read:reports is 403 before any export read
- *  - counterparties needs read:contacts as well (the MCP tool's rule)
+ *  - counterparties needs read:contacts, bank_accounts read:bank-tx (the MCP tool's rule)
+ *  - a computed table is as at today and refuses date_from / date_to / status
  *  - a cookie session is unchanged: withAuth, no scopes, every table
  *  - a computed table carries its control facts as headers
  */
@@ -118,7 +119,7 @@ beforeEach(() => {
     rows: [{ Doc_ID: 'd1', Outstanding: 100.5 }, { Doc_ID: 'd2', Outstanding: -0.5 }],
     summary: {
       table: 'ap_open_items', schemaVersion: 'isaflow-open-items-1.0', asAt: '2026-10-22', rowCount: 2,
-      controlTotal: 100, agedTotal: 100, difference: 0,
+      controlTotal: 100, agedTotal: 100, difference: 0, disputedTotal: 12.5,
     },
   });
 });
@@ -175,9 +176,45 @@ describe('gl-lines-export with a Personal Access Token', () => {
     expect(h.buildComputed).toHaveBeenCalledWith(TOKEN_COMPANY, 'ap_open_items');
     expect(res.headers).toMatchObject({
       'X-Schema-Version': 'isaflow-open-items-1.0', 'X-As-At': '2026-10-22', 'X-Row-Count': '2',
-      'X-Control-Total': '100.00', 'X-Aged-Total': '100.00', 'X-Control-Difference': '0.00',
+      'X-Control-Total': '100.00', 'X-Aged-Total': '100.00', 'X-Control-Difference': '0.00', 'X-Disputed-Total': '12.50',
     });
+    expect(res.headers).not.toHaveProperty('X-No-Ledger-Balance-Count');
     expect(csv(res)).toBe('Doc_ID,Outstanding\n"d1",100.50\n"d2",-0.50\n');
+  });
+
+  it('bank_accounts with read:reports alone → 403 naming read:bank-tx, nothing built', async () => {
+    pat(['read:reports']);
+    const res = await call({ table: 'bank_accounts' }, `Bearer ${RAW}`);
+    expect(res.statusCode).toBe(403);
+    expect(errorCode(res)).toBe('INSUFFICIENT_SCOPE');
+    expect(JSON.stringify(res.body)).toContain('read:bank-tx');
+    expect(h.buildComputed).not.toHaveBeenCalled();
+  });
+
+  it('bank_accounts with read:reports + read:bank-tx → 200, with the count X-Control-Total leaves out', async () => {
+    pat(['read:reports', 'read:bank-tx']);
+    h.buildComputed.mockResolvedValueOnce({
+      columns: ['Bank_Account_ID'], rows: [{ Bank_Account_ID: 'b1' }],
+      summary: {
+        table: 'bank_accounts', schemaVersion: 'isaflow-bank-accounts-1.0', asAt: '2026-10-22', rowCount: 1,
+        controlTotal: 0, noLedgerBalanceCount: 1, unreconciledLineCount: 0, unallocatedLineCount: 0,
+      },
+    });
+    const res = await call({ table: 'bank_accounts' }, `Bearer ${RAW}`);
+    expect(res.statusCode).toBe(200);
+    expect(h.buildComputed).toHaveBeenCalledWith(TOKEN_COMPANY, 'bank_accounts');
+    expect(res.headers).toMatchObject({ 'X-No-Ledger-Balance-Count': '1', 'X-Control-Total': '0.00' });
+    expect(res.headers).not.toHaveProperty('X-Aged-Total');
+  });
+
+  it('a computed table refuses date_from, date_to and status (400) — it is as at today', async () => {
+    pat(['read:reports']);
+    for (const extra of [{ date_from: '2026-01-01' }, { date_to: '2026-09-30' }, { status: 'posted' }]) {
+      const res = await call({ table: 'ap_open_items', ...extra }, `Bearer ${RAW}`);
+      expect(res.statusCode).toBe(400);
+      expect(JSON.stringify(res.body)).toContain('as at today');
+    }
+    expect(h.buildComputed).not.toHaveBeenCalled();
   });
 
   it('manifest=1 on a computed table answers the summary as JSON, no rows', async () => {

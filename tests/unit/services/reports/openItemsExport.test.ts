@@ -15,7 +15,7 @@
  * on-account entries net to R0.01 (no report row, so no export rows either).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { OpenAgingInvoice } from '@/modules/accounting/services/ap/apAgingInvoices';
+import type { OpenAgingInvoice } from '@/modules/accounting/utils/aging';
 import type { UnappliedDocument } from '@/modules/accounting/services/shared/unappliedDocuments';
 
 const fx = vi.hoisted(() => ({
@@ -136,10 +136,14 @@ describe('ap_open_items: the control against aged_creditors', () => {
     expect(byId.get('i-a3')).toMatchObject({ Age_Bucket: '30', Days_Overdue: 30 });
     expect(byId.get('i-a4')).toMatchObject({ Age_Bucket: '60', Days_Overdue: 60 });
     expect(byId.get('i-a5')).toMatchObject({ Age_Bucket: '120+', Days_Overdue: null });
+    // Credit and cash rows are not aged: the report does not bucket them.
     expect(byId.get('cn-1')).toMatchObject({
       Doc_Type: 'credit_note', Outstanding: -115.1, Total_Incl_VAT: -115.1, Due_Date: null, CC1_Code: 'LFI', BU_Code: 'BU1',
+      Days_Overdue: null, Age_Bucket: null,
     });
-    expect(byId.get('p-1')).toMatchObject({ Doc_Type: 'unapplied_payment', Outstanding: -200, Has_Document: true });
+    expect(byId.get('p-1')).toMatchObject({
+      Doc_Type: 'unapplied_payment', Outstanding: -200, Has_Document: true, Days_Overdue: null, Age_Bucket: null,
+    });
     expect(byId.get('r-2')).toMatchObject({ Doc_Type: 'unapplied_payment', Outstanding: 0.3 });
     // A total order the cursor can key on: (Doc_Type, Doc_ID).
     const keys = out.rows.map((r) => `${String(r.Doc_Type)}|${String(r.Doc_ID)}`);
@@ -163,5 +167,66 @@ describe('ar_open_items: the control against aged_debtors', () => {
     expect(out.rows.find((r) => r.Doc_ID === 'rc-1')).toMatchObject({ Doc_Type: 'unapplied_receipt', Outstanding: -500 });
     // 60 + 59.99 + 1234.56 − 34.56 − 500.
     expect(out.summary.controlTotal).toBe(819.99);
+  });
+});
+
+/** Σ Outstanding per Age_Bucket, in cents; credit and cash rows land under 'none'. */
+function pivot(rows: ReadonlyArray<Record<string, unknown>>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const k = r.Age_Bucket === null ? 'none' : String(r.Age_Bucket);
+    out[k] = (out[k] ?? 0) + cents(r.Outstanding);
+  }
+  return out;
+}
+
+describe('open items: what a dashboard does with the file', () => {
+  it('a pivot of Outstanding by Age_Bucket gives the report\'s gross buckets, plus the unapplied total unbucketed', async () => {
+    const out = await buildOpenItems(CTX.companyId, 'ap', AS_AT);
+    const aged = payload(await agedCreditorsTool.handler({ as_at: AS_AT }, CTX));
+    const b = aged.buckets as Record<string, number>;
+    const p = pivot(out.rows);
+    expect(p).toEqual({
+      current: cents(b.current), '30': cents(b.days30), '60': cents(b.days60), '120+': cents(b.days120Plus),
+      none: cents(out.summary.unappliedTotal),
+    });
+    expect(b.days90).toBe(0);
+  });
+
+  it('states the disputed total, so Σ Outstanding + disputedTotal is what the invoices still owe', async () => {
+    const ar = await buildOpenItems(CTX.companyId, 'ar', AS_AT);
+    expect(ar.summary.disputedTotal).toBe(40);
+    const balances = fx.ar.reduce((s: number, i) => s + cents((i as OpenAgingInvoice).balance), 0);
+    expect(cents(ar.summary.grossTotal) + cents(ar.summary.disputedTotal)).toBe(balances);
+    // AP has no dispute concept.
+    expect((await buildOpenItems(CTX.companyId, 'ap', AS_AT)).summary.disputedTotal).toBe(0);
+  });
+});
+
+describe('open items: entities the main fixture does not reach', () => {
+  it('a refund-only entity, a credit larger than the invoices, the 90-day edge and a non-positive balance still tie', async () => {
+    fx.ap = [
+      ...fx.ap,
+      inv('i-90', 's7', 70, '2026-07-24'),               // exactly 90 days → '90'
+      inv('i-91', 's7', 80, '2026-07-23'),               // 91 days → '120+'
+      inv('i-x', 's8', 10, '2026-10-01'),                // credit 50 > this invoice: entity nets −40
+      inv('i-0', 's9', 0, '2026-10-01'),                 // no balance: the report drops it
+      inv('i-neg', 's9', -5, '2026-10-01'),              // over-settled: the report drops it
+    ];
+    fx.apDocs = [...fx.apDocs, doc('cn-x', 'credit_note', 's8', 50), doc('r-6', 'payment', 's6', -25)]; // s6: refund only
+    const out = await buildOpenItems(CTX.companyId, 'ap', AS_AT);
+    const aged = payload(await agedCreditorsTool.handler({ as_at: AS_AT }, CTX));
+
+    expect(out.rows.reduce((s, r) => s + cents(r.Outstanding), 0)).toBe(cents(aged.total));
+    expect(out.summary.difference).toBe(0);
+    const byId = new Map(out.rows.map((r) => [r.Doc_ID, r]));
+    expect(byId.get('i-90')).toMatchObject({ Days_Overdue: 90, Age_Bucket: '90' });
+    expect(byId.get('i-91')).toMatchObject({ Days_Overdue: 91, Age_Bucket: '120+' });
+    expect(byId.get('r-6')).toMatchObject({ Outstanding: 25, Counterparty_ID: 's6' });
+    expect(byId.get('cn-x')).toMatchObject({ Outstanding: -50 });
+    expect(byId.has('i-0')).toBe(false);
+    expect(byId.has('i-neg')).toBe(false);
+    // Hand-worked: 669.48 + 70 + 80 + 10 − 50 + 25.
+    expect(out.summary.controlTotal).toBe(804.48);
   });
 });

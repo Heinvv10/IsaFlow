@@ -1,10 +1,11 @@
 /**
  * bank_accounts export — every figure comes from the service that owns it
- * (status list, cash.balance.v1, reconciliations); this checks the joining:
+ * (status list, cash.balance.v1, latest statements); this checks the joining:
  * column order, the masked number, a blank Ledger_Balance for an account the
- * cash figure does not hold (never a second definition), the latest statement
- * on any reconciliation vs the latest COMPLETED one, inactive accounts kept,
- * and the summary over the rows.
+ * cash figure does not hold (never a second definition), the statement facts
+ * per account, inactive accounts kept, and the summary over the rows. Which
+ * session is "latest" is SQL, proven against a real database in
+ * tests/integration/latest-statement.int.test.ts.
  */
 import { describe, it, expect, vi } from 'vitest';
 
@@ -27,14 +28,8 @@ vi.mock('@/modules/accounting/services/bank/cashBalanceService', () => ({
     deactivatedWithBalance: [], postedThrough: null,
   })),
 }));
-vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
-  getReconciliations: vi.fn(async () => [
-    { bankAccountId: 'aaaaaaaa-0000-4000-8000-000000000001', statementDate: '2026-08-24', statementBalance: 10, status: 'completed' },
-    { bankAccountId: 'aaaaaaaa-0000-4000-8000-000000000001', statementDate: '2026-09-24', statementBalance: 20, status: 'completed' },
-    { bankAccountId: 'aaaaaaaa-0000-4000-8000-000000000001', statementDate: '2026-10-24', statementBalance: 30, status: 'in_progress' },
-    { bankAccountId: 'bbbbbbbb-0000-4000-8000-000000000002', statementDate: '2026-09-30', statementBalance: 5, status: 'in_progress' },
-  ]),
-}));
+const latest = vi.hoisted(() => vi.fn());
+vi.mock('@/modules/accounting/services/bank/latestStatementService', () => ({ getLatestStatements: latest }));
 
 import { buildBankAccounts, BANK_ACCOUNTS_COLUMNS, maskAccountNumber } from '@/modules/accounting/services/reports/bankAccountsExport';
 
@@ -47,6 +42,10 @@ function acct(id: string, code: string, number: string | null, isActive: boolean
 
 describe('bank_accounts export', () => {
   it('joins the owning services per account, in Bank_Account_ID order, with the fixed columns', async () => {
+    latest.mockResolvedValue(new Map([
+      [A, { bankAccountId: A, lastStatementDate: '2026-10-24', lastStatementBalance: 30, lastReconciledDate: '2026-09-24' }],
+      [B, { bankAccountId: B, lastStatementDate: '2026-09-30', lastStatementBalance: 5, lastReconciledDate: null }],
+    ]));
     status.mockResolvedValue([
       acct(C, '1544999', null, true, 0, 0, null),
       acct(B, '1560731', '4118 8196 18', false, 3, 1, '2026-10-09'),
@@ -54,6 +53,7 @@ describe('bank_accounts export', () => {
     ]);
     const out = await buildBankAccounts('11111111-1111-4111-8111-111111111111', '2026-10-22');
     expect(status).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', { includeInactive: true });
+    expect(latest).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
     expect(out.columns).toEqual(BANK_ACCOUNTS_COLUMNS);
     expect(BANK_ACCOUNTS_COLUMNS).toEqual([
       'Bank_Account_ID', 'GL_Account_Code', 'Name', 'Account_Number_Masked', 'Currency', 'Ledger_Balance',
@@ -66,18 +66,37 @@ describe('bank_accounts export', () => {
       Last_Statement_Date: '2026-10-24', Last_Statement_Closing_Balance: 30, Last_Reconciled_Date: '2026-09-24',
       Unreconciled_Line_Count: 12, Unallocated_Line_Count: 1, Last_Transaction_Date: '2026-10-10', Is_Active: true,
     });
-    expect(out.rows[1]).toMatchObject({ Is_Active: false, Last_Reconciled_Date: null, Last_Statement_Date: '2026-09-30' });
+    expect(out.rows[1]).toMatchObject({
+      Is_Active: false, Last_Reconciled_Date: null, Last_Statement_Date: '2026-09-30', Last_Statement_Closing_Balance: 5,
+      Ledger_Balance: -12.34,
+    });
     // Not held by cash.balance.v1: blank, not zero.
-    expect(out.rows[2]).toMatchObject({ Ledger_Balance: null, Account_Number_Masked: null, Last_Statement_Date: null });
+    expect(out.rows[2]).toMatchObject({
+      Ledger_Balance: null, Account_Number_Masked: null, Last_Statement_Date: null, Last_Statement_Closing_Balance: null,
+      Last_Reconciled_Date: null,
+    });
     expect(out.summary).toMatchObject({
       table: 'bank_accounts', asAt: '2026-10-22', rowCount: 3, controlTotal: 48974.54,
       noLedgerBalanceCount: 1, unreconciledLineCount: 15, unallocatedLineCount: 2,
     });
   });
 
-  it('masks to the last four characters', () => {
+  it('a company with no bank accounts is an empty table with zero totals', async () => {
+    status.mockResolvedValue([]);
+    latest.mockResolvedValue(new Map());
+    const out = await buildBankAccounts('11111111-1111-4111-8111-111111111111', '2026-10-22');
+    expect(out.rows).toEqual([]);
+    expect(out.summary).toMatchObject({
+      rowCount: 0, controlTotal: 0, noLedgerBalanceCount: 0, unreconciledLineCount: 0, unallocatedLineCount: 0,
+    });
+  });
+
+  it('masks to the last four characters, and only when at least four more stay hidden', () => {
     expect(maskAccountNumber('4118 8196 18')).toBe('****9618');
-    expect(maskAccountNumber('12')).toBe('****12');
+    expect(maskAccountNumber('12345678')).toBe('****5678');
+    expect(maskAccountNumber('1234567')).toBe('****');
+    expect(maskAccountNumber('1234')).toBe('****');
+    expect(maskAccountNumber('12')).toBe('****');
     expect(maskAccountNumber('  ')).toBeNull();
     expect(maskAccountNumber(null)).toBeNull();
   });

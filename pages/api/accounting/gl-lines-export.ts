@@ -8,6 +8,8 @@
  *         |ap_open_items|ar_open_items|bank_accounts   (default lines)
  *   ?date_from=YYYY-MM-DD  ?date_to=YYYY-MM-DD   (lines only; omitted = full history)
  *   ?status=all|posted                           (lines only; default all, labelled)
+ *   — a computed table is as at today and REFUSES all three (400), so a caller
+ *     expecting an as-at date never silently gets today's figures.
  *   ?manifest=1                                  (lines and the computed tables: JSON summary, no rows)
  *
  * AUTH: a browser session (cookie, as before) OR a Bearer token —
@@ -15,7 +17,8 @@
  * withBearerOrCookieAuth, which runs the shared Bearer pipeline: the token's
  * company becomes req.companyId, under the same app_user role, RLS claims and
  * per-company rate limit as withAuth. A token needs `read:reports` for every
- * table (withScope) and ALSO `read:contacts` for table=counterparties —
+ * table (withScope) and ALSO `read:contacts` for table=counterparties and
+ * `read:bank-tx` for table=bank_accounts —
  * glLineExportTables.GL_EXPORT_EXTRA_SCOPE, the map the MCP tool
  * export_gl_lines reads too, so REST and MCP agree. A cookie session carries
  * no scopes and is not gated. GET only, so no CSRF wrapper (a Bearer caller
@@ -28,27 +31,12 @@
  * manifest's rowCount — because a header is sent before the first row and a
  * posting during the download can move it.
  *
- * COMPUTED TABLES (reports/glExportComputedTables) are built whole, as at
- * today, before the first byte, so their facts are exact and go out as
- * headers: X-As-At, X-Row-Count, X-Control-Total, and for the open items
- * X-Aged-Total and X-Control-Difference.
- *   ap_open_items / ar_open_items — one row per open bill / invoice plus the
- *     unconsumed credit notes and on-account cash as NEGATIVE rows;
- *     X-Control-Total = Σ Outstanding, which equals the aged_creditors /
- *     aged_debtors net total to the cent (X-Aged-Total, computed through the
- *     aged report's own functions; X-Control-Difference = 0.00). Columns:
- *     Doc_ID, Doc_Type (invoice | credit_note | unapplied_payment /
- *     unapplied_receipt), Doc_No, Supplier_Ref / Customer_Ref,
- *     Counterparty_ID, Counterparty_Name, Doc_Date, Due_Date, Days_Overdue,
- *     Age_Bucket (current | 30 | 60 | 90 | 120+), Total_Incl_VAT, Outstanding,
- *     Disputed, CC1_Code, CC2_Code, BU_Code (single-valued over the lines,
- *     else MIXED), Has_Document, Schema_Version. See reports/openItemsExport.
- *   bank_accounts — Bank_Account_ID, GL_Account_Code, Name,
- *     Account_Number_Masked, Currency, Ledger_Balance, Last_Statement_Date,
- *     Last_Statement_Closing_Balance, Last_Reconciled_Date,
- *     Unreconciled_Line_Count, Unallocated_Line_Count, Last_Transaction_Date,
- *     Is_Active, Schema_Version; X-Control-Total = Σ Ledger_Balance. See
- *     reports/bankAccountsExport.
+ * COMPUTED TABLES (reports/glExportComputedTables: ap_open_items,
+ * ar_open_items, bank_accounts) are built whole, as at today, before the first
+ * byte, so their facts are exact and go out as headers
+ * (glExportComputedTables.computedHeaders). Columns, headers and their
+ * meaning: docs/api/gl-lines-export.md, reports/openItemsExport and
+ * reports/bankAccountsExport.
  *
  * STREAMED page by page (keyset), so full history never sits in memory at
  * once, and each write waits for the socket to drain when its buffer is full.
@@ -92,6 +80,7 @@ import {
 } from '@/modules/accounting/services/reports/glLineExportTables';
 import {
   buildComputedTable,
+  computedHeaders,
   isGlComputedTable,
   type GlComputedTable,
 } from '@/modules/accounting/services/reports/glExportComputedTables';
@@ -192,13 +181,7 @@ async function streamComputed(
   const { summary } = built;
   res.setHeader('X-Schema-Version', summary.schemaVersion);
   if (manifest) return apiResponse.success(res, { exportTimestamp, ...summary });
-  res.setHeader('X-As-At', summary.asAt);
-  res.setHeader('X-Row-Count', String(summary.rowCount));
-  res.setHeader('X-Control-Total', summary.controlTotal.toFixed(2));
-  if ('agedTotal' in summary) {
-    res.setHeader('X-Aged-Total', summary.agedTotal.toFixed(2));
-    res.setHeader('X-Control-Difference', summary.difference.toFixed(2));
-  }
+  for (const [name, value] of Object.entries(computedHeaders(summary))) res.setHeader(name, value);
   startCsv(res, `gl-export-${table}-${summary.asAt}.csv`);
   const columns = built.columns;
   const slice = (from: number) => built.rows.slice(from, from + GL_LINE_EXPORT_MAX_PAGE);
@@ -221,13 +204,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `table must be one of ${GL_EXPORT_TABLES.join(', ')}`);
   }
   // read:reports is withScope's; a table that needs more (counterparties:
-  // read:contacts) is refused here, before any query, as the MCP tool does.
+  // read:contacts, bank_accounts: read:bank-tx) is refused here, before any
+  // query, as the MCP tool does.
   const missing = missingExportScope(table, scopes);
   if (missing !== null) {
     return apiResponse.error(res, ErrorCode.INSUFFICIENT_SCOPE, `Token missing required scope for table "${table}": ${missing}`);
   }
   const dateFrom = one(req.query.date_from);
   const dateTo = one(req.query.date_to);
+  if (isGlComputedTable(table) && (dateFrom !== undefined || dateTo !== undefined || one(req.query.status) !== undefined)) {
+    return apiResponse.badRequest(res, `table "${table}" is as at today: date_from, date_to and status apply to table=lines only`);
+  }
   const status = one(req.query.status) ?? 'all';
   if ((dateFrom !== undefined && !isLedgerDate(dateFrom)) || (dateTo !== undefined && !isLedgerDate(dateTo))) {
     return apiResponse.badRequest(res, `date_from and date_to ${LEDGER_DATE_MESSAGE}`);

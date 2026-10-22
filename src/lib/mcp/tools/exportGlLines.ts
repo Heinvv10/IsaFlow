@@ -14,13 +14,18 @@
  *
  * The computed tables (ap_open_items, ar_open_items, bank_accounts —
  * reports/glExportComputedTables) are built whole on every call, so their
- * summary (the control block: Σ Outstanding against the aged report's net
- * total) describes the complete table; it comes with the first page only, as
- * the lines' does. Their cursor is [kind, id] over the built rows' order.
+ * summary describes the complete table; it comes with the first page only, as
+ * the lines' does. They are as at today: date_from, date_to and status are
+ * refused. Their cursor is [as_at, row count, control total in cents, kind,
+ * id]: a later page is a slice of a table rebuilt for it, so the cursor
+ * carries the first page's table fingerprint, and a page whose rebuilt table
+ * differs — a document posted, or midnight passed, mid-paging — is refused
+ * rather than served as a slice of a table the first page's summary does not
+ * describe.
  *
  * Scopes: read:reports (the tool's own) for every table, plus whatever
  * glLineExportTables.GL_EXPORT_EXTRA_SCOPE names — counterparties needs
- * read:contacts. The REST route reads the same map.
+ * read:contacts, bank_accounts read:bank-tx. The REST route reads the same map.
  */
 import type { McpTool, McpToolContext, McpToolResult } from '../types';
 import { GL_LINE_EXPORT_COLUMNS, GL_LINE_EXPORT_SCHEMA_VERSION, toExportRow } from '@/modules/accounting/services/reports/glLineExportRows';
@@ -33,6 +38,7 @@ import {
   type GlLineExportStatus,
 } from '@/modules/accounting/services/reports/glLineExportService';
 import {
+  GL_EXPORT_EXTRA_SCOPE,
   GL_EXPORT_TABLES,
   GL_TABLE_CURSOR_KINDS,
   countExportDimensionTable,
@@ -41,6 +47,7 @@ import {
   isGlExportTable,
   missingExportScope,
   type GlDimensionTable,
+  type GlExportTable,
 } from '@/modules/accounting/services/reports/glLineExportTables';
 import {
   GL_COMPUTED_CURSOR_KINDS,
@@ -61,16 +68,15 @@ const MAX_LIMIT = 500;
 
 /**
  * A table whose extra scope (GL_EXPORT_EXTRA_SCOPE) the token lacks —
- * `table=counterparties` without read:contacts. That table carries customer
- * and supplier names and VAT numbers — what list_customers / list_suppliers
- * serve only under read:contacts — so read:reports alone must not widen to
- * it. Raised before any query.
+ * counterparties without read:contacts, bank_accounts without read:bank-tx —
+ * so read:reports alone does not widen to facts other tools serve only under
+ * that scope. The map states why. Raised before any query.
  */
 export class GlExportScopeRefusal extends Error {
   readonly code = 'GL_EXPORT_SCOPE_REFUSED';
-  constructor(table: string, scope: string) {
-    const what = table === 'counterparties' ? ' lists customer and supplier names and VAT numbers.' : ' needs another scope.';
-    super(`table "${table}"${what} ${insufficientScopeMessage(scope)}`);
+  constructor(table: GlExportTable, scope: string) {
+    const reason = GL_EXPORT_EXTRA_SCOPE[table]?.reason ?? 'needs another scope';
+    super(`table "${table}" ${reason}. ${insufficientScopeMessage(scope)}`);
     this.name = 'GlExportScopeRefusal';
   }
 }
@@ -81,27 +87,43 @@ const DESCRIPTION = [
   'VAT is its own row on the VAT control account, so VAT_Amount is 0.00 on every row and Amount_Incl_VAT = Amount_Excl_VAT in v1; every posted Txn_ID sums to zero.',
   'summary is the §9 control block — rowCount = rows paging to exhaustion yields, controlTotal = Σ Amount_Excl_VAT over Posted rows (must be 0.00), unbalancedTxnCount (must be 0) — and comes with the FIRST page only (no cursor); later pages return summary null and carry rowsTotal from the first. detail "summary" returns only that. Page with next_cursor, sending the same date_from, date_to and status (a cursor is refused with any other). Omit dates for full history. status "all" (default) includes Draft and Reversed journals, labelled; "posted" exports only what feeds the statements.',
   'table: "accounts" | "cost_centres" | "business_units" | "counterparties" returns that dimension master instead, paged the same way (limit, next_cursor; row_count on every page) — every code a line carries resolves to a row there. "counterparties" (names and VAT numbers) also needs the read:contacts scope.',
-  'table "ap_open_items" / "ar_open_items": one row per open bill / customer invoice as at today (Doc_Type invoice) plus the unconsumed credit notes (credit_note) and on-account cash (unapplied_payment / unapplied_receipt) as NEGATIVE rows, with Days_Overdue, Age_Bucket (current|30|60|90|120+, the aging\'s own bucketing), Outstanding, Disputed, CC1/CC2/BU codes (MIXED when the lines differ) and Has_Document; the first page\'s summary carries controlTotal (Σ Outstanding), agedTotal (the aged_creditors / aged_debtors net total, computed through that report\'s own functions) and difference (must be 0.00), plus grossTotal, unappliedTotal and the gross buckets. table "bank_accounts": one row per bank / card account with Ledger_Balance (GL, as at today; blank for an account cash.balance does not hold), last statement date and closing balance, last completed reconciliation, unreconciled and unallocated line counts, last transaction date, Is_Active.',
+  'table "ap_open_items" / "ar_open_items": one row per open bill / customer invoice as at today (Doc_Type invoice) plus the unconsumed credit notes (credit_note) and on-account cash (unapplied_payment / unapplied_receipt) as NEGATIVE rows, with Days_Overdue, Age_Bucket (current|30|60|90|120+, the aging\'s own bucketing), Outstanding, Disputed, CC1/CC2/BU codes (MIXED when the lines differ) and Has_Document; the first page\'s summary carries controlTotal (Σ Outstanding), agedTotal (the aged_creditors / aged_debtors net total, computed through that report\'s own functions) and difference (an internal consistency check on the same data, 0.00 — not a tie to the GL control account), plus grossTotal, unappliedTotal, disputedTotal (what Outstanding leaves out; Outstanding + Disputed = the document\'s balance; AR only) and the gross buckets. Credit and cash rows have blank Days_Overdue and Age_Bucket: only invoices are aged. table "bank_accounts" (also needs read:bank-tx): one row per bank / card account with Ledger_Balance (GL, as at today; blank for an account cash.balance does not hold, counted in summary.noLedgerBalanceCount), last statement date and closing balance (possibly on a reconciliation still in progress — later than the last reconciled date), last completed reconciliation, unreconciled and unallocated line counts, last transaction date, Is_Active. These three are as at today: date_from, date_to and status are refused; page with next_cursor, and a cursor is refused once the table has changed.',
   'The same files download as CSV from /api/accounting/gl-lines-export, with a browser session or a Personal Access Token holding the same scopes.',
 ].join(' ');
 
 /** A count carried in a cursor: digits only, so a forged one cannot reach a query. */
 const isCount = (v: string | undefined): v is string => v !== undefined && /^\d{1,12}$/.test(v);
+const isCents = (v: string | undefined): v is string => v !== undefined && /^-?\d{1,15}$/.test(v);
 
 async function computedPage(
   table: GlComputedTable, args: Record<string, unknown>, ctx: McpToolContext,
 ): Promise<McpToolResult> {
+  if (['date_from', 'date_to', 'status'].some((k) => strArg(args, k) !== undefined)) {
+    return toolError(`table "${table}" is as at today: date_from, date_to and status apply to table lines only`);
+  }
   const limit = clampLimit(args, DEFAULT_LIMIT, MAX_LIMIT);
   const rawCursor = strArg(args, 'cursor');
   let cursor: readonly [string, string] | null = null;
+  let issued: { asAt: string; rowCount: number; controlCents: number } | null = null;
   if (rawCursor !== undefined) {
-    const [kind, id] = decodeCursor(rawCursor, 2)?.parts ?? [];
-    if (kind === undefined || !GL_COMPUTED_CURSOR_KINDS.includes(kind) || !UUID_RE.test(id ?? '')) {
+    const [asAt, n, c, kind, id] = decodeCursor(rawCursor, 5)?.parts ?? [];
+    if (!isLedgerDate(asAt) || !isCount(n) || !isCents(c) || kind === undefined
+      || !GL_COMPUTED_CURSOR_KINDS.includes(kind) || !UUID_RE.test(id ?? '')) {
       return toolError('invalid cursor');
     }
     cursor = [kind, id!];
+    issued = { asAt: asAt!, rowCount: Number(n), controlCents: Number(c) };
   }
   const built = await buildComputedTable(ctx.companyId, table);
+  const fingerprint = {
+    asAt: built.summary.asAt,
+    rowCount: built.rows.length,
+    controlCents: Math.round(built.summary.controlTotal * 100),
+  };
+  if (issued !== null && (issued.asAt !== fingerprint.asAt || issued.rowCount !== fingerprint.rowCount
+    || issued.controlCents !== fingerprint.controlCents)) {
+    return toolError(`table "${table}" changed since the first page (a document was posted, or the as-at date moved): start again without a cursor`);
+  }
   const page = pageComputedTable(table, built, cursor, limit);
   return ok({
     table,
@@ -110,9 +132,11 @@ async function computedPage(
     row_count: built.rows.length,
     columns: page.columns,
     rows: page.rows.map((r) => page.columns.map((c) => r[c] ?? null)),
-    next_cursor: page.next === null ? null : encodeCursor({ parts: [...page.next] }),
-    // The control block, first page only — a later page is a slice of a table
-    // rebuilt for it, and its summary would describe a table already paged.
+    next_cursor: page.next === null
+      ? null
+      : encodeCursor({ parts: [fingerprint.asAt, String(fingerprint.rowCount), String(fingerprint.controlCents), ...page.next] }),
+    // The control block, first page only; the cursor's fingerprint holds every
+    // later page to the table it describes.
     summary: cursor === null ? built.summary : null,
   });
 }
