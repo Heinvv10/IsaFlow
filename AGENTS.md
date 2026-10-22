@@ -15,7 +15,7 @@ Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tena
 - **No stubs**: When a deploy/CI gate fails on a missing module, build the real thing. Never commit `return null` / TODO placeholders to satisfy a typecheck.
 - **Multi-tenant**: ALWAYS add `company_id` to every DB query. Never return data across tenants.
 - **DB**: Postgres on **Supabase** (self-hosted on velo-server). Use `sql` tagged template from `@/lib/neon` (legacy import path — the runtime is pg-backed, not Neon Serverless). NEVER string concatenation.
-- **API handlers**: Wrap with `withAuth(withErrorHandler(handler as any))` (re-exported from `@/lib/auth`). The legacy `withCompany` is gone post-GoTrue cutover — `withAuth` provides user + company + tx + GUCs.
+- **API handlers**: Wrap with `withAuth(withErrorHandler(handler as any))` (re-exported from `@/lib/auth`). The legacy `withCompany` is gone post-GoTrue cutover — `withAuth` provides user + company + tx + GUCs. A route that must also accept a Personal Access Token / OAuth bearer uses `withBearerOrCookieAuth(withScope('<scope>')(withErrorHandler(handler)))` (`@/lib/auth/withBearerOrCookieAuth`, `@/lib/auth/withScope`): same company, tx and GUCs from the token, cookie path unchanged; exemplar `pages/api/accounting/gl-lines-export.ts`.
 - **Responses**: Use `apiResponse.success()`, `.badRequest()`, `.notFound()` from `@/lib/apiResponse`.
 - **Logging**: Use `log` from `@/lib/logger` — NEVER `console.log`.
 - **Error handling**: No empty `catch` blocks.

@@ -151,10 +151,21 @@ describe('who changes where the money goes', () => {
     ]);
     for (const rel of editors) {
       const t = text(rel);
-      expect(t, rel).toMatch(/const before = await lockSupplierBankDetails\(companyId, [\w.]+\);\s+const (rows|\[after\]) = \(await sql`\s+UPDATE suppliers SET/);
+      // The take-on import locks every overwritten supplier (and its batches) up front, so its per-row call passes a literal
+      // false; updateSupplier decides per write.
+      const arg = rel.endsWith('migrationContactService.ts') ? 'false' : 'bankMayChange';
+      expect(t, rel).toMatch(new RegExp(String.raw`const before = await lockSupplierBankDetails\(companyId, [\w.]+, ${arg}\);\s+const (rows|\[after\]) = \(await sql\x60\s+UPDATE suppliers SET`));
       expect(t, rel).toMatch(/bankDetailsChange\(before, (rows\[0\]!|after)\)/);
       expect(t, rel).toMatch(/if \(change !== 'none'\) await recordBankDetailsSetter\(companyId, [\w.]+, \w+, change\)/);
     }
+  });
+
+  // A literal `false` tells lockSupplierBankDetails no batch need locking first: right only where the caller already
+  // locked every batch of every supplier it writes, up front (the take-on import).
+  it('a literal false bankMayChange is passed only by the take-on import', () => {
+    expect(matching(/lockSupplierBankDetails\(\s*\w+,\s*[\w.]+,\s*false\s*\)/)).toEqual([
+      'src/modules/accounting/services/core/migrationContactService.ts',
+    ]);
   });
 
   // Decision (b): a supplier CREATED with bank details records its creator as their setter.
@@ -176,5 +187,76 @@ describe('who changes where the money goes', () => {
     for (const rel of ['pages/api/accounting/supplier-merge.ts', 'src/modules/accounting/services/core/duplicateMergeService.ts']) {
       expect(text(rel), rel).toMatch(/lockBatchesPayingSupplier\(companyId, \w+, null\);[\s\S]{0,400}UPDATE supplier_payments/);
     }
+  });
+});
+
+// ap/batchBeforeSupplierLock relies on this: a payment joins a batch only by an INSERT naming its supplier, whose
+// foreign key takes KEY SHARE on the supplier row, so a held supplier `FOR UPDATE` blocks every way a batch can gain
+// that supplier. An UPDATE that attached an existing payment to a batch takes no supplier lock and would reopen the
+// supplier-then-batch order against the bank-file gate.
+//
+// Two layers, neither parsing SQL well enough to be trusted alone. FILE level (the one that cannot be argued with):
+// a source file that mentions both `supplier_payments` and `batch_id` must be in the pinned list below, each with the
+// reason it may. STATEMENT level, inside those files: any UPDATE on supplier_payments mentioning batch_id must be one of
+// the four that only FILTER members by it, pinned whole. NAMED LIMITS: an edit inside an allowlisted file that the
+// statement layer misparses (ON CONFLICT DO UPDATE, MERGE, a nested template backtick, a comment between UPDATE and
+// the table), a statement assembled from fragments in different files, SQL functions and migrations, and a table or
+// column name built at run time are not caught; a
+// BEFORE UPDATE OF batch_id trigger would close them (pending Hein's migration decision).
+describe('batch membership', () => {
+  const TABLE = String.raw`(?:ONLY\s+)?(?:"?\w+"?\.)?"?supplier_payments(?!\w)"?`; // optionally ONLY / schema-qualified / quoted
+  const filesWhere = (test: (t: string) => boolean) => files.filter((f) => test(f.text)).map((f) => f.rel).sort();
+  const updates = (t: string) => [...t.matchAll(new RegExp(String.raw`UPDATE\s+${TABLE}[^\x60]*`, 'gi'))].map((m) => m[0].replace(/\s+/g, ' ').trim());
+  const insertColumns = (t: string) => [...t.matchAll(new RegExp(String.raw`INSERT\s+INTO\s+${TABLE}\s*\(([^)]*)\)`, 'gi'))].map((m) => m[1]!);
+  const insertsWithoutColumns = (t: string) => new RegExp(String.raw`INSERT\s+INTO\s+${TABLE}\s*(?!\s*\()\S`, 'i').test(t);
+
+  const READS = 'reads batch_id (a SELECT or filter, or a comment)';
+  const PINNED_FILES: Record<string, string> = {
+    'scripts/ap-backfill-supplier-payments.ts': 'l.batch_id of its own backfill log, not the payment column',
+    'src/lib/mcp/tools/listSupplierPayments.ts': 'maps a read row to the tool output',
+    'pages/api/accounting/eft-generate.ts': READS,
+    'pages/api/accounting/netcash/submit.ts': READS,
+    [`${AP}batchBankFileGate.ts`]: READS,
+    [`${AP}batchBeforeSupplierLock.ts`]: 'the lock helper: reads the batch set, and says why it may',
+    [`${AP}batchPaymentApproval.ts`]: 'approveBatch: UPDATE filters members by batch_id (pinned below)',
+    [`${AP}batchPaymentMembers.ts`]: READS,
+    [`${AP}batchPaymentReversal.ts`]: 'reverseBatch: UPDATE filters members by batch_id (pinned below)',
+    [`${AP}batchPaymentService.ts`]: 'createBatch: the ONLY INSERT of batch_id (pinned below); process / cancel filter by it',
+    [`${AP}provisionalSettlementClaim.ts`]: 'bt.import_batch_id (bank_transactions); the substring matches',
+    [`${AP}supplierBatchAllocationPlan.ts`]: READS,
+    [`${AP}supplierPaymentAuthors.ts`]: 'reads the batch set of a supplier (stamping authors writes content_authors only)',
+    [`${AP}supplierPaymentCancel.ts`]: READS,
+    [`${AP}supplierPaymentListService.ts`]: READS,
+    [`${AP}supplierPaymentRow.ts`]: 'row mapper',
+    [`${AP}supplierPaymentUnapply.ts`]: READS,
+    'src/modules/accounting/services/bank/bankAllocationService.ts': 'allocation_batch_id (bank_transactions); the substring matches',
+    'src/modules/accounting/services/bank/bankChainLineReversal.ts': 'reads a batch label (id::TEXT AS batch_id)',
+    'src/modules/accounting/services/core/costCentreUsageGuard.ts': 'dimension_tag_batches.batch_id, not the payment column',
+    'src/modules/accounting/services/gl/approvalDocuments.ts': READS,
+    'src/modules/accounting/services/gl/approvalEnforcementPreview.ts': READS,
+    'src/modules/accounting/services/gl/approvalMatching.ts': READS,
+    'scripts/seed-demo-data.ts': 'offline seed; inserts payments without batch_id (via batchInsert, runtime-built names: named limit); import_batch_id is bank rows',
+  };
+  it('only the pinned files mention both supplier_payments and batch_id', () => {
+    expect(filesWhere((t) => /supplier_payments/i.test(t) && /batch_id/i.test(t))).toEqual(Object.keys(PINNED_FILES).sort());
+  });
+
+  it('no UPDATE of supplier_payments mentions batch_id, but the four that only filter members by it', () => {
+    const mentioning = files.flatMap((f) => updates(f.text).filter((u) => /batch_id/i.test(u)).map((u) => `${f.rel}: ${u}`)).sort();
+    expect(mentioning).toEqual([
+      `${AP}batchPaymentApproval.ts: UPDATE supplier_payments SET status = 'approved', approved_by = \${userId}::UUID, approved_at = NOW() WHERE batch_id = \${id}::UUID AND company_id = \${companyId}::UUID AND status = 'draft'`,
+      `${AP}batchPaymentReversal.ts: UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW() WHERE batch_id = \${batchId}::UUID AND company_id = \${companyId}::UUID AND status = 'processed' RETURNING id`,
+      `${AP}batchPaymentService.ts: UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = \${id}::UUID AND status IN ('draft', 'approved') AND company_id = \${companyId}::UUID`,
+      `${AP}batchPaymentService.ts: UPDATE supplier_payments SET status = 'processed' WHERE batch_id = \${id}::UUID AND batch_id IN (SELECT id FROM supplier_payment_batches WHERE company_id = \${companyId}::UUID)`,
+    ]);
+  });
+
+  // A column-less INSERT ... SELECT / VALUES would set batch_id without naming it, so it could not be counted below.
+  it('every INSERT into supplier_payments names its columns', () => {
+    expect(filesWhere(insertsWithoutColumns)).toEqual([]);
+  });
+
+  it('batch_id is INSERTed only by createBatch, into the batch it just created', () => {
+    expect(filesWhere((t) => insertColumns(t).some((c) => /\bbatch_id\b/.test(c)))).toEqual([`${AP}batchPaymentService.ts`]);
   });
 });

@@ -80,10 +80,10 @@ describe('migration 880 refuses to apply', () => {
   });
 
   it.each([
-    ['UPDATE to app_user', ['SELECT, UPDATE TO app_user'], /^migration 880: app_user on n1b_poison_\w+ may UPDATE audit_log through a view$/],
+    ['UPDATE to app_user', ['SELECT, UPDATE TO app_user'], /^migration 880: app_(user|service) on n1b_poison_\w+ may UPDATE audit_log through a view$/],
     ['DELETE to platform_admin', ['DELETE TO platform_admin'], /^migration 880: platform_admin on n1b_poison_\w+ may DELETE audit_log through a view$/],
-    ['a column UPDATE to app_user (R2-1)', ['UPDATE (action) TO app_user'], /^migration 880: app_user on n1b_poison_\w+ may UPDATE audit_log through a view$/],
-    ['TRUNCATE to app_user', ['TRUNCATE TO app_user'], /^migration 880: app_user on n1b_poison_\w+ may TRUNCATE audit_log through a view$/],
+    ['a column UPDATE to app_user (R2-1)', ['UPDATE (action) TO app_user'], /^migration 880: app_(user|service) on n1b_poison_\w+ may UPDATE audit_log through a view$/],
+    ['TRUNCATE to app_user', ['TRUNCATE TO app_user'], /^migration 880: app_(user|service) on n1b_poison_\w+ may TRUNCATE audit_log through a view$/],
   ])('while a view over audit_log grants %s', async (_label, grants, expected) => {
     expect(await applyAfter(async (c, role) => view(c, role, 'audit_log', grants))).toMatch(expected);
   });
@@ -93,7 +93,7 @@ describe('migration 880 refuses to apply', () => {
       await view(c, `${role}_inner`, 'audit_log', []);
       await view(c, role, `${role}_inner`, ['DELETE TO app_user']);
     });
-    expect(out).toMatch(/^migration 880: app_user on n1b_poison_\w+ may DELETE audit_log through a view$/);
+    expect(out).toMatch(/^migration 880: app_(user|service) on n1b_poison_\w+ may DELETE audit_log through a view$/);
   });
 
   it('while app_user has lost INSERT (append-only, not read-only)', async () => {

@@ -58,7 +58,7 @@ describe('supplier merge routes — DRC flag refusal', () => {
     mocks.assertFlag.mockRejectedValueOnce(new SupplierMergeRefusal(REFUSAL));
     const res = response();
     await supplierMerge(post({ source_id: A, target_id: B }), res);
-    expect(mocks.assertFlag).toHaveBeenCalledWith(COMPANY, A, B);
+    expect(mocks.assertFlag).toHaveBeenCalledWith(COMPANY, A, B, A); // A is the source, the supplier merged away
     expect(mocks.withTransaction).not.toHaveBeenCalled();
     expect(status(res)).toBe(400);
     expect(text(res)).toContain('Subject to DRC VAT');
