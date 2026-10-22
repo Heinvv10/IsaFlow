@@ -110,6 +110,11 @@ export const emp201StatusTool: McpTool = {
       total_declared: data.totalDeductions,
       employee_count: data.employeeCount,
       taxable_remuneration: data.totalTaxableRemuneration,
+      // SARS directives paid outside payroll in the period: in paye_withheld and taxable_remuneration.
+      directive_payments: data.directivePayments.map((p) => ({
+        payment_id: p.paymentId, directive_number: p.directiveNumber, employee_name: p.employeeName,
+        payment_date: p.paymentDate, gross: p.gross, paye: p.paye,
+      })),
     });
   },
 };
@@ -172,10 +177,11 @@ export const irp5DataTool: McpTool = {
       eti: r.eti,
       net_pay: r.netPay,
       runs_included: r.runsIncluded,
-      // Inside gross_salary and paye; on the certificate under their own code with PAYE under 4115.
+      // Inside gross_salary and paye; on the certificate under their own code, PAYE under paye_code.
       lump_sums: r.lumpSums.map((l) => ({
         source_code: l.sourceCode, directive_number: l.directiveNumber,
-        directive_issued_date: l.directiveIssuedDate, amount: l.amount, paye: l.paye,
+        directive_issued_date: l.directiveIssuedDate, issued_date_is_effective_date: l.issuedDateFallback,
+        amount: l.amount, paye: l.paye, paye_code: l.payeCode, paid_by: l.paidBy,
       })),
     }));
 

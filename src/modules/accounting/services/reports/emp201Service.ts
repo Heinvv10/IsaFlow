@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { listStandaloneDirectivePayments } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 
 type Row = DbRow;
 
@@ -31,6 +32,21 @@ export interface EMP201Data {
   totalTaxableRemuneration: number;
   totalDeductions: number;
   payrollRuns: EMP201PayrollRun[];
+  /**
+   * SARS directives paid outside payroll in the period (by their posted
+   * journal's date). Their PAYE is in totalPAYE and their gross in
+   * totalTaxableRemuneration (PAYE 4a follow-ups G1).
+   */
+  directivePayments: EMP201DirectivePayment[];
+}
+
+export interface EMP201DirectivePayment {
+  paymentId: string;
+  directiveNumber: string | null;
+  employeeName: string;
+  paymentDate: string;
+  gross: number;
+  paye: number;
 }
 
 export interface EMP201PayrollRun {
@@ -78,6 +94,7 @@ export async function generateEMP201(
     totalTaxableRemuneration: 0,
     totalDeductions: 0,
     payrollRuns: [],
+    directivePayments: [],
   };
 
   let tablesReady = false;
@@ -126,13 +143,20 @@ export async function generateEMP201(
       ORDER BY prh.period_year, prh.period_month
     `) as Row[];
 
-    if (runs.length === 0) return emptyResult;
+    const directivePayments: EMP201DirectivePayment[] = (
+      await listStandaloneDirectivePayments(companyId, { start: startDate, end: endDate })
+    ).map(p => ({
+      paymentId: p.paymentId, directiveNumber: p.directiveNumber, employeeName: p.employeeName,
+      paymentDate: p.paymentDate, gross: p.gross, paye: p.paye,
+    }));
 
-    let totalPAYE = 0;
+    if (runs.length === 0 && directivePayments.length === 0) return emptyResult;
+
+    let totalPAYE = directivePayments.reduce((t, p) => t + p.paye, 0);
     let totalETI = 0;
     let totalUIF = 0;
     let totalSDL = 0;
-    let totalGross = 0;
+    let totalGross = directivePayments.reduce((t, p) => t + p.gross, 0);
     let maxEmployeeCount = 0;
 
     const payrollRuns: EMP201PayrollRun[] = runs.map((r: Row) => {
@@ -190,6 +214,7 @@ export async function generateEMP201(
       // Total remitted to SARS — PAYE net of ETI, plus UIF and SDL.
       totalDeductions: roundCents(payePayable + totalUIF + totalSDL),
       payrollRuns,
+      directivePayments,
     };
   } catch (err) {
     // Never convert a failure into a valid-looking nil declaration (R0 PAYE/UIF/SDL).
