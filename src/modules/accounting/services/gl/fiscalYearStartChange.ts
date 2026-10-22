@@ -73,6 +73,18 @@ export class InvalidFinancialYearStartError extends Error {
   }
 }
 
+/**
+ * The change targets a company other than the request's active one. The
+ * rebuilt periods are written under RLS WITH CHECK company_id =
+ * app.current_company_id(), which is the active company.
+ */
+export class FinancialYearStartScopeError extends Error {
+  constructor() {
+    super('Switch to this company before changing its financial year start.');
+    this.name = 'FinancialYearStartScopeError';
+  }
+}
+
 /** Posted (or since reversed) journals: once there is one, the financial year start is locked. */
 export async function countPostedJournals(companyId: string): Promise<number> {
   const rows = (await sql`
@@ -138,9 +150,11 @@ export async function rebuildUnusedFiscalPeriods(companyId: string, today: Date 
  * Called before a company row's financial_year_start is written. Returns true
  * when the value really changes (the caller then rebuilds the periods after
  * its UPDATE), false when it is absent or the same. Throws, before anything is
- * written, when the change is not allowed: an invalid month, a posted journal
- * (FinancialYearStartLockedError), or periods otherwise in use
- * (FiscalPeriodsInUseError). Locks the company row so two changes serialise.
+ * written, when the change is not allowed: an invalid month, a company that is
+ * not the request's active one, a posted journal (FinancialYearStartLockedError),
+ * or periods otherwise in use (FiscalPeriodsInUseError). Locks the company row
+ * so two changes serialise. A write before this check must not be committed by
+ * the caller's 4xx (withAuth commits below 500), so callers run it first.
  */
 export async function assertFinancialYearStartChange(companyId: string, requested: unknown): Promise<boolean> {
   if (requested === undefined || requested === null || requested === '') return false;
@@ -152,6 +166,7 @@ export async function assertFinancialYearStartChange(companyId: string, requeste
   `) as DbRow[];
   if (rows.length === 0) return false; // the UPDATE finds nothing either; the caller reports it
   if (Number(rows[0]!.financial_year_start) === month) return false;
+  if (als.getStore()?.companyId !== companyId) throw new FinancialYearStartScopeError();
 
   const posted = await countPostedJournals(companyId);
   if (posted > 0) throw new FinancialYearStartLockedError(posted);

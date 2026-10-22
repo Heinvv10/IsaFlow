@@ -16,12 +16,20 @@ export function GeneralTab({ company, onChange }: Props) {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div>
-            <label className={LABEL_CLS}>Financial Year Start Month</label>
-            <select className={INPUT_CLS} value={company.financialYearStart} onChange={e => onChange('financialYearStart', Number(e.target.value))}>
+            <label htmlFor="settings-financial-year-start" className={LABEL_CLS}>Financial Year Start Month</label>
+            {/* Read-only after the first posting: the server refuses the change then (gl/fiscalYearStartChange.ts). */}
+            <select id="settings-financial-year-start" className={INPUT_CLS} value={company.financialYearStart}
+              disabled={company.financialYearStartLocked}
+              onChange={e => onChange('financialYearStart', Number(e.target.value))}>
               {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m, i) => (
                 <option key={i + 1} value={i + 1}>{m}</option>
               ))}
             </select>
+            {company.financialYearStartLocked && (
+              <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
+                Locked because journals have been posted. Changing the financial year end needs a guided change of year end.
+              </p>
+            )}
           </div>
           <div>
             <label className={LABEL_CLS}>Default Currency</label>

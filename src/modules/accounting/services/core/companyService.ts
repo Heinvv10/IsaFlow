@@ -9,6 +9,9 @@ import { listLiveCompanyMemberships } from '@/lib/auth/liveCompanies';
 import { mapCompany } from './companyMapper';
 import { isEntityTypeCode } from '@/lib/entityTypes';
 import { assertEntityTypeChangeAllowed } from '@/modules/onboarding/services/entityTypeChange';
+import {
+  assertFinancialYearStartChange, rebuildUnusedFiscalPeriods,
+} from '@/modules/accounting/services/gl/fiscalYearStartChange';
 import type { Company, CompanyUser } from './companyMapper';
 
 export type { Company, CompanyUser } from './companyMapper';
@@ -99,6 +102,8 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
   const v = (key: string) => input[key] !== undefined ? (input[key] === '' ? null : input[key]) : undefined;
   // A new entity type needs its own required proof on file (throws EntityTypeChangeRefused).
   if (isEntityTypeCode(input.entityType)) await assertEntityTypeChangeAllowed(id, input.entityType);
+  // Locked after the first posting; before it the periods are rebuilt to follow (fiscalYearStartChange.ts).
+  const financialYearChanged = await assertFinancialYearStartChange(id, v('financialYearStart'));
 
   const rows = (await sql`
     UPDATE companies SET
@@ -233,6 +238,7 @@ export async function updateCompany(id: string, input: Partial<Record<string, un
     WHERE id = ${id}::UUID RETURNING *
   `) as Record<string, unknown>[];
   if (!rows[0]) throw new Error(`Company ${id} not found`);
+  if (financialYearChanged) await rebuildUnusedFiscalPeriods(id);
   return mapCompany(rows[0]);
 }
 
