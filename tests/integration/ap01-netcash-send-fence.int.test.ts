@@ -33,7 +33,7 @@ import { SEND_START_DEADLINE_MS } from '@/modules/accounting/services/ap/netcash
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { installQueryFaults, resetFaults, faults } from './ap01-netcash-faults.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -73,7 +73,7 @@ afterAll(async () => {
 async function fresh() {
   const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  return { c, b: await plantBatch(pool, c, admin, bank) };
+  return { c, b: await plantApprovedBatch(pool, c, admin, bank) }; // a draft is refused (409 BATCH_NOT_SENDABLE) before any fence
 }
 const submit = (c: string, batchId: string) => callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: batchId }, '/api/accounting/netcash/submit');
 const resolve = (c: string, id: string, outcome = 'failed') => callRoute(netcashResolve, tokens[admin]!, c, 'POST',
