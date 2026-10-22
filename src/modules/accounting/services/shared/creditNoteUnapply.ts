@@ -171,6 +171,6 @@ async function buildPlan(
     amountUnapplied,
     lines,
     noteAppliedAfter: appliedAfter,
-    noteStatusAfter: deriveCreditNoteStatus(appliedAfter, total),
+    noteStatusAfter: deriveCreditNoteStatus(appliedAfter, total, side),
   };
 }

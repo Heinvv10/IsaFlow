@@ -1,7 +1,7 @@
 /**
  * Paystack — admin mandate authorisation return landing.
  * Authenticated route (admin redirect target). Verifies the captured
- * authorization server-side via /api/billing/paystack/mandate/verify.
+ * authorization server-side via POST /api/billing/paystack/mandate/verify.
  */
 
 import { useEffect, useState } from 'react';
@@ -49,9 +49,10 @@ export default function PaystackMandateReturn() {
     const tick = async () => {
       attempts += 1;
       try {
-        const res = await apiFetch(
-          `/api/billing/paystack/mandate/verify?ref=${encodeURIComponent(r)}`,
-        );
+        const res = await apiFetch('/api/billing/paystack/mandate/verify', {
+          method: 'POST',
+          body: JSON.stringify({ ref: r }),
+        });
         await assertOk(res, 'Could not verify the mandate - try again');
         const json = (await res.json()) as { data: VerifyResponse };
         if (cancelled) return;

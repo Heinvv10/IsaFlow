@@ -116,13 +116,21 @@ describe('skipReasonForInvoice', () => {
     expect(skipReasonForInvoice(open, INV_OK, 250)).toBeNull();
   });
 
+  it('a cent still owing is not settled: the invoice takes that cent; nothing owing is settled', () => {
+    expect(skipReasonForInvoice({ ...open, outstanding: 0.01 }, INV_OK, 0.01)).toBeNull();
+    expect(skipReasonForInvoice({ ...open, outstanding: 0 }, INV_OK, 0.01)).toMatch(/already settled/);
+  });
+
   it('refuses an over-allocation, quoting both figures', () => {
     const r = skipReasonForInvoice(open, INV_OK, 600);
     expect(r).toMatch(/R600\.00 exceeds the R500\.00 outstanding on invoice INV-1/);
   });
 
-  it('tolerates a cent of rounding rather than refusing on it', () => {
-    expect(skipReasonForInvoice(open, INV_OK, 500.005)).toBeNull();
+  it('refuses a whole cent over, and tolerates only float noise below a cent (899: the CHECK has no tolerance)', () => {
+    expect(skipReasonForInvoice(open, INV_OK, 500.01)).toMatch(/R500\.01 exceeds the R500\.00 outstanding/);
+    expect(skipReasonForInvoice(open, INV_OK, 500.02)).toMatch(/exceeds/);
+    expect(skipReasonForInvoice(open, INV_OK, 500.000000001)).toBeNull();
+    expect(skipReasonForInvoice({ ...open, outstanding: 0.3 }, INV_OK, 0.1 + 0.2)).toBeNull();
   });
 
   it('reports a settled invoice, a draft and a cancellation distinctly', () => {

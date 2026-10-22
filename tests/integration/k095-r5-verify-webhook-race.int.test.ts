@@ -31,6 +31,7 @@ vi.mock('@/modules/accounting/services/ar/gatewayInvoiceReceiptService', () => (
   recordGatewayInvoiceReceipt: vi.fn(),
 }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/modules/billing/services/paystackClient', () => ({
   verifyTransaction: vi.fn(),
 }));
@@ -190,7 +191,7 @@ describeIfDb('K-095 r5 verify racing the webhook resolves to the truth, not to a
       await als.run({ client, userId: 'k095r5', companyId, claims: {} }, async () => {
         try {
           await route(
-            { method: 'GET', query: { ref }, headers: {}, companyId, user: { id: 'k095r5' } } as unknown as NextApiRequest,
+            { method: 'POST', query: {}, body: { ref }, headers: {}, companyId, companyRole: 'owner', user: { id: 'k095r5' } } as unknown as NextApiRequest,
             res,
           );
         } catch (err) { handlerError = err; }

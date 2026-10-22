@@ -6,8 +6,9 @@
  * enforced (decision 2: whether or not payment approval is), a batch is sent
  * only when every payee's bank details are verified (migration 876:
  * `supplier_bank_verified`, derived from the latest verification's
- * fingerprint), and a raw Netcash payment list — accounts no supplier row
- * carries — is refused outright (decision 8). Off: unchanged, no lock taken.
+ * fingerprint). A raw Netcash payment list — accounts no supplier row carries
+ * (decision 8) — is refused by netcash/submit whether or not the control is on
+ * (AP-01). Off: unchanged, no lock taken.
  *
  * The routes read the payees' bank details into the file FIRST, with the
  * fingerprint of exactly what they read (`supplier_bank_fingerprint` in the
@@ -66,13 +67,6 @@ export async function assertSuppliersBankVerified(companyId: string, payees: rea
   throw new SupplierBankDetailsUnverifiedError(refused, 409,
     `Not sent: the bank details of ${refused.map((s) => s.name).join(', ')} changed since they were last verified, `
     + "or were never verified. Someone permitted to verify them, who did not set them, must verify them on the supplier's page first.");
-}
-
-/** Decision 8: under the control, a raw Netcash payment list is refused (403) — none of its accounts is a verified supplier's. */
-export async function assertRawPaymentListAllowed(companyId: string): Promise<void> {
-  if (!(await isEnforced(companyId, SUPPLIER_BANK_DETAILS))) return;
-  throw new SupplierBankDetailsUnverifiedError([], 403,
-    'Supplier bank verification is on, and a raw payment list names accounts nobody verified — submit a payment batch.');
 }
 
 /** Answers a SupplierBankDetailsUnverifiedError (409 or 403, naming the suppliers); false for anything else. */

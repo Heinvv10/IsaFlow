@@ -1,6 +1,6 @@
 /**
  * /api/accounting/vat-declared-elsewhere — owner/admin only (withRole
- * 'admin', which ROLE_HIERARCHY also passes for 'owner'/'super_admin').
+ * 'admin', an allow-list of exactly those two).
  * Service refusals (blank reason, not found, not marked) are pinned in
  * tests/unit/services/vatDeclaredElsewhereService.test.ts; this file is the
  * route wiring — who gets through, and what body reaches the service.
