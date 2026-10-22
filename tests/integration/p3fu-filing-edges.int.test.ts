@@ -136,11 +136,19 @@ describe('G2 edges: reason 02 only under the tax threshold, through the export r
     expect(JSON.stringify(out.body)).toMatch(/Test.*above the tax threshold of R99000\.00/);
   });
 
-  it('no date of birth: refused, asking for it', async () => {
-    const f = await marchOnly('P3fu no date of birth', 5_000);
+  it('no date of birth: the age comes from the ID number (800101…, born 1980)', async () => {
+    const f = await marchOnly('P3fu date of birth from ID', 5_000);
     await pool.query('UPDATE payroll_employees SET date_of_birth = NULL WHERE id = $1', [f.employee]);
     const out = await exportFile(f);
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(out.file.split(/\r\n/)).toEqual(expect.arrayContaining(['3015,"IT3(a)"', '4150,02']));
+  });
+
+  it('neither a date of birth nor a readable ID number: refused, asking for them', async () => {
+    const f = await marchOnly('P3fu no date of birth', 5_000);
+    await pool.query("UPDATE payroll_employees SET date_of_birth = NULL, id_number = '8013015009087' WHERE id = $1", [f.employee]);
+    const out = await exportFile(f);
     expect(out.status).not.toBe(200);
-    expect(JSON.stringify(out.body)).toMatch(/date of birth/);
+    expect(JSON.stringify(out.body)).toMatch(/date of birth or ID number/);
   });
 });

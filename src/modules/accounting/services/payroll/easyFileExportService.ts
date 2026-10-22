@@ -193,7 +193,7 @@ function assertUnderThreshold(emp: EmployeeInput): void {
   if (emp.taxThreshold != null && income <= emp.taxThreshold) return;
   throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): no PAYE was deducted on R${income.toFixed(2)} `
     + (emp.taxThreshold == null
-      ? 'and the tax threshold is not known (capture the employee\'s date of birth: the threshold depends on age), '
+      ? 'and the tax threshold is not known (capture the employee\'s date of birth or ID number: the threshold depends on age), '
       : `which is above the tax threshold of R${emp.taxThreshold.toFixed(2)}, `)
     + 'so no reason for non-deduction (4150) can be stated: 02 is only for income under the threshold, and 08 (medical credits) '
     + 'needs code 4116, which this file does not produce. Check the payroll, or file this certificate by hand.');
@@ -209,7 +209,8 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // when a directive is on it (valid only then, p. 58), else 02 "earn less than
   // the tax threshold" (p. 108).
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
-  if (it3a && lumpSums.length === 0) assertUnderThreshold(emp);
+  // Lump sums are outside 3601/3605: a nil directive beside taxable pay over the threshold is no reason 04 either.
+  if (it3a) assertUnderThreshold(emp);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
