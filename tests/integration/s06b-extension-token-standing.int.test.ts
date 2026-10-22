@@ -171,6 +171,12 @@ describeIfDb('S-06b: an extension pairing token answers for its company standing
     await expectRefused(p, 'pairer is not a member of a live company');
   });
 
+  it('(2b) is refused when only its company\'s suspended_at is set', async () => {
+    const p = await paired();
+    await admin.query('UPDATE companies SET suspended_at = NOW() WHERE id = $1', [p.companyId]);
+    await expectRefused(p, 'pairer is not a member of a live company');
+  });
+
   it.each(['viewer', 'storeman'])('(3) is refused once its pairer is demoted to %s', async (role) => {
     const p = await paired('admin');
     await admin.query('UPDATE company_users SET role = $3 WHERE company_id = $1 AND user_id = $2', [p.companyId, p.userId, role]);
@@ -229,7 +235,9 @@ describeIfDb('S-06b: an extension pairing token answers for its company standing
     const inB = { ...foreign, companyId: b };
     const [beforeA, beforeB] = [await footprint(a), await footprint(inB)];
     const res = await send(foreign);
+    // RLS shows the row (the pairer is a member of B); the company_id comparison refuses it.
     expect(res.statusCode).toBe(403);
+    expect(res.body).toMatchObject({ error: { code: 'CONNECTION_INACTIVE' } });
     expect(await footprint(inB)).toEqual(beforeB);
     expect((await footprint(a)).tx).toBe(beforeA.tx);
   });
