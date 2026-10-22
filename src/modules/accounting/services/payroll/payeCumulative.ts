@@ -46,7 +46,9 @@
  * calculated (the year-to-date reads approved/paid runs only): a month
  * calculated while the previous one is still a draft, or before an earlier
  * month is reopened and re-approved, is not refreshed; the next month's
- * calculation trues it up, so the tax year still totals the liability.
+ * calculation trues it up. A month calculated after LATER months were approved
+ * warns (PAYE_LATER_PERIODS_APPROVED): if February is among them, the year
+ * stays short until the assessment.
  */
 
 import { annualTaxAfterCredits, calculatePAYE } from './payeEngine';

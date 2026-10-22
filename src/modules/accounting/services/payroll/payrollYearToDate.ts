@@ -25,7 +25,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { getTaxYear } from './taxTables';
-import type { PayeYearToDate, PayrollPeriod } from './payrollTypes';
+import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -74,4 +74,34 @@ export async function loadPayeYearToDate(
     annualPayments: round2(Number(r.annual)),
     tablePaye: round2(Number(r.table_paye)),
   }]));
+}
+
+/**
+ * The warning for a run calculated while LATER periods of its tax year are
+ * already approved or paid (a month back-filled, or reopened and corrected):
+ * those later runs were calculated without this month, and the cumulative
+ * method trues their PAYE up only in the next period calculated after them.
+ * If none follows in the tax year (the last month is among them), the
+ * difference stays until the employee's assessment. Null when none.
+ */
+export async function laterPeriodsWarning(companyId: string, runId: string, period: PayrollPeriod): Promise<ValidationResult | null> {
+  const taxYear = getTaxYear(period.month, period.year);
+  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  const rows = (await sql`
+    SELECT h.period_year, h.period_month FROM payroll_run_headers h
+    WHERE h.company_id = ${companyId}::uuid AND h.id <> ${runId}::uuid
+      AND h.status = ANY(${declarable}::text[])
+      AND make_date(h.period_year, h.period_month, 1) > make_date(${period.year}::int, ${period.month}::int, 1)
+      AND make_date(h.period_year, h.period_month, 1) <= make_date(${taxYear}::int, 2, 1)
+    ORDER BY h.period_year, h.period_month
+  `) as DbRow[];
+  if (rows.length === 0) return null;
+  const months = rows.map(r => `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`);
+  return {
+    code: 'PAYE_LATER_PERIODS_APPROVED',
+    severity: 'warning',
+    message: `Later runs of this tax year are already approved (${months.join(', ')}). PAYE is cumulative over the year, `
+      + 'so their PAYE did not include this month: the next run calculated after them corrects it. '
+      + 'If the last of them is February, nothing follows: correct the PAYE by hand, or reopen and recalculate them in order.',
+  };
 }
