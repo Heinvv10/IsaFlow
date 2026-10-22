@@ -76,7 +76,7 @@ describe('trialEndsAt', () => {
 });
 
 /** Records every statement so the test can assert on shape, not just outcome. */
-function fakeRunner(opts: { trialPlanExists?: boolean } = {}): {
+function fakeRunner(opts: { trialPlanExists?: boolean; financialYearStart?: number | null } = {}): {
   runner: QueryRunner;
   calls: Array<{ text: string; values: unknown[] }>;
 } {
@@ -84,7 +84,11 @@ function fakeRunner(opts: { trialPlanExists?: boolean } = {}): {
   const runner: QueryRunner = {
     query: async (text: string, values: unknown[] = []) => {
       calls.push({ text, values });
-      if (/INSERT INTO companies/i.test(text)) return { rows: [{ id: 'company-1' }] } as never;
+      if (/INSERT INTO companies/i.test(text)) {
+        // The column's DB default is 3; RETURNING hands it back.
+        const fy = opts.financialYearStart === undefined ? 3 : opts.financialYearStart;
+        return { rows: [{ id: 'company-1', financial_year_start: fy }] } as never;
+      }
       if (/FROM plans/i.test(text)) {
         return {
           rows: opts.trialPlanExists === false ? [] : [{ id: 'plan-trial' }],
@@ -209,8 +213,12 @@ describe('provisionTenant', () => {
  */
 describe('provisionTenant — fiscal periods', () => {
   const now = new Date('2026-08-19T10:00:00.000Z');
+  const periodsOf = (calls: Array<{ text: string; values: unknown[] }>) => calls
+    .filter((c) => /INSERT INTO fiscal_periods/i.test(c.text))
+    .map((c) => ({ n: c.values[2] as number, fy: c.values[3] as number, start: c.values[4] as string, end: c.values[5] as string }))
+    .sort((a, b) => a.n - b.n);
 
-  it('creates twelve periods for the current year', async () => {
+  it('creates twelve periods for the fiscal year containing the provisioning date', async () => {
     const { runner, calls } = fakeRunner();
     await provisionTenant(runner, baseInput, now);
 
@@ -219,23 +227,38 @@ describe('provisionTenant — fiscal periods', () => {
     expect(periodInserts.every((c) => c.values[0] === 'company-1')).toBe(true);
   });
 
-  it('covers the whole year with no gap, using the YEAR of the provisioning date', async () => {
-    const { runner, calls } = fakeRunner();
+  it('starts period 1 in the company\'s declared start month (March), not January', async () => {
+    // The Jan–Dec layout this replaced contradicted financial_year_start = 3, and
+    // resolveCompanyPeriodAlignment then kept every later year on January.
+    const { runner, calls } = fakeRunner({ financialYearStart: 3 });
     await provisionTenant(runner, baseInput, now);
 
-    const year = now.getFullYear();
-    const periods = calls
-      .filter((c) => /INSERT INTO fiscal_periods/i.test(c.text))
-      .map((c) => ({ n: c.values[2] as number, start: c.values[4] as string, end: c.values[5] as string }))
-      .sort((a, b) => a.n - b.n);
+    const periods = periodsOf(calls);
+    expect(periods.map((p) => p.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    // 19 Aug 2026 on a March start is FY2027: 1 Mar 2026 – 28 Feb 2027, named for the year it ends in.
+    expect(periods[0]!.start).toBe('2026-03-01');
+    expect(periods[11]!.start).toBe('2027-02-01');
+    expect(periods[11]!.end).toBe('2027-02-28');
+    expect(new Set(periods.map((p) => p.fy))).toEqual(new Set([2027]));
+    // Contiguous: each period starts the day after the previous one ends (by month boundary).
+    for (let i = 1; i < 12; i++) expect(periods[i]!.start > periods[i - 1]!.end).toBe(true);
+  });
 
-    expect(periods.map((p) => p.n)).toEqual([1,2,3,4,5,6,7,8,9,10,11,12]);
-    expect(periods[0]!.start).toBe(`${year}-01-01`);
-    expect(periods[11]!.end).toBe(`${year}-12-31`);
-    // February's end date is computed, not assumed — a hardcoded 30 or 31 would
-    // leave a day uncovered or overlap March, and overlapping periods are
-    // refused outright by the fiscal_periods_no_overlap exclusion constraint.
-    expect(periods[1]!.end).toBe(`${year}-02-${year % 4 === 0 ? '29' : '28'}`);
+  it('keeps the calendar year when the declared start is January', async () => {
+    const { runner, calls } = fakeRunner({ financialYearStart: 1 });
+    await provisionTenant(runner, baseInput, now);
+
+    const periods = periodsOf(calls);
+    expect(periods[0]!.start).toBe('2026-01-01');
+    expect(periods[11]!.end).toBe('2026-12-31');
+    expect(periods[1]!.end).toBe('2026-02-28');
+    expect(new Set(periods.map((p) => p.fy))).toEqual(new Set([2026]));
+  });
+
+  it('refuses rather than guessing a start month when the column comes back unusable', async () => {
+    const { runner, calls } = fakeRunner({ financialYearStart: null });
+    await expect(provisionTenant(runner, baseInput, now)).rejects.toThrow(/financial_year_start/);
+    expect(calls.some((c) => /INSERT INTO fiscal_periods/i.test(c.text))).toBe(false);
   });
 
   it('is idempotent, so re-provisioning cannot fail on the unique index', async () => {

@@ -17,7 +17,7 @@ import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import netcashStatus from '../../pages/api/accounting/netcash/status';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -37,7 +37,7 @@ afterAll(() => cleanupPr5(pool, companies, [user, viewer]));
 async function submittedBatch() {
   const { company: c, bank } = await payCompany(pool, [[user, 'admin'], [viewer, 'viewer']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  const b = await plantBatch(pool, c, user, bank);
+  const b = await plantApprovedBatch(pool, c, user, bank);
   const res = await callRoute(netcashSubmit, tokens[user]!, c, 'POST', { batchPaymentId: b.id }, '/api/accounting/netcash/submit');
   expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
   const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
