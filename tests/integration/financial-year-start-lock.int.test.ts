@@ -7,71 +7,33 @@
  * alone silently changed nothing in the books: the declared year and the real
  * one drifted apart. PUT /api/accounting/companies (the one writer of the
  * column after creation) now refuses a change after the first posting with a
- * 409, and before it rebuilds the periods in the same transaction.
+ * 409, and before it rebuilds the periods in the same transaction. A save of the
+ * SAME month on a company whose unused periods disagree repairs them.
  *
  * Disposable schema fixture only (assertDisposable). The real withAuth runs.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import companiesRoute from '../../pages/api/accounting/companies';
-import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
-import {
-  callRoute, callSetup, dropSetupUsers, newSetupUser, setupBody, type SetupUser,
-} from './helpers/onboardingSetupFixture';
+import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { financialYearFixture } from './helpers/financialYearFixture';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
-const users: SetupUser[] = [];
+const fx = financialYearFixture(pool);
+const { onboarded, put, getCompany, stored, journal, makeCalendarPeriods } = fx;
 
 afterAll(async () => {
-  try {
-    for (const u of users) {
-      const owned = (await pool.query('SELECT company_id FROM company_users WHERE user_id = $1', [u.userId])).rows
-        .map((r: { company_id: string }) => r.company_id);
-      for (const id of owned) await pool.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [id]);
-    }
-    await dropSetupUsers(pool, users);
-  } finally { await pool.end(); }
+  try { await fx.cleanup(); } finally { await pool.end(); }
 }, 60000);
 
-/** A user who has finished onboarding with FY start 3, working in the new company (its active-company cookie). */
-async function onboarded(): Promise<{ u: SetupUser; companyId: string }> {
-  const home = await newSetupUser(pool);
-  users.push(home);
-  const out = await callSetup(home, setupBody('other'));
-  expect(out.status, JSON.stringify(out.body)).toBe(200);
-  const companyId = out.body.data!.companyId!;
-  return { u: { ...home, homeCompanyId: companyId }, companyId };
-}
-
-const put = (u: SetupUser, body: Record<string, unknown>) =>
-  callRoute(companiesRoute, u, body, '/api/accounting/companies', 'PUT');
-
-/** GET ?id= as the settings page loads it. */
-async function getCompany(u: SetupUser, id: string) {
-  const req = request({ 'sb-access-token': u.token, active_company_id: u.homeCompanyId }, 'GET') as unknown as
-    { url: string; query: Record<string, string> };
-  req.url = `/api/accounting/companies?id=${id}`;
-  req.query = { id };
-  const out = response();
-  await (companiesRoute as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
-  return { status: out.state.statusCode, body: (out.state.body ?? {}) as { data?: Record<string, unknown> } };
-}
-
-const stored = async (companyId: string) => (await pool.query(
-  `SELECT c.financial_year_start AS fy, c.trading_name,
-          (SELECT EXTRACT(MONTH FROM MIN(start_date))::int FROM fiscal_periods WHERE company_id = c.id) AS first_month,
-          (SELECT COUNT(*)::int FROM fiscal_periods WHERE company_id = c.id) AS periods
-     FROM companies c WHERE c.id = $1`, [companyId])).rows[0];
-
-const journal = (companyId: string, userId: string, status: 'draft' | 'posted') => pool.query(
-  `INSERT INTO gl_journal_entries (company_id, entry_date, created_by, description, status)
-   VALUES ($1, CURRENT_DATE, $2, 'fy-lock probe', $3)`, [companyId, userId, status]);
+const COMING_SOON = /guided change of year end \(coming soon\).*contact support/;
 
 describe('PUT /api/accounting/companies: financialYearStart', () => {
   it('before any posting, a change is saved and the periods are rebuilt on the new month', async () => {
     const { u, companyId } = await onboarded();
-    expect((await getCompany(u, companyId)).body.data!.financialYearStartLocked).toBe(false);
+    expect((await getCompany(u, companyId)).body.data).toMatchObject({
+      financialYearStartLocked: false, financialYearStartLockReason: null, financialYearStartActual: 3,
+    });
 
     const out = await put(u, { id: companyId, financialYearStart: 6 });
     expect(out.status, JSON.stringify(out.body)).toBe(200);
@@ -82,11 +44,14 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     const { u, companyId } = await onboarded();
     await journal(companyId, u.userId, 'posted');
     const before = await stored(companyId);
-    expect((await getCompany(u, companyId)).body.data!.financialYearStartLocked).toBe(true);
+    expect((await getCompany(u, companyId)).body.data).toMatchObject({
+      financialYearStartLocked: true, financialYearStartLockReason: 'posted',
+    });
 
     const out = await put(u, { id: companyId, financialYearStart: 9, tradingName: 'must not land' });
     expect(out.status, JSON.stringify(out.body)).toBe(409);
-    expect(out.body.error?.message).toMatch(/after the first posting.*guided change of year end/);
+    expect(out.body.error?.message).toMatch(/after the first posting/);
+    expect(out.body.error?.message).toMatch(COMING_SOON);
     expect(await stored(companyId)).toEqual(before);
   });
 
@@ -98,6 +63,15 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     expect(await stored(companyId)).toMatchObject({ fy: 3, trading_name: 'Saved Trading', first_month: 3 });
   });
 
+  it.each([[null], [0]])('a stored %s start month means March: saving 3 with postings is a normal save, not a 409', async (raw) => {
+    const { u, companyId } = await onboarded();
+    await journal(companyId, u.userId, 'posted');
+    await pool.query('UPDATE companies SET financial_year_start = $2 WHERE id = $1', [companyId, raw]);
+    const out = await put(u, { id: companyId, financialYearStart: 3, tradingName: 'Normalised' });
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(await stored(companyId)).toMatchObject({ trading_name: 'Normalised', first_month: 3, periods: 12 });
+  });
+
   it('with only a draft journal, a change is refused with a 409 (its period is in use) and nothing is written', async () => {
     const { u, companyId } = await onboarded();
     await journal(companyId, u.userId, 'draft');
@@ -107,6 +81,32 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     const out = await put(u, { id: companyId, financialYearStart: 9 });
     expect(out.status, JSON.stringify(out.body)).toBe(409);
     expect(out.body.error?.message).toMatch(/draft journals/);
+    expect(out.body.error?.message).toMatch(COMING_SOON);
+    expect(await stored(companyId)).toEqual(before);
+  });
+
+  it('refuses when a period is no longer open: a closed period is never recreated as open', async () => {
+    const { u, companyId } = await onboarded();
+    await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND period_number = 1`, [companyId]);
+    const before = await stored(companyId);
+    const out = await put(u, { id: companyId, financialYearStart: 6 });
+    expect(out.status, JSON.stringify(out.body)).toBe(409);
+    expect(out.body.error?.message).toMatch(/nonOpenPeriods: 1/);
+    expect(await stored(companyId)).toEqual(before);
+  });
+
+  it.each([
+    ['accounting_budgets', `INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year) VALUES ($1, 'probe', 2027)`],
+    ['afs_documents', `INSERT INTO afs_documents (company_id, document_type, reporting_framework, fiscal_year)
+                       VALUES ($1, 'afs', 'ifrs_smes', 2027)`],
+    ['disclosure_notes_manual', `INSERT INTO disclosure_notes_manual (company_id, fiscal_year, note_number, title, content, created_by)
+                                 SELECT $1, 2027, 99, 'probe', 'probe', user_id FROM company_users WHERE company_id = $1 LIMIT 1`],
+  ])('refuses when %s holds rows keyed by fiscal-year number', async (_table, insert) => {
+    const { u, companyId } = await onboarded();
+    await pool.query(insert, [companyId]);
+    const before = await stored(companyId);
+    const out = await put(u, { id: companyId, financialYearStart: 6 });
+    expect(out.status, JSON.stringify(out.body)).toBe(409);
     expect(await stored(companyId)).toEqual(before);
   });
 
@@ -117,11 +117,36 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     expect((await stored(companyId)).fy).toBe(3);
   });
 
-  it('refuses a change to a company other than the active one (its periods are written under the active RLS scope)', async () => {
-    const { u, companyId } = await onboarded();
-    const asHome = { ...u, homeCompanyId: users.find((x) => x.userId === u.userId)!.homeCompanyId };
+  it('refuses a change to a company other than the active one, and GET marks it not editable there', async () => {
+    const { u, companyId, homeCompanyId } = await onboarded();
+    const asHome = { ...u, homeCompanyId };
     const out = await put(asHome, { id: companyId, financialYearStart: 6 });
     expect(out.status, JSON.stringify(out.body)).toBe(400);
     expect(await stored(companyId)).toMatchObject({ fy: 3, first_month: 3 });
+    // Counted under the ACTIVE company's RLS, a lock flag for another company could be wrong: it is not computed.
+    expect((await getCompany(asHome, companyId)).body.data).toMatchObject({
+      financialYearStartLocked: true, financialYearStartLockReason: 'not_active', financialYearStartActual: null,
+    });
+  });
+});
+
+describe('the same month repairs periods that disagree with it, when nothing uses them', () => {
+  it('unused calendar periods on a March company are rebuilt on March by a plain save', async () => {
+    const { u, companyId } = await onboarded();
+    await makeCalendarPeriods(companyId);
+    expect((await getCompany(u, companyId)).body.data).toMatchObject({ financialYearStart: 3, financialYearStartActual: 1 });
+
+    const out = await put(u, { id: companyId, financialYearStart: 3 });
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(await stored(companyId)).toMatchObject({ fy: 3, first_month: 3, periods: 12 });
+  });
+
+  it('with a posted journal the save succeeds and the periods are left as they are', async () => {
+    const { u, companyId } = await onboarded();
+    await makeCalendarPeriods(companyId);
+    await journal(companyId, u.userId, 'posted');
+    const out = await put(u, { id: companyId, financialYearStart: 3, tradingName: 'No repair' });
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(await stored(companyId)).toMatchObject({ trading_name: 'No repair', first_month: 1, periods: 12 });
   });
 });

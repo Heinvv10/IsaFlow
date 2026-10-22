@@ -23,8 +23,11 @@ export interface Company {
   bankBranchCode: string | null;
   bankAccountType: string | null;
   financialYearStart: number;
-  /** True once the company has a posted journal: the start month can no longer change (read-only in Settings). */
+  /** Read-only in Settings: a journal has posted, or this is not the active company (the PUT refuses both). */
   financialYearStartLocked: boolean;
+  financialYearStartLockReason: 'posted' | 'not_active' | null;
+  /** The month period 1 of the latest fiscal year starts in (what the books use); null when unknown. */
+  financialYearStartActual: number | null;
   vatPeriod: string;
   vatPeriodAlignment: 'odd' | 'even';
   defaultCurrency: string | null;

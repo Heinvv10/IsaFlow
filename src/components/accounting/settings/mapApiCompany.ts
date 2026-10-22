@@ -26,6 +26,9 @@ export function mapApiCompany(c: Record<string, any>): Company {
     bankAccountType: c.bankAccountType ?? c.bank_account_type ?? null,
     financialYearStart: c.financialYearStart ?? c.financial_year_start ?? 3,
     financialYearStartLocked: c.financialYearStartLocked === true,
+    financialYearStartLockReason: c.financialYearStartLockReason === 'posted' || c.financialYearStartLockReason === 'not_active'
+      ? c.financialYearStartLockReason : null,
+    financialYearStartActual: Number.isInteger(c.financialYearStartActual) ? c.financialYearStartActual : null,
     vatPeriod: c.vatPeriod ?? c.vat_period ?? 'bi-monthly',
     vatPeriodAlignment: c.vatPeriodAlignment ?? c.vat_period_alignment ?? 'odd',
     defaultCurrency: c.defaultCurrency ?? c.default_currency ?? 'ZAR',
