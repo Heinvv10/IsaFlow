@@ -6,7 +6,9 @@
  * (gl/fiscalYearStartChange.ts). When read-only it shows the month the BOOKS use
  * (period 1 of the latest fiscal year), which can differ from the declared
  * month: companies onboarded before 2026-10-22 declare March while their periods
- * run January–December. A difference is always spelled out.
+ * run January–December. A difference is always spelled out, and honestly: some
+ * readers take year ranges from the periods, others (trial balance YTD, AFS
+ * ranges, the year-end close) from the declared month.
  */
 import { Company, INPUT_CLS, LABEL_CLS } from './settingsTypes';
 
@@ -45,9 +47,8 @@ export function FinancialYearStartField({ company, onChange }: Props) {
       )}
       {mismatch && (
         <p className="text-xs text-amber-400 mt-1">
-          {locked
-            ? `Your fiscal periods run from ${LONG[actual - 1]}, but the company's declared financial year start is ${LONG[declared - 1]}. Reports follow the periods.`
-            : `Your fiscal periods start in ${LONG[actual - 1]}, not in the declared ${LONG[declared - 1]}. Saving rebuilds them on the month selected here if no journals use them yet.`}
+          {`Your fiscal periods run from ${LONG[actual - 1]}, but the declared financial year start is ${LONG[declared - 1]}. `
+            + "Some reports use one and some the other until they're aligned; contact support to align them."}
         </p>
       )}
     </div>

@@ -15,9 +15,8 @@
  *     company (rebuildUnusedFiscalPeriods);
  *   - companyService.updateCompany: a change of financial_year_start is allowed
  *     only before the first posting and then rebuilds the periods the same way;
- *     after it, the change is refused. A save of the SAME month on a company
- *     whose periods start elsewhere repairs them when nothing uses them
- *     (assertFinancialYearStartChange).
+ *     after it, the change is refused (assertFinancialYearStartChange). A save
+ *     of the same month is a no-op, even over periods that start elsewhere.
  *
  * THE GUARD is the census in fiscalPeriodReferences.ts, not the FKs: close_runs
  * CASCADEs, two tables have no FK, and year-numbered rows have no FK at all.
@@ -91,24 +90,22 @@ export async function countPostedJournals(companyId: string): Promise<number> {
   return Number(rows[0]!.n);
 }
 
-interface StartMonths {
-  /** companies.financial_year_start, normalised (NULL and 0 are March), as every reader takes it. */
-  declared: number;
-  /** The month period 1 of the latest fiscal year starts in (resolveCompanyPeriodAlignment's reading); null: no periods. */
-  actual: number | null;
-}
-
-async function readStartMonths(companyId: string, lock: boolean): Promise<StartMonths | null> {
+/** companies.financial_year_start, normalised (NULL and 0 are March) as every reader takes it; null: no such company. */
+async function readDeclaredStartMonth(companyId: string, lock: boolean): Promise<number | null> {
   const rows = (lock
     ? await sql`SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID FOR UPDATE`
     : await sql`SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
-  if (rows.length === 0) return null;
-  const p1 = (await sql`
+  return rows.length === 0 ? null : normaliseStartMonth(rows[0]!.financial_year_start);
+}
+
+/** The month period 1 of the latest fiscal year starts in (resolveCompanyPeriodAlignment's reading); null: no periods. */
+async function readActualStartMonth(companyId: string): Promise<number | null> {
+  const rows = (await sql`
     SELECT EXTRACT(MONTH FROM start_date)::int AS m FROM fiscal_periods
      WHERE company_id = ${companyId}::UUID AND period_number = 1
      ORDER BY fiscal_year DESC LIMIT 1
   `) as DbRow[];
-  return { declared: normaliseStartMonth(rows[0]!.financial_year_start), actual: p1[0] ? Number(p1[0].m) : null };
+  return rows[0] ? Number(rows[0].m) : null;
 }
 
 /**
@@ -127,11 +124,10 @@ export async function financialYearStartView(companyId: string, activeCompanyId:
     return { financialYearStartLocked: true, financialYearStartLockReason: 'not_active', financialYearStartActual: null };
   }
   const posted = (await countPostedJournals(companyId)) > 0;
-  const months = await readStartMonths(companyId, false);
   return {
     financialYearStartLocked: posted,
     financialYearStartLockReason: posted ? 'posted' : null,
-    financialYearStartActual: months?.actual ?? null,
+    financialYearStartActual: await readActualStartMonth(companyId),
   };
 }
 
@@ -161,61 +157,39 @@ export async function rebuildUnusedFiscalPeriods(companyId: string, today: Date 
   return periods;
 }
 
-/** A different month (a change), or the same month over periods that start elsewhere (a repair). */
-const decide = (m: StartMonths, month: number) => ({
-  changes: m.declared !== month,
-  repairs: m.declared === month && m.actual !== null && m.actual !== month,
-});
-
 /**
  * Called before a company row's financial_year_start is written. Returns true
- * when the caller must rebuild the periods after its UPDATE.
+ * when the month really changes, and the caller must rebuild the periods after
+ * its UPDATE.
  *
- * - Absent, or the same month over periods that already start on it: false,
- *   WITHOUT a row lock. Every settings save sends the month, and a FOR UPDATE
- *   on companies would stall every FK insert on the company (journals,
- *   invoices) until the request commits.
+ * - Absent, or the same month (normalised: NULL and 0 are March): false, WITHOUT
+ *   a row lock. Every settings save sends the month, and a FOR UPDATE on
+ *   companies would stall every FK insert on the company (journals, invoices)
+ *   until the request commits. The same month never touches the periods, even
+ *   when they start in another month: realigning an existing company is a
+ *   per-company decision (Hein, 2026-10-22), not a side effect of a save.
  * - A change: refused before anything is written (a caller's 4xx still
  *   commits, so it runs first) for an invalid month, a company other than the
  *   active one, a posted journal (FinancialYearStartLockedError) or periods
  *   otherwise in use (FiscalPeriodsInUseError). Otherwise true, holding
  *   FOR UPDATE on the company row from before the counts to the commit: an FK
  *   insert (a close run, a journal) cannot land between the count and the rebuild.
- * - A repair (same month, periods elsewhere): true under the same lock when
- *   nothing uses the periods, else false. Never refuses a save.
  */
 export async function assertFinancialYearStartChange(companyId: string, requested: unknown): Promise<boolean> {
   if (requested === undefined || requested === null || requested === '') return false;
   const month = Number(requested);
   if (!Number.isInteger(month) || month < 1 || month > 12) throw new InvalidFinancialYearStartError(requested);
 
-  const unlocked = await readStartMonths(companyId, false);
-  if (!unlocked) return false; // the UPDATE finds nothing either; the caller reports it
-  const first = decide(unlocked, month);
-  if (!first.changes && !first.repairs) return false;
-  if (als.getStore()?.companyId !== companyId) {
-    if (first.changes) throw new FinancialYearStartScopeError();
-    return false;
-  }
-  // A repair is opportunistic: when the periods are visibly in use, skip it without locking.
-  if (first.repairs && ((await countPostedJournals(companyId)) > 0 || periodsInUse(await countFiscalPeriodReferences(companyId)))) {
-    return false;
-  }
+  const unlocked = await readDeclaredStartMonth(companyId, false);
+  if (unlocked === null || unlocked === month) return false; // no row: the UPDATE finds nothing either
+  if (als.getStore()?.companyId !== companyId) throw new FinancialYearStartScopeError();
 
   // Lock, then decide again on what the lock now protects.
-  const locked = await readStartMonths(companyId, true);
-  if (!locked) return false;
-  const { changes, repairs } = decide(locked, month);
-  if (!changes && !repairs) return false;
+  const locked = await readDeclaredStartMonth(companyId, true);
+  if (locked === null || locked === month) return false;
   const posted = await countPostedJournals(companyId);
-  if (posted > 0) {
-    if (changes) throw new FinancialYearStartLockedError(posted);
-    return false;
-  }
+  if (posted > 0) throw new FinancialYearStartLockedError(posted);
   const refs = await countFiscalPeriodReferences(companyId);
-  if (periodsInUse(refs)) {
-    if (changes) throw new FiscalPeriodsInUseError(refs);
-    return false;
-  }
+  if (periodsInUse(refs)) throw new FiscalPeriodsInUseError(refs);
   return true;
 }
