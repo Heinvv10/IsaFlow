@@ -87,7 +87,7 @@ async function importARInvoices() {
 
     const invDate = inv.Date?.split('T')[0] || null;
     const dueDate = inv.DueDate?.split('T')[0] || null;
-    const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue || 0);
+    const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue);
     if (derived.clamped) {
       log.warn('amount_paid clamped to customer_invoices_amount_paid_within_total', {
         invoiceNumber: inv.DocumentNumber, total: inv.Total, amountDue: inv.AmountDue,
@@ -122,7 +122,7 @@ async function importAPInvoices() {
 
     const invDate = inv.Date?.split('T')[0] || null;
     const dueDate = inv.DueDate?.split('T')[0] || null;
-    const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue || 0);
+    const derived = deriveAmountPaid(inv.Total || 0, inv.AmountDue);
     if (derived.clamped) {
       log.warn('supplier invoice amount_paid clamped to total', {
         invoiceNumber: inv.DocumentNumber, total: inv.Total, amountDue: inv.AmountDue,

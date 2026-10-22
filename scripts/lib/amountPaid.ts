@@ -15,14 +15,23 @@ export interface DerivedAmountPaid {
 
 const cents = (n: number): number => Math.round(n * 100) / 100;
 
-export function deriveAmountPaid(total: number, amountDue: number): DerivedAmountPaid {
-  const raw = cents(total - amountDue);
-  const ceiling = Math.max(total, 0);
+/**
+ * `amountDue` may be missing in the source; a missing value is treated as 0 for the
+ * arithmetic but is NOT evidence of payment, so it never yields `paid`.
+ * Throws on non-finite input rather than passing NaN into the insert.
+ */
+export function deriveAmountPaid(total: number, amountDue: number | null | undefined): DerivedAmountPaid {
+  const due = amountDue ?? 0;
+  if (!Number.isFinite(total) || !Number.isFinite(due)) {
+    throw new Error(`deriveAmountPaid: non-finite input (total=${total}, amountDue=${amountDue})`);
+  }
+  const raw = cents(total - due);
+  const ceiling = cents(Math.max(total, 0));
   const clamped = raw > ceiling;
   return {
     amountPaid: clamped ? ceiling : raw,
     clamped,
-    // an over-payment is fully settled; otherwise keep the source rule (nothing due)
+    // an over-payment is fully settled; otherwise keep the source rule (explicit zero due)
     paid: clamped || amountDue === 0,
   };
 }
