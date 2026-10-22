@@ -89,7 +89,6 @@ const CONSTANT_USERS: Record<string, string> = {
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/dividendsPaid.ts': 'reader: AFS SOCE dividends paid leaves take-ons out',
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers.ts': 'reader: income statement IS484 leaves take-ons out',
   'src/modules/accounting/services/afs/noteGenerators/primaryStatements/takeOnEquity.ts': 'reader: AFS SOCE balances taken on column',
-  'src/modules/accounting/services/afs/noteGenerators/primaryStatements/derivedAccumulatedProfit.ts': 'reader: income statement "Balances taken on" line in the IS485 chain',
   [BRITECH]: "writer: Sage's own opening balances in the Britech import (isSageOpeningBalanceJournal); its live history is auto_gl_import",
   'tests/unit/services/afs/changesInEquityTakeOn.test.ts': 'test: the report SOCE query binds it',
   'tests/unit/services/afs/takeOnJournalWriterCensus.test.ts': 'test: this census',
@@ -146,6 +145,10 @@ describe('auto_migration census', () => {
     expect(text.match(/\bTAKE_ON_JOURNAL_SOURCE\b/g)).toHaveLength(2); // the import and the one use
     expect(text).toMatch(/const source = isSageOpeningBalanceJournal\(je\.Description, je\.Reference\) \? TAKE_ON_JOURNAL_SOURCE : 'auto_gl_import';/);
     expect(text).toMatch(/INSERT INTO gl_journal_entries[\s\S]{0,300}?\$\{source\}, 'posted'/);
+    // Header and lines on one transaction's client, every line naming its company (NOT NULL).
+    expect(text).toMatch(/await withTransactionPg\(async \(tx\) => \{\s+const jeRows = await tx`INSERT INTO gl_journal_entries/);
+    expect(text.match(/INSERT INTO gl_journal_lines \(company_id, journal_entry_id,/g)).toHaveLength(2);
+    expect(text).not.toMatch(/await sql`INSERT INTO gl_journal_(entries|lines)/);
   });
 
   it('the one writer through the constant is the Britech import', () => {
