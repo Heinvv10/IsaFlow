@@ -45,11 +45,11 @@ export interface LumpSumFiling {
 /**
  * SARS BRS PAYE Employer Reconciliation V25.3.0, p. 57: 4115 is "PAYE on
  * retirement lump sum and severance benefits reported under codes 3901, 3915,
- * 3920, 3921, 3922, 3923, and 3924" (3951 is 3901's foreign-service twin).
+ * 3920, 3921, 3922, 3923, and 3924". The one list: irp5ValidationEngine reads it too.
  * SARS PAYE-GEN-01-G21 (2027) p. 21: the tax on 3902-3905, 3907-3909 and 3614
  * is reflected under 4102.
  */
-const PAYE_4115_CODES = new Set(['3901', '3951', '3915', '3920', '3921', '3922', '3923', '3924']);
+export const PAYE_4115_CODES: ReadonlySet<string> = new Set(['3901', '3915', '3920', '3921', '3922', '3923', '3924']);
 export function lumpSumPayeCode(sourceCode: string): '4115' | '4102' {
   return PAYE_4115_CODES.has(sourceCode) ? '4115' : '4102';
 }

@@ -1,0 +1,99 @@
+/**
+ * PAYE 4a follow-ups G1/G3, edges (from review): an employee paid ONLY by a
+ * stand-alone directive gets a certificate row of their own; a reversed
+ * stand-alone payment is on no certificate; a legacy payment under a directive
+ * linked to no employee is warned about; the e@syFile warning header is capped.
+ */
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Pool } from 'pg';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import easyfile from '../../pages/api/payroll/irp5/easyfile-export';
+import jeAction from '../../pages/api/accounting/journal-entries-action';
+import type { Route } from './w3-01-payroll.helpers';
+import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
+import {
+  applyStandalone, approvedDirective, cleanSeveranceFixtures, directivePayments, seedRetrenchedEmployee, type SeveranceFixture,
+} from './p3-severance.helpers';
+
+assertDisposable();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
+const fixtures: SeveranceFixture[] = [];
+
+const SARS_PROFILE = `UPDATE companies SET paye_reference_number = '7123456789', sars_contact_first_name = 'Pat',
+  sars_contact_last_name = 'Payroll', sars_contact_telephone = '0115550000',
+  physical_address_line1 = '1 Main Road', physical_city = 'Pretoria', physical_postal_code = '0181' WHERE id = $1`;
+
+async function exportFile(fx: SeveranceFixture) {
+  const req = request({ 'sb-access-token': fx.token, active_company_id: fx.company }, 'GET') as unknown as { url: string; query: Record<string, unknown> };
+  req.url = '/api/payroll/irp5/easyfile-export?taxYear=2027';
+  req.query = { taxYear: '2027' };
+  const out = response();
+  let file = '';
+  out.state.end = function end(this: typeof out.state, body?: unknown) { if (typeof body === 'string') file = body; return this; };
+  await (easyfile as Route)(req as never, out.res as never);
+  const raw = out.headers.get('x-isaflow-warnings');
+  return { status: out.state.statusCode, file, body: out.state.body, warnings: raw ? JSON.parse(decodeURIComponent(String(raw))) as string[] : [] };
+}
+
+/** An employee who left in February 2026 (no run in tax year 2027) and is paid lump sums outside payroll. */
+async function leaverPaidOutsidePayroll(name: string): Promise<SeveranceFixture> {
+  const f = await seedRetrenchedEmployee(pool, '2026-02-28', name);
+  fixtures.push(f);
+  await pool.query(SARS_PROFILE, [f.company]);
+  return f;
+}
+
+beforeAll(async () => { await pool.query('SELECT 1'); });
+afterAll(async () => {
+  try { await cleanSeveranceFixtures(pool, fixtures); } finally { await pool.end(); }
+});
+
+describe('G1 edges', () => {
+  it('an employee paid only outside payroll this year has a certificate row (and counts in the universe)', async () => {
+    const f = await leaverPaidOutsidePayroll('P3fu only stand-alone');
+    const d = await approvedDirective(f, 40_000, 0.2, '2026-04-01', '4440001112');
+    expect((await applyStandalone(f, d, '2026-04-10')).statusCode).toBe(200);
+    const data = await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee });
+    expect(data.rows).toHaveLength(1);
+    expect(data.rows[0]).toMatchObject({ grossSalary: 40_000, paye: 8_000, runsIncluded: 0, netPay: 32_000 });
+    expect(data.universeTotal).toBe(1);
+    expect(data.excludedTotal).toBe(0);
+    const out = await exportFile(f);
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(out.file.split(/\r\n/)).toEqual(expect.arrayContaining(['3901,40000', '4115,8000.00', '3230,"4440001112"']));
+  });
+
+  it('a reversed stand-alone payment is on no certificate', async () => {
+    const f = await leaverPaidOutsidePayroll('P3fu reversed stand-alone');
+    const d = await approvedDirective(f, 40_000, 0.2, '2026-04-01', '4440001113');
+    expect((await applyStandalone(f, d, '2026-04-10')).statusCode).toBe(200);
+    const journal = String((await directivePayments(pool, d))[0]!.journal_entry_id);
+    const rev = await f.call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { body: { id: journal, action: 'reverse' } });
+    expect(rev.statusCode).toBe(200);
+    expect((await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee })).rows).toEqual([]);
+  });
+
+  it('a payment under a directive linked to no employee is warned about by name, and the warnings are capped at ten', async () => {
+    const f = await leaverPaidOutsidePayroll('P3fu warnings');
+    // Twelve stand-alone payments under directives with no issued date: twelve 3231 fallbacks.
+    for (let i = 0; i < 12; i += 1) {
+      const d = await approvedDirective(f, 1_000, 0.1, '2026-04-01', `55500011${String(i).padStart(2, '0')}`);
+      expect((await applyStandalone(f, d, '2026-04-10')).statusCode).toBe(200);
+    }
+    // A legacy payment (before apply refused it) under a directive linked to nobody.
+    const orphan = (await pool.query(
+      `INSERT INTO tax_directives (company_id, employee_name, directive_number, directive_type, amount, tax_rate, effective_date, status)
+       VALUES ($1, 'Nobody Linked', '9990001112', 'death', 2000, 0.1, '2026-04-01', 'approved') RETURNING id`, [f.company])).rows[0]!.id;
+    const je = String((await directivePayments(pool, (await pool.query(
+      'SELECT tax_directive_id FROM tax_directive_payments WHERE company_id = $1 LIMIT 1', [f.company])).rows[0]!.tax_directive_id))[0]!.journal_entry_id);
+    await pool.query(
+      `INSERT INTO tax_directive_payments (company_id, tax_directive_id, payment_date, gross_amount, paye_amount, net_amount, journal_entry_id)
+       VALUES ($1, $2, '2026-04-10', 2000, 200, 1800, $3)`, [f.company, orphan, je]);
+    const out = await exportFile(f);
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(out.warnings).toHaveLength(11);
+    // The payment on no certificate comes first, so the cap never hides it.
+    expect(out.warnings[0]).toMatch(/9990001112.*linked to no employee/);
+    expect(out.warnings[10]).toMatch(/and 3 more/);
+  });
+});

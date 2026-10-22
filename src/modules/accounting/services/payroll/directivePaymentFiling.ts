@@ -60,7 +60,7 @@ export async function listStandaloneDirectivePayments(
   const rows = (await sql`
     SELECT tdp.id AS payment_id, tdp.gross_amount, tdp.paye_amount, je.entry_date,
            d.id AS directive_id, d.directive_number, d.directive_type, d.employee_name,
-           d.effective_date, d.issued_date, e.id AS employee_id, je.id AS journal_id
+           d.effective_date, d.issued_date, e.id AS employee_id, je.id AS journal_id, je.reversed_at
     FROM tax_directive_payments tdp
     JOIN tax_directives d ON d.id = tdp.tax_directive_id AND d.company_id = tdp.company_id
     JOIN gl_journal_entries je ON je.id = tdp.journal_entry_id AND je.company_id = tdp.company_id
@@ -72,7 +72,8 @@ export async function listStandaloneDirectivePayments(
       AND (${employeeId}::uuid IS NULL OR e.id = ${employeeId}::uuid)
     ORDER BY je.entry_date, tdp.id
   `) as DbRow[];
-  const inForce = await Promise.all(rows.map(r => payrollJournalInForce(companyId, String(r.journal_id))));
+  // A posted journal nothing has reversed is in force; only a reversed one needs its chain read.
+  const inForce = await Promise.all(rows.map(r => r.reversed_at == null || payrollJournalInForce(companyId, String(r.journal_id))));
   return rows.filter((_, i) => inForce[i]).map((r) => {
     const sourceCode = directiveSourceCode(String(r.directive_type));
     const gross = round2(Number(r.gross_amount));

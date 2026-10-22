@@ -132,6 +132,19 @@ describe('emp201_status', () => {
     expect(env.rows[0].eti).toBe(4000);
   });
 
+  it('counts directives paid outside payroll, without names, and pins to the last payment when it is later', async () => {
+    vi.mocked(generateEMP201).mockResolvedValue({
+      ...EMP201, payrollRuns: [],
+      directivePayments: [{ paymentId: 'p1', directiveNumber: '1', paymentDate: '2026-03-20', gross: 12_000, paye: 3_000 },
+        { paymentId: 'p2', directiveNumber: '2', paymentDate: '2026-03-05', gross: 1_000, paye: 250.5 }],
+    });
+    const env = json(await emp201StatusTool.handler({ period_start: '2026-03-01', period_end: '2026-03-31' }, ctx));
+    expect(env.directive_payments_count).toBe(2);
+    expect(env.directive_payments_paye).toBe(3_250.5);
+    expect(env.posted_through).toBe('2026-03-20T00:00:00.000Z');
+    expect(JSON.stringify(env)).not.toMatch(/employee_name|p1|p2/);
+  });
+
   it('does not re-derive the declaration — the service owns it', async () => {
     await emp201StatusTool.handler({ period_start: '2026-01-01', period_end: '2026-03-31' }, ctx);
     expect(generateEMP201).toHaveBeenCalledTimes(1);

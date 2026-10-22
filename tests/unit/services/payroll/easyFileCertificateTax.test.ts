@@ -40,13 +40,19 @@ const nilDirective = { sourceCode: '3901', directiveNumber: '5550001112', direct
 const otherLumpSum = { sourceCode: '3907', directiveNumber: 'AB12345', directiveIssuedDate: '20260510', amount: 12_000, paye: 3_000 };
 
 describe('certificate type', () => {
-  it('nil tax, no directive: IT3(a) with reason 02 and no tax fields', () => {
-    const lines = buildEmployeeRecord(base);
+  it('nil tax, no directive, under the threshold: IT3(a) with reason 02 and no tax fields', () => {
+    const lines = buildEmployeeRecord({ ...base, taxThreshold: 99_000 });
     expect(lines).toContain('3015,"IT3(a)"');
     expect(lines).toContain('4150,02');
     expect(lines.filter(l => /^(4101|4102|4115),/.test(l))).toEqual([]);
     expect(lines).toContain('4141,1200.00');
     expect(validateCertificateTaxFields(lines)).toEqual([]);
+  });
+
+  it('nil tax above the threshold, or with no threshold known, is refused: 02 would be a false statement', () => {
+    expect(() => buildEmployeeRecord({ ...base, grossSalary3601: 150_000, taxThreshold: 99_000 })).toThrow(/above the tax threshold of R99000.00/);
+    expect(() => buildEmployeeRecord({ ...base, grossSalary3601: 90_000, annualPayments3605: 20_000, taxThreshold: 99_000 })).toThrow(/4150/);
+    expect(() => buildEmployeeRecord(base)).toThrow(/threshold is not known/);
   });
 
   it('nil tax under a nil directive: IT3(a) with reason 04', () => {

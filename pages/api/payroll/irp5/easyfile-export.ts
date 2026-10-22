@@ -31,6 +31,8 @@ import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
+import { getTaxYearConfig, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
+import { getAge } from '@/modules/accounting/services/payroll/payeEngine';
 
 function firstTwoNames(fullFirst: string): string {
   return fullFirst.trim().split(/\s+/).slice(0, 2).join(' ');
@@ -62,6 +64,15 @@ function monthsBetween(start: string, endInclusive: string): number {
   const e = new Date(`${endInclusive.slice(0, 4)}-${endInclusive.slice(4, 6)}-${endInclusive.slice(6, 8)}`);
   const months = (e.getUTCFullYear() - s.getUTCFullYear()) * 12 + (e.getUTCMonth() - s.getUTCMonth()) + 1;
   return Math.min(12, Math.max(0, months));
+}
+
+/** The SARS tax threshold for the year by age on its last day (G21 2027 p. 3), or undefined when unknown. */
+function taxThresholdFor(taxYear: number, dateOfBirth: unknown): number | undefined {
+  // February of taxYear is in taxYear: null means its tables are loaded.
+  if (!dateOfBirth || unloadedTaxYearMessage(2, taxYear) !== null) return undefined;
+  const config = getTaxYearConfig(taxYear);
+  const age = getAge(dateOfBirth instanceof Date ? dateOfBirth : new Date(String(dateOfBirth)), new Date(taxYear, 2, 0));
+  return age >= 75 ? config.threshold75plus : age >= 65 ? config.threshold65to74 : config.thresholdBelow65;
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -99,7 +110,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       WHERE id = ${companyId}::uuid
     ` as Promise<DbRow[]>,
     sql`
-      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date
+      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth
       FROM   payroll_employees
       WHERE  company_id = ${companyId}::uuid
       ORDER  BY last_name, first_name
@@ -200,6 +211,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         amount: l.amount,
         paye: l.paye,
       })),
+      taxThreshold: taxThresholdFor(taxYear, row.date_of_birth),
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),
@@ -240,12 +252,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // payment under a directive linked to no employee is on no certificate
     // (applyTaxDirective now refuses those): both said, naming the directive,
     // and shown by the IRP5 page.
-    warnings.push(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
+    // A payment on no certificate first: the cap below must never hide one.
+    warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
       + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
+    // Capped, so a company with many such directives cannot outgrow a proxy's header buffer.
+    const WARNINGS_SHOWN = 10;
+    const warningsTotal = warnings.length;
+    if (warnings.length > WARNINGS_SHOWN) {
+      warnings.splice(WARNINGS_SHOWN, warnings.length, `… and ${warnings.length - WARNINGS_SHOWN} more like these.`);
+    }
     if (warnings.length > 0) {
       // Counts only in the log: the text names employees and is for the authorised caller.
       log.warn('e@syFile export warnings', {
-        companyId, taxYear, warnings: warnings.length, unlinkedPayments: lumpSums.unlinked.map(p => p.paymentId),
+        companyId, taxYear, warnings: warningsTotal, unlinkedPayments: lumpSums.unlinked.map(p => p.paymentId),
       }, 'easyFileExport');
       res.setHeader('X-IsaFlow-Warnings', encodeURIComponent(JSON.stringify(warnings)));
     }

@@ -87,8 +87,14 @@ export interface EmployeeInput {
   sdl4142: number;                // 4142 (SDL) — cents kept
   /** Annual payments (3605), NOT included in grossSalary3601. Their PAYE stays in 4102. */
   annualPayments3605?: number;
-  /** Lump sums paid under a directive, NOT included in grossSalary3601 / paye4102. */
+  /** Lump sums paid under a directive, NOT included in grossSalary3601. */
   lumpSums?: LumpSumInput[];
+  /**
+   * The employee's tax threshold for the year (by age). An IT3(a) with reason 02
+   * ("earn less than the tax threshold") is written only when 3601 + 3605 is at
+   * or under it; without it, or above it, a certificate with no tax is refused.
+   */
+  taxThreshold?: number;
 }
 
 export interface LumpSumInput {
@@ -177,6 +183,20 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
   return [...byCode.keys()].sort().map(code => formatField(Number(code), byCode.get(code)!, 'N'));
 }
 
+/**
+ * Reason 02 is a statement to SARS that the employee earned less than the tax
+ * threshold. Nil PAYE above it (medical credits: reason 08, which needs 4116,
+ * not produced; or a payroll error) has no reason this file can state.
+ */
+function assertUnderThreshold(emp: EmployeeInput): void {
+  const income = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0);
+  if (emp.taxThreshold != null && income <= emp.taxThreshold) return;
+  throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): no PAYE was deducted on R${income.toFixed(2)} `
+    + (emp.taxThreshold == null ? 'and the tax threshold is not known, ' : `which is above the tax threshold of R${emp.taxThreshold.toFixed(2)}, `)
+    + 'so no reason for non-deduction (4150) can be stated: 02 is only for income under the threshold, and 08 (medical credits) '
+    + 'needs code 4116, which this file does not produce. Check the payroll, or file this certificate by hand.');
+}
+
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
   const lumpSums = emp.lumpSums ?? [];
@@ -187,6 +207,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   // when a directive is on it (valid only then, p. 58), else 02 "earn less than
   // the tax threshold" (p. 108).
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
+  if (it3a && lumpSums.length === 0) assertUnderThreshold(emp);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
