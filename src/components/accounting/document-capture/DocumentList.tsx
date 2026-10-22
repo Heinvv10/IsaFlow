@@ -17,6 +17,16 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function ReadBadge({ readState }: { readState: CapturedDocument['readState'] }) {
+  if (readState === 'done') return null;
+  const reading = readState === 'reading';
+  return (
+    <span className={`ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${reading ? 'bg-teal-500/20 text-teal-400' : 'bg-red-500/20 text-red-400'}`}>
+      {reading ? 'Reading…' : 'Read failed'}
+    </span>
+  );
+}
+
 interface Props {
   documents: CapturedDocument[];
   total: number;
@@ -86,7 +96,7 @@ export function DocumentList({ documents, total, isLoading, error, statusFilter,
                   <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(doc.documentDate)}</td>
                   <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">{doc.referenceNumber || '-'}</td>
                   <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(doc.totalAmount ?? 0)}</td>
-                  <td className="px-4 py-3 text-center"><StatusBadge status={doc.status} /></td>
+                  <td className="px-4 py-3 text-center"><StatusBadge status={doc.status} /><ReadBadge readState={doc.readState} /></td>
                   <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs">{formatDate(doc.createdAt)}</td>
                   <td className="px-4 py-3">
                     <Link href={`/accounting/document-capture/${doc.id}`} className="inline-flex items-center gap-1 text-teal-500 hover:text-teal-400 text-xs">

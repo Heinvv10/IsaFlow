@@ -17,6 +17,8 @@
  */
 
 import { log } from '@/lib/logger';
+import { buildFiscalYearPeriods, fiscalYearOfDate } from '@/modules/accounting/services/gl/fiscalYearCalendar';
+import { resolveFiscalYearStartMonth } from '@/modules/accounting/services/gl/fiscalYearBasis';
 
 /** R1 000 000 in cents. Below this, a declared turnover qualifies for PAYG. */
 export const TURNOVER_THRESHOLD_CENTS = 100_000_000;
@@ -96,11 +98,6 @@ export interface ProvisionTenantResult {
  * `company_users` refuses the INSERT because the user has no pre-existing
  * membership to satisfy USING.
  */
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-] as const;
-
 export async function provisionTenant(
   client: QueryRunner,
   input: ProvisionTenantInput,
@@ -109,11 +106,11 @@ export async function provisionTenant(
   const paygEligible = isPaygEligible(input.annualTurnoverCents);
   const trialEnd = trialEndsAt(now);
 
-  const company = await client.query<{ id: string }>(
+  const company = await client.query<{ id: string; financial_year_start: unknown }>(
     `INSERT INTO companies
        (name, email, phone, is_active, annual_turnover_cents, payg_eligible, trial_ends_at)
      VALUES ($1, $2, $3, true, $4, $5, $6)
-     RETURNING id`,
+     RETURNING id, financial_year_start`,
     [
       input.companyName,
       input.email,
@@ -124,6 +121,7 @@ export async function provisionTenant(
     ],
   );
   const companyId = company.rows[0]!.id;
+  const declaredStartMonth = company.rows[0]!.financial_year_start;
 
   // Trial subscription. Plan lookup is by code so a re-seeded plans table
   // can't silently point new tenants at the wrong row.
@@ -164,11 +162,17 @@ export async function provisionTenant(
     [input.ownerUserId, input.email, input.firstName, input.lastName],
   );
 
-  // Fiscal periods for the CURRENT year. Until this existed a new tenant had
-  // none at all, so every journal date fell outside every period and posted with
-  // fiscal_period_id NULL — invisible to the trial balance, the VAT201 and the
-  // AFS, because postJournalEntry's closed-period check is guarded by
-  // `if (entry.fiscalPeriodId)` and skips a NULL entirely.
+  // Fiscal periods for the fiscal year that contains `now`. Until this existed a
+  // new tenant had none at all, so every journal date fell outside every period
+  // and posted with fiscal_period_id NULL — invisible to the trial balance, the
+  // VAT201 and the AFS, because postJournalEntry's closed-period check is
+  // guarded by `if (entry.fiscalPeriodId)` and skips a NULL entirely.
+  //
+  // Built from the company's own financial_year_start (the column default,
+  // read back through RETURNING), never January–December: the existing layout
+  // is what resolveCompanyPeriodAlignment follows for every later year, so a
+  // calendar first year would keep the company on the calendar forever while it
+  // declares March. Same refusal as createFiscalYear on an unusable value.
   //
   // Inserted here on the provisioning client rather than by calling
   // createFiscalYear: that function uses the `sql` tagged template, and this
@@ -178,24 +182,16 @@ export async function provisionTenant(
   //
   // ON CONFLICT DO NOTHING so re-provisioning is harmless; the unique index is
   // (company_id, fiscal_year, period_number). Later years are created on demand
-  // by ensureFiscalPeriodForDate.
-  const year = now.getFullYear();
-  for (let periodNumber = 1; periodNumber <= 12; periodNumber++) {
-    const lastDay = new Date(year, periodNumber, 0).getDate();
-    const mm = String(periodNumber).padStart(2, '0');
+  // by ensureFiscalPeriodForDate, on the same start month.
+  const startMonth = resolveFiscalYearStartMonth(declaredStartMonth, companyId);
+  const fiscalYear = fiscalYearOfDate(now, startMonth);
+  for (const period of buildFiscalYearPeriods(fiscalYear, startMonth)) {
     await client.query(
       `INSERT INTO fiscal_periods
          (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
        VALUES ($1::uuid, $2, $3, $4, $5::date, $6::date, 'open')
        ON CONFLICT DO NOTHING`,
-      [
-        companyId,
-        `${MONTH_NAMES[periodNumber - 1]} ${year}`,
-        periodNumber,
-        year,
-        `${year}-${mm}-01`,
-        `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
-      ],
+      [companyId, period.periodName, period.periodNumber, fiscalYear, period.startDate, period.endDate],
     );
   }
 

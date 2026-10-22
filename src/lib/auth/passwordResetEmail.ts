@@ -14,7 +14,7 @@ import {
   issuePasswordResetToken, supersedePasswordResetTokens, withdrawPasswordResetToken,
 } from './passwordResetService';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
-import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
+import { emailLayout, emailContentRow, ctaButton } from '@/lib/email-templates-shared';
 
 export class PasswordResetEmailNotSentError extends Error {
   constructor(reason: string) {
@@ -38,13 +38,13 @@ export async function sendPasswordResetEmail(userId: string, email: string): Pro
     const { token, tokenHash } = await issuePasswordResetToken(userId);
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     const resetUrl = `${appUrl}/reset-password#token=${token}`;
-    const html = emailLayout(`
+    const html = emailLayout(emailContentRow(`
       <h2>Reset your ISAFlow password</h2>
       <p>We received a request to reset the password for this account.</p>
       <p>Click the button below to choose a new password. This link expires in 1 hour and can be used once.</p>
       ${ctaButton('Reset Password', resetUrl)}
       <p style="font-size:12px;color:#94a3b8;">If you did not request this, you can safely ignore this email — your password will not change.</p>
-    `);
+    `));
     let result: Awaited<ReturnType<typeof sendEmail>>;
     try {
       result = await sendEmail({

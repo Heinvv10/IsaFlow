@@ -61,7 +61,7 @@ export const linkDocumentToJournalTool: McpTool = {
       };
     }
 
-    // Every refusal here is PRE-write (loadLinkableJournal / documentBelongsToCompany
+    // Every refusal here is PRE-write (loadLinkableJournal / loadCompanyDocument
     // / assertDocumentNotAlreadyPosted all run before the INSERT/UPDATE), so a
     // toolError is safe on the first — and only — write attempt this call makes.
     try {
