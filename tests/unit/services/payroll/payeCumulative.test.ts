@@ -46,6 +46,18 @@ describe('cumulative PAYE', () => {
     expect([m1.regular.monthlyPaye, m1.annualPaymentPaye]).toEqual([4_161, 3_848]);
   });
 
+  it('SARS\'s worked examples, by the statutory table: the gap to the printed figures is SARS\'s banded tables, not the method', () => {
+    const p = { ageAtPeriodEnd: base.rebateAge, monthlyMedicalBeneficiaries: 0, taxYear: 2027 };
+    const tax = (x: number) => annualTaxAfterCredits({ ...p, annualTaxableIncome: x }).annualTax;
+    // G21 p. 8: R110 000 over 7 months, AE 188 571; SARS prints tax R16 156 and 16 156 ÷ 12 × 7 = R9 424.33.
+    // The statutory table gives tax(188 571.43) = 16 122.86 and, over the 7 months, 9 405.00 in total.
+    expect(Math.round(tax(110_000 * 12 / 7) * 100) / 100).toBe(16_122.86);
+    expect(year([...Array(6).fill(15_000), 20_000]).reduce((t, m) => t + m.total, 0)).toBe(9_405);
+    // G21 p. 33: salary R28 000 + bonus R14 800; SARS prints tax(336 000) 49 945, tax(350 800) 53 723 (bonus
+    // 3 778, salary 4 171 a month). The statutory table gives 49 932 and 53 780: 4 161 + 3 848.
+    expect([tax(336_000), tax(350_800)]).toEqual([49_932, 53_780]);
+  });
+
   it('a flat salary all year equals x12 every month', () => {
     expect(year(Array(12).fill(20_000)).map(m => m.total)).toEqual(Array(12).fill(2_115));
   });

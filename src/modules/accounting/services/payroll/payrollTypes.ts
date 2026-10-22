@@ -156,7 +156,6 @@ export interface ComponentBreakdownItem {
   directive?: DirectiveFigures;
 }
 
-/** How a line's PAYE is made up (audit 2026-10-18 P3). */
 /** An employee's earlier periods of the tax year, as the cumulative PAYE needs them. */
 export interface PayeYearToDate {
   /** Periods with periodic pay (the n of the cumulative formula, before this one). */
@@ -169,6 +168,7 @@ export interface PayeYearToDate {
   tablePaye: number;
 }
 
+/** How a line's PAYE is made up (audit 2026-10-18 P3). */
 export interface PayeSplit {
   /** Periodic PAYE on the regular remuneration, cumulative to date (payeCumulative). */
   regular: number;
