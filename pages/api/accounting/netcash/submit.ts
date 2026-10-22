@@ -6,7 +6,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { apiResponse, ErrorCode } from '@/lib/apiResponse';
+import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
@@ -16,6 +16,11 @@ import { validateNetcashPayees } from '@/modules/accounting/services/ap/netcashP
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { unreleasedBankFile } from '@/modules/accounting/services/ap/batchBankFileRecord';
 import { AnswerNotRecordedError, claimBatch, type SettleResult } from '@/modules/accounting/services/ap/netcashSubmissionClaim';
+import {
+  respondAnswerNotRecorded, respondClaimLost, respondSendBusy, respondSendFenced,
+} from '@/modules/accounting/services/ap/netcashSubmitResponses';
+import { replaySpooledAnswers } from '@/modules/accounting/services/ap/netcashAnswerSpoolReplay';
+import { probeSpoolWritable } from '@/modules/accounting/services/ap/netcashAnswerSpool';
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
@@ -30,6 +35,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
 
   await assertNotImpersonating(); // R-032 L5: first, before any read or write; nothing is claimed for a Login-as session
+  void probeSpoolWritable(); // once per process: log.error if the spool directory is not writable, before an outage needs it
+  void replaySpooledAnswers(); // residual 3a: answers spooled while the database was unwell move into audit_log; bounded, never throws
 
   // Load company to get Netcash credentials
   const companies = await sql`
@@ -167,7 +174,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   let settled: SettleResult;
   try {
     try {
-      result = await submitEftBatch(serviceKey, payoutsKey, payments);
+      // The claim's fence (residual 3b): a send that waited too long since before the claim is refused at the last
+      // synchronous step before the request - a paused process must not send after an operator could have freed its claim.
+      result = await submitEftBatch(serviceKey, payoutsKey, payments, claim.fence);
     } catch (err) {
       // The service answers every failure itself; a throw here is unexpected, and the request may have left.
       log.error('Netcash EFT submit threw', { error: err instanceof Error ? err.message : String(err) }, 'netcash-api');
@@ -195,6 +204,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   } finally {
     await claim.end();
   }
+  // Fenced: nothing was sent, whatever became of the row meanwhile (settled failed, or an operator freed it first).
+  if (result.fenced) return respondSendFenced(res, claimId, claim.fence.elapsedMs(), settled.kind === 'lost' ? settled.status : 'failed');
   if (settled.kind === 'lost') return respondClaimLost(res, claimId, result, settled);
   const submissionId = claimId;
 
@@ -218,59 +229,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     totalAmountCents,
     mock: result.mock ?? false,
   });
-}
-
-/**
- * The claim was no longer 'pending' when Netcash answered (it was released while the send was in flight): 409. The
- * answer is on the row as lateSendResult; an accepted/unknown answer put a 'failed' row back (`reopened`), unless a
- * newer claim already holds the batch - then the batch may be paid twice, and both submissions are named.
- */
-function respondClaimLost(res: NextApiResponse, claimId: string, result: NetcashSubmitResult,
-  settled: Extract<SettleResult, { kind: 'lost' }>): void {
-  const details = { reason: 'CLAIM_RESOLVED_DURING_SEND', submissionId: claimId, status: settled.status, netcashOutcome: result.outcome,
-    reopened: settled.reopened ?? false, newerSubmissionId: settled.newerSubmissionId ?? null };
-  if (settled.newerSubmissionId !== undefined) {
-    log.error('Netcash accepted a send whose claim was released, and a newer claim already holds the batch - it may be paid twice', {
-      submissionId: claimId, newerSubmissionId: settled.newerSubmissionId, outcome: result.outcome, batchReference: result.batchReference,
-    }, 'netcash-api');
-    return apiResponse.conflict(res,
-      `Netcash answered ${result.outcome} for submission ${claimId} after it was released, and the batch was sent again `
-      + `(submission ${settled.newerSubmissionId ?? 'unknown'}): it may be paid twice. Check Netcash for both now.`, details);
-  }
-  log.error('Netcash claim was released while its send was in flight - answer kept as lateSendResult', {
-    submissionId: claimId, outcome: result.outcome, batchReference: result.batchReference, rowStatus: settled.status, reopened: settled.reopened ?? false,
-  }, 'netcash-api');
-  return apiResponse.conflict(res, settled.reopened
-    ? `This submission was released while it was being sent, but Netcash answered ${result.outcome}: it is ${settled.status} again, so `
-      + 'the batch stays closed. Check Netcash for this batch.'
-    : `This submission was resolved by an operator (now ${settled.status}) while it was being sent, so Netcash's answer `
-      + `(${result.outcome}) was not applied. Check Netcash for this batch before doing anything else.`, details);
-}
-
-/** Netcash answered but neither settle confirmed recording it: 500 that says what Netcash answered (do not resend). */
-function respondAnswerNotRecorded(res: NextApiResponse, claimId: string, result: NetcashSubmitResult): void {
-  const ref = result.batchReference ? ` (Netcash reference ${result.batchReference})` : '';
-  return apiResponse.error(res, ErrorCode.INTERNAL_ERROR,
-    `Netcash answered ${result.outcome}${ref}, but the answer may not have been recorded yet: submission ${claimId} may still be pending, `
-    + 'the batch stays closed, and the server keeps trying to record the answer for several minutes. Do not resend it - check the '
-    + 'submission row and Netcash before doing anything, then resolve it if needed.',
-    { reason: 'NETCASH_ANSWER_NOT_RECORDED', submissionId: claimId, netcashOutcome: result.outcome, batchReference: result.batchReference ?? null });
-}
-
-/** Refused before anything was claimed or sent (ap/netcashSendCapacity, the send lock): safe to try again. */
-function respondSendBusy(res: NextApiResponse, reason: 'sends' | 'company_sends' | 'connection' | 'lock'): void {
-  if (reason === 'lock') {
-    return apiResponse.conflict(res, 'Another Netcash send is in progress on this server. Nothing was sent - try again in a moment.',
-      { reason: 'NETCASH_SEND_LOCK_BUSY' });
-  }
-  if (reason === 'company_sends') {
-    return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE,
-      "This company's other Netcash sends are still in progress. Nothing was sent - try again in a moment.",
-      { reason: 'NETCASH_COMPANY_SENDS_BUSY' });
-  }
-  return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE,
-    'Another Netcash send is in progress, or the server is busy. Nothing was sent - try again in a moment.',
-    { reason: reason === 'sends' ? 'NETCASH_SENDS_BUSY' : 'NETCASH_CONNECTION_BUSY' });
 }
 
 /** 409 naming the submission that holds the batch (the live row the claim ran into). */

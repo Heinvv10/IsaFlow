@@ -30,7 +30,7 @@ describe('submitEftBatch: a stalled response body', () => {
   it.each([200, 400, 500])('headers %i then a stalled body: unknown within the timeout, never a hang or a rejection', async (status) => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => stalledBody(status, init)));
     const started = Date.now();
-    const result = await submitEftBatch('service-key', 'payouts-key', PAYMENTS);
+    const result = await submitEftBatch('service-key', 'payouts-key', PAYMENTS, { mayStart: () => true });
     expect(result).toMatchObject({ success: false, outcome: 'unknown' });
     expect(Date.now() - started).toBeLessThan(3000);
   }, 5000);

@@ -36,6 +36,7 @@ import { NETCASH_SEND_LOCK_CLASS } from './netcashSendLock';
 import { connectWithin, takeSendSlot } from './netcashSendCapacity';
 import { CLAIM_CONNECTION_TIMEOUT_MS, SETTLE_QUERY_TIMEOUT_MS } from './netcashTimeouts';
 import { startLateSettle } from './netcashLateSettler';
+import { startSendFence, type SendFence } from './netcashSendFence';
 import { recordUnrecordedAnswer } from './netcashUnrecordedAnswer';
 import {
   actAsCaller, AnswerNotRecordedError, bounded, settleOnFreshConnection, settleRows, tightenSettleTimeouts, type Queryable,
@@ -118,6 +119,11 @@ async function endClaim(conn: ClaimConnection, submissionId: string | null, keep
 /** A claim whose connection holds its send lock until `end()`. */
 export interface HeldClaim {
   id: string;
+  /**
+   * Taken before the claim transaction began (residual 3b): hand it to the sender, which refuses to issue the request
+   * once SEND_START_DEADLINE_MS have passed - a paused process must not send after its claim could have been freed.
+   */
+  fence: SendFence;
   /** Record what Netcash answered (see settleOn). */
   settle(s: ClaimSettlement): Promise<SettleResult>;
   /** Release the send lock and the connection, after the settle (or after it failed). Never throws. */
@@ -142,6 +148,7 @@ class SendLockBusy extends Error {}
  * (try/finally); every other outcome has already given everything back.
  */
 export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<ClaimOutcome> {
+  const fence = startSendFence(); // first: its origin is never later than the claim's created_at (what resolve measures from)
   const slot = takeSendSlot(p.companyId);
   if ('refused' in slot) return { kind: 'busy', reason: slot.refused === 'company' ? 'company_sends' : 'sends' };
   const freeSlot = slot.free;
@@ -195,7 +202,7 @@ export async function claimBatch(p: ClaimPrincipal, c: BatchClaim): Promise<Clai
     return { kind: 'held' };
   }
   const claimId = id;
-  return { kind: 'claimed', claim: { id: claimId, settle: (s) => settleOn(conn, p, claimId, s), end: () => endClaim(conn, claimId) } };
+  return { kind: 'claimed', claim: { id: claimId, fence, settle: (s) => settleOn(conn, p, claimId, s), end: () => endClaim(conn, claimId) } };
 }
 
 /**

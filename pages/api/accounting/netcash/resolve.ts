@@ -43,11 +43,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       { reason: 'IN_FLIGHT' });
   }
   if (result.kind === 'answer_pending') {
-    const answered = result.outcome
+    const answered = result.file
+      ? `A saved Netcash answer for this submission cannot be applied automatically (file ${result.file} in the answer spool directory is unreadable, an unfinished write, or was quarantined). `
+        + 'Check Netcash for this batch: if Netcash has it, resolve this submission as submitted; if Netcash shows nothing, ask ops to move that file out of the spool directory, then resolve it as failed.'
+      : result.outcome
       ? `Netcash answered ${result.outcome}${result.batchReference ? ` (reference ${result.batchReference})` : ''} for this submission, but that answer is not on it yet. Do not free it: resolve it as submitted if Netcash has the batch.`
       : "Netcash has answered this submission and the server is still recording its answer. Wait a few minutes, reload, and check the submission's status before resolving it.";
     return apiResponse.conflict(res, answered,
-      { reason: 'ANSWER_PENDING_RECORD', netcashOutcome: result.outcome ?? null, batchReference: result.batchReference ?? null });
+      { reason: 'ANSWER_PENDING_RECORD', netcashOutcome: result.outcome ?? null, batchReference: result.batchReference ?? null, spoolFile: result.file ?? null });
   }
   if (result.kind === 'changed') {
     return apiResponse.conflict(res, `This submission's status changed from ${result.from} to ${result.to} since you opened it. Reload the page and check Netcash again before resolving it.`,
