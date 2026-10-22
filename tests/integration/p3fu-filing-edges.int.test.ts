@@ -12,7 +12,8 @@ import jeAction from '../../pages/api/accounting/journal-entries-action';
 import type { Route } from './w3-01-payroll.helpers';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import {
-  applyStandalone, approvedDirective, cleanSeveranceFixtures, directivePayments, seedRetrenchedEmployee, type SeveranceFixture,
+  applyStandalone, approvedDirective, approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, directivePayments,
+  seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
 
 assertDisposable();
@@ -80,7 +81,7 @@ describe('G1 edges', () => {
     expect((await getIrp5EmployeeTotals(f.company, 2027, { employeeId: f.employee })).rows).toEqual([]);
   });
 
-  it('a payment under a directive linked to no employee is warned about by name, and the warnings are capped at ten', async () => {
+  it('a payment under a directive linked to no employee is warned about by name, first, and the warnings are capped by size', async () => {
     const f = await leaverPaidOutsidePayroll('P3fu warnings');
     // Twelve stand-alone payments under directives with no issued date: twelve 3231 fallbacks.
     for (let i = 0; i < 12; i += 1) {
@@ -98,9 +99,48 @@ describe('G1 edges', () => {
        VALUES ($1, $2, '2026-04-10', 2000, 200, 1800, $3)`, [f.company, orphan, je]);
     const out = await exportFile(f);
     expect(out.status, JSON.stringify(out.body)).toBe(200);
-    expect(out.warnings).toHaveLength(11);
+    // Capped by encoded size: the header stays within 2 000 bytes, and the rest is counted.
+    const raw = encodeURIComponent(JSON.stringify(out.warnings));
+    expect(raw.length).toBeLessThanOrEqual(2_000);
+    expect(out.warnings.length).toBeLessThan(13);
     // The payment on no certificate comes first, so the cap never hides it.
     expect(out.warnings[0]).toMatch(/9990001112.*linked to no employee/);
-    expect(out.warnings[10]).toMatch(/and 3 more/);
+    expect(out.warnings.at(-1)).toMatch(new RegExp(`and ${13 - (out.warnings.length - 1)} more`));
+  });
+});
+
+describe('G2 edges: reason 02 only under the tax threshold, through the export route', () => {
+  /** One approved March run (tax year 2027) for an employee born 1980 (threshold R99 000) leaving 31 March. */
+  async function marchOnly(name: string, monthly: number): Promise<SeveranceFixture> {
+    const f = await seedRetrenchedEmployee(pool, '2026-03-31', name, monthly);
+    fixtures.push(f);
+    await pool.query(SARS_PROFILE, [f.company]);
+    const march = await createRunFor(f, 3);
+    await calculateRun(f, march);
+    expect((await approveRun(f, march)).statusCode).toBe(200);
+    return f;
+  }
+
+  it('R5 000 with nil PAYE: an IT3(a) with reason 02', async () => {
+    const f = await marchOnly('P3fu under threshold', 5_000);
+    const out = await exportFile(f);
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(out.file.split(/\r\n/)).toEqual(expect.arrayContaining(['3015,"IT3(a)"', '4150,02', '3601,5000']));
+  });
+
+  it('R120 000 with nil PAYE (above R99 000): refused, naming the employee and the threshold', async () => {
+    const f = await marchOnly('P3fu nil above threshold', 120_000);
+    await pool.query('UPDATE payroll_run_lines SET paye = 0 WHERE employee_id = $1', [f.employee]);
+    const out = await exportFile(f);
+    expect(out.status).not.toBe(200);
+    expect(JSON.stringify(out.body)).toMatch(/Test.*above the tax threshold of R99000\.00/);
+  });
+
+  it('no date of birth: refused, asking for it', async () => {
+    const f = await marchOnly('P3fu no date of birth', 5_000);
+    await pool.query('UPDATE payroll_employees SET date_of_birth = NULL WHERE id = $1', [f.employee]);
+    const out = await exportFile(f);
+    expect(out.status).not.toBe(200);
+    expect(JSON.stringify(out.body)).toMatch(/date of birth/);
   });
 });
