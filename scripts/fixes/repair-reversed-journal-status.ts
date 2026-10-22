@@ -52,6 +52,8 @@ if (fs.existsSync(envPath)) {
 
 if (process.env.MIGRATION_ADMIN_DATABASE_URL) {
   process.env.DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL;
+  // @/lib/neon's pool prefers SERVICE_DATABASE_URL (S-07b), which is not BYPASSRLS.
+  process.env.SERVICE_DATABASE_URL = process.env.MIGRATION_ADMIN_DATABASE_URL;
 } else if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL (or MIGRATION_ADMIN_DATABASE_URL) is not set. Create .env.local or export it.');
   process.exit(1);

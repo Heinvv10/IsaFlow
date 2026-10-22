@@ -13,6 +13,7 @@ export {
   appendSignatureToHtml,
   BRAND,
   emailLayout,
+  emailContentRow,
   ctaButton,
 } from './email-templates-shared';
 

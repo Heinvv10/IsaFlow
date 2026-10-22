@@ -14,7 +14,9 @@ import { JOURNAL_DATE_REFUSED, withJournalDateRefusal } from '@/lib/apiJournalDa
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { applyTaxDirective, TaxDirectiveAlreadyAppliedError } from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
+import {
+  applyTaxDirective, TaxDirectiveAlreadyAppliedError, TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError,
+} from '@/modules/accounting/services/payroll/taxDirectivePaymentService';
 import { log } from '@/lib/logger';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -59,6 +61,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Raised before anything is written (taxDirectivePaymentService), so the
     // 409 withAuth commits leaves nothing half-applied.
     if (err instanceof TaxDirectiveAlreadyAppliedError) return apiResponse.conflict(res, err.message);
+    if (err instanceof TaxDirectiveNotApprovedError) return apiResponse.conflict(res, err.message);
+    if (err instanceof TaxDirectiveWithoutEmployeeError) return apiResponse.badRequest(res, err.message);
     throw err;
   }
   if (result === JOURNAL_DATE_REFUSED) return;
