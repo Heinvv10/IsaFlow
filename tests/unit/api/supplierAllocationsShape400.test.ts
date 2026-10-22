@@ -61,6 +61,14 @@ const BAD_AMOUNTS: [string, unknown][] = [
   ['1.005 (not whole cents)', 1.005],
 ];
 
+// An allocations list whose ITEMS are not objects: `null` was a TypeError at `alloc.amount` (a 500).
+const BAD_ITEMS: [string, unknown][] = [
+  ['[null]', null],
+  ['[5]', 5],
+  ['["x"]', 'x'],
+  ['[[]]', []],
+];
+
 function mockReqRes(body: Record<string, unknown>) {
   const req = {
     method: 'POST', query: {}, body, companyId: COMPANY,
@@ -94,6 +102,24 @@ describe('POST /api/accounting/supplier-allocations: a malformed amount', () => 
     const { req, res } = mockReqRes({ paymentId: PAYMENT, allocations: [{ invoiceId: BILL, amount }] });
     await handler(req, res);
     expect(res.statusCode).toBe(400);
+    expect(sql).not.toHaveBeenCalled();
+  });
+});
+
+describe('allocation items that are not objects', () => {
+  it.each(BAD_ITEMS)('the service refuses %s as a SupplierPaymentRefusal', async (_label, item) => {
+    await expect(planSupplierPaymentApplication(COMPANY, PAYMENT, [item as never]))
+      .rejects.toThrow(/Each allocation must be an object/);
+    await expect(planSupplierPaymentApplication(COMPANY, PAYMENT, [item as never]))
+      .rejects.toBeInstanceOf(SupplierPaymentRefusal);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it.each(BAD_ITEMS)('the route answers 400 to allocations %s', async (_label, item) => {
+    const { req, res } = mockReqRes({ paymentId: PAYMENT, allocations: [item] });
+    await handler(req, res);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.sent)).toMatch(/Each allocation must be an object/);
     expect(sql).not.toHaveBeenCalled();
   });
 });
