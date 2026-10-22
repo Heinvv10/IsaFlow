@@ -66,9 +66,11 @@ export interface CapturedDocument {
   /** 'reading' while the background read runs; 'failed' (see readError) also covers a read gone silent for 5 minutes. */
   readState: 'reading' | 'done' | 'failed';
   readError: string | null;
+  /** A failed read can be re-run (action 'retry'): its file is stored and the document is still pending and unposted. */
+  retryable: boolean;
 }
 
-export type CapturedDocumentAction = 'confirm' | 'match_bank_tx' | 'reject';
+export type CapturedDocumentAction = 'confirm' | 'match_bank_tx' | 'reject' | 'retry';
 
 // ---------------------------------------------------------------------------
 // Bank Statement VLM extraction
