@@ -56,7 +56,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // status only, raised before any write. No MCP tool approves a batch today.
   'BATCH_NOT_APPROVABLE',
   // R-035 PR5: a batch sent to the bank (eft-generate / netcash) while still a
-  // draft under enforcement; names its status only, raised before any write.
+  // draft (or cancelled / reversed), enforcement on or off; names its status
+  // only, raised before any write.
   'BATCH_NOT_SENDABLE',
   'BATCH_NOT_PROCESSABLE',
   'BILL_LINE_ACCOUNT_REFUSED',
