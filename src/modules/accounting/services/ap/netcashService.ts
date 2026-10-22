@@ -12,6 +12,7 @@
 import { log } from '@/lib/logger';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { REQUEST_TIMEOUT_MS } from './netcashTimeouts';
+import type { SendFence } from './netcashSendFence';
 
 const NETCASH_BASE_URL = 'https://api.netcash.co.za';
 /** The only HTTP statuses that prove Netcash queued nothing: it refused the batch's fields. */
@@ -42,6 +43,8 @@ export interface NetcashSubmitResult {
   batchReference?: string;
   error?: string;
   mock?: boolean;
+  /** The sender-side fence refused the send (residual 3b): nothing was sent. `outcome` is then 'rejected'. */
+  fenced?: true;
 }
 
 export interface NetcashStatusResult {
@@ -63,6 +66,9 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
+/** The fence refused the send: nothing was issued. */
+class SendFencedError extends Error {}
+
 /**
  * One request to Netcash with a hard timeout over the WHOLE exchange: the timer stays armed until the body has been
  * read. Clearing it once headers arrived left a stalled body unbounded, so a send could outlast SEND_WINDOW_MS (the
@@ -70,7 +76,9 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
  * throws, which the caller answers as an unknown outcome. `json` is the body as a JSON object, or null when it is not
  * one (empty, HTML, a bare array/null).
  */
-async function fetchJsonWithTimeout(url: string, init: RequestInit): Promise<{ res: Response; json: Record<string, unknown> | null }> {
+async function fetchJsonWithTimeout(url: string, init: RequestInit, fence?: Pick<SendFence, 'mayStart'>): Promise<{ res: Response; json: Record<string, unknown> | null }> {
+  // The last step before the request, synchronous (nothing can pause between this check and fetch() being called).
+  if (fence && !fence.mayStart()) throw new SendFencedError();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -89,12 +97,14 @@ async function fetchJsonWithTimeout(url: string, init: RequestInit): Promise<{ r
 
 /**
  * Submit an EFT batch payment to Netcash.
- * Refuses (nothing sent) when either API key is absent.
+ * Refuses (nothing sent) when either API key is absent, or when `fence` (the sender's, taken before its claim) says the
+ * send has waited too long to start safely (residual 3b): `{ outcome: 'rejected', fenced: true }`, nothing sent.
  */
 export async function submitEftBatch(
   serviceKey: string,
   payoutsKey: string,
   payments: NetcashPayment[],
+  fence?: Pick<SendFence, 'mayStart'>,
 ): Promise<NetcashSubmitResult> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   if (!serviceKey.trim() || !payoutsKey.trim()) {
@@ -124,7 +134,7 @@ export async function submitEftBatch(
         'X-ServiceKey': serviceKey,
       },
       body: JSON.stringify(body),
-    });
+    }, fence);
 
     if (!res.ok) {
       log.error('Netcash EFT submit failed', { status: res.status, body: json }, 'netcash');
@@ -141,6 +151,9 @@ export async function submitEftBatch(
     log.info('Netcash EFT batch submitted', { batchReference: json.batchReference, count: payments.length }, 'netcash');
     return { success: true, outcome: 'accepted', batchReference: String(json.batchReference ?? '') };
   } catch (err) {
+    if (err instanceof SendFencedError) {
+      return { success: false, outcome: 'rejected', fenced: true, error: 'Not sent: the send started too late to be safe' };
+    }
     // The request may already have left (timeout/abort, reset connection): the outcome is not known.
     const msg = err instanceof Error ? err.message : 'Network error';
     log.error('Netcash EFT submit exception', { error: msg }, 'netcash');
