@@ -19,7 +19,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { faults, installQueryFaults, resetFaults } from './ap01-netcash-faults.helpers';
 import { bounded, tightenSettleTimeouts } from '@/modules/accounting/services/ap/netcashClaimSettle';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -41,7 +41,7 @@ afterAll(async () => {
 async function company() {
   const { company: c, bank } = await payCompany(pool, [[admin, 'admin']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  return { c, batch: () => plantBatch(pool, c, admin, bank) };
+  return { c, batch: () => plantApprovedBatch(pool, c, admin, bank) };
 }
 const submit = (c: string, batchId: string) => callRoute(netcashSubmit, tokens[admin]!, c, 'POST', { batchPaymentId: batchId }, '/api/accounting/netcash/submit');
 const reason = (r: Awaited<ReturnType<typeof submit>>) => JSON.stringify(r.state.body).match(/"reason":"([A-Z_]+)"/)?.[1];

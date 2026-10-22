@@ -126,9 +126,58 @@ export async function forceLogout(userId: string): Promise<void> {
 /** The roles the admin portal may grant (never `owner`; migration 883 refuses it too). */
 export const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
 
+/** The refusal for removing or demoting a company's last owner (the admin site shows it). */
+export const ONLY_OWNER_MESSAGE = "This user is the company's only owner. Make someone else owner first.";
+
+/** Migration 908b's trigger refusal (RC011): no writer but app_user removes or demotes a last owner. */
+export const isOnlyOwnerRefusal = (err: unknown): boolean => (err as { code?: string } | null)?.code === 'RC011';
+
+/**
+ * Deleting a user, or resetting their onboarding, removes them from every
+ * company; refused whole when they are the only owner of any. Raised before
+ * anything is written, or from the trigger's RC011 (which aborts the request
+ * transaction, so nothing it wrote commits).
+ */
+export class SoleOwnerError extends Error {
+  constructor(public readonly companies: readonly string[]) {
+    super(companies.length > 0
+      ? `This user is the only owner of ${companies.join(', ')}. Make someone else owner first.`
+      : ONLY_OWNER_MESSAGE);
+    this.name = 'SoleOwnerError';
+  }
+}
+
+/** Throws SoleOwnerError naming each company `userId` is the only owner of (counted as migration 908b counts). */
+async function assertOwnsNoCompanyAlone(userId: string): Promise<void> {
+  const rows = await sql<{ name: string }>`
+    SELECT DISTINCT c.name FROM company_users cu
+    JOIN companies c ON c.id = cu.company_id
+    WHERE cu.user_id = ${userId} AND cu.role = 'owner'
+      AND NOT EXISTS (
+        SELECT 1 FROM company_users o
+        WHERE o.company_id = cu.company_id AND o.role = 'owner'
+          AND lower(o.user_id::text) <> lower(${userId})
+      )
+    ORDER BY c.name
+  `;
+  if (rows.length > 0) throw new SoleOwnerError(rows.map((r) => r.name));
+}
+
+/** Remove `userId` from every company, or throw SoleOwnerError (see above). Runs before any other write. */
+async function removeFromEveryCompany(userId: string): Promise<void> {
+  await assertOwnsNoCompanyAlone(userId);
+  try {
+    await sql`DELETE FROM company_users WHERE user_id = ${userId}`;
+  } catch (err) {
+    if (isOnlyOwnerRefusal(err)) throw new SoleOwnerError([]);
+    throw err;
+  }
+}
+
 /**
  * Permanently delete a user and all associated company links / sessions.
  * Super-admins are protected — throws if the target user has role = 'super_admin'.
+ * Throws SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function deleteUser(userId: string): Promise<void> {
   const rows = await sql`
@@ -139,8 +188,8 @@ export async function deleteUser(userId: string): Promise<void> {
     throw new Error('Cannot delete a super_admin user');
   }
 
+  await removeFromEveryCompany(userId);
   await sql`DELETE FROM user_sessions   WHERE user_id = ${userId}`;
-  await sql`DELETE FROM company_users   WHERE user_id = ${userId}`;
   await sql`DELETE FROM users           WHERE id      = ${userId}`;
 
   log.info('deleteUser', { userId }, 'AdminUserActionsService');
@@ -148,16 +197,17 @@ export async function deleteUser(userId: string): Promise<void> {
 
 /**
  * Reset a user's onboarding state so they go through the company wizard again
- * on next login. Removes all company links and clears sessions.
+ * on next login. Removes all company links and clears sessions. Throws
+ * SoleOwnerError, having written nothing, when the user is a company's only owner.
  */
 export async function resetOnboarding(userId: string): Promise<void> {
+  await removeFromEveryCompany(userId);
   await sql`
     UPDATE users
     SET onboarding_completed = false,
         updated_at           = NOW()
     WHERE id = ${userId}
   `;
-  await sql`DELETE FROM company_users WHERE user_id = ${userId}`;
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
   log.info('resetOnboarding — user must re-onboard', { userId }, 'AdminUserActionsService');
 }

@@ -76,14 +76,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     FOR SHARE
   ` as Row[];
   if (!batch[0]) return apiResponse.notFound(res, 'Batch', batchPaymentId);
-  // R-035 PR5: under payment_batch enforcement only an approved batch the
-  // approval gate clears is transmitted — its payees share-locked first
-  // (ap/batchBankFileGate). 409 otherwise. Off: unchanged.
+  // R-035 PR5: only an approved (or processed) batch is transmitted, enforcement
+  // on or off; under payment_batch enforcement the approval gate must also clear
+  // it, its payees share-locked first (ap/batchBankFileGate). 409
+  // BATCH_NOT_SENDABLE for a draft, cancelled or reversed batch, 409 from the
+  // approval gate otherwise.
   try {
     await assertBatchMayBeSent(companyId, String(batch[0].id), String(batch[0].status));
   } catch (err) {
     if (respondIfApprovalRequired(res, err)) return;
-    if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message);
+    if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message, { reason: err.code, batchStatus: err.batchStatus });
     throw err;
   }
   const batchReference = String(batch[0].batch_number ?? batchPaymentId);
