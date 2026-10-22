@@ -29,8 +29,9 @@
 --   the exact 'owner' (e.g. 'OWNER') is leaving: the counts and RLS read the
 --   exact value. The reverse (an owner stored as 'OWNER' is not counted as an
 --   owner left behind) can refuse a removal 886's precondition makes moot.
---   Not covered: TRUNCATE (no row trigger fires; only the table owner holds
---   it) and DISABLE TRIGGER (the owner) — the owner role is the boundary.
+--   Not covered: emptying the table wholesale (no row trigger fires) or
+--   switching its triggers off — both are the table owner's powers alone;
+--   the owner role is the boundary.
 --   NOT exempt: a soft-deleted company (status 'deleted'). It can be restored,
 --   and would come back with no owner; the admin site's delete-user and
 --   reset-onboarding refuse its only owner too (409 naming the company).
