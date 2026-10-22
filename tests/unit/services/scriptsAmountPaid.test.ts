@@ -31,4 +31,17 @@ describe('deriveAmountPaid', () => {
       expect(deriveAmountPaid(t, d).amountPaid).toBeLessThanOrEqual(Math.max(t, 0));
     }
   });
+  it('missing AmountDue is not treated as paid', () => {
+    expect(deriveAmountPaid(1000, undefined)).toEqual({ amountPaid: 1000, clamped: false, paid: false });
+    expect(deriveAmountPaid(1000, null)).toEqual({ amountPaid: 1000, clamped: false, paid: false });
+  });
+  it('rounds the ceiling to cents (total with more than 2 decimals)', () => {
+    expect(deriveAmountPaid(100.006, -1)).toEqual({ amountPaid: 100.01, clamped: true, paid: true });
+    expect(deriveAmountPaid(100.004, -1)).toEqual({ amountPaid: 100, clamped: true, paid: true });
+  });
+  it('throws on non-finite input', () => {
+    expect(() => deriveAmountPaid(NaN, 0)).toThrow(/non-finite/);
+    expect(() => deriveAmountPaid(100, NaN)).toThrow(/non-finite/);
+    expect(() => deriveAmountPaid(Infinity, 0)).toThrow(/non-finite/);
+  });
 });
