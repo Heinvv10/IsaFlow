@@ -124,7 +124,7 @@ async function applyMissing(dev: pg.Client, files: MigrationFile[], names: strin
   if (names.length > 0) {
     try {
       const created = await syncAppServicePolicies(dev);
-      if (created !== null) say(`app_service policies created on dev: ${created}`);
+      if (created !== null) say(`app_service policies changed on dev: ${created}`);
     } catch (err) {
       return `app_service_sync_policies(): ${err instanceof Error ? err.message : String(err)}`;
     }

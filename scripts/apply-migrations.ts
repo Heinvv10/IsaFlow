@@ -218,7 +218,7 @@ async function main(): Promise<void> {
       }
       console.log(`Applied ${plan.toApply.length} migrations`);
       const created = await syncAppServicePolicies(client);
-      if (created !== null) console.log(`app_service policies created: ${created}`);
+      if (created !== null) console.log(`app_service policies changed: ${created}`);
     } finally {
       await client.query(`SELECT pg_advisory_unlock($1)`, [ADVISORY_LOCK_KEY]);
     }

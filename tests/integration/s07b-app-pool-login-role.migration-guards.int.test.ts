@@ -42,6 +42,7 @@ describe('S-07b: migration 916', () => {
   // app_user was: pg_has_role(.., 'app_service', ..) is true for every superuser and for a BYPASSRLS member.
   it.each([
     ['a BYPASSRLS role holding app_service stays exempt', 'BYPASSRLS', null],
+    ['a superuser without BYPASSRLS stays exempt', 'SUPERUSER NOBYPASSRLS', null],
     ['the same role without BYPASSRLS is bound', 'NOBYPASSRLS', /^Only owners and admins can change the members of a company$/],
   ])('%s', async (_, attr, refusal) => {
     await rolledBack(async (q) => {

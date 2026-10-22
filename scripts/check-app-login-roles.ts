@@ -1,5 +1,6 @@
 /**
- * S-07b post-deploy check: the app's login roles (migration 915) still cannot
+ * S-07b deploy check (scripts/deploy.sh, after migrations, before the code
+ * switch): the app's login roles (migration 915) still cannot
  * reach the owner, and, once either can log in, the runbook's out-of-band
  * controls are in place (docs/runbooks/s07b-app-pool-login-roles.md, steps 2
  * and 3b). Exits 1 on any violation, 0 otherwise.

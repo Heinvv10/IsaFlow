@@ -19,12 +19,16 @@ the app keeps logging in as today. These do take effect on deploy:
 - The member guards bind app_service holders (916). Nothing logs in as one
   yet, so no request changes.
 - Every migration run (deploy, parity gate on dev, `bun run db:migrate`) ends
-  with `SELECT public.app_service_sync_policies()`, which adds app_service's
-  policies for any table a migration added.
-- `scripts/verify-deploy.sh` gains step 4: `scripts/check-app-login-roles.ts`
-  runs `public.app_login_role_violations()` as the owner and fails the
-  verification on any row. Once either login can log in (step 3 below) it
-  also requires the event trigger (step 2) and the reserved roles (step 3b).
+  with `SELECT public.app_service_sync_policies()`, which makes app_service's
+  policies match app_user's: it adds them for a table a migration added and
+  drops them where a migration dropped or narrowed the policy they mirror.
+- `scripts/deploy.sh`, right after the migrations and the drift audit and
+  before the code switch, runs `scripts/check-app-login-roles.ts`:
+  `public.app_login_role_violations()` as the owner. Any row stops the deploy
+  there, with the old code still serving (no rollback runs; the migrations
+  have applied, as when a migration fails). Once either login can log in
+  (step 3 below) it also requires the event trigger (step 2) and the reserved
+  roles (step 3b).
 - Every boot in production writes `[env] S-07b: the request pool logs in as
   "postgres", not isaflow_app` to stderr until step 5 is done.
 
@@ -59,6 +63,19 @@ SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.prona
    AND has_function_privilege('app_user', p.oid, 'EXECUTE')
    AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c ~ '^search_path=.*pg_temp"?$')
    AND p.oid::regprocedure::text NOT IN ('auth.user_admin_companies(text)', 'auth.set_default_company(uuid,uuid)', 'invite_token_company_name()');
+-- 915: a relation granted to PUBLIC, which every login holds after RESET ROLE
+SELECT n.nspname || '.' || c.relname, a.privilege_type
+  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a
+ WHERE a.grantee = 0 AND n.nspname NOT IN ('pg_catalog', 'information_schema');
+-- 915: app_user (the one existing role in either login's reach) superuser,
+-- BYPASSRLS, CREATEROLE or REPLICATION, or owning anything in the cluster
+SELECT rolname FROM pg_roles WHERE rolname = 'app_user'
+   AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolreplication
+        OR EXISTS (SELECT 1 FROM pg_shdepend WHERE refclassid = 'pg_authid'::regclass
+                     AND refobjid = pg_roles.oid AND deptype = 'o'));
+-- 915: app_user may SET ROLE to another role (it must reach nothing)
+SELECT r.rolname FROM pg_roles r
+ WHERE pg_has_role('app_user', r.oid, 'MEMBER') AND r.rolname <> 'app_user';
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (
   SELECT proname, prosrc, (length(prosrc) - length(replace(prosrc, l, ''))) / length(l) AS hits
@@ -252,10 +269,11 @@ ignores `SERVICE_DATABASE_URL` and has no boot check, so every cron, login and
 public route would fail with 42501, and its `deploy.sh` would migrate as
 `isaflow_app`. Restore the env and restart first; roll the code back after.
 
-A post-deploy verification failure auto-runs `rollback-deploy.sh`. Once the
-logins can log in, step 4 of that verification fails if the event trigger or
-the reserved roles are missing, so finish steps 2 and 3b before the next
-deploy.
+Once the logins can log in, every deploy stops before its code switch if the
+event trigger or the reserved roles are missing (for example after the db
+container was recreated and `supautils.conf` reverted), so finish steps 2 and
+3b before the next deploy, and re-check them after any change to the db
+container. The deploy's message names what is missing.
 
 The roles and policies can stay; nothing uses them. To remove the logins as well:
 `ALTER ROLE isaflow_app NOLOGIN; ALTER ROLE isaflow_service NOLOGIN;`.

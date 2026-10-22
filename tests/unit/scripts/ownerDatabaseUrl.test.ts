@@ -117,11 +117,18 @@ describe('deploy.sh\'s DB-URL blocks, run with sudo and bun stubbed', () => {
     expect(r.out).not.toContain('RAN ');
   });
 
-  it('migrations and the drift audit run on prod\'s owner URL', () => {
+  it('migrations, the drift audit and the login-role check run on prod\'s owner URL, in that order', () => {
     const r = runBlock(migrate, PROD, DEV);
     expect(r.status).toBe(0);
-    expect(r.out).toContain('RAN apply-migrations.ts DATABASE_URL=postgresql://postgres@p/isaflow');
-    expect(r.out).toContain('RAN audit-schema-drift.ts DATABASE_URL=postgresql://postgres@p/isaflow');
+    const ran = r.out.split('\n').filter((l) => l.startsWith('RAN '));
+    expect(ran).toEqual(['apply-migrations.ts', 'audit-schema-drift.ts', 'check-app-login-roles.ts']
+      .map((f) => `RAN ${f} DATABASE_URL=postgresql://postgres@p/isaflow PROD=`));
+  });
+
+  it('a failing login-role check stops the deploy here, before the code switch', () => {
+    const r = runBlock(migrate.replace(/\$BUN "\$REPO_DIR\/scripts\/check-app-login-roles\.ts"/, 'false'), PROD, DEV);
+    expect(r.status).not.toBe(0);
+    expect(migrate).toContain('DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/check-app-login-roles.ts"');
   });
 
   it('migrations fall back to DATABASE_URL, with the warning, before the env names an owner URL', () => {

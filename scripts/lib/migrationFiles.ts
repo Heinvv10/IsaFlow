@@ -78,11 +78,12 @@ export async function applyOne(client: pg.ClientBase, file: MigrationFile): Prom
 }
 
 /**
- * S-07b (migration 915): give app_service its policies on every table an
- * app_user policy admits. Both appliers call it after applying, so a table
- * that reaches a database in a migration applied after 915 (whatever its
- * number) is covered on the same run. Returns how many policies it created,
- * or null before 915 is applied.
+ * S-07b (migration 915): make app_service's policies exactly those app_user's
+ * policies call for (create missing, drop extra). The runner calls it after
+ * every run and the parity gate after any dev apply, so a table a migration
+ * applied after 915 adds or changes (whatever its number) is covered on the
+ * same run. Returns how many policies it changed, or null before 915 is
+ * applied.
  */
 export async function syncAppServicePolicies(client: pg.ClientBase): Promise<number | null> {
   const fn = await client.query<{ f: string | null }>(`SELECT to_regprocedure('public.app_service_sync_policies()')::text AS f`);

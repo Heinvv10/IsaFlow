@@ -44,12 +44,14 @@
 -- that owns an object anywhere in the cluster; isaflow_app cannot reach
 -- app_service. public.app_login_role_violations() states those rules; the
 -- DO block at the end refuses the migration on any violation, and
--- scripts/verify-deploy.sh runs it again after every deploy.
+-- scripts/deploy.sh runs it again (scripts/check-app-login-roles.ts) after
+-- every deploy's migrations, before the code switch.
 --
--- public.app_service_sync_policies() creates app_service's policies. The
--- migration runner (scripts/apply-migrations.ts) calls it after every run, so
--- a table a later migration adds, in whatever order migrations reach a
--- database, gets its policies on the same run.
+-- public.app_service_sync_policies() creates app_service's policies and drops
+-- any no longer wanted. Both migration appliers (scripts/apply-migrations.ts,
+-- and the parity gate's dev apply) call it after applying, so a table a later
+-- migration adds or changes, in whatever order migrations reach a database,
+-- is covered on the same run.
 --
 -- RESIDUAL, DELIBERATE: injected SQL on an isaflow_service path can write any
 -- user's email (change-email and the POPIA erasure need that column, and run
@@ -132,27 +134,78 @@ $$;
 REVOKE ALL ON FUNCTION public.refresh_customer_invoice_view_summary() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO app_service;
 
--- One permissive policy per (table, command) that some app_user or PUBLIC
--- policy admits, and only where app_user holds the command's privilege (a
--- policy on a table app_user cannot touch would only widen app_service's reach
--- if a grant arrived later; column privileges count, 902 leaves app_user only
--- column UPDATE on users). Excluded: impersonation_sessions, which app_user
--- reads only by its own session id and no service path reads at all.
+-- What app_service should hold: one permissive policy per (table, command)
+-- that some app_user or PUBLIC policy admits, and only where app_user holds the
+-- command's privilege (a policy on a table app_user cannot touch would only
+-- widen app_service's reach if a grant arrived later; column privileges count,
+-- 902 leaves app_user only column UPDATE on users). Excluded:
+-- impersonation_sessions, which app_user reads only by its own session id and
+-- no service path reads at all.
 --
 -- What a policy admits, per command, judged as Postgres judges it: SELECT and
 -- DELETE by USING, INSERT by WITH CHECK, UPDATE by both, and an absent WITH
 -- CHECK falls back to USING. A policy whose USING or WITH CHECK is the
 -- constant `false` admits nothing for the commands that read it, so a FOR ALL
--- policy contributes only the commands its predicates leave open. Policies
--- named app_service_<cmd> are owned by this function; re-runs skip them.
+-- policy contributes only the commands its predicates leave open.
 --
 -- USING (true) drops every predicate of the policy it mirrors, not only the
 -- tenant: tests/integration/s07b-app-pool-login-role.policies.int.test.ts
 -- pins every app_user predicate that is not a forgeable claim, so one that
 -- limits rows by their state cannot arrive unreviewed.
---
--- Not SECURITY DEFINER: it runs as the migration runner, which owns the
--- tables. Returns how many policies it created.
+CREATE OR REPLACE FUNCTION public.app_service_wanted_policies()
+RETURNS TABLE (tbl regclass, cmd text)
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  WITH pol AS (
+    SELECT p.polrelid, p.polcmd,
+           coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS using_false,
+           coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS check_false
+      FROM pg_policy p
+      JOIN pg_class c ON c.oid = p.polrelid
+      JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = 'public'
+       AND c.relname <> 'impersonation_sessions'
+       AND p.polpermissive
+       AND p.polname NOT LIKE 'app\_service\_%'
+       AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
+  ), admitted AS (
+    SELECT polrelid, 'select' AS cmd FROM pol WHERE polcmd IN ('r', '*') AND NOT using_false
+    UNION SELECT polrelid, 'delete' FROM pol WHERE polcmd IN ('d', '*') AND NOT using_false
+    UNION SELECT polrelid, 'insert' FROM pol WHERE polcmd IN ('a', '*') AND NOT check_false
+    UNION SELECT polrelid, 'update' FROM pol WHERE polcmd IN ('w', '*') AND NOT using_false AND NOT check_false
+  )
+  SELECT polrelid::regclass, cmd FROM admitted
+   WHERE CASE cmd WHEN 'delete' THEN has_table_privilege('app_user', polrelid, 'DELETE')
+                  ELSE has_any_column_privilege('app_user', polrelid, upper(cmd)) END
+$$;
+REVOKE ALL ON FUNCTION public.app_service_wanted_policies() FROM PUBLIC;
+
+-- The app_service_<cmd> policies in public that differ from what is wanted:
+-- 'missing' (a service path would be refused) or 'extra' (app_service would
+-- reach more than app_user's policies admit, e.g. after a migration dropped or
+-- narrowed the policy it mirrored).
+CREATE OR REPLACE FUNCTION public.app_service_policy_drift()
+RETURNS TABLE (why text, tbl regclass, cmd text)
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  WITH have AS (
+    SELECT p.polrelid::regclass AS tbl, substr(p.polname, length('app_service_') + 1) AS cmd
+      FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = 'public' AND p.polname LIKE 'app\_service\_%'
+  ), wanted AS (SELECT tbl, cmd FROM public.app_service_wanted_policies())
+  SELECT 'missing', tbl, cmd FROM (SELECT * FROM wanted EXCEPT SELECT * FROM have) m
+  UNION ALL
+  SELECT 'extra', tbl, cmd FROM (SELECT * FROM have EXCEPT SELECT * FROM wanted) e
+$$;
+REVOKE ALL ON FUNCTION public.app_service_policy_drift() FROM PUBLIC;
+
+-- Make app_service's policies exactly what is wanted: create the missing ones
+-- and drop the extra ones. Not SECURITY DEFINER: it runs as the migration
+-- runner, which owns the tables. Returns how many policies it changed.
 CREATE OR REPLACE FUNCTION public.app_service_sync_policies()
 RETURNS integer
 LANGUAGE plpgsql
@@ -162,43 +215,20 @@ DECLARE
   r record;
   n integer := 0;
 BEGIN
-  FOR r IN
-    WITH pol AS (
-      SELECT p.polrelid, p.polcmd,
-             coalesce(pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS using_false,
-             coalesce(pg_get_expr(p.polwithcheck, p.polrelid), pg_get_expr(p.polqual, p.polrelid), 'true') = 'false' AS check_false
-        FROM pg_policy p
-        JOIN pg_class c ON c.oid = p.polrelid
-        JOIN pg_namespace ns ON ns.oid = c.relnamespace
-       WHERE ns.nspname = 'public'
-         AND c.relname <> 'impersonation_sessions'
-         AND p.polpermissive
-         AND p.polname NOT LIKE 'app\_service\_%'
-         AND (p.polroles = '{0}'::oid[] OR 'app_user'::regrole = ANY (p.polroles))
-    ), admitted AS (
-      SELECT polrelid, 'select' AS cmd FROM pol WHERE polcmd IN ('r', '*') AND NOT using_false
-      UNION SELECT polrelid, 'delete' FROM pol WHERE polcmd IN ('d', '*') AND NOT using_false
-      UNION SELECT polrelid, 'insert' FROM pol WHERE polcmd IN ('a', '*') AND NOT check_false
-      UNION SELECT polrelid, 'update' FROM pol WHERE polcmd IN ('w', '*') AND NOT using_false AND NOT check_false
-    )
-    SELECT polrelid::regclass AS tbl, cmd FROM admitted
-     WHERE CASE cmd WHEN 'delete' THEN has_table_privilege('app_user', polrelid, 'DELETE')
-                    ELSE has_any_column_privilege('app_user', polrelid, upper(cmd)) END
-  LOOP
-    IF NOT EXISTS (SELECT 1 FROM pg_policy
-                    WHERE polrelid = r.tbl AND polname = 'app_service_' || r.cmd) THEN
-      IF r.cmd = 'select' OR r.cmd = 'delete' THEN
-        EXECUTE format('CREATE POLICY %I ON %s FOR %s TO app_service USING (true)',
-                       'app_service_' || r.cmd, r.tbl, r.cmd);
-      ELSIF r.cmd = 'insert' THEN
-        EXECUTE format('CREATE POLICY %I ON %s FOR INSERT TO app_service WITH CHECK (true)',
-                       'app_service_' || r.cmd, r.tbl);
-      ELSE
-        EXECUTE format('CREATE POLICY %I ON %s FOR UPDATE TO app_service USING (true) WITH CHECK (true)',
-                       'app_service_' || r.cmd, r.tbl);
-      END IF;
-      n := n + 1;
+  FOR r IN SELECT * FROM public.app_service_policy_drift() LOOP
+    IF r.why = 'extra' THEN
+      EXECUTE format('DROP POLICY %I ON %s', 'app_service_' || r.cmd, r.tbl);
+    ELSIF r.cmd = 'select' OR r.cmd = 'delete' THEN
+      EXECUTE format('CREATE POLICY %I ON %s FOR %s TO app_service USING (true)',
+                     'app_service_' || r.cmd, r.tbl, r.cmd);
+    ELSIF r.cmd = 'insert' THEN
+      EXECUTE format('CREATE POLICY %I ON %s FOR INSERT TO app_service WITH CHECK (true)',
+                     'app_service_' || r.cmd, r.tbl);
+    ELSE
+      EXECUTE format('CREATE POLICY %I ON %s FOR UPDATE TO app_service USING (true) WITH CHECK (true)',
+                     'app_service_' || r.cmd, r.tbl);
     END IF;
+    n := n + 1;
   END LOOP;
   RETURN n;
 END;
@@ -219,6 +249,7 @@ SELECT public.app_service_sync_policies();
 --     INHERIT option, fixed when granted, so check the effect);
 --   - any table, view or sequence granted to PUBLIC, which a login reaches
 --     after RESET ROLE without being any of these roles.
+--   - an app_service policy missing or extra (public.app_service_policy_drift()).
 -- With p_runtime_controls (once the logins can log in), also the runbook's
 -- out-of-band controls: the DDL event trigger in this database, and both
 -- logins in supautils.reserved_roles.
@@ -256,6 +287,9 @@ BEGIN
      OR pg_has_role('isaflow_app', 'app_user', 'USAGE') THEN
     RETURN NEXT 'isaflow_app must be NOINHERIT and must not inherit app_user';
   END IF;
+  FOR r IN SELECT d.why, d.tbl, d.cmd FROM public.app_service_policy_drift() d LOOP
+    RETURN NEXT format('app_service policy %s on %s is %s (run SELECT public.app_service_sync_policies())', r.cmd, r.tbl, r.why);
+  END LOOP;
   FOR r IN SELECT c.oid::regclass AS rel, a.privilege_type
              FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace,
                   aclexplode(c.relacl) a
@@ -263,9 +297,12 @@ BEGIN
     RETURN NEXT format('%s grants %s to PUBLIC, which every login holds after RESET ROLE', r.rel, r.privilege_type);
   END LOOP;
   IF p_runtime_controls THEN
+    -- Fires always ('O' origin, 'A' always; not 'R' replica-only or 'D'), on
+    -- every tag, and runs the runbook's function.
     IF NOT EXISTS (SELECT 1 FROM pg_event_trigger WHERE evtname = 'refuse_app_pool_ddl'
-                     AND evtevent = 'ddl_command_start' AND evtenabled <> 'D') THEN
-      RETURN NEXT 'event trigger refuse_app_pool_ddl is missing or disabled in this database (runbook step 2)';
+                     AND evtevent = 'ddl_command_start' AND evtenabled IN ('O', 'A') AND evttags IS NULL
+                     AND evtfoid = to_regprocedure('public.refuse_app_pool_ddl()')) THEN
+      RETURN NEXT 'event trigger refuse_app_pool_ddl is missing, disabled or not as the runbook creates it, in this database (runbook step 2)';
     END IF;
     reserved := regexp_split_to_array(coalesce(current_setting('supautils.reserved_roles', true), ''), '\s*,\s*');
     FOREACH login IN ARRAY ARRAY['isaflow_app', 'isaflow_service'] LOOP

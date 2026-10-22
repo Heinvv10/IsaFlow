@@ -178,6 +178,12 @@ if sudo test -f "$PROD_ENV"; then
 
     echo "Running schema-drift audit..."
     DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/audit-schema-drift.ts"
+
+    # S-07b: the app's login roles still cannot reach the owner, and, once they
+    # can log in, the runbook's event trigger and reserved roles are in place.
+    # Before the code switch: a failure here is configuration, which a code
+    # rollback would not fix (docs/runbooks/s07b-app-pool-login-roles.md).
+    DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/check-app-login-roles.ts"
   else
     echo "WARNING: neither OWNER_DATABASE_URL nor DATABASE_URL found in $PROD_ENV — skipping migrations"
   fi
