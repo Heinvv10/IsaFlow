@@ -52,7 +52,8 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   if (!session) {
     return { redirect: { destination: '/accounting/afs/portal/login?error=expired', permanent: false } };
   }
-  const documentId = context.params?.documentId as string;
+  // Encoded: a `..%2F` in the route param must not re-point this server-side fetch.
+  const documentId = encodeURIComponent(String(context.params?.documentId ?? ''));
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
   try {
     const res = await fetch(`${baseUrl}/api/accounting/portal/documents/${documentId}`, {
