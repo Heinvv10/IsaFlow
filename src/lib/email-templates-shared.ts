@@ -64,6 +64,19 @@ export const BRAND = {
 
 // ─── Shared Layout ────────────────────────────────────────────────────────────
 
+/**
+ * One content row for emailLayout. emailLayout's `content` sits directly inside
+ * its card <table>, so it must be <tr> rows: bare <h2>/<p> there are moved out
+ * of the card by the HTML parser and render above the logo.
+ */
+export function emailContentRow(inner: string): string {
+  return `
+    <tr><td style="padding:32px; font-family:${BRAND.fontStack}; color:${BRAND.textBody};">
+      ${inner}
+    </td></tr>`;
+}
+
+/** `content` must be <tr> rows — wrap free-flowing HTML in emailContentRow. */
 export function emailLayout(content: string): string {
   const header = `
     <tr>
