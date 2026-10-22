@@ -1,4 +1,4 @@
-// Migration 909 (audit S-04/S-08 follow-ups A and B), by raw SQL as the real
+// Migration 908b (audit S-04/S-08 follow-ups A and B), by raw SQL as the real
 // roles, the services bypassed.
 //
 // A: no writer but app_user (platform_admin — the admin site — or any other
@@ -11,13 +11,13 @@ import { Pool } from 'pg';
 import { assertDisposableDb, isDisposableDb } from '../helpers/assertDisposableDb';
 import { asRole, cleanup, outcome, ownersOf, roleOf, seedCompany } from './s0408-owner-rules.helpers';
 
-assertDisposableDb('909 seeds companies and members.');
+assertDisposableDb('908b seeds companies and members.');
 
 const id = () => crypto.randomUUID();
 const DEL = 'DELETE FROM company_users WHERE company_id = $1 AND user_id = $2';
 const DEMOTE = "UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2";
 
-describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('909 — owner rules in company_users_role_guard', () => {
+describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('908b — owner rules in company_users_role_guard', () => {
   let pool: Pool;
   const companies: string[] = [];
 

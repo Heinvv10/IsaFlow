@@ -1,4 +1,4 @@
--- 909: Audit S-04/S-08 follow-ups A and B — two owner rules move into
+-- 908b: Audit S-04/S-08 follow-ups A and B — two owner rules move into
 -- company_users_role_guard() (886). Same trigger, same grants, same lock order
 -- (the row, which a BEFORE ROW trigger on UPDATE/DELETE already holds, then
 -- the per-company advisory lock `company_owners:<company>`).
@@ -95,7 +95,7 @@ BEGIN
           USING ERRCODE = 'RC007';
       END IF;
     END IF;
-    -- A (909): the last owner, outside app_user. platform_admin always; any
+    -- A (908b): the last owner, outside app_user. platform_admin always; any
     -- other role unless it is a superuser (see the header). Leaving is judged
     -- against the exact 'owner' here: these roles have no role allow-list, and
     -- an owner rewritten as 'OWNER' is no owner to the exact counts and to RLS
@@ -157,7 +157,7 @@ BEGIN
     -- not FOR UPDATE on the owner rows: each UPDATE already holds its own row,
     -- so row locks taken in id order would deadlock the pair.
     PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('company_owners:' || OLD.company_id::pg_catalog.text, 0));
-    -- B (909): only an owner changes or removes an owner, judged by the role
+    -- B (908b): only an owner changes or removes an owner, judged by the role
     -- read after the lock (an owner write that demoted the actor has committed).
     IF public.company_member_actor_role(v_company) IS DISTINCT FROM 'owner' THEN
       RAISE EXCEPTION 'Only an owner can change or remove another owner.' USING ERRCODE = 'RC010';
@@ -193,15 +193,15 @@ BEGIN
   SELECT p.prosrc INTO v_src FROM pg_catalog.pg_proc p
   WHERE p.oid = 'public.company_users_role_guard()'::pg_catalog.regprocedure AND NOT p.prosecdef;
   IF v_src IS NULL THEN
-    RAISE EXCEPTION 'migration 909: company_users_role_guard() is missing or SECURITY DEFINER';
+    RAISE EXCEPTION 'migration 908b: company_users_role_guard() is missing or SECURITY DEFINER';
   END IF;
   IF pg_catalog.strpos(v_src, '''RC010''') = 0 OR pg_catalog.strpos(v_src, '''RC011''') = 0 THEN
-    RAISE EXCEPTION 'migration 909: company_users_role_guard() lacks the RC010 (owner-only) or RC011 (last owner outside app_user) rule';
+    RAISE EXCEPTION 'migration 908b: company_users_role_guard() lacks the RC010 (owner-only) or RC011 (last owner outside app_user) rule';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
                  WHERE t.tgrelid = 'public.company_users'::pg_catalog.regclass AND t.tgname = 'company_users_role_guard'
                    AND t.tgfoid = 'public.company_users_role_guard()'::pg_catalog.regprocedure
                    AND t.tgenabled = 'O' AND t.tgtype = 31) THEN
-    RAISE EXCEPTION 'migration 909: company_users has no enabled BEFORE INSERT OR UPDATE OR DELETE row guard (apply 883 first)';
+    RAISE EXCEPTION 'migration 908b: company_users has no enabled BEFORE INSERT OR UPDATE OR DELETE row guard (apply 883 first)';
   END IF;
 END $$;

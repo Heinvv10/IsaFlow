@@ -109,7 +109,7 @@ async function session(c: string, sub: string): Promise<PoolClient> {
 }
 
 describe('the last owner', () => {
-  // The second's actor is the owner the first just demoted: since 909 it is
+  // The second's actor is the owner the first just demoted: since 908b it is
   // refused as no longer an owner (RC010), read after the lock, before the
   // last-owner count (RC005) would refuse it. Either way one owner stays.
   it('two owners demoting each other at once: the second is judged after the first commits, and refused (RC010)', async () => {
@@ -182,7 +182,7 @@ describe('the last owner', () => {
   it("a duplicate row of the same user, in another case, is not a second owner (RC005)", async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.a, 'admin']]);
     await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1, upper($2), 'owner')", [c, p.o]);
-    // The owner demotes themselves (an admin is refused first, RC010, since 909).
+    // The owner demotes themselves (an admin is refused first, RC010, since 908b).
     expect(await outcome(asApp(c, p.o, (cl) => cl.query(
       "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.o])))).toBe('RC005');
   });
