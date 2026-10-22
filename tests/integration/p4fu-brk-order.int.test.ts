@@ -89,13 +89,11 @@ describe('G4: months approved out of order', () => {
   it('January approved after February: the January line warns, naming February; the shortfall is the R340 the warning describes', async () => {
     const inOrderEmployee = await seedEmployee('P4fu order: in order', 20_000);
     await setSalary(inOrderEmployee, 2027, 1, 60_000);
-    let inOrder = 0;
+    // Every month's run exists (as a draft) before the first is calculated: a later DRAFT must not warn.
     const inOrderIds: string[] = [];
-    for (const p of PERIODS) {
-      const { id, paye } = await payMonth(inOrderEmployee, p.year, p.month);
-      inOrder += paye;
-      inOrderIds.push(id);
-    }
+    for (const p of PERIODS) inOrderIds.push(await mk(inOrderEmployee, p.year, p.month));
+    let inOrder = 0;
+    for (const id of inOrderIds) inOrder += await calcApprove(inOrderEmployee, id);
     const codes = async (id: string, employee: string) =>
       ((await runLine(pool, id, employee)).validation_results as Array<{ code: string; message: string }>);
     for (const id of inOrderIds) expect((await codes(id, inOrderEmployee.employee)).map(c => c.code)).not.toContain('PAYE_LATER_PERIODS_APPROVED');
