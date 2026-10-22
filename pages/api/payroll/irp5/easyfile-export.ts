@@ -29,7 +29,10 @@ import {
 } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
-import { listRunAnnualPayments, listRunLumpSums } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
+import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
+import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
+import { getTaxYearConfig, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
+import { getAge } from '@/modules/accounting/services/payroll/payeEngine';
 
 function firstTwoNames(fullFirst: string): string {
   return fullFirst.trim().split(/\s+/).slice(0, 2).join(' ');
@@ -63,6 +66,29 @@ function monthsBetween(start: string, endInclusive: string): number {
   return Math.min(12, Math.max(0, months));
 }
 
+/** The date of birth an RSA ID number (YYMMDD...) carries; the century is the one that puts it in the past. */
+function birthFromIdNumber(idNumber: unknown): Date | null {
+  const m = /^(\d{2})(\d{2})(\d{2})\d{7}$/.exec(String(idNumber ?? ''));
+  if (!m) return null;
+  const yy = Number(m[1]);
+  const year = (yy > new Date().getFullYear() % 100 ? 1900 : 2000) + yy;
+  const d = new Date(year, Number(m[2]) - 1, Number(m[3]));
+  return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
+}
+
+/**
+ * The SARS tax threshold for the year by age on its last day (G21 2027 p. 3), or
+ * undefined when unknown. Age from the date of birth, else from the ID number.
+ */
+function taxThresholdFor(taxYear: number, dateOfBirth: unknown, idNumber: unknown): number | undefined {
+  const born = dateOfBirth ? (dateOfBirth instanceof Date ? dateOfBirth : new Date(String(dateOfBirth))) : birthFromIdNumber(idNumber);
+  // February of taxYear is in taxYear: null means its tables are loaded.
+  if (!born || Number.isNaN(born.getTime()) || unloadedTaxYearMessage(2, taxYear) !== null) return undefined;
+  const config = getTaxYearConfig(taxYear);
+  const age = getAge(born, new Date(taxYear, 2, 0));
+  return age >= 75 ? config.threshold75plus : age >= 65 ? config.threshold65to74 : config.thresholdBelow65;
+}
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
     return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET']);
@@ -79,11 +105,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // cancelled run declared here would over-state remuneration to SARS.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
-  // Severance paid in a run under its directive (own code, PAYE under 4115) and
-  // annual payments (3605): reported apart, so taken out of 3601 (and the lump
-  // sums' PAYE out of 4102) below (audit 2026-10-18 P3).
+  // Lump sums paid under a directive, in a run or outside payroll (own code,
+  // PAYE under 4115 or 4102 by code), and annual payments (3605): reported
+  // apart, so taken out of 3601 below (audit 2026-10-18 P3; PAYE 4a
+  // follow-ups G1). The stand-alone payments are in no run line, so their
+  // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSumsByEmployee, annualByEmployee] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -96,7 +124,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       WHERE id = ${companyId}::uuid
     ` as Promise<DbRow[]>,
     sql`
-      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date
+      SELECT id, first_name, last_name, id_number, tax_number, start_date, end_date, date_of_birth
       FROM   payroll_employees
       WHERE  company_id = ${companyId}::uuid
       ORDER  BY last_name, first_name
@@ -120,7 +148,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         )
       GROUP BY prl.employee_id
     ` as Promise<DbRow[]>,
-    listRunLumpSums(companyId, bounds),
+    listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
   ]);
 
@@ -156,17 +184,22 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const yoaEndInclusive = `${endYear}0228`; // Feb 28 — good enough for periods heuristic
 
   const employees: EmployeeInput[] = [];
+  const warnings: string[] = [];
   let seq = 0;
   for (const row of empRows) {
-    const agg = aggMap.get(String(row.id));
+    const standalone = lumpSums.standaloneTotals.get(String(row.id)) ?? { gross: 0, paye: 0 };
+    const agg = aggMap.get(String(row.id)) ?? (standalone.gross > 0 ? ({} as DbRow) : undefined);
     if (!agg) continue;
-    const gross = Number(agg.total_gross ?? 0);
+    const gross = Number(agg.total_gross ?? 0) + standalone.gross;
     if (gross <= 0) continue; // skip non-active employees
 
-    const lumpSums = lumpSumsByEmployee.get(String(row.id)) ?? [];
+    const employeeLumpSums = lumpSums.byEmployee.get(String(row.id)) ?? [];
     const split = splitCertificateIncome({
-      gross, paye: Number(agg.total_paye ?? 0), annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums,
+      gross, paye: Number(agg.total_paye ?? 0) + standalone.paye,
+      annualPayments: annualByEmployee.get(String(row.id)) ?? 0, lumpSums: employeeLumpSums,
     });
+    const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
+    warnings.push(...employeeLumpSums.filter(l => l.issuedDateFallback).map(l => issuedDateWarning(who, l)));
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
@@ -185,13 +218,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       employmentEndDate: certEndDate,
       periodsInYoA: monthsBetween(periodStart, periodEnd),
       ...split,
-      lumpSums: lumpSums.map(l => ({
+      lumpSums: employeeLumpSums.map(l => ({
         sourceCode: l.sourceCode,
         directiveNumber: l.directiveNumber ?? '',
         directiveIssuedDate: l.directiveIssuedDate.replace(/-/g, ''),
         amount: l.amount,
         paye: l.paye,
       })),
+      taxThreshold: taxThresholdFor(taxYear, row.date_of_birth, row.id_number),
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),
@@ -228,6 +262,29 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     log.info('e@syFile IRP5 export generated', {
       companyId, taxYear, employees: employees.length, bytes: fileBody.length,
     }, 'easyFileExport');
+    // A directive with no issued date files its effective date as 3231, and a
+    // payment under a directive linked to no employee is on no certificate
+    // (applyTaxDirective now refuses those): both said, naming the directive,
+    // and shown by the IRP5 page.
+    // A payment on no certificate first: the cap below must never hide one.
+    warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
+      + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
+    // Capped by encoded size (a proxy's header buffer is often 4 KB), so many such directives cannot break the download.
+    const HEADER_BUDGET = 2_000;
+    const warningsTotal = warnings.length;
+    const more = (n: number) => `… and ${warningsTotal - n} more like these.`;
+    const fits = (n: number) => encodeURIComponent(JSON.stringify(
+      n === warningsTotal ? warnings : [...warnings.slice(0, n), more(n)])).length <= HEADER_BUDGET;
+    let shown = warningsTotal;
+    while (shown > 0 && !fits(shown)) shown -= 1;
+    if (shown < warningsTotal) warnings.splice(shown, warningsTotal, more(shown));
+    if (warnings.length > 0) {
+      // Counts only in the log: the text names employees and is for the authorised caller.
+      log.warn('e@syFile export warnings', {
+        companyId, taxYear, warnings: warningsTotal, unlinkedPayments: lumpSums.unlinked.map(p => p.paymentId),
+      }, 'easyFileExport');
+      res.setHeader('X-IsaFlow-Warnings', encodeURIComponent(JSON.stringify(warnings)));
+    }
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
