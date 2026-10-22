@@ -15,14 +15,7 @@ import { poolSizeFromEnv, MIN_PG_POOL_MAX } from '@/lib/limits/poolLimits';
 // date columns arrive as 'YYYY-MM-DD' strings instead of local-midnight Dates.
 // See src/lib/pgTypes.ts for why that matters.
 import '@/lib/pgTypes';
-
-function getDatabaseUrl(): string {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    throw new Error('DATABASE_URL is not set. Please configure it in your environment.');
-  }
-  return url;
-}
+import { serviceDatabaseUrl } from '@/lib/serviceDatabaseUrl';
 
 let _pool: pg.Pool | null = null;
 
@@ -37,7 +30,7 @@ let _pool: pg.Pool | null = null;
 export function getPool(): pg.Pool {
   if (!_pool) {
     _pool = new pg.Pool({
-      connectionString: getDatabaseUrl(),
+      connectionString: serviceDatabaseUrl(),
       max: poolSizeFromEnv('PG_POOL_MAX', 10, 'pool', MIN_PG_POOL_MAX),
       connectionTimeoutMillis: 15000,
       idleTimeoutMillis: 30000,
