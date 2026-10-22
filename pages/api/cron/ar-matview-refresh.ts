@@ -7,10 +7,11 @@
  *
  * Authentication: X-Cron-Secret header must match CRON_SECRET env var.
  *
- * NOTE: REFRESH MATERIALIZED VIEW CONCURRENTLY requires a unique index on
- * the MV (mig 427 provides idx_cust_inv_view_summary) and cannot run inside
- * a transaction block — Neon's single-shot `sql` helper issues each tagged
- * template as its own statement, which is what we want here.
+ * NOTE: REFRESH MATERIALIZED VIEW CONCURRENTLY needs a unique index on the
+ * MV (mig 427 provides idx_cust_inv_view_summary), must be run by the view's
+ * owner, and cannot run inside a transaction block. The service pool is not
+ * the owner (S-07b), so it calls the SECURITY DEFINER wrapper from migration
+ * 915, which refreshes this one view and takes no input.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -39,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const started = Date.now();
   log.info('Cron triggered: ar-matview-refresh', {}, 'cron-ar-matview-refresh');
 
-  await sql`REFRESH MATERIALIZED VIEW CONCURRENTLY customer_invoice_view_summary`;
+  await sql`SELECT refresh_customer_invoice_view_summary()`;
   const durationMs = Date.now() - started;
 
   log.info('Cron complete: ar-matview-refresh', { durationMs }, 'cron-ar-matview-refresh');

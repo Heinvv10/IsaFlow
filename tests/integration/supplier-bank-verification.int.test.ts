@@ -18,7 +18,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
 import eftFileRelease from '../../pages/api/accounting/eft-file-release';
 import { dataOf, messageOf } from './r035-pr2.helpers';
-import { cleanupPr5, plantBatch, plantSupplier } from './r035-pr5.helpers';
+import { cleanupPr5, plantApprovedBatch, plantSupplier } from './r035-pr5.helpers';
 import { bankCompany, bankRoutes, submissionsOf, verificationsOf } from './supplier-bank-verification.helpers';
 
 assertDisposable();
@@ -41,7 +41,7 @@ afterAll(() => cleanupPr5(pool, companies, Object.values(u)));
 /** A company with a two-payee draft batch (suppliers planted WITH bank details), switched on by B. */
 async function enforcedBatch() {
   const { company: c, bank } = await bankCompany(pool, [[u.a, 'admin'], [u.b, 'owner'], [u.c, 'admin'], [u.k, 'bookkeeper']], companies);
-  const batch = await plantBatch(pool, c, u.a, bank);
+  const batch = await plantApprovedBatch(pool, c, u.a, bank);
   const on = await r.toggle(u.b, c, true);
   expect(on.state.statusCode, JSON.stringify(on.state.body)).toBe(200);
   return { c, bank, batch, s: batch.members[0]!.supplierId };
@@ -252,7 +252,7 @@ describe('a bank-detail change blocks money leaving until someone else verifies'
 describe('enforcement off', () => {
   it('no gate at all: a changed, never-verified supplier is paid by EFT and Netcash batch; a raw list is refused; verify is refused', async () => {
     const { company: c, bank } = await bankCompany(pool, [[u.a, 'admin'], [u.c, 'admin']], companies);
-    const batch = await plantBatch(pool, c, u.a, bank);
+    const batch = await plantApprovedBatch(pool, c, u.a, bank);
     const s = batch.members[0]!.supplierId;
     await r.changeBank(u.a, c, s, { bankAccountNumber: '62444444444' });
     expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);
