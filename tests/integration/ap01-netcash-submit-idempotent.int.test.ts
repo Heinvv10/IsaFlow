@@ -32,7 +32,7 @@ vi.mock('@/modules/accounting/services/ap/netcashService', () => ({ submitEftBat
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -61,7 +61,7 @@ afterAll(() => cleanupPr5(pool, companies, [user]));
 async function fixture() {
   const { company: c, bank } = await payCompany(pool, [[user, 'admin']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  return { c, b: await plantBatch(pool, c, user, bank) };
+  return { c, b: await plantApprovedBatch(pool, c, user, bank) };
 }
 const submit = (c: string, batchId: string) => callRoute(netcashSubmit, tokens[user]!, c, 'POST',
   { batchPaymentId: batchId }, '/api/accounting/netcash/submit');
@@ -186,7 +186,7 @@ describe('netcash/submit batch idempotency (AP-01)', () => {
 
   it('two different batches of one company are independent', async () => {
     const { c, b } = await fixture();
-    const other = await plantBatch(pool, c, user, (await pool.query(
+    const other = await plantApprovedBatch(pool, c, user, (await pool.query(
       "SELECT id FROM gl_accounts WHERE company_id = $1 AND account_subtype = 'bank'", [c])).rows[0].id as string);
     expect((await submit(c, b.id)).state.statusCode).toBe(200);
     expect((await submit(c, other.id)).state.statusCode).toBe(200);

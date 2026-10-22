@@ -19,6 +19,7 @@ import { log } from '@/lib/logger';
 import { journalStandsFragment, journalStandsUnbrokenFragment } from '../shared/journalInForceAsAt';
 import { brokenChainMessage, findJournalChainHead } from '../shared/journalChainHead';
 import { logAuditOrThrow } from '../core/auditTrailService';
+import { readGateFor, READ_GATE_MESSAGE } from '../capture/captureReadState';
 import {
   assertDocumentNotAlreadyPosted, DocumentAlreadyPostedRefusal, DocumentAlreadyLinkedRefusal,
 } from './documentJournalClaimGuard';
@@ -81,12 +82,13 @@ async function loadLinkableJournal(companyId: string, journalEntryId: string): P
   return { id: String(rows[0].id) };
 }
 
-async function documentBelongsToCompany(companyId: string, capturedDocumentId: string): Promise<boolean> {
+/** The company's own document with its read columns, or null (no existence oracle for another tenant's). */
+async function loadCompanyDocument(companyId: string, capturedDocumentId: string): Promise<DbRow | null> {
   const rows = (await sql`
-    SELECT id FROM captured_documents
+    SELECT id, read_state, read_heartbeat_at, created_at FROM captured_documents
     WHERE id = ${capturedDocumentId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  return rows.length > 0;
+  return rows[0] ?? null;
 }
 
 /**
@@ -110,9 +112,12 @@ export async function linkDocumentToJournal(
   const journal = await loadLinkableJournal(companyId, journalEntryId);
   if (!journal) throw new JournalDocumentLinkRefusal('Journal entry not found, not posted, or reversed.');
 
-  if (!(await documentBelongsToCompany(companyId, capturedDocumentId))) {
-    throw new JournalDocumentLinkRefusal('Captured document not found.');
-  }
+  const document = await loadCompanyDocument(companyId, capturedDocumentId);
+  if (!document) throw new JournalDocumentLinkRefusal('Captured document not found.');
+  // Only a finished read has an extraction (and so a VAT) to support the journal; reading -> done is one-way, so a
+  // plain read is safe. A failed or silent read says to upload the document again.
+  const gate = readGateFor(document);
+  if (gate) throw new JournalDocumentLinkRefusal(READ_GATE_MESSAGE[gate]);
 
   // Both directions of "one document, one claim": already backing another
   // posted journal via source_document_id, or already an active link. Both
@@ -221,7 +226,8 @@ export interface LinkableDocument {
 
 /**
  * Captured documents of the company, newest first, not currently backing
- * another claim (source_document_id OR active link), for the "pick a
+ * another claim (source_document_id OR active link) and whose background
+ * read finished (only then is there an extraction to link), for the "pick a
  * document" UI. `q` filters on file name, case-insensitive substring.
  */
 export async function listLinkableDocuments(
@@ -233,6 +239,7 @@ export async function listLinkableDocuments(
     FROM captured_documents cd
     WHERE cd.company_id = ${companyId}::UUID
       AND (${pattern}::TEXT IS NULL OR cd.file_name ILIKE ${pattern})
+      AND cd.read_state = 'done'
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_entries je
         WHERE je.company_id = ${companyId}::UUID AND je.source_document_id = cd.id
