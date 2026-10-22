@@ -5,8 +5,9 @@
  * tax_directive_payments row (UNIQUE (company_id, tax_directive_id), migration
  * 403), of either kind, while the journal that books it stands:
  * - a payroll run's claim (payroll_run_id, migration 901), booked by the run's
- *   journal: it stands while the run is approved or paid, or while its journal
- *   is in force (a reopened run keeps its journal until someone reverses it);
+ *   journal: it stands while that journal is in force (an approved or paid
+ *   run's journal cannot be reversed; a reopened run keeps it until someone
+ *   reverses it);
  * - a stand-alone payment (applyTaxDirective), booked by its own journal: it
  *   stands while that journal is in force. The same rule decides what is
  *   declared (directivePaymentFiling).
@@ -45,12 +46,8 @@ export async function directivePaidBy(companyId: string, directiveId: string, di
   `) as DbRow[];
   const p = rows[0];
   if (!p) return null;
-  const runPaid = p.payroll_run_id != null && ['approved', 'paid'].includes(String(p.run_status));
-  // A stand-alone row with no journal yet is being applied in a transaction still open: standing.
-  const standing = runPaid || (p.journal_id == null
-    ? p.payroll_run_id == null
-    : await payrollJournalInForce(companyId, String(p.journal_id)));
-  if (!standing) return null;
+  // No journal: none committed books it (a stand-alone payment links its journal in the same transaction).
+  if (p.journal_id == null || !(await payrollJournalInForce(companyId, String(p.journal_id)))) return null;
   const which = `SARS directive ${directiveNumber == null ? directiveId : String(directiveNumber)}`;
   const journal = p.entry_number == null ? 'its journal' : `journal ${String(p.entry_number)}`;
   if (p.payroll_run_id != null) {

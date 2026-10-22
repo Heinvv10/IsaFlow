@@ -24,6 +24,8 @@ import easyfile from '../../pages/api/payroll/irp5/easyfile-export';
 import directives from '../../pages/api/accounting/tax-directives';
 import directive from '../../pages/api/accounting/tax-directives/[id]';
 import type { Route } from './w3-01-payroll.helpers';
+import { SignJWT } from 'jose';
+import emp201Route from '../../pages/api/accounting/sars/sars-emp201';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
@@ -129,6 +131,33 @@ describe('G1: directive PAYE paid outside payroll reaches EMP201, the IRP5 data 
     const april = await generateEMP201(f.company, '2026-04-01', '2026-04-30');
     expect(april.totalPAYE).toBe(SALARY_PAYE);
     expect(april.directivePayments).toEqual([]);
+  });
+
+  it('the EMP201 route gives a viewer the totals but not the per-payment breakdown', async () => {
+    const viewer = crypto.randomUUID();
+    await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'viewer',true)", [viewer, `${viewer}@test.local`]);
+    await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'viewer')", [f.company, viewer]);
+    const token = await new SignJWT({ sub: viewer, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+    const get = async (tok: string) => {
+      const req = request({ 'sb-access-token': tok, active_company_id: f.company }, 'GET') as unknown as { url: string; query: Record<string, unknown> };
+      req.url = '/api/accounting/sars/sars-emp201?from=2026-05-01&to=2026-05-31';
+      req.query = { from: '2026-05-01', to: '2026-05-31' };
+      const out = response();
+      await (emp201Route as Route)(req as never, out.res as never);
+      return out.state as { statusCode: number; body: { data?: { totalPAYE: number; directivePayments: unknown[] } } };
+    };
+    try {
+      const asViewer = await get(token);
+      const asAdmin = await get(f.token);
+      expect(asViewer.statusCode, JSON.stringify(asViewer.body)).toBe(200);
+      expect(asViewer.body.data!.totalPAYE).toBe(6_000);
+      expect(asViewer.body.data!.directivePayments).toEqual([]);
+      expect(asAdmin.body.data!.directivePayments).toHaveLength(1);
+    } finally {
+      await pool.query('DELETE FROM company_users WHERE user_id = $1', [viewer]);
+      await pool.query('DELETE FROM users WHERE id = $1', [viewer]);
+    }
   });
 
   it('EMP201 declares a period holding only the stand-alone payment', async () => {
