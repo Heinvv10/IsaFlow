@@ -190,8 +190,8 @@ async function streamComputed(
 ): Promise<void> {
   const built = await buildComputedTable(companyId, table);
   const { summary } = built;
-  if (manifest) return apiResponse.success(res, { exportTimestamp, ...summary });
   res.setHeader('X-Schema-Version', summary.schemaVersion);
+  if (manifest) return apiResponse.success(res, { exportTimestamp, ...summary });
   res.setHeader('X-As-At', summary.asAt);
   res.setHeader('X-Row-Count', String(summary.rowCount));
   res.setHeader('X-Control-Total', summary.controlTotal.toFixed(2));
