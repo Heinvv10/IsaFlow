@@ -201,7 +201,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     await claim.end();
   }
   // Fenced: nothing was sent, whatever became of the row meanwhile (settled failed, or an operator freed it first).
-  if (result.fenced) return respondSendFenced(res, claimId, claim.fence.elapsedMs());
+  if (result.fenced) return respondSendFenced(res, claimId, claim.fence.elapsedMs(), settled.kind === 'lost' ? settled.status : 'failed');
   if (settled.kind === 'lost') return respondClaimLost(res, claimId, result, settled);
   const submissionId = claimId;
 
