@@ -12,8 +12,14 @@ vi.mock('@/modules/accounting/services/afs/noteGenerators/primaryStatements/divi
   DIVIDENDS_PAID_CODE: 'IS484', fetchDividendsPaid: dividends,
 }));
 
+// The income statement's opening line reads the ledger; nothing posted unless a test says so.
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => [{ balance: 0 }]) }));
+vi.mock('@/modules/accounting/services/gl/trialBalanceBasis', () => ({ getRetainedEarningsBroughtForward: vi.fn(async () => 0) }));
+const takeOnByLine = vi.hoisted(() => vi.fn(async (_c: string, _from: string, _through: string) => new Map<string, number>()));
+vi.mock('@/modules/accounting/services/afs/noteGenerators/primaryStatements/takeOnEquity', () => ({ fetchTakeOnByLine: takeOnByLine }));
+
 import {
-  addDerivedAccumulatedProfit, DERIVED_ACCUMULATED_PROFIT_CODE,
+  addDerivedAccumulatedProfit, addDerivedOpeningAccumulatedIncome, ACCUMULATED_TAKE_ON_CODE, DERIVED_ACCUMULATED_PROFIT_CODE,
 } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/derivedAccumulatedProfit';
 import type { SectionLine } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers';
 
@@ -62,5 +68,35 @@ describe('addDerivedAccumulatedProfit', () => {
   it('leaves a taxonomy with no equity section alone', async () => {
     const lines = [line('BS001', 1)];
     expect(await addDerivedAccumulatedProfit(lines, 'c', '2025-12-31', null)).toEqual(lines);
+  });
+});
+
+describe('addDerivedOpeningAccumulatedIncome: the "Balances taken on" line', () => {
+  const is485 = { ...line('IS485', 50), parentCode: null, isTotal: true, totalBasis: 'running' as const };
+
+  it('takes the accumulated-profit row and IS484 from the AFS SOCE take-on figures, by line, for each year', async () => {
+    takeOnByLine.mockImplementation(async (_c, from) => (from === '2025-01-01'
+      ? new Map([['BS045', 100], ['BSACCPL', 5], ['IS484', -30], ['BS043', 999], ['BS044', 7]])
+      : new Map([['BS045', 40]])));
+    try {
+      const out = await addDerivedOpeningAccumulatedIncome([is485], 'c', '2025-01-01', '2025-12-31', '2024-01-01', '2024-12-31');
+      const takeOn = out.find((l) => l.code === ACCUMULATED_TAKE_ON_CODE)!;
+      // Raw debit-minus-credit: credit-positive 75 (100 + 5 - 30; share capital and reserves are not on the row).
+      expect(takeOn).toMatchObject({ currentAmount: -75, priorAmount: -40, label: 'Balances taken on' });
+      expect(takeOn.sortOrder).toBeLessThan(is485.sortOrder);
+      expect(takeOnByLine).toHaveBeenCalledWith('c', '2025-01-01', '2025-12-31');
+      expect(takeOnByLine).toHaveBeenCalledWith('c', '2024-01-01', '2024-12-31');
+    } finally {
+      takeOnByLine.mockImplementation(async () => new Map());
+    }
+  });
+
+  it('is 0 with no take-on, and has no comparative without a prior year', async () => {
+    takeOnByLine.mockClear();
+    const out = await addDerivedOpeningAccumulatedIncome([is485], 'c', '2025-01-01', '2025-12-31', null, null);
+    const takeOn = out.find((l) => l.code === ACCUMULATED_TAKE_ON_CODE)!;
+    expect(takeOn.currentAmount).toBeCloseTo(0, 2);
+    expect(takeOn.priorAmount).toBeCloseTo(0, 2);
+    expect(takeOnByLine).toHaveBeenCalledTimes(1);
   });
 });
