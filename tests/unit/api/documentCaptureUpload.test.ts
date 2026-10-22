@@ -138,6 +138,31 @@ describe('POST /api/accounting/document-capture', () => {
     expect((await post()).statusCode).toBe(201);
   });
 
+  it('does not charge the rate limit for a request that fails validation (no file, wrong type, wrong bytes)', async () => {
+    m.parse.mockResolvedValue({ files: {} });
+    expect((await post()).statusCode).toBe(400);
+    m.parse.mockResolvedValue({ files: { file: file({ mimetype: 'text/plain' }) } });
+    expect((await post()).statusCode).toBe(400);
+    m.parse.mockResolvedValue({ files: { file: file() } });
+    m.bufferOf.mockReturnValue(Buffer.from('PK\u0003\u0004 not a pdf'));
+    expect((await post()).statusCode).toBe(400);
+    m.bufferOf.mockReturnValue(Buffer.alloc(0));
+    expect((await post()).statusCode).toBe(400);
+    expect(m.rateLimit).not.toHaveBeenCalled();
+  });
+
+  it('charges it once a valid file has been parsed, before the in-flight count and the insert', async () => {
+    const order: string[] = [];
+    m.rateLimit.mockImplementation(async () => { order.push('rate'); return true; });
+    m.sql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const text = strings.join('?');
+      order.push(text.includes('COUNT(*)') ? 'count' : text.includes('INSERT') ? 'insert' : 'other');
+      return text.includes('COUNT(*)') ? [{ n: 0 }] : [insertedRow()];
+    });
+    await post();
+    expect(order).toEqual(['rate', 'count', 'insert']);
+  });
+
   it('still validates before it inserts: a file whose bytes do not match its type is a 400', async () => {
     m.bufferOf.mockReturnValue(Buffer.from('PK\u0003\u0004 not a pdf'));
     const res = await post();

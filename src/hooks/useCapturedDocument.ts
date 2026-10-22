@@ -18,21 +18,27 @@ export function useCapturedDocument(docId: string | string[] | undefined, onLoad
   const [error, setError] = useState('');
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
+  // The id being shown now. An answer for any other id (the page moved on while it was in flight) is dropped.
+  const currentId = useRef(docId);
+  currentId.current = docId;
 
   const reload = useCallback(async (silent = false): Promise<PollOutcome> => {
     if (!docId) return 'ok';
+    const stale = () => String(currentId.current) !== String(docId);
     if (!silent) { setIsLoading(true); setError(''); }
     try {
       const found = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`, undefined, 'Could not load the document - try again');
+      if (stale()) return 'ok';
       setDoc(found);
       if (!(silent && found.readState === 'reading')) onLoadedRef.current(found);
       return 'ok';
     } catch (err) {
+      if (stale()) return 'ok';
       if (silent) return err instanceof ApiRequestError && (err.status === 404 || err.status === 403) ? 'stop' : 'bad';
       setError(apiErrorMessage(err, 'Could not load document - try again'));
       return 'bad';
     } finally {
-      if (!silent) setIsLoading(false);
+      if (!silent && !stale()) setIsLoading(false);
     }
   }, [docId]);
 

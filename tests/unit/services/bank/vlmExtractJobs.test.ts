@@ -26,7 +26,12 @@ function register(company = CO, user = USER, now = T0): string {
   return r.jobId;
 }
 
-beforeEach(() => { delete (globalThis as Record<string, unknown>)[VLM_JOBS_KEY]; });
+/** A clock the test moves by hand: `runVlmExtractJob` reads it when the read starts and when it settles. */
+let clock = T0;
+const at = () => clock;
+const settle = (id: string, read: () => Promise<ExtractedDocument>) => runVlmExtractJob(id, read, at);
+
+beforeEach(() => { delete (globalThis as Record<string, unknown>)[VLM_JOBS_KEY]; clock = T0; });
 
 describe('registerVlmExtractJob', () => {
   it('hands out a UUID and the job reads as reading before it starts', () => {
@@ -49,7 +54,7 @@ describe('registerVlmExtractJob', () => {
   });
 
   it('does not count a finished job against the caps', async () => {
-    for (let i = 0; i < 3; i++) await runVlmExtractJob(register(), async () => doc, T0);
+    for (let i = 0; i < 3; i++) await settle(register(), async () => doc);
     expect('jobId' in registerVlmExtractJob(CO, USER, T0)).toBe(true);
   });
 
@@ -58,29 +63,56 @@ describe('registerVlmExtractJob', () => {
     expect('jobId' in registerVlmExtractJob(CO, USER, T0 + QUEUED_START_MS + 1)).toBe(true);
   });
 
-  it('forgets an entry after its TTL, so the store does not grow', async () => {
+  it('forgets a FINISHED entry JOB_TTL_MS after it finished, so the store does not grow', async () => {
     const id = register();
-    await runVlmExtractJob(id, async () => doc, T0);
-    expect(getVlmExtractJob(id, CO, USER, T0 + JOB_TTL_MS - 1)).toMatchObject({ state: 'done' });
+    await settle(id, async () => { clock = T0 + 5 * 60_000; return doc; });
     expect(JOB_TTL_MS).toBe(15 * 60_000);
-    registerVlmExtractJob(CO2, USER, T0 + JOB_TTL_MS + 1);
+    const finished = clock;
+    expect(getVlmExtractJob(id, CO, USER, finished + JOB_TTL_MS - 1)).toMatchObject({ state: 'done' });
+    registerVlmExtractJob(CO2, USER, finished + JOB_TTL_MS + 1);
     const store = (globalThis as Record<string, Map<string, unknown>>)[VLM_JOBS_KEY]!;
     expect(store.has(id)).toBe(false);
-    expect(getVlmExtractJob(id, CO, USER, T0 + JOB_TTL_MS + 1)).toBeNull();
+    expect(getVlmExtractJob(id, CO, USER, finished + JOB_TTL_MS + 1)).toBeNull();
+  });
+
+  it('never prunes a RUNNING job, however long it runs, and keeps counting it against the caps', async () => {
+    for (let i = 0; i < MAX_UNFINISHED_PER_COMPANY; i++) {
+      void settle(register(), () => new Promise<ExtractedDocument>(() => undefined));
+    }
+    const later = T0 + JOB_TTL_MS * 3;
+    expect(registerVlmExtractJob(CO, USER, later)).toEqual({ refused: 'company' });
+    const store = (globalThis as Record<string, Map<string, unknown>>)[VLM_JOBS_KEY]!;
+    expect(store.size).toBe(MAX_UNFINISHED_PER_COMPANY);
+  });
+
+  it('keeps a running job readable as reading past the TTL, and its result still lands when it settles', async () => {
+    const id = register();
+    let release: (d: ExtractedDocument) => void = () => undefined;
+    const running = settle(id, () => new Promise<ExtractedDocument>((resolve) => { release = resolve; }));
+    expect(getVlmExtractJob(id, CO, USER, T0 + JOB_TTL_MS * 2)).toEqual({ state: 'reading' });
+    clock = T0 + JOB_TTL_MS * 2;
+    release(doc);
+    await running;
+    expect(getVlmExtractJob(id, CO, USER, clock)).toEqual({ state: 'done', extracted: doc });
+  });
+
+  it('counts running jobs toward the platform cap whatever their age', () => {
+    for (let i = 0; i < MAX_UNFINISHED_TOTAL; i++) void settle(register(`co-${i}`), () => new Promise<ExtractedDocument>(() => undefined));
+    expect(registerVlmExtractJob('co-new', USER, T0 + JOB_TTL_MS * 5)).toEqual({ refused: 'platform' });
   });
 });
 
 describe('runVlmExtractJob', () => {
   it('stores the extraction and the job reads as done with it', async () => {
     const id = register();
-    await runVlmExtractJob(id, async () => doc, T0);
+    await settle(id, async () => doc);
     expect(getVlmExtractJob(id, CO, USER, T0)).toEqual({ state: 'done', extracted: doc });
   });
 
   it('shows a job whose read is still running as reading', async () => {
     const id = register();
     let release: () => void = () => undefined;
-    const running = runVlmExtractJob(id, () => new Promise<ExtractedDocument>((resolve) => { release = () => resolve(doc); }), T0);
+    const running = settle(id, () => new Promise<ExtractedDocument>((resolve) => { release = () => resolve(doc); }));
     expect(getVlmExtractJob(id, CO, USER, T0 + 120_000)).toEqual({ state: 'reading' });
     release();
     await running;
@@ -89,7 +121,7 @@ describe('runVlmExtractJob', () => {
 
   it('records a throw as failed with a generic message, never the real error, and does not throw', async () => {
     const id = register();
-    await expect(runVlmExtractJob(id, async () => { throw new Error('connect ECONNREFUSED 127.0.0.1:8100'); }, T0)).resolves.toBeUndefined();
+    await expect(settle(id, async () => { throw new Error('connect ECONNREFUSED 127.0.0.1:8100'); })).resolves.toBeUndefined();
     const job = getVlmExtractJob(id, CO, USER, T0);
     expect(job).toEqual({ state: 'failed', error: SCAN_FAILED });
     expect(JSON.stringify(job)).not.toContain('ECONNREFUSED');
@@ -97,19 +129,11 @@ describe('runVlmExtractJob', () => {
 
   it('does not run a job whose entry has gone, or one that waited out the 60 s start window', async () => {
     const read = vi.fn(async () => doc);
-    await runVlmExtractJob('00000000-0000-4000-8000-000000000000', read, T0);
+    await settle('00000000-0000-4000-8000-000000000000', read);
     const late = register();
-    await runVlmExtractJob(late, read, T0 + QUEUED_START_MS + 1);
+    clock = T0 + QUEUED_START_MS + 1;
+    await settle(late, read);
     expect(read).not.toHaveBeenCalled();
-  });
-
-  it('drops a result that finishes after its entry expired', async () => {
-    const id = register();
-    await runVlmExtractJob(id, async () => {
-      registerVlmExtractJob(CO2, USER, T0 + JOB_TTL_MS + 5);
-      return doc;
-    }, T0);
-    expect(getVlmExtractJob(id, CO, USER, T0 + JOB_TTL_MS + 5)).toBeNull();
   });
 });
 

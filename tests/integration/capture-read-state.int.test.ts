@@ -10,7 +10,7 @@ const m = vi.hoisted(() => ({ read: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/captureUploadForm', () => ({ readUploadedDocument: m.read }));
 
 import { runCaptureRead } from '@/modules/accounting/services/capture/captureReadJob';
-import { GENERIC_READ_ERROR } from '@/modules/accounting/services/capture/captureReadState';
+import { GENERIC_READ_ERROR, STALE_READ_ERROR } from '@/modules/accounting/services/capture/captureReadState';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -26,13 +26,16 @@ const extraction = (): ExtractedDocument => ({
   totalAmount: 115, lineItems: [], rawText: 'raw', confidence: 0.9, warnings: [], extractionMethod: 'vlm',
 });
 
-async function insertReading(over: { status?: string; vendor?: string | null; postedAt?: boolean; company?: string } = {}): Promise<string> {
+async function insertReading(
+  over: { status?: string; vendor?: string | null; postedAt?: boolean; company?: string; silentMinutes?: number } = {},
+): Promise<string> {
   const id = crypto.randomUUID();
   await pool.query(
     `INSERT INTO captured_documents(id, company_id, file_name, file_type, document_type, extracted_data, vendor_name,
-                                    status, posted_at, read_state)
-     VALUES($1, $2, 'read.pdf', 'pdf', NULL, '{}'::jsonb, $3, $4, ${over.postedAt ? 'NOW()' : 'NULL'}, 'reading')`,
-    [id, over.company ?? companyA, over.vendor ?? null, over.status ?? 'pending'],
+                                    status, posted_at, read_state, created_at)
+     VALUES($1, $2, 'read.pdf', 'pdf', NULL, '{}'::jsonb, $3, $4, ${over.postedAt ? 'NOW()' : 'NULL'}, 'reading',
+            NOW() - make_interval(mins => $5))`,
+    [id, over.company ?? companyA, over.vendor ?? null, over.status ?? 'pending', over.silentMinutes ?? 0],
   );
   return id;
 }
@@ -109,6 +112,39 @@ describe('runCaptureRead against the database', () => {
     expect(row).toMatchObject({ read_state: 'done', vendor_name: 'Posted Vendor', total_amount: null });
     expect(row.extracted_data).toEqual({});
     expect(row.posted_at).not.toBeNull();
+  });
+
+  it('does not overwrite a row a person confirmed (reviewed) while it was read', async () => {
+    const id = await insertReading({ status: 'reviewed', vendor: 'Confirmed Vendor' });
+    await runCaptureRead(companyA, id, BUF, 'application/pdf');
+    const row = await rowOf(id);
+    expect(row).toMatchObject({ read_state: 'done', status: 'reviewed', vendor_name: 'Confirmed Vendor', total_amount: null });
+    expect(row.extracted_data).toEqual({});
+  });
+
+  it('does not let a late result land on a row already shown as interrupted: it ends failed, data untouched', async () => {
+    const id = await insertReading({ silentMinutes: 30 });
+    await runCaptureRead(companyA, id, BUF, 'application/pdf');
+    const row = await rowOf(id);
+    expect(row).toMatchObject({
+      read_state: 'failed', read_error: STALE_READ_ERROR, status: 'pending', vendor_name: null, document_type: null, total_amount: null,
+    });
+    expect(row.extracted_data).toEqual({});
+  });
+
+  it('writes a row whose last sign of life is just inside the limit', async () => {
+    const id = await insertReading({ silentMinutes: 4 });
+    await runCaptureRead(companyA, id, BUF, 'application/pdf');
+    expect(await rowOf(id)).toMatchObject({ read_state: 'done', vendor_name: 'Read Vendor' });
+  });
+
+  it('a date the read garbled becomes NULL and the rest of the read is still saved', async () => {
+    m.read.mockResolvedValue({ ...extraction(), date: '2026-13-45' });
+    const id = await insertReading();
+    await runCaptureRead(companyA, id, BUF, 'application/pdf');
+    const row = await rowOf(id);
+    expect(row).toMatchObject({ read_state: 'done', document_date: null, vendor_name: 'Read Vendor' });
+    expect(row.extracted_data).toMatchObject({ date: '2026-13-45' });
   });
 
   it('lets a value a person typed win over the read value, and fills the rest', async () => {

@@ -19,7 +19,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: m.info, warn: m.warn, error: m.err
 vi.mock('@/modules/accounting/services/capture/captureUploadForm', () => ({ readUploadedDocument: m.read }));
 
 import { runCaptureRead } from '@/modules/accounting/services/capture/captureReadJob';
-import { GENERIC_READ_ERROR } from '@/modules/accounting/services/capture/captureReadState';
+import { GENERIC_READ_ERROR, STALE_READ_ERROR, STALE_AFTER_MINUTES } from '@/modules/accounting/services/capture/captureReadState';
 
 const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
 const DOC = 'cccccccc-0000-0000-0000-000000000003';
@@ -44,14 +44,14 @@ const extracted = (over: Partial<ExtractedDocument> = {}): ExtractedDocument => 
 beforeEach(() => {
   vi.resetAllMocks();
   calls.length = 0;
-  db = { saved: [{ id: DOC }], fallback: [{ id: DOC }], failed: [{ id: DOC }] };
+  db = { saved: [{ id: DOC }], fallback: [{ id: DOC, read_state: 'done' }], failed: [{ id: DOC }] };
   m.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const c = { text: strings.join('?'), values };
     calls.push(c);
     const t = text(c);
     if (t.includes("read_state = 'failed'")) return db.failed;
     if (t.includes('extracted_data =')) return db.saved;
-    if (t.includes("SET read_state = 'done'")) return db.fallback;
+    if (t.includes('SET read_state = CASE')) return db.fallback;
     return [];
   });
   m.read.mockResolvedValue(extracted());
@@ -73,7 +73,9 @@ describe('runCaptureRead — save', () => {
     expect(t).toContain("read_state = 'done'");
     expect(t).toContain('read_error = NULL');
     expect(t).toContain('read_heartbeat_at = NOW()');
-    expect(t).toContain("WHERE id = ? AND company_id = ? AND read_state = 'reading' AND posted_at IS NULL AND status <> 'rejected'");
+    expect(t).toContain("WHERE id = ? AND company_id = ? AND read_state = 'reading' AND posted_at IS NULL AND status = 'pending'");
+    expect(t).toContain('AND COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => ?)');
+    expect(save!.values).toContain(STALE_AFTER_MINUTES);
     expect(save!.values).toContain(DOC);
     expect(save!.values).toContain(CO);
     const json = save!.values.find((v) => typeof v === 'string' && v.startsWith('{')) as string;
@@ -98,36 +100,77 @@ describe('runCaptureRead — save', () => {
   it('logs the save by outcome', async () => {
     await runCaptureRead(CO, DOC, BUF, 'application/pdf');
     expect(m.info.mock.calls.map((c) => String(c[0])).join('|')).toContain('read complete');
-    expect(callsOn("SET read_state = 'done'")).toHaveLength(0);
+    expect(callsOn('SET read_state = CASE')).toHaveLength(0);
   });
 });
 
-describe('runCaptureRead — a row the user settled meanwhile', () => {
+describe('runCaptureRead — a row the user settled, or that went stale, meanwhile', () => {
   beforeEach(() => { db.saved = []; });
 
-  it('does not overwrite it: only read_state moves to done, with no user data in the statement', async () => {
+  it('does not write user data: one guarded UPDATE moves only read_state/read_error, naming no data column', async () => {
     await runCaptureRead(CO, DOC, BUF, 'application/pdf');
-    const [fb] = callsOn("SET read_state = 'done'").filter((c) => !text(c).includes('extracted_data'));
+    const [fb] = callsOn('SET read_state = CASE');
     expect(fb).toBeDefined();
     const t = text(fb!);
     expect(t).toContain("WHERE id = ? AND company_id = ? AND read_state = 'reading'");
-    for (const col of ['extracted_data', 'vendor_name', 'total_amount', 'status', 'document_type', 'notes']) {
+    for (const col of ['extracted_data', 'vendor_name', 'total_amount', 'status', 'document_type', 'notes', 'posted_at']) {
       expect(t).not.toContain(`${col} =`);
     }
     expect(fb!.values).toEqual(expect.arrayContaining([DOC, CO]));
     expect(fb!.values.some((v) => typeof v === 'string' && v.startsWith('{'))).toBe(false);
   });
 
-  it('does not report the read as complete', async () => {
+  it('a stale row ends failed with the interrupted message; a fresh settled one ends done (decided in the statement)', async () => {
     await runCaptureRead(CO, DOC, BUF, 'application/pdf');
-    expect(m.info.mock.calls.map((c) => String(c[0])).join('|')).not.toContain('read complete');
+    const t = text(callsOn('SET read_state = CASE')[0]!);
+    expect(t).toContain("WHEN COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => ?) THEN 'done' ELSE 'failed'");
+    expect(t).toContain('THEN NULL ELSE ? END');
+    expect(callsOn('SET read_state = CASE')[0]!.values).toEqual(expect.arrayContaining([STALE_AFTER_MINUTES, STALE_READ_ERROR]));
+  });
+
+  it('reports a settled row and a stale row differently, and never as complete', async () => {
+    await runCaptureRead(CO, DOC, BUF, 'application/pdf');
     expect(m.warn).toHaveBeenCalledWith(expect.stringContaining('settled meanwhile'), expect.anything(), expect.anything());
+    m.warn.mockClear();
+    db.fallback = [{ id: DOC, read_state: 'failed' }];
+    await runCaptureRead(CO, DOC, BUF, 'application/pdf');
+    expect(m.warn).toHaveBeenCalledWith(expect.stringContaining('went stale'), expect.anything(), expect.anything());
+    expect(m.info.mock.calls.map((c) => String(c[0])).join('|')).not.toContain('read complete');
   });
 
   it('logs when even the fallback matched nothing (the row is gone)', async () => {
     db.fallback = [];
     await runCaptureRead(CO, DOC, BUF, 'application/pdf');
     expect(m.warn.mock.calls.map((c) => String(c[0])).join('|')).toContain('no longer reading');
+  });
+});
+
+describe('runCaptureRead — the date the read found', () => {
+  const dateSent = () => {
+    const [save] = callsOn('extracted_data =');
+    // values: json, documentType, vendorName, date, referenceNumber, totalAmount, vatAmount, ...
+    return save!.values[3];
+  };
+
+  it.each(['2026-13-45', '2026-02-30', 'not a date', '01/10/2026', '', '2026-10-01T10:00:00Z'])(
+    '%j becomes NULL instead of failing the whole read', async (bad) => {
+      m.read.mockResolvedValue(extracted({ date: bad }));
+      await runCaptureRead(CO, DOC, BUF, 'application/pdf');
+      expect(dateSent()).toBeNull();
+      expect(callsOn("read_state = 'failed'")).toHaveLength(0);
+    });
+
+  it('keeps a valid date, including a leap day', async () => {
+    m.read.mockResolvedValue(extracted({ date: '2028-02-29' }));
+    await runCaptureRead(CO, DOC, BUF, 'application/pdf');
+    expect(dateSent()).toBe('2028-02-29');
+  });
+
+  it('keeps the invalid date in extracted_data, where a person can see what the read said', async () => {
+    m.read.mockResolvedValue(extracted({ date: '2026-13-45' }));
+    await runCaptureRead(CO, DOC, BUF, 'application/pdf');
+    const json = callsOn('extracted_data =')[0]!.values[0] as string;
+    expect(JSON.parse(json).date).toBe('2026-13-45');
   });
 });
 
@@ -176,6 +219,21 @@ describe('runCaptureRead — heartbeat and scoping', () => {
     const after = calls.length;
     await vi.advanceTimersByTimeAsync(300_000);
     expect(calls.length).toBe(after);
+  });
+
+  it('logs a failed heartbeat under the capture read label, not the statement one', async () => {
+    vi.useFakeTimers();
+    m.sql.mockImplementation(async (strings: TemplateStringsArray) => {
+      if (strings.join('?').includes('SET read_heartbeat_at = NOW()')) throw new Error('db blip');
+      return [{ id: DOC, read_state: 'done' }];
+    });
+    let release: (d: ExtractedDocument) => void = () => undefined;
+    m.read.mockImplementation(() => new Promise<ExtractedDocument>((resolve) => { release = resolve; }));
+    const done = runCaptureRead(CO, DOC, BUF, 'application/pdf');
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(m.warn).toHaveBeenCalledWith('Capture read keep-alive heartbeat failed', expect.anything(), 'capture-read');
+    release(extracted());
+    await done;
   });
 
   it('stops beating at the 15-minute ceiling for a read that never settles', async () => {

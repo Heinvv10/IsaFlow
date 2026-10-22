@@ -12,13 +12,16 @@
  * Production runs one Next process, so a restart loses in-flight jobs: the poll
  * gets a 404 and the client says the scan was interrupted.
  *
- * Bounds: an entry is forgotten JOB_TTL_MS after it was registered (a running
- * entry is never evicted before that); at most MAX_UNFINISHED_PER_COMPANY /
+ * Bounds: a RUNNING job is never pruned until its read settles (its result must
+ * have somewhere to land, and a read is bounded by the VLM's own timeouts), and
+ * it counts against the caps whatever its age. A FINISHED entry is forgotten
+ * JOB_TTL_MS after it finished. At most MAX_UNFINISHED_PER_COMPANY /
  * MAX_UNFINISHED_TOTAL jobs are unfinished at once, so a burst cannot pile reads
  * onto the shared VLM; at most MAX_ENTRIES are held, oldest finished first.
  * A job is registered BEFORE the request commits, as 'queued'. One that has not
  * started QUEUED_START_MS later (the request rolled back, or the after-commit
- * start never came) reads as failed and counts against no cap.
+ * start never came) reads as failed, counts against no cap, and is forgotten
+ * JOB_TTL_MS after it was registered.
  */
 
 import { randomUUID } from 'crypto';
@@ -42,6 +45,7 @@ interface Job {
   userId: string;
   state: JobState;
   createdAt: number;
+  finishedAt?: number;
   extracted?: ExtractedDocument;
   error?: string;
 }
@@ -64,7 +68,10 @@ const isUnfinished = (job: Job, now: number) => job.state === 'running' || (job.
 
 function prune(store: Map<string, Job>, now: number): void {
   for (const [id, job] of store) {
-    if (now - job.createdAt > JOB_TTL_MS) store.delete(id);
+    const forgotten = job.state === 'running' ? false
+      : job.state === 'queued' ? now - job.createdAt > JOB_TTL_MS
+        : now - (job.finishedAt ?? job.createdAt) > JOB_TTL_MS;
+    if (forgotten) store.delete(id);
   }
   // Map iterates in insertion order, so the first finished entry is the oldest.
   for (const [id, job] of store) {
@@ -95,30 +102,26 @@ export function registerVlmExtractJob(companyId: string, userId: string, now: nu
  * Run `read` for a registered job and keep its outcome. Started after COMMIT.
  * Never throws: a failure is logged and the job ends 'failed' with a generic
  * message. A job that is gone, or waited out its start window, is not run.
+ * `clock` is read when the read starts and when it settles.
  */
 export async function runVlmExtractJob(
-  jobId: string, read: () => Promise<ExtractedDocument>, now: number = Date.now(),
+  jobId: string, read: () => Promise<ExtractedDocument>, clock: () => number = Date.now,
 ): Promise<void> {
-  const store = jobs();
-  const job = store.get(jobId);
-  if (!job || job.state !== 'queued' || queuedTooLong(job, now)) {
+  const job = jobs().get(jobId);
+  if (!job || job.state !== 'queued' || queuedTooLong(job, clock())) {
     log.warn('vlmExtract: job is gone or did not start in time, not run', { jobId }, 'vlm-extract');
     return;
   }
   job.state = 'running';
   try {
-    const extracted = await read();
-    if (store.get(jobId) !== job) {
-      log.warn('vlmExtract: job expired while it was read, result dropped', { jobId }, 'vlm-extract');
-      return;
-    }
-    job.extracted = extracted;
+    job.extracted = await read();
     job.state = 'done';
   } catch (err) {
     log.error('vlmExtract: read failed', { jobId, error: err instanceof Error ? err.message : String(err) }, 'vlm-extract');
     job.error = SCAN_FAILED;
     job.state = 'failed';
   }
+  job.finishedAt = clock();
 }
 
 /** The job as its owner sees it; null for an unknown, expired or someone else's id. */

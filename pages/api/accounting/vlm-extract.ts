@@ -50,11 +50,6 @@ function handleGet(req: NextApiRequest, res: NextApiResponse) {
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
 
-  // No refund of the unused unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
-  if (!(await checkAiRateLimit(req, companyId, 'vlm-extract', { companyMax: 30, dailyMax: 300 }))) {
-    return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
-  }
-
   try {
     const { files } = await parseUploadForm(req);
 
@@ -79,6 +74,12 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     // files (e.g. ZIP claiming image/jpeg) from reaching the VLM pipeline.
     if (!magicBytesMatchMime(buffer, mimeType)) {
       return apiResponse.badRequest(res, 'File content does not match declared type');
+    }
+
+    // Charged only for a request that will start a read, so a 400 above costs no unit. No refund of the unused
+    // unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
+    if (!(await checkAiRateLimit(req, companyId, 'vlm-extract', { companyMax: 30, dailyMax: 300 }))) {
+      return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
     }
 
     const registered = registerVlmExtractJob(companyId, user?.id ?? '');
