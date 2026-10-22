@@ -13,6 +13,7 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   isPayrollRunLocked: () => false,
+  lockCompanyPayrollApprovals: vi.fn(),
   lockPayrollRunHeader: vi.fn(),
   PayrollRunLockedError: class extends Error {},
   saveCalculatedRunTotals: vi.fn(),

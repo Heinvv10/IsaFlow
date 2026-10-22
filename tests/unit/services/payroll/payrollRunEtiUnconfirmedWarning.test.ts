@@ -8,6 +8,7 @@ const inserts: unknown[][] = [];
 // The year-to-date for cumulative PAYE (PAYE 4a follow-ups G4) has its own tests (p4fu-cumulative-paye).
 vi.mock('@/modules/accounting/services/payroll/payrollYearToDate', () => ({
   loadPayeYearToDate: vi.fn(async () => new Map()),
+  laterPeriodsWarnings: vi.fn(async () => new Map()),
 }));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   isPayrollRunLocked: () => false,
+  lockCompanyPayrollApprovals: vi.fn(),
   lockPayrollRunHeader: vi.fn(),
   PayrollRunLockedError: class extends Error {},
   saveCalculatedRunTotals: vi.fn(async () => ({ id: 'r', company_id: 'c', status: 'calculated' })),
