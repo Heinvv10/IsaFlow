@@ -3,9 +3,12 @@
  * pages/accounting/afs/portal/ through without a staff login (PUBLIC_PATHS
  * '/accounting/afs/portal/'), so each page must gate itself. Every page found
  * there but the login page is imported and its getServerSideProps CALLED with
- * no cookie, a staff cookie only, and a portal token that does not verify:
- * each must redirect to the portal login, never render. A new page without
- * that gate (or with none at all) fails here. Judged by outcome, not text.
+ * no cookie, a staff cookie only, a portal token that does not verify, and a
+ * token that verifies but whose standing is gone (currentPortalSession null:
+ * the S-08 re-read): each must redirect to the portal login, never render. A
+ * new page without that gate (or with none at all) fails here. Judged by
+ * outcome, not text. Named limit: each page is called with one param value
+ * and an empty query; a page that renders only for another value is not seen.
  */
 import { readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -14,8 +17,9 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/head', () => ({ default: () => null }));
 vi.mock('next/link', () => ({ default: () => null }));
-// A token that does not verify; standing is never reached.
-vi.mock('@/lib/auth/portalJwt', () => ({ verifyPortalToken: vi.fn(async () => null) }));
+// 'valid' verifies; any other token does not. Standing is always gone.
+const SESSION = { contactId: 'c1', companyId: 'co-1', role: 'director', expiresAt: '' };
+vi.mock('@/lib/auth/portalJwt', () => ({ verifyPortalToken: vi.fn(async (t: string) => (t === 'valid' ? SESSION : null)) }));
 vi.mock('@/lib/auth/portalAuth', () => ({ currentPortalSession: vi.fn(async () => null) }));
 
 const ROOT = join(__dirname, '../../../pages/accounting/afs/portal');
@@ -42,9 +46,9 @@ describe('AFS portal pages gate themselves server-side', () => {
     expect(typeof mod.getServerSideProps, 'exports getServerSideProps').toBe('function');
     const call = (cookies: Record<string, string>) =>
       mod.getServerSideProps!({ req: { cookies }, params: { documentId: 'd1' }, query: {} } as never) as Promise<{ redirect?: { destination: string } }>;
-    for (const cookies of [{}, { 'sb-access-token': 'staff' }, { portal_session: 'forged' }]) {
+    for (const cookies of [{}, { 'sb-access-token': 'staff' }, { portal_session: 'forged' }, { portal_session: 'valid' }]) {
       const out = await call(cookies);
-      expect(out.redirect?.destination?.startsWith(LOGIN), `${page} with ${Object.keys(cookies).join(',') || 'no cookie'}`).toBe(true);
+      expect(out.redirect?.destination?.startsWith(LOGIN), `${page} with ${JSON.stringify(cookies)}`).toBe(true);
     }
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
