@@ -17,6 +17,7 @@ vi.mock('@/modules/accounting/services/capture/captureReadRetry', () => ({ retry
 vi.mock('@/modules/accounting/services/capture/captureLifecycleGate', () => ({ releaseClaimForLifecycleAction: m.release }));
 
 import action from '../../../pages/api/accounting/document-capture-action';
+import { CaptureRowLockTimeoutError } from '@/modules/accounting/services/capture/captureRowLock';
 import { STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 
 const CO = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -96,6 +97,12 @@ describe("document-capture-action 'retry'", () => {
     const b = await call({ id: ID, action: 'retry' });
     expect(b.res.statusCode).toBe(429);
     expect(JSON.stringify(b.res.sent)).toContain('AI request limit');
+  });
+
+  it('503 with Retry-After when the document is held past the lock timeout, not a 500', async () => {
+    m.retry.mockRejectedValue(new CaptureRowLockTimeoutError(ID));
+    const { res } = await call({ id: ID, action: 'retry' });
+    expect(res.statusCode).toBe(503);
   });
 
   it('does not take the lifecycle gate (retry is not confirm or reject)', async () => {

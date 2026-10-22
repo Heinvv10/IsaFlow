@@ -17,12 +17,13 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/neon', () => ({ sql: m.sql }));
 vi.mock('@/lib/logger', () => ({ log: { info: m.info, warn: m.warn, error: m.error, debug: vi.fn() } }));
-vi.mock('@/lib/documentStorage', () => ({ fetchRawBytes: m.fetch }));
+vi.mock('@/lib/documentStorage', async (orig) => ({ ...(await orig<typeof import('@/lib/documentStorage')>()), fetchRawBytes: m.fetch }));
 vi.mock('@/modules/accounting/services/capture/captureUploadForm', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/capture/captureUploadForm')>()),
   readUploadedDocument: m.read,
 }));
 
+import { sha256 } from '@/lib/documentStorage';
 import { runCaptureRead } from '@/modules/accounting/services/capture/captureReadJob';
 import { GENERIC_READ_ERROR, NOT_STORED_ERROR, STALE_READ_ERROR, STALE_AFTER_MINUTES } from '@/modules/accounting/services/capture/captureReadState';
 
@@ -30,7 +31,7 @@ const CO = 'aaaaaaaa-0000-0000-0000-000000000001';
 const DOC = 'cccccccc-0000-0000-0000-000000000003';
 const BUF = Buffer.from('%PDF-1.4 test');
 const ATTEMPT = 3;
-const stored = (fileType = 'pdf') => ({ buffer: BUF, hash: 'h', size: BUF.length, fileType });
+const stored = (fileType = 'pdf', storedHash: string | null = sha256(BUF)) => ({ buffer: BUF, hash: storedHash ?? 'fabricated', storedHash, size: BUF.length, fileType });
 
 interface Call { text: string; values: unknown[] }
 const calls: Call[] = [];
@@ -355,5 +356,39 @@ describe('runCaptureRead — the file is not in Storage', () => {
   it('never throws on a Storage failure', async () => {
     m.fetch.mockRejectedValue(new Error('boom'));
     await expect(runCaptureRead(CO, DOC, ATTEMPT)).resolves.toBeUndefined();
+  });
+});
+
+describe('runCaptureRead — integrity of the stored file', () => {
+  it('reads bytes whose hash matches the recorded one', async () => {
+    await runCaptureRead(CO, DOC, ATTEMPT);
+    expect(m.read).toHaveBeenCalledTimes(1);
+  });
+
+  it('a row with no recorded hash (legacy) is read without the check: the fabricated hash is never compared', async () => {
+    m.fetch.mockResolvedValue(stored('pdf', null));
+    await runCaptureRead(CO, DOC, ATTEMPT);
+    expect(m.read).toHaveBeenCalledTimes(1);
+    expect(callsOn("read_state = 'failed'")).toHaveLength(0);
+  });
+
+  it('bytes that do not match the recorded hash fail the read as not stored (not retryable), and are never read', async () => {
+    m.fetch.mockResolvedValue(stored('pdf', sha256(Buffer.from('some other file'))));
+    await runCaptureRead(CO, DOC, ATTEMPT);
+    const [failed] = callsOn("read_state = 'failed'");
+    expect(failed).toBeDefined();
+    expect(failed!.values).toContain(NOT_STORED_ERROR);
+    expect(m.read).not.toHaveBeenCalled();
+    expect(callsOn('extracted_data =')).toHaveLength(0);
+  });
+
+  it('logs the mismatch, and the hashes appear in neither the log nor the message the row carries', async () => {
+    const recorded = sha256(Buffer.from('some other file'));
+    m.fetch.mockResolvedValue(stored('pdf', recorded));
+    await runCaptureRead(CO, DOC, ATTEMPT);
+    expect(m.error.mock.calls.map((c) => String(c[0])).join('|')).toContain('integrity');
+    expect(JSON.stringify(m.error.mock.calls)).not.toContain(recorded);
+    expect(JSON.stringify(m.error.mock.calls)).not.toContain(sha256(BUF));
+    expect(JSON.stringify(callsOn("read_state = 'failed'")[0]!.values)).not.toContain(recorded);
   });
 });

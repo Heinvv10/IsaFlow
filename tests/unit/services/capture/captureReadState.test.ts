@@ -22,7 +22,13 @@ describe('effectiveReadState', () => {
   it('reports a read silent for over 5 minutes as failed, with the upload-again message', () => {
     const s = effectiveReadState(row({ created_at: ago(30), read_heartbeat_at: ago(6) }), NOW);
     expect(s).toMatchObject({ readState: 'failed', readError: STALE_READ_ERROR });
-    expect(STALE_READ_ERROR).toBe('The read was interrupted — upload the document again.');
+    expect(STALE_READ_ERROR).toBe('The read was interrupted — retry it.');
+  });
+
+  it('the messages on rows that can be retried say retry; only the not-stored one says upload again', () => {
+    expect(GENERIC_READ_ERROR).toBe('The document could not be read — retry the read.');
+    expect(STALE_READ_ERROR).toBe('The read was interrupted — retry it.');
+    expect(NOT_STORED_ERROR).toContain('upload it again');
   });
 
   it('is stale only after the limit has passed, not at it', () => {

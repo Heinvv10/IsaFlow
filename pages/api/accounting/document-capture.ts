@@ -191,6 +191,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
     ` as Record<string, unknown>[];
     const documentId = String(inserted?.id);
 
+    // The AI unit above is spent even if Storage fails here (500, row rolled back): accepted, nothing refunds it.
     const stored = await storeCapturedBytes(companyId, documentId, buffer, mimeType);
     const [row] = await sql`
       UPDATE captured_documents

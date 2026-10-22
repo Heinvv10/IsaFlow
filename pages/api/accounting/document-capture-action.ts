@@ -130,6 +130,7 @@ async function handleRetry(req: NextApiRequest, res: NextApiResponse, id: string
     return apiResponse.success(res, mapRow(out.row), 'Reading the document again');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (respondIfLockTimeout(res, err)) return;
     log.error('Document capture retry failed', { error: msg, id }, 'document-capture');
     return apiResponse.internalError(res, err, `Action failed: ${msg}`);
   }

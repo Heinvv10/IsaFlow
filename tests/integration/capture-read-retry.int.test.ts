@@ -10,15 +10,23 @@ import type { ExtractedDocument } from '@/modules/accounting/types/documentCaptu
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 import { objects } from './capture-read-storage.helpers';
 
-const m = vi.hoisted(() => ({ read: vi.fn() }));
+const m = vi.hoisted(() => ({ read: vi.fn(), charge: vi.fn(), realCharge: null as null | ((...a: unknown[]) => Promise<boolean>) }));
 vi.mock('@/modules/accounting/services/capture/captureUploadForm', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/capture/captureUploadForm')>()),
   readUploadedDocument: m.read,
 }));
+// The AI limiter is the REAL one, wrapped so a test can count the units charged (and act at the moment of the charge).
+vi.mock('@/lib/rateLimit', async (orig) => {
+  const real = await orig<typeof import('@/lib/rateLimit')>();
+  m.realCharge = real.checkAiRateLimit as unknown as (...a: unknown[]) => Promise<boolean>;
+  return { ...real, checkAiRateLimit: m.charge };
+});
 vi.mock('@/lib/supabaseStorage', async (orig) => (await import('./capture-read-storage.helpers')).fakeSupabaseStorage(await orig()));
 
 import action from '../../pages/api/accounting/document-capture-action';
 import { runCaptureRead } from '@/modules/accounting/services/capture/captureReadJob';
+import { als } from '@/lib/als';
+import { drainAfterCommit } from '@/lib/afterCommit';
 import { retryCaptureRead } from '@/modules/accounting/services/capture/captureReadRetry';
 import { GENERIC_READ_ERROR, NOT_STORED_ERROR, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 
@@ -79,6 +87,24 @@ async function retry(id: string) {
 }
 const message = (r: { body: { error?: { message: string } } }) => r.body.error?.message ?? '';
 
+/** Run `fn` the way a request does: one transaction on the ALS-bound client (no RLS: the test role is a superuser), COMMIT, then after-commit work. */
+async function inTx<T>(fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  const ctx = { client, userId: user, companyId: company, claims: {}, afterCommit: [] };
+  try {
+    await client.query('BEGIN');
+    const out = await als.run(ctx as never, fn);
+    await client.query('COMMIT');
+    drainAfterCommit(ctx as never);
+    return out;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 async function purge(): Promise<void> {
   await pool.query('DELETE FROM captured_documents WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
   await pool.query('DELETE FROM company_users WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
@@ -95,7 +121,12 @@ beforeAll(async () => {
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
-beforeEach(() => { m.read.mockReset(); m.read.mockResolvedValue(extraction('Retried Vendor')); });
+beforeEach(() => {
+  m.read.mockReset();
+  m.read.mockResolvedValue(extraction('Retried Vendor'));
+  m.charge.mockReset();
+  m.charge.mockImplementation((...a: unknown[]) => m.realCharge!(...a));
+});
 afterEach(async () => {
   objects.clear();
   await pool.query('DELETE FROM captured_documents WHERE company_id = ANY($1::uuid[])', [[company, otherCompany]]);
@@ -136,6 +167,7 @@ describe('retry refused: nothing changes and nothing is read', () => {
       read_state: before.read_state, read_error: before.read_error, read_attempt: before.read_attempt, status: before.status,
     });
     expect(m.read).not.toHaveBeenCalled();
+    expect(m.charge).not.toHaveBeenCalled();
   };
 
   it.each([
@@ -239,13 +271,14 @@ describe('the retry race: a read thought dead that is only slow', () => {
   });
 });
 
-// Outside a request the service runs as the pool role with NO row-level security, so the company predicates are the only
-// tenancy there is; and `charge` runs between the eligibility read and the re-arm, so a row can be changed exactly there.
+// `charge` runs between the eligibility read and the re-arm. The read holds the row FOR UPDATE, so nobody else can change
+// it there; these change it from INSIDE the same transaction, which is the state the UPDATE's own WHERE must still refuse.
+// Run outside a request the service has no RLS behind it, so the company predicates are the only tenancy there is.
 describe('the re-arm re-checks the row at the moment it writes', () => {
-  const changeBetween = (id: string, sqlText: string) => retryCaptureRead(company, id, async () => {
-    await pool.query(sqlText, [id]);
+  const changeBetween = (id: string, sqlText: string) => inTx(() => retryCaptureRead(company, id, async () => {
+    await als.getStore()!.client.query(sqlText, [id]);
     return true;
-  });
+  }));
 
   it.each([
     ['posted', "UPDATE captured_documents SET posted_at = NOW() WHERE id = $1", 'not_retryable'],
@@ -269,20 +302,20 @@ describe('the re-arm re-checks the row at the moment it writes', () => {
   it("does not see another company's row at all", async () => {
     const id = await insertDoc({ state: 'failed', owner: otherCompany });
     const before = await rowOf(id);
-    expect(await retryCaptureRead(company, id, async () => true)).toEqual({ ok: false, reason: 'missing' });
+    expect(await inTx(() => retryCaptureRead(company, id, async () => true))).toEqual({ ok: false, reason: 'missing' });
     expect(await rowOf(id)).toMatchObject({ read_state: before.read_state, read_attempt: before.read_attempt });
   });
 
-  it('counts only its own company\'s reads towards the cap', async () => {
+  it("counts only its own company's reads towards the cap", async () => {
     for (let i = 0; i < 5; i += 1) await insertDoc({ state: 'reading', error: null, silentMinutes: 0, owner: otherCompany });
     const id = await insertDoc({ state: 'failed' });
-    expect(await retryCaptureRead(company, id, async () => true)).toMatchObject({ ok: true });
+    expect(await inTx(() => retryCaptureRead(company, id, async () => true))).toMatchObject({ ok: true });
   });
 
   it('does not count reads that went silent towards the cap', async () => {
     for (let i = 0; i < 5; i += 1) await insertDoc({ state: 'reading', error: null, silentMinutes: 30 });
     const id = await insertDoc({ state: 'failed' });
-    expect(await retryCaptureRead(company, id, async () => true)).toMatchObject({ ok: true });
+    expect(await inTx(() => retryCaptureRead(company, id, async () => true))).toMatchObject({ ok: true });
   });
 });
 
@@ -291,10 +324,14 @@ describe('two retries at once', () => {
     const hold = deferred();
     m.read.mockReset();
     m.read.mockImplementation(() => hold.promise);
+    // Slow the charge down, so the second request has time to read the row while the first is still deciding.
+    m.charge.mockImplementation(async (...a: unknown[]) => { await new Promise((r) => setTimeout(r, 400)); return m.realCharge!(...a); });
     const id = await insertDoc({ state: 'failed' });
     const [a, b] = await Promise.all([retry(id), retry(id)]);
     expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
     hold.resolve(extraction('Retried Vendor'));
+    // The loser waited on the winner's row lock, found the row reading and was refused BEFORE charging: one unit, not two.
+    expect(m.charge).toHaveBeenCalledTimes(1);
     await vi.waitFor(async () => expect(await rowOf(id)).toMatchObject({ read_state: 'done', read_attempt: 1 }), { timeout: 10_000 });
     expect(m.read).toHaveBeenCalledTimes(1);
   });

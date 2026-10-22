@@ -7,9 +7,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ sql: vi.fn(), runAfterCommit: vi.fn(), runCaptureRead: vi.fn(), charge: vi.fn() }));
+const m = vi.hoisted(() => ({ sql: vi.fn(), runAfterCommit: vi.fn(), runCaptureRead: vi.fn(), charge: vi.fn(), lock: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: m.sql }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock('@/modules/accounting/services/capture/captureRowLock', () => ({ lockWithTimeout: m.lock }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: m.runAfterCommit }));
 vi.mock('@/modules/accounting/services/capture/captureReadJob', () => ({ runCaptureRead: m.runCaptureRead }));
 
@@ -36,6 +37,8 @@ beforeEach(() => {
   calls = [];
   db = { row: failedRow(), inFlight: 0, updated: [failedRow({ read_state: 'reading', read_error: null, read_attempt: 1 })], afterRace: null };
   m.charge.mockResolvedValue(true);
+  // lockWithTimeout needs a request transaction; here it just runs the read it is given, as it does inside one
+  m.lock.mockImplementation(async (_id: string, read: () => Promise<Record<string, unknown>[]>) => (await read())[0] ?? null);
   let selects = 0;
   m.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const c = { text: strings.join('?'), values };
@@ -101,6 +104,46 @@ describe('retryCaptureRead: accepted', () => {
       expect(squash(c.text)).toContain('company_id = ?');
       expect(c.values).toContain(CO);
     }
+  });
+});
+
+describe('retryCaptureRead: the eligibility read holds the row', () => {
+  it('takes it FOR UPDATE under the capture row lock, so a concurrent retry waits for this one to COMMIT', async () => {
+    await retryCaptureRead(CO, ID, m.charge);
+    expect(m.lock).toHaveBeenCalledWith(ID, expect.any(Function));
+    const [select] = on('SELECT read_state');
+    expect(squash(select!.text)).toMatch(/WHERE id = \?.* AND company_id = \? FOR UPDATE$/);
+  });
+
+  it('holds it BEFORE the cap check and the charge, so the loser of a race is refused without being charged', async () => {
+    const order: string[] = [];
+    m.lock.mockImplementation(async (_id: string, read: () => Promise<Record<string, unknown>[]>) => { order.push('lock'); return (await read())[0] ?? null; });
+    m.charge.mockImplementation(async () => { order.push('charge'); return true; });
+    const inner = m.sql.getMockImplementation()!;
+    m.sql.mockImplementation(async (s: TemplateStringsArray, ...v: unknown[]) => {
+      if (squash(s.join('?')).includes('COUNT(*)')) order.push('count');
+      return inner(s, ...v);
+    });
+    await retryCaptureRead(CO, ID, m.charge);
+    expect(order).toEqual(['lock', 'count', 'charge']);
+  });
+
+  it('the loser of the race finds the row reading once the winner COMMITs, and is refused with no charge', async () => {
+    db.row = failedRow({ read_state: 'reading', read_error: null, read_heartbeat_at: new Date(), read_attempt: 1 });
+    expect(await retryCaptureRead(CO, ID, m.charge)).toEqual({ ok: false, reason: 'being_read' });
+    expect(m.charge).not.toHaveBeenCalled();
+  });
+
+  it('re-reads under the lock after an UPDATE that matched nothing', async () => {
+    db.updated = [];
+    await retryCaptureRead(CO, ID, m.charge);
+    expect(m.lock).toHaveBeenCalledTimes(2);
+  });
+
+  it('a lock that cannot be had in time surfaces to the route (it answers 503)', async () => {
+    m.lock.mockRejectedValue(new Error('CAPTURE_ROW_LOCK_TIMEOUT'));
+    await expect(retryCaptureRead(CO, ID, m.charge)).rejects.toThrow('CAPTURE_ROW_LOCK_TIMEOUT');
+    expect(m.charge).not.toHaveBeenCalled();
   });
 });
 
