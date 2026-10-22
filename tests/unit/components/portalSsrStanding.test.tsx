@@ -39,6 +39,16 @@ describe('AFS portal pages — server-side session standing', () => {
     expect(await documentProps(ctx)).toEqual(EXPIRED);
   });
 
+  it.each([
+    ['dashboard', dashboardProps],
+    ['document', documentProps],
+  ] as const)('a staff cookie without a portal session is sent to the login page (%s)', async (_, props) => {
+    const staffOnly = { req: { cookies: { 'sb-access-token': 'staff' } }, params: { documentId: 'd1' } } as never;
+    expect(await props(staffOnly)).toEqual({
+      redirect: { destination: '/accounting/afs/portal/login', permanent: false },
+    });
+  });
+
   it("judges annotation by the contact's current role, not the JWT's", async () => {
     h.current = { contactId: 'c1', companyId: 'co-1', role: 'shareholder_readonly', expiresAt: '' };
     const res = await documentProps(ctx) as { props: { canAnnotate: boolean } };
