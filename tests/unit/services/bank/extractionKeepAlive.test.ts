@@ -165,4 +165,19 @@ describe('the keep-alive ceiling: work that never settles must not beat for ever
     await vi.advanceTimersByTimeAsync(minutes(20));
     expect(m.warn).not.toHaveBeenCalled();
   });
+
+  it('names the statement by default and takes another label: heartbeat failure and ceiling both log under it', async () => {
+    const failing = vi.fn(async () => { throw new Error('db down'); });
+    void withKeepAlive(failing, never, KEEPALIVE_INTERVAL_MS, minutes(2));
+    await vi.advanceTimersByTimeAsync(minutes(2));
+    expect(m.warn).toHaveBeenCalledWith('Statement keep-alive heartbeat failed', expect.anything(), 'statement-extraction');
+    expect(m.warn).toHaveBeenCalledWith(expect.stringMatching(/^Statement keep-alive reached its ceiling/), expect.anything(), 'statement-extraction');
+
+    m.warn.mockReset();
+    void withKeepAlive(failing, never, KEEPALIVE_INTERVAL_MS, minutes(2), { subject: 'Capture read', component: 'capture-read' });
+    await vi.advanceTimersByTimeAsync(minutes(2));
+    expect(m.warn).toHaveBeenCalledWith('Capture read keep-alive heartbeat failed', expect.anything(), 'capture-read');
+    expect(m.warn).toHaveBeenCalledWith(expect.stringMatching(/^Capture read keep-alive reached its ceiling/), expect.anything(), 'capture-read');
+    expect(m.warn).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), 'statement-extraction');
+  });
 });

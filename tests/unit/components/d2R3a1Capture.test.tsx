@@ -57,11 +57,15 @@ describe('ScanAndFillButton', () => {
     await s.pick();
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(FALLBACK));
   });
-  it('a 200 fills the form', async () => {
+  it('a 202 job id, then a finished poll, fills the form', async () => {
     const extracted = { confidence: 0.9, warnings: [] };
-    const s = scan(() => ok({ extracted }));
-    await s.pick();
-    await waitFor(() => expect(s.onExtracted).toHaveBeenCalledWith(extracted));
+    route((url, method) => (url.includes('vlm-status') ? ok({ available: true })
+      : method === 'POST' ? json({ success: true, data: { jobId: 'job-1' } }, 202) : ok({ state: 'done', extracted })));
+    const onExtracted = vi.fn();
+    const { container } = render(<ScanAndFillButton onExtracted={onExtracted} />);
+    await screen.findByRole('button', { name: /Scan & Fill/ });
+    fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [new File(['x'], 'inv.pdf', { type: 'application/pdf' })] } });
+    await waitFor(() => expect(onExtracted).toHaveBeenCalledWith(extracted), { timeout: 4000 });
   });
 });
 
@@ -108,7 +112,7 @@ describe('UploadZone', () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
   it('a 200 completes the upload', async () => {
-    const p = upload(() => ok({ document: { id: 'D2-DOC' }, extracted: {} }));
-    await waitFor(() => expect(p.onUploadComplete).toHaveBeenCalledWith({ document: { id: 'D2-DOC' }, extracted: {} }));
+    const p = upload(() => ok({ document: { id: 'D2-DOC' } }));
+    await waitFor(() => expect(p.onUploadComplete).toHaveBeenCalledWith({ document: { id: 'D2-DOC' } }));
   });
 });

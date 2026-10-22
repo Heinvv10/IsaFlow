@@ -3,7 +3,7 @@
  * View extracted data, edit fields, take actions on a captured document.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
@@ -14,7 +14,9 @@ import {
 import { notify } from '@/utils/toast';
 import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { formatCurrency, formatDate } from '@/utils/formatters';
-import { apiFetch, apiJson, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
+import { useCapturedDocument } from '@/hooks/useCapturedDocument';
+import { CaptureReadStatus } from '@/components/accounting/document-capture/CaptureReadStatus';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -46,10 +48,7 @@ export default function DocumentCaptureDetailPage() {
   const router = useRouter();
   const { docId } = router.query;
 
-  const [doc, setDoc] = useState<CapturedDocument | null>(null);
   const [extracted, setExtracted] = useState<ExtractedDocument | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showRawText, setShowRawText] = useState(false);
 
@@ -66,35 +65,18 @@ export default function DocumentCaptureDetailPage() {
   const [bankTxId, setBankTxId] = useState('');
   const [isMatching, setIsMatching] = useState(false);
 
-  const loadDocument = useCallback(async () => {
-    if (!docId) return;
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const found = await apiJson(`/api/accounting/document-capture?id=${encodeURIComponent(String(docId))}`, undefined, 'Could not load the document - try again');
-
-      setDoc(found);
-
-      const ext = found.extractedData as ExtractedDocument | null;
-      setExtracted(ext);
-
-      // Populate form
-      setVendorName(found.vendorName || ext?.vendorName || '');
-      setDocumentDate(found.documentDate || ext?.date || '');
-      setReferenceNumber(found.referenceNumber || ext?.referenceNumber || '');
-      setTotalAmount(found.totalAmount !== null ? String(found.totalAmount) : (ext?.totalAmount !== null ? String(ext?.totalAmount) : ''));
-      setVatAmount(found.vatAmount !== null ? String(found.vatAmount) : (ext?.vatAmount !== null ? String(ext?.vatAmount) : ''));
-      setDocumentType(found.documentType || ext?.documentType || 'unknown');
-      setNotes(found.notes || '');
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not load document - try again'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [docId]);
-
-  useEffect(() => { void loadDocument(); }, [loadDocument]);
+  const applyLoaded = useCallback((found: CapturedDocument) => {
+    const ext = found.extractedData as ExtractedDocument | null;
+    setExtracted(ext);
+    setVendorName(found.vendorName || ext?.vendorName || '');
+    setDocumentDate(found.documentDate || ext?.date || '');
+    setReferenceNumber(found.referenceNumber || ext?.referenceNumber || '');
+    setTotalAmount(found.totalAmount !== null ? String(found.totalAmount) : (ext?.totalAmount != null ? String(ext.totalAmount) : ''));
+    setVatAmount(found.vatAmount !== null ? String(found.vatAmount) : (ext?.vatAmount != null ? String(ext.vatAmount) : ''));
+    setDocumentType(found.documentType || ext?.documentType || 'unknown');
+    setNotes(found.notes || '');
+  }, []);
+  const { doc, isLoading, error, reload: loadDocument, isReading } = useCapturedDocument(docId, applyLoaded);
 
   async function handleConfirm() {
     if (!doc) return;
@@ -238,6 +220,8 @@ export default function DocumentCaptureDetailPage() {
         </div>
 
         <div className="p-6 space-y-6 max-w-4xl mx-auto">
+          <CaptureReadStatus readState={doc.readState} readError={doc.readError} />
+
           {/* Warnings */}
           {extracted && extracted.warnings.length > 0 && (
             <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-4">
@@ -264,7 +248,7 @@ export default function DocumentCaptureDetailPage() {
                   value={documentType}
                   onChange={(e) => setDocumentType(e.target.value)}
                   className="ff-select w-full text-sm"
-                  disabled={doc.status === 'rejected'}
+                  disabled={doc.status === 'rejected' || isReading}
                 >
                   <option value="invoice">Invoice</option>
                   <option value="credit_note">Credit Note</option>
@@ -282,7 +266,7 @@ export default function DocumentCaptureDetailPage() {
                   onChange={(e) => setVendorName(e.target.value)}
                   className="ff-input w-full text-sm"
                   placeholder="Enter vendor name"
-                  disabled={doc.status === 'rejected'}
+                  disabled={doc.status === 'rejected' || isReading}
                 />
               </div>
               <div>
@@ -293,7 +277,7 @@ export default function DocumentCaptureDetailPage() {
                   value={documentDate}
                   onChange={(e) => setDocumentDate(e.target.value)}
                   className="ff-input w-full text-sm"
-                  disabled={doc.status === 'rejected'}
+                  disabled={doc.status === 'rejected' || isReading}
                 />
               </div>
               <div>
@@ -305,7 +289,7 @@ export default function DocumentCaptureDetailPage() {
                   onChange={(e) => setReferenceNumber(e.target.value)}
                   className="ff-input w-full text-sm"
                   placeholder="e.g. INV-001"
-                  disabled={doc.status === 'rejected'}
+                  disabled={doc.status === 'rejected' || isReading}
                 />
               </div>
               <div>
@@ -318,7 +302,7 @@ export default function DocumentCaptureDetailPage() {
                   onChange={(e) => setTotalAmount(e.target.value)}
                   className="ff-input w-full text-sm"
                   placeholder="0.00"
-                  disabled={doc.status === 'rejected'}
+                  disabled={doc.status === 'rejected' || isReading}
                 />
               </div>
               <div>
@@ -331,7 +315,7 @@ export default function DocumentCaptureDetailPage() {
                   onChange={(e) => setVatAmount(e.target.value)}
                   className="ff-input w-full text-sm"
                   placeholder="0.00"
-                  disabled={doc.status === 'rejected'}
+                  disabled={doc.status === 'rejected' || isReading}
                 />
               </div>
               {extracted?.vendorVatNumber && (
@@ -365,7 +349,7 @@ export default function DocumentCaptureDetailPage() {
                   className="ff-input w-full text-sm"
                   rows={2}
                   placeholder="Optional notes..."
-                  disabled={doc.status === 'rejected'}
+                  disabled={doc.status === 'rejected' || isReading}
                 />
               </div>
             </div>
@@ -404,7 +388,7 @@ export default function DocumentCaptureDetailPage() {
               <div className="px-6 py-4 border-t border-[var(--ff-border-light)] flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleConfirm}
-                  disabled={isSaving}
+                  disabled={isSaving || isReading}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50"
                 >
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
@@ -412,7 +396,7 @@ export default function DocumentCaptureDetailPage() {
                 </button>
                 <button
                   onClick={handleReject}
-                  disabled={isSaving}
+                  disabled={isSaving || isReading}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/30 transition-colors text-sm font-medium disabled:opacity-50"
                 >
                   <XCircle className="h-4 w-4" />
@@ -442,12 +426,13 @@ export default function DocumentCaptureDetailPage() {
                       name="bankTxId"
                       value={bankTxId}
                       onChange={(e) => setBankTxId(e.target.value)}
+                      disabled={isReading}
                       className="ff-input flex-1 text-sm"
                       placeholder="Enter bank transaction ID..."
                     />
                     <button
                       onClick={handleMatchBankTx}
-                      disabled={isMatching || !bankTxId.trim()}
+                      disabled={isMatching || isReading || !bankTxId.trim()}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50"
                     >
                       {isMatching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}

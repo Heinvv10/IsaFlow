@@ -37,6 +37,7 @@ vi.mock('@/lib/auth/emailVerificationService', () => ({
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail: sendEmailMock }));
 vi.mock('@/lib/email-templates-shared', () => ({
   emailLayout: (s: string) => s,
+  emailContentRow: (s: string) => s,
   ctaButton: (label: string, url: string) => `${label}:${url}`,
 }));
 vi.mock('@/lib/rateLimit', () => ({

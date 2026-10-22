@@ -133,7 +133,6 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 16: no write or lock of a D
       await sql`DELETE FROM soft_delete_journal_reversals WHERE company_id = ${c.fx.companyId}::UUID`;
       await sql`DELETE FROM credit_note_allocations WHERE company_id = ${c.fx.companyId}::UUID`;
       await sql`DELETE FROM credit_notes WHERE company_id = ${c.fx.companyId}::UUID`;
-      await sql`UPDATE supplier_payments SET batch_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
       await sql`DELETE FROM supplier_payment_batches WHERE company_id = ${c.fx.companyId}::UUID`;
     }
     await teardown(c);

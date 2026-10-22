@@ -2,13 +2,13 @@ import { useRef } from 'react';
 import { Upload, Loader2 } from 'lucide-react';
 import { notify } from '@/utils/toast';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
-import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 interface Props {
   isUploading: boolean;
   isDragging: boolean;
   onDraggingChange: (v: boolean) => void;
-  onUploadComplete: (result: { document: CapturedDocument; extracted: ExtractedDocument }) => void;
+  onUploadComplete: (result: { document: CapturedDocument }) => void;
   onUploadError: (msg: string) => void;
   onUploadStart: () => void;
   onRefreshList: () => void;
@@ -41,7 +41,7 @@ export function UploadZone({
       const json = await res.json();
       if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Upload failed');
       onUploadComplete(json.data);
-      notify.success('Document uploaded and processed');
+      notify.success('Document uploaded — reading it now');
       onRefreshList();
     } catch (err) {
       const msg = apiErrorMessage(err, 'Could not upload the document - try again');
@@ -83,7 +83,7 @@ export function UploadZone({
       {isUploading ? (
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-10 w-10 text-teal-500 animate-spin" />
-          <p className="text-sm text-[var(--ff-text-secondary)]">Processing document...</p>
+          <p className="text-sm text-[var(--ff-text-secondary)]">Uploading document...</p>
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3">

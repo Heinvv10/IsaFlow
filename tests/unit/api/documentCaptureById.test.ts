@@ -15,6 +15,7 @@ const store = [{
   extracted_data: null, vendor_name: 'Shell', document_date: null, reference_number: null,
   total_amount: '100', vat_amount: '15', status: 'pending', matched_invoice_id: null,
   matched_bank_tx_id: null, notes: null, uploaded_by: null, created_at: '2026-04-25T00:00:00Z',
+  read_state: 'done', read_error: null, read_heartbeat_at: null,
 }];
 
 vi.mock('@/lib/neon', () => ({
@@ -46,7 +47,7 @@ describe('GET /api/accounting/document-capture?id=', () => {
   it('returns the document to its own company', async () => {
     const res = await call(CO_A, { id: DOC_A });
     expect(res.statusCode).toBe(200);
-    expect((res.sent as { data: { id: string; vendorName: string } }).data).toMatchObject({ id: DOC_A, vendorName: 'Shell' });
+    expect((res.sent as { data: { id: string; vendorName: string } }).data).toMatchObject({ id: DOC_A, vendorName: 'Shell', readState: 'done', readError: null });
   });
 
   it("404s another company's document id", async () => {

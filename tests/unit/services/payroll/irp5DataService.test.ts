@@ -54,7 +54,8 @@ function routeMock(
     // year, whatever the status — so the mock has to answer it separately.
     // Defaulting it to the sum of the other two would rebuild the tautology
     // this query exists to break.
-    if (q.includes('COUNT(DISTINCT prl.employee_id)')) {
+    // (It unions in employees paid a directive outside payroll: PAYE 4a follow-ups G1.)
+    if (q.includes('COUNT(*)::INT AS employees')) {
       const fallback = (over.employees ?? [EMPLOYEE]).length + (over.nonDeclarable ?? []).length;
       return Promise.resolve([{ employees: over.universe ?? fallback }]);
     }

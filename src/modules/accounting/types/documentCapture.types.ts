@@ -63,6 +63,9 @@ export interface CapturedDocument {
   notes: string | null;
   uploadedBy: string | null;
   createdAt: string;
+  /** 'reading' while the background read runs; 'failed' (see readError) also covers a read gone silent for 5 minutes. */
+  readState: 'reading' | 'done' | 'failed';
+  readError: string | null;
 }
 
 export type CapturedDocumentAction = 'confirm' | 'match_bank_tx' | 'reject';

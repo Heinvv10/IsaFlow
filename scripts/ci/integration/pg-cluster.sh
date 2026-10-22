@@ -79,7 +79,10 @@ pg_cluster_stop() {
 # RLS (SECURITY DEFINER functions owned by migration_admin read through FORCE
 # RLS on that basis); `postgres`, the role production's deploy connects and
 # migrates as, is NOT a superuser, bypasses RLS and inherits migration_admin
-# and app_user. Only `postgres` can log in, with $PGPASSWORD.
+# and app_user. Only `postgres` can log in, with $PGPASSWORD. It holds ADMIN
+# OPTION on app_user because migration 915 grants app_user to the app's login
+# roles: on PG 15 (production) CREATEROLE alone allows that, on PG 16 it needs
+# ADMIN OPTION on the granted role.
 pg_create_roles() {
   "$PG_BIN/psql" -h 127.0.0.1 -p "$1" -U "$PG_SUPERUSER" -X -q -v ON_ERROR_STOP=1 -d postgres <<'SQL'
 \getenv pw PGPASSWORD
@@ -87,7 +90,8 @@ CREATE ROLE app_user NOLOGIN;
 CREATE ROLE migration_admin NOLOGIN BYPASSRLS;
 CREATE ROLE platform_admin NOLOGIN BYPASSRLS;
 CREATE ROLE postgres NOSUPERUSER INHERIT CREATEDB CREATEROLE LOGIN BYPASSRLS PASSWORD :'pw';
-GRANT migration_admin, app_user TO postgres;
+GRANT migration_admin TO postgres;
+GRANT app_user TO postgres WITH ADMIN OPTION;
 SQL
 }
 

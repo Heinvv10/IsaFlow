@@ -6,7 +6,7 @@
  * withAuth's transaction and its pooled client stayed held. A fake response
  * cannot show that (it only emits what the test emits), so this drives the real
  * Node stream. The service is replaced by pages that take a set time; the
- * route's code is the real code. withAuth is the identity: what is under test
+ * route's code is the real code. The auth wrapper is the identity: what is under test
  * is that the handler RETURNS, which is what lets the wrapper finish.
  *
  * Also: a first page that fails is a clean 500 with no CSV header (the header
@@ -22,7 +22,9 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), debug: vi.fn(), warn: (...a: unknown[]) => logWarn(...a), error: (...a: unknown[]) => logError(...a) },
   apiLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
-vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+// The auth wrapper is the identity here; its Bearer / cookie / scope behaviour on
+// this route is tests/unit/api/glLinesExportAuth.test.ts.
+vi.mock('@/lib/auth/withBearerOrCookieAuth', () => ({ withBearerOrCookieAuth: (h: unknown) => h }));
 vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: vi.fn().mockResolvedValue(true) }));
 
 const PAGE = 5000;
