@@ -20,7 +20,6 @@ import { loadPayeYearToDate } from './payrollYearToDate';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
 
-
 type Row = DbRow;
 
 export interface PayrollRunSummary {
@@ -141,7 +140,6 @@ export async function calculatePayrollRun(
   let totalUifEmployer = 0;
   let totalEti = 0;
   let totalNet = 0;
-
 
   const lineInserts: LineInsert[] = [];
 
