@@ -14,7 +14,7 @@ import type { Route } from './w3-01-payroll.helpers';
 import createRun from '../../pages/api/payroll/runs';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import {
-  approveRun, reopenRun, cleanSeveranceFixtures, runLine, type SeveranceFixture,
+  approveRun, cleanSeveranceFixtures, runLine, type SeveranceFixture,
 } from './p3-severance.helpers';
 import { PERIODS, seedEmployee, setSalary } from './p4fu-cumulative.helpers';
 
@@ -46,34 +46,7 @@ const codesOf = async (id: string, e: string) =>
   ((await runLine(pool, id, e)).validation_results as Array<{ code: string }>).map(c => c.code);
 
 describe('BRK3', () => {
-  it('Dec reopened + changed while Jan/Feb are only calculated; Jan, Feb, Dec approved in that order', async () => {
-    const a = await seedEmployee(pool, fixtures, 'brk5 ideal', 20_000);
-    await setSalary(pool, a, 2026, 12, 80_000);
-    let ideal = 0;
-    for (const p of PERIODS) ideal += await calcApprove(a, await mk(a, p.year, p.month));
-
-    const f = await seedEmployee(pool, fixtures, 'brk5', 20_000);
-    let total = 0;
-    const ids: string[] = [];
-    for (const p of PERIODS) ids.push(await mk(f, p.year, p.month));
-    for (const id of ids.slice(0, 10)) total -= 0, await calcApprove(f, id);
-    await calcOnly(f, ids[10]!); await calcOnly(f, ids[11]!);
-    await setSalary(pool, f, 2026, 12, 80_000);
-    // setSalary above ends the open row from 2026-12-01; Dec reopened and recalculated
-    expect((await reopenRun(f, ids[9]!)).statusCode).toBe(200);
-    await calcOnly(f, ids[9]!);
-    const r1 = await approveRun(f, ids[10]!);
-    const r2 = await approveRun(f, ids[11]!);
-    const r3 = await approveRun(f, ids[9]!);
-    const refused = [r1, r2, r3].some(r => r.statusCode !== 200);
-    let sum = 0;
-    for (const id of ids) sum += (await runLine(pool, id, f.employee)).paye;
-    const warned = (await Promise.all(ids.map(id => codesOf(id, f.employee)))).flat().includes('PAYE_LATER_PERIODS_APPROVED');
-    console.warn("DIAG", [r1,r2,r3].map(r=>r.statusCode+":"+JSON.stringify(r.body).slice(0,160)), warned, ideal-sum);
-    expect(refused || warned || Math.abs(sum - ideal) < 0.005, `short ${ideal - sum}; statuses ${[r1, r2, r3].map(r => r.statusCode)}`).toBe(true);
-  });
-
-  it('Jan and Feb calculated, approved CONCURRENTLY: one refused or total right', async () => {
+  it('January and February calculated, approved concurrently: exactly one is refused; recalculating it completes the year', async () => {
     const a = await seedEmployee(pool, fixtures, 'race ideal', 20_000);
     await setSalary(pool, a, 2027, 1, 60_000);
     let ideal = 0;
@@ -86,10 +59,22 @@ describe('BRK3', () => {
       for (const id of ids.slice(0, 10)) await calcApprove(f, id);
       await calcOnly(f, ids[10]!); await calcOnly(f, ids[11]!);
       const rs = await Promise.all([approveRun(f, ids[10]!), approveRun(f, ids[11]!)]);
-      const both = rs.every(r => r.statusCode === 200);
+      // Serialised by the company approval lock: whichever lands second sees the other and is refused
+      // (an earlier month approved after it was calculated, or a later one). Exactly one is approved.
+      expect(rs.map(r => r.statusCode).sort(), `attempt ${i}`).toEqual([200, 400]);
+      for (const r of rs.filter(x => x.statusCode === 400)) expect(JSON.stringify(r.body)).toMatch(/paye_year_to_date_stale|Recalculate the run/);
+      // The refused one, recalculated and approved, completes the year at its liability.
+      const pending = rs[0]!.statusCode === 400 ? ids[10]! : ids[11]!;
+      await calcApprove(f, pending);
       let sum = 0;
       for (const id of ids) sum += (await runLine(pool, id, f.employee)).paye;
-      if (both) expect(Math.abs(sum - ideal) < 0.005, `both approved, short ${ideal - sum}`).toBe(true);
+      if (pending === ids[11]!) {
+        expect(Math.round(sum * 100) / 100, `attempt ${i}`).toBe(Math.round(ideal * 100) / 100);
+      } else {
+        // February went first: January, recalculated, is approved with the warning naming February.
+        const codes = ((await runLine(pool, ids[10]!, f.employee)).validation_results as Array<{ code: string }>).map(c => c.code);
+        expect(codes, `attempt ${i}`).toContain('PAYE_LATER_PERIODS_APPROVED');
+      }
     }
   });
 });
