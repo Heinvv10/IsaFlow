@@ -44,7 +44,8 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     const { u, companyId } = await onboarded();
     await journal(companyId, u.userId, 'posted');
     const before = await stored(companyId);
-    expect((await getCompany(u, companyId)).body.data).toMatchObject({
+    // soft: a regression in the shared lock predicate shows on the GET AND the PUT, not just the first.
+    expect.soft((await getCompany(u, companyId)).body.data).toMatchObject({
       financialYearStartLocked: true, financialYearStartLockReason: 'posted',
     });
 
@@ -77,7 +78,8 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     await journal(companyId, u.userId, 'draft');
     const before = await stored(companyId);
     // The GET's lock follows the PUT's refusal, so the field is read-only rather than editable-then-409.
-    expect((await getCompany(u, companyId)).body.data).toMatchObject({
+    // soft: a regression in the shared lock predicate shows on the GET AND the PUT, not just the first.
+    expect.soft((await getCompany(u, companyId)).body.data).toMatchObject({
       financialYearStartLocked: true, financialYearStartLockReason: 'in_use',
     });
 
@@ -92,7 +94,8 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     const { u, companyId } = await onboarded();
     await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND period_number = 1`, [companyId]);
     const before = await stored(companyId);
-    expect((await getCompany(u, companyId)).body.data).toMatchObject({
+    // soft: a regression in the shared lock predicate shows on the GET AND the PUT, not just the first.
+    expect.soft((await getCompany(u, companyId)).body.data).toMatchObject({
       financialYearStartLocked: true, financialYearStartLockReason: 'in_use',
     });
     const out = await put(u, { id: companyId, financialYearStart: 6 });

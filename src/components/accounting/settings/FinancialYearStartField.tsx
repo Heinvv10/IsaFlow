@@ -11,14 +11,13 @@
  * readers take year ranges from the periods, others (trial balance YTD, AFS
  * ranges, the year-end close) from the declared month.
  */
+import { YEAR_END_CHANGE_MESSAGE } from '@/modules/accounting/services/gl/financialYearStartMessages';
 import { Company, INPUT_CLS, LABEL_CLS } from './settingsTypes';
 
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
   'November', 'December'];
 const NOTE_CLS = 'text-xs text-[var(--ff-text-tertiary)] mt-1';
-const YEAR_END_CHANGE = 'Changing the financial year end will be possible through a guided change of year end '
-  + '(coming soon); contact support if you need it now.';
 
 interface Props {
   company: Company;
@@ -47,7 +46,7 @@ export function FinancialYearStartField({ company, onChange }: Props) {
           {reason === 'posted'
             ? 'Locked because journals have been posted. '
             : "Locked because this company's fiscal periods are already in use (draft journals, budgets, AFS documents or closed periods). "}
-          {YEAR_END_CHANGE}
+          {YEAR_END_CHANGE_MESSAGE}
         </p>
       )}
       {mismatch && (
