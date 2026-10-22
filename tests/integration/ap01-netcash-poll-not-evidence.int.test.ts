@@ -39,7 +39,7 @@ import netcashResolve from '../../pages/api/accounting/netcash/resolve';
 import netcashStatus from '../../pages/api/accounting/netcash/status';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -61,7 +61,7 @@ afterAll(async () => {
 async function submitted(status: 'submitted' | 'processing' = 'submitted') {
   const { company: c, bank } = await payCompany(pool, [[u.admin, 'admin'], [u.manager, 'manager'], [u.viewer, 'viewer']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  const b = await plantBatch(pool, c, u.admin, bank);
+  const b = await plantApprovedBatch(pool, c, u.admin, bank);
   hold.submitEftBatch.mockResolvedValueOnce(ACCEPTED);
   expect((await submit(c, b.id)).state.statusCode).toBe(200);
   const id = (await pool.query('SELECT id FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].id as string;
