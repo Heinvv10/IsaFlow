@@ -235,7 +235,7 @@ describe('batch membership', () => {
     'src/modules/accounting/services/gl/approvalDocuments.ts': READS,
     'src/modules/accounting/services/gl/approvalEnforcementPreview.ts': READS,
     'src/modules/accounting/services/gl/approvalMatching.ts': READS,
-    'scripts/seed-demo-data.ts': 'import_batch_id of bank rows in an offline seed; it only DELETEs supplier_payments',
+    'scripts/seed-demo-data.ts': 'offline seed; inserts payments without batch_id (via batchInsert, runtime-built names: named limit); import_batch_id is bank rows',
   };
   it('only the pinned files mention both supplier_payments and batch_id', () => {
     expect(filesWhere((t) => /supplier_payments/i.test(t) && /batch_id/i.test(t))).toEqual(Object.keys(PINNED_FILES).sort());
