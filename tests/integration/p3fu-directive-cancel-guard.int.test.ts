@@ -57,6 +57,7 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import directiveRoute from '../../pages/api/accounting/tax-directives/[id]';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
 import type { Route } from './w3-01-payroll.helpers';
+import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import {
   applyStandalone, approvedDirective, approveRun, calculatedSeverance, calculateRun, cleanSeveranceFixtures,
   createRunFor, directivePayments, reopenRun, seedRetrenchedEmployee, type SeveranceFixture,
@@ -143,9 +144,11 @@ describe('G5: a paid directive cannot be cancelled', () => {
     expect(r.statusCode, JSON.stringify(r.body)).toBe(409);
     expect(JSON.stringify(r.body)).toMatch(/outside payroll on 2026-09-15/);
     expect(await status(directive)).toBe('approved');
-    // Reversing the payment's journal is the way back.
+    expect((await generateEMP201(f.company, '2026-09-01', '2026-09-30')).directivePayments).toHaveLength(1);
+    // Reversing the payment's journal is the way back; the reversed payment is then declared nowhere.
     const journal = String((await directivePayments(pool, directive))[0]!.journal_entry_id);
     expect((await reverseJournal(f, journal)).statusCode).toBe(200);
+    expect((await generateEMP201(f.company, '2026-09-01', '2026-09-30')).directivePayments).toEqual([]);
     expect((await patch(f, directive, { status: 'cancelled' })).statusCode).toBe(200);
   });
 
