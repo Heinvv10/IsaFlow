@@ -3,6 +3,7 @@
  * file names (`<company>.<submission>.<settleToken>.jsonl`; a temp is `.<name>.<random>.tmp`), and the two fsync /
  * 0700-directory helpers every writer and mover shares.
  */
+import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import { homedir, tmpdir } from 'os';
 import path from 'path';
@@ -67,10 +68,15 @@ export const nameStatus = (name: string): NameStatus | null =>
 export const isEntry = (n: string) => n.endsWith(SUFFIX) && !n.startsWith('.');
 /** A temp of a write in flight or never finished: `.<company>.<submission>.<token>.jsonl.<rand>.tmp`. */
 export const isTemp = (n: string) => n.startsWith('.') && n.endsWith('.tmp') && !n.startsWith('.probe-');
-/** The final-style name a swept temp takes in quarantine/, which the company/submission prefix lookup matches. Always a plain file name. */
+/**
+ * The final-style name a swept temp takes in quarantine/, which the company/submission prefix lookup matches. Always a
+ * plain file name, and it ends in a short hash of the ORIGINAL name, so two names that sanitise alike never collide
+ * (a rename would silently replace the first).
+ */
 export const quarantineNameOf = (temp: string) => {
+  const hash = createHash('sha1').update(temp).digest('hex').slice(0, 8);
   const m = /^\.(.+)\.jsonl\.([^.]+)\.tmp$/.exec(temp);
-  return (m ? `${m[1]}.${m[2]}.stale${SUFFIX}` : `stale-${temp.replace(/^\./, '')}${SUFFIX}`).replace(/[^0-9a-zA-Z._-]/g, '_');
+  return (m ? `${m[1]}.${m[2]}-${hash}.stale${SUFFIX}` : `stale-${temp.replace(/^\./, '')}.${hash}${SUFFIX}`).replace(/[^0-9a-zA-Z._-]/g, '_');
 };
 const UUID_PART = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const TEMP_NAME = new RegExp(`^\\.(${UUID_PART})\\.(${UUID_PART})\\.([0-9a-zA-Z_-]+)\\.(${STATUS_ALT})\\.jsonl\\.[0-9a-zA-Z-]+\\.tmp$`, 'i');

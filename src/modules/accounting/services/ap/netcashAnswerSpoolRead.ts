@@ -117,6 +117,24 @@ async function moveEntry(file: string, to: string, as = path.basename(file)): Pr
   await syncDir(path.dirname(file));
   await syncDir(to);
 }
+/**
+ * Give a complete temp its final name WITHOUT replacing an entry already there (link, then unlink the temp: the bytes
+ * are never in neither place). If the final name exists, both are kept: the temp goes to quarantine/ under `as`.
+ */
+async function promoteEntry(temp: string, finalName: string, quarantineAs: string): Promise<void> {
+  try {
+    await fs.link(temp, path.join(spoolDir(), finalName));
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    if (code === 'ENOENT') return; // a peer or the writer got there first
+    if (code !== 'EEXIST') throw err;
+    log.warn('netcash answer spool: the final name already exists - the temp is kept in quarantine, nothing overwritten', { temp, finalName }, 'netcash');
+    await moveEntry(temp, quarantineDir(), quarantineAs);
+    return;
+  }
+  await fs.unlink(temp).catch((err: unknown) => { if ((err as { code?: string }).code !== 'ENOENT') throw err; });
+  await syncDir(spoolDir());
+}
 export const markReplayed = (file: string) => moveEntry(file, replayedDir());
 export const quarantineEntry = (file: string) => moveEntry(file, quarantineDir());
 
@@ -146,7 +164,7 @@ export async function sweepStaleTemps(): Promise<void> {
       const named = promotionOf(name);
       if (entry && named && entry.companyId.toLowerCase() === named.companyId && entry.submissionId.toLowerCase() === named.submissionId) {
         log.warn('netcash answer spool: a complete but unrenamed temp promoted to an entry (it will be replayed)', { file }, 'netcash');
-        await moveEntry(file, spoolDir(), named.finalName);
+        await promoteEntry(file, named.finalName, quarantineNameOf(name));
       } else {
         log.warn('netcash answer spool: an unreadable, foreign or mismatched unfinished temp moved to quarantine (it still blocks its submission)', { file }, 'netcash');
         await moveEntry(file, quarantineDir(), quarantineNameOf(name));

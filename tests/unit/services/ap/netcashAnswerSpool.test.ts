@@ -305,7 +305,7 @@ describe('the sweep never builds a path from a temp\'s CONTENT', () => {
     fs.utimesSync(t, old(), old());
     await sweepStaleTemps();
     expect({ outside: outside(), pending: entries(), quarantined: fs.readdirSync(path.join(spoolDir(), 'quarantine')), tempGone: !fs.existsSync(t) })
-      .toEqual({ outside: [], pending: [], quarantined: [`${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.aaaa.stale.jsonl`], tempGone: true });
+      .toEqual({ outside: [], pending: [], quarantined: [expect.stringMatching(new RegExp(`^${COMPANY}\\.${SUBMISSION}\\.${TOKEN}\\.submitted\\.aaaa-[0-9a-f]{8}\\.stale\\.jsonl$`))], tempGone: true });
     expect(await spooledAcceptedAnswer(COMPANY, SUBMISSION)).not.toBeNull(); // the name says submitted: it blocks
   });
 
@@ -326,6 +326,32 @@ describe('the sweep never builds a path from a temp\'s CONTENT', () => {
     await sweepStaleTemps();
     const q = fs.readdirSync(path.join(spoolDir(), 'quarantine'));
     expect({ pending: entries(), outside: outside(), safe: q.every((n) => /^[0-9a-zA-Z._-]+$/.test(n)), n: q.length }).toEqual({ pending: [], outside: [], safe: true, n: 1 });
+  });
+  it('E: promoting onto a final name that ALREADY exists never overwrites it: the existing entry survives, the temp is quarantined (nothing lost)', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
+    const final = path.join(spoolDir(), `${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl`);
+    const original = `${JSON.stringify({ v: 1, ...record(), spooledAt: 'x' })}\n`;
+    fs.writeFileSync(final, original);
+    const other = record(); other.metadata.batchReference = 'NC-OTHER';
+    const t = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${TOKEN}.submitted.jsonl.eeee.tmp`);
+    fs.writeFileSync(t, `${JSON.stringify({ v: 1, ...other, spooledAt: 'y' })}\n`);
+    fs.utimesSync(t, old(), old());
+    await sweepStaleTemps();
+    const q = fs.readdirSync(path.join(spoolDir(), 'quarantine'));
+    expect({ finalIntact: fs.readFileSync(final, 'utf8') === original, tempGone: !fs.existsSync(t), quarantined: q.length }).toEqual({ finalIntact: true, tempGone: true, quarantined: 1 });
+    expect(fs.readFileSync(path.join(spoolDir(), 'quarantine', q[0]!), 'utf8')).toContain('NC-OTHER');
+  });
+
+  it('F: two temps whose names sanitise to the same quarantine name both survive (the name keeps a short hash of the original)', async () => {
+    fs.mkdirSync(spoolDir(), { recursive: true, mode: 0o700 });
+    for (const [tok, body] of [['tök', 'torn-1'], ['tÖk', 'torn-2']] as const) {
+      const t = path.join(spoolDir(), `.${COMPANY}.${SUBMISSION}.${tok}.submitted.jsonl.ffff.tmp`);
+      fs.writeFileSync(t, body); fs.utimesSync(t, old(), old());
+    }
+    await sweepStaleTemps();
+    const q = fs.readdirSync(path.join(spoolDir(), 'quarantine'));
+    expect(q).toHaveLength(2);
+    expect(q.map((n) => fs.readFileSync(path.join(spoolDir(), 'quarantine', n), 'utf8')).sort()).toEqual(['torn-1', 'torn-2']);
   });
 });
 
