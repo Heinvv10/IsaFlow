@@ -2,7 +2,8 @@
  * Import Sage data into ISAFlow for Brightsphere Technologies
  * Usage: DATABASE_URL="..." bun run /tmp/sage-pull-britech/import-sage-data.ts
  */
-import { createSql } from './_pg';
+import { createSql, withTransactionPg } from './_pg';
+import { isSageOpeningBalanceJournal } from '../src/modules/accounting/services/sage/sageOpeningBalanceJournal';
 import { readFileSync } from 'fs';
 
 const sql = createSql();
@@ -198,27 +199,33 @@ async function importJournalEntries() {
     if (!glAccountId || !contraAccountId) { errs++; continue; }
 
     try {
-      // Create journal entry header
-      const jeRows = await sql`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description,
-        source, status, created_by, reference)
-        VALUES (${CID}::UUID, ${'SAGE-' + je.ID}, ${entryDate}::DATE, ${je.Description || ''},
-          'auto_migration', 'posted', ${USER_ID}::UUID, ${je.Reference || null})
-        RETURNING id`;
-      const journalId = jeRows[0].id;
-
+      // Create journal entry header. Sage's LIVE journal history is a GL import; only
+      // Sage's own opening balances are a take-on, the source every reader takes for
+      // balances carried in (changesInEquityService's "Balances taken on" row).
+      const source = isSageOpeningBalanceJournal(je.Description, je.Reference) ? 'auto_migration' : 'auto_gl_import';
       // Effect: 1 = debit main account, 2 = credit main account
       const isDebit = je.Effect === 1;
       const amount = je.Total || je.Exclusive || 0;
 
-      // Main account line
-      await sql`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-        VALUES (${journalId}::UUID, ${glAccountId}::UUID,
-          ${isDebit ? amount : 0}, ${isDebit ? 0 : amount}, ${je.Description || ''})`;
+      // Header and both lines in one transaction: a failed line leaves no posted header without lines.
+      await withTransactionPg(async (tx) => {
+        const jeRows = await tx`INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description,
+          source, status, created_by, reference)
+          VALUES (${CID}::UUID, ${'SAGE-' + je.ID}, ${entryDate}::DATE, ${je.Description || ''},
+            ${source}, 'posted', ${USER_ID}::UUID, ${je.Reference || null})
+          RETURNING id`;
+        const journalId = jeRows[0].id;
 
-      // Contra account line
-      await sql`INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description)
-        VALUES (${journalId}::UUID, ${contraAccountId}::UUID,
-          ${isDebit ? 0 : amount}, ${isDebit ? amount : 0}, ${je.Description || ''})`;
+        // Main account line
+        await tx`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+          VALUES (${CID}::UUID, ${journalId}::UUID, ${glAccountId}::UUID,
+            ${isDebit ? amount : 0}, ${isDebit ? 0 : amount}, ${je.Description || ''})`;
+
+        // Contra account line
+        await tx`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description)
+          VALUES (${CID}::UUID, ${journalId}::UUID, ${contraAccountId}::UUID,
+            ${isDebit ? 0 : amount}, ${isDebit ? amount : 0}, ${je.Description || ''})`;
+      });
 
       ok++;
     } catch (e: any) { errs++; console.error(`  ERR JE-${je.ID}: ${e.message?.slice(0, 100)}`); }
