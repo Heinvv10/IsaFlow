@@ -51,14 +51,10 @@ import { mergeEntities } from '@/modules/accounting/services/core/duplicateMerge
 import { importSuppliers } from '@/modules/accounting/services/core/migrationContactService';
 import { createSession } from '@/modules/accounting/services/core/migrationService';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import {
-  SupplierBatchLockTimeoutError, lockBatchesBeforeSuppliers,
-} from '@/modules/accounting/services/ap/batchBeforeSupplierLock';
+import { SupplierBatchLockTimeoutError, lockBatchesBeforeSuppliers } from '@/modules/accounting/services/ap/batchBeforeSupplierLock';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule } from './r035-approval.helpers';
-import {
-  cleanupPr5, enforcePay, inRequest, payCompany, payRoutes, plantBatch, plantPayment, plantSupplier,
-} from './r035-pr5.helpers';
+import { cleanupPr5, enforcePay, inRequest, payCompany, payRoutes, plantBatch, plantPayment, plantSupplier } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -203,9 +199,7 @@ describe('the take-on import: one id-ordered set, not a batch lock per row', () 
     const two = await plantBatch(pool, c, u.a, bank, [2000]);
     const [lo, hi] = one.id < two.id ? [one, two] : [two, one];
     const names = { lo: 'Alpha Traders', hi: 'Zulu Holdings' };
-    for (const k of ['lo', 'hi'] as const) {
-      await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [({ lo, hi })[k].members[0]!.supplierId, names[k]]);
-    }
+    for (const k of ['lo', 'hi'] as const) await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [({ lo, hi })[k].members[0]!.supplierId, names[k]]);
     const session = await inRequest(pool, u.a, c, () => createSession(c, 'sage', u.a));
     const rows = [names.hi, names.lo].map((name) => ({ name, bankAccountNumber: NEW_ACCOUNT })); // the HIGH batch first
 
