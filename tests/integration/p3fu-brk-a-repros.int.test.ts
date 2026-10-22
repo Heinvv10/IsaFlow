@@ -8,6 +8,7 @@ import type { Route } from './w3-01-payroll.helpers';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
+import { payrollReversalRefusal } from '@/modules/accounting/services/payroll/payrollJournalReversalGuard';
 import {
   applyStandalone, approvedDirective, cleanSeveranceFixtures, directivePayments, seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
@@ -33,6 +34,8 @@ describe('BRK-A', () => {
     const j = String((await directivePayments(pool, d))[0]!.journal_entry_id);
     expect((await reverseJournal(f, j)).statusCode).toBe(200);
     expect((await patch(f, d, { status: 'cancelled' })).statusCode).toBe(200);
+    // The dry run (MCP reverse_journal_entry) asks the same question read-only.
+    expect(await payrollReversalRefusal(f.company, { id: await reversalOf(j), source: 'auto_payroll' })).toMatch(/apply it again/);
     const rr = await reverseJournal(f, await reversalOf(j));
     expect(rr.statusCode).not.toBe(200);
     expect(JSON.stringify(rr.body)).toMatch(/apply it again/);
