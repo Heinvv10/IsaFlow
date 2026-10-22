@@ -41,6 +41,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, { enabled: parsed.data.enabled, bundleId: parsed.data.bundleId ?? null });
 }
 
-// Owner and admin only (the owner/admin that the mandate routes' withRole('admin') admits, without its system/super_admin):
+// Owner and admin only, the roles the mandate routes' withRole('admin') admits:
 // a viewer must not switch on automatic Flow purchases.
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

@@ -190,10 +190,12 @@ describeIfDb('K-096 reference-to-mandate link', () => {
     });
 
     const res = await inRequestTx(verifyRoute, {
-      method: 'GET',
-      query: { ref: OLD_REF },
+      method: 'POST',
+      query: {},
+      body: { ref: OLD_REF },
       headers: {},
       companyId: COMPANY,
+      companyRole: 'owner',
       user: { id: USER, email: 'k096-link@example.invalid' },
     });
     expect(res.statusCode).toBe(200);
@@ -221,10 +223,12 @@ describeIfDb('K-096 reference-to-mandate link', () => {
     });
 
     const res = await inRequestTx(verifyRoute, {
-      method: 'GET',
-      query: { ref: CROSS_REF },
+      method: 'POST',
+      query: {},
+      body: { ref: CROSS_REF },
       headers: {},
       companyId: COMPANY,
+      companyRole: 'owner',
       user: { id: USER, email: 'k096-link@example.invalid' },
     });
     expect(res.statusCode).toBe(200);

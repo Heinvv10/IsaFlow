@@ -30,9 +30,18 @@ export interface PayrollComponent {
   isSdlApplicable: boolean;
 }
 
+/** The SARS tax directive a lump-sum component (39xx) is paid under, and the PAYE it prescribes. */
+export interface DirectiveFigures {
+  id: string;
+  number: string | null;
+  paye: number;
+}
+
 export interface EmployeeComponent {
   component: PayrollComponent;
   amount: number;
+  /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
+  directive?: DirectiveFigures;
 }
 
 export interface PayrollPeriod {
@@ -125,6 +134,11 @@ export interface PayrollLineInput {
    */
   annualPayrollEstimate: number | 'defer';
   priorPeriodCumulativePaye?: number;
+  /**
+   * True for a leaver paid after leaving (the severance-only line of a later
+   * run): no hours employed in the period, so no ETI (see payrollCalculator).
+   */
+  notEmployedInPeriod?: boolean;
 }
 
 export interface ComponentBreakdownItem {
@@ -134,13 +148,27 @@ export interface ComponentBreakdownItem {
   amount: number;
   isTaxable: boolean;
   isUifApplicable: boolean;
+  directive?: DirectiveFigures;
+}
+
+/** How a line's PAYE is made up (audit 2026-10-18 P3). */
+export interface PayeSplit {
+  /** Periodic PAYE on the regular remuneration, annualised ×12. */
+  regular: number;
+  /** PAYE on annual payments (3605), by the SARS annual-payment method. */
+  annualPayment: number;
+  /** PAYE prescribed by the directives of the line's lump sums (39xx). */
+  directive: number;
 }
 
 export interface PayrollLineResult {
   employeeId: string;
   grossPay: number;
+  /** Regular plus annual-payment remuneration: what the tax tables were applied to. Lump sums are not in it. */
   taxableIncome: number;
+  /** The regular calculation's figures, except `monthlyPaye`, which is the line's whole PAYE (payeSplit summed). */
   paye: PayeResult;
+  payeSplit: PayeSplit;
   uif: UifResult;
   sdl: number;
   /** Remuneration this line contributes to the SDL leviable amount. */

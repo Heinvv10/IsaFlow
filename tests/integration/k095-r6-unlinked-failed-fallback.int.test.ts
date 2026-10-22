@@ -21,6 +21,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { als } from '@/lib/als';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/modules/billing/services/paystackClient', () => ({
   verifyTransaction: vi.fn(),
 }));
@@ -109,7 +110,7 @@ describeIfDb('K-095 r6 an unlinked pre-651 request never names another checkout 
       await als.run({ client, userId: 'k095r6', companyId, claims: {} }, async () => {
         try {
           await route(
-            { method: 'GET', query: { ref }, headers: {}, companyId, user: { id: 'k095r6' } } as unknown as NextApiRequest,
+            { method: 'POST', query: {}, body: { ref }, headers: {}, companyId, companyRole: 'owner', user: { id: 'k095r6' } } as unknown as NextApiRequest,
             res,
           );
         } catch (err) { handlerError = err; }

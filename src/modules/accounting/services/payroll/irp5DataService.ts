@@ -26,6 +26,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { listRunLumpSums, type LumpSumFiling } from './payrollLumpSumFiling';
 
 type Row = DbRow;
 
@@ -47,6 +48,12 @@ export interface Irp5EmployeeTotals {
   eti: number;
   netPay: number;
   runsIncluded: number;
+  /**
+   * Lump sums paid in the runs under a SARS directive (3901 severance, audit
+   * 2026-10-18 P3). Already inside grossSalary and paye; the certificate shows
+   * them under their own code, with the PAYE under 4115.
+   */
+  lumpSums: LumpSumFiling[];
 }
 
 export interface Irp5Exclusion {
@@ -167,6 +174,7 @@ export async function getIrp5EmployeeTotals(
     ORDER BY e.last_name, e.first_name, e.id
   `) as Row[];
 
+  const lumpSums = await listRunLumpSums(companyId, { start, end }, employeeId);
   const mapped: Irp5EmployeeTotals[] = rows.map((r) => ({
     employeeId: String(r.id),
     employeeNumber: String(r.employee_number ?? ''),
@@ -184,6 +192,7 @@ export async function getIrp5EmployeeTotals(
     eti: Number(r.eti) || 0,
     netPay: Number(r.net_pay) || 0,
     runsIncluded: Number(r.runs_included) || 0,
+    lumpSums: lumpSums.get(String(r.id)) ?? [],
   }));
 
   const excludedTotal = excludedRowsRaw.length;

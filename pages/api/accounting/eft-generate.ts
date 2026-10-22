@@ -15,6 +15,9 @@ import {
   type EFTBatchHeader, type EFTPayment,
 } from '@/modules/accounting/services/ap/eftService';
 import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
+import { recordBankFileGenerated } from '@/modules/accounting/services/ap/batchBankFileRecord';
+import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
+import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
@@ -22,6 +25,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierBankVerificationGate';
 
 type Row = Record<string, unknown>;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type EFTAccountType = EFTPayment['beneficiaryAccountType'];
 
 function toEFTAccountType(value: unknown): EFTAccountType {
@@ -40,21 +44,27 @@ const GENERATORS: Record<string, typeof generateStandardBankACB> = {
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
+  await assertNotImpersonating(); // R-032 L5: first, before any read or write (a file is a way of paying)
 
   const { companyId } = req;
-  const { batchId, bank } = req.body;
+  const { batchId, bank } = req.body as { batchId?: unknown; bank?: unknown };
   if (!batchId) return apiResponse.badRequest(res, 'batchId is required');
-  if (!bank || !GENERATORS[bank]) return apiResponse.badRequest(res, `Invalid bank. Supported: ${Object.keys(GENERATORS).join(', ')}`);
+  if (typeof batchId !== 'string' || !UUID.test(batchId)) return apiResponse.badRequest(res, 'batchId must be a batch id');
+  // Object.hasOwn: 'constructor' / 'toString' are on every object and are not banks.
+  if (typeof bank !== 'string' || !Object.hasOwn(GENERATORS, bank)) return apiResponse.badRequest(res, `Invalid bank. Supported: ${Object.keys(GENERATORS).join(', ')}`);
 
   // Get batch details — scoped to company
   // batch_date::text: pg hands a DATE back as a Date at local midnight, which toISOString() shifts a day in SAST.
-  // FOR SHARE, held to the end of the request: the status judged below stays true until the file is built —
+  // FOR NO KEY UPDATE, held to the end of the request: the status judged below stays true until the file is built —
   // cancelBatch / processBatch (UPDATE / FOR UPDATE on this row) wait for it, or this reads what they left (AP-10).
+  // It also conflicts with netcash/submit's FOR SHARE (held from its status check across its send), so a file request
+  // waits for a submit in flight and then finds its claim (AP-01), and a submit waits for a file in progress. NO KEY
+  // UPDATE rather than UPDATE: it leaves the claim connection's FOR KEY SHARE (the batch_id FK) alone.
   // The row first, then the payees (batchBankFileGate), the order processBatch takes them in.
   const batches = await sql`
     SELECT id, batch_number, status, bank_account_id, batch_date::text AS batch_date
     FROM supplier_payment_batches WHERE id = ${batchId} AND company_id = ${companyId}::UUID
-    FOR SHARE
+    FOR NO KEY UPDATE
   ` as Row[];
   if (!batches[0]) return apiResponse.notFound(res, 'Batch', batchId);
   // R-035 PR5: a bank file is money leaving, so under payment_batch
@@ -67,6 +77,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (respondIfApprovalRequired(res, err)) return;
     if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message);
     throw err;
+  }
+
+  // AP-01: a batch Netcash holds (submitted, pending, unknown...) is not paid a second time by bank file. Only a
+  // definitely rejected submission ('failed') frees it. A plain read: a pending claim mid-send must not stall this.
+  const heldByNetcash = await liveNetcashSubmission(companyId, String(batches[0].id));
+  if (heldByNetcash) {
+    return apiResponse.conflict(res,
+      `Batch ${String(batches[0].batch_number)} was sent to Netcash (submission ${heldByNetcash.id}, status ${heldByNetcash.status}), `
+      + 'so a bank file would pay it a second time. Check Netcash first; only a rejected submission frees the batch.',
+      { reason: 'BATCH_SENT_TO_NETCASH', submissionId: heldByNetcash.id, status: heldByNetcash.status });
   }
 
   // Get payments in batch — scoped to company via batch ownership already validated above.
@@ -136,6 +156,14 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const validation = validateEFTBatch(header, eftPayments);
   if (!validation.valid) return apiResponse.badRequest(res, 'EFT validation failed (the paying bank account is set on Bank Accounts)', validation.errors);
 
+  // AP-01: the file is a way of paying, so its generation is recorded (who, which bank) in this same transaction and
+  // under the batch lock held above, before the file is served: no file without its record. netcash/submit refuses a
+  // batch with an unreleased record (eft-file-release frees it). A failure here answers 500 and no file leaves.
+  await recordBankFileGenerated({
+    companyId, batchId: String(batches[0].id), batchNumber: String(batches[0].batch_number ?? ''), bank,
+    userId: req.user.id, userEmail: req.user.email,
+  });
+
   // Generate
   const generator = GENERATORS[bank]!;
   const fileContent = generator(header, eftPayments);
@@ -153,4 +181,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+// Owner/admin only (AP-01 review): a bank file blocks Netcash for its batch until an owner/admin releases it, so a role
+// that cannot release must not be able to generate one.
+export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

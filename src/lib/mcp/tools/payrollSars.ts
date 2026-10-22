@@ -172,6 +172,11 @@ export const irp5DataTool: McpTool = {
       eti: r.eti,
       net_pay: r.netPay,
       runs_included: r.runsIncluded,
+      // Inside gross_salary and paye; on the certificate under their own code with PAYE under 4115.
+      lump_sums: r.lumpSums.map((l) => ({
+        source_code: l.sourceCode, directive_number: l.directiveNumber,
+        directive_issued_date: l.directiveIssuedDate, amount: l.amount, paye: l.paye,
+      })),
     }));
 
     const envelope = buildEnvelope({

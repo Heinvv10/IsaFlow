@@ -192,8 +192,8 @@ export async function cleanupPr5(pool: Pool, companies: string[], users: string[
   await pool.query(
     'DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = ANY($1))', [companies]);
   await pool.query('DELETE FROM supplier_payments WHERE company_id = ANY($1)', [companies]);
-  await pool.query('DELETE FROM supplier_payment_batches WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM netcash_submissions WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM supplier_payment_batches WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1)', [companies]);
   await cleanupPr4(pool, companies, users);
 }
