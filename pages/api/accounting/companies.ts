@@ -20,7 +20,7 @@ import { isValidVatPeriod, isValidVatSystemType } from '@/modules/accounting/ser
 import { EntityTypeChangeRefused } from '@/modules/onboarding/services/entityTypeChange';
 import {
   FinancialYearStartLockedError, FinancialYearStartScopeError, FiscalPeriodsInUseError,
-  InvalidFinancialYearStartError, countPostedJournals,
+  InvalidFinancialYearStartError, financialYearStartView,
 } from '@/modules/accounting/services/gl/fiscalYearStartChange';
 
 // Re-exported: tests and older imports name them from this route.
@@ -64,9 +64,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       const company = await getCompany(req.query.id as string);
       if (!company) return apiResponse.notFound(res, 'Company');
-      // Settings shows the financial year start read-only once anything has posted (PUT refuses the change).
-      const financialYearStartLocked = (await countPostedJournals(company.id)) > 0;
-      return apiResponse.success(res, { ...company, financialYearStartLocked });
+      // Settings shows the financial year start read-only once anything has posted, or for a company other than
+      // the active one (PUT refuses both), and the month the periods actually start in.
+      const view = await financialYearStartView(company.id, (req as CompanyAuthedRequest).companyId);
+      return apiResponse.success(res, { ...company, ...view });
     }
     // Default: only return companies the user belongs to
     const companies = await getUserCompanies(userId);

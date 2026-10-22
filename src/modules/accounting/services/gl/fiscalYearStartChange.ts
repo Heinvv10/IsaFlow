@@ -13,17 +13,14 @@
  *   - onboarding complete-setup replaces the seeder's calendar periods with the
  *     fiscal year the user chose, in the same transaction that created the
  *     company (rebuildUnusedFiscalPeriods);
- *   - a later change of financial_year_start (companyService.updateCompany) is
- *     allowed only before the first posting, and then rebuilds the periods the
- *     same way; after it, the change is refused (assertFinancialYearStartChange).
+ *   - companyService.updateCompany: a change of financial_year_start is allowed
+ *     only before the first posting and then rebuilds the periods the same way;
+ *     after it, the change is refused. A save of the SAME month on a company
+ *     whose periods start elsewhere repairs them when nothing uses them
+ *     (assertFinancialYearStartChange).
  *
- * THE GUARD. Periods are deleted and re-created only when nothing refers to
- * them: no journal of the company at all (draft included: the
- * resolve_je_fiscal_period trigger has already pointed a draft at a period), and
- * no row in any table holding a fiscal_period_id. The FKs from gl_journal_entries
- * and most others are NO ACTION and would refuse the DELETE anyway, but
- * close_runs CASCADEs and two tables have no FK at all, so the count, not the
- * constraint, is the guard.
+ * THE GUARD is the census in fiscalPeriodReferences.ts, not the FKs: close_runs
+ * CASCADEs, two tables have no FK, and year-numbered rows have no FK at all.
  */
 
 import { als } from '@/lib/als';
@@ -32,35 +29,35 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod } from '../../types/gl.types';
 import { createFiscalYear, resolveCompanyPeriodAlignment } from './fiscalYearCreateService';
-import { fiscalYearOfDate } from './fiscalYearCalendar';
+import { fiscalYearOfDate, normaliseStartMonth } from './fiscalYearCalendar';
+import { countFiscalPeriodReferences, periodsInUse, type FiscalPeriodReferences } from './fiscalPeriodReferences';
 
-export type FiscalPeriodReferences = Record<
-  'journals' | 'accountBalances' | 'closeRuns' | 'dateCorrections' | 'consolidationAdjustments' | 'auditTrailExports',
-  number
->;
+export { countFiscalPeriodReferences, NO_REFERENCES, type FiscalPeriodReferences } from './fiscalPeriodReferences';
 
-/** The periods cannot be rebuilt: something already refers to them. A 4xx, nothing was written. */
+/** True today: the guided change of year end is being built, not shipped. */
+const YEAR_END_CHANGE = 'Changing the financial year end will be possible through a guided change of year end '
+  + '(coming soon); contact support if you need it now.';
+
+/** The periods cannot be rebuilt: something already uses them. A 409, nothing was written. */
 export class FiscalPeriodsInUseError extends Error {
   readonly references: FiscalPeriodReferences;
 
   constructor(references: FiscalPeriodReferences) {
     const used = Object.entries(references).filter(([, n]) => n > 0).map(([k, n]) => `${k}: ${n}`).join(', ');
     super(
-      `The financial year cannot be changed: this company's fiscal periods are already in use (${used}). `
-      + 'Delete its draft journals first, or use a guided change of year end.',
+      `The financial year start cannot be changed: this company's fiscal periods are already in use (${used}). `
+      + `If these are draft journals, delete them first. ${YEAR_END_CHANGE}`,
     );
     this.name = 'FiscalPeriodsInUseError';
     this.references = references;
   }
 }
 
-/** The company has posted journals, so its financial year start is fixed. A 4xx, nothing was written. */
+/** The company has posted journals, so its financial year start is fixed. A 409, nothing was written. */
 export class FinancialYearStartLockedError extends Error {
   constructor(readonly postedJournals: number) {
-    super(
-      `The financial year start cannot be changed after the first posting (${postedJournals} posted journal(s)). `
-      + 'Changing the financial year end needs a guided change of year end.',
-    );
+    super(`The financial year start cannot be changed after the first posting (${postedJournals} posted journal(s)). `
+      + YEAR_END_CHANGE);
     this.name = 'FinancialYearStartLockedError';
   }
 }
@@ -94,48 +91,66 @@ export async function countPostedJournals(companyId: string): Promise<number> {
   return Number(rows[0]!.n);
 }
 
-/** Everything that would stop this company's periods being deleted and re-created. */
-export async function countFiscalPeriodReferences(companyId: string): Promise<FiscalPeriodReferences> {
-  const rows = (await sql`
-    WITH p AS (SELECT id FROM fiscal_periods WHERE company_id = ${companyId}::UUID)
-    SELECT
-      (SELECT COUNT(*) FROM gl_journal_entries WHERE company_id = ${companyId}::UUID
-          OR fiscal_period_id IN (SELECT id FROM p))::int AS journals,
-      (SELECT COUNT(*) FROM gl_account_balances WHERE fiscal_period_id IN (SELECT id FROM p))::int AS account_balances,
-      (SELECT COUNT(*) FROM close_runs WHERE fiscal_period_id IN (SELECT id FROM p))::int AS close_runs,
-      (SELECT COUNT(*) FROM gl_entry_date_corrections WHERE old_fiscal_period_id IN (SELECT id FROM p)
-          OR new_fiscal_period_id IN (SELECT id FROM p))::int AS date_corrections,
-      (SELECT COUNT(*) FROM consolidation_adjustments WHERE fiscal_period_id IN (SELECT id FROM p))::int AS consolidation_adjustments,
-      (SELECT COUNT(*) FROM audit_trail_exports WHERE fiscal_period_id IN (SELECT id FROM p))::int AS audit_trail_exports
-  `) as DbRow[];
-  const r = rows[0]!;
-  return {
-    journals: Number(r.journals),
-    accountBalances: Number(r.account_balances),
-    closeRuns: Number(r.close_runs),
-    dateCorrections: Number(r.date_corrections),
-    consolidationAdjustments: Number(r.consolidation_adjustments),
-    auditTrailExports: Number(r.audit_trail_exports),
-  };
+interface StartMonths {
+  /** companies.financial_year_start, normalised (NULL and 0 are March), as every reader takes it. */
+  declared: number;
+  /** The month period 1 of the latest fiscal year starts in (resolveCompanyPeriodAlignment's reading); null: no periods. */
+  actual: number | null;
 }
 
-const inUse = (refs: FiscalPeriodReferences) => Object.values(refs).some((n) => n > 0);
+async function readStartMonths(companyId: string, lock: boolean): Promise<StartMonths | null> {
+  const rows = (lock
+    ? await sql`SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID FOR UPDATE`
+    : await sql`SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID`) as DbRow[];
+  if (rows.length === 0) return null;
+  const p1 = (await sql`
+    SELECT EXTRACT(MONTH FROM start_date)::int AS m FROM fiscal_periods
+     WHERE company_id = ${companyId}::UUID AND period_number = 1
+     ORDER BY fiscal_year DESC LIMIT 1
+  `) as DbRow[];
+  return { declared: normaliseStartMonth(rows[0]!.financial_year_start), actual: p1[0] ? Number(p1[0].m) : null };
+}
+
+/**
+ * What Settings shows for the financial year start of the company it is
+ * viewing. Counted only for the request's ACTIVE company: for another one (a
+ * super_admin viewing a tenant) RLS would scope the counts to the active
+ * company and could report "unlocked", and the PUT refuses a change there
+ * anyway, so the view is read-only and the actual month is not claimed.
+ */
+export async function financialYearStartView(companyId: string, activeCompanyId: string | undefined): Promise<{
+  financialYearStartLocked: boolean;
+  financialYearStartLockReason: 'posted' | 'not_active' | null;
+  financialYearStartActual: number | null;
+}> {
+  if (companyId !== activeCompanyId) {
+    return { financialYearStartLocked: true, financialYearStartLockReason: 'not_active', financialYearStartActual: null };
+  }
+  const posted = (await countPostedJournals(companyId)) > 0;
+  const months = await readStartMonths(companyId, false);
+  return {
+    financialYearStartLocked: posted,
+    financialYearStartLockReason: posted ? 'posted' : null,
+    financialYearStartActual: months?.actual ?? null,
+  };
+}
 
 /**
  * Replace every fiscal period of the company with the twelve of the fiscal year
  * containing `today`, built from `companies.financial_year_start`. Refuses
- * (FiscalPeriodsInUseError) when anything refers to the existing periods.
+ * (FiscalPeriodsInUseError) when anything uses the existing periods. Any
+ * pre-created later year (the seeder writes next year too) goes with them;
+ * ensureFiscalPeriodForDate recreates a year on demand, on this layout.
  *
  * Request transaction only: the DELETE and createFiscalYear's INSERTs must
  * commit or roll back together, and outside a request each `sql` autocommits.
- * Later years come from ensureFiscalPeriodForDate, which follows this layout.
  */
 export async function rebuildUnusedFiscalPeriods(companyId: string, today: Date = new Date()): Promise<FiscalPeriod[]> {
   if (!als.getStore()?.client) {
     throw new Error('rebuildUnusedFiscalPeriods must run inside the request transaction');
   }
   const refs = await countFiscalPeriodReferences(companyId);
-  if (inUse(refs)) throw new FiscalPeriodsInUseError(refs);
+  if (periodsInUse(refs)) throw new FiscalPeriodsInUseError(refs);
 
   await sql`DELETE FROM fiscal_periods WHERE company_id = ${companyId}::UUID`;
   // No periods now, so the alignment is the declared start month.
@@ -146,31 +161,61 @@ export async function rebuildUnusedFiscalPeriods(companyId: string, today: Date 
   return periods;
 }
 
+/** A different month (a change), or the same month over periods that start elsewhere (a repair). */
+const decide = (m: StartMonths, month: number) => ({
+  changes: m.declared !== month,
+  repairs: m.declared === month && m.actual !== null && m.actual !== month,
+});
+
 /**
  * Called before a company row's financial_year_start is written. Returns true
- * when the value really changes (the caller then rebuilds the periods after
- * its UPDATE), false when it is absent or the same. Throws, before anything is
- * written, when the change is not allowed: an invalid month, a company that is
- * not the request's active one, a posted journal (FinancialYearStartLockedError),
- * or periods otherwise in use (FiscalPeriodsInUseError). Locks the company row
- * so two changes serialise. A write before this check must not be committed by
- * the caller's 4xx (withAuth commits below 500), so callers run it first.
+ * when the caller must rebuild the periods after its UPDATE.
+ *
+ * - Absent, or the same month over periods that already start on it: false,
+ *   WITHOUT a row lock. Every settings save sends the month, and a FOR UPDATE
+ *   on companies would stall every FK insert on the company (journals,
+ *   invoices) until the request commits.
+ * - A change: refused before anything is written (a caller's 4xx still
+ *   commits, so it runs first) for an invalid month, a company other than the
+ *   active one, a posted journal (FinancialYearStartLockedError) or periods
+ *   otherwise in use (FiscalPeriodsInUseError). Otherwise true, holding
+ *   FOR UPDATE on the company row from before the counts to the commit: an FK
+ *   insert (a close run, a journal) cannot land between the count and the rebuild.
+ * - A repair (same month, periods elsewhere): true under the same lock when
+ *   nothing uses the periods, else false. Never refuses a save.
  */
 export async function assertFinancialYearStartChange(companyId: string, requested: unknown): Promise<boolean> {
   if (requested === undefined || requested === null || requested === '') return false;
   const month = Number(requested);
   if (!Number.isInteger(month) || month < 1 || month > 12) throw new InvalidFinancialYearStartError(requested);
 
-  const rows = (await sql`
-    SELECT financial_year_start FROM companies WHERE id = ${companyId}::UUID FOR UPDATE
-  `) as DbRow[];
-  if (rows.length === 0) return false; // the UPDATE finds nothing either; the caller reports it
-  if (Number(rows[0]!.financial_year_start) === month) return false;
-  if (als.getStore()?.companyId !== companyId) throw new FinancialYearStartScopeError();
+  const unlocked = await readStartMonths(companyId, false);
+  if (!unlocked) return false; // the UPDATE finds nothing either; the caller reports it
+  const first = decide(unlocked, month);
+  if (!first.changes && !first.repairs) return false;
+  if (als.getStore()?.companyId !== companyId) {
+    if (first.changes) throw new FinancialYearStartScopeError();
+    return false;
+  }
+  // A repair is opportunistic: when the periods are visibly in use, skip it without locking.
+  if (first.repairs && ((await countPostedJournals(companyId)) > 0 || periodsInUse(await countFiscalPeriodReferences(companyId)))) {
+    return false;
+  }
 
+  // Lock, then decide again on what the lock now protects.
+  const locked = await readStartMonths(companyId, true);
+  if (!locked) return false;
+  const { changes, repairs } = decide(locked, month);
+  if (!changes && !repairs) return false;
   const posted = await countPostedJournals(companyId);
-  if (posted > 0) throw new FinancialYearStartLockedError(posted);
+  if (posted > 0) {
+    if (changes) throw new FinancialYearStartLockedError(posted);
+    return false;
+  }
   const refs = await countFiscalPeriodReferences(companyId);
-  if (inUse(refs)) throw new FiscalPeriodsInUseError(refs);
+  if (periodsInUse(refs)) {
+    if (changes) throw new FiscalPeriodsInUseError(refs);
+    return false;
+  }
   return true;
 }
