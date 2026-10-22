@@ -2,7 +2,7 @@
 
 Do the steps in this order, after 17:00 SAST on a weekday, with Hein's approval for each.
 
-The PR that ships migrations 915, 916 and 917 creates the roles with no
+The PR that ships migrations 915, 915b, 916 and 917 creates the roles with no
 password and no LOGIN, and every new env var falls back to `DATABASE_URL`, so
 the app keeps logging in as today. These do take effect on deploy:
 
@@ -22,6 +22,11 @@ the app keeps logging in as today. These do take effect on deploy:
   with `SELECT public.app_service_sync_policies()`, which makes app_service's
   policies match app_user's: it adds them for a table a migration added and
   drops them where a migration dropped or narrowed the policy they mirror.
+- app_service's policies are the sync's alone. It drops a mirror whose source
+  app_user policy is gone, and a hand-made policy that applies to app_service
+  (any other name or shape) is reported by the deploy check below, which then
+  stops the deploy until a person removes it. Give a service path access by
+  an app_user policy, never by a policy for app_service.
 - `scripts/deploy.sh`, right after the migrations and the drift audit and
   before the code switch, runs `scripts/check-app-login-roles.ts`:
   `public.app_login_role_violations()` as the owner. Any row stops the deploy
@@ -63,17 +68,17 @@ SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.prona
    AND has_function_privilege('app_user', p.oid, 'EXECUTE')
    AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c ~ '^search_path=.*pg_temp"?$')
    AND p.oid::regprocedure::text NOT IN ('auth.user_admin_companies(text)', 'auth.set_default_company(uuid,uuid)', 'invite_token_company_name()');
--- 915: a relation granted to PUBLIC, which every login holds after RESET ROLE
+-- 915b: a relation granted to PUBLIC, which every login holds after RESET ROLE
 SELECT n.nspname || '.' || c.relname, a.privilege_type
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, aclexplode(c.relacl) a
  WHERE a.grantee = 0 AND n.nspname NOT IN ('pg_catalog', 'information_schema');
--- 915: app_user (the one existing role in either login's reach) superuser,
+-- 915b: app_user (the one existing role in either login's reach) superuser,
 -- BYPASSRLS, CREATEROLE or REPLICATION, or owning anything in the cluster
 SELECT rolname FROM pg_roles WHERE rolname = 'app_user'
    AND (rolsuper OR rolbypassrls OR rolcreaterole OR rolreplication
         OR EXISTS (SELECT 1 FROM pg_shdepend WHERE refclassid = 'pg_authid'::regclass
                      AND refobjid = pg_roles.oid AND deptype = 'o'));
--- 915: app_user may SET ROLE to another role (it must reach nothing)
+-- 915b: app_user may SET ROLE to another role (it must reach nothing)
 SELECT r.rolname FROM pg_roles r
  WHERE pg_has_role('app_user', r.oid, 'MEMBER') AND r.rolname <> 'app_user';
 -- 916: each guard must hold the old exemption line exactly once
@@ -84,9 +89,9 @@ SELECT proname, hits FROM (
  WHERE prosrc !~ 'pg_has_role\(current_user' AND hits <> 1;
 ```
 
-## 1. Deploy the code (migrations 915, 916 and 917 included)
+## 1. Deploy the code (migrations 915, 915b, 916 and 917 included)
 
-915 refuses to apply if a role either app login can reach owns an object in ANY
+915b refuses to apply if a role either app login can reach owns an object in ANY
 database of the cluster (pg_shdepend). It fails safe, and the parity gate meets
 it on dev first. If it fires, the message names the role: reassign that
 object's ownership, do not weaken the check.

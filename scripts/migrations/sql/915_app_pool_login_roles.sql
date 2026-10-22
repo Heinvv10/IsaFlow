@@ -42,10 +42,10 @@
 --
 -- Neither login role can reach a superuser, a BYPASSRLS role, or any role
 -- that owns an object anywhere in the cluster; isaflow_app cannot reach
--- app_service. public.app_login_role_violations() states those rules; the
--- DO block at the end refuses the migration on any violation, and
--- scripts/deploy.sh runs it again (scripts/check-app-login-roles.ts) after
--- every deploy's migrations, before the code switch.
+-- app_service. 915b states those rules as public.app_login_role_violations()
+-- and refuses the migration on any violation; scripts/deploy.sh runs it again
+-- (scripts/check-app-login-roles.ts) after every deploy's migrations, before
+-- the code switch.
 --
 -- public.app_service_sync_policies() creates app_service's policies and drops
 -- any no longer wanted. Both migration appliers (scripts/apply-migrations.ts,
@@ -182,30 +182,52 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.app_service_wanted_policies() FROM PUBLIC;
 
--- The app_service_<cmd> policies in public that differ from what is wanted:
--- 'missing' (a service path would be refused) or 'extra' (app_service would
--- reach more than app_user's policies admit, e.g. after a migration dropped or
--- narrowed the policy it mirrored).
+-- How app_service's policies differ from what is wanted. A policy counts as
+-- a mirror only in the exact shape the sync creates: in public, permissive,
+-- named app_service_<cmd>, for app_service alone, USING (true) and/or WITH
+-- CHECK (true) as its command reads them. Rows:
+--   'missing'  (tbl, cmd)      a service path would be refused;
+--   'extra'    (tbl, cmd)      app_service reaches more than app_user's policies
+--                              admit, e.g. after a migration dropped or narrowed
+--                              the policy it mirrored;
+--   'foreign'  (tbl, polname)  any other policy that applies to app_service by
+--                              name, which nothing here wrote or reviewed.
 CREATE OR REPLACE FUNCTION public.app_service_policy_drift()
-RETURNS TABLE (why text, tbl regclass, cmd text)
+RETURNS TABLE (why text, tbl regclass, what text)
 LANGUAGE sql
 STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  WITH have AS (
-    SELECT p.polrelid::regclass AS tbl, substr(p.polname, length('app_service_') + 1) AS cmd
+  WITH mine AS (
+    SELECT p.polrelid::regclass AS tbl, p.polname::text AS polname,
+           CASE p.polcmd WHEN 'r' THEN 'select' WHEN 'a' THEN 'insert' WHEN 'w' THEN 'update'
+                         WHEN 'd' THEN 'delete' ELSE 'all' END AS cmd,
+           ns.nspname = 'public' AND p.polpermissive
+             AND p.polroles = ARRAY['app_service'::regrole::oid]
+             AND p.polcmd IN ('r', 'a', 'w', 'd')
+             AND p.polname = 'app_service_' || CASE p.polcmd WHEN 'r' THEN 'select' WHEN 'a' THEN 'insert'
+                                                              WHEN 'w' THEN 'update' ELSE 'delete' END
+             AND pg_get_expr(p.polqual, p.polrelid) IS NOT DISTINCT FROM CASE WHEN p.polcmd = 'a' THEN NULL ELSE 'true' END
+             AND pg_get_expr(p.polwithcheck, p.polrelid) IS NOT DISTINCT FROM CASE WHEN p.polcmd IN ('a', 'w') THEN 'true' END
+             AS mirror
       FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace
-     WHERE ns.nspname = 'public' AND p.polname LIKE 'app\_service\_%'
-  ), wanted AS (SELECT tbl, cmd FROM public.app_service_wanted_policies())
+     WHERE 'app_service'::regrole = ANY (p.polroles)
+  ), have AS (SELECT tbl, cmd FROM mine WHERE mirror),
+  wanted AS (SELECT tbl, cmd FROM public.app_service_wanted_policies())
   SELECT 'missing', tbl, cmd FROM (SELECT * FROM wanted EXCEPT SELECT * FROM have) m
   UNION ALL
   SELECT 'extra', tbl, cmd FROM (SELECT * FROM have EXCEPT SELECT * FROM wanted) e
+  UNION ALL
+  SELECT 'foreign', tbl, polname FROM mine WHERE NOT mirror
 $$;
 REVOKE ALL ON FUNCTION public.app_service_policy_drift() FROM PUBLIC;
 
--- Make app_service's policies exactly what is wanted: create the missing ones
--- and drop the extra ones. Not SECURITY DEFINER: it runs as the migration
--- runner, which owns the tables. Returns how many policies it changed.
+-- Make app_service's mirrors exactly what is wanted: create the missing ones
+-- (replacing a policy of the same name in another shape) and drop the extra
+-- ones. It drops nothing it did not name: a 'foreign' policy is reported by
+-- app_login_role_violations() (915b) for a person to remove. Not SECURITY
+-- DEFINER: it runs as the migration runner, which owns the tables. Returns how
+-- many mirrors it changed.
 CREATE OR REPLACE FUNCTION public.app_service_sync_policies()
 RETURNS integer
 LANGUAGE plpgsql
@@ -215,18 +237,19 @@ DECLARE
   r record;
   n integer := 0;
 BEGIN
-  FOR r IN SELECT * FROM public.app_service_policy_drift() LOOP
+  FOR r IN SELECT * FROM public.app_service_policy_drift() WHERE why IN ('missing', 'extra') LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %s', 'app_service_' || r.what, r.tbl);
     IF r.why = 'extra' THEN
-      EXECUTE format('DROP POLICY %I ON %s', 'app_service_' || r.cmd, r.tbl);
-    ELSIF r.cmd = 'select' OR r.cmd = 'delete' THEN
+      NULL;
+    ELSIF r.what = 'select' OR r.what = 'delete' THEN
       EXECUTE format('CREATE POLICY %I ON %s FOR %s TO app_service USING (true)',
-                     'app_service_' || r.cmd, r.tbl, r.cmd);
-    ELSIF r.cmd = 'insert' THEN
+                     'app_service_' || r.what, r.tbl, r.what);
+    ELSIF r.what = 'insert' THEN
       EXECUTE format('CREATE POLICY %I ON %s FOR INSERT TO app_service WITH CHECK (true)',
-                     'app_service_' || r.cmd, r.tbl);
+                     'app_service_' || r.what, r.tbl);
     ELSE
       EXECUTE format('CREATE POLICY %I ON %s FOR UPDATE TO app_service USING (true) WITH CHECK (true)',
-                     'app_service_' || r.cmd, r.tbl);
+                     'app_service_' || r.what, r.tbl);
     END IF;
     n := n + 1;
   END LOOP;
@@ -236,90 +259,3 @@ $$;
 REVOKE ALL ON FUNCTION public.app_service_sync_policies() FROM PUBLIC;
 
 SELECT public.app_service_sync_policies();
-
--- Every way a login role's reach could reach the owner, one row each:
---   - a role either login can SET ROLE to (pg_has_role MEMBER is transitive and
---     ignores INHERIT) outside its allowlist;
---   - one in reach that is superuser, BYPASSRLS, CREATEROLE or REPLICATION;
---   - one in reach that owns anything, in ANY database of the cluster (prod and
---     dev share one): pg_shdepend records the owner of every table, function,
---     schema, type and database not owned by the bootstrap superuser;
---   - isaflow_app holding app_user's privileges without SET ROLE ('USAGE': on
---     PG 15 the member's INHERIT attribute decides it, on PG 16 the grant's own
---     INHERIT option, fixed when granted, so check the effect);
---   - any table, view or sequence granted to PUBLIC, which a login reaches
---     after RESET ROLE without being any of these roles.
---   - an app_service policy missing or extra (public.app_service_policy_drift()).
--- With p_runtime_controls (once the logins can log in), also the runbook's
--- out-of-band controls: the DDL event trigger in this database, and both
--- logins in supautils.reserved_roles.
-CREATE OR REPLACE FUNCTION public.app_login_role_violations(p_runtime_controls boolean DEFAULT false)
-RETURNS SETOF text
-LANGUAGE plpgsql
-STABLE
-SET search_path = pg_catalog, public, pg_temp
-AS $$
-DECLARE
-  login text;
-  allowed text[];
-  r record;
-  reserved text[];
-BEGIN
-  FOR login, allowed IN VALUES
-    ('isaflow_app',     ARRAY['isaflow_app', 'app_user']),
-    ('isaflow_service', ARRAY['isaflow_service', 'app_service', 'app_user'])
-  LOOP
-    FOR r IN SELECT oid, rolname, rolsuper, rolbypassrls, rolcreaterole, rolreplication
-               FROM pg_roles WHERE pg_has_role(login, oid, 'MEMBER') LOOP
-      IF NOT r.rolname = ANY (allowed) THEN
-        RETURN NEXT format('%s can reach role %s, outside its allowlist %s', login, r.rolname, allowed);
-      END IF;
-      IF r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolreplication THEN
-        RETURN NEXT format('%s can reach %s, which is superuser, BYPASSRLS, CREATEROLE or REPLICATION', login, r.rolname);
-      END IF;
-      IF EXISTS (SELECT 1 FROM pg_shdepend WHERE refclassid = 'pg_authid'::regclass
-                    AND refobjid = r.oid AND deptype = 'o') THEN
-        RETURN NEXT format('%s can reach %s, which owns objects in this cluster', login, r.rolname);
-      END IF;
-    END LOOP;
-  END LOOP;
-  IF (SELECT rolinherit FROM pg_roles WHERE rolname = 'isaflow_app')
-     OR pg_has_role('isaflow_app', 'app_user', 'USAGE') THEN
-    RETURN NEXT 'isaflow_app must be NOINHERIT and must not inherit app_user';
-  END IF;
-  FOR r IN SELECT d.why, d.tbl, d.cmd FROM public.app_service_policy_drift() d LOOP
-    RETURN NEXT format('app_service policy %s on %s is %s (run SELECT public.app_service_sync_policies())', r.cmd, r.tbl, r.why);
-  END LOOP;
-  FOR r IN SELECT c.oid::regclass AS rel, a.privilege_type
-             FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace,
-                  aclexplode(c.relacl) a
-            WHERE a.grantee = 0 AND ns.nspname NOT IN ('pg_catalog', 'information_schema') LOOP
-    RETURN NEXT format('%s grants %s to PUBLIC, which every login holds after RESET ROLE', r.rel, r.privilege_type);
-  END LOOP;
-  IF p_runtime_controls THEN
-    -- Fires always ('O' origin, 'A' always; not 'R' replica-only or 'D'), on
-    -- every tag, and runs the runbook's function.
-    IF NOT EXISTS (SELECT 1 FROM pg_event_trigger WHERE evtname = 'refuse_app_pool_ddl'
-                     AND evtevent = 'ddl_command_start' AND evtenabled IN ('O', 'A') AND evttags IS NULL
-                     AND evtfoid = to_regprocedure('public.refuse_app_pool_ddl()')) THEN
-      RETURN NEXT 'event trigger refuse_app_pool_ddl is missing, disabled or not as the runbook creates it, in this database (runbook step 2)';
-    END IF;
-    reserved := regexp_split_to_array(coalesce(current_setting('supautils.reserved_roles', true), ''), '\s*,\s*');
-    FOREACH login IN ARRAY ARRAY['isaflow_app', 'isaflow_service'] LOOP
-      IF NOT login = ANY (reserved) THEN
-        RETURN NEXT format('%s is not in supautils.reserved_roles (runbook step 3b)', login);
-      END IF;
-    END LOOP;
-  END IF;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.app_login_role_violations(boolean) FROM PUBLIC;
-
-DO $$
-DECLARE
-  v text;
-BEGIN
-  FOR v IN SELECT public.app_login_role_violations(false) LOOP
-    RAISE EXCEPTION '915: %', v;
-  END LOOP;
-END $$;

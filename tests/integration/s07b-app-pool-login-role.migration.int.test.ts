@@ -1,7 +1,7 @@
 // tests/integration/s07b-app-pool-login-role.migration.int.test.ts
 //
-// Audit 2026-10-18 S-07b: migration 915 (login roles, app_service policies,
-// public.app_login_role_violations()). It applies twice, with 916 and 917, as a
+// Audit 2026-10-18 S-07b: migrations 915 (login roles, app_service policies)
+// and 915b (public.app_login_role_violations()). It applies twice, with 916 and 917, as a
 // NON-superuser postgres, as production's deploy runs, and its guard refuses
 // every mutant it exists for. 916 and 917: ...migration-guards.int.test.ts;
 // what app_service's policies drop: ...policies.int.test.ts.
@@ -14,32 +14,33 @@ import { doBlock, fixture, migration, newIds, rolledBack, setup, teardown } from
 
 const ids = newIds();
 const M915 = migration('915_app_pool_login_roles.sql');
+const M915B = migration('915b_app_login_role_violations.sql');
 const M916 = migration('916_service_role_member_guards.sql');
 const M917 = migration('917_app_role_hardening.sql');
-const GUARD_915 = doBlock(M915, "RAISE EXCEPTION '915: %'");
+const GUARD_915 = doBlock(M915B, "RAISE EXCEPTION '915b: %'");
 
 beforeAll(() => setup(ids), 60000);
 afterAll(async () => { await closeSql(); await teardown(ids, []); });
 
 describe('S-07b: migration 915', () => {
-  it('re-applies, with 916 and 917, as a NON-superuser postgres, twice', async () => {
+  it('re-applies, with 915b, 916 and 917, as a NON-superuser postgres, twice', async () => {
     await rolledBack(async (q) => {
       // The harness's postgres is a superuser (run.sh promotes it after migrating); production's is not.
       expect(((await q(`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`)) as { rows: Array<{ rolsuper: boolean }> }).rows[0]!.rolsuper).toBe(true);
       await q('ALTER ROLE postgres NOSUPERUSER');
-      for (let i = 0; i < 2; i++) { await q(M915); await q(M916); await q(M917); }
+      for (let i = 0; i < 2; i++) { await q(M915); await q(M915B); await q(M916); await q(M917); }
       const r = (await q(`SELECT rolsuper FROM pg_roles WHERE rolname = current_user`)) as { rows: Array<{ rolsuper: boolean }> };
       expect(r.rows[0]!.rolsuper).toBe(false);
     });
   });
 
   it.each([
-    ['isaflow_app granted an owner', 'GRANT migration_admin TO isaflow_app', /915: isaflow_app can reach role migration_admin/],
-    ['isaflow_app granted app_service', 'GRANT app_service TO isaflow_app', /915: isaflow_app can reach role app_service/],
-    ['isaflow_service granted migration_admin', 'GRANT migration_admin TO isaflow_service', /915: isaflow_service can reach role migration_admin/],
-    ['app_user made BYPASSRLS', 'ALTER ROLE app_user BYPASSRLS', /915: isaflow_app can reach app_user, which is superuser, BYPASSRLS/],
-    ['app_user made CREATEROLE', 'ALTER ROLE app_user CREATEROLE', /915: isaflow_app can reach app_user, which is superuser, BYPASSRLS, CREATEROLE/],
-    ['app_service made REPLICATION', 'ALTER ROLE app_service REPLICATION', /915: isaflow_service can reach app_service, which is superuser/],
+    ['isaflow_app granted an owner', 'GRANT migration_admin TO isaflow_app', /915b: isaflow_app can reach role migration_admin/],
+    ['isaflow_app granted app_service', 'GRANT app_service TO isaflow_app', /915b: isaflow_app can reach role app_service/],
+    ['isaflow_service granted migration_admin', 'GRANT migration_admin TO isaflow_service', /915b: isaflow_service can reach role migration_admin/],
+    ['app_user made BYPASSRLS', 'ALTER ROLE app_user BYPASSRLS', /915b: isaflow_app can reach app_user, which is superuser, BYPASSRLS/],
+    ['app_user made CREATEROLE', 'ALTER ROLE app_user CREATEROLE', /915b: isaflow_app can reach app_user, which is superuser, BYPASSRLS, CREATEROLE/],
+    ['app_service made REPLICATION', 'ALTER ROLE app_service REPLICATION', /915b: isaflow_service can reach app_service, which is superuser/],
     ['app_service owning a table', 'CREATE TABLE s07b_mutant (x int); ALTER TABLE s07b_mutant OWNER TO app_service', /app_service, which owns objects/],
     ['app_service owning a function', `CREATE FUNCTION public.s07b_mutant_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';
       ALTER FUNCTION public.s07b_mutant_fn() OWNER TO app_service`, /app_service, which owns objects/],
@@ -47,11 +48,11 @@ describe('S-07b: migration 915', () => {
     ['app_service owning a type', `CREATE TYPE public.s07b_mutant_t AS (a int); ALTER TYPE public.s07b_mutant_t OWNER TO app_service`,
       /app_service, which owns objects/],
     ['app_user owning a database', 'ALTER DATABASE postgres OWNER TO app_user', /app_user, which owns objects/],
-    ['isaflow_app INHERIT', 'ALTER ROLE isaflow_app INHERIT', /915: isaflow_app must be NOINHERIT/],
+    ['isaflow_app INHERIT', 'ALTER ROLE isaflow_app INHERIT', /915b: isaflow_app must be NOINHERIT/],
     ['isaflow_app inheriting app_user through the grant (PG 16)', `DO $$ BEGIN IF current_setting('server_version_num')::int >= 160000
       THEN EXECUTE 'REVOKE app_user FROM isaflow_app'; EXECUTE 'GRANT app_user TO isaflow_app WITH INHERIT TRUE';
-      ELSE EXECUTE 'ALTER ROLE isaflow_app INHERIT'; END IF; END $$`, /915: isaflow_app must be NOINHERIT and must not inherit/],
-    ['a table granted to PUBLIC', 'GRANT SELECT ON public.companies TO PUBLIC', /915: companies grants SELECT to PUBLIC/],
+      ELSE EXECUTE 'ALTER ROLE isaflow_app INHERIT'; END IF; END $$`, /915b: isaflow_app must be NOINHERIT and must not inherit/],
+    ['a table granted to PUBLIC', 'GRANT SELECT ON public.companies TO PUBLIC', /915b: companies grants SELECT to PUBLIC/],
   ])('915\'s guard refuses the mutant: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       expect(await q(GUARD_915)).toBeTruthy();
@@ -70,7 +71,7 @@ describe('S-07b: migration 915', () => {
       await elsewhere.query('ALTER TABLE s07b_elsewhere OWNER TO app_service');
       await rolledBack(async (q) => {
         expect(((await q(`SELECT count(*)::int AS n FROM pg_class WHERE relowner = 'app_service'::regrole`)) as { rows: Array<{ n: number }> }).rows[0]!.n).toBe(0);
-        await expect(q(GUARD_915)).rejects.toThrow(/915: isaflow_service can reach app_service, which owns objects in this cluster/);
+        await expect(q(GUARD_915)).rejects.toThrow(/915b: isaflow_service can reach app_service, which owns objects in this cluster/);
       });
     } finally {
       await elsewhere.query('DROP TABLE IF EXISTS s07b_elsewhere');
@@ -164,6 +165,26 @@ describe('S-07b: migration 915', () => {
     });
   });
 
+  it('reports any other policy that applies to app_service, and repairs a mirror in the wrong shape', async () => {
+    await rolledBack(async (q) => {
+      const drift = async (): Promise<string[]> => ((await q(`SELECT why || ' ' || tbl::text || ' ' || what AS d
+        FROM public.app_service_policy_drift() ORDER BY 1`)) as { rows: Array<{ d: string }> }).rows.map((r) => r.d);
+      expect(await drift()).toEqual([]);
+      await q(`CREATE POLICY s07b_foreign ON public.companies FOR SELECT TO app_service USING (true)`);
+      await q(`CREATE POLICY s07b_shared ON public.customers FOR DELETE TO app_user, app_service USING (true)`);
+      await q(`ALTER POLICY app_service_select ON public.gl_journal_entries USING (company_id IS NOT NULL)`);
+      expect(await drift()).toEqual([
+        'foreign companies s07b_foreign', 'foreign customers s07b_shared',
+        'foreign gl_journal_entries app_service_select', 'missing gl_journal_entries select',
+      ]);
+      expect(await violations(q)).toEqual(expect.arrayContaining([
+        'policy s07b_foreign on companies applies to app_service but is not one of its mirrors; remove it']));
+      // The sync replaces its own malformed mirror and leaves what it did not name for a person.
+      expect(((await q(`SELECT public.app_service_sync_policies() AS n`)) as { rows: Array<{ n: number }> }).rows[0]!.n).toBe(1);
+      expect(await drift()).toEqual(['foreign companies s07b_foreign', 'foreign customers s07b_shared']);
+    });
+  });
+
   it('the migration runner syncs after its run, whatever it applied', async () => {
     const url = new URL(String(fixture.options.connectionString));
     url.searchParams.set('sslmode', 'disable');
@@ -182,7 +203,7 @@ describe('S-07b: migration 915', () => {
     }
   });
 
-  it('nothing but the migration runner may run any of 915\'s functions', async () => {
+  it('nothing but the migration runner may run any of 915\'s or 915b\'s functions', async () => {
     const r = await fixture.query(`SELECT f, r, has_function_privilege(r, f, 'EXECUTE') AS x
       FROM unnest(ARRAY['public.app_service_sync_policies()', 'public.app_login_role_violations(boolean)',
                         'public.app_service_wanted_policies()', 'public.app_service_policy_drift()']) f,
