@@ -69,6 +69,15 @@ const BAD_ITEMS: [string, unknown][] = [
   ['[[]]', []],
 ];
 
+// An item whose `invoiceId` is not a UUID would reach the `::UUID[]` cast in SQL as a raw driver error.
+const BAD_INVOICE_IDS: [string, Record<string, unknown>][] = [
+  ['missing', { amount: 1 }],
+  ['the number 5', { invoiceId: 5, amount: 1 }],
+  ['the string "abc"', { invoiceId: 'abc', amount: 1 }],
+  ['an array', { invoiceId: [BILL], amount: 1 }],
+  ['a UUID with a stray character', { invoiceId: '4444444-4444-4444-8444-4444444444441x', amount: 1 }],
+];
+
 function mockReqRes(body: Record<string, unknown>) {
   const req = {
     method: 'POST', query: {}, body, companyId: COMPANY,
@@ -121,5 +130,30 @@ describe('allocation items that are not objects', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.stringify(res.sent)).toMatch(/Each allocation must be an object/);
     expect(sql).not.toHaveBeenCalled();
+  });
+});
+
+describe('allocation items with a bad invoiceId', () => {
+  it.each(BAD_INVOICE_IDS)('the service refuses an invoiceId that is %s', async (_label, item) => {
+    await expect(planSupplierPaymentApplication(COMPANY, PAYMENT, [item as never]))
+      .rejects.toBeInstanceOf(SupplierPaymentRefusal);
+    await expect(planSupplierPaymentApplication(COMPANY, PAYMENT, [item as never]))
+      .rejects.toThrow(/invoiceId that is a UUID/);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it.each(BAD_INVOICE_IDS)('the route answers 400 to an invoiceId that is %s', async (_label, item) => {
+    const { req, res } = mockReqRes({ paymentId: PAYMENT, allocations: [item] });
+    await handler(req, res);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.stringify(res.sent)).toMatch(/invoiceId that is a UUID/);
+    expect(sql).not.toHaveBeenCalled();
+  });
+
+  it('accepts a seeded, non-v4 UUID (the demo ids Zod 4 rejects) as well-formed', async () => {
+    const seeded = '00000000-0000-0000-0000-000000000001';
+    // Past the shape check it reaches the (stubbed) lock and the bill read, which need a request transaction.
+    await expect(planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: seeded, amount: 1 }]))
+      .rejects.not.toThrow(/invoiceId that is a UUID/);
   });
 });

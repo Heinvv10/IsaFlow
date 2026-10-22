@@ -5,6 +5,7 @@
  */
 
 import { hasWholeCents } from '@/lib/money/wholeCents';
+import { isUuidParam } from '@/lib/validation';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import type { SupplierAllocationInput } from './supplierAllocationLines';
 
@@ -17,6 +18,11 @@ export function assertAllocationShape(allocations: readonly SupplierAllocationIn
     // reading `.amount` off `null` was a TypeError and a 500.
     if (typeof alloc !== 'object' || alloc === null || Array.isArray(alloc)) {
       throw new SupplierPaymentRefusal('Each allocation must be an object.');
+    }
+    // A format check, not Zod 4's `uuid()`, which rejects the seeded non-v4 ids (00000000-...-0001) Postgres accepts.
+    // Anything else would reach the `::UUID[]` cast in the bill read as a raw driver error and a 500.
+    if (!isUuidParam(alloc.invoiceId)) {
+      throw new SupplierPaymentRefusal('Each allocation needs an invoiceId that is a UUID.');
     }
     if (!Number.isFinite(alloc.amount) || alloc.amount <= 0) {
       throw new SupplierPaymentRefusal(`Allocation amount for invoice ${alloc.invoiceId} must be a positive number.`);
