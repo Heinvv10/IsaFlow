@@ -25,5 +25,6 @@ None — pure `process.env`.
 - Adding a new REQUIRED var is a breaking change for every existing deploy; coordinate with the ops runbook and update `.env.example` in the same PR. Keep the array typed `as const`.
 
 ## Recent changes
-- 2026-10-22: S-07b added `SERVICE_DATABASE_URL` to the same-database check.
+- **Pool logins (S-07b)**: refuses `DATABASE_URL` on `isaflow_app` without `SERVICE_DATABASE_URL`, `DATABASE_URL` on `isaflow_service`, `SERVICE_DATABASE_URL` on `isaflow_app`, and, once `DATABASE_URL` is `isaflow_app`, a service login other than `isaflow_service`. The role is read from the pooler's `<role>.<tenant>` user too. In production, a request pool not on `isaflow_app` is reported to stderr on every boot, and `MIGRATION_ADMIN_DATABASE_URL` is required.
+- 2026-10-22: S-07b added `SERVICE_DATABASE_URL` to the same-database check, and the pool-login rules.
 - 2026-04-24: PR-4 separated `IMPERSONATION_JWT_SECRET` from `JWT_SECRET` (pentest L1); L-tier cleanup added `PLATFORM_ADMIN_DATABASE_URL` (L5) and `PORTAL_JWT_SECRET` (L3).

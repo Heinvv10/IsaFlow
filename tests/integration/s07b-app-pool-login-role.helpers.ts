@@ -1,6 +1,6 @@
 /**
  * Fixture for the s07b-app-pool-login-role*.int.test.ts suites: real logins as
- * the app's login roles (migrations 915, 916), one tenant pair seeded per
+ * the app's login roles (migrations 915-917), one tenant pair seeded per
  * file, and probes that report how a statement was refused.
  *
  * The roles must be reached by a real LOGIN, not `options=-c role=X` on the
@@ -15,12 +15,12 @@ import { vi } from 'vitest';
 import type { Pool, PoolClient } from 'pg';
 import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { response } from './mfa-impersonation-postgres.helpers';
-import { pool as fixture, urlAsRole } from './s07-users-privilege-columns.helpers';
+import { pool as fixture } from './s07-users-privilege-columns.helpers';
 
 export { fixture };
 
-/** The login roles migration 915 creates, and the pool each one serves. */
-export type LoginRole = 'isaflow_app' | 'isaflow_service';
+/** The login roles migration 915 creates, and the invite routes' migration_admin. */
+export type LoginRole = 'isaflow_app' | 'isaflow_service' | 'migration_admin';
 
 export const CRON = 's07b-cron-secret-0123456789abcdef0123456789';
 
@@ -29,7 +29,8 @@ export const migration = (name: string): string =>
 
 /**
  * Give `role` LOGIN and a password (as the ops step does in production) and
- * return the harness's URL rewritten to log in as it.
+ * return the harness's URL rewritten to log in as it, so session_user is the
+ * role itself, as in production.
  */
 export async function loginUrl(fixtureUrl: string, role: LoginRole): Promise<string> {
   const password = crypto.randomUUID();
@@ -65,7 +66,7 @@ let mcpFlag: string | null = null;
  */
 export async function setup(ids: S07bIds): Promise<void> {
   const fixtureUrl = process.env.DATABASE_URL!;
-  vi.stubEnv('MIGRATION_ADMIN_DATABASE_URL', urlAsRole('migration_admin'));
+  vi.stubEnv('MIGRATION_ADMIN_DATABASE_URL', await loginUrl(fixtureUrl, 'migration_admin'));
   vi.stubEnv('DATABASE_URL', await loginUrl(fixtureUrl, 'isaflow_app'));
   vi.stubEnv('SERVICE_DATABASE_URL', await loginUrl(fixtureUrl, 'isaflow_service'));
   vi.stubEnv('CRON_SECRET', CRON);
@@ -166,6 +167,18 @@ export async function callCron(route: unknown, secret: string): Promise<{ status
   const result = response();
   await (route as Route)(req as never, result.res as never);
   return { status: result.state.statusCode, body: result.state.body };
+}
+
+/** Run `body` in a transaction on the fixture's own (superuser) connection, always rolled back. */
+export async function rolledBack(body: (q: (text: string) => Promise<unknown>) => Promise<void>): Promise<void> {
+  const c = await fixture.connect();
+  try {
+    await c.query('BEGIN');
+    await body((text) => c.query(text));
+  } finally {
+    await c.query('ROLLBACK');
+    c.release();
+  }
 }
 
 /** The top-level `DO $$ ... END $$;` block of a migration that contains `marker`. */

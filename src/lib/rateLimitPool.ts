@@ -16,6 +16,7 @@
 import pg from 'pg';
 import { log } from '@/lib/logger';
 import { poolSizeFromEnv } from '@/lib/limits/poolLimits';
+import { serviceDatabaseUrl } from '@/lib/serviceDatabaseUrl';
 
 /**
  * Connections per process: RATE_LIMIT_POOL_MAX, default 10, like PG_POOL_MAX
@@ -67,10 +68,7 @@ let _pool: pg.Pool | null = null;
 export function getRateLimitPool(): pg.Pool {
   if (!_pool) {
     // The service pool's login (S-07b): this pool never sets a role.
-    const connectionString = process.env.SERVICE_DATABASE_URL || process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error('DATABASE_URL is not set. Please configure it in your environment.');
-    }
+    const connectionString = serviceDatabaseUrl();
     _pool = new pg.Pool({
       connectionString,
       max: rateLimitPoolMax(),

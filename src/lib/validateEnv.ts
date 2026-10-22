@@ -126,19 +126,49 @@ const LENGTH_CHECKED_SECRETS = [
   'PORTAL_JWT_SECRET',
 ] as const;
 
-// S-07b: isaflow_app (migration 915) holds nothing until a request transaction
-// runs SET LOCAL ROLE app_user. The service pool falls back to DATABASE_URL
-// when SERVICE_DATABASE_URL is unset, so with DATABASE_URL on isaflow_app every
-// cron, login and public route would fail 42501 at request time. Refuse to boot.
-function assertServicePoolHasItsOwnLogin(): void {
-  if (process.env.SERVICE_DATABASE_URL) return;
-  const user = parseConnectionString(process.env.DATABASE_URL as string).user;
-  if (user === 'isaflow_app') {
+// The role a connection string logs in as. Supavisor's pooler spells it
+// `<role>.<tenant>`; no IsaFlow role name contains a dot.
+function loginOf(url: string): string | undefined {
+  return parseConnectionString(url).user?.split('.')[0];
+}
+
+// S-07b (migration 915): the request pool logs in as isaflow_app, which holds
+// only PUBLIC's grants until a request transaction runs SET LOCAL ROLE
+// app_user; the service pool logs in as isaflow_service. Refuse every
+// combination that is a half-done or swapped rollout:
+//   - DATABASE_URL on isaflow_app without SERVICE_DATABASE_URL: the service
+//     pool falls back to DATABASE_URL, so every cron, login and public route
+//     would fail 42501 at request time;
+//   - DATABASE_URL on isaflow_service: RESET ROLE in a request would land on
+//     app_service, whose policies admit every tenant's rows;
+//   - SERVICE_DATABASE_URL on isaflow_app, or on anything but isaflow_service
+//     once DATABASE_URL is isaflow_app (e.g. the owner).
+// In production, a request pool not yet on isaflow_app is reported on every
+// boot until the runbook's env step is done.
+const RUNBOOK = 'docs/runbooks/s07b-app-pool-login-roles.md';
+function assertPoolLogins(): void {
+  const app = loginOf(process.env.DATABASE_URL as string);
+  const serviceUrl = process.env.SERVICE_DATABASE_URL;
+  const service = serviceUrl ? loginOf(serviceUrl) : undefined;
+  if (app === 'isaflow_app' && !serviceUrl) {
     throw new Error(
       'DATABASE_URL logs in as isaflow_app but SERVICE_DATABASE_URL is not set: the service pool ' +
         'would log in as isaflow_app too and every path outside a request transaction would be refused. ' +
-        'Set SERVICE_DATABASE_URL to the isaflow_service login (docs/runbooks/s07b-app-pool-login-roles.md).'
+        `Set SERVICE_DATABASE_URL to the isaflow_service login (${RUNBOOK}).`
     );
+  }
+  if (app === 'isaflow_service') {
+    throw new Error(`DATABASE_URL must not log in as isaflow_service: RESET ROLE in a request would reach every tenant (${RUNBOOK}).`);
+  }
+  if (service === 'isaflow_app') {
+    throw new Error(`SERVICE_DATABASE_URL must not log in as isaflow_app; it is the isaflow_service login (${RUNBOOK}).`);
+  }
+  if (app === 'isaflow_app' && service !== 'isaflow_service') {
+    throw new Error(`DATABASE_URL logs in as isaflow_app, so SERVICE_DATABASE_URL must log in as isaflow_service, not "${service}" (${RUNBOOK}).`);
+  }
+  if (process.env.NODE_ENV === 'production' && app !== 'isaflow_app') {
+    // process.stderr, as below: the no-console lint rule, and the logger is not set up this early.
+    process.stderr.write(`[env] S-07b: the request pool logs in as "${app}", not isaflow_app (${RUNBOOK})\n`);
   }
 }
 
@@ -148,9 +178,14 @@ export function validateEnv(): void {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
   assertPrivilegedPoolsTargetAppDatabase();
-  assertServicePoolHasItsOwnLogin();
+  assertPoolLogins();
   if (process.env.NODE_ENV === 'production') {
     assertProductionUrl('NEXT_PUBLIC_ADMIN_URL', 'admin.isaflow.co.za');
+    // Both invite-accept routes write on the migration_admin pool (S-07b): a
+    // missing URL must stop the boot, not 500 the first invitation.
+    if (!process.env.MIGRATION_ADMIN_DATABASE_URL) {
+      throw new Error('Missing required production environment variable: MIGRATION_ADMIN_DATABASE_URL');
+    }
     // M7: enforce minimum secret strength in production only (dev/test may use
     // short throwaway secrets without blocking local boot).
     const weak = LENGTH_CHECKED_SECRETS.filter(v => (process.env[v] ?? '').length < MIN_SECRET_LEN);

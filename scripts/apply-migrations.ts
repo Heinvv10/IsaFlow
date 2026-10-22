@@ -18,6 +18,7 @@ import {
   computeChecksum,
   loadMigrationFiles,
   parseVersionFromFilename,
+  syncAppServicePolicies,
   toDirectUrl,
   type MigrationFile,
   type TrackingRow,
@@ -216,6 +217,8 @@ async function main(): Promise<void> {
         console.log(`  ok (${Date.now() - t0}ms)`);
       }
       console.log(`Applied ${plan.toApply.length} migrations`);
+      const created = await syncAppServicePolicies(client);
+      if (created !== null) console.log(`app_service policies created: ${created}`);
     } finally {
       await client.query(`SELECT pg_advisory_unlock($1)`, [ADVISORY_LOCK_KEY]);
     }

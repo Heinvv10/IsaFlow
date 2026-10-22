@@ -2,13 +2,31 @@
 
 Do the steps in this order, after 17:00 SAST on a weekday, with Hein's approval for each.
 
-The PR that ships migrations 915 and 916 changes almost nothing at runtime by
-itself. Two things do take effect on deploy: POST /api/invite/[token] writes on
-the migration_admin pool (`MIGRATION_ADMIN_DATABASE_URL`, already required by
-/api/invitations/[token]/accept), and app_user can no longer write
-`schema_migrations`. The roles it
-creates have no password and no LOGIN, and every new env var falls back to
-`DATABASE_URL`.
+The PR that ships migrations 915, 916 and 917 creates the roles with no
+password and no LOGIN, and every new env var falls back to `DATABASE_URL`, so
+the app keeps logging in as today. These do take effect on deploy:
+
+- POST /api/invite/[token] writes on the migration_admin pool, as
+  /api/invitations/[token]/accept already did. In production the app now
+  refuses to boot without `MIGRATION_ADMIN_DATABASE_URL` (prod has it).
+- app_user can no longer write `schema_migrations` (917).
+- The views `clients` and `app_settings` run as the caller (917,
+  `security_invoker`): each request sees only its own company's rows through
+  them. Some readers filtered by key only (drc-vat-export, budget exports,
+  pdfShared) and could read another tenant's row before; a "missing setting"
+  report after deploy is this, not a regression.
+- Three definer functions get `pg_temp` last on their search path (917).
+- The member guards bind app_service holders (916). Nothing logs in as one
+  yet, so no request changes.
+- Every migration run (deploy, parity gate on dev, `bun run db:migrate`) ends
+  with `SELECT public.app_service_sync_policies()`, which adds app_service's
+  policies for any table a migration added.
+- `scripts/verify-deploy.sh` gains step 4: `scripts/check-app-login-roles.ts`
+  runs `public.app_login_role_violations()` as the owner and fails the
+  verification on any row. Once either login can log in (step 3 below) it
+  also requires the event trigger (step 2) and the reserved roles (step 3b).
+- Every boot in production writes `[env] S-07b: the request pool logs in as
+  "postgres", not isaflow_app` to stderr until step 5 is done.
 
 ## 0. Before you start
 
@@ -19,7 +37,37 @@ creates have no password and no LOGIN, and every new env var falls back to
 - The prod env file is `/home/velo/isaflow/.env.local` (velo:velo 0600). You
   edit it as velo, or with sudo.
 
-## 1. Deploy the code (migrations 915 and 916 included)
+## 0b. Read-only pre-check (as the owner, on `isaflow`)
+
+Each query must return zero rows; any row is a migration that would refuse
+mid-deploy, after the migrations before it have applied:
+
+```sql
+-- 917: settings rows with no company
+SELECT count(*) FROM accounting_settings WHERE company_id IS NULL HAVING count(*) > 0;
+-- 917: views owned by an RLS-bypassing role that app_user can use, without security_invoker
+SELECT c.oid::regclass FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_roles o ON o.oid = c.relowner
+ WHERE c.relkind = 'v' AND n.nspname IN ('public','auth','app','platform_shared')
+   AND (o.rolsuper OR o.rolbypassrls)
+   AND has_table_privilege('app_user', c.oid, 'SELECT, INSERT, UPDATE, DELETE')
+   AND c.oid::regclass::text NOT IN ('clients', 'app_settings')
+   AND NOT coalesce(c.reloptions && ARRAY['security_invoker=true','security_invoker=on','security_invoker=1'], false);
+-- 917: app_user-executable definer functions without pg_temp last (917 fixes these three only)
+SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE p.prosecdef AND n.nspname IN ('public','auth','app','platform_shared')
+   AND has_function_privilege('app_user', p.oid, 'EXECUTE')
+   AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c ~ '^search_path=.*pg_temp"?$')
+   AND p.oid::regprocedure::text NOT IN ('auth.user_admin_companies(text)', 'auth.set_default_company(uuid,uuid)', 'invite_token_company_name()');
+-- 916: each guard must hold the old exemption line exactly once
+SELECT proname, hits FROM (
+  SELECT proname, prosrc, (length(prosrc) - length(replace(prosrc, l, ''))) / length(l) AS hits
+    FROM pg_proc, (VALUES ($$IF current_user <> 'app_user' THEN$$)) v(l)
+   WHERE proname IN ('company_users_role_guard', 'company_invitations_role_guard')) g
+ WHERE prosrc !~ 'pg_has_role\(current_user' AND hits <> 1;
+```
+
+## 1. Deploy the code (migrations 915, 916 and 917 included)
 
 915 refuses to apply if a role either app login can reach owns an object in ANY
 database of the cluster (pg_shdepend). It fails safe, and the parity gate meets
@@ -37,7 +85,8 @@ SELECT rolname, rolcanlogin, rolinherit, rolbypassrls FROM pg_roles
  WHERE rolname IN ('isaflow_app','isaflow_service','app_service');
 -- 3 rows, rolcanlogin = false, rolbypassrls = false; isaflow_app rolinherit = false
 SELECT count(*) FROM pg_policy WHERE polname LIKE 'app\_service\_%';   -- > 200, in isaflow
-SELECT has_table_privilege('app_user', 'schema_migrations', 'DELETE');  -- false (916)
+SELECT has_table_privilege('app_user', 'schema_migrations', 'DELETE');  -- false (917)
+SELECT * FROM public.app_login_role_violations(false);                  -- no rows
 ```
 
 ## 2. Refuse DDL from the app logins (once per cluster, as `supabase_admin`)
@@ -142,7 +191,20 @@ Migration 915 changes the roles only when they differ from what it expects, so
 re-running it, or applying it to another database of the cluster, still works
 (verified on supabase/postgres:15.8.1.085 with non-superuser postgres).
 
-## 4. Change the prod env (`/home/velo/isaflow/.env.local`)
+## 4. Reinstall the backup scripts (before the env change)
+
+The backup and restore-drill units run root-owned copies in `/opt/isaflow-ops`.
+Those copies read `DATABASE_URL`, which step 5 turns into `isaflow_app`, and
+pg_dump would fail as that role. Reinstall the copies first, so they read
+`OWNER_DATABASE_URL` (and fall back to `DATABASE_URL`, still `postgres`, until
+step 5), leaving no window in which a backup or WAL archive runs on the old
+copies with the new env:
+
+`sudo bash scripts/ops/install-backup-ops.sh` (it installs `ownerDatabaseUrl.sh` beside `lib-pgconn.sh`)
+
+Then check: `sudo grep -c OWNER_DATABASE_URL /opt/isaflow-ops/lib-pgconn.sh` (expect ≥ 1).
+
+## 5. Change the prod env (`/home/velo/isaflow/.env.local`)
 
 Keep a copy first: `sudo cp -p .env.local .env.local.pre-s07b`.
 
@@ -156,15 +218,12 @@ Leave `PLATFORM_ADMIN_DATABASE_URL` and `MIGRATION_ADMIN_DATABASE_URL` as they a
 The app refuses to boot if `DATABASE_URL` names isaflow_app while
 `SERVICE_DATABASE_URL` is unset (validateEnv), so set all three together.
 
-## 5. Reinstall the backup scripts BEFORE the next backup runs
-
-The backup and restore-drill units run root-owned copies in `/opt/isaflow-ops`.
-Those copies read `DATABASE_URL`, which would now be `isaflow_app`, and pg_dump
-would fail as that role. Reinstall the copies so they read `OWNER_DATABASE_URL`:
-
-`sudo bash scripts/ops/install-backup-ops.sh` (it installs `ownerDatabaseUrl.sh` beside `lib-pgconn.sh`)
-
-Then check: `sudo grep -c OWNER_DATABASE_URL /opt/isaflow-ops/lib-pgconn.sh` (expect ≥ 1).
+`OWNER_DATABASE_URL` now sits in the app's own env file, so the app process
+holds the owner's credentials although no app code reads them. An injected SQL
+statement cannot read the process environment; code execution in the app
+could, as it could read `DATABASE_URL` (the owner) today. Moving the owner URL
+to a file only the deploy and backup scripts read is a follow-up, not part of
+this change.
 
 ## 6. Restart and verify
 
@@ -186,6 +245,17 @@ Then check: `sudo grep -c OWNER_DATABASE_URL /opt/isaflow-ops/lib-pgconn.sh` (ex
 
 1. Restore `.env.local.pre-s07b`.
 2. `sudo systemctl restart isaflow`.
+
+**Env first, then code.** Never run `scripts/rollback-deploy.sh` to a release
+older than this PR while the env still names `isaflow_app`: the old code
+ignores `SERVICE_DATABASE_URL` and has no boot check, so every cron, login and
+public route would fail with 42501, and its `deploy.sh` would migrate as
+`isaflow_app`. Restore the env and restart first; roll the code back after.
+
+A post-deploy verification failure auto-runs `rollback-deploy.sh`. Once the
+logins can log in, step 4 of that verification fails if the event trigger or
+the reserved roles are missing, so finish steps 2 and 3b before the next
+deploy.
 
 The roles and policies can stay; nothing uses them. To remove the logins as well:
 `ALTER ROLE isaflow_app NOLOGIN; ALTER ROLE isaflow_service NOLOGIN;`.

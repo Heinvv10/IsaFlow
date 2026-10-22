@@ -1,8 +1,9 @@
 /**
  * scripts/ops/ownerDatabaseUrl.sh (S-07b): the deploy's migrations, parity
  * gate and verify step take the schema owner's URL. Behaviour is run for real
- * through bash; the deploy.sh wiring is pinned as text, because running
- * deploy.sh deploys production.
+ * through bash. deploy.sh itself cannot run (it deploys production), so its
+ * two DB-URL blocks are cut out of the real file and run with sudo and bun
+ * stubbed, and the rest of the wiring is pinned as text.
  */
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'child_process';
@@ -64,7 +65,70 @@ describe('deploy.sh uses the owner URL for every schema-owner step', () => {
   });
 
   it('no longer greps DATABASE_URL straight out of an env file', () => {
-    expect(code).not.toMatch(/grep "\^DATABASE_URL="/);
+    expect(code).not.toMatch(/grep\s+(-\S+\s+)*["']?\^?DATABASE_URL=/);
+  });
+
+  it('parses', () => {
+    expect(spawnSync('bash', ['-n', join(process.cwd(), 'scripts', 'deploy.sh')]).status).toBe(0);
+  });
+});
+
+/** deploy.sh's text from the line starting with `from` through the first line starting with `to` after it. */
+function deployBlock(from: string, to: string): string {
+  const lines = readFileSync(join(process.cwd(), 'scripts', 'deploy.sh'), 'utf8').split('\n');
+  const a = lines.findIndex((l) => l.trim().startsWith(from));
+  const b = lines.findIndex((l, i) => i > a && l.startsWith(to));
+  if (a < 0 || b < 0) throw new Error(`deploy.sh has no block ${from} .. ${to}`);
+  return lines.slice(a, b + 1).join('\n');
+}
+
+describe('deploy.sh\'s DB-URL blocks, run with sudo and bun stubbed', () => {
+  const parity = deployBlock('. "$REPO_DIR/scripts/ops/ownerDatabaseUrl.sh"', 'unset PARITY_PROD_DB');
+  // deploy.sh sources the helper once, in the parity block, before this one.
+  const migrate = `. "$REPO_DIR/scripts/ops/ownerDatabaseUrl.sh"\n${deployBlock('PROD_ENV="$DEPLOY_DIR/.env.local"', 'fi')}`;
+
+  function runBlock(block: string, prodEnv: string, devEnv: string): { status: number | null; out: string } {
+    const dir = mkdtempSync(join(tmpdir(), 's07b-deploy-'));
+    try {
+      writeFileSync(join(dir, '.env.local'), prodEnv);
+      writeFileSync(join(dir, 'dev.env'), devEnv);
+      writeFileSync(join(dir, 'bun'), '#!/bin/bash\necho "RAN $(basename "$1") DATABASE_URL=$DATABASE_URL PROD=$PARITY_PROD_DATABASE_URL"\n');
+      const script = `set -e\nsudo() { "$@"; }\nREPO_DIR="${process.cwd()}"\nDEPLOY_DIR="${dir}"\nENV_LOCAL="${dir}/dev.env"\nBUN="bash ${dir}/bun"\n${block}\n`;
+      const r = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+      return { status: r.status, out: r.stdout + r.stderr };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  const PROD = 'OWNER_DATABASE_URL=postgresql://postgres@p/isaflow\nDATABASE_URL=postgresql://isaflow_app@p/isaflow\n';
+  const DEV = 'OWNER_DATABASE_URL=postgresql://postgres@d/isaflow_dev\nDATABASE_URL=postgresql://isaflow_app@d/isaflow_dev\n';
+
+  it('the parity gate gets both owner URLs', () => {
+    const r = runBlock(parity, PROD, DEV);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('RAN check-migration-parity.ts DATABASE_URL=postgresql://postgres@d/isaflow_dev PROD=postgresql://postgres@p/isaflow');
+  });
+
+  it('the parity gate stops, saying why, when prod\'s env names neither URL', () => {
+    const r = runBlock(parity, 'NODE_ENV=production\n', DEV);
+    expect(r.status).toBe(1);
+    expect(r.out).toMatch(/ERROR: cannot read OWNER_DATABASE_URL or DATABASE_URL from .*\.env\.local/);
+    expect(r.out).not.toContain('RAN ');
+  });
+
+  it('migrations and the drift audit run on prod\'s owner URL', () => {
+    const r = runBlock(migrate, PROD, DEV);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain('RAN apply-migrations.ts DATABASE_URL=postgresql://postgres@p/isaflow');
+    expect(r.out).toContain('RAN audit-schema-drift.ts DATABASE_URL=postgresql://postgres@p/isaflow');
+  });
+
+  it('migrations fall back to DATABASE_URL, with the warning, before the env names an owner URL', () => {
+    const r = runBlock(migrate, 'DATABASE_URL=postgresql://postgres@p/isaflow\n', DEV);
+    expect(r.status).toBe(0);
+    expect(r.out).toMatch(/WARNING: OWNER_DATABASE_URL is not set/);
+    expect(r.out).toContain('RAN apply-migrations.ts DATABASE_URL=postgresql://postgres@p/isaflow');
   });
 });
 
