@@ -193,7 +193,7 @@ function assertUnderThreshold(emp: EmployeeInput): void {
   if (emp.taxThreshold != null && income <= emp.taxThreshold) return;
   throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): no PAYE was deducted on R${income.toFixed(2)} `
     + (emp.taxThreshold == null
-      ? 'and the tax threshold is not known (capture the employee\'s date of birth or ID number: the threshold depends on age), '
+      ? 'and the tax threshold is not known (it needs the employee\'s age, from the date of birth or ID number, and the tax tables of that year), '
       : `which is above the tax threshold of R${emp.taxThreshold.toFixed(2)}, `)
     + ((emp.lumpSums ?? []).length > 0 ? 'beside a nil-tax directive, ' : '')
     + 'so no reason for non-deduction (4150) can be stated: 02 and 04 are only for pay under the threshold, and 08 (medical credits) '
