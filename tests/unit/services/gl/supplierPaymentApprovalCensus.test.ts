@@ -6,7 +6,9 @@
  * them); the bank-feed creators record money already moved under the declared
  * exemption (approvalGateExemptCensus); every other creator writes a DRAFT,
  * and every editor of what a payment pays, or where the money goes, stamps
- * itself as an author.
+ * itself as an author. A payment's batch_id is set only by the INSERT that
+ * creates it: migration 914 refuses every UPDATE of it, so no writer below may
+ * move a payment between batches.
  *
  * A new INSERT, UPDATE or caller fails this census until it is classified
  * here. Walks the tree on disk, as approvalGateExemptCensus does.
