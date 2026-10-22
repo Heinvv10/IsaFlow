@@ -13,6 +13,7 @@ import { matchContact } from '../core/migrationImportService';
 import { assertNoOpeningControlTotal, buildTakeOnLines, lockMigrationImport, resolveTakeOnClearingAccountId } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { assertMayImportOpenBills, withApprovalGateExempt } from '../gl/approvalGateExempt';
+import { paidBeyondTotal } from './migrationApPaidGuard';
 type Row = DbRow;
 
 
@@ -137,6 +138,9 @@ export async function importAPInvoices(
           message: `Imported with a rounding difference: ${inv.invoiceNumber} — ${detail}`,
         });
       }
+
+      const overPaid = paidBeyondTotal(inv, fileRow(i));
+      if (overPaid) { errors.push(overPaid); skipped++; continue; }
 
       const amountPaid = inv.amountPaid ?? 0;
       const balance = inv.totalAmount - amountPaid;
