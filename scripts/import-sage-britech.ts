@@ -3,7 +3,7 @@
  * Usage: DATABASE_URL="..." bun run /tmp/sage-pull-britech/import-sage-data.ts
  */
 import { createSql } from './_pg';
-import { deriveAmountPaid } from './lib/amountPaid';
+import { deriveAmountPaid, parseAmountDue } from './lib/amountPaid';
 import { log } from '../src/lib/logger';
 import { readFileSync } from 'fs';
 
@@ -89,7 +89,7 @@ async function importARInvoices() {
     const dueDate = inv.DueDate?.split('T')[0] || null;
     try {
       const total = Number(inv.Total || 0);
-      const amountDue = inv.AmountDue == null ? null : Number(inv.AmountDue);
+      const amountDue = parseAmountDue(inv.AmountDue);
       const derived = deriveAmountPaid(total, amountDue);
       if (derived.clamped) {
         log.warn('amount_paid clamped to customer_invoices_amount_paid_within_total', {
@@ -130,7 +130,7 @@ async function importAPInvoices() {
     const dueDate = inv.DueDate?.split('T')[0] || null;
     try {
       const total = Number(inv.Total || 0);
-      const amountDue = inv.AmountDue == null ? null : Number(inv.AmountDue);
+      const amountDue = parseAmountDue(inv.AmountDue);
       const derived = deriveAmountPaid(total, amountDue);
       if (derived.clamped) {
         log.warn('supplier invoice amount_paid clamped to total', {
