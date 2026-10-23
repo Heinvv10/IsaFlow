@@ -123,7 +123,7 @@ const HELPERS: Record<string, HelperPin> = {
   'public.approval_rule_strictest_rank(uuid,text,numeric)': { md5: '23b7009e36d36f7fde8dc3fd9f6d2f44', result: 'integer', definer: false, volatility: 's' },
   'public.approval_supplier_invoice_gate_amount(numeric,numeric)': { md5: 'e1e7e46e7188788259f51638f9aa7536', result: 'numeric', definer: false, volatility: 'i' },
   'public.approval_supplier_payment_authors(uuid,uuid)': { md5: 'cb2b3e8246a8c45b33f116db838c93a2', result: 'uuid[]', definer: false, volatility: 's' },
-  'public.approval_supplier_payment_content(uuid,uuid)': { md5: 'ba7874b8cc8b22a6bef5757e96b6ff26', result: 'jsonb', definer: false, volatility: 's' },
+  'public.approval_supplier_payment_content(uuid,uuid)': { md5: '64dcdb5fda41457ce5c21f9ffa695091', result: 'jsonb', definer: false, volatility: 's' },
   'public.approval_supplier_payment_gate_amount(numeric)': { md5: 'd4cf7981bd0db4cdb514891f17d6232a', result: 'numeric', definer: false, volatility: 'i' },
 };
 /** Redefined on purpose elsewhere (see EXCEPTION): shape only. */
