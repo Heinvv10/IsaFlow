@@ -169,7 +169,7 @@ describe('G4: the year-to-date', () => {
       `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, paye, net_pay, component_breakdown)
        VALUES ($1, $2, 60000, 30000, 7307, 52693, $3)`, [run, f.employee, JSON.stringify(breakdown)]);
     const ytd = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 4 }, [f.employee]);
-    expect(ytd.get(f.employee)).toEqual({ periods: 1, periodicTaxable: 20_000, annualPayments: 10_000, tablePaye: 4_307, medicalCredit: 0 });
+    expect(ytd.get(f.employee)).toEqual({ periods: 1, periodicTaxable: 20_000, annualPayments: 10_000, tablePaye: 4_307, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 });
     // April: a severance-only line on an approved run (no periodic pay: not a period worked);
     // May: a run only calculated (not declarable: not in it).
     const april = (await pool.query(
@@ -185,7 +185,7 @@ describe('G4: the year-to-date', () => {
       `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, net_pay)
        VALUES ($1, $2, 20000, 20000, 20000, 0, 2115, 17885)`, [may, f.employee]);
     const june = await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 6 }, [f.employee]);
-    expect(june.get(f.employee)).toEqual({ periods: 1, periodicTaxable: 20_000, annualPayments: 10_000, tablePaye: 4_307, medicalCredit: 0 });
+    expect(june.get(f.employee)).toEqual({ periods: 1, periodicTaxable: 20_000, annualPayments: 10_000, tablePaye: 4_307, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 });
     // Not before the period itself, and not other tax years.
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2026, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();
     expect((await loadPayeYearToDate(f.company, crypto.randomUUID(), { year: 2027, month: 3 }, [f.employee])).get(f.employee)).toBeUndefined();

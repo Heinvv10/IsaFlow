@@ -22,7 +22,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import easyfile from '../../pages/api/payroll/irp5/easyfile-export';
+import type { Route } from './w3-01-payroll.helpers';
+import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
 import {
   approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
@@ -53,12 +56,15 @@ beforeAll(async () => {
   const medical = (await pool.query<{ id: string }>(
     `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
      VALUES ($1, 'Medical aid', '4005', 'deduction', false) RETURNING id`, [f.company])).rows[0]!.id;
-  for (const e of EMPLOYEES) {
+  await pool.query(`UPDATE companies SET paye_reference_number = '7123456789', sars_contact_first_name = 'Pat',
+    sars_contact_last_name = 'Payroll', sars_contact_telephone = '0115550000',
+    physical_address_line1 = '1 Main Road', physical_city = 'Pretoria', physical_postal_code = '0181' WHERE id = $1`, [f.company]);
+  for (const [i, e] of EMPLOYEES.entries()) {
     const id = (await pool.query<{ id: string }>(
       `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth,
-                                      medical_aid_main_member, medical_aid_dependants_count)
-       VALUES ($1, $2, 'Emp', $2, '2020-01-01', $3::date, $4, $5) RETURNING id`,
-      [f.company, e.number, e.born, e.member, e.dependants])).rows[0]!.id;
+                                      medical_aid_main_member, medical_aid_dependants_count, id_number)
+       VALUES ($1, $2, 'Emp', $2, '2020-01-01', $3::date, $4, $5, $6) RETURNING id`,
+      [f.company, e.number, e.born, e.member, e.dependants, `${e.born.slice(2, 4)}061550090${i}8`])).rows[0]!.id;
     await pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, $3, '2020-01-01')`,
       [id, salary, e.salary]);
@@ -108,5 +114,28 @@ describe('R3 part 2: the additional medical credit moves only the PAYE it should
     const golden = JSON.parse(readFileSync(GOLDEN, 'utf8')) as Record<string, number>;
     expect([3, 4, 5].map(m => golden[`E5 ${m}`])).toEqual([3_115.25, 3_115.25, 3_115.25]);
     expect([3, 4, 5].map(m => paye[`E5 ${m}`])).toEqual([2_168.2, 2_168.2, 2_168.19]);
+  });
+
+  it('the certificate: 4120 carries the credit (E5: 947.05 + 947.05 + 947.06), 0.00 for 65+ without an excess, none under 65', async () => {
+    const req = request({ 'sb-access-token': f.token, active_company_id: f.company }, 'GET') as unknown as { url: string; query: Record<string, unknown> };
+    req.url = '/api/payroll/irp5/easyfile-export?taxYear=2027';
+    req.query = { taxYear: '2027' };
+    const out = response();
+    let file = '';
+    out.state.end = function end(this: typeof out.state, body?: unknown) { if (typeof body === 'string') file = body; return this; };
+    await (easyfile as Route)(req as never, out.res as never);
+    expect(out.state.statusCode, JSON.stringify(out.state.body)).toBe(200);
+    const lines = file.split(/\r\n/);
+    const record = (number: string) => {
+      const start = lines.findIndex((l, i) => l.startsWith('3010,') && lines.slice(i, i + 8).some(x => x === `3030,"${number}"`));
+      return lines.slice(start, lines.indexOf('9999,9999', start) + 1);
+    };
+    const medical = (number: string) => record(number).filter(l => /^(4005|4116|4120),/.test(l));
+    // 3 months: 4005 = 3 x fees; 4116 = 3 x the monthly MTC used (752 for member + 1, 376 member only).
+    expect(medical('E5')).toEqual(['4005,15300', '4116,2256.00', '4120,2841.16']);
+    expect(medical('E6')).toEqual(['4005,3000', '4116,1128.00', '4120,0.00']);
+    expect(medical('E1')).toEqual(['4005,9000', '4116,2256.00']);
+    expect(medical('E3')).toEqual([]);
+    for (const n of ['E1', 'E3', 'E5', 'E6']) expect(validateCertificateTaxFields(record(n)), n).toEqual([]);
   });
 });
