@@ -11,7 +11,7 @@ Client-facing AFS portal used by directors, CFOs, and other external contacts to
 |---|---|---|
 | `POST /api/accounting/portal/auth` | `auth.ts` | **Public.** Request a magic link by email. Always returns 200 (prevents email enumeration). Rate-limited: 5 req / 60 s per IP via Postgres-backed store. |
 | `GET /api/accounting/portal/auth/verify?token=` | `auth/verify.ts` | **Public.** Consume magic link token. Sets `portal_session` HttpOnly cookie (8 h TTL), then redirects to `/accounting/afs/portal/dashboard`. |
-| `POST /api/accounting/portal/auth/logout` | `auth/logout.ts` | **Public (no portal auth required).** Clears `portal_session` cookie. Validates `Origin` header as CSRF defence. |
+| `POST /api/accounting/portal/auth/logout` | `auth/logout.ts` | **Public (no portal auth required).** Clears `portal_session` cookie, then **303** to `/accounting/afs/portal/login?signed_out=1` (login page shows a neutral "You have signed out."). A foreign `Origin` clears nothing and 303s to `/accounting/afs/portal/login` (no notice). Never answers JSON on POST. |
 | `GET /api/accounting/portal/documents` | `documents.ts` | List AFS documents accessible to the logged-in portal contact per `PORTAL_ACCESS_RULES[role]`. |
 | `GET /api/accounting/portal/documents/[documentId]` | `documents/[documentId].ts` | Fetch a single document + sections; access-rule enforced by role. |
 
@@ -24,14 +24,14 @@ Client-facing AFS portal used by directors, CFOs, and other external contacts to
 
 ## Response contract
 
-Portal data routes use `apiResponse.success` / `.badRequest` / `.notFound` / `.methodNotAllowed`. `auth/verify.ts` performs HTTP redirects (302) rather than JSON responses on both success and error paths. `auth.ts` always returns 200 even when email not found.
+Portal data routes use `apiResponse.success` / `.badRequest` / `.notFound` / `.methodNotAllowed`. `auth/verify.ts` performs HTTP redirects (302) rather than JSON responses on both success and error paths. `auth/logout.ts` answers 303 redirects only (non-POST is 405 JSON). `auth.ts` always returns 200 even when email not found.
 
 ## Business rules / gotchas
 
 - `PORTAL_ACCESS_RULES[role]` defines which `documentTypes` and `statuses` a contact can see — directors and CFOs have broader access than, e.g., a `viewer`.
 - The magic link token is single-use and time-limited; expiry redirects to `/accounting/afs/portal/login?error=expired`.
 - Portal JWT is signed by `lib/auth/portalJwt.ts` — separate from the GoTrue JWT used by staff.
-- `auth/logout.ts` does not require a valid portal session — it just clears the cookie, which is safe.
+- `auth/logout.ts` does not require a valid portal session — it just clears the cookie, which is safe. Its callers are plain `<form method="post">` on the dashboard and document pages (2026-10-23): it 303s to constant login paths, never a request-supplied target. An Origin-less POST still signs out (non-browser clients; browsers send `Origin` on cross-site POSTs, and a forced sign-out is low impact). Test: `tests/unit/api/portalLogoutRoute.test.ts`, `tests/unit/components/portalLoginSignedOut.test.tsx`.
 - Magic link creation via `magicLinkService.ts`; notification via `portalNotificationService.ts`.
 - `auth.ts` (audit S-08, 2026-10-21): an email that is an active contact on several companies gets ONE email with a link per LIVE company (`liveCompanies.listLiveCompanies`), never `LIMIT 1`. Suspended/deleted companies get no link. Always 200 `{ sent: true }`, answered BEFORE the lookup and send run (`portalSignInLinks.sendPortalSignInLinks`, not awaited), so response time does not reveal whether the email exists. `auth/verify.ts` refuses a link whose company was suspended or deleted after it was sent. Test: `tests/integration/s08-portal-magic-link-per-company.int.test.ts` (each link verified through `auth/verify.ts` into its own company).
 - Portal PAGES (`pages/accounting/afs/portal/*`) are public in `middleware.ts` `PUBLIC_PATHS` as `/accounting/afs/portal/` (2026-10-22, S-08 follow-up C): directors have no staff cookie, so before this every page bounced to `/login`. The trailing slash keeps the staff page `/accounting/afs/portal-contacts` staff-only. Each page's `getServerSideProps` is the gate: no `portal_session` → login; an expired or out-of-standing session → `login?error=expired`. A staff cookie opens nothing here. Tests: `tests/unit/middlewarePortalPublic.test.ts`, `tests/unit/components/portalSsrStanding.test.tsx`.
