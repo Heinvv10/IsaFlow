@@ -95,6 +95,21 @@ describe('learnFromAllocation — no global-pattern fallback (K-244)', () => {
     expect(call!.at(-1)).toBe(COMPANY_ID);
   });
 
+  it('runs every statement, the first read included, inside the savepoint', async () => {
+    const outside: string[] = [];
+    mockSql.mockImplementation(async (...args: unknown[]) => {
+      const marks = (await import('@/lib/neon') as unknown as { inSavepoint: string[] }).inSavepoint;
+      if (!marks.at(-1)?.startsWith('begin:')) outside.push(sqlText(args));
+      const text = sqlText(args);
+      if (/FROM bank_transactions/.test(text)) throw new Error('read failed');
+      return [];
+    });
+
+    await expect(learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Telephone')).resolves.toBe(false);
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    expect(outside).toEqual([]);
+  });
+
   it('writes the pattern inside its own savepoint, so a failure cannot abort the request transaction', async () => {
     let insertRanInSavepoint = false;
     mockSql.mockImplementation(async (...args: unknown[]) => {
