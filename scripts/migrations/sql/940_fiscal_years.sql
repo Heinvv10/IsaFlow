@@ -550,15 +550,18 @@ CREATE CONSTRAINT TRIGGER trg_fiscal_years_holds_periods
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_check_holds_periods();
 
-REVOKE ALL ON FUNCTION public.fiscal_year_template(uuid, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fiscal_year_for_date(uuid, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fiscal_year_for_label(uuid, int) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fiscal_year_link_period(uuid, int, date, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fiscal_year_derived_status(uuid) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fiscal_year_derived_status(uuid, date, date) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.fiscal_year_template(uuid, date) TO app_user;
-GRANT EXECUTE ON FUNCTION public.fiscal_year_for_date(uuid, date) TO app_user;
-GRANT EXECUTE ON FUNCTION public.fiscal_year_for_label(uuid, int) TO app_user;
-GRANT EXECUTE ON FUNCTION public.fiscal_year_link_period(uuid, int, date, date) TO app_user;
-GRANT EXECUTE ON FUNCTION public.fiscal_year_derived_status(uuid) TO app_user;
-GRANT EXECUTE ON FUNCTION public.fiscal_year_derived_status(uuid, date, date) TO app_user;
+-- The functions are SECURITY INVOKER: a caller reads and writes only what its
+-- own privileges and RLS allow, so EXECUTE stays with PUBLIC (provisioning runs
+-- them as migration_admin, the request as app_user, the portal as platform_admin).
+
+-- The link, the guards and the status sync are the table's own invariants: they
+-- fire for every writer, a superuser's replica-mode bulk load included (as 888's
+-- capture triggers do).
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_a_link_year;
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_b_guard_closed;
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_inside_year;
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_sync_year_status;
+ALTER TABLE fiscal_years ENABLE ALWAYS TRIGGER trg_fiscal_years_guard_closed;
+ALTER TABLE fiscal_years ENABLE ALWAYS TRIGGER trg_fiscal_years_insert_open;
+ALTER TABLE fiscal_years ENABLE ALWAYS TRIGGER trg_fiscal_years_guard_delete;
+ALTER TABLE fiscal_years ENABLE ALWAYS TRIGGER trg_fiscal_years_holds_periods;
