@@ -82,7 +82,9 @@ AS $$
 DECLARE
   y record; d date; d_end date; near record; layout_month int; lbl int; num int; made int := 0; n int;
 BEGIN
-  SELECT * INTO y FROM fiscal_years WHERE id = p_year;
+  -- Lock the year first: a period closed concurrently (whose status sync locks
+  -- the same row) is then seen before a month is added beside it.
+  SELECT * INTO y FROM fiscal_years WHERE id = p_year FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'fiscal_periods_generate: no fiscal year %', p_year; END IF;
   IF y.status IN ('closed', 'locked') THEN RETURN 0; END IF;
   IF NOT p_beside_closed AND EXISTS (

@@ -142,6 +142,9 @@ export async function undoYearEndChange(companyId: string, userId: string, reaso
     `;
   }
 
+  // The old start month first: a period re-linked below is placed by the template.
+  await sql`UPDATE companies SET financial_year_start = ${change.fromStartMonth} WHERE id = ${companyId}::UUID`;
+
   // The periods the change moved or made: those after the earlier of the two
   // year ends (the ones before it, closed ones included, were never touched).
   // Free their keys, then restore.
@@ -171,7 +174,6 @@ export async function undoYearEndChange(companyId: string, userId: string, reaso
     await repointPeriodToItsYear(companyId, id, String(p.start_date));
   }
 
-  await sql`UPDATE companies SET financial_year_start = ${change.fromStartMonth} WHERE id = ${companyId}::UUID`;
   await sql`
     UPDATE fiscal_year_end_changes SET reversed_by = ${userId}::UUID, reversed_at = NOW(), reversal_reason = ${reason}
      WHERE id = ${change.id}::UUID AND company_id = ${companyId}::UUID
