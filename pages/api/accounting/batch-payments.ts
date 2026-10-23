@@ -17,7 +17,7 @@ import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/co
 import { countBatchBills, getBatchMembers } from '@/modules/accounting/services/ap/batchPaymentMembers';
 import { pendingReservations } from '@/modules/accounting/services/ap/supplierBatchAllocationPlan';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
-import { batchChangedSinceApproval } from '@/modules/accounting/services/ap/batchApprovedDigest';
+import { batchChangedSinceApproval, currentBatchDigest } from '@/modules/accounting/services/ap/batchApprovedDigest';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -48,8 +48,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       if (!UUID.safeParse(id).success) return apiResponse.badRequest(res, 'id must be a batch id.');
       const batch = await getBatchById(companyId, id as string);
       if (!batch) return apiResponse.notFound(res, 'Batch', id as string);
+      // Read BEFORE the payments below: an approve sends it back as what the approver saw (migration 922), so a change
+      // between the two reads makes the approve refuse, never vouch for payments the page did not show.
+      const contentDigest = await currentBatchDigest(companyId, batch.id);
       return apiResponse.success(res, {
         ...batch,
+        contentDigest,
         payments: await getBatchMembers(companyId, batch.id),
         billCount: await countBatchBills(companyId, batch.id),
         // R-035 PR5: the derived approval state while approve or process is still ahead.

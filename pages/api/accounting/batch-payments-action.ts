@@ -21,7 +21,8 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { BatchAlreadyReversedError, reverseBatch } from '@/modules/accounting/services/ap/batchPaymentReversal';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
-import { BatchChangedSinceApprovalError } from '@/modules/accounting/services/ap/batchApprovedDigest';
+import { BatchChangedSinceApprovalError, BatchContentNotAsShownError } from '@/modules/accounting/services/ap/batchApprovedDigest';
+import { UUID } from '@/lib/schemas/common';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -38,11 +39,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { action, id } = req.body;
     const userId = req.user.id;
     if (!action || !id) return apiResponse.badRequest(res, 'action and id are required');
+    if (!UUID.safeParse(id).success) return apiResponse.badRequest(res, 'id must be a batch id');
 
     switch (action) {
       case 'approve': {
-        // A re-approval (migration 922) keeps a processed batch processed: answer the status it has now.
-        return apiResponse.success(res, { status: await approveBatch(companyId, id, userId) });
+        // expectedDigest: the content the page showed (required to re-approve, migration 922). A re-approval keeps a
+        // processed batch processed: answer the status it has now.
+        const { expectedDigest } = req.body as { expectedDigest?: unknown };
+        if (expectedDigest !== undefined && typeof expectedDigest !== 'string') {
+          return apiResponse.badRequest(res, 'expectedDigest must be the digest the batch page read');
+        }
+        return apiResponse.success(res, { status: await approveBatch(companyId, id, userId, expectedDigest) });
       }
       case 'process': {
         if (await withJournalDateRefusal(res, () => processBatch(companyId, id, userId)) === JOURNAL_DATE_REFUSED) return;
@@ -81,7 +88,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.conflict(res, err.message, { reason: err.code });
     }
     // Migration 922: process refuses a batch whose content changed since it was approved; re-approve is the way out.
-    if (err instanceof BatchChangedSinceApprovalError) {
+    if (err instanceof BatchChangedSinceApprovalError || err instanceof BatchContentNotAsShownError) {
       return apiResponse.conflict(res, err.message, { reason: err.code, batchId: err.batchId });
     }
     if (err instanceof Error && err.message === 'Batch not found') {

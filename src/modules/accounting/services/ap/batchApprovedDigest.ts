@@ -34,6 +34,20 @@ export class BatchChangedSinceApprovalError extends Error {
   }
 }
 
+/**
+ * An approve named content (the `expectedDigest` the batch page read with the payments it showed) that is not the
+ * batch's content now — or a RE-approve named none. Raised before any write; routes answer 409. The decide flow of
+ * approval requests binds an approver to what they saw the same way (expectedDigest).
+ */
+export class BatchContentNotAsShownError extends Error {
+  readonly code = 'BATCH_CONTENT_NOT_AS_SHOWN';
+  constructor(readonly batchId: string) {
+    super('This batch is not what the page showed you - it changed while you were looking at it. '
+      + 'Reload it, check the payments, and approve again.');
+    this.name = 'BatchContentNotAsShownError';
+  }
+}
+
 /** FOR SHARE on the batch's payees, in id order, held to the end of the transaction. */
 export async function lockBatchPayees(companyId: string, batchId: string): Promise<void> {
   await sql`

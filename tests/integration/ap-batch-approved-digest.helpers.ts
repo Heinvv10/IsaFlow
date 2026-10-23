@@ -6,10 +6,11 @@ import type { Pool } from 'pg';
 import { expect } from 'vitest';
 import eftGenerate from '../../pages/api/accounting/eft-generate';
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
+import batchPaymentsAction from '../../pages/api/accounting/batch-payments-action';
 import { updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import { callRoute, plantRule } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
-import { enforcePay, inRequest, payCompany, payRoutes, plantBatch } from './r035-pr5.helpers';
+import { digestOf, enforcePay, inRequest, payCompany, payRoutes, plantBatch } from './r035-pr5.helpers';
 
 export const NEW_ACCOUNT = '62000007777';
 export const OLD_ACCOUNT = '62000000001'; // plantSupplier's
@@ -19,9 +20,14 @@ export function digestKit(pool: Pool, u: { a: string; b: string }, tokens: Recor
   const r = payRoutes(tokens);
   const eft = (c: string, batchId: string) =>
     callRoute(eftGenerate, tokens[u.a]!, c, 'POST', { batchId, bank: 'fnb' }, '/api/accounting/eft-generate');
+  /** The approve action with `expectedDigest` as given (omitted when undefined), as the batch page sends it. */
+  const approveWith = (c: string, batchId: string, by: string, expectedDigest?: string) => callRoute(
+    batchPaymentsAction, tokens[by]!, c, 'POST', { action: 'approve', id: batchId, ...(expectedDigest === undefined ? {} : { expectedDigest }) },
+    '/api/accounting/batch-payments-action');
   return {
     r,
     eft,
+    approveWith,
     netcash: (c: string, batchPaymentId: string) =>
       callRoute(netcashSubmit, tokens[u.a]!, c, 'POST', { batchPaymentId }, '/api/accounting/netcash/submit'),
     /** A company that can pay (Netcash configured), one DRAFT batch of two members; enforcement off unless `enforced`. */
@@ -35,9 +41,9 @@ export function digestKit(pool: Pool, u: { a: string; b: string }, tokens: Recor
       const b = await plantBatch(pool, c, u.a, bank);
       return { c, b, supplierId: b.members[0]!.supplierId };
     },
-    /** The batch approved through the real route by `by`. */
+    /** The batch (re-)approved through the real route by `by`, naming the content it has now, as the page does. */
     async approve(c: string, batchId: string, by = u.a) {
-      const res = await r.batch(by, c, 'approve', batchId);
+      const res = await approveWith(c, batchId, by, (await digestOf(pool, c, 'payment_batch', batchId))!);
       expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     },
     /** A payee's bank account changed by the real supplier writer, on its own committed request transaction. */
