@@ -1,12 +1,15 @@
 // POST /api/accounting/document-capture through the real withAuth chain on the disposable fixture DB: the response is
 // 201 with the row 'reading' (not yet extracted), and the read runs only AFTER the request's COMMIT, filling the row
-// that the committed insert made visible to the job's own connection. A rejected-row race is covered in
+// that the committed insert made visible to the job's own connection. The upload is STORED before the answer (hash, size,
+// pointer; Storage is an in-memory stand-in) and the job reads it back from there. A rejected-row race is covered in
 // capture-read-state.int.test.ts.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { objects } from './capture-read-storage.helpers';
 
 const m = vi.hoisted(() => ({ read: vi.fn() }));
 const PDF = Buffer.from('%PDF-1.4\n%fixture');
@@ -16,6 +19,8 @@ vi.mock('@/modules/accounting/services/capture/captureUploadForm', async (orig) 
   uploadedBuffer: () => PDF,
   readUploadedDocument: m.read,
 }));
+
+vi.mock('@/lib/supabaseStorage', async (orig) => (await import('./capture-read-storage.helpers')).fakeSupabaseStorage(await orig()));
 
 import route from '../../pages/api/accounting/document-capture';
 
@@ -67,6 +72,16 @@ describe('document-capture POST: the read runs after COMMIT', () => {
     await vi.waitFor(() => expect(m.read).toHaveBeenCalledTimes(1));
     const before = (await pool.query('SELECT read_state, vendor_name FROM captured_documents WHERE id=$1', [document.id])).rows[0];
     expect(before).toEqual({ read_state: 'reading', vendor_name: null });
+
+    // The upload was stored before the answer: the object is there and the row carries its hash, size and pointer.
+    const stored = (await pool.query(
+      'SELECT storage_bucket, storage_path, raw_bytes_sha256, raw_bytes_size, read_attempt FROM captured_documents WHERE id=$1', [document.id])).rows[0];
+    expect(stored).toMatchObject({
+      storage_bucket: 'captured-documents', storage_path: `${company}/${document.id}`, raw_bytes_size: PDF.length, read_attempt: 0,
+    });
+    expect(stored.raw_bytes_sha256).toBe(createHash('sha256').update(PDF).digest('hex'));
+    expect(objects.get(`captured-documents/${company}/${document.id}`)?.equals(PDF)).toBe(true);
+    expect(m.read.mock.calls[0]![0].equals(PDF)).toBe(true);
 
     release(extraction());
     await vi.waitFor(async () => {

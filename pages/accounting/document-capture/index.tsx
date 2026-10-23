@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ScanLine, RefreshCw } from 'lucide-react';
 import { ApiEnvelopeError, ApiRequestError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
+import { useRetryCaptureRead } from '@/hooks/useRetryCaptureRead';
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { UploadZone } from '@/components/accounting/document-capture/UploadZone';
 import { ExtractionReview } from '@/components/accounting/document-capture/ExtractionReview';
@@ -86,6 +87,9 @@ export default function DocumentCapturePage() {
   }, [uploadedId]);
   usePollWhileReading(uploaded?.readState === 'reading' ? 'extracting' : undefined, pollUploaded);
 
+  // Retry a failed read: the server re-arms the row, and the polling above picks it up as after an upload.
+  const { retry, isRetrying } = useRetryCaptureRead(setUploaded);
+
   // Fill the review form once the read is done (not on every poll while it is still reading).
   const doneDoc = uploaded?.readState === 'done' ? uploaded : null;
   useEffect(() => {
@@ -155,7 +159,13 @@ export default function DocumentCapturePage() {
           />
 
           {uploaded && uploaded.readState !== 'done' && (
-            <CaptureReadStatus readState={uploaded.readState} readError={uploaded.readError} />
+            <CaptureReadStatus
+              readState={uploaded.readState}
+              readError={uploaded.readError}
+              retryable={uploaded.retryable}
+              isRetrying={isRetrying}
+              onRetry={() => { void retry(uploaded.id); }}
+            />
           )}
 
           {doneDoc?.extractedData && (

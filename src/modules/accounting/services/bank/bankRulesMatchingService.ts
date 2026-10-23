@@ -18,6 +18,7 @@ import { isRetryableContention } from '../core/retryableContention';
 import { isHeldRowError } from '@/lib/lockTimeout';
 import { applySuggestionRules, rulePattern } from './bankRulesSuggestionPass';
 import { autoPostRuleLine } from './bankRuleAutoPostLine';
+import { recordAutoPosted } from './codingDecisionLog';
 import { BANK_SUBTYPES } from '../gl/accountSubtypes';
 import { VatPeriodLockedError } from '../gl/journalVatLockGuard';
 import { isHeaderAccountRefusal } from '../gl/headerAccountGuard';
@@ -264,6 +265,11 @@ export async function applyRules(
         if (outcome.kind === 'approval_required') { autoPostSkippedApprovalRequired++; continue; }
 
         entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
+        await recordAutoPosted(companyId, {
+          txId: String(tx.id), source: allocType === 'supplier' ? 'supplier_rule' : 'rule',
+          glAccountId: allocType === 'account' ? ruleGlAccountId : null, contactId: ruleSupplierId ?? ruleClientId,
+          journalEntryId: outcome.journalEntryId, target: 'own',
+        });
         if (outcome.vatDenied) autoPostVatDenied++;
         if (outcome.nonSupplyCoerced) autoPostNonSupply++;
         totalApplied++;

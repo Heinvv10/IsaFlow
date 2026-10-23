@@ -109,6 +109,8 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'src/modules/accounting/services/reports/unusualJournalsService.ts': 'filtered',
   'src/modules/accounting/services/bank/bankSplitDimensions.ts': "exempt: writer pre-check — reads one row's bank_account_id by id to resolve card default dimensions for a split allocation; the post itself goes through splitAllocateTransaction (Task 3 gate)",
   'src/modules/accounting/services/bank/bankAutoMatchService.ts': 'exempt: writer (Task 3)',
+  'src/modules/accounting/services/bank/codingDecisionLog.ts': "exempt: writer (learning loop) — joins bank_transactions only to confirm the line is this company's and still 'imported' before opening a decision row; no total or queue scope",
+  'src/modules/accounting/services/bank/codingMetricsService.ts': "filtered (coded-line headline counts feed_state = 'posted' only); exempt: the first-30-days fallback reads MIN(created_at) when a company has no import batch — a date, not a total",
   'src/modules/accounting/services/bank/bankCoverageDirections.ts': 'filtered',
   'src/modules/accounting/services/bank/bankCoverageQueries.ts': 'filtered',
   'src/modules/accounting/services/bank/bankFeedStateGuard.ts': 'exempt: writer (Task 3) — the feed_state guard primitive itself',

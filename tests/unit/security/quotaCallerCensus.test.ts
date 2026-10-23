@@ -62,6 +62,7 @@ const KEEPS_CHARGE: Record<string, string> = {
   'accounting/smart-categorize.ts': 'its LLM pass runs after COMMIT, outside the request, where use cannot be recorded',
   'accounting/vlm-extract.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
   'accounting/document-capture.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
+  'accounting/document-capture-action.ts': "its 'retry' read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded",
 };
 
 function tracked(dir: string): string[] {
