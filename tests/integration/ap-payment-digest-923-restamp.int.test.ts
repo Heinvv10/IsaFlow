@@ -213,6 +213,47 @@ describe('migration 923 re-stamps what is provably unchanged since approval', ()
     }
   });
 
+  it('refuses to run before 922b (its authors read the account setters)', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(OLD_AUTHORS); // the live authors read the column; 867's do not
+      await client.query('ALTER TABLE gl_accounts DROP COLUMN bank_details_setters');
+      await expect(client.query(MIGRATION)).rejects.toThrow(/apply migration 922b first/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('takes no lock that blocks a READ of gl_accounts: a live request holding a bill reads accounts while it waits', async () => {
+    const { company: c } = await payCompany(pool, [[u.a, 'admin']], companies);
+    const bill = await plantBill(pool, c, await plantSupplier(pool, c), u.a);
+    const app = await pool.connect();
+    const mig = await pool.connect();
+    try {
+      await app.query('BEGIN');
+      await app.query('UPDATE supplier_invoices SET updated_at = NOW() WHERE id = $1', [bill]);
+      const appPid = (await app.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
+      await mig.query('BEGIN');
+      const migrating = mig.query(MIGRATION).then(() => 'ran', (e: { code?: string }) => `failed ${e.code}`);
+      let waiting = false;
+      for (let i = 0; i < 300 && !waiting; i += 1) {
+        waiting = !!(await pool.query('SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [appPid])).rowCount;
+        if (!waiting) await new Promise((res) => setTimeout(res, 20));
+      }
+      expect(waiting).toBe(true); // the migration waits on the bill
+      await app.query("SET LOCAL statement_timeout = '2s'");
+      await app.query('SELECT id FROM gl_accounts LIMIT 1'); // a posting's FK check, the resolver: not blocked
+      await app.query('ROLLBACK');
+      expect(await migrating).toBe('ran');
+      await mig.query('ROLLBACK');
+    } finally {
+      app.release();
+      mig.release();
+    }
+  });
+
   it('refuses to run before 874 (its digest is what the snapshot reads), changing nothing', async () => {
     const client = await pool.connect();
     try {
