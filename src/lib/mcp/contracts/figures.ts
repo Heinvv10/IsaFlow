@@ -146,18 +146,14 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
   }),
   'fiscalyear.start.v1': def({
     id: 'fiscalyear.start.v1',
-    label: 'The month a company\'s financial year begins',
-    owner: 'gl/fiscalYearBasis#getFiscalYearStartMonth',
+    label: 'The financial year holding a date: its stored start and end',
+    owner: 'gl/fiscalYearRegistry#fiscalYearForDate',
     includes:
-      'companies.financial_year_start as a month 1-12. Write paths (createFiscalYear, year_end_close) call it with NO fallback and take the refusal; a read path that must survive a misconfigured tenant opts into a fallback at the call site, where the assumption is visible.',
+      'The fiscal_years row holding the date (or labelled with the year), with its own start_date and end_date; where no row exists yet, the database template year (fiscal_year_template, twelve months on from the nearest stored year, else the month the company declares in companies.financial_year_start). A year is 1-15 months long, so a transition year after a change of year end is one year of its real length. Every report, AFS range, deadline and year-end close takes its boundaries from here.',
     excludes:
-      'fiscal_periods.fiscal_year, which is CALENDAR-based and is not this: February 2026 is stored as fiscal_year 2026 and belongs to the March-2025 fiscal year. Also excludes any silent default — all 13 production companies declare 3, and assuming March for a company genuinely on a December year end produces a year-end close a full quarter out with nothing flagging it.',
+      'companies.financial_year_start as a boundary for anything already stored: it is only the month the NEXT years follow, and re-applying it to history re-cuts every past year after a change of year end. Also excludes fiscal_periods.fiscal_year read as a calendar year: the label is the calendar year the financial year ENDS in (FY2027 = March 2026 to February 2027), and February 2026 belongs to FY2026.',
     contested: [
-      'afs/cipcFilingGuideService.ts:125 — financial_year_start || 3',
-      'afs/pisCalculatorService.ts:266 — financial_year_start || 3',
-      'afs/complianceAlertService.ts:159 — financial_year_start || 3',
-      'pages/api/payroll/period-context.ts:42 — COALESCE(financial_year_start, 3)',
-      'pages/api/accounting/afs/pis-score.ts:37 — COALESCE(financial_year_start, 3)',
+      'pages/api/payroll/period-context.ts:42 — the payroll tax year, read from the declared start month with a March default; converts with the payroll PR',
     ],
   }),
   'equity.residual.v1': def({

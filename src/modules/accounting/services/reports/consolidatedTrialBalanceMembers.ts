@@ -8,11 +8,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import {
-  DEFAULT_FY_START_MONTH,
-  fiscalYearStart,
-  getFiscalYearStartMonth,
-} from '../gl/fiscalYearBasis';
+import { fiscalYearForDate } from '../gl/fiscalYearRegistry';
 import { round2 } from '../gl/trialBalanceBasis';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
@@ -21,7 +17,7 @@ type Row = DbRow;
 /**
  * The member's own fiscal year start for the range being reported.
  *
- * Each member is measured on ITS OWN `financial_year_start`, so its
+ * Each member is measured on ITS OWN registry year holding the date, so its
  * income-statement figures and its brought-forward profit are cut at the same
  * date and its contribution to the group balances on its own. Members that do
  * not share a year end are reported through `coterminous`, not silently
@@ -29,12 +25,11 @@ type Row = DbRow;
  * and that is an accounting decision for the preparer, not something this
  * report should quietly make.
  *
- * READ PATH, so a tenant with no configured year start gets the March fallback
- * explicitly rather than a refusal — the group report must still render.
+ * A member with no stored year for the date gets the template year (the
+ * database's declared month), so the group report still renders.
  */
 export async function memberFiscalYearStart(companyId: string, periodStart: string): Promise<string> {
-  const month = await getFiscalYearStartMonth(companyId, { fallback: DEFAULT_FY_START_MONTH });
-  return fiscalYearStart(periodStart, month);
+  return (await fiscalYearForDate(companyId, periodStart)).startDate;
 }
 
 /**
