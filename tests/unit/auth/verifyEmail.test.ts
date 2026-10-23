@@ -40,7 +40,8 @@ vi.mock('pg', () => ({
     },
   },
 }));
-vi.mock('@/lib/auth/gotrue', () => ({ adminUpdateUser: updateUserMock, adminGetUser: getUserMock }));
+vi.mock('@/lib/auth/gotrue', () => ({ adminUpdateUser: updateUserMock }));
+vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: getUserMock }));
 vi.mock('@/lib/auth/emailVerificationService', () => ({
   consumeEmailVerificationToken: consumeMock,
   findConsumedVerification: findConsumedMock,

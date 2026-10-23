@@ -86,7 +86,7 @@ export async function verifyToken(token: string, impersonationProof?: string): P
   return claims;
 }
 
-async function gotrueFetch(
+export async function gotrueFetch(
   path: string,
   init: RequestInit,
   extraHeaders: Record<string, string> = {}
@@ -102,7 +102,7 @@ async function gotrueFetch(
   return res;
 }
 
-function adminHeaders(): Record<string, string> {
+export function adminHeaders(): Record<string, string> {
   const key = getEnv('SUPABASE_SERVICE_ROLE_KEY');
   return { Authorization: `Bearer ${key}`, apikey: key };
 }
@@ -267,21 +267,6 @@ export async function adminGetUserByEmail(email: string): Promise<GoTrueUser> {
   const user = body.users?.find((u) => u.email?.trim().toLowerCase() === target);
   if (!user) throw new Error(`no gotrue user with email ${email}`);
   return user;
-}
-
-/**
- * The GoTrue user with this id, or null when GoTrue has none (404). Bounded
- * and classified (D9): an outage throws AuthUpstreamUnavailableError.
- */
-export async function adminGetUser(userId: string): Promise<GoTrueUser | null> {
-  const res = await callAuthUpstream('gotrue adminGetUser', (signal) => gotrueFetch(
-    `/admin/users/${encodeURIComponent(userId)}`,
-    { method: 'GET', signal },
-    adminHeaders()
-  ));
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`gotrue adminGetUser failed: ${res.status}`);
-  return readAuthUpstreamJson('gotrue adminGetUser', res) as Promise<GoTrueUser>;
 }
 
 export async function adminUpdateUser(
