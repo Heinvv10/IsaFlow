@@ -214,3 +214,34 @@ BEGIN
     RAISE EXCEPTION '930: %', v;
   END LOOP;
 END $$;
+
+-- The writes this takes from the app pools run on migration_admin, and admin
+-- suspension still revokes on platform_admin: refuse, before the code switch,
+-- a database where either could not make them.
+DO $$
+DECLARE
+  r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('migration_admin', 'public.company_invitations', 'SELECT, INSERT, UPDATE, DELETE'),
+      ('migration_admin', 'public.company_users', 'SELECT, INSERT, UPDATE'),
+      ('migration_admin', 'public.users', 'SELECT'),
+      ('migration_admin', 'public.personal_access_tokens', 'SELECT, INSERT, UPDATE'),
+      ('migration_admin', 'public.oauth_apps', 'SELECT, INSERT, UPDATE'),
+      ('migration_admin', 'public.oauth_authorisation_codes', 'SELECT, INSERT, UPDATE'),
+      ('migration_admin', 'public.oauth_authorisations', 'SELECT, INSERT, UPDATE'),
+      ('migration_admin', 'public.auth_password_reset_tokens', 'SELECT, INSERT, UPDATE, DELETE'),
+      ('migration_admin', 'public.admin_impersonation_stash', 'SELECT, INSERT, DELETE'),
+      ('platform_admin', 'public.personal_access_tokens', 'UPDATE'),
+      ('platform_admin', 'public.oauth_authorisations', 'UPDATE')) w(role, tbl, privs),
+    LATERAL pg_catalog.unnest(pg_catalog.string_to_array(w.privs, ', ')) p(priv)
+  LOOP
+    -- One privilege at a time: has_table_privilege with a list is true if ANY is held.
+    IF pg_catalog.to_regrole(r.role) IS NOT NULL AND NOT pg_catalog.has_table_privilege(r.role, r.tbl, r.priv) THEN
+      RAISE EXCEPTION '930: % cannot % %, which the S-07c code writes on it', r.role, r.priv, r.tbl;
+    END IF;
+  END LOOP;
+  IF NOT pg_catalog.has_function_privilege('migration_admin', 'public.company_member_role_is_owner(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION '930: migration_admin cannot EXECUTE company_member_role_is_owner(text), which assertCanInvite calls';
+  END IF;
+END $$;

@@ -9,6 +9,11 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// S-07c (migration 930): the code consume + token insert run on the migration_admin pool.
+const { adminQueryMock } = vi.hoisted(() => ({ adminQueryMock: vi.fn() }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminPool: () => ({ query: adminQueryMock }),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
@@ -70,8 +75,14 @@ function makeReq(body: Record<string, unknown>): NextApiRequest {
   } as unknown as NextApiRequest;
 }
 
+function mockAdminOnce(rows: unknown[]): void {
+  adminQueryMock.mockResolvedValueOnce({ rows, rowCount: rows.length });
+}
+
 beforeEach(() => {
   resetSqlMock();
+  adminQueryMock.mockReset();
+  adminQueryMock.mockResolvedValue({ rows: [], rowCount: 0 });
 });
 
 describe('POST /api/oauth/token — public (PKCE-only) clients', () => {
@@ -85,7 +96,7 @@ describe('POST /api/oauth/token — public (PKCE-only) clients', () => {
 
   it('exchanges a code WITHOUT client_secret when the app is public', async () => {
     mockSqlOnce([appRow(false)]); // getOauthAppByClientId
-    mockSqlOnce([{ user_id: USER_ID, company_id: COMPANY_ID, scopes: ['read:reports'] }]); // consume
+    mockAdminOnce([{ user_id: USER_ID, company_id: COMPANY_ID, scopes: ['read:reports'] }]); // consume
     const res = makeRes();
     await handler(makeReq(grant), res);
 
@@ -108,19 +119,22 @@ describe('POST /api/oauth/token — public (PKCE-only) clients', () => {
   it('a wrong resource → 400 invalid_target, before any code is consumed', async () => {
     for (const resource of ['https://evil.example/api/mcp', ['https://app.isaflow.co.za/api/mcp', 'https://x.example']]) {
       resetSqlMock();
+      adminQueryMock.mockClear();
       mockSqlOnce([appRow(false)]);
       const res = makeRes();
       await handler(makeReq({ ...grant, resource }), res);
       expect(res.statusCode).toBe(400);
       expect(res.body!.error).toBe('invalid_target');
+      expect(adminQueryMock).not.toHaveBeenCalled();
     }
   });
 
   it('the right resource (path or bare origin) → 200', async () => {
     for (const resource of ['https://app.isaflow.co.za/api/mcp', 'https://app.isaflow.co.za']) {
       resetSqlMock();
+      adminQueryMock.mockClear();
       mockSqlOnce([appRow(false)]);
-      mockSqlOnce([{ user_id: USER_ID, company_id: COMPANY_ID, scopes: ['read:reports'] }]);
+      mockAdminOnce([{ user_id: USER_ID, company_id: COMPANY_ID, scopes: ['read:reports'] }]);
       const res = makeRes();
       await handler(makeReq({ ...grant, resource }), res);
       expect(res.statusCode, resource).toBe(200);

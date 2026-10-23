@@ -17,6 +17,7 @@ const BEFORE = ['915_app_pool_login_roles.sql', '915b_app_login_role_violations.
   '918_users_email_off_service_pool.sql', '919_ar_view_summary_company_wrapper.sql', '920_app_pool_reach_violations.sql'].map(migration);
 const M930 = migration('930_credential_membership_writes_off_app_pools.sql');
 const GUARD_930 = doBlock(M930, "RAISE EXCEPTION '930: %'");
+const PREFLIGHT_930 = doBlock(M930, 'which the S-07c code writes on it');
 
 beforeAll(() => setup(ids), 60000);
 afterAll(async () => { await closeSql(); await teardown(ids, []); });
@@ -78,6 +79,23 @@ describe('S-07c: migration 930', () => {
     await rolledBack(async (q) => {
       await q(grant);
       await q(GUARD_930);
+    });
+  });
+
+  it.each([
+    ['migration_admin, the PAT mint', 'REVOKE INSERT ON public.personal_access_tokens FROM migration_admin',
+      /930: migration_admin cannot INSERT public\.personal_access_tokens/],
+    ['migration_admin, the invitation refresh', 'REVOKE UPDATE ON public.company_invitations FROM migration_admin',
+      /930: migration_admin cannot UPDATE public\.company_invitations/],
+    ['migration_admin, the reset token read', 'REVOKE SELECT ON public.auth_password_reset_tokens FROM migration_admin',
+      /930: migration_admin cannot SELECT public\.auth_password_reset_tokens/],
+    ['platform_admin, suspension\'s revoke-all', 'REVOKE UPDATE ON public.oauth_authorisations FROM platform_admin',
+      /930: platform_admin cannot UPDATE public\.oauth_authorisations/],
+  ])('refuses a database where the moved writes could not run: %s', async (_, mutate, msg) => {
+    await rolledBack(async (q) => {
+      await q(PREFLIGHT_930);
+      await q(mutate);
+      await expect(q(PREFLIGHT_930)).rejects.toThrow(msg);
     });
   });
 
