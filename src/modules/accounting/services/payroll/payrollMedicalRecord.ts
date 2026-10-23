@@ -15,6 +15,11 @@
  *   926), the sum misses that line's credit and its fees' credit, so the
  *   certificate cannot state 4116 (see easyFileMedicalFields).
  *
+ * Named limit (legacy fees): a pre-926 line's fees are read from its stored
+ * breakdown against TODAY's payroll_components; a 4005 component deleted since
+ * counts nothing, and one retyped from or to 'deduction' counts by its new
+ * type. Lines written from 926 on store the figure and are not affected.
+ *
  * Every query is scoped by company_id (the run header; lines have none).
  */
 
@@ -39,6 +44,9 @@ export async function loadMedicalRecord(
   employeeIds: string[] | null = null,
 ): Promise<Map<string, MedicalRecord>> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
+  // This scans each pre-926 line's breakdown again, beside loadPayeYearToDate's scan of the same lines
+  // for 3605 and directive PAYE: deliberate, so the 4005 rule lives here alone (the certificate and the
+  // year-to-date both read it); the scan only runs for lines whose medical_scheme_fees is NULL.
   const rows = (await sql`
     SELECT l.employee_id,
            SUM(COALESCE(l.medical_scheme_fees, (

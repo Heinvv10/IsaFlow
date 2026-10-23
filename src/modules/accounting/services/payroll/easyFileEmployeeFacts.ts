@@ -41,7 +41,7 @@ export function monthsBetween(start: string, endInclusive: string): number {
 }
 
 /** The date of birth an RSA ID number (YYMMDD...) carries; the century is the one that puts it in the past. */
-function birthFromIdNumber(idNumber: unknown): Date | null {
+export function birthFromIdNumber(idNumber: unknown): Date | null {
   const m = /^(\d{2})(\d{2})(\d{2})\d{7}$/.exec(String(idNumber ?? ''));
   if (!m) return null;
   const yy = Number(m[1]);

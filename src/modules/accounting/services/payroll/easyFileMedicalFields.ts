@@ -29,6 +29,8 @@
 
 import { UsageError, formatField } from './easyFileFields';
 import type { EmployeeInput } from './easyFileExportService';
+import { birthFromIdNumber } from './easyFileEmployeeFacts';
+import { getAge } from './payeEngine';
 
 export interface MedicalCertificateInput {
   /** Medical scheme fees paid through payroll in the year (4005). */
@@ -94,4 +96,71 @@ function medicalGap(m: MedicalCertificateInput | undefined): string {
       + 'employer-paid medical aid (a 3810 benefit) is not supported. ';
   }
   return 'No medical credit took tax off this year. ';
+}
+
+/** The date of birth a record states: 3080 (CCYYMMDD), else the RSA ID number 3060; null when neither reads. */
+function recordBirth(field: Map<string, string>): Date | null {
+  const dob = /^(\d{4})(\d{2})(\d{2})$/.exec(field.get('3080') ?? '');
+  if (dob) return new Date(Number(dob[1]), Number(dob[2]) - 1, Number(dob[3]));
+  return birthFromIdNumber(field.get('3060'));
+}
+
+/**
+ * BRS V25.3.0 p. 59-61, on one record's fields: 4116 and 4120 only beside a
+ * 4005 value, 4116 with every 4005; 4120 "validate to Date of Birth (code
+ * 3080)": never under 65, mandatory with 4005 for 65 and older (age on the last
+ * day of the year of assessment, 3025; the date of birth from 3080, else the
+ * ID number, since IsaFlow does not emit 3080); 4150 = 08 only with 4116 or
+ * 4120 above nil (Hein 2026-10-23: a nil credit removed no tax).
+ */
+export function medicalFieldRules(field: Map<string, string>, err: (code: string, message: string) => void): void {
+  const fees = Number(field.get('4005')) > 0;
+  if ((field.has('4116') || field.has('4120')) && !fees) {
+    err('MEDICAL_CREDIT_WITHOUT_4005', 'The medical credits (4116, 4120) need the medical scheme contributions (4005).');
+  }
+  if (fees && !field.has('4116')) {
+    err('MEDICAL_FEES_WITHOUT_4116', 'Medical scheme contributions (4005) need the medical scheme fees tax credit (4116, 0.00 if nil).');
+  }
+  const born = recordBirth(field);
+  const year = Number(field.get('3025'));
+  if (born && year > 0) {
+    const age = getAge(born, new Date(year, 2, 0));
+    if (age < 65 && field.has('4120')) err('MEDICAL_4120_UNDER_65', `4120 is only for an employee 65 or older; this one is ${age}.`);
+    if (age >= 65 && fees && !field.has('4120')) err('MEDICAL_4120_MISSING', `An employee of ${age} with 4005 needs 4120 (0.00 if nil).`);
+  }
+  const reason = field.get('4150');
+  if (reason != null && Number(reason) === 8 && !(Number(field.get('4116')) > 0 || Number(field.get('4120')) > 0)) {
+    err('REASON_08_WITHOUT_MEDICAL_CREDIT', 'Reason code 08 (medical credits) needs a medical credit above nil (4116 or 4120).');
+  }
+}
+
+/**
+ * What the export tells the user about an employee's medical fields
+ * (X-IsaFlow-Warnings; round 2 review): fees whose credits are unknown (the
+ * latest month predates the record); a credit PAYE took with no 4005 deducted
+ * (employer-paid or privately paid medical aid: SARS takes 4116 only beside
+ * 4005, so neither is on the certificate); and an employee 65 or older by the ID
+ * number with no date of birth on the payroll record (PAYE took the age from
+ * the date of birth only, so none of the 65+ rebates or credit was given).
+ */
+export function medicalCertificateWarnings(
+  who: string,
+  record: { fees: number; credit: number; additionalCredit: number; recorded: boolean } | undefined,
+  person: { age: number | null; dateOfBirthMissing: boolean },
+): string[] {
+  const out: string[] = [];
+  if (record && !record.recorded && record.fees > 0) {
+    out.push(`${who}: medical aid contributions (4005) and the medical credits (4116/4120) are not on the certificate: `
+      + 'the latest month was calculated before IsaFlow recorded the credits. Add them in e@syFile.');
+  }
+  if (record && record.credit > 0 && Math.floor(record.fees) <= 0) {
+    out.push(`${who}: PAYE took R${record.credit.toFixed(2)} of medical scheme fees tax credit, but no medical aid contribution is `
+      + 'deducted through payroll (a deduction coded 4005), so 4005 and 4116 are not on the certificate (SARS takes 4116 only beside 4005). '
+      + 'If the employer or the employee pays the scheme directly, add both in e@syFile.');
+  }
+  if (person.dateOfBirthMissing && person.age != null && person.age >= 65) {
+    out.push(`${who}: no date of birth on the payroll record, but the ID number makes the employee ${person.age}: PAYE was `
+      + 'calculated without the 65+ rebates and medical credit. Add the date of birth and check the year\'s PAYE.');
+  }
+  return out;
 }
