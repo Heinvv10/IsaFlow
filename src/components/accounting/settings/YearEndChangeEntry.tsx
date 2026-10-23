@@ -4,7 +4,8 @@
  * section then stays hidden.
  */
 import { useEffect, useState } from 'react';
-import { fmtDay, fmtInstantDay } from '@/components/accounting/financialYearEnd/yearEndTypes';
+import { fmtDay, fmtInstantDay, yearToChangeHeading } from '@/components/accounting/financialYearEnd/yearEndTypes';
+import { localISODate } from '@/lib/dateUtils';
 import Link from 'next/link';
 import { apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -32,11 +33,11 @@ export function YearEndChangeEntry() {
   return (
     <div className="md:col-span-2 rounded-lg border border-[var(--ff-border-primary)] p-4" data-testid="year-end-change-entry">
       <p className="text-sm text-[var(--ff-text-primary)]" data-testid="current-year-end">
-        Current financial year: FY{data.currentYear.fiscalYear}, {fmtDay(data.currentYear.startDate)} to {fmtDay(data.currentYear.endDate)}
+        {yearToChangeHeading(data.currentYear, localISODate())}: FY{data.currentYear.fiscalYear}, {fmtDay(data.currentYear.startDate)} to {fmtDay(data.currentYear.endDate)}
         {data.currentYear.kind === 'transition' ? ' (transition year)' : ''}
       </p>
       {latest && (
-        <p className="text-xs text-[var(--ff-text-tertiary)] mt-1" data-testid="latest-year-end-change">
+        <p className="text-xs text-[var(--ff-text-secondary)] mt-1" data-testid="latest-year-end-change">
           Latest change: {fmtInstantDay(latest.appliedAt)}, year end moved to {fmtDay(latest.toEndDate)}{latest.reversedAt ? ' (undone)' : ''}.
         </p>
       )}

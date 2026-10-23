@@ -36,10 +36,10 @@ export function StepPreview({ preview, onKind, onBack, onNext }: Props) {
 
       {chosen && (
         <dl className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
-          <div><dt className="text-[var(--ff-text-tertiary)]">Transition year</dt><dd data-testid="preview-range" className="font-medium text-[var(--ff-text-primary)]">{fmtDay(preview.currentYear.startDate)} to {fmtDay(chosen.endDate)}</dd></div>
-          <div><dt className="text-[var(--ff-text-tertiary)]">Months</dt><dd data-testid="preview-months" className="font-medium text-[var(--ff-text-primary)]">{chosen.months}</dd></div>
-          <div><dt className="text-[var(--ff-text-tertiary)]">Change</dt><dd className="font-medium text-[var(--ff-text-primary)] capitalize">{chosen.kind}</dd></div>
-          <div><dt className="text-[var(--ff-text-tertiary)]">New year end</dt><dd className="font-medium text-[var(--ff-text-primary)]">{MONTH_NAMES[monthOf(chosen.endDate) - 1]}</dd></div>
+          <div><dt className="text-[var(--ff-text-secondary)]">Transition year</dt><dd data-testid="preview-range" className="font-medium text-[var(--ff-text-primary)]">{fmtDay(preview.currentYear.startDate)} to {fmtDay(chosen.endDate)}</dd></div>
+          <div><dt className="text-[var(--ff-text-secondary)]">Months</dt><dd data-testid="preview-months" className="font-medium text-[var(--ff-text-primary)]">{chosen.months}</dd></div>
+          <div><dt className="text-[var(--ff-text-secondary)]">Change</dt><dd className="font-medium text-[var(--ff-text-primary)] capitalize">{chosen.kind}</dd></div>
+          <div><dt className="text-[var(--ff-text-secondary)]">New year end</dt><dd className="font-medium text-[var(--ff-text-primary)]">{MONTH_NAMES[monthOf(chosen.endDate) - 1]}</dd></div>
         </dl>
       )}
 
