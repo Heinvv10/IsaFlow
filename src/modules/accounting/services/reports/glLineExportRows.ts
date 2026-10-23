@@ -230,7 +230,11 @@ export function toExportRow(r: DbRow, entity: ExportEntity): GlLineExportRow {
 }
 
 /** Columns written as integers rather than two-decimal amounts. */
-const INTEGER_COLUMNS: ReadonlySet<string> = new Set(['FY_Period_No', 'Linked_Document_Count']);
+const INTEGER_COLUMNS: ReadonlySet<string> = new Set([
+  'FY_Period_No', 'Linked_Document_Count',
+  // The computed tables (glExportComputedTables): a day count and two line counts.
+  'Days_Overdue', 'Unreconciled_Line_Count', 'Unallocated_Line_Count',
+]);
 
 /**
  * One CSV cell per §9.1: numbers with a point and two decimals, never quoted or

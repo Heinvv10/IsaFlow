@@ -16,7 +16,7 @@ import approvalEnforcement from '../../pages/api/accounting/approval-enforcement
 import { createSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
-import { cleanupPr5, inRequest, plantBatch, plantSupplier } from './r035-pr5.helpers';
+import { cleanupPr5, inRequest, plantApprovedBatch, plantSupplier } from './r035-pr5.helpers';
 import { bankCompany, bankRoutes } from './supplier-bank-verification.helpers';
 
 assertDisposable();
@@ -38,7 +38,7 @@ afterAll(() => cleanupPr5(pool, companies, Object.values(u)));
 
 async function onWithBatch() {
   const { company: c, bank } = await bankCompany(pool, [[u.a, 'admin'], [u.b, 'owner'], [u.c, 'admin']], companies);
-  const batch = await plantBatch(pool, c, u.b, bank);
+  const batch = await plantApprovedBatch(pool, c, u.b, bank);
   expect((await r.toggle(u.b, c, true)).state.statusCode).toBe(200);
   return { c, batch };
 }

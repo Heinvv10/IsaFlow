@@ -42,6 +42,7 @@ import {
   lockCapturedDocumentForUpdate,
   lockWithTimeout,
 } from './captureRowLock';
+import { isBeingRead, STILL_BEING_READ } from './captureReadState';
 import {
   assertDocumentNotAlreadyPosted,
   DocumentAlreadyPostedRefusal,
@@ -55,6 +56,7 @@ export type ProvisionalAttachResult =
   | { kind: 'attached'; bankTxId: string | null }
   | { kind: 'not_found'; what: 'Journal entry' | 'Captured document'; id: string }
   | { kind: 'refused'; message: string }
+  | { kind: 'reading'; message: string }
   | { kind: 'contended'; message: string };
 
 const CONTENDED = 'This journal or document is being changed by another request — retry in a moment.';
@@ -91,6 +93,7 @@ export async function attachDocumentToProvisional(
     // (3) The document, under a bounded wait (the claim UPDATE alone would wait unbounded).
     const doc = await lockCapturedDocumentForUpdate(companyId, documentId);
     if (!doc) return { kind: 'not_found', what: 'Captured document', id: documentId };
+    if (isBeingRead(doc)) return { kind: 'reading', message: STILL_BEING_READ };
   } catch (err) {
     if (err instanceof BankTransactionLockTimeoutError || err instanceof CaptureRowLockTimeoutError
       || isLockContention(err)) {
@@ -120,6 +123,7 @@ export async function attachDocumentToProvisional(
   // An evidence attach books nothing new, so it neither checks nor stamps posted content (R-088).
   const claimRefusal = await claimCapturedDocumentForPosting(companyId, documentId, null, { spend: 'evidence' });
   // `content_busy` is a lock a peer still held after the bounded wait (D11): contended, retryable, never a refusal.
+  if (claimRefusal === 'being_read') return { kind: 'reading', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
   if (claimRefusal === 'content_busy') return { kind: 'contended', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
   if (claimRefusal) return { kind: 'refused', message: CAPTURED_DOCUMENT_REFUSAL_MESSAGE[claimRefusal] };
 

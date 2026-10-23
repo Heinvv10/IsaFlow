@@ -1,6 +1,7 @@
 /**
  * Onboarding completion in ONE transaction: company + owner membership, entity
  * type, chart of accounts, people, documents and the user's onboarding flag.
+ * The fiscal periods are rebuilt from the chosen financial year start.
  * Called by POST /api/onboarding/complete-setup after the request has passed
  * parseSetupRequest and the per-entity rules.
  *
@@ -24,6 +25,7 @@ import { als } from '@/lib/als';
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { seedChartOfAccountsFromTemplate } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { rebuildUnusedFiscalPeriods } from '@/modules/accounting/services/gl/fiscalYearStartChange';
 import type { SetupRequest } from './onboardingSetupPayload';
 import {
   createSetupCompany, findCompanyForRequestKey, insertSetupDocuments, insertSetupPeople,
@@ -71,6 +73,10 @@ async function runSetup(req: SetupRequest, userId: string): Promise<SetupOutcome
 
   const companyId = await createSetupCompany(req, userId);
   await scopeRequestToCompany(companyId);
+  // create_company_with_owner's seeder wrote January–December; the periods must
+  // follow the financial year start the user chose, or every later year stays on
+  // the calendar (resolveCompanyPeriodAlignment follows the existing layout).
+  await rebuildUnusedFiscalPeriods(companyId);
   await seedChartOfAccountsFromTemplate(companyId, req.coaTemplate); // 'blank' seeds nothing
   await insertSetupPeople(req, companyId);
   await insertSetupDocuments(companyId, req.documents, userId);

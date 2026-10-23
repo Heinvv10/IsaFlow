@@ -8,6 +8,8 @@
 
 **Tests.** `tests/integration/k021-failed-reversal-commits-unwind.int.test.ts` (validator's RED, 1) + `tests/integration/k021-reversal-atomicity.int.test.ts` (6: savepoint rollback, successful reversal with a balanced contra agreeing with the reopened invoice, retry, wrong tenant, auto-create when no period covers today, pre-flight refusal message). 7 pass on the fixture DB. Mutation (`green.log`): refusing `no_period` reds the auto-create test, removing the pre-flight reds the message test, removing the savepoint reds the rollback test. `tsc --noEmit` clean; `bun run lint` 0 errors; bank + payment-void unit suites 221 and 25 passed. The FULL unit suite is not a stable number on this box — runs vary between 0 and 10 failures, all `Test timed out in 10000ms`, every named file green in isolation, and reproduced on a worktree without this change. Load flakiness; see `green.log`.
 
+**2026-10-22:** the atomicity suite was split under the 300-line cap into `k021-reversal-atomicity.int.test.ts` (savepoint, success, retry, tenant, OUT chain), `k021-reversal-atomicity-periods.int.test.ts` (no period today, closed period today) and `k021-reversal-atomicity.helpers.ts`. Test names are unchanged.
+
 **Migration / rollback.** None; revert the commit.
 
 **Historical impact.** Cancelled payments whose journal was never reversed. Read-only, NOT run on production:
