@@ -32,6 +32,7 @@ vi.mock('@/modules/accounting/services/gl/inputVatDenial', () => ({
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { resolveVatCodeForAccount } from '@/modules/accounting/services/gl/inputVatDenial';
 import { learnFromAllocation } from '@/modules/accounting/services/core/smartCategorizationLearningService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -108,6 +109,21 @@ describe('learnFromAllocation — no global-pattern fallback (K-244)', () => {
     await expect(learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Telephone')).resolves.toBe(false);
     expect(mockSql).toHaveBeenCalledTimes(1);
     expect(outside).toEqual([]);
+  });
+
+  it('resolves the VAT code inside the savepoint', async () => {
+    let vatOutside = false;
+    vi.mocked(resolveVatCodeForAccount).mockImplementationOnce(async () => {
+      const marks = (await import('@/lib/neon') as unknown as { inSavepoint: string[] }).inSavepoint;
+      vatOutside = !marks.at(-1)?.startsWith('begin:');
+      throw new Error('vat lookup failed');
+    });
+    mockSql.mockImplementation(async (...args: unknown[]) =>
+      (/FROM bank_transactions/.test(sqlText(args)) ? [{ description: 'VODACOM DEBIT ORDER' }] : []));
+
+    await expect(learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Telephone')).resolves.toBe(false);
+    expect(resolveVatCodeForAccount).toHaveBeenCalled();
+    expect(vatOutside).toBe(false);
   });
 
   it('writes the pattern inside its own savepoint, so a failure cannot abort the request transaction', async () => {
