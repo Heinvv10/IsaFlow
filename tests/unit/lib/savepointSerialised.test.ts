@@ -120,4 +120,19 @@ describe('withSavepoint on one request connection', () => {
       savepointQueueWait.ms = saved;
     }
   });
+
+  it('a waiter behind siblings that keep finishing is not refused, however long it waits in total', async () => {
+    const pg = pgLikeClient();
+    const saved = savepointQueueWait.ms;
+    savepointQueueWait.ms = 100;
+    const slow = (name: string) => withSavepoint(name, async () => { await new Promise((r) => setTimeout(r, 60)); return name; });
+    try {
+      // The last one waits about 180 ms in total, but something finishes every 60 ms.
+      const out = await inRequest(pg.client, () => Promise.all([slow('s1'), slow('s2'), slow('s3'), withSavepoint('last', read(1))]));
+      expect(out).toEqual(['s1', 's2', 's3', 1]);
+    } finally {
+      savepointQueueWait.ms = saved;
+    }
+  });
 });
+
