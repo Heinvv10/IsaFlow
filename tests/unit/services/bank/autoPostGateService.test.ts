@@ -196,7 +196,7 @@ describe('sweep', () => {
     expect(r.runId).toBe('run-1');
     expect(allocateTransaction).toHaveBeenCalledWith(
       'co-1', 't1', 'gl-1', 'u-1', 'Coffee', 'account', undefined, undefined,
-      undefined, undefined, undefined, undefined, { postingAgent: 'ai:auto-post:v1' },
+      undefined, undefined, undefined, undefined, { postingAgent: 'ai:auto-post:v1', unattended: true },
     );
     // Prove the stats UPDATE fired with posted_count = 1.
     const statsCall = sqlMock.mock.calls.find(
@@ -204,6 +204,32 @@ describe('sweep', () => {
     );
     expect(statsCall).toBeDefined();
     expect(statsCall![1]).toBe(1);
+  });
+
+  it('learning loop: a posted row is recorded as an auto-posted decision on the suggestion it posted', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },
+      { match: /FROM bank_transactions\s+WHERE id = ANY/, rows: [
+        { id: 't1', status: 'imported', feed_state: 'posted', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.95', suggested_vat_code: null, suggested_strategy: 'pattern', description: 'Coffee' },
+        { id: 't2', status: 'imported', feed_state: 'posted', amount: -500, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.50', suggested_vat_code: null, suggested_strategy: 'pattern', description: 'Low' },
+      ] },
+      { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
+      { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
+      { match: /UPDATE bank_auto_post_runs/, rows: [] },
+      { match: /SELECT id, suggested_gl_account_id, suggested_contact_id FROM categorization_decisions/,
+        rows: [{ id: 'd1', suggested_gl_account_id: 'gl-1', suggested_contact_id: null }] },
+      { match: /categorization_decisions/, rows: [] },
+    ]);
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-1' });
+
+    await sweep('co-1', ['t1', 't2'], 'categorization', 'u-1', 'u-1');
+
+    const logged = sqlMock.mock.calls.filter((c) => /categorization_decisions/.test((c[0] as TemplateStringsArray).join('?')));
+    // t1: the open-suggestion read, then that row becomes the auto-post. t2 was skipped (confidence too low).
+    expect(logged).toHaveLength(2);
+    expect(logged[0]!.slice(1)).toEqual(['co-1', 't1']);
+    expect((logged[1]![0] as TemplateStringsArray).join('?')).toMatch(/was_auto_posted = true/);
+    expect(logged[1]!.slice(1)).toEqual(expect.arrayContaining(['je-1', 'gl-1', 0.95, 'd1', 'co-1']));
   });
 
   // ── The unattended posting boundary ────────────────────────────────────

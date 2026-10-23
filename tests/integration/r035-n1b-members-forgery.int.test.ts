@@ -38,19 +38,19 @@ describe('as app_user, an admin cannot by raw SQL', () => {
     expect(await roleOf(pool, c, p.a)).toBe('admin');
   });
 
-  it("move an owner's membership to another account (RC004)", async () => {
+  it("move an owner's membership to another account (42501 since 930; the guard's RC004 is behind it)", async () => {
     const c = await company(pool, p, companies);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
-      'UPDATE company_users SET user_id = $3 WHERE company_id = $1 AND user_id = $2', [c, p.o, p.x])))).toBe('RC004');
+      'UPDATE company_users SET user_id = $3 WHERE company_id = $1 AND user_id = $2', [c, p.o, p.x])))).toBe('42501');
     expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.x)]).toEqual(['owner', null]);
   });
 
-  it('add another account as owner (RC003), or with a role off the list (RC002)', async () => {
+  it('add another account as owner or with a role off the list (42501 since 930; the guard\'s RC003/RC002 are behind it)', async () => {
     const c = await company(pool, p, companies);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
-      "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [c, p.x])))).toBe('RC003');
+      "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'owner')", [c, p.x])))).toBe('42501');
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
-      "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'super_admin')", [c, p.x])))).toBe('RC002');
+      "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'super_admin')", [c, p.x])))).toBe('42501');
     expect(await roleOf(pool, c, p.x)).toBeNull();
   });
 
@@ -70,39 +70,39 @@ describe('as app_user, an admin cannot by raw SQL', () => {
     expect(await roleOf(pool, c, p.o)).toBe('owner');
   });
 
-  it("change anything of a membership but its role (RC004)", async () => {
+  it("change anything of a membership but its role (42501 since 930; the guard's RC004 is behind it)", async () => {
     const c = await company(pool, p, companies);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
-      'UPDATE company_users SET is_default = true WHERE company_id = $1 AND user_id = $2', [c, p.m])))).toBe('RC004');
+      'UPDATE company_users SET is_default = true WHERE company_id = $1 AND user_id = $2', [c, p.m])))).toBe('42501');
   });
 
-  it('create an owner invitation (RC003), or upgrade one to owner (RC003)', async () => {
+  it('create an owner invitation, or upgrade one to owner (42501 since 930; the guard\'s RC003 is behind it)', async () => {
     const c = await company(pool, p, companies);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, p.a, 'owner', emailOf(p.x)))))).toBe('RC003');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, p.a, 'owner', emailOf(p.x)))))).toBe('42501');
     await pool.query(...invitation(c, p.o, 'viewer', emailOf(p.x)));
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
-      "UPDATE company_invitations SET role = 'owner', invited_by = $2 WHERE company_id = $1", [c, p.a])))).toBe('RC003');
+      "UPDATE company_invitations SET role = 'owner', invited_by = $2 WHERE company_id = $1", [c, p.a])))).toBe('42501');
     expect((await pool.query('SELECT role FROM company_invitations WHERE company_id = $1', [c])).rows).toEqual([{ role: 'viewer' }]);
   });
 
-  it('record someone else as the inviter (RC009)', async () => {
+  it('record someone else as the inviter (42501 since 930; the guard\'s RC009 is behind it)', async () => {
     const c = await company(pool, p, companies);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, p.o, 'admin', emailOf(p.x)))))).toBe('RC009');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, p.o, 'admin', emailOf(p.x)))))).toBe('42501');
   });
 
-  it('but their own id in another case is themselves (invited_by and the JWT sub are text, compared case-blind)', async () => {
+  it('even their own id in another case is refused (42501 since 930; the invitation is written on the migration_admin pool from the route)', async () => {
     const c = await company(pool, p, companies);
     const upper = p.a.toUpperCase();
     await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [upper, `upper-${emailOf(p.a)}`]);
     users.push(upper);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, upper, 'admin', emailOf(p.x)))))).toBe('ok');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, upper, 'admin', emailOf(p.x)))))).toBe('42501');
   });
 });
 
 describe('as app_user, a manager (a member, not an admin) cannot', () => {
-  it('write or delete an invitation (RC001) — RLS let any member before 883', async () => {
+  it('write (42501 since 930) or delete (RC001) an invitation — RLS let any member before 883', async () => {
     const c = await company(pool, p, companies);
-    expect(await outcome(asApp(c, p.m, (cl) => cl.query(...invitation(c, p.m, 'viewer', emailOf(p.x)))))).toBe('RC001');
+    expect(await outcome(asApp(c, p.m, (cl) => cl.query(...invitation(c, p.m, 'viewer', emailOf(p.x)))))).toBe('42501');
     await pool.query(...invitation(c, p.o, 'viewer', emailOf(p.x)));
     expect(await outcome(asApp(c, p.m, (cl) => cl.query('DELETE FROM company_invitations WHERE company_id = $1', [c])))).toBe('RC001');
     expect((await pool.query('SELECT count(*)::INT AS n FROM company_invitations WHERE company_id = $1', [c])).rows[0].n).toBe(1);
@@ -110,10 +110,10 @@ describe('as app_user, a manager (a member, not an admin) cannot', () => {
 });
 
 describe('end to end: a forged owner invitation, then accepted', () => {
-  it('is refused at the forgery, so the accept finds nothing and nobody becomes owner', async () => {
+  it('is refused at the forgery (42501 since 930; the guard\'s RC003 is behind it), so the accept finds nothing and nobody becomes owner', async () => {
     const c = await company(pool, p, companies);
     const raw = `n1bc${'0'.repeat(28)}${p.x.replace(/-/g, '')}`;
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, p.a, 'owner', emailOf(p.x), raw))))).toBe('RC003');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(...invitation(c, p.a, 'owner', emailOf(p.x), raw))))).toBe('42501');
     expect((await acceptAsInvitee(p.x, raw)).state.statusCode).toBe(404);
     expect(await roleOf(pool, c, p.x)).toBeNull();
   });

@@ -163,7 +163,9 @@ describe('C (919): app_user reads only its own company\'s "last viewed" counts',
   it('the refresh cron still refreshes the renamed view (service pool, definer wrapper)', async () => {
     await fixture.query(`INSERT INTO customer_invoice_views (company_id, customer_invoice_id, view_source) VALUES ($1, $2, 'portal')`,
       [company, mine.invoice]);
-    expect((await callCron(matviewRoute, CRON)).status).toBe(200);
+    // 930 skips a refresh within 10 minutes of the last; another suite's may have run.
+    await fixture.query('DELETE FROM matview_refresh_state');
+    expect(await callCron(matviewRoute, CRON)).toMatchObject({ status: 200, body: { data: { refreshed: true } } });
     const r = await fixture.query('SELECT view_count::int AS n FROM customer_invoice_view_summary_mv WHERE customer_invoice_id = $1', [mine.invoice]);
     expect(r.rows).toEqual([{ n: 3 }]);
   });

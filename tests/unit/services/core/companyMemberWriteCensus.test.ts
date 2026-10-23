@@ -71,7 +71,7 @@ export function migrationViolations(text: string): string[] {
 /** Every app writer, each read (PR C census; the role it writes as decides which rules apply). */
 const KNOWN_WRITERS = [
   'pages/api/invitations/[token]/accept.ts: writes', // W9 invite accept — migration_admin pool, invitation's role
-  'pages/api/invitations/index.ts: writes', // W7 second invitation system — app_user
+  'pages/api/invitations/index.ts: writes', // W7 second invitation system — migration_admin pool since S-07c (930), assertCanInvite
   'pages/api/invitations/revoke/[id].ts: writes', // W8 revoke — app_user
   'pages/api/invite/[token].ts: locks', // W10's invitation row, FOR UPDATE inside the accept transaction (S-07b review)
   'pages/api/invite/[token].ts: writes', // W10 /invite accept — migration_admin pool since S-07b (916), invitation's role
@@ -86,8 +86,9 @@ const KNOWN_WRITERS = [
   'scripts/sandbox/reviewerSandboxIdentity.ts: writes', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
   'scripts/stress-test.ts: writes', // W18 stress seed — postgres
   'src/modules/accounting/services/core/userAccessService.ts: locks', // S-04: the target's row, FOR UPDATE before the owner check — app_user
-  'src/modules/accounting/services/core/userAccessService.ts: writes', // W1/W2 — app_user
-  'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — app_user
+  'src/modules/accounting/services/core/userAccessService.ts: writes', // W1/W2 — app_user: role (930's one column grant) and removal
+  'src/modules/accounting/services/core/userInvitationService.ts: locks', // assertCanInvite: the inviter's membership, FOR SHARE — migration_admin pool (S-07c)
+  'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — migration_admin pool since S-07c (930), no auto-add; the cancel DELETE — app_user
   'src/modules/admin/services/adminUserActionsService.ts: writes', // W13–W14 delete-user, reset-onboarding — platform_admin; refused whole for a company's only owner (908b)
   'src/modules/admin/services/companyMembershipService.ts: locks', // the membership row, FOR UPDATE — platform_admin
   'src/modules/admin/services/companyMembershipService.ts: writes', // W11–W12 link, re-role, remove — platform_admin, last-owner rule
@@ -105,7 +106,8 @@ const KNOWN_WRITERS = [
  * member guard with two owner rules (S-04/S-08 follow-ups A and B); 916
  * re-writes both so app_service (S-07b's service pool) takes app_user's
  * rules, patching the exemption line in place (pg_get_functiondef), read as
- * 886 was.
+ * 886 was; 930 (S-07c) revokes INSERT and UPDATE on both from app_user and
+ * grants back only UPDATE (role) on company_users.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -123,6 +125,7 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '886_company_member_role_guard_round5.sql': ['alters'],
   '908b_company_member_owner_rules.sql': ['alters'],
   '916_service_role_member_guards.sql': ['alters'],
+  '930_credential_membership_writes_off_app_pools.sql': ['grants'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();

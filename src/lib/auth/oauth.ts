@@ -18,6 +18,8 @@ import { mayDecorate } from '@/lib/auth/consentAppView';
 import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import type { PoolClient } from 'pg';
+import { migrationAdminPool, migrationAdminTx } from './migrationAdminPool';
 import { assertNotImpersonating } from './impersonationGuard';
 
 type Row = Record<string, unknown>;
@@ -106,27 +108,22 @@ export async function registerOauthApp(input: RegisterAppInput): Promise<Registe
   const clientId = `client_${base62(24)}`;
   const secret = isDynamic ? null : generateToken('cls_', 32);
 
-  const rows = (await sql`
-    INSERT INTO oauth_apps (
-      name, description, logo_url, homepage_url, redirect_uris,
-      client_id, client_secret_hash, client_secret_prefix, owner_user_id,
-      is_dynamic, token_endpoint_auth_method
-    )
-    VALUES (
-      ${name},
-      ${input.description ?? null},
-      ${input.logoUrl ?? null},
-      ${input.homepageUrl ?? null},
-      ${input.redirectUris},
-      ${clientId},
-      ${secret?.hash ?? null},
-      ${secret?.prefix12 ?? null},
-      ${input.ownerUserId},
-      ${isDynamic},
-      ${isDynamic ? 'none' : 'client_secret_post'}
-    )
-    RETURNING id
-  `) as Row[];
+  // Every write to the four OAuth tables runs on the migration_admin pool
+  // (S-07c, migration 930): their rows are credentials, or say who may obtain
+  // one, and the RLS owner policies they had followed request.jwt.claims,
+  // which injected SQL can forge. Each is keyed on ids this module verified.
+  const rows = (await migrationAdminPool().query(
+    `INSERT INTO oauth_apps (
+       name, description, logo_url, homepage_url, redirect_uris,
+       client_id, client_secret_hash, client_secret_prefix, owner_user_id,
+       is_dynamic, token_endpoint_auth_method
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING id`,
+    [name, input.description ?? null, input.logoUrl ?? null, input.homepageUrl ?? null, input.redirectUris,
+      clientId, secret?.hash ?? null, secret?.prefix12 ?? null, input.ownerUserId, isDynamic,
+      isDynamic ? 'none' : 'client_secret_post'],
+  )).rows as Row[];
 
   if (!rows[0]) throw new Error('registerOauthApp: insert returned no row');
 
@@ -180,14 +177,15 @@ export async function listOauthApps(ownerUserId: string): Promise<OauthAppListIt
 }
 
 export async function revokeOauthApp(appId: string, ownerUserId: string): Promise<boolean> {
-  const rows = (await sql`
-    UPDATE oauth_apps
-    SET revoked_at = NOW()
-    WHERE id = ${appId}::uuid
-      AND owner_user_id = ${ownerUserId}
-      AND revoked_at IS NULL
-    RETURNING id
-  `) as Row[];
+  const rows = (await migrationAdminPool().query(
+    `UPDATE oauth_apps
+        SET revoked_at = NOW()
+      WHERE id = $1::uuid
+        AND owner_user_id = $2
+        AND revoked_at IS NULL
+      RETURNING id`,
+    [appId, ownerUserId],
+  )).rows as Row[];
   return rows.length > 0;
 }
 
@@ -270,22 +268,15 @@ export async function createAuthorisationCode(input: CreateCodeInput): Promise<s
   await assertNotImpersonating(); // R-032: a Login-as session mints no credential as the target
   const code = `oac_${base62(32)}`;
   const codeHash = sha256Hex(code);
-  await sql`
-    INSERT INTO oauth_authorisation_codes (
-      code_hash, oauth_app_id, user_id, company_id,
-      redirect_uri, scopes, code_challenge, expires_at
-    )
-    VALUES (
-      ${codeHash},
-      ${input.oauthAppId}::uuid,
-      ${input.userId},
-      ${input.companyId}::uuid,
-      ${input.redirectUri},
-      ${input.scopes},
-      ${input.codeChallenge},
-      NOW() + (${CODE_TTL_SECS} || ' seconds')::interval
-    )
-  `;
+  await migrationAdminPool().query(
+    `INSERT INTO oauth_authorisation_codes (
+       code_hash, oauth_app_id, user_id, company_id,
+       redirect_uri, scopes, code_challenge, expires_at
+     )
+     VALUES ($1, $2::uuid, $3, $4::uuid, $5, $6, $7, NOW() + ($8 || ' seconds')::interval)`,
+    [codeHash, input.oauthAppId, input.userId, input.companyId, input.redirectUri, input.scopes,
+      input.codeChallenge, CODE_TTL_SECS],
+  );
   return code;
 }
 
@@ -319,35 +310,49 @@ export async function exchangeCode(args: {
   const codeHash = sha256Hex(args.code);
   const verifierChallenge = createHash('sha256').update(args.codeVerifier).digest('base64url');
 
-  // Atomic: only mark the code used when verifier matches. Wrong verifier
-  // returns 0 rows and the code remains usable for a legitimate retry.
-  const rows = (await sql`
-    UPDATE oauth_authorisation_codes
-    SET used_at = NOW()
-    WHERE code_hash = ${codeHash}
-      AND used_at IS NULL
-      AND expires_at > NOW()
-      AND oauth_app_id = ${args.oauthAppId}::uuid
-      AND redirect_uri = ${args.redirectUri}
-      AND code_challenge = ${verifierChallenge}
-    RETURNING user_id, company_id, scopes
+  // An unknown, used or expired code is refused on the service pool, which may
+  // read the table: this public endpoint reaches the small migration_admin
+  // pool only for a code that exists.
+  const known = (await sql`
+    SELECT 1 FROM oauth_authorisation_codes
+     WHERE code_hash = ${codeHash} AND used_at IS NULL AND expires_at > NOW()
+     LIMIT 1
   `) as Row[];
+  if (known.length === 0) throw invalidCode();
 
-  if (rows.length === 0) {
-    throw new OauthExchangeError(
-      'invalid_grant',
-      'Authorisation code is invalid, expired, used, redirect_uri mismatched, or PKCE verifier wrong',
-    );
-  }
+  // Atomic: only mark the code used when verifier matches. Wrong verifier
+  // returns 0 rows and the code remains usable for a legitimate retry. One
+  // transaction with the token issue, so a failure between them burns nothing.
+  return migrationAdminTx('oauth code exchange', async (client) => {
+    const rows = (await client.query(
+      `UPDATE oauth_authorisation_codes
+          SET used_at = NOW()
+        WHERE code_hash = $1
+          AND used_at IS NULL
+          AND expires_at > NOW()
+          AND oauth_app_id = $2::uuid
+          AND redirect_uri = $3
+          AND code_challenge = $4
+        RETURNING user_id, company_id, scopes`,
+      [codeHash, args.oauthAppId, args.redirectUri, verifierChallenge],
+    )).rows as Row[];
 
-  const r = rows[0]!;
-  return await issueTokens({
-    oauthAppId: args.oauthAppId,
-    userId: r.user_id as string,
-    companyId: r.company_id as string,
-    scopes: (r.scopes as string[]) ?? [],
+    if (rows.length === 0) throw invalidCode();
+
+    const r = rows[0]!;
+    return issueTokens(client, {
+      oauthAppId: args.oauthAppId,
+      userId: r.user_id as string,
+      companyId: r.company_id as string,
+      scopes: (r.scopes as string[]) ?? [],
+    });
   });
 }
+
+const invalidCode = () => new OauthExchangeError(
+  'invalid_grant',
+  'Authorisation code is invalid, expired, used, redirect_uri mismatched, or PKCE verifier wrong',
+);
 
 // ── Token issue + refresh ───────────────────────────────────────────────────
 
@@ -361,7 +366,7 @@ interface IssueTokensInput {
   previousRefreshHash?: string;
 }
 
-async function issueTokens(input: IssueTokensInput): Promise<ExchangeResult> {
+async function issueTokens(client: PoolClient, input: IssueTokensInput): Promise<ExchangeResult> {
   const access = generateToken('oat_', 32);
   const includesOffline = input.scopes.includes('offline_access');
   const refresh = includesOffline ? generateToken('ort_', 32) : null;
@@ -371,26 +376,14 @@ async function issueTokens(input: IssueTokensInput): Promise<ExchangeResult> {
   const accessExpiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_SECS * 1000);
   const refreshExpiresAt = refresh ? new Date(Date.now() + REFRESH_TOKEN_TTL_SECS * 1000) : null;
 
-  await sql`
-    INSERT INTO oauth_authorisations (
-      oauth_app_id, user_id, company_id, scopes,
-      access_token_hash, access_token_prefix, access_token_expires_at,
-      refresh_token_hash, refresh_token_prefix, refresh_token_expires_at,
-      previous_refresh_token_hash
-    )
-    VALUES (
-      ${input.oauthAppId}::uuid,
-      ${input.userId},
-      ${input.companyId}::uuid,
-      ${input.scopes},
-      ${access.hash},
-      ${access.prefix12},
-      ${accessExpiresAt},
-      ${refresh?.hash ?? null},
-      ${refresh?.prefix12 ?? null},
-      ${refreshExpiresAt},
-      ${input.previousRefreshHash ?? null}
-    )
+  await client.query(
+    `INSERT INTO oauth_authorisations (
+       oauth_app_id, user_id, company_id, scopes,
+       access_token_hash, access_token_prefix, access_token_expires_at,
+       refresh_token_hash, refresh_token_prefix, refresh_token_expires_at,
+       previous_refresh_token_hash
+     )
+     VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT (oauth_app_id, user_id, company_id)
     DO UPDATE SET
       scopes = EXCLUDED.scopes,
@@ -401,8 +394,10 @@ async function issueTokens(input: IssueTokensInput): Promise<ExchangeResult> {
       refresh_token_prefix = EXCLUDED.refresh_token_prefix,
       refresh_token_expires_at = EXCLUDED.refresh_token_expires_at,
       previous_refresh_token_hash = EXCLUDED.previous_refresh_token_hash,
-      revoked_at = NULL
-  `;
+      revoked_at = NULL`,
+    [input.oauthAppId, input.userId, input.companyId, input.scopes, access.hash, access.prefix12, accessExpiresAt,
+      refresh?.hash ?? null, refresh?.prefix12 ?? null, refreshExpiresAt, input.previousRefreshHash ?? null],
+  );
 
   return {
     accessToken: access.raw,
@@ -436,6 +431,18 @@ export async function refreshAccessToken(args: {
   }
   const oauthAppId = appRows[0]!.id as string;
 
+  // As in exchangeCode: a hash no grant of this app holds (current or rotated out) never reaches migration_admin.
+  const known = (await sql`
+    SELECT 1 FROM oauth_authorisations WHERE oauth_app_id = ${oauthAppId}::uuid
+       AND ((refresh_token_hash = ${presentedHash} AND revoked_at IS NULL AND refresh_token_expires_at > NOW())
+            OR previous_refresh_token_hash = ${presentedHash})
+     LIMIT 1
+  `) as Row[];
+  if (known.length === 0) {
+    log.info('OAuth refresh: unknown or expired token', { clientId: args.clientId }, 'oauth');
+    throw new OauthExchangeError('invalid_grant', 'Refresh token is invalid, expired, or has been replayed');
+  }
+
   // Pre-allocate the new refresh token so we can write it inside the rotation UPDATE.
   const newAccess = generateToken('oat_', 32);
   const newRefresh = generateToken('ort_', 32);
@@ -446,21 +453,23 @@ export async function refreshAccessToken(args: {
   // Atomic rotation: WHERE checks current hash + expiry; UPDATE writes the new
   // hash and stashes the old one as previous_refresh_token_hash. Returns the
   // user/company/scopes for the caller. A concurrent replay sees 0 rows.
-  const rotated = (await sql`
-    UPDATE oauth_authorisations
-    SET access_token_hash = ${newAccess.hash},
-        access_token_prefix = ${newAccess.prefix12},
-        access_token_expires_at = ${newAccessExpiresAt},
-        previous_refresh_token_hash = refresh_token_hash,
-        refresh_token_hash = ${newRefresh.hash},
-        refresh_token_prefix = ${newRefresh.prefix12},
-        refresh_token_expires_at = ${newRefreshExpiresAt}
-    WHERE refresh_token_hash = ${presentedHash}
-      AND oauth_app_id = ${oauthAppId}::uuid
-      AND revoked_at IS NULL
-      AND refresh_token_expires_at > NOW()
-    RETURNING id, user_id, company_id, scopes
-  `) as Row[];
+  const rotated = (await migrationAdminPool().query(
+    `UPDATE oauth_authorisations
+        SET access_token_hash = $1,
+            access_token_prefix = $2,
+            access_token_expires_at = $3,
+            previous_refresh_token_hash = refresh_token_hash,
+            refresh_token_hash = $4,
+            refresh_token_prefix = $5,
+            refresh_token_expires_at = $6
+      WHERE refresh_token_hash = $7
+        AND oauth_app_id = $8::uuid
+        AND revoked_at IS NULL
+        AND refresh_token_expires_at > NOW()
+      RETURNING id, user_id, company_id, scopes`,
+    [newAccess.hash, newAccess.prefix12, newAccessExpiresAt, newRefresh.hash, newRefresh.prefix12,
+      newRefreshExpiresAt, presentedHash, oauthAppId],
+  )).rows as Row[];
 
   if (rotated.length === 1) {
     const r = rotated[0]!;
@@ -474,14 +483,15 @@ export async function refreshAccessToken(args: {
 
   // No rotation happened. Check whether the presented hash matches a
   // *previous* hash (replay attack signal). If so, revoke the authorisation.
-  const replayRows = (await sql`
-    UPDATE oauth_authorisations
-    SET revoked_at = NOW()
-    WHERE previous_refresh_token_hash = ${presentedHash}
-      AND oauth_app_id = ${oauthAppId}::uuid
-      AND revoked_at IS NULL
-    RETURNING id, user_id, company_id
-  `) as Row[];
+  const replayRows = (await migrationAdminPool().query(
+    `UPDATE oauth_authorisations
+        SET revoked_at = NOW()
+      WHERE previous_refresh_token_hash = $1
+        AND oauth_app_id = $2::uuid
+        AND revoked_at IS NULL
+      RETURNING id, user_id, company_id`,
+    [presentedHash, oauthAppId],
+  )).rows as Row[];
 
   if (replayRows.length > 0) {
     log.warn(
@@ -513,10 +523,8 @@ export async function validateOauthAccessToken(
   if (!rawToken.startsWith('oat_')) return null;
   const hash = sha256Hex(rawToken);
 
-  // Validation runs on the privileged default pool (validateOauthAccessToken
-  // is called BEFORE the request's app_user transaction is set up). The query
-  // bypasses RLS by virtue of the role; the lookup is hash-keyed so this is
-  // intentional.
+  // On the service pool, before the request transaction: a hash-keyed read
+  // that app_service's SELECT policy admits.
   const rows = (await sql`
     SELECT id, oauth_app_id, user_id, company_id, scopes, access_token_expires_at
     FROM oauth_authorisations
@@ -529,10 +537,6 @@ export async function validateOauthAccessToken(
   if (rows.length === 0) return null;
   const r = rows[0]!;
 
-  // last_used_at update — also via the privileged default pool (HIGH-5 fix).
-  // The original implementation used the same `sql` template inside ALS scope
-  // and was rejected by RLS (FOR ALL TO app_user). Running outside ALS via a
-  // fresh query goes through getPool() default role, bypassing RLS.
   void updateLastUsed(r.id as string, ip).catch((err) =>
     log.warn(
       'OAuth: failed to update last_used_at',
@@ -551,16 +555,9 @@ export async function validateOauthAccessToken(
 }
 
 /**
- * Last-used update that explicitly bypasses ALS context — must run on the
- * default-role pool because RLS on oauth_authorisations rejects writes from
- * app_user except via the owner policy (which works only when JWT claims are
- * set, i.e. inside the request's app_user tx).
- *
- * We use a no-op `als.run` with empty store... no — simplest path is to call
- * sql() outside any transaction context. Since this function is invoked from
- * validateOauthAccessToken which itself runs BEFORE als.run() in the auth
- * wrapper, the bare `sql` template falls through to getPool() (see
- * src/lib/neon/query.ts, LazyQuery.run). That's the privileged role.
+ * Last-used stamp, on the service pool (validateOauthAccessToken runs before
+ * the request transaction): migration 930 grants app roles UPDATE of
+ * last_used_at and last_used_ip only, which cannot make a token valid.
  */
 async function updateLastUsed(authorisationId: string, ip: string | null): Promise<void> {
   await sql`
@@ -651,14 +648,17 @@ export async function revokeAuthorisation(
   userId: string,
   companyId: string,
 ): Promise<boolean> {
-  const rows = (await sql`
-    UPDATE oauth_authorisations
-    SET revoked_at = NOW()
-    WHERE id = ${authorisationId}::uuid
-      AND user_id = ${userId}
-      AND company_id = ${companyId}::uuid
-      AND revoked_at IS NULL
-    RETURNING id
-  `) as Row[];
+  // revoked_at is writable only here and on the admin pool: an app role that
+  // could set it could as well clear it and revive the grant (migration 930).
+  const rows = (await migrationAdminPool().query(
+    `UPDATE oauth_authorisations
+        SET revoked_at = NOW()
+      WHERE id = $1::uuid
+        AND user_id = $2
+        AND company_id = $3::uuid
+        AND revoked_at IS NULL
+      RETURNING id`,
+    [authorisationId, userId, companyId],
+  )).rows as Row[];
   return rows.length > 0;
 }
