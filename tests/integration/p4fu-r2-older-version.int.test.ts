@@ -21,6 +21,7 @@ import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
 import { approveRun, reopenRun, cleanSeveranceFixtures, runLine, type SeveranceFixture } from './p3-severance.helpers';
 import { PERIODS, seedEmployee } from './p4fu-cumulative.helpers';
+import { loadPayeYearToDate } from '@/modules/accounting/services/payroll/payrollYearToDate';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
@@ -80,7 +81,8 @@ describe('R1 review 2: a later month calculated from an earlier version of this 
     const jan = ids[10]!;
     const feb = await mk(f, 2027, 2);
     await calcOnly(f, feb); // X's year-to-date includes January's taxed X line
-    const febPayeBefore = (await runLine(pool, feb, f.employee)).paye;
+    const ytd = async () => (await loadPayeYearToDate(f.company, feb, { year: 2027, month: 2 }, [f.employee])).get(f.employee);
+    expect(await ytd()).toMatchObject({ periods: 11, tablePaye: 11 * 2115 });
     ok(await reopenRun(f, jan));
     // January corrected: X was paid only an untaxed allowance that month.
     await pool.query(`UPDATE payroll_employee_components SET effective_to = '2026-12-31' WHERE employee_id = $1 AND effective_to IS NULL`, [f.employee]);
@@ -103,9 +105,10 @@ describe('R1 review 2: a later month calculated from an earlier version of this 
     // The remedy: February reopened (no longer declarable), January approved, February recalculated from it.
     ok(await reopenRun(f, feb));
     ok(await approveRun(f, jan));
+    // February's year-to-date no longer counts January's old taxed line (and its R2 115 PAYE) for X.
+    expect(await ytd()).toMatchObject({ periods: 10, tablePaye: 10 * 2115 });
     await reverseJournal(f, feb);
     await calcOnly(f, feb);
-    expect((await runLine(pool, feb, f.employee)).paye).not.toBe(febPayeBefore); // February had counted January's old PAYE
     ok(await approveRun(f, feb));
   });
 
