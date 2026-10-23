@@ -49,8 +49,8 @@ export async function assertBatchMayBeSent(companyId: string, batchId: string, b
   // enforcement off no approval gate stands behind it, so its status is the only evidence it may be paid.
   if (!SENDABLE_STATUSES.has(batchStatus)) throw new BatchNotSendableError(batchStatus);
   // The payees are share-locked FIRST, in id order, then the paying account, held to the end of the request,
-  // enforcement on or off: a bank-detail edit or rename (updateSupplier locks the supplier FOR UPDATE) or a paying-account
-  // edit waits for the file, or the file waits for it and the gate and the compare below see the new details.
+  // enforcement on or off: a bank-detail edit or rename (updateSupplier locks the supplier FOR UPDATE) or an edit
+  // of the paying account waits for the file, or the file waits for it and the gate and compare see the new details.
   await lockBatchPayees(companyId, batchId);
   // Under enforcement the gate answers first, as it always has (APPROVAL_STALE for changed content).
   if (await isEnforced(companyId, 'payment_batch')) await assertApprovalCleared(companyId, 'payment_batch', batchId);

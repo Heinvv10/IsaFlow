@@ -20,7 +20,7 @@ import { updateSupplier } from '@/modules/accounting/services/core/supplierWrite
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
-import { cleanupPr5, enforcePay, inRequest, payCompany, plantPayment } from './r035-pr5.helpers';
+import { cleanupPr5, enforcePay, inRequest, payCompany, plantBill, plantPayment, plantSupplier } from './r035-pr5.helpers';
 import { CHANGED, digestKit } from './ap-batch-approved-digest.helpers';
 
 assertDisposable();
@@ -162,6 +162,35 @@ describe('migration 923 re-stamps what is provably unchanged since approval', ()
       await client.query('BEGIN');
       await client.query('SET LOCAL ROLE app_user');
       await expect(client.query(MIGRATION)).rejects.toThrow(/run as a role that bypasses RLS/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('refuses to run before 922 (it re-stamps approved_digest)', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('ALTER TABLE supplier_payment_batches DROP COLUMN approved_digest');
+      await expect(client.query(MIGRATION)).rejects.toThrow(/apply migration 922 first/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('refuses when its definition would move another document type\'s digest', async () => {
+    const { company } = await payCompany(pool, [[u.a, 'admin']], companies);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const bill = await plantBill(client, company, await plantSupplier(client, company), u.a);
+      await client.query("UPDATE supplier_invoices SET status = 'draft' WHERE id = $1", [bill]); // in the snapshot
+      const arm = 'si.supplier_id, si.invoice_number, si.invoice_date,';
+      expect(MIGRATION.split(arm)).toHaveLength(2);
+      await expect(client.query(MIGRATION.replace(arm, 'si.supplier_id, si.invoice_date,')))
+        .rejects.toThrow(/approval_document_digest changed for \d+ non-payment document/);
     } finally {
       await client.query('ROLLBACK');
       client.release();
