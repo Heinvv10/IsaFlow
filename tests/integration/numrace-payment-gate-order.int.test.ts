@@ -37,13 +37,16 @@ async function approvedPayment(enforceAfter: boolean) {
   return { c, p };
 }
 
-/** An APPROVED batch (approved before any enforcement), then re-dated outside the window. */
+/**
+ * A batch dated outside the window, then APPROVED (before any enforcement). Re-dated BEFORE the approval: the date is
+ * in the batch digest approveBatch stores (migration 922), so a re-date after it is refused as a changed batch.
+ */
 async function approvedBatch(enforceAfter: boolean) {
   const { company: c, bank } = await company();
   await plantRule(pool, c, 'owner', { documentType: 'payment_batch', name: 'Owner pays batches' });
   const b = await plantBatch(pool, c, u.a, bank);
-  expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(200);
   await pool.query('UPDATE supplier_payment_batches SET batch_date = $2::DATE WHERE id = $1', [b.id, OUT_OF_WINDOW]);
+  expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(200);
   if (enforceAfter) await enforcePay(pool, c, 'payment_batch', u.b);
   return { c, b };
 }
