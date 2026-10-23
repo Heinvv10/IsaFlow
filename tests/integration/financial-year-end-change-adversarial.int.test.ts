@@ -28,7 +28,7 @@ afterAll(async () => {
       await pool.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [id]);
       await pool.query('DELETE FROM gl_account_balances WHERE gl_account_id IN (SELECT id FROM gl_accounts WHERE company_id = $1)', [id]);
       await pool.query('DELETE FROM gl_accounts WHERE company_id = $1', [id]);
-      await pool.query('UPDATE fiscal_years SET change_id = NULL WHERE company_id = $1', [id]).catch(() => undefined);
+      await pool.query('UPDATE fiscal_years SET change_id = NULL WHERE company_id = $1', [id]);
       await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [id]);
       await pool.query('DELETE FROM companies WHERE id = $1', [id]);
     }
