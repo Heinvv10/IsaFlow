@@ -24,6 +24,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
@@ -153,7 +154,7 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
   const rows = (await sql`
     WITH me AS (
       SELECT h.period_year, h.period_month, h.journal_entry_id, h.updated_at,
-             make_date(CASE WHEN h.period_month >= 3 THEN h.period_year ELSE h.period_year - 1 END, 3, 1) AS year_start,
+             make_date(CASE WHEN h.period_month >= ${PAYE_TAX_YEAR_START_MONTH} THEN h.period_year ELSE h.period_year - 1 END, ${PAYE_TAX_YEAR_START_MONTH}, 1) AS year_start,
              (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
       FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
     )

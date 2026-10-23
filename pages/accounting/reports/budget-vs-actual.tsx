@@ -10,7 +10,7 @@ import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { BarChart3, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { localISODate } from '@/lib/dateUtils';
+import { longDate, parseReportPeriod } from '@/components/accounting/budgets/budgetClient';
 
 interface BudgetLine {
   account_code: string;
@@ -30,18 +30,6 @@ interface BudgetReport {
   total_variance: number;
 }
 
-function getDrillDownDates(period: string): { start: string; end: string } {
-  const now = new Date();
-  const year = now.getFullYear();
-  const todayStr = localISODate(now);
-  if (period === 'ytd') return { start: `${year}-01-01`, end: todayStr };
-  if (period === 'full_year') return { start: `${year}-01-01`, end: `${year}-12-31` };
-  // current period = current month
-  const monthStart = new Date(year, now.getMonth(), 1);
-  const monthStartStr = localISODate(monthStart);
-  return { start: monthStartStr, end: todayStr };
-}
-
 export default function BudgetVsActualPage() {
   const [report, setReport] = useState<BudgetReport | null>(null);
   const [fiscalPeriod, setFiscalPeriod] = useState('current');
@@ -49,7 +37,8 @@ export default function BudgetVsActualPage() {
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
 
-  const drillDates = getDrillDownDates(fiscalPeriod);
+  // The range the report itself covers, so a drill-down foots to its line.
+  const range = parseReportPeriod(report?.period);
 
   const loadReport = useCallback(async () => {
     setIsLoading(true);
@@ -86,6 +75,11 @@ export default function BudgetVsActualPage() {
                   <p className="text-sm text-[var(--ff-text-secondary)]">
                     Compare budgeted and actual amounts by GL account
                   </p>
+                  {range && (
+                    <p data-testid="report-period" className="text-xs text-[var(--ff-text-tertiary)] mt-1">
+                      {longDate(range.start)} to {longDate(range.end)}
+                    </p>
+                  )}
                 </div>
               </div>
               <button onClick={() => {
@@ -178,11 +172,11 @@ export default function BudgetVsActualPage() {
                             </div>
                           </td>
                         </tr>
-                        {expandedAccount === line.account_code && (
+                        {expandedAccount === line.account_code && range && (
                           <AccountDrillDown
                             accountCode={line.account_code}
-                            periodStart={drillDates.start}
-                            periodEnd={drillDates.end}
+                            periodStart={range.start}
+                            periodEnd={range.end}
                             asTableRow
                             colSpan={7}
                           />

@@ -26,6 +26,22 @@ describe('spreadEvenly', () => {
   it('one month carries the whole amount', () => {
     expect(spreadEvenly(500, 1)).toEqual([500]);
   });
+
+  it('zero spreads as zeros', () => {
+    expect(spreadEvenly(0, 14)).toEqual(Array<number>(14).fill(0));
+  });
+
+  it('a negative annual (a credit budget) spreads with the cents on the last month', () => {
+    expect(spreadEvenly(-100, 3)).toEqual([-33.33, -33.33, -33.34]);
+  });
+
+  it('15 months, the longest a transition year can be, sum back to the annual', () => {
+    const parts = spreadEvenly(1000, 15);
+    expect(parts).toHaveLength(15);
+    expect(parts[0]).toBe(66.67);
+    expect(parts[14]).toBe(66.62);
+    expect(Math.round(parts.reduce((s, p) => s + p, 0) * 100) / 100).toBe(1000);
+  });
 });
 
 describe('resolveMonthAmounts', () => {
@@ -53,6 +69,50 @@ describe('resolveMonthAmounts', () => {
       .toThrow(/given twice/);
     expect(() => resolveMonthAmounts(keys, { months: [{ month: '2026-01', amount: Number.NaN }, { month: '2026-02', amount: 1 }] }))
       .toThrow(BudgetInputError);
+  });
+
+  it('annualAmount 0 stores a zero for every month, not nothing', () => {
+    const out = resolveMonthAmounts(['2026-01', '2026-02'], { annualAmount: 0 });
+    expect(out).toEqual([{ month: '2026-01', amount: 0 }, { month: '2026-02', amount: 0 }]);
+  });
+
+  it('negative amounts are kept as given', () => {
+    const out = resolveMonthAmounts(['2026-01', '2026-02'], {
+      months: [{ month: '2026-01', amount: -5 }, { month: '2026-02', amount: 7.5 }],
+    });
+    expect(out.map(m => m.amount)).toEqual([-5, 7.5]);
+  });
+
+  it('a numeric string is a number: "12.5" for a month and for the annual amount', () => {
+    const keys = ['2026-01', '2026-02'];
+    const split = resolveMonthAmounts(keys, {
+      months: [{ month: '2026-01', amount: '12.5' as unknown as number }, { month: '2026-02', amount: 1 }],
+    });
+    expect(split.map(m => m.amount)).toEqual([12.5, 1]);
+    expect(resolveMonthAmounts(keys, { annualAmount: '25' as unknown as number }).map(m => m.amount)).toEqual([12.5, 12.5]);
+  });
+
+  it('refuses an empty string and null as an amount (they are not 0)', () => {
+    const keys = ['2026-01'];
+    for (const bad of ['', null, 'abc', Infinity]) {
+      expect(() => resolveMonthAmounts(keys, { months: [{ month: '2026-01', amount: bad as unknown as number }] }), String(bad))
+        .toThrow(BudgetInputError);
+    }
+  });
+
+  it('rounds to cents once, in JS: 1.234 -> 1.23; 1.005 is 1.00 because its float is 1.00499...', () => {
+    const [a, b] = resolveMonthAmounts(['2026-01', '2026-02'], {
+      months: [{ month: '2026-01', amount: 1.234 }, { month: '2026-02', amount: 1.005 }],
+    });
+    expect(a!.amount).toBe(1.23);
+    expect(b!.amount).toBe(1);
+  });
+
+  it('a split of 15 months is accepted', () => {
+    const keys = [...KEYS_14, '2027-03'];
+    const out = resolveMonthAmounts(keys, { annualAmount: 150 });
+    expect(out).toHaveLength(15);
+    expect(out.every(m => m.amount === 10)).toBe(true);
   });
 
   it('refuses neither months nor an annual amount', () => {

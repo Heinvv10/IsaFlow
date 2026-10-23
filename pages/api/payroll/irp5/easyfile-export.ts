@@ -32,8 +32,8 @@ import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataS
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
-import { getTaxYearConfig, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
-import { getAge } from '@/modules/accounting/services/payroll/payeEngine';
+import { taxThresholdFor } from '@/modules/accounting/services/payroll/easyFileTaxThreshold';
+import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 
 function firstTwoNames(fullFirst: string): string {
   return fullFirst.trim().split(/\s+/).slice(0, 2).join(' ');
@@ -65,29 +65,6 @@ function monthsBetween(start: string, endInclusive: string): number {
   const e = new Date(`${endInclusive.slice(0, 4)}-${endInclusive.slice(4, 6)}-${endInclusive.slice(6, 8)}`);
   const months = (e.getUTCFullYear() - s.getUTCFullYear()) * 12 + (e.getUTCMonth() - s.getUTCMonth()) + 1;
   return Math.min(12, Math.max(0, months));
-}
-
-/** The date of birth an RSA ID number (YYMMDD...) carries; the century is the one that puts it in the past. */
-function birthFromIdNumber(idNumber: unknown): Date | null {
-  const m = /^(\d{2})(\d{2})(\d{2})\d{7}$/.exec(String(idNumber ?? ''));
-  if (!m) return null;
-  const yy = Number(m[1]);
-  const year = (yy > new Date().getFullYear() % 100 ? 1900 : 2000) + yy;
-  const d = new Date(year, Number(m[2]) - 1, Number(m[3]));
-  return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
-}
-
-/**
- * The SARS tax threshold for the year by age on its last day (G21 2027 p. 3), or
- * undefined when unknown. Age from the date of birth, else from the ID number.
- */
-function taxThresholdFor(taxYear: number, dateOfBirth: unknown, idNumber: unknown): number | undefined {
-  const born = dateOfBirth ? (dateOfBirth instanceof Date ? dateOfBirth : new Date(String(dateOfBirth))) : birthFromIdNumber(idNumber);
-  // February of taxYear is in taxYear: null means its tables are loaded.
-  if (!born || Number.isNaN(born.getTime()) || unloadedTaxYearMessage(2, taxYear) !== null) return undefined;
-  const config = getTaxYearConfig(taxYear);
-  const age = getAge(born, new Date(taxYear, 2, 0));
-  return age >= 75 ? config.threshold75plus : age >= 65 ? config.threshold65to74 : config.thresholdBelow65;
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -180,7 +157,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const aggMap = new Map<string, DbRow>();
   aggRows.forEach((r) => aggMap.set(String(r.employee_id), r));
 
-  const yoaStart = `${startYear}0301`;
+  const yoaStart = bounds.start.replaceAll('-', '');
   const yoaEndInclusive = bounds.end.replaceAll('-', ''); // last day of February, 29th in a leap year
 
   const employees: EmployeeInput[] = [];
@@ -269,15 +246,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     // A payment on no certificate first: the cap below must never hide one.
     warnings.unshift(...lumpSums.unlinked.map(p => `SARS directive ${p.directiveNumber ?? p.directiveId} (${p.employeeName}), `
       + `paid outside payroll on ${p.paymentDate}, is linked to no employee, so it is on no certificate in this file.`));
-    // Capped by encoded size (a proxy's header buffer is often 4 KB), so many such directives cannot break the download.
-    const HEADER_BUDGET = 2_000;
     const warningsTotal = warnings.length;
-    const more = (n: number) => `… and ${warningsTotal - n} more like these.`;
-    const fits = (n: number) => encodeURIComponent(JSON.stringify(
-      n === warningsTotal ? warnings : [...warnings.slice(0, n), more(n)])).length <= HEADER_BUDGET;
-    let shown = warningsTotal;
-    while (shown > 0 && !fits(shown)) shown -= 1;
-    if (shown < warningsTotal) warnings.splice(shown, warningsTotal, more(shown));
+    warnings.splice(0, warningsTotal, ...capWarningsForHeader(warnings));
     if (warnings.length > 0) {
       // Counts only in the log: the text names employees and is for the authorised caller.
       log.warn('e@syFile export warnings', {

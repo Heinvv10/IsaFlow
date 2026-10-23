@@ -7,25 +7,29 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { getBudgets } from '@/modules/accounting/services/core/budgetService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const co = crypto.randomUUID(), acct = crypto.randomUUID(), acct2 = crypto.randomUUID();
 const bare = crypto.randomUUID(), bareAcct = crypto.randomUUID(); // declares March, no periods at all
+const reg = crypto.randomUUID(), regAcct = crypto.randomUUID(); // periods made by the generator: registry-labelled
+const all = [co, bare, reg];
 
 beforeEach(async () => {
-  await pool.query('DELETE FROM budget_month_amounts WHERE company_id = ANY($1)', [[co, bare]]);
-  await pool.query('DELETE FROM accounting_budgets WHERE company_id = ANY($1)', [[co, bare]]);
+  await pool.query('DELETE FROM budget_month_amounts WHERE company_id = ANY($1)', [all]);
+  await pool.query('DELETE FROM accounting_budgets WHERE company_id = ANY($1)', [all]);
 });
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM budget_month_amounts WHERE company_id = ANY($1)', [[co, bare]]);
-    await pool.query('DELETE FROM accounting_budgets WHERE company_id = ANY($1)', [[co, bare]]);
-    await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1)', [[co, bare]]);
-    await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [co]);
-    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[co, bare]]);
+    await pool.query('DELETE FROM budget_month_amounts WHERE company_id = ANY($1)', [all]);
+    await pool.query('DELETE FROM accounting_budgets WHERE company_id = ANY($1)', [all]);
+    await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1)', [all]);
+    await pool.query('DELETE FROM fiscal_periods WHERE company_id = ANY($1)', [all]);
+    await pool.query('DELETE FROM fiscal_years WHERE company_id = ANY($1)', [all]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [all]);
   } finally { await pool.end(); }
 });
 
@@ -47,9 +51,25 @@ async function setup() {
     `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
      VALUES ($1, $2, 'B-5000', 'Rent', 'expense', 'debit', 3, true)`, [bareAcct, bare]);
 }
-const budget = (account: string, fy: number, pa: unknown, annual = 0, company = co) => pool.query(
-  `INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, period_amounts, annual_amount)
-   VALUES ($1, 'old', $2, $3, $4::jsonb, $5)`, [company, fy, account, JSON.stringify(pa), annual]);
+const budget = (account: string, fy: number, pa: unknown, annual = 0, company = co, notes: string | null = null) => pool.query(
+  `INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, period_amounts, annual_amount, notes)
+   VALUES ($1, 'old', $2, $3, $4::jsonb, $5, $6)`, [company, fy, account, JSON.stringify(pa), annual, notes]);
+
+/** A company whose periods the generator made after 940: FY2027 = March 2026 - February 2027, labelled 2027. */
+async function setupRegistry(window: [string, string, number, string] = ['2026-03-01', '2027-02-28', 2027, 'normal']) {
+  await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [reg]);
+  await pool.query('DELETE FROM fiscal_years WHERE company_id = $1', [reg]);
+  await pool.query(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'BUDCONV reg', 3) ON CONFLICT DO NOTHING`, [reg]);
+  await pool.query(
+    `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+     VALUES ($1, $2, 'B-5000', 'Rent', 'expense', 'debit', 3, true) ON CONFLICT DO NOTHING`, [regAcct, reg]);
+  const [start, end, label, kind] = window;
+  const y = (await pool.query(
+    `INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, kind) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [reg, label, start, end, kind])).rows[0];
+  await pool.query('SELECT public.fiscal_periods_generate($1)', [y.id]);
+}
+const JAN_DEC = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 const months = async (account: string, company = co) => (await pool.query(
   `SELECT to_char(month, 'YYYY-MM') m, amount::float a FROM budget_month_amounts WHERE company_id = $1 AND gl_account_id = $2 ORDER BY month`,
   [company, account])).rows.map((r) => [r.m, r.a]);
@@ -149,5 +169,51 @@ describe('944 conversion', () => {
     await convert();
     await pool.query(`DELETE FROM budget_month_amounts WHERE company_id = $1 AND month = '2026-02-01'`, [co]);
     expect(await mismatches()).toBe(1);
+  });
+
+  it('a company whose periods the generator labelled by registry year files each label in its own window, with no collision', async () => {
+    await setupRegistry();
+    await budget(regAcct, 2026, JAN_DEC, 0, reg);
+    await budget(regAcct, 2027, JAN_DEC, 0, reg);
+    expect(await convert(reg)).toBe(24);
+    // FY2027 finds its periods (Mar 2026 - Feb 2027); FY2026 has none and sits in the template year before (Mar 2025 - Feb 2026).
+    const m = await months(regAcct, reg);
+    expect(m).toHaveLength(24);
+    expect(m.filter(([k]) => k >= '2026-03' && k <= '2027-02')).toEqual([
+      ['2026-03', 3], ['2026-04', 4], ['2026-05', 5], ['2026-06', 6], ['2026-07', 7], ['2026-08', 8], ['2026-09', 9],
+      ['2026-10', 10], ['2026-11', 11], ['2026-12', 12], ['2027-01', 1], ['2027-02', 2]]);
+    expect(m.filter(([k]) => k < '2026-03')).toEqual([
+      ['2025-03', 3], ['2025-04', 4], ['2025-05', 5], ['2025-06', 6], ['2025-07', 7], ['2025-08', 8], ['2025-09', 9],
+      ['2025-10', 10], ['2025-11', 11], ['2025-12', 12], ['2026-01', 1], ['2026-02', 2]]);
+    expect(await mismatches(reg)).toBe(0);
+  });
+
+  it('a label with two periods in one calendar month (a 14-month year) files the key under the earlier one', async () => {
+    await setupRegistry(['2026-01-01', '2027-02-28', 2026, 'transition']);
+    await budget(regAcct, 2026, { jan: 1, feb: 2, mar: 3 }, 0, reg);
+    await convert(reg);
+    expect(await months(regAcct, reg)).toEqual([['2026-01', 1], ['2026-02', 2], ['2026-03', 3]]);
+  });
+
+  it('a month with more than two decimals is rounded to cents and still verifies', async () => {
+    await setup();
+    await budget(acct, 2026, { jan: 10.005, feb: 1.234, mar: '2.675' });
+    expect(await convert()).toBe(3);
+    expect(await months(acct)).toEqual([['2026-01', 10.01], ['2026-02', 1.23], ['2026-03', 2.68]]);
+    expect(await mismatches()).toBe(0);
+  });
+
+  it('a budget regrouped under another registry year keeps its notes there: the header is copied to each label that holds converted months', async () => {
+    await setup();
+    // Periods are calendar-labelled, the registry's year is March-February: Jan-Feb 2026 are FY2026, Mar-Dec 2026 are FY2027.
+    await budget(acct, 2026, JAN_DEC, 0, co, 'rent note');
+    await convert();
+    const fy2026 = await getBudgets(co, 2026);
+    const fy2027 = await getBudgets(co, 2027);
+    expect(fy2026.map((e) => [e.notes, e.annualAmount])).toEqual([['rent note', 3]]);
+    expect(fy2027.map((e) => [e.notes, e.annualAmount])).toEqual([['rent note', 75]]);
+    const headers = (await pool.query(
+      `SELECT fiscal_year, budget_name FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2 ORDER BY fiscal_year`, [co, acct])).rows;
+    expect(headers).toEqual([{ fiscal_year: 2026, budget_name: 'old' }, { fiscal_year: 2027, budget_name: 'FY2027 Budget' }]);
   });
 });

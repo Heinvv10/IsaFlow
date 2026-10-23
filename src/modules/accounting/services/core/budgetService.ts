@@ -16,7 +16,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getFiscalYear } from '../gl/fiscalYearRegistry';
+import { getFiscalYear, type FiscalYearRecord } from '../gl/fiscalYearRegistry';
 import { budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
 import { BudgetInputError, resolveMonthAmounts, round2, type BudgetMonthAmount } from './budgetMonths';
 
@@ -54,13 +54,18 @@ export interface BudgetInput {
 
 interface YearMonths { fiscalYear: number; monthKeys: string[]; first: string; last: string }
 
-async function yearMonths(companyId: string, fiscalYear: number): Promise<YearMonths> {
-  const year = await getFiscalYear(companyId, fiscalYear);
-  if (!year) throw new BudgetInputError(`No financial year is labelled ${fiscalYear}`);
+function monthsOf(year: FiscalYearRecord): YearMonths {
+  const fiscalYear = year.fiscalYear;
   const monthKeys = budgetMonthKeysInWindow(year.startDate, year.endDate);
   const bounds = budgetMonthBounds(year.startDate, year.endDate);
   if (!bounds) throw new BudgetInputError(`Financial year ${fiscalYear} has no months`);
   return { fiscalYear, monthKeys, ...bounds };
+}
+
+async function yearMonths(companyId: string, fiscalYear: number): Promise<YearMonths> {
+  const year = await getFiscalYear(companyId, fiscalYear);
+  if (!year) throw new BudgetInputError(`No financial year is labelled ${fiscalYear}`);
+  return monthsOf(year);
 }
 
 /** Every account with a header or any month in the year, with its months. `accountId` narrows to one. */
@@ -113,6 +118,11 @@ async function loadEntries(companyId: string, year: YearMonths, accountId: strin
 
 export async function getBudgets(companyId: string, fiscalYear: number): Promise<BudgetEntry[]> {
   return loadEntries(companyId, await yearMonths(companyId, fiscalYear), null);
+}
+
+/** `getBudgets` for a year the caller has already looked up (no second registry read). */
+export async function getBudgetsForYear(companyId: string, year: FiscalYearRecord): Promise<BudgetEntry[]> {
+  return loadEntries(companyId, monthsOf(year), null);
 }
 
 export async function upsertBudget(
