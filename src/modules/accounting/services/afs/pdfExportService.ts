@@ -1,6 +1,6 @@
 // src/modules/accounting/services/afs/pdfExportService.ts
 import { sql } from '@/lib/neon';
-import { getReportingPeriod } from './afsReportingPeriod';
+import { findReportingPeriod } from './afsReportingPeriod';
 import { log } from '@/lib/logger';
 import type { AfsDocument, AfsSection, SectionType, SectionStatus, DocumentType, DocumentStatus, ReportingFramework, NoteContent, AfsSectionVersionEntry } from './afsTypes';
 import { getBrandProfile } from './brandProfileService';
@@ -150,15 +150,12 @@ export async function exportToPdf(
   // registered renders exactly as it does today.
   const charts = buildAfsCharts(sections);
   // The cover's "for the 14 months ended ..." wording; a label no year carries
-  // keeps the renderer's year-end wording, and says so in the log.
-  let periodPhrase: string | undefined;
-  if (document.fiscalYear) {
-    try {
-      periodPhrase = (await getReportingPeriod(companyId, Number(document.fiscalYear))).current.phrase;
-    } catch (err) {
-      log.warn('pdfExportService: no registry year for the document label', { companyId, fiscalYear: document.fiscalYear, error: String(err) });
-    }
-  }
+  // keeps the renderer's year-end wording (findReportingPeriod logs it), any
+  // other failure stops the export rather than print a wrong period.
+  const period = document.fiscalYear
+    ? await findReportingPeriod(companyId, Number(document.fiscalYear), 'pdfExportService')
+    : null;
+  const periodPhrase = period?.current.phrase;
 
   const html = renderAfsToHtml(
     { document, sections, brandProfile: safeBrandProfile, companyName, registrationNumber, charts, periodPhrase },

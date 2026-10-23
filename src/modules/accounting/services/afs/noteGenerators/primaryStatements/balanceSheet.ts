@@ -10,7 +10,7 @@
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, type SectionLine } from './_helpers';
-import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
+import { getReportingPeriod, REPORTING_PERIOD_REFERENCE } from '@/modules/accounting/services/afs/afsReportingPeriod';
 
 // Asset codes from the canonical catalogue. Anything not in this set
 // (and on the BS) is treated as equity or liability and sign-flipped.
@@ -40,7 +40,7 @@ export async function generateStatementOfFinancialPosition(
     ...renderHierarchicalTable(adjusted, true, period.comparable
       ? ['Current year (R)', 'Prior year (R)']
       : [`As at ${period.current.end} (R)`, `As at ${period.prior.end} (R)`]),
-    ...(period.comparabilityNote ? [{ type: 'paragraph' as const, text: period.comparabilityNote }] : []),
+    ...(period.comparabilityNote ? [{ type: 'paragraph' as const, text: REPORTING_PERIOD_REFERENCE }] : []),
   ];
 
   // Published so the pre-export blockers have something to check. They used to

@@ -12,7 +12,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fiscalYearForDate, getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
-import { fmtDate } from '@/lib/fmtDate';
+import { localISODate } from '@/lib/dateUtils';
 
 type DocRow = { fiscal_year: number | null; period: string | null; document_type: string };
 
@@ -60,7 +60,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (periodStart === null || periodEnd === null) {
     // No usable label or period: the financial year holding today.
-    const current = await fiscalYearForDate(companyId, fmtDate(new Date()));
+    const current = await fiscalYearForDate(companyId, localISODate());
     periodStart = current.startDate;
     periodEnd = current.endDate;
   }

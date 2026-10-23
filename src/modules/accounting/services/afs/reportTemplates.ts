@@ -3,6 +3,7 @@
 // Based on AFS Master v15 — ISRS 4410, ISRE 2400, ISA 700, Companies Act 71 of 2008
 
 import type { AfsTemplateKey } from '@/lib/entityTypes';
+import { periodPhrase } from './afsReportingPeriod';
 
 // ── Template Data Context ────────────────────────────────────────────────────
 
@@ -13,6 +14,8 @@ export interface ReportTemplateContext {
   periodEnd: string;
   /** e.g. "1 March 2025" */
   periodStart: string;
+  /** Whole months the statements cover; 12 when absent. A transition year is "14 months ended X". */
+  periodMonths?: number;
   framework: 'ifrs_smes' | 'full_ifrs';
   /** Pty = Private Company, CC = Close Corporation, Trust */
   entityType: AfsTemplateKey;
@@ -56,6 +59,16 @@ function entityLeadershipSingular(entityType: ReportTemplateContext['entityType'
   }
 }
 
+/** "year ended X" for twelve months, "14 months ended X" otherwise. */
+function endedPhrase(ctx: ReportTemplateContext): string {
+  return periodPhrase(ctx.periodMonths ?? 12, ctx.periodEnd);
+}
+
+/** "year" for twelve months, else "period": "for the year then ended" / "for the period then ended". */
+function thenNoun(ctx: ReportTemplateContext): string {
+  return (ctx.periodMonths ?? 12) === 12 ? 'year' : 'period';
+}
+
 function frameworkLabel(framework: ReportTemplateContext['framework']): string {
   return framework === 'full_ifrs'
     ? 'International Financial Reporting Standards'
@@ -69,6 +82,7 @@ function frameworkShort(framework: ReportTemplateContext['framework']): string {
 // ── 1. Compilation Report — ISRS 4410 (Revised) ─────────────────────────────
 
 export function getCompilationReport(ctx: ReportTemplateContext): string[] {
+  const thenWord = thenNoun(ctx);
   const leadership = entityLeadership(ctx.entityType);
   const fw = frameworkLabel(ctx.framework);
   const fwShort = frameworkShort(ctx.framework);
@@ -78,7 +92,7 @@ export function getCompilationReport(ctx: ReportTemplateContext): string[] {
     ``,
     `To the ${leadership} of ${ctx.companyName}`,
     ``,
-    `We have compiled the accompanying financial statements of ${ctx.companyName}${ctx.registrationNumber ? ` (Registration number: ${ctx.registrationNumber})` : ''} set out on pages {pageFrom} to {pageTo}, based on information you have provided. These financial statements comprise the statement of financial position as at ${ctx.periodEnd}, the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and a summary of significant accounting policies and other explanatory notes.`,
+    `We have compiled the accompanying financial statements of ${ctx.companyName}${ctx.registrationNumber ? ` (Registration number: ${ctx.registrationNumber})` : ''} set out on pages {pageFrom} to {pageTo}, based on information you have provided. These financial statements comprise the statement of financial position as at ${ctx.periodEnd}, the statement of comprehensive income, statement of changes in equity and statement of cash flows for the ${thenWord} then ended, and a summary of significant accounting policies and other explanatory notes.`,
     ``,
     `We performed this compilation engagement in accordance with International Standard on Related Services 4410 (Revised), Compilation Engagements.`,
     ``,
@@ -102,7 +116,7 @@ export function getAccountingOfficerReport(ctx: ReportTemplateContext): string[]
     ``,
     `To the members of ${ctx.companyName}`,
     ``,
-    `I have performed the duties of an accounting officer for the close corporation for the year ended ${ctx.periodEnd} as required by section 62 of the Close Corporations Act, 1984.`,
+    `I have performed the duties of an accounting officer for the close corporation for the ${endedPhrase(ctx)} as required by section 62 of the Close Corporations Act, 1984.`,
     ``,
     `I confirm that the annual financial statements set out on pages {pageFrom} to {pageTo} are consistent with the accounting records of the close corporation and have been prepared in accordance with the ${frameworkLabel(ctx.framework)} and the Close Corporations Act, 1984.`,
     ``,
@@ -118,6 +132,7 @@ export function getAccountingOfficerReport(ctx: ReportTemplateContext): string[]
 // ── 3. Independent Review Report — ISRE 2400 (Revised) ──────────────────────
 
 export function getReviewReport(ctx: ReportTemplateContext): string[] {
+  const thenWord = thenNoun(ctx);
   const leadership = entityLeadership(ctx.entityType);
   const fw = frameworkLabel(ctx.framework);
   const fwShort = frameworkShort(ctx.framework);
@@ -127,7 +142,7 @@ export function getReviewReport(ctx: ReportTemplateContext): string[] {
     ``,
     `To the ${leadership} of ${ctx.companyName}`,
     ``,
-    `We have reviewed the accompanying financial statements of ${ctx.companyName}${ctx.registrationNumber ? ` (Registration number: ${ctx.registrationNumber})` : ''}, set out on pages {pageFrom} to {pageTo}, which comprise the statement of financial position as at ${ctx.periodEnd}, the statement of comprehensive income, the statement of changes in equity and the statement of cash flows for the year then ended, and a summary of significant accounting policies and other explanatory information.`,
+    `We have reviewed the accompanying financial statements of ${ctx.companyName}${ctx.registrationNumber ? ` (Registration number: ${ctx.registrationNumber})` : ''}, set out on pages {pageFrom} to {pageTo}, which comprise the statement of financial position as at ${ctx.periodEnd}, the statement of comprehensive income, the statement of changes in equity and the statement of cash flows for the ${thenWord} then ended, and a summary of significant accounting policies and other explanatory information.`,
     ``,
     `${capitalise(leadership)}' Responsibility for the Financial Statements`,
     ``,
@@ -145,7 +160,7 @@ export function getReviewReport(ctx: ReportTemplateContext): string[] {
     ``,
     `Conclusion`,
     ``,
-    `Based on our review, nothing has come to our attention that causes us to believe that these financial statements do not present fairly, in all material respects, the financial position of ${ctx.companyName} as at ${ctx.periodEnd}, and its financial performance and cash flows for the year then ended in accordance with ${fwShort} and the requirements of the Companies Act 71 of 2008.`,
+    `Based on our review, nothing has come to our attention that causes us to believe that these financial statements do not present fairly, in all material respects, the financial position of ${ctx.companyName} as at ${ctx.periodEnd}, and its financial performance and cash flows for the ${thenWord} then ended in accordance with ${fwShort} and the requirements of the Companies Act 71 of 2008.`,
     ``,
     ctx.practitionerName ?? '{practitionerName}',
     `Registered Auditor`,
@@ -157,6 +172,7 @@ export function getReviewReport(ctx: ReportTemplateContext): string[] {
 // ── 4. Audit Report — ISA 700 (Revised) ─────────────────────────────────────
 
 export function getAuditReport(ctx: ReportTemplateContext): string[] {
+  const thenWord = thenNoun(ctx);
   const leadership = entityLeadership(ctx.entityType);
   const fw = frameworkLabel(ctx.framework);
   const fwShort = frameworkShort(ctx.framework);
@@ -168,9 +184,9 @@ export function getAuditReport(ctx: ReportTemplateContext): string[] {
     ``,
     `Opinion`,
     ``,
-    `We have audited the financial statements of ${ctx.companyName}${ctx.registrationNumber ? ` (Registration number: ${ctx.registrationNumber})` : ''}, set out on pages {pageFrom} to {pageTo}, which comprise the statement of financial position as at ${ctx.periodEnd}, and the statement of comprehensive income, statement of changes in equity and statement of cash flows for the year then ended, and notes to the financial statements, including a summary of significant accounting policies.`,
+    `We have audited the financial statements of ${ctx.companyName}${ctx.registrationNumber ? ` (Registration number: ${ctx.registrationNumber})` : ''}, set out on pages {pageFrom} to {pageTo}, which comprise the statement of financial position as at ${ctx.periodEnd}, and the statement of comprehensive income, statement of changes in equity and statement of cash flows for the ${thenWord} then ended, and notes to the financial statements, including a summary of significant accounting policies.`,
     ``,
-    `In our opinion, the financial statements present fairly, in all material respects, the financial position of ${ctx.companyName} as at ${ctx.periodEnd}, and its financial performance and cash flows for the year then ended in accordance with the ${fw} (${fwShort}) and the requirements of the Companies Act 71 of 2008.`,
+    `In our opinion, the financial statements present fairly, in all material respects, the financial position of ${ctx.companyName} as at ${ctx.periodEnd}, and its financial performance and cash flows for the ${thenWord} then ended in accordance with the ${fw} (${fwShort}) and the requirements of the Companies Act 71 of 2008.`,
     ``,
     `Basis for Opinion`,
     ``,
@@ -245,7 +261,7 @@ export function getDirectorsReport(ctx: ReportTemplateContext): string[] {
   const paragraphs = [
     `REPORT OF THE ${capitalise(leadership).toUpperCase()}`,
     ``,
-    `The ${leadership} have pleasure in submitting their report on the annual financial statements of ${ctx.companyName} for the year ended ${ctx.periodEnd}.`,
+    `The ${leadership} have pleasure in submitting their report on the annual financial statements of ${ctx.companyName} for the ${endedPhrase(ctx)}.`,
     ``,
     `1. Nature of Business`,
     ``,

@@ -9,6 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import JSZip from 'jszip';
 import { als } from '@/lib/als';
 import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearGenerator';
 import { applyYearEndChange } from '@/modules/accounting/services/gl/financialYearEndChangeApply';
@@ -16,7 +17,12 @@ import { generateIncomeStatement } from '@/modules/accounting/services/afs/noteG
 import { generateStatementOfFinancialPosition } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/balanceSheet';
 import { generateCashFlow } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/cashFlow';
 import { generateCover } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/cover';
-import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
+import { generateNote25ContingenciesAndCommitments } from '@/modules/accounting/services/afs/noteGenerators/notes21to25';
+import { generateChangesInEquity } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/equity';
+import { generateDirectorsReport } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/directorsReport';
+import { renderToDocx } from '@/modules/accounting/services/afs/docxExportService';
+import type { AfsDocument } from '@/modules/accounting/services/afs/afsTypes';
+import { getReportingPeriod, findReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import { afsFilingDeadline } from '@/modules/accounting/services/afs/afsFilingDeadline';
 import { generateDisclosureNotes } from '@/modules/accounting/services/reports/disclosureNoteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
@@ -77,14 +83,17 @@ describe('the transition year FY2026 (14 months)', () => {
   it('income statement: heading, column headers and the note', async () => {
     const is = await inTx(() => generateIncomeStatement(co, 2026, 'ifrs_sme' as never));
     expect(texts(is)[0]).toBe('For the 14 months ended 2027-02-28.');
+    // The pack makes the IAS 1.36 disclosure once, here; the balance sheet points at it.
     expect(texts(is).join(' ')).toMatch(/cover the 14 months from 2026-01-01 to 2027-02-28.*IAS 1\.36/);
+    expect(texts(is).filter((t) => /not entirely comparable/.test(t ?? '')).length).toBe(1);
     expect(headers(is)).toEqual(['Line', '14 months to 2027-02-28 (R)', 'Prior year (R)']);
   });
 
   it('balance sheet: as-at columns at the two real year ends, with the note', async () => {
     const bs = await inTx(() => generateStatementOfFinancialPosition(co, 2026, 'ifrs_sme' as never));
     expect(headers(bs)).toEqual(['Line', 'As at 2027-02-28 (R)', 'As at 2025-12-31 (R)']);
-    expect(texts(bs).join(' ')).toMatch(/IAS 1\.36/);
+    expect(texts(bs)).toContain('See the statement of profit or loss: reporting period (IAS 1.36).');
+    expect(texts(bs).join(' ')).not.toMatch(/not entirely comparable/);
   });
 
   it('cash flow: the paragraph and the amount column both say 14 months', async () => {
@@ -104,6 +113,8 @@ describe('disclosure notes (the AFS Notes tab)', () => {
     const notes = await inTx(() => generateDisclosureNotes(co, 2026));
     const i = notes.findIndex((n) => n.title === 'Reporting period');
     expect(i).toBe(1);
+    // Integer, ordered and gap-free: the later notes move down one, none is numbered 1.1.
+    expect(notes.map((n) => n.noteNumber)).toEqual(notes.map((_, k) => k + 1));
     expect(notes[i]!.content).toMatch(/14 months from 2026-01-01 to 2027-02-28.*IAS 1\.36/);
     expect(notes.map((n) => n.content).join(' ')).not.toMatch(/31 December 2026/);
     const vat = notes.find((n) => n.title === 'Taxation');
@@ -112,6 +123,39 @@ describe('disclosure notes (the AFS Notes tab)', () => {
   it('FY2025 (twelve months, with a twelve-month comparative) has no such note', async () => {
     const notes = await inTx(() => generateDisclosureNotes(co, 2025));
     expect(notes.some((n) => n.title === 'Reporting period')).toBe(false);
+    expect(notes.map((n) => n.noteNumber)).toEqual(notes.map((_, k) => k + 1));
+  });
+});
+
+describe('the other statements and notes say what the year really is', () => {
+  it('directors report and changes in equity say 14 months', async () => {
+    const dr = await inTx(() => generateDirectorsReport(co, 2026, 'ifrs_sme' as never));
+    expect(JSON.stringify(dr.content)).toContain('14 months ended 2027-02-28');
+    const eq = await inTx(() => generateChangesInEquity(co, 2026, 'ifrs_sme' as never));
+    expect(texts(eq)[0]).toBe('Movements in equity for the 14 months ended 2027-02-28.');
+  });
+
+  it('the contingencies note names the real year end, not 31 December', async () => {
+    const n = await inTx(() => generateNote25ContingenciesAndCommitments(co, 2026));
+    expect(texts(n)[0]).toContain('at 2027-02-28');
+    expect(texts(n)[0]).not.toContain('31 December');
+  });
+
+  it('the DOCX cover says 14 months ended, with the real end date, not a 28 February year', async () => {
+    const document = { id: 'd1', companyId: co, fiscalYear: 2026, period: null } as unknown as AfsDocument;
+    const buf = await inTx(() => renderToDocx(document, [], 'FYAFS co'));
+    const xml = await (await JSZip.loadAsync(buf)).file('word/document.xml')!.async('string');
+    expect(xml).toContain('For the 14 months ended 2027-02-28');
+    expect(xml).not.toContain('Year ended 28 February');
+  });
+
+  it('a label no year carries has no reporting period (null, transaction intact); FY2027 is skipped by the change', async () => {
+    const out = await inTx(async () => {
+      const period = await findReportingPeriod(co, 2027, 'test');
+      const after = await als.getStore()!.client.query('SELECT 1 AS one');
+      return { period, one: after.rows[0].one };
+    });
+    expect(out).toEqual({ period: null, one: 1 });
   });
 });
 
@@ -121,6 +165,8 @@ describe('the year after, FY2028', () => {
     expect(texts(is)[0]).toBe('For the year ended 2028-02-29.');
     expect(headers(is)).toEqual(['Line', 'Current year (R)', '14 months to 2027-02-28 (R)']);
     expect(texts(is).join(' ')).toMatch(/comparative figures cover the 14 months from 2026-01-01 to 2027-02-28.*IAS 1\.36/);
+    expect(texts(await inTx(() => generateStatementOfFinancialPosition(co, 2028, 'ifrs_sme' as never))))
+      .toContain('See the statement of profit or loss: reporting period (IAS 1.36).');
   });
 
   it('a year with twelve-month comparatives carries no note', async () => {
@@ -130,8 +176,9 @@ describe('the year after, FY2028', () => {
   });
 
   it('a 12/12 year keeps the column headers it always had (balance sheet and cash flow)', async () => {
-    expect(headers(await inTx(() => generateStatementOfFinancialPosition(co, 2025, 'ifrs_sme' as never))))
-      .toEqual(['Line', 'Current year (R)', 'Prior year (R)']);
+    const bs25 = await inTx(() => generateStatementOfFinancialPosition(co, 2025, 'ifrs_sme' as never));
+    expect(headers(bs25)).toEqual(['Line', 'Current year (R)', 'Prior year (R)']);
+    expect(texts(bs25).join(' ')).not.toMatch(/reporting period/);
     expect(headers(await inTx(() => generateCashFlow(co, 2025, 'ifrs_sme' as never)))).toEqual(['Line', 'Current year (R)']);
   });
 });

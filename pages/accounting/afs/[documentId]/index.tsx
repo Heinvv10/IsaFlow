@@ -118,6 +118,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
     );
   }
 
+  // Empty when the server could not state the period (a 403): nothing period-bound is shown then.
+  const hasPeriod = periodStart !== '' && periodEnd !== '';
   const title = doc
     ? `AFS ${doc.fiscalYear ?? periodStart.slice(0, 4)} | ISAFlow`
     : `AFS | ISAFlow`;
@@ -147,8 +149,8 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
                 {doc && <StatusBadge status={doc.status} />}
               </div>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                Period: {periodStart} — {periodEnd}
-                {doc && ` · v${doc.version}`}
+                {hasPeriod && `Period: ${periodStart} — ${periodEnd}`}
+                {doc && `${hasPeriod ? ' · ' : ''}v${doc.version}`}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -204,19 +206,19 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
         {/* Tab content */}
         <div className="max-w-6xl mx-auto px-6 py-8">
-          {activeTab === 'overview' && (
+          {hasPeriod && activeTab === 'overview' && (
             <AfsOverviewTab documentId={documentId} periodStart={periodStart} periodEnd={periodEnd} />
           )}
-          {activeTab === 'notes' && (
+          {hasPeriod && activeTab === 'notes' && (
             <AfsNotesTab fiscalYear={doc?.fiscalYear ?? Number(periodStart.slice(0, 4))} />
           )}
-          {activeTab === 'statements' && (
+          {hasPeriod && activeTab === 'statements' && (
             <AfsStatementsTab periodStart={periodStart} periodEnd={periodEnd} />
           )}
           {activeTab === 'review' && (
             <AfsReviewTab documentId={documentId} doc={doc} onDocUpdate={setDoc} />
           )}
-          {activeTab === 'export' && (
+          {hasPeriod && activeTab === 'export' && (
             <AfsExportTab
               documentId={documentId}
               fiscalYear={doc?.fiscalYear ?? Number(periodStart.slice(0, 4))}
@@ -267,13 +269,12 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
     }
   }
 
-  const fallbackYear = new Date().getFullYear();
-
+  // No period from the query or the API (a 403): show none rather than guess a calendar year.
   return {
     props: {
       documentId,
-      periodStart: queryStart ?? periodStart ?? `${fallbackYear}-01-01`,
-      periodEnd:   queryEnd   ?? periodEnd   ?? `${fallbackYear}-12-31`,
+      periodStart: queryStart ?? periodStart ?? '',
+      periodEnd:   queryEnd   ?? periodEnd   ?? '',
       periodError,
     },
   };

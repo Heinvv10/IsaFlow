@@ -10,9 +10,7 @@
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { getCompanyTerminology } from '../../entityTerminology';
-import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
-import { periodPhrase } from '@/modules/accounting/services/afs/afsReportingPeriod';
-import { monthsSpanned } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 
 export async function generateDirectorsReport(
   companyId: string,
@@ -20,7 +18,7 @@ export async function generateDirectorsReport(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateDirectorsReport', { companyId, fiscalYear }, 'AfsPrimary');
-  const { start: fyStart, end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
+  const { current: { phrase } } = await getReportingPeriod(companyId, fiscalYear);
   const term = await getCompanyTerminology(companyId);
 
   // Trust + future sole_trader/partnership types should not render this
@@ -46,7 +44,7 @@ export async function generateDirectorsReport(
         { type: 'heading', level: 2, text: 'Nature of business' },
         { type: 'paragraph', text: `The ${term.entityRef} carries on the business as detailed in the principal activities. The ${term.leadership} confirm there have been no material changes during the period.` },
         { type: 'heading', level: 2, text: 'Review of activities' },
-        { type: 'paragraph', text: `The financial results for the ${periodPhrase(monthsSpanned(fyStart, fyEnd), fyEnd)} are reflected in the annexed financial statements.` },
+        { type: 'paragraph', text: `The financial results for the ${phrase} are reflected in the annexed financial statements.` },
         { type: 'heading', level: 2, text: 'Going concern' },
         { type: 'paragraph', text: `The ${term.leadership} have reviewed the entity's projected cash flow and operating budgets and consider that the entity has adequate resources to continue as a going concern for the foreseeable future.` },
         { type: 'heading', level: 2, text: 'Events after the reporting date' },
