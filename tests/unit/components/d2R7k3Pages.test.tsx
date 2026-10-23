@@ -43,7 +43,7 @@ const downloads = () => {
 
 describe('migration/suppliers: the session route replies { session: row | null }', () => {
   const run = async (session: () => Response) => {
-    script(u => (u.includes('/migration/session') ? session() : u.includes('/migration/suppliers') ? ok({ succeeded: 7, failed: 0, skipped: 0 }) : undefined));
+    script(u => (u.includes('/migration/session') ? session() : u.includes('/migration/suppliers') ? ok({ imported: 7, skipped: 0, errors: [] }) : undefined));
     const { container } = render(<SuppliersImportPage />);
     csv(container);
     fireEvent.click(await screen.findByRole('button', { name: /Import 1 Suppliers/ }));

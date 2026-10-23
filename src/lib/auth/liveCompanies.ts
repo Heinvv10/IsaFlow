@@ -85,3 +85,24 @@ export async function isLiveCompanyForUser(userId: string, companyId: string): P
   `) as Record<string, unknown>[];
   return rows.length > 0;
 }
+
+/**
+ * The live companies among `companyIds`, with their names. For callers that
+ * hold company ids from somewhere other than `company_users` — the AFS portal,
+ * whose contacts are not members (audit S-08) — so they apply the same test.
+ */
+export async function listLiveCompanies(
+  companyIds: readonly string[],
+): Promise<Array<{ companyId: string; companyName: string }>> {
+  if (companyIds.length === 0) return [];
+  const rows = (await sql`
+    SELECT c.id, c.name
+    FROM companies c
+    WHERE c.id = ANY(${[...companyIds]}::uuid[])
+      AND c.is_active = true
+      AND c.status IS DISTINCT FROM 'suspended'
+      AND c.status IS DISTINCT FROM 'deleted'
+      AND c.suspended_at IS NULL
+  `) as Record<string, unknown>[];
+  return rows.map((r) => ({ companyId: String(r.id), companyName: String(r.name ?? '') }));
+}

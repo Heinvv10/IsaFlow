@@ -41,8 +41,20 @@ beforeEach(() => {
 
 describe('portal notification HTML escaping', () => {
   it('escapes contact.name in the magic-link email', async () => {
-    await notifyMagicLinkRequested(contactWith(XSS), 'https://app/magic');
+    await notifyMagicLinkRequested({ name: XSS, email: 'a@b.co' },
+      [{ companyId: 'co-1', companyName: 'Acme', url: 'https://app/magic' }]);
     expect(lastHtml()).toContain(ESCAPED);
+    expect(lastHtml()).not.toContain(XSS);
+  });
+
+  // S-08: the sign-in email labels each company's link with its name.
+  it('escapes every company name in the magic-link email', async () => {
+    await notifyMagicLinkRequested({ name: 'Jo', email: 'a@b.co' }, [
+      { companyId: 'co-1', companyName: XSS, url: 'https://app/magic-1' },
+      { companyId: 'co-2', companyName: `Beta ${XSS}`, url: 'https://app/magic-2' },
+    ]);
+    expect(lastHtml()).toContain(ESCAPED);
+    expect(lastHtml()).toContain(`Beta ${ESCAPED}`);
     expect(lastHtml()).not.toContain(XSS);
   });
 

@@ -6,6 +6,7 @@
 import { randomUUID } from 'crypto';
 import { SignJWT } from 'jose';
 import { request } from './mfa-impersonation-postgres.helpers';
+import { liftAmountPaidCheck } from './helpers/amountPaidCheck';
 import { CO, CUSTOMER, USER, call, pool } from './r167-portal-links.helpers';
 import { als } from '@/lib/als';
 import { InvoiceNotApprovedError, enableOnlinePayment as enableOnlinePaymentInTx } from '@/modules/accounting/services/core/paymentGatewayPortalService';
@@ -19,11 +20,14 @@ export async function signIn(): Promise<void> {
 /** An invoice for R115.00 with no link yet. `paid` may be a string for NaN. */
 export async function invoice(status = 'sent', paid: number | string = 0): Promise<string> {
   const id = randomUUID();
-  await pool.query(
+  // 899's CHECK refuses a NaN or overpaid row, which the cases plant on purpose: lifted for the seed only.
+  const impossible = paid === 'NaN' || (typeof paid === 'number' && paid > 115);
+  const insert = () => pool.query(
     `INSERT INTO customer_invoices (id, company_id, customer_id, client_id, invoice_number, invoice_date,
        subtotal, tax_amount, total_amount, amount_paid, status, created_by)
      VALUES ($1, $2, $3, $3, $4, CURRENT_DATE, 100, 15, 115, $5, $6, $7)`,
     [id, CO, CUSTOMER, `R177-${id.slice(0, 8)}`, paid, status, USER]);
+  await (impossible ? liftAmountPaidCheck(insert) : insert());
   return id;
 }
 const authed = (extra: Record<string, unknown>) =>

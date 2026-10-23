@@ -10,7 +10,8 @@
  *    COMMITTED writer; adversarial #693 REPRO 1). At any level but READ
  *    COMMITTED (and READ UNCOMMITTED, which Postgres runs as it) every
  *    app_user write is refused (40001) — after the rule checks, so a write a
- *    rule refuses keeps its code (#693 REPRO 2); the admin portal is not;
+ *    rule refuses keeps its code (#693 REPRO 2); the admin portal is not,
+ *    except when it removes or demotes an owner (908b, its last-owner rule);
  *  - owner-ness is company_member_role_is_owner: lower-cased, all whitespace
  *    (ASCII and Unicode) removed. A legacy owner-ish invitation is an owner's
  *    to re-open, and an owner-ish membership is an owner's for the last-owner
@@ -74,10 +75,11 @@ async function blocked(pid: number): Promise<void> {
 }
 
 describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the snapshot is not re-read after the lock', (level) => {
+  // The actors are owners: since 908b an admin demoting an owner is RC010, a rule code, ahead of 40001.
   it('two sessions each demoting one of two owners: both refused, the owners stay', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner'], [p.a, 'admin']]);
-    const one = await session(c, p.a, level);
-    const two = await session(c, p.a, level); // its snapshot predates the first's commit
+    const one = await session(c, p.o, level);
+    const two = await session(c, p.o2, level); // its snapshot predates the first's commit
     const first = await finish(one, DEMOTE, [c, p.o2]);
     const second = await finish(two, DEMOTE, [c, p.o]);
     expect([first, second, await owners(c)]).toEqual(['40001', '40001', 2]);
@@ -85,15 +87,15 @@ describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the 
 
   it('an app (READ COMMITTED) demotion commits; the other owner\'s, from an older snapshot, is refused', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner'], [p.a, 'admin']]);
-    const stale = await session(c, p.a, level);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(DEMOTE, [c, p.o2])))).toBe('ok');
+    const stale = await session(c, p.o2, level); // o2 is an owner in this snapshot
+    expect(await outcome(asApp(c, p.o, (cl) => cl.query(DEMOTE, [c, p.o2])))).toBe('ok');
     expect(await finish(stale, DEMOTE, [c, p.o])).toBe('40001');
     expect(await owners(c)).toBe(1);
   });
 
   it('the removal of an owner too', async () => {
     const c = await company(pool, p, companies);
-    expect(await finish(await session(c, p.a, level), REMOVE, [c, p.o2])).toBe('40001');
+    expect(await finish(await session(c, p.o, level), REMOVE, [c, p.o2])).toBe('40001');
     expect(await owners(c)).toBe(2);
   });
 
@@ -143,7 +145,9 @@ describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the 
     expect(await finish(await session(c, p.a, level), 'UPDATE company_users SET role = role WHERE company_id = $1 AND user_id = $2', [c, p.o2])).toBe('40001');
   });
 
-  it('the admin portal (platform_admin) is not refused: it judges nothing from its snapshot', async () => {
+  // Since 908b the portal judges one thing, the last owner (RC011), so removing
+  // or demoting an owner is refused outside READ COMMITTED too; nothing else is.
+  it('the admin portal (platform_admin) is refused only for an owner it removes or demotes', async () => {
     const c = await company(pool, p, companies);
     const portal = async (statement: string, params: unknown[]) => {
       const cl = await pool.connect();
@@ -152,23 +156,27 @@ describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the 
       return finish(cl, statement, params);
     };
     expect(await portal("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'accountant')", [c, p.x])).toBe('ok');
-    expect(await portal(DEMOTE, [c, p.o2])).toBe('ok');
-    expect([await roleOf(pool, c, p.x), await roleOf(pool, c, p.o2)]).toEqual(['accountant', 'admin']);
+    expect(await portal("UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.m])).toBe('ok');
+    expect(await portal(DEMOTE, [c, p.o2])).toBe('40001');
+    expect(await portal(REMOVE, [c, p.o2])).toBe('40001');
+    expect([await roleOf(pool, c, p.x), await roleOf(pool, c, p.m), await roleOf(pool, c, p.o2)]).toEqual(['accountant', 'viewer', 'owner']);
   });
 });
 
 describe.each(['READ COMMITTED', 'READ UNCOMMITTED'])('%s: judged after the lock, not refused', (level) => {
-  it('two sessions each demoting one of two owners: the second waits, then is refused (RC005)', async () => {
+  // Owners as actors (an admin is RC010 since 908b); the second's actor is the
+  // owner the first demotes, so after the wait it is no longer an owner (RC010).
+  it('two sessions each demoting one of two owners: the second waits, then is refused (RC010)', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner'], [p.a, 'admin']]);
-    const one = await session(c, p.a, level);
-    const two = await session(c, p.a, level);
+    const one = await session(c, p.o, level);
+    const two = await session(c, p.o2, level);
     try {
       await one.query(DEMOTE, [c, p.o2]);
       const pid = (await two.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
       const second = outcome(two.query(DEMOTE, [c, p.o]));
       await blocked(pid);
       await one.query('COMMIT');
-      expect(await second).toBe('RC005');
+      expect(await second).toBe('RC010');
     } finally {
       await two.query('ROLLBACK').catch(() => undefined);
       await one.query('ROLLBACK').catch(() => undefined);
@@ -215,9 +223,12 @@ describe.each(OWNERISH)('a legacy owner-ish role %j is an owner\'s', (legacy) =>
     expect(await outcome(asApp(c, p.o, (cl) => cl.query(REOPEN, [c])))).toBe('ok');
   });
 
-  it('the only owner-ish membership is not demoted (RC005)', async () => {
+  // It is an owner's row for 908b's rules too: an admin is refused (RC010), and
+  // so is the admin portal (RC011, the exact-'owner' count finds no other).
+  it('the only owner-ish membership is not demoted (RC010 as an admin, RC011 as the portal)', async () => {
     const c = await company(pool, p, companies, [[p.o, legacy], [p.a, 'admin']]);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(DEMOTE, [c, p.o])))).toBe('RC005');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(DEMOTE, [c, p.o])))).toBe('RC010');
+    expect(await outcome(asRole(pool, 'platform_admin', c, { sub: p.a }, (cl) => cl.query(DEMOTE, [c, p.o]), true))).toBe('RC011');
     expect(await roleOf(pool, c, p.o)).toBe(legacy);
   });
 
@@ -227,10 +238,11 @@ describe.each(OWNERISH)('a legacy owner-ish role %j is an owner\'s', (legacy) =>
       'UPDATE company_users SET role = role WHERE company_id = $1 AND user_id = $2', [c, p.o])))).toBe('ok');
   });
 
+  // The canonical owner acts (an admin is RC010 on either row since 908b).
   it('but is not counted as the owner left behind: the canonical owner stays (RC005)', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, legacy], [p.a, 'admin']]);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(DEMOTE, [c, p.o])))).toBe('RC005');
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(DEMOTE, [c, p.o2])))).toBe('ok');
+    expect(await outcome(asApp(c, p.o, (cl) => cl.query(DEMOTE, [c, p.o])))).toBe('RC005');
+    expect(await outcome(asApp(c, p.o, (cl) => cl.query(DEMOTE, [c, p.o2])))).toBe('ok');
   });
 });
 

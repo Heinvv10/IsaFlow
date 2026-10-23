@@ -56,7 +56,8 @@ import type { approvePayrollRun } from '@/modules/accounting/services/payroll/pa
 import type { JournalPlanPreview } from '@/modules/accounting/services/payroll/payrollApprovalGate';
 import type { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import type { getOrCreateEmailInbox } from '@/modules/accounting/services/capture/captureInboxService';
-import type { CapturedDocument, ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
+import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
+import type { VlmJobView } from '@/modules/accounting/services/bank/vlmExtractJobs';
 import type { FuelRecord, ServiceRecord } from '@/modules/accounting/services/items/fleetRecordsService';
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
 
@@ -97,9 +98,11 @@ interface StaticRoutes {
   '/api/accounting/bank-accounts': Awaited<ReturnType<typeof getBankAccountsStatus>> | { updated: true };
   // GET and POST (regenerate) both return `{ inbox }`.
   '/api/accounting/capture/inbox-address': { inbox: Awaited<ReturnType<typeof getOrCreateEmailInbox>> | { id: string; address: string } };
-  // W1-02. GET list = array, POST upload = `{ document, extracted }`. The
-  // by-id read has its own query key below (`QueryRoutes`).
-  '/api/accounting/document-capture': CapturedDocument[] | { document: CapturedDocument; extracted: ExtractedDocument };
+  // W1-02. GET list = array, POST upload = `{ document }`: the row is saved as readState 'reading' and read after
+  // the response, so there is no `extracted` to return; the client polls the by-id read (`QueryRoutes`).
+  '/api/accounting/document-capture': CapturedDocument[] | { document: CapturedDocument };
+  // POST starts a Scan & Fill read; its outcome is the `?job=` query key below.
+  '/api/accounting/vlm-extract': { jobId: string };
   '/api/accounting/migration/session': { session: MigrationSession | null };
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
   '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;
@@ -187,6 +190,7 @@ interface DynamicRoutes {
  */
 interface QueryRoutes {
   '/api/accounting/document-capture?id={}': CapturedDocument;
+  '/api/accounting/vlm-extract?job={}': VlmJobView;
 }
 
 export type ApiRouteMap = StaticRoutes & DynamicRoutes & QueryRoutes;

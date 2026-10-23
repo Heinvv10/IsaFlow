@@ -68,7 +68,7 @@ describe('W1-02 document-capture ?id= tenant scope', () => {
     const r = await get(userA, companyA, doc);
     expect(r.state.statusCode).toBe(200);
     expect((r.state.body as { data: { id: string; vendorName: string } }).data)
-      .toMatchObject({ id: doc, vendorName: 'Shell Garage' });
+      .toMatchObject({ id: doc, vendorName: 'Shell Garage', readState: 'done', readError: null });
   });
 
   it("404s the same id for another company's user", async () => {

@@ -17,6 +17,7 @@ import { createHmac } from 'crypto';
 import { Pool } from 'pg';
 import type { NextApiRequest } from 'next';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
+import { fmtDate } from '@/lib/fmtDate';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -610,15 +611,20 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     const reference = 'k036_baddate_ref';
     await seedPaymentRequest(reference);
 
+    // "Today" is the process's local date (SAST on the runner), not CURRENT_DATE: CI Postgres
+    // runs in UTC, so from 00:00 to 02:00 SAST its date is yesterday's. Either
+    // side of the call is accepted only because the call may straddle midnight.
+    const dayBefore = fmtDate(new Date());
     const result = await deliverWebhook(reference, { paid_at: 'not-a-date' });
+    const dayAfter = fmtDate(new Date());
     expect(result.state.statusCode).toBe(200);
 
     const after = await expectBalancedReceipt(INVOICE_TOTAL);
     const { rows } = await pool.query(
-      'SELECT (payment_date = CURRENT_DATE) AS today FROM customer_payments WHERE id=$1',
+      'SELECT payment_date::text AS d FROM customer_payments WHERE id=$1',
       [after.paymentRow!.id],
     );
-    expect(rows[0].today).toBe(true);
+    expect([dayBefore, dayAfter]).toContain(rows[0].d);
   });
 
   it('keys fee idempotency on the reference, not on a look-alike description', async () => {

@@ -47,12 +47,17 @@ const tokens: Record<string, string> = {};
 const call = routeCaller(tokens, { user: admin, company });
 let salary = '';
 
-/** 'waiting' once a backend of this database waits on a lock over payroll_run_headers. */
+/**
+ * 'waiting' once a backend of this database waits on a lock over payroll_run_headers, or on the
+ * company's payroll approval lock, which calculate also takes since cumulative PAYE (PAYE 4a
+ * follow-ups G4) and so is where an approve now waits for a calculation in flight.
+ */
 async function waitsOnRunLock(): Promise<'waiting'> {
   for (let i = 0; i < 500; i += 1) {
     const r = await pool.query(
       `SELECT 1 FROM pg_stat_activity
-       WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%payroll_run_headers%'`);
+       WHERE datname = current_database() AND wait_event_type = 'Lock'
+         AND (query ILIKE '%payroll_run_headers%' OR query ILIKE '%pg_advisory_xact_lock%')`);
     if (r.rowCount) return 'waiting';
     await new Promise((res) => setTimeout(res, 20));
   }

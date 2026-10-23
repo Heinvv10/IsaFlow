@@ -8,6 +8,7 @@ import Link from 'next/link';
 import type { GetServerSidePropsContext, InferGetServerSidePropsType } from 'next';
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { verifyPortalToken } from '@/lib/auth/portalJwt';
+import { currentPortalSession } from '@/lib/auth/portalAuth';
 import { PORTAL_ACCESS_RULES } from '@/modules/accounting/services/afs/afsTypes';
 
 interface NoteContentBlock {
@@ -45,11 +46,14 @@ export async function getServerSideProps(context: GetServerSidePropsContext) {
   if (!cookie) {
     return { redirect: { destination: '/accounting/afs/portal/login', permanent: false } };
   }
-  const session = await verifyPortalToken(cookie);
+  const verified = await verifyPortalToken(cookie);
+  // Re-read standing and role: the JWT lasts 8 hours (audit S-08).
+  const session = verified ? await currentPortalSession(verified) : null;
   if (!session) {
     return { redirect: { destination: '/accounting/afs/portal/login?error=expired', permanent: false } };
   }
-  const documentId = context.params?.documentId as string;
+  // Encoded: a `..%2F` in the route param must not re-point this server-side fetch.
+  const documentId = encodeURIComponent(String(context.params?.documentId ?? ''));
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
   try {
     const res = await fetch(`${baseUrl}/api/accounting/portal/documents/${documentId}`, {

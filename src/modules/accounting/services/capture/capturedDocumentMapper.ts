@@ -1,0 +1,33 @@
+/**
+ * A captured_documents row as the Document Capture API returns it. Shared by
+ * the list/upload route and the action route so both carry the read state.
+ */
+
+import { fmtDate } from '@/lib/fmtDate';
+import type { CapturedDocument } from '../../types/documentCapture.types';
+import { effectiveReadState } from './captureReadState';
+
+export function mapCapturedDocumentRow(row: Record<string, unknown>, now: number = Date.now()): CapturedDocument {
+  const { readState, readError } = effectiveReadState(row, now);
+  return {
+    id: row.id as string,
+    fileName: row.file_name as string,
+    fileType: row.file_type as string,
+    fileSize: row.file_size as number | null,
+    documentType: row.document_type as string | null,
+    extractedData: row.extracted_data ? (typeof row.extracted_data === 'string' ? JSON.parse(row.extracted_data as string) : row.extracted_data) : null,
+    vendorName: row.vendor_name as string | null,
+    documentDate: row.document_date ? fmtDate(row.document_date) : null,
+    referenceNumber: row.reference_number as string | null,
+    totalAmount: row.total_amount !== null && row.total_amount !== undefined ? parseFloat(String(row.total_amount)) : null,
+    vatAmount: row.vat_amount !== null && row.vat_amount !== undefined ? parseFloat(String(row.vat_amount)) : null,
+    status: (row.status as CapturedDocument['status']) || 'pending',
+    matchedInvoiceId: row.matched_invoice_id as string | null,
+    matchedBankTxId: row.matched_bank_tx_id as string | null,
+    notes: row.notes as string | null,
+    uploadedBy: row.uploaded_by as string | null,
+    createdAt: new Date(row.created_at as string).toISOString(),
+    readState,
+    readError,
+  };
+}

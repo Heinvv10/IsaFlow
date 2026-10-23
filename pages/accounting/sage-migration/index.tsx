@@ -125,15 +125,22 @@ export default function SageMigrationPage() {
             </div>
           ) : noSageData ? (
             <div className="space-y-4">
-              <div className="p-8 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-center">
-                <Database className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-4" />
-                <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-2">No Sage Data to Migrate</h2>
-                <p className="text-[var(--ff-text-secondary)] max-w-lg mx-auto mb-4">
-                  The Sage sync tables are empty. Once Sage data is synced to the local database
-                  (sage_accounts, sage_ledger_transactions, sage_supplier_invoices),
-                  return here to run the migration pipeline.
+              <div className="p-5 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                <p className="font-semibold text-blue-400 mb-1">Moving from Sage?</p>
+                <p className="text-sm text-[var(--ff-text-secondary)] mb-3">
+                  Export your accounts, customers, suppliers, trial balance and unpaid invoices from Sage as CSV or
+                  Excel files, then upload them step by step in the Migration Wizard.
                 </p>
-                <div className="grid grid-cols-4 gap-4 mt-6 text-left">
+                <Link href="/accounting/migration" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">
+                  Import from Sage
+                </Link>
+              </div>
+              <div className="p-6 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]">
+                <p className="text-sm text-[var(--ff-text-secondary)]">
+                  Nothing is waiting in the step-by-step Sage migration below. IsaFlow support runs it when they bring
+                  a company across for you; to do it yourself, use Import from Sage above.
+                </p>
+                <div className="grid grid-cols-4 gap-4 mt-4 text-left">
                   <StepCard
                     step={1}
                     icon={<ArrowRightLeft className="h-5 w-5" />}
@@ -163,16 +170,6 @@ export default function SageMigrationPage() {
                     status="waiting"
                   />
                 </div>
-              </div>
-
-              <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm">
-                <p className="font-semibold text-blue-400 mb-1">How to sync Sage data</p>
-                <p className="text-[var(--ff-text-secondary)]">
-                  Use the Sage sync APIs to pull data:
-                  <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--ff-bg-primary)] text-xs font-mono">POST /api/sage/sync/chart-of-accounts</code>
-                  and
-                  <code className="mx-1 px-1.5 py-0.5 rounded bg-[var(--ff-bg-primary)] text-xs font-mono">POST /api/sage/sync/invoices</code>
-                </p>
               </div>
             </div>
           ) : status ? (

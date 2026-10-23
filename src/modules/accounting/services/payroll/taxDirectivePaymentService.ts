@@ -19,6 +19,11 @@ import { claimUnderLockTimeout } from '@/modules/accounting/services/core/docume
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import type { JournalEntryCreateInput, JournalLineInput } from '@/modules/accounting/types/gl.types';
+import { directivePaye } from './payrollSeveranceDirective';
+import { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError } from './taxDirectiveErrors';
+import { releaseReversedStandalonePayment } from './taxDirectivePaidGuard';
+
+export { TaxDirectiveNotApprovedError, TaxDirectiveWithoutEmployeeError };
 
 type Row = DbRow;
 
@@ -46,8 +51,10 @@ export interface ApplyDirectiveResult {
  */
 export class TaxDirectiveAlreadyAppliedError extends Error {
   readonly code = 'TAX_DIRECTIVE_ALREADY_APPLIED';
-  constructor(readonly directiveId: string, readonly paymentId: string | null) {
-    super(`Directive ${directiveId} has already been applied${paymentId ? ` (paymentId: ${paymentId})` : ''}`);
+  constructor(readonly directiveId: string, readonly paymentId: string | null, readonly payrollRunId: string | null = null) {
+    super(payrollRunId
+      ? `Directive ${directiveId} is paid by payroll run ${payrollRunId}, so it cannot be paid again here`
+      : `Directive ${directiveId} has already been applied${paymentId ? ` (paymentId: ${paymentId})` : ''}`);
     this.name = 'TaxDirectiveAlreadyAppliedError';
   }
 }
@@ -62,6 +69,8 @@ export interface TaxDirectivePayment {
   netAmount: number;
   bankAccountId: string | null;
   journalEntryId: string | null;
+  /** The payroll run that paid this directive (its claim, migration 901); null for a stand-alone payment. */
+  payrollRunId: string | null;
   createdBy: string | null;
   createdAt: string;
 }
@@ -85,6 +94,7 @@ function mapPaymentRow(r: Row): TaxDirectivePayment {
     netAmount: num(r.net_amount),
     bankAccountId: r.bank_account_id != null ? String(r.bank_account_id) : null,
     journalEntryId: r.journal_entry_id != null ? String(r.journal_entry_id) : null,
+    payrollRunId: r.payroll_run_id != null ? String(r.payroll_run_id) : null,
     createdBy: r.created_by != null ? String(r.created_by) : null,
     createdAt: String(r.created_at),
   };
@@ -109,33 +119,36 @@ export async function applyTaxDirective(
 ): Promise<ApplyDirectiveResult> {
   log.info('applyTaxDirective start', { companyId, directiveId }, 'taxDirective');
 
-  // 1. Load directive — scoped by company_id
-  const dirRows = (await sql`
+  // 1. Load and lock the directive — scoped by company_id. FOR SHARE, held to
+  // the end of the request: a concurrent cancel (updateTaxDirective, FOR
+  // UPDATE) waits for this payment and is then refused, or, if it got there
+  // first, this reads the cancelled status. Lock order there.
+  const dirRows = await claimUnderLockTimeout('tax directive', async () => (await sql`
     SELECT * FROM tax_directives
     WHERE company_id = ${companyId} AND id = ${directiveId}
-    LIMIT 1
-  `) as Row[];
+    FOR SHARE
+  `) as Row[]);
   if (dirRows.length === 0) throw new Error(`Tax directive ${directiveId} not found`);
   const dir = dirRows[0]!;
 
   const currentStatus = String(dir.status);
-  if (currentStatus !== 'approved') {
-    throw new Error(
-      `Cannot apply tax directive with status '${currentStatus}' — directive must be 'approved' first`,
-    );
-  }
+  if (currentStatus !== 'approved') throw new TaxDirectiveNotApprovedError(directiveId, currentStatus);
+  // The payment goes on the employee's tax certificate (directivePaymentFiling):
+  // a directive linked to nobody here would be declared on the EMP201 and on no IRP5.
+  const employee = dir.employee_id == null ? [] : (await sql`
+    SELECT 1 FROM payroll_employees WHERE company_id = ${companyId} AND id = ${dir.employee_id}
+  `) as Row[];
+  if (employee.length === 0) throw new TaxDirectiveWithoutEmployeeError(directiveId);
+  await releaseReversedStandalonePayment(companyId, directiveId);
 
   // 2. Compute amounts
   const gross = round2(num(dir.amount));
 
-  let paye: number;
-  if (dir.tax_rate != null) {
-    paye = round2(gross * num(dir.tax_rate));
-  } else if (dir.tax_amount != null) {
-    paye = round2(num(dir.tax_amount));
-  } else {
+  // The same rule the pay run applies to a severance directive (P3).
+  const paye = directivePaye(dir);
+  if (paye == null) {
     throw new Error(
-      `Directive ${directiveId} has no tax_rate or tax_amount — set the SARS directive rate before applying`,
+      `Directive ${directiveId} has no payable tax figure (no tax_rate or tax_amount, or one below nil or above the gross) — correct the SARS directive rate before applying`,
     );
   }
 
@@ -228,12 +241,15 @@ export async function applyTaxDirective(
   if (claimed.length === 0) {
     // Re-read rather than trusting a row read before the INSERT: the loser of a
     // double-click needs the payment the winner left behind.
+    // A payroll run that paid a severance directive holds this same row (its
+    // claim, payrollRunDirectiveClaim), so the run is refused here too.
     const now = (await sql`
-      SELECT id FROM tax_directive_payments
+      SELECT id, payroll_run_id FROM tax_directive_payments
       WHERE company_id = ${companyId} AND tax_directive_id = ${directiveId}
       LIMIT 1
     `) as Row[];
-    throw new TaxDirectiveAlreadyAppliedError(directiveId, now[0] ? String(now[0].id) : null);
+    const run = now[0]?.payroll_run_id;
+    throw new TaxDirectiveAlreadyAppliedError(directiveId, now[0] ? String(now[0].id) : null, run == null ? null : String(run));
   }
   const paymentId = String(claimed[0]!.id);
 

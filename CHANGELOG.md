@@ -28,6 +28,47 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-22 — GL Export Bearer Auth, Payroll Directives, Security Hardening
+
+**GL Export / MCP**
+
+- GL lines export now accepts Personal Access Tokens (PAT/bearer) alongside session cookies; open-items and bank tables added to the export manifest (#791)
+- Stale-cursor refusal extended to every change type the cursor now detects; NULL reconciliation status no longer wins a tie-break; MCP cursor digests every row; aging drill-down predicate preserved in the auth census
+
+**Payroll — PAYE 4a Directives**
+
+- Directive filing integrity: reason 02 only below the threshold; re-paying a reversed directive correctly identified by journal narrative; taxable income fix; EMP201 directive breakdown restricted to payroll-detail roles; issued-date range enforced (migration 912) (#784)
+- EMP201 drafts carry totals rather than the full breakdown; directive form sends no blank dates; warning header capped by encoded size
+
+**Security**
+
+- Member guard: only an owner may change another owner; admin site cannot create an ownerless company; owner row moved off its company counts as leaving (migration 908b)
+- Extension pairing token now validates company standing and the pairer's current role (S-06b, #778)
+
+**Document Capture**
+
+- Document Capture and Scan & Fill uploads processed in the background (migration 909); only answers newer than the last shown are applied; successful answer clears a prior reload error
+
+**Settings / Onboarding**
+
+- Financial year start locked once a company has posted; a new company's fiscal periods follow its financial year start; same-month save no longer realigns periods (#777)
+
+**Migration Wizard**
+
+- Migration 908 relabels Britech Sage history journals; wizard fixes and golden-path spec added (#771)
+
+**AP**
+
+- Draft EFT batch's bank file and Netcash send refused regardless of the approval switch setting
+
+**Portal / AFS**
+
+- AFS portal pages open without requiring a staff login; email text rendered inside the card
+
+Migrations: **908** (`relabel_sage_history_journals`), **908b** (`company_member_owner_rules`), **909** (`captured_document_read_state`), **912** (`tax_directive_issued_date`)
+
+---
+
 ## 2026-10-15 — Admin Company Restore, CI Lifecycle Hardening
 
 **Admin**
