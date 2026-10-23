@@ -37,6 +37,33 @@ the app keeps logging in as today. These do take effect on deploy:
 - Every boot in production writes `[env] S-07b: the request pool logs in as
   "postgres", not isaflow_app` to stderr until step 5 is done.
 
+The follow-up PR (migrations 918 and 919, 2026-10-23) also takes effect on deploy:
+
+- change-email, the POPIA erasure and the signup verification tokens
+  (register, verify-email) run on the migration_admin pool, and app_service
+  loses `UPDATE (email, updated_at)` on `users` and every grant on
+  `auth_email_verification_tokens` (918), whose payload email verify-email
+  writes into `users`. That
+  closes 915's documented residual (a service-pool injection could rewrite any
+  user's email). change-email now writes the profile first and calls GoTrue
+  second: a GoTrue refusal leaves both emails as they were, a missing profile
+  row answers 404, and an address another profile holds answers 409 before
+  GoTrue is asked.
+- The AR "last viewed" materialized view is renamed
+  `customer_invoice_view_summary_mv` and no app role may read it (919). The old
+  name is now a `security_invoker` view over
+  `current_company_invoice_view_summary()`, which returns only the request's
+  company, so the AR list, export and invoice-views drawer work unchanged, in
+  the new code and in the old (during the deploy window and after a code-only
+  rollback). 920 makes "no app login reaches `users.email` or a materialized
+  view" a deploy check: `scripts/check-app-login-roles.ts` refuses the code
+  switch on either from then on.
+- `drc-vat-export` reads only its own company's `vat_rate`, and a failed read
+  answers 500 instead of being swallowed.
+- The deploy and the backup scripts read the owner URL from
+  `/etc/isaflow/owner.env` first (step 5). Until that file exists they read
+  `.env.local` as before, with a warning.
+
 ## 0. Before you start
 
 - Prod and dev share one PostgreSQL 15.8 cluster (`isaflow-supabase`, port 7772).
@@ -81,6 +108,14 @@ SELECT rolname FROM pg_roles WHERE rolname = 'app_user'
 -- 915b: app_user may SET ROLE to another role (it must reach nothing)
 SELECT r.rolname FROM pg_roles r
  WHERE pg_has_role('app_user', r.oid, 'MEMBER') AND r.rolname <> 'app_user';
+-- 918: app_user (or PUBLIC) must not be able to write users.email. app_service
+-- does not exist yet: 915 creates it and grants it the column, 918 revokes it.
+SELECT 'app_user' WHERE has_column_privilege('app_user', 'public.users', 'email', 'UPDATE');
+-- 920: materialized views other than the AR view summary that app_user can read
+SELECT c.oid::regclass FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE c.relkind = 'm' AND n.nspname IN ('public','auth','app','platform_shared')
+   AND has_any_column_privilege('app_user', c.oid, 'SELECT')
+   AND c.oid::regclass::text <> 'customer_invoice_view_summary';
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (
   SELECT proname, prosrc, (length(prosrc) - length(replace(prosrc, l, ''))) / length(l) AS hits
@@ -89,7 +124,7 @@ SELECT proname, hits FROM (
  WHERE prosrc !~ 'pg_has_role\(current_user' AND hits <> 1;
 ```
 
-## 1. Deploy the code (migrations 915, 915b, 916 and 917 included)
+## 1. Deploy the code (migrations 915-920 included)
 
 915b refuses to apply if a role either app login can reach owns an object in ANY
 database of the cluster (pg_shdepend). It fails safe, and the parity gate meets
@@ -167,7 +202,7 @@ the deploy's migrations run as postgres. And the AR cron must still answer 200:
 Separate ops item (not S-07b, pre-existing): on this image,
 `GRANT <role> TO PUBLIC` or `GRANT <role> TO current_user` from any login
 crashes the backend with SIGSEGV (supautils), and the whole cluster restarts.
-Raise it with Supabase, or pin a fixed image.
+Repro, affected tags and mitigation: `docs/runbooks/supautils-grant-public-segfault.md`.
 
 ## 3. Enable the logins (once per cluster)
 
@@ -224,34 +259,73 @@ copies with the new env:
 
 `sudo bash scripts/ops/install-backup-ops.sh` (it installs `ownerDatabaseUrl.sh` beside `lib-pgconn.sh`)
 
-Then check: `sudo grep -c OWNER_DATABASE_URL /opt/isaflow-ops/lib-pgconn.sh` (expect ≥ 1).
+Then check: `sudo grep -c owner_database_url_for /opt/isaflow-ops/lib-pgconn.sh` (expect ≥ 1).
 
-## 5. Change the prod env (`/home/velo/isaflow/.env.local`)
+## 5. Move the owner URL out of the app's env, then change the prod env
 
-Keep a copy first: `sudo cp -p .env.local .env.local.pre-s07b`.
+The app runs as `velo` with `EnvironmentFile=/home/velo/isaflow/.env.local`,
+so anything in that file is in the app process's environment. The owner URL
+goes in its own file instead, which only the deploy (through `sudo`) and the
+root-run backup scripts read: `/etc/isaflow/owner.env`, `root:root 0600`.
+It is outside `/home/velo/isaflow`, which every deploy `rsync --delete`s
+(only `.env.local` and its backup patterns survive there), and outside the
+rollback snapshot. `scripts/ops/ownerDatabaseUrl.sh` reads it first, then
+`.env.local`'s `OWNER_DATABASE_URL` (warning that the app loads it), then
+`.env.local`'s `DATABASE_URL` (warning that it is not set).
+
+5a. Create the owner file with today's `DATABASE_URL` value (still `postgres`).
+The value is copied file to file, never printed or put on a command line:
+
+```bash
+sudo install -d -o root -g root -m 0700 /etc/isaflow
+sudo sh -c 'umask 077; grep -E "^DATABASE_URL=" /home/velo/isaflow/.env.local | head -1 \
+  | sed "s/^DATABASE_URL=/OWNER_DATABASE_URL=/" > /etc/isaflow/owner.env'
+sudo chown root:root /etc/isaflow/owner.env && sudo chmod 0600 /etc/isaflow/owner.env
+```
+
+Verify, by count and owner only:
+```bash
+sudo stat -c '%U:%G %a' /etc/isaflow/owner.env           # root:root 600
+sudo grep -c '^OWNER_DATABASE_URL=postgres' /etc/isaflow/owner.env   # 1
+sudo -u velo cat /etc/isaflow/owner.env                  # must FAIL: Permission denied
+sudo bash -c '. scripts/ops/ownerDatabaseUrl.sh; owner_database_url_for /home/velo/isaflow/.env.local' 2>&1 >/dev/null | grep -c WARNING   # 0
+```
+The last line, run from the repo, runs the deploy's own lookup with its output
+discarded and counts its warnings: 0 means it took the owner file.
+
+5b. Change `/home/velo/isaflow/.env.local`. If `CRON_SECRET` has not been
+rotated yet (`docs/runbooks/cron-secret-management-packs.md`), rotate it
+first: the copy made here is the rollback point and would otherwise keep the
+leaked value. Keep a copy, as velo (a root `cp` into velo's directory would
+follow a symlink velo planted): `sudo -u velo cp -p /home/velo/isaflow/.env.local /home/velo/isaflow/.env.local.pre-s07b`.
 
 ```
-OWNER_DATABASE_URL=<the current DATABASE_URL value, unchanged (postgres)>
 SERVICE_DATABASE_URL=postgresql://isaflow_service:<pw>@<same host:port>/isaflow?<same params>
 DATABASE_URL=postgresql://isaflow_app:<pw>@<same host:port>/isaflow?<same params>
 ```
 
-Leave `PLATFORM_ADMIN_DATABASE_URL` and `MIGRATION_ADMIN_DATABASE_URL` as they are.
-The app refuses to boot if `DATABASE_URL` names isaflow_app while
-`SERVICE_DATABASE_URL` is unset (validateEnv), so set all three together.
+Do NOT add `OWNER_DATABASE_URL` here; if an earlier attempt added it, remove
+it. Leave `PLATFORM_ADMIN_DATABASE_URL` and `MIGRATION_ADMIN_DATABASE_URL` as
+they are. The app refuses to boot if `DATABASE_URL` names isaflow_app while
+`SERVICE_DATABASE_URL` is unset (validateEnv), so set both together.
 
-Ops scripts that need the owner read `OWNER_DATABASE_URL` and fall back to
-`DATABASE_URL`. Run them with the prod env loaded, so `OWNER_DATABASE_URL` is
-set: run as `isaflow_app` they fail with `permission denied`. For example,
-`scripts/ap-backfill-supplier-payments.ts` reads
-`ap_payment_document_backfill_candidates`, which app_user may not read (916b).
+Check: `sudo grep -c '^OWNER_DATABASE_URL=' /home/velo/isaflow/.env.local` → 0.
 
-`OWNER_DATABASE_URL` now sits in the app's own env file, so the app process
-holds the owner's credentials although no app code reads them. An injected SQL
-statement cannot read the process environment; code execution in the app
-could, as it could read `DATABASE_URL` (the owner) today. Moving the owner URL
-to a file only the deploy and backup scripts read is a follow-up, not part of
-this change.
+5c. Restart the WAL archiver, a long-running unit that loaded its connection
+when it started (step 4's `enable --now` does not restart a running unit):
+`sudo systemctl restart isaflow-wal-archive` and check that
+`journalctl -u isaflow-wal-archive --since -2min` shows it connected, with no
+`OWNER_DATABASE_URL` warning.
+
+One-off owner scripts read `OWNER_DATABASE_URL` and fall back to
+`DATABASE_URL`, which is now isaflow_app: run that way they fail with
+`permission denied` (for example `scripts/ap-backfill-supplier-payments.ts`
+reads `ap_payment_document_backfill_candidates`, which app_user may not read,
+916b). Load it inside the
+command, so the value never reaches an argv (`/proc/<pid>/cmdline` is
+world-readable) or your shell history, and never copy it into `.env.local`:
+`sudo bash -c 'export OWNER_DATABASE_URL="$(sed -n "s/^OWNER_DATABASE_URL=//p" /etc/isaflow/owner.env)"; exec bun <script>'`.
+Do not `source` the file: a URL's `&` would end the assignment.
 
 ## 6. Restart and verify
 
@@ -274,6 +348,16 @@ this change.
 1. Restore `.env.local.pre-s07b`.
 2. `sudo systemctl restart isaflow`.
 
+`/etc/isaflow/owner.env` can stay: it names `postgres`, which is what the
+restored `.env.local` names too.
+
+A code rollback to a release from before the follow-up PR, with the env still
+on the new logins: that release's change-email updates GoTrue first and then
+fails its `users` write (918 took it from the service pool), logs the drift
+and answers 200, so the login and profile emails diverge; its register and
+verify-email recovery path fail with `permission denied for table
+auth_email_verification_tokens` (918). Restore the env first, as above.
+
 **Env first, then code.** Never run `scripts/rollback-deploy.sh` to a release
 older than this PR while the env still names `isaflow_app`: the old code
 ignores `SERVICE_DATABASE_URL` and has no boot check, so every cron, login and
@@ -291,5 +375,9 @@ The roles and policies can stay; nothing uses them. To remove the logins as well
 
 ## Dev (optional, after prod is stable)
 
-Dev's workspace `.env.local` can follow the same three-variable pattern against
-`isaflow_dev`. The deploy's parity gate reads dev's `OWNER_DATABASE_URL` too.
+Dev's workspace `.env.local` can follow the same pattern against
+`isaflow_dev`: `SERVICE_DATABASE_URL` and `DATABASE_URL` on the new logins, plus
+`OWNER_DATABASE_URL` naming `postgres`. Dev keeps the owner URL in the
+workspace `.env.local`: the deploy's parity gate reads it from there
+(`owner_database_url`, not the `/etc/isaflow/owner.env` lookup, which is
+production's), and no long-running service loads that file.
