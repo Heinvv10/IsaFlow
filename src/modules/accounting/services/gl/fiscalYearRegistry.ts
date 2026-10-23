@@ -129,9 +129,13 @@ export async function priorFiscalYear(companyId: string, year: FiscalYearRecord)
 /** Every stored year, oldest first. */
 export async function listFiscalYears(companyId: string): Promise<FiscalYearRecord[]> {
   const rows = (await sql`
-    SELECT id, fiscal_year, start_date, end_date, status, kind, true AS stored, false AS assumed
-      FROM fiscal_years WHERE company_id = ${companyId}::UUID
-     ORDER BY start_date
+    -- assumed as fiscal_year_for_date reads it: the stored flag counts only while
+    -- the company still declares no usable start month.
+    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true AS stored,
+           fy.assumed_start AND NOT COALESCE(c.financial_year_start BETWEEN 1 AND 12, false) AS assumed
+      FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
+     WHERE fy.company_id = ${companyId}::UUID
+     ORDER BY fy.start_date
   `) as DbRow[];
   return rows.map(mapYear);
 }

@@ -21,6 +21,15 @@ export function fmtInstantDay(iso: string): string {
   return fmtDay(new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date(iso)));
 }
 
+/**
+ * What to call the year a change would apply to. It is the year holding today,
+ * unless that one is already closed: then it is the next open year, and calling
+ * it "current" would be wrong.
+ */
+export function yearToChangeHeading(year: { startDate: string; endDate: string }, today: string): string {
+  return today >= year.startDate && today <= year.endDate ? 'Current financial year' : 'Next open financial year';
+}
+
 export function monthOf(date: string): number {
   return Number(date.split('-')[1]);
 }
