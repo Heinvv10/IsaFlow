@@ -9,6 +9,7 @@ import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
 import type { PoolClient } from 'pg';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import { OwnerProtectedError, OWNER_GRANT_REFUSED } from './ownerLock';
 import type { PendingInvitation, InvitationWithToken, InvitationResult } from './userAccessService';
 import type { DbRow } from '@/types/db';
 
@@ -102,25 +103,35 @@ export async function createInvitation(
  * company_invitations_role_guard's rules for app_user (883/886), for a write
  * on the migration_admin pool, which the guard does not judge: the inviter is
  * an owner or admin of the company now, and only an owner invites an owner.
- * Takes the inviter's membership row lock, so a concurrent demotion is judged
- * before or after this write, not during it.
+ * Read live, never from the request. An owner invitation first takes the
+ * per-company owner lock every owner demotion takes (S-04, #773, ownerLock.ts),
+ * so an owner demoted meanwhile is seen as demoted; any other takes the
+ * inviter's membership row lock, so a concurrent demotion is judged before or
+ * after this write, not during it.
  */
 export async function assertCanInvite(
   client: PoolClient, companyId: string, invitedBy: string, role: string,
 ): Promise<void> {
-  const actor = await client.query<{ role: string }>(
-    `SELECT role FROM company_users WHERE company_id = $1::UUID AND user_id::TEXT = $2 FOR SHARE`,
-    [companyId, invitedBy],
-  );
-  const actorRole = actor.rows[0]?.role;
-  if (actorRole !== 'owner' && actorRole !== 'admin') {
-    throw new InvitationForbiddenError('Only owners and admins can invite users.');
-  }
   const owner = await client.query<{ owner: boolean }>(
     'SELECT public.company_member_role_is_owner($1) AS owner', [role],
   );
-  if (owner.rows[0]?.owner && actorRole !== 'owner') {
-    throw new InvitationForbiddenError('Only an owner can grant the owner role.');
+  const grantsOwner = owner.rows[0]?.owner === true;
+  if (grantsOwner) {
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`company_owners:${companyId}`]);
+  }
+  // By person, lower-cased, as the member role guard counts owners.
+  const actor = await client.query<{ role: string }>(
+    `SELECT role FROM company_users WHERE company_id = $1::UUID AND lower(user_id::TEXT) = lower($2)
+      ${grantsOwner ? '' : 'FOR SHARE'}`,
+    [companyId, invitedBy],
+  );
+  const roles = actor.rows.map((r) => r.role);
+  if (grantsOwner) {
+    if (!roles.includes('owner')) throw new OwnerProtectedError(OWNER_GRANT_REFUSED);
+    return;
+  }
+  if (!roles.includes('owner') && !roles.includes('admin')) {
+    throw new InvitationForbiddenError('Only owners and admins can invite users.');
   }
 }
 

@@ -18,6 +18,7 @@ import {
   cancelInvitation,
   markInvitationEmailSent,
   markInvitationEmailFailed,
+  OwnerProtectedError,
 } from '@/modules/accounting/services/core/userAccessService';
 import { InvitationConflictError, InvitationForbiddenError } from '@/modules/accounting/services/core/userInvitationService';
 import { sendInviteEmail } from '@/modules/accounting/services/core/emailService';
@@ -113,7 +114,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, { ...result, emailSent });
     } catch (err) {
-      if (err instanceof InvitationForbiddenError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof InvitationForbiddenError || err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
       if (err instanceof InvitationConflictError) return apiResponse.conflict(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Invite failed.');
     }
