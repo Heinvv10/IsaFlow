@@ -59,3 +59,31 @@ export const DEFAULT_LATE_SETTLE_TOTAL_MS = 600_000;
  */
 export const UNRECORDED_ANSWER_CHECKOUT_MS = CLAIM_CONNECTION_TIMEOUT_MS;
 export const UNRECORDED_ANSWER_BUDGET_MS = 8_000;
+
+/**
+ * The sender-side fence (netcashSendFence, residual 3b): a send is issued only if at most this long has passed, on a
+ * monotonic clock, since before its claim transaction began. Resolve frees a pending claim whose send lock is gone only
+ * once it is SEND_WINDOW_MS old, on the assumption that a send started by then has ended - true of a live process, not
+ * of a PAUSED one. A send that starts by this deadline ends by this deadline + REQUEST_TIMEOUT_MS, and
+ * tests/unit/services/ap/netcashSettleBudget.test.ts holds that to half of SEND_WINDOW_MS (the rest is margin for the
+ * two clocks' rates, the network and scheduling): 30 s + 30 s = 60 s of 120 s. A normal send starts within
+ * milliseconds; the deadline is generous because a refused send only has to be tried again, and a box at load 95+ is
+ * slow enough to need seconds for the claim's checkout (<= CLAIM_CONNECTION_TIMEOUT_MS) and statements.
+ */
+export const SEND_START_DEADLINE_MS = 30_000;
+
+/**
+ * The local spool of an answer that neither the settle nor audit_log could record (netcashAnswerSpool, residual 3a): its
+ * write (open, append, fsync, close) is given up on after this long so the 500 is never held up by a sick disk. It
+ * counts in the settle budget (netcashSettleBudget.test.ts).
+ */
+export const ANSWER_SPOOL_TIMEOUT_MS = 2_000;
+
+/**
+ * The spool replay (netcashAnswerSpoolReplay) is bounded per call - resolve awaits it: at most this many entries, and no
+ * new entry started past this long; the rest waits for the next call (and still blocks its submission meanwhile). An
+ * entry the database refuses for its own content (a deleted company or user) is quarantined after this many refusals.
+ */
+export const SPOOL_REPLAY_MAX_ENTRIES = 10;
+export const SPOOL_REPLAY_BUDGET_MS = 15_000;
+export const SPOOL_QUARANTINE_AFTER_FAILURES = 3;

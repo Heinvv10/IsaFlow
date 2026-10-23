@@ -6,7 +6,7 @@
  *    UPDATE OR DELETE row trigger (and no rewrite rule) — plus, since 888,
  *    the change-history capture (AFTER, writes only entity_changes);
  *  - the guards, the role lookup and the owner predicate they share are the
- *    bodies 883 and 886 ship (md5) and SECURITY INVOKER — the guard judges
+ *    bodies 883, 886, 908b and 916 ship (md5) and SECURITY INVOKER — the guard judges
  *    `current_user`, which a DEFINER would replace with its owner;
  *  - TRUNCATE (which fires no row trigger) and TRIGGER are held by no role
  *    but the owner, migration_admin and the session's role through the owner;
@@ -14,7 +14,7 @@
  *    app_user, platform_admin and migration_admin (and the owner, superusers,
  *    the session's role through the owner).
  *
- * A database without 883 and 886 fails here by design, and says so.
+ * A database without 883, 886, 908b and 916 fails here by design, and says so.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -24,15 +24,16 @@ const describeIfDb = url && !url.includes('dummy') ? describe : describe.skip;
 const pool = new Pool({ connectionString: url });
 afterAll(() => pool.end());
 
-const NOT_APPLIED = 'migration 883 or 886 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
+const NOT_APPLIED = 'migration 883, 886, 908b or 916 is not applied to this database — apply it (isaflow_dev needs Hein\'s OK) or unset DATABASE_URL';
 const TABLES = ['company_users', 'company_invitations'];
 
 /** Change one and you change who may grant what: re-review N1b C, then move the pin. */
 const PINNED: Record<string, string> = {
   'company_member_actor_role(uuid)': 'b307f99b50ae088c96033164d96c80a3',
   'company_member_role_is_owner(text)': '78a4144a1b43a1698868ca0dc16e76e0',
-  'company_users_role_guard()': 'ad237d957ec9972f7e9fd12b84bed1ff',
-  'company_invitations_role_guard()': '0c7cf4635edf43e1f8f80566160513a7',
+  // 908b (S-04/S-08 follow-ups A, B), then 916 (S-07b): the exemption line patched to bind app_service.
+  'company_users_role_guard()': '57b4a251179b9f8794d553f0183e7593',
+  'company_invitations_role_guard()': 'fc3401d65bef8c2c375cf4ce16022161',
 };
 
 const OTHERS = `
@@ -55,7 +56,7 @@ describeIfDb('company_users / company_invitations catalogue (R-035 N1b C)', () =
     expect((await pool.query('SELECT rulename FROM pg_rewrite WHERE ev_class = $1::regclass', [`public.${table}`])).rows).toEqual([]);
   });
 
-  it('the guards and their role lookup: the bodies 883 and 886 ship, SECURITY INVOKER', async () => {
+  it('the guards and their role lookup: the bodies 883, 886, 908b and 916 ship, SECURITY INVOKER', async () => {
     const { rows } = await pool.query(`
       SELECT p.oid::regprocedure::text AS fn, md5(p.prosrc) AS md5, p.prosecdef FROM pg_proc p
       WHERE p.oid = ANY (SELECT to_regprocedure('public.' || f) FROM unnest($1::text[]) f) ORDER BY 1`, [Object.keys(PINNED)]);
@@ -76,6 +77,9 @@ describeIfDb('company_users / company_invitations catalogue (R-035 N1b C)', () =
     const { rows } = await pool.query(`
       SELECT x.who, priv FROM (${OTHERS}) x, unnest(ARRAY['INSERT','UPDATE','DELETE']) priv
       WHERE x.who NOT IN ('app_user', 'platform_admin', 'migration_admin')
+        -- S-07b (916): a non-bypassing role holding app_service is judged by the guards as app_user is.
+        AND NOT (x.who <> 'public' AND pg_has_role(x.who, 'app_service', 'USAGE')
+                 AND NOT EXISTS (SELECT 1 FROM pg_roles b WHERE b.rolname = x.who AND (b.rolsuper OR b.rolbypassrls)))
         AND (has_table_privilege(x.who, $2, priv) OR (priv <> 'DELETE' AND has_any_column_privilege(x.who, $2, priv)))`,
     [t.relowner, `public.${table}`]);
     expect(rows).toEqual([]);

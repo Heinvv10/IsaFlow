@@ -8,6 +8,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ScanLine, Loader2, CheckCircle2, AlertTriangle, X } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
+import { pollScanJob } from './scanAndFillPoll';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 interface ScanAndFillButtonProps {
@@ -22,6 +23,9 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
   const [lastResult, setLastResult] = useState<{ confidence: number; warnings: string[] } | null>(null);
   const [showWarnings, setShowWarnings] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cancelPoll = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => cancelPoll.current?.(), []);
 
   useEffect(() => {
     apiFetch('/api/accounting/vlm-status')
@@ -60,7 +64,13 @@ export function ScanAndFillButton({ onExtracted, className = '', label = 'Scan &
       const json = await res.json();
       if (!json.success) throw new ApiEnvelopeError(json.error?.message || 'Could not read this document - try again');
 
-      const extracted = json.data.extracted as ExtractedDocument;
+      const jobId = json.data?.jobId as string | undefined;
+      if (!jobId) throw new ApiEnvelopeError('Could not read this document - try again');
+      const job = pollScanJob(jobId);
+      cancelPoll.current = job.cancel;
+      const extracted = await job.result;
+      cancelPoll.current = null;
+      if (!extracted) return; // the page went away
       setLastResult({
         confidence: extracted.confidence,
         warnings: extracted.warnings,

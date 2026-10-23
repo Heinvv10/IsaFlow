@@ -14,14 +14,20 @@
  * created AFTER the edit. Paid payments are history and are left alone.
  * Creating a payment stamps nothing (its creator is created_by).
  *
- * Lock order (bank/.claude.md): supplier, then batches, then their member
- * payments — the order approveBatch / processBatch take batch then members,
- * so a stamp racing a batch approve waits rather than deadlocking.
+ * Lock order (bank/.claude.md): batches (id order), then suppliers, then member
+ * payments. The bank-file gate (eft-generate, netcash/submit) holds the batch
+ * row and then share-locks its payee suppliers, and approveBatch / processBatch
+ * take batch then members, so every writer here takes the batches BEFORE the
+ * supplier row (`lockBatchesBeforeSuppliers`, ./batchBeforeSupplierLock.ts): a supplier first, then a batch,
+ * was a 40P01 cycle against the gate.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { lockBatchesBeforeSuppliers } from './batchBeforeSupplierLock';
 
+/** The batches `recordBankDetailsSetter` stamps: money not yet moved. */
+export const STAMPED_BATCH_STATUSES = ['draft', 'approved'] as const;
 const BANK_COLUMNS = ['bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type', 'bank_account_holder'] as const;
 /**
  * A new DESTINATION: only the account number resets the setters to its editor.
@@ -37,14 +43,19 @@ const DESTINATION_COLUMNS = ['bank_account_number'] as const;
  * a concurrent edit the lock waited for is in it (round 1 — the statement
  * snapshot the UPDATE's own RETURNING saw was the row before that edit, so a
  * non-bank edit could pass for a bank change). Null: no such supplier.
+ *
+ * `bankMayChange`: the write names a bank column, so `recordBankDetailsSetter`
+ * will stamp the batches paying this supplier. They are locked first
+ * (`lockBatchesBeforeSuppliers`); a write that cannot change a bank detail
+ * takes the supplier row alone and waits for no batch.
  */
-export async function lockSupplierBankDetails(companyId: string, supplierId: string): Promise<DbRow | null> {
-  const rows = (await sql`
+export async function lockSupplierBankDetails(companyId: string, supplierId: string, bankMayChange: boolean): Promise<DbRow | null> {
+  const lockRow = async () => ((await sql`
     SELECT bank_name, bank_account_number, bank_branch_code, bank_account_type, bank_account_holder
     FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
     FOR UPDATE
-  `) as DbRow[];
-  return rows[0] ?? null;
+  `) as DbRow[])[0] ?? null;
+  return bankMayChange ? lockBatchesBeforeSuppliers(companyId, [supplierId], STAMPED_BATCH_STATUSES, lockRow) : lockRow();
 }
 
 export type BankDetailsChange = 'none' | 'appended' | 'repointed';
@@ -76,7 +87,10 @@ export function hasBankDetails(row: DbRow): boolean {
 /**
  * Lock the batches carrying `supplierId`'s payments in `statuses`, in id order,
  * BEFORE their members are written — batch then members, as approveBatch and
- * processBatch take them. Returns their ids.
+ * processBatch take them. Returns their ids. The caller already holds them,
+ * taken before the supplier row by `lockBatchesBeforeSuppliers`: this is the
+ * re-lock that yields the ids, and it must never be the first lock on a batch
+ * of a supplier this transaction has locked.
  */
 export async function lockBatchesPayingSupplier(companyId: string, supplierId: string,
   statuses: readonly string[] | null): Promise<string[]> {
@@ -114,7 +128,7 @@ export async function recordBankDetailsSetter(companyId: string, supplierId: str
                                     ELSE approval_add_author(bank_details_setters, ${userId}::UUID) END
     WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
   `;
-  const batches = await lockBatchesPayingSupplier(companyId, supplierId, ['draft', 'approved']);
+  const batches = await lockBatchesPayingSupplier(companyId, supplierId, STAMPED_BATCH_STATUSES);
   if (batches.length > 0) {
     await sql`
       UPDATE supplier_payment_batches
@@ -135,8 +149,9 @@ export async function recordBankDetailsSetter(companyId: string, supplierId: str
 /**
  * A supplier merge re-points payments (supplier_id is approval content, and
  * with it the payee's bank details): stamp the merging user onto each batch
- * that carries one of them. The merge locks those batches FIRST
- * (lockBatchesPayingSupplier), then re-points and stamps the payments, then
+ * that carries one of them. The merge locks those batches FIRST, before either
+ * supplier row (`assertSupplierMergeKeepsDrcFlag` →
+ * `lockBatchesBeforeSuppliers`), then re-points and stamps the payments, then
  * calls this — batch before members, as everywhere else.
  */
 export async function stampBatchesOfMovedPayments(companyId: string, batchIds: readonly string[], userId: string): Promise<void> {
