@@ -10,6 +10,14 @@
  * rows at the time. Those were backfilled and integrity check #9 now gates every
  * deploy, but the code path stayed open.
  *
+ * ── HOW (since the change-of-year-end programme) ───────────────────────────
+ *
+ * The year comes from the fiscal-year registry (a stored `fiscal_years` row,
+ * else the template) and is built by the one generator,
+ * fiscalYearGenerator.generateFiscalYearForDate. A date in a GAP of an existing
+ * year now gets its month's period too; a date in a closed or locked year
+ * never does (the database refuses it, and the generator skips such a year).
+ *
  * ── WHY CREATE RATHER THAN REFUSE ───────────────────────────────────────────
  *
  * The root cause is not that createJournalEntry is permissive. It is that the
@@ -36,12 +44,9 @@
  */
 
 import { log } from '@/lib/logger';
-import {
-  createFiscalYear,
-  getFiscalPeriodIdForDate,
-  resolveCompanyPeriodAlignment,
-} from './fiscalPeriodService';
-import { fiscalYearOfDate } from './fiscalYearCalendar';
+import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
+import { fiscalYearForDate } from './fiscalYearRegistry';
+import { generateFiscalYearForDate } from './fiscalYearGenerator';
 
 /**
  * How far back a date may reach and still have its year created automatically.
@@ -68,15 +73,16 @@ export interface EnsureOptions {
 }
 
 /**
- * The covering fiscal period's id for `entryDate`, creating that year first if
- * it does not exist and the year is inside the auto-create window.
+ * The covering fiscal period's id for `entryDate`, generating its year (or the
+ * missing month of an existing year) first when the year is inside the
+ * auto-create window and not closed or locked.
  *
  * Returns null — exactly the previous behaviour — when the year is outside the
- * window, or when the period still cannot be resolved after creating it. Null is
- * deliberately not an exception: this runs on every journal write, and turning a
- * previously-succeeding post into a throw is the outcome the whole design set
- * out to avoid. A NULL that reaches the ledger is still detected by integrity
- * check #9, which fails the post-deploy gate.
+ * window, closed or locked, or when the period still cannot be resolved after
+ * generating. Null is deliberately not an exception: this runs on every journal
+ * write, and turning a previously-succeeding post into a throw is the outcome
+ * the whole design set out to avoid. A NULL that reaches the ledger is still
+ * detected by integrity check #9, which fails the post-deploy gate.
  */
 export async function ensureFiscalPeriodForDate(
   companyId: string,
@@ -87,18 +93,12 @@ export async function ensureFiscalPeriodForDate(
   const existing = await lookup(companyId, entryDate);
   if (existing) return existing;
 
-  // The FISCAL year the date falls in, not the calendar year and not the
-  // current one. `Number(entryDate.slice(0, 4))` was the calendar year, which on
-  // a March-start company is wrong for ten months out of twelve: a June 2026
-  // date belongs to FY2027, and creating FY2026 builds Mar 2025 – Feb 2026 and
-  // leaves the date uncovered exactly as before. The start month comes from
-  // resolveCompanyPeriodAlignment, which follows the layout the company's existing
-  // periods already use — so a tenant on calendar periods keeps getting calendar
-  // years and nothing here half-migrates it.
-  let year: number;
+  // The FISCAL year the date falls in — the stored year that holds it, else the
+  // template year the generator would create — never the calendar year read off
+  // the date string, which on a March start is wrong ten months out of twelve.
+  let year: Awaited<ReturnType<typeof fiscalYearForDate>>;
   try {
-    const alignment = await resolveCompanyPeriodAlignment(companyId);
-    year = fiscalYearOfDate(entryDate, alignment.startMonth);
+    year = await fiscalYearForDate(companyId, entryDate);
   } catch (err) {
     // An unparseable date, or a company row that has gone. Null is the
     // pre-existing behaviour for a date no period covers; a throw here would
@@ -110,52 +110,31 @@ export async function ensureFiscalPeriodForDate(
     );
     return null;
   }
-  if (!Number.isInteger(year) || !isAutoCreatableYear(year, opts?.today)) {
+  if (!isAutoCreatableYear(year.fiscalYear, opts?.today)) {
     log.warn(
       'No fiscal period covers this date and its year is outside the auto-create window',
-      { companyId, entryDate, year },
+      { companyId, entryDate, year: year.fiscalYear },
+      'accounting',
+    );
+    return null;
+  }
+  if (year.status === 'closed' || year.status === 'locked') {
+    log.warn(
+      'No fiscal period covers this date and its fiscal year is closed',
+      { companyId, entryDate, year: year.fiscalYear, status: year.status },
       'accounting',
     );
     return null;
   }
 
-  try {
-    await createFiscalYear(companyId, year);
-    log.info('Auto-created fiscal year for a journal date', { companyId, year }, 'accounting');
-  } catch (err) {
-    // Did we LOSE A RACE, or actually fail? Decided by the OUTCOME — does the
-    // period exist now? — never by the error's text or its SQLSTATE.
-    //
-    // The first version matched /already exists/i, which is the message
-    // createFiscalYear's own pre-check SELECT throws. A real race never
-    // produces that: both pre-checks pass before either commits, and the
-    // loser's INSERT dies on uq_fiscal_periods_company_year_period with a raw
-    // 23505 ("duplicate key value violates unique constraint"). The overlap
-    // EXCLUDE constraint from migration 502 raises 23P01, whose wording shares
-    // nothing with either. Matching text would have turned the loser of a race
-    // — whose journal is valid and whose period now EXISTS — into a 500, which
-    // is worse than the silent NULL this module replaced.
-    //
-    // Enumerating 23505 and 23P01 would fix today's two shapes and rot on the
-    // next one. This codebase already learned the message-matching half of the
-    // lesson for invoice numbers (customerInvoiceCreateRetry.test.ts: "pg
-    // localises/rewords messages"); asking whether the period exists answers
-    // the actual question for every shape at once.
-    const afterFailure = await lookup(companyId, entryDate);
-    if (afterFailure) {
-      log.info(
-        'Lost the fiscal-year creation race; using the period the winner created',
-        { companyId, year },
-        'accounting',
-      );
-      return afterFailure;
-    }
-    // No period afterwards, so the failure was real. Rethrow the ORIGINAL error
-    // — its code and message are the only diagnosis available.
-    throw err;
+  // Concurrency is the generator's (ON CONFLICT DO NOTHING in the database):
+  // the loser of a race reads the winner's year and periods without an error.
+  const generated = await generateFiscalYearForDate(companyId, entryDate);
+  if (generated.periodsCreated > 0) {
+    log.info('Generated fiscal periods for a journal date', { companyId, year: year.fiscalYear, ...generated }, 'accounting');
   }
 
-  // Re-read rather than trusting the create, so the id always comes from the
+  // Re-read rather than trusting the generator, so the id always comes from the
   // same query the rest of the system resolves periods with.
   return await lookup(companyId, entryDate);
 }

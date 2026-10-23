@@ -131,6 +131,14 @@ describe('status follows the periods, and closed is immutable', () => {
     expect((await err(q(`DELETE FROM fiscal_years WHERE company_id = $1 AND fiscal_year = 2025`, [co])))?.code).toBe('55000');
   });
 
+  it('refuses a written year status: it is always derived (trg_fiscal_years_guard_closed / _insert_open)', async () => {
+    await q(`UPDATE fiscal_years SET status = 'locked' WHERE company_id = $1 AND fiscal_year = 2026`, [co]);
+    expect((await years())[1].status).toBe('open');
+    await q(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, status) VALUES ($1, 2050, '2049-03-01', '2050-02-28', 'closed')`, [co]);
+    expect((await q(`SELECT status FROM fiscal_years WHERE company_id = $1 AND fiscal_year = 2050`, [co])).rows[0].status).toBe('open');
+    await q(`DELETE FROM fiscal_years WHERE company_id = $1 AND fiscal_year = 2050`, [co]);
+  });
+
   it('reopening a period reopens its year, and a status change alone is allowed', async () => {
     await q(`UPDATE fiscal_periods SET status = 'open' WHERE company_id = $1 AND start_date = '2025-01-01'`, [co]);
     expect((await years())[0].status).toBe('open');
