@@ -241,6 +241,12 @@ export async function reopenPayrollRun(opts: {
            reopened_at = c.now,
            approval_history = COALESCE(h.approval_history, '{}'::tstzmultirange)
              + tstzmultirange(tstzrange(CASE WHEN h.approved_at > c.now THEN c.now ELSE h.approved_at END, c.now, '[)')),
+           -- Whom the approval it ends taxed from the tables, added to every earlier one's (migration 925).
+           -- Unknown stays unknown: a history with no set was reopened before the column existed.
+           approved_taxed_employees = CASE WHEN h.approval_history IS NOT NULL AND h.approved_taxed_employees IS NULL THEN NULL
+             ELSE ARRAY(SELECT DISTINCT u FROM unnest(COALESCE(h.approved_taxed_employees, '{}'::uuid[]) || ARRAY(
+               SELECT l.employee_id FROM payroll_run_lines l WHERE l.run_id = h.id
+                 AND COALESCE(l.periodic_taxable > 0 OR l.annual_taxable > 0, l.taxable_income > 0))) u ORDER BY u) END,
            updated_at = NOW()
       FROM (SELECT clock_timestamp() AS now) c
      WHERE h.id = ${opts.runId}::uuid AND h.company_id = ${opts.companyId}::uuid

@@ -17,6 +17,16 @@
 --   first case). A range whose approved_at was NULL (approved before 718) is
 --   unbounded below: approved since before anything the gate compares.
 --   Reader: judgeYearToDateStale.
+-- approved_taxed_employees: every employee an approval a reopen ended taxed
+--   from the tables (periodic or annual taxable > 0; before 913, taxable
+--   income > 0), the UNION over all of them. The gate refuses this run for a
+--   later month that read an earlier version of it only for someone in it
+--   (breaker round 3, Hein 2026-10-23): a starter in the later month no longer
+--   forces it to be reopened. A union, not a set per approval: it holds every
+--   earlier version's employees, so it never misses; its cost is a refusal for
+--   someone taxed only in a version the later month did not read. NULL with a
+--   history = reopened before this column: unknown, conservative, and a later
+--   reopen keeps it NULL. Writer: reopenPayrollRun.
 --
 -- Additive only: two nullable columns. Existing rows stay NULL: a run reopened
 -- before this has no recorded history, and the gate treats it as never
@@ -24,6 +34,7 @@
 -- the later month clears a refusal, as before).
 --
 -- Rollback:
+--   ALTER TABLE payroll_run_headers DROP COLUMN IF EXISTS approved_taxed_employees;
 --   ALTER TABLE payroll_run_headers DROP COLUMN IF EXISTS approval_history;
 --   ALTER TABLE payroll_run_headers DROP COLUMN IF EXISTS reopened_at;
 SET LOCAL lock_timeout = '5s';
@@ -31,3 +42,6 @@ SET LOCAL lock_timeout = '5s';
 ALTER TABLE payroll_run_headers
   ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMPTZ NULL,
   ADD COLUMN IF NOT EXISTS approval_history TSTZMULTIRANGE NULL;
+
+-- Its own statement, so a database that already has the two above can take it alone.
+ALTER TABLE payroll_run_headers ADD COLUMN IF NOT EXISTS approved_taxed_employees UUID[] NULL;
