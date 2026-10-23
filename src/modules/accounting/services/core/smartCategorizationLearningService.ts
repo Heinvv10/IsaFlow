@@ -18,33 +18,33 @@ export async function learnFromAllocation(
   vatCode?: string,
 ): Promise<boolean> {
   try {
-    const txRows = (await sql`
-      SELECT description FROM bank_transactions
-      WHERE id = ${txId}::UUID AND company_id = ${companyId}::uuid
-    `) as DbRow[];
-
-    const firstTx = txRows[0];
-    if (!firstTx) return false;
-
-    const description = String(firstTx.description || '').trim();
-    if (description.length < 3) return false;
-
-    const pattern = extractLearningPattern(description);
-    if (!pattern || pattern.length < 3) return false;
-
-    // `vatCode || 'standard'` was the default here. Learning a restaurant into
-    // Staff Welfare therefore minted a pattern claiming input tax on
-    // entertainment, which the rule auto-post path then honoured on every
-    // future charge. Absent a code, learn 'none' — never invent a claim — and
-    // let the account's own denial override an explicit 'standard'.
-    const { vatCode: learnedVatCode } = await resolveVatCodeForAccount(
-      companyId, glAccountId, vatCode || 'none', { learningPattern: pattern },
-    );
-
     // Own savepoint: a failed statement here must not abort the caller's
     // request transaction (learning is non-critical; the caught error would
     // otherwise turn the request's COMMIT into a rollback).
-    await withSavepoint('learn_pattern', async () => {
+    return await withSavepoint('learn_pattern', async (): Promise<boolean> => {
+      const txRows = (await sql`
+        SELECT description FROM bank_transactions
+        WHERE id = ${txId}::UUID AND company_id = ${companyId}::uuid
+      `) as DbRow[];
+
+      const firstTx = txRows[0];
+      if (!firstTx) return false;
+
+      const description = String(firstTx.description || '').trim();
+      if (description.length < 3) return false;
+
+      const pattern = extractLearningPattern(description);
+      if (!pattern || pattern.length < 3) return false;
+
+      // `vatCode || 'standard'` was the default here. Learning a restaurant into
+      // Staff Welfare therefore minted a pattern claiming input tax on
+      // entertainment, which the rule auto-post path then honoured on every
+      // future charge. Absent a code, learn 'none' — never invent a claim — and
+      // let the account's own denial override an explicit 'standard'.
+      const { vatCode: learnedVatCode } = await resolveVatCodeForAccount(
+        companyId, glAccountId, vatCode || 'none', { learningPattern: pattern },
+      );
+
       const existing = (await sql`
         SELECT id, usage_count FROM categorization_patterns
         WHERE UPPER(pattern) = ${pattern.toUpperCase()}
@@ -77,10 +77,10 @@ export async function learnFromAllocation(
             (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
         `;
       }
-    });
 
-    log.info('Learned categorization pattern', { pattern, category, glAccountId, companyId }, 'accounting');
-    return true;
+      log.info('Learned categorization pattern', { pattern, category, glAccountId, companyId }, 'accounting');
+      return true;
+    });
   } catch (err) {
     log.error('Failed to learn from allocation', { txId, companyId, error: err }, 'accounting');
     // Non-critical: don't throw; the caller reports learned: false
