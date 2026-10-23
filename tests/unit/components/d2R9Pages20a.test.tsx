@@ -116,6 +116,24 @@ describe('sars/index (routes: sars-compliance -> { events }, sars-submissions ->
       if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
     }
   });
+  it('days left count calendar days across a daylight-saving change (not elapsed time)', async () => {
+    // From 25 Oct to 4 Nov in Los Angeles crosses the 1 Nov fall-back: 10 calendar days are
+    // 10 days and 1 hour of clock time, which a ceil over milliseconds counted as 11.
+    const saved = process.env.TZ;
+    process.env.TZ = 'America/Los_Angeles';
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date(2026, 9, 25, 9, 0, 0));
+      const local = { ...evt, dueDate: '2026-11-04', description: 'D2 due across DST' };
+      serve(on('GET', 'sars-compliance', () => ok({ events: [local] })), on('GET', 'sars-submissions', () => ok({ items: [] })));
+      render(<SarsIndexPage />);
+      const row = (await screen.findByText('D2 due across DST')).closest('tr') as HTMLElement;
+      expect(row.textContent).toContain('10d');
+    } finally {
+      vi.useRealTimers();
+      if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
+    }
+  });
   it('an empty 500 shows a sentence and no rows', async () => {
     serve(on('GET', 'sars-compliance', empty500), on('GET', 'sars-submissions', () => ok({ items: [sub] })));
     render(<SarsIndexPage />);
