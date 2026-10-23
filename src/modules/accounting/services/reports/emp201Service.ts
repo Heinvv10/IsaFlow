@@ -166,7 +166,9 @@ export async function generateEMP201(
     let totalUIF = 0;
     let totalSDL = 0;
     let totalGross = directivePayments.reduce((t, p) => t + p.gross, 0);
-    // A payment whose directive names no employee here still paid someone: counted by its directive.
+    // A payment whose directive names no employee here still paid someone: counted by its directive. It
+    // cannot be matched to a run employee, so such a person counts twice (legacy rows only: applyTaxDirective
+    // refuses a directive with no employee).
     const paid = new Set<string>(standalone.map(p => p.employeeId ?? `directive:${p.directiveId}`));
 
     const payrollRuns: EMP201PayrollRun[] = runs.map((r: Row) => {
