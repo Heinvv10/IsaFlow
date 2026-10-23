@@ -55,15 +55,17 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only a live owner grant
     }
   }
 
-  async function lockWaiter(client: PoolClient): Promise<() => Promise<void>> {
-    const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+  /** S-07c: createInvitation waits on its own migration_admin connection, not the caller's. */
+  async function advisoryWaiter(except: PoolClient): Promise<() => Promise<void>> {
+    const pid = (await except.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
     return async () => {
       for (const deadline = Date.now() + 15_000; Date.now() < deadline;) {
-        const r = await admin.query(`SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`, [pid]);
-        if (r.rows[0]?.wait_event_type === 'Lock') return;
+        const r = await admin.query(`SELECT 1 FROM pg_stat_activity WHERE pid <> $1 AND wait_event_type = 'Lock'
+          AND query LIKE '%pg_advisory_xact_lock%'`, [pid]);
+        if (r.rows.length > 0) return;
         await new Promise((res) => setTimeout(res, 10));
       }
-      throw new Error(`backend ${pid} never waited on a lock`);
+      throw new Error('no invitation ever waited on the owner lock');
     };
   }
 
@@ -124,7 +126,7 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only a live owner grant
       await seed();
       const [cb, ca] = [await admin.connect(), await admin.connect()];
       try {
-        const aWaits = await lockWaiter(ca);
+        const aWaits = await advisoryWaiter(cb);
         let commitDemotion!: () => void;
         let bHoldsLock!: () => void;
         const held = new Promise<void>((r) => { commitDemotion = r; });
@@ -149,15 +151,18 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only a live owner grant
     }
   });
 
-  it('outside app_user (no trigger), refuses an admin auto-adding an existing user as owner', async () => {
+  // S-07c: createInvitation never adds an existing account; it invites it (the auto-add these replaced is gone).
+  it('outside app_user, refuses an admin inviting an existing user as owner', async () => {
     await expect(asMember(ADMIN, () => createInvitation(COMPANY, EXISTING_EMAIL, 'owner', ADMIN), undefined, false))
       .rejects.toBeInstanceOf(OwnerProtectedError);
     expect(await roleOf(EXISTING)).toBeNull();
   });
 
-  it('outside app_user, lets an owner auto-add an existing user as owner', async () => {
+  it('outside app_user, an owner invites an existing user as owner: an owner invitation, no membership yet', async () => {
     await expect(asMember(OWNER_A, () => createInvitation(COMPANY, EXISTING_EMAIL, 'owner', OWNER_A), undefined, false))
-      .resolves.toMatchObject({ autoAdded: true });
-    expect(await roleOf(EXISTING)).toBe('owner');
+      .resolves.toMatchObject({ autoAdded: false });
+    expect(await roleOf(EXISTING)).toBeNull();
+    expect((await admin.query('SELECT role FROM company_invitations WHERE company_id = $1 AND email = $2', [COMPANY, EXISTING_EMAIL])).rows)
+      .toEqual([{ role: 'owner' }]);
   });
 });

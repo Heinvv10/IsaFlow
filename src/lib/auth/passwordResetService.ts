@@ -13,11 +13,15 @@
  * sha256(token) is persisted, so a read of auth_password_reset_tokens cannot be
  * replayed to reset an account. No email/PII is stored — the row is keyed by
  * the GoTrue user id alone.
+ *
+ * Every statement runs on the migration_admin pool (S-07c, migration 930): a
+ * row here lets whoever knows its token set that user's password, so no app
+ * role may read or write the table, as with the verification tokens (918).
  */
 
 import crypto from 'crypto';
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminPool } from './migrationAdminPool';
 
 const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
@@ -38,10 +42,11 @@ export async function issuePasswordResetToken(
   const token = crypto.randomBytes(32).toString('hex'); // 256-bit
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS);
-  await sql`
-    INSERT INTO auth_password_reset_tokens (user_id, token_hash, expires_at)
-    VALUES (${userId}::uuid, ${tokenHash}, ${expiresAt.toISOString()}::timestamptz)
-  `;
+  await migrationAdminPool().query(
+    `INSERT INTO auth_password_reset_tokens (user_id, token_hash, expires_at)
+     VALUES ($1::uuid, $2, $3::timestamptz)`,
+    [userId, tokenHash, expiresAt.toISOString()],
+  );
   log.info('Password reset token created', { userId }, 'passwordResetService');
   return { token, tokenHash, expiresAt };
 }
@@ -55,25 +60,26 @@ export async function issuePasswordResetToken(
  * broken by id, so of two tied tokens exactly one survives.
  */
 export async function supersedePasswordResetTokens(userId: string, keepTokenHash: string): Promise<void> {
-  await sql`
-    UPDATE auth_password_reset_tokens t
-    SET consumed_at = now()
-    FROM auth_password_reset_tokens k
-    WHERE k.token_hash = ${keepTokenHash}
-      AND k.user_id = ${userId}::uuid
-      AND t.user_id = k.user_id
-      AND (t.created_at, t.id) < (k.created_at, k.id)
-      AND t.consumed_at IS NULL
-      AND t.expires_at > now()
-  `;
+  await migrationAdminPool().query(
+    `UPDATE auth_password_reset_tokens t
+        SET consumed_at = now()
+       FROM auth_password_reset_tokens k
+      WHERE k.token_hash = $1
+        AND k.user_id = $2::uuid
+        AND t.user_id = k.user_id
+        AND (t.created_at, t.id) < (k.created_at, k.id)
+        AND t.consumed_at IS NULL
+        AND t.expires_at > now()`,
+    [keepTokenHash, userId],
+  );
 }
 
 /** The link never went out: retire just this token. */
 export async function withdrawPasswordResetToken(tokenHash: string): Promise<void> {
-  await sql`
-    UPDATE auth_password_reset_tokens SET consumed_at = now()
-    WHERE token_hash = ${tokenHash} AND consumed_at IS NULL
-  `;
+  await migrationAdminPool().query(
+    'UPDATE auth_password_reset_tokens SET consumed_at = now() WHERE token_hash = $1 AND consumed_at IS NULL',
+    [tokenHash],
+  );
 }
 
 /**
@@ -87,25 +93,24 @@ export async function consumePasswordResetToken(
 ): Promise<{ userId: string } | null> {
   const tokenHash = hashToken(rawToken);
 
-  const rows = (await sql`
-    SELECT id, user_id
-    FROM auth_password_reset_tokens
-    WHERE token_hash = ${tokenHash}
-      AND consumed_at IS NULL
-      AND expires_at > now()
-    LIMIT 1
-  `) as Record<string, unknown>[];
+  const rows = (await migrationAdminPool().query(
+    `SELECT id, user_id
+       FROM auth_password_reset_tokens
+      WHERE token_hash = $1
+        AND consumed_at IS NULL
+        AND expires_at > now()
+      LIMIT 1`,
+    [tokenHash],
+  )).rows as Record<string, unknown>[];
 
   if (rows.length === 0) return null;
   const row = rows[0] as { id: string; user_id: string };
 
   // Atomic single-use guard: only the request that flips consumed_at wins.
-  const updated = (await sql`
-    UPDATE auth_password_reset_tokens
-    SET consumed_at = now()
-    WHERE id = ${row.id}::uuid AND consumed_at IS NULL
-    RETURNING id
-  `) as Record<string, unknown>[];
+  const updated = (await migrationAdminPool().query(
+    'UPDATE auth_password_reset_tokens SET consumed_at = now() WHERE id = $1::uuid AND consumed_at IS NULL RETURNING id',
+    [row.id],
+  )).rows as Record<string, unknown>[];
 
   if (updated.length === 0) {
     log.warn('Password reset token consumed by concurrent request', { tokenId: row.id }, 'passwordResetService');
@@ -125,24 +130,24 @@ export async function consumePasswordResetToken(
  */
 export async function releasePasswordResetToken(rawToken: string): Promise<void> {
   const tokenHash = hashToken(rawToken);
-  await sql`
-    UPDATE auth_password_reset_tokens t
-    SET consumed_at = NULL
-    WHERE t.token_hash = ${tokenHash}
-      AND t.consumed_at IS NOT NULL
-      AND t.expires_at > now()
-      AND NOT EXISTS (
-        SELECT 1 FROM auth_password_reset_tokens n
-        WHERE n.user_id = t.user_id AND (n.created_at, n.id) > (t.created_at, t.id)
-      )
-  `;
+  await migrationAdminPool().query(
+    `UPDATE auth_password_reset_tokens t
+        SET consumed_at = NULL
+      WHERE t.token_hash = $1
+        AND t.consumed_at IS NOT NULL
+        AND t.expires_at > now()
+        AND NOT EXISTS (
+          SELECT 1 FROM auth_password_reset_tokens n
+          WHERE n.user_id = t.user_id AND (n.created_at, n.id) > (t.created_at, t.id)
+        )`,
+    [tokenHash],
+  );
   log.info('Password reset token released after an auth outage', {}, 'passwordResetService');
 }
 
 /** Housekeeping: drop tokens that expired more than 7 days ago. */
 export async function cleanupExpiredResetTokens(): Promise<void> {
-  await sql`
-    DELETE FROM auth_password_reset_tokens
-    WHERE expires_at < now() - INTERVAL '7 days'
-  `;
+  await migrationAdminPool().query(
+    `DELETE FROM auth_password_reset_tokens WHERE expires_at < now() - INTERVAL '7 days'`,
+  );
 }

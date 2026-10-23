@@ -63,6 +63,9 @@ async function finish(cl: PoolClient, statement: string, params: unknown[]): Pro
 const GRANT = "UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2";
 const REMOVE = 'DELETE FROM company_users WHERE company_id = $1 AND user_id = $2';
 const RESHAPE = "UPDATE company_invitations SET expires_at = now() + interval '30 days' WHERE company_id = $1";
+// Since S-07c (930) app_user holds no INSERT/UPDATE on company_invitations (the route writes it on the migration_admin pool):
+// an app_user write there is refused by privilege (42501) before any guard or isolation check; the seeds below go in as the table owner.
+const seedInvite = (c: string, by: string, role: string) => pool.query(INVITE, inviteAs(c, by, role));
 const inviteAs = (c: string, by: string, role: string) => [c, emailOf(p.x), role, by, tokenHash(crypto.randomUUID())];
 
 /** Waits until backend `pid` waits on a lock. */
@@ -107,18 +110,19 @@ describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the 
     expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.m)]).toEqual(['admin', 'manager']);
   });
 
-  it('an owner invitation is neither written nor re-shaped', async () => {
+  it('an owner invitation is neither written nor re-shaped (42501 since 930; the 40001 is behind it)', async () => {
     const c = await company(pool, p, companies);
-    expect(await finish(await session(c, p.o, level), INVITE, inviteAs(c, p.o, 'owner'))).toBe('40001');
-    await asApp(c, p.o, (cl) => cl.query(INVITE, inviteAs(c, p.o, 'owner')));
-    expect(await finish(await session(c, p.o, level), RESHAPE, [c])).toBe('40001');
+    expect(await finish(await session(c, p.o, level), INVITE, inviteAs(c, p.o, 'owner'))).toBe('42501');
+    await seedInvite(c, p.o, 'owner');
+    expect(await finish(await session(c, p.o, level), RESHAPE, [c])).toBe('42501');
+    expect((await pool.query('SELECT count(*)::INT AS n FROM company_invitations WHERE company_id = $1', [c])).rows[0].n).toBe(1);
   });
 
-  it('every app_user write is refused, even one that touches no owner', async () => {
+  it('every app_user write is refused (40001; invitation inserts 42501 since 930), even one that touches no owner', async () => {
     const c = await company(pool, p, companies);
     expect(await finish(await session(c, p.a, level), "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.m])).toBe('40001');
-    expect(await finish(await session(c, p.a, level), INVITE, inviteAs(c, p.a, 'manager'))).toBe('40001');
-    await asApp(c, p.a, (cl) => cl.query(INVITE, inviteAs(c, p.a, 'manager')));
+    expect(await finish(await session(c, p.a, level), INVITE, inviteAs(c, p.a, 'manager'))).toBe('42501'); // by privilege since 930
+    await seedInvite(c, p.a, 'manager');
     expect(await finish(await session(c, p.a, level), 'DELETE FROM company_invitations WHERE company_id = $1', [c])).toBe('40001');
     expect(await roleOf(pool, c, p.m)).toBe('manager');
   });
@@ -129,15 +133,15 @@ describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the 
     const invite = await session(c, p.a, level);
     expect(await outcome(asApp(c, p.o, (cl) => cl.query(REMOVE, [c, p.a])))).toBe('ok');
     expect(await finish(promote, "UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.m])).toBe('40001');
-    expect(await finish(invite, INVITE, [c, emailOf(p.a), 'admin', p.a, tokenHash(crypto.randomUUID())])).toBe('40001');
+    expect(await finish(invite, INVITE, [c, emailOf(p.a), 'admin', p.a, tokenHash(crypto.randomUUID())])).toBe('42501'); // by privilege since 930
     expect([await roleOf(pool, c, p.a), await roleOf(pool, c, p.m)]).toEqual([null, 'manager']);
     expect((await pool.query('SELECT count(*)::INT AS n FROM company_invitations WHERE company_id = $1', [c])).rows[0].n).toBe(0);
   });
 
-  it('a write a rule refuses keeps the rule\'s code: an admin granting owner is RC003 (adversarial #693 REPRO 2)', async () => {
+  it('a write a rule refuses keeps the rule\'s code: an admin granting owner is RC003 (adversarial #693 REPRO 2); an owner invitation is 42501 since 930', async () => {
     const c = await company(pool, p, companies);
     expect(await finish(await session(c, p.a, level), GRANT, [c, p.m])).toBe('RC003');
-    expect(await finish(await session(c, p.a, level), INVITE, inviteAs(c, p.a, 'owner'))).toBe('RC003');
+    expect(await finish(await session(c, p.a, level), INVITE, inviteAs(c, p.a, 'owner'))).toBe('42501');
   });
 
   it('a no-op write to a legacy owner-ish membership is refused too', async () => {
@@ -186,11 +190,12 @@ describe.each(['READ COMMITTED', 'READ UNCOMMITTED'])('%s: judged after the lock
     expect(await owners(c)).toBe(1);
   });
 
-  it('an owner grants owner, writes and re-shapes an owner invitation, and removes a non-last owner', async () => {
+  it('an owner grants owner and removes a non-last owner; writing or re-shaping an owner invitation is 42501 since 930 (the route writes it on the migration_admin pool)', async () => {
     const c = await company(pool, p, companies);
     expect(await finish(await session(c, p.o, level), GRANT, [c, p.m])).toBe('ok');
-    expect(await finish(await session(c, p.o, level), INVITE, inviteAs(c, p.o, 'owner'))).toBe('ok');
-    expect(await finish(await session(c, p.o, level), RESHAPE, [c])).toBe('ok');
+    expect(await finish(await session(c, p.o, level), INVITE, inviteAs(c, p.o, 'owner'))).toBe('42501');
+    await seedInvite(c, p.o, 'owner');
+    expect(await finish(await session(c, p.o, level), RESHAPE, [c])).toBe('42501');
     expect(await finish(await session(c, p.o, level), REMOVE, [c, p.o2])).toBe('ok');
     expect([await roleOf(pool, c, p.m), await roleOf(pool, c, p.o2)]).toEqual(['owner', null]);
   });
@@ -209,18 +214,18 @@ describe.each(OWNERISH)('a legacy owner-ish role %j is an owner\'s', (legacy) =>
   }
   const REOPEN = "UPDATE company_invitations SET expires_at = now() + interval '7 days' WHERE company_id = $1";
 
-  it('an admin cannot re-open the invitation (RC003); it stays expired', async () => {
+  it('an admin cannot re-open the invitation (42501 since 930; the guard\'s RC003 is behind it); it stays expired', async () => {
     const c = await company(pool, p, companies);
     await legacyInvitation(c);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(REOPEN, [c])))).toBe('RC003');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(REOPEN, [c])))).toBe('42501');
     expect((await pool.query('SELECT expires_at < now() AS expired FROM company_invitations WHERE company_id = $1', [c])).rows)
       .toEqual([{ expired: true }]);
   });
 
-  it('an owner can', async () => {
+  it('an owner cannot either as app_user (42501 since 930; the route re-opens it on the migration_admin pool)', async () => {
     const c = await company(pool, p, companies);
     await legacyInvitation(c);
-    expect(await outcome(asApp(c, p.o, (cl) => cl.query(REOPEN, [c])))).toBe('ok');
+    expect(await outcome(asApp(c, p.o, (cl) => cl.query(REOPEN, [c])))).toBe('42501');
   });
 
   // It is an owner's row for 908b's rules too: an admin is refused (RC010), and

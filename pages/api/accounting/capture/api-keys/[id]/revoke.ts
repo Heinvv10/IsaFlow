@@ -12,7 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 
 type Row = Record<string, unknown>;
 
@@ -28,15 +28,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Missing key id');
   }
 
-  const rows = await sql`
-    UPDATE capture_api_keys
-    SET is_active = false,
-        revoked_at = NOW()
-    WHERE id = ${id}::uuid
-      AND company_id = ${companyId}
-      AND is_active = true
-    RETURNING id
-  ` as Row[];
+  // On the migration_admin pool (S-07c, migration 930): an UPDATE that can
+  // set is_active and revoked_at can as well clear them and revive a key.
+  const rows = await migrationAdminTx('revoke capture api key', async (client) => (await client.query(
+    `UPDATE capture_api_keys
+        SET is_active = false,
+            revoked_at = NOW()
+      WHERE id = $1::uuid
+        AND company_id = $2
+        AND is_active = true
+      RETURNING id`,
+    [id, companyId],
+  )).rows as Row[]);
 
   if (rows.length === 0) {
     return apiResponse.notFound(res, 'API key', id);

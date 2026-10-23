@@ -12,6 +12,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
+// S-07c (migration 930): the oauth_apps INSERT runs on the migration_admin pool.
+const { adminQueryMock } = vi.hoisted(() => ({ adminQueryMock: vi.fn() }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminPool: () => ({ query: adminQueryMock }),
+}));
 // R-032: the Login-as guard runs its own query first; it is covered by
 // tests/unit/auth/impersonationGuard.test.ts and the r-032 integration suites.
 vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
@@ -40,6 +45,7 @@ import {
 beforeEach(() => {
   vi.clearAllMocks();
   sqlMock.mockResolvedValue([{ id: 'app-1', client_id: 'client_x' }]);
+  adminQueryMock.mockResolvedValue({ rows: [{ id: 'app-1', client_id: 'client_x' }], rowCount: 1 });
 });
 
 const input = (name: string) => ({
@@ -54,6 +60,7 @@ describe('registerOauthApp — the guard that covers every writer', () => {
       await expect(registerOauthApp(input(name)), name).rejects.toBeInstanceOf(ReservedClientNameError);
     }
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(adminQueryMock).not.toHaveBeenCalled();
   });
 
   // The write path and the check must agree on the string, or a name can be
@@ -62,7 +69,7 @@ describe('registerOauthApp — the guard that covers every writer', () => {
     // U+FACF is a letter the browser declines to draw; NFC maps it to the
     // ideograph it stands for, which does render.
     await registerOauthApp(input('Acme𢡊Books'));
-    const params = sqlMock.mock.calls[0]?.slice(1) ?? [];
+    const params = (adminQueryMock.mock.calls[0]?.[1] ?? []) as unknown[];
     expect(params).toContain('Acme\u{2284A}Books');
     expect(params).not.toContain('Acme𢡊Books');
 
@@ -77,9 +84,9 @@ describe('registerOauthApp — the guard that covers every writer', () => {
 
   it('lets an ordinary name through untouched', async () => {
     for (const name of ['Acme Bookkeeping', '会计 (IsaFlow)', 'Claude Code (isaflow)']) {
-      sqlMock.mockClear();
+      adminQueryMock.mockClear();
       await expect(registerOauthApp(input(name)), name).resolves.toBeTruthy();
-      expect(sqlMock.mock.calls[0]?.slice(1), name).toContain(name);
+      expect(adminQueryMock.mock.calls[0]?.[1], name).toContain(name);
     }
   });
 });
