@@ -101,12 +101,16 @@ export async function assessYearEndChange(
   if (Number(ye[0]!.n) > 0) {
     refusals.push(`FY${currentYear.fiscalYear} already has a year-end closing journal; reverse it before changing the year end.`);
   }
-  // s27(4)(a): not more than once during any financial year.
+  // s27(4)(a): not more than once during any financial year — the year being
+  // changed AND the year the notice is filed in (closing a year early must not
+  // reopen the allowance). An undone change still counts: the notice it
+  // confirmed was filed with CIPC and cannot be unfiled.
+  const filingYear = await fiscalYearForDate(companyId, today);
   const prior = (await sql`
     SELECT applied_at FROM fiscal_year_end_changes
-     WHERE company_id = ${companyId}::UUID AND reversed_at IS NULL
+     WHERE company_id = ${companyId}::UUID
        AND (applied_at AT TIME ZONE 'Africa/Johannesburg')::date
-           BETWEEN ${currentYear.startDate}::DATE AND ${currentYear.endDate}::DATE
+           BETWEEN LEAST(${filingYear.startDate}::DATE, ${currentYear.startDate}::DATE) AND ${currentYear.endDate}::DATE
      LIMIT 1
   `) as DbRow[];
   if (prior[0]) {
