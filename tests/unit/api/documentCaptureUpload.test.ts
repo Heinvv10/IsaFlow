@@ -1,6 +1,6 @@
 /**
- * POST /api/accounting/document-capture saves the upload as a 'reading' row and answers at once; the read runs
- * after COMMIT (runAfterCommit). GET maps the read state, reporting a read gone silent for 5 minutes as failed.
+ * POST /api/accounting/document-capture saves the upload as a 'reading' row, STORES the bytes (as /capture/upload does)
+ * and answers at once; the read runs from Storage after COMMIT (runAfterCommit). GET maps the read state, reporting a read gone silent for 5 minutes as failed.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiRequest } from 'next';
@@ -14,12 +14,17 @@ const m = vi.hoisted(() => ({
   parse: vi.fn(),
   bufferOf: vi.fn(),
   info: vi.fn(),
+  store: vi.fn(),
 }));
 vi.mock('@/lib/neon', () => ({ sql: m.sql }));
 vi.mock('@/lib/logger', () => ({ log: { info: m.info, warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h, withWriteAccess: (h: unknown) => h }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
+vi.mock('@/lib/documentStorage', async (orig) => ({
+  ...(await orig<typeof import('@/lib/documentStorage')>()),
+  storeCapturedBytes: m.store,
+}));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: m.runAfterCommit }));
 vi.mock('@/lib/rateLimit', () => ({ checkAiRateLimit: m.rateLimit, checkRateLimit: m.uploadLimit }));
 vi.mock('@/modules/accounting/services/capture/captureReadJob', () => ({ runCaptureRead: m.runCaptureRead }));
@@ -29,6 +34,7 @@ vi.mock('@/modules/accounting/services/capture/captureUploadForm', async (orig) 
   uploadedBuffer: m.bufferOf,
 }));
 
+import { sha256 } from '@/lib/documentStorage';
 import handler from '../../../pages/api/accounting/document-capture';
 
 const CO = 'aaaaaaaa-0000-4000-8000-000000000001';
@@ -79,11 +85,13 @@ beforeEach(() => {
   m.uploadLimit.mockResolvedValue(true);
   m.parse.mockResolvedValue({ files: { file: file() } });
   m.bufferOf.mockReturnValue(PDF);
+  m.store.mockResolvedValue({ documentId: DOC, bucket: 'captured-documents', path: `${CO}/${DOC}`, hash: 'h', size: PDF.length });
   m.sql.mockImplementation(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').replace(/\s+/g, ' ');
     calls.push({ text, values });
     if (text.includes('COUNT(*)')) return [{ n: inFlight }];
     if (text.includes('INSERT INTO captured_documents')) return [insertedRow()];
+    if (text.includes('UPDATE captured_documents')) return [insertedRow({ storage_bucket: 'captured-documents', storage_path: `${CO}/${DOC}` })];
     return [];
   });
 });
@@ -107,7 +115,13 @@ describe('POST /api/accounting/document-capture', () => {
     expect(m.runAfterCommit.mock.calls[0]![0]).toBe('capture-read');
     expect(m.runCaptureRead).not.toHaveBeenCalled();
     await (m.runAfterCommit.mock.calls[0]![1] as () => Promise<void>)();
-    expect(m.runCaptureRead).toHaveBeenCalledWith(CO, DOC, PDF, 'application/pdf');
+    expect(m.runCaptureRead).toHaveBeenCalledWith(CO, DOC, 0);
+  });
+
+  it('hands the job only ids and the attempt: the request closure no longer holds the buffer', async () => {
+    await post();
+    await (m.runAfterCommit.mock.calls[0]![1] as () => Promise<void>)();
+    expect(m.runCaptureRead.mock.calls[0]).toEqual([CO, DOC, 0]);
   });
 
   it('charges the AI rate limit without a refund, and answers 429 when it is used up (nothing inserted)', async () => {
@@ -188,7 +202,80 @@ describe('POST /api/accounting/document-capture', () => {
       return text.includes('COUNT(*)') ? [{ n: 0 }] : [insertedRow()];
     });
     await post();
-    expect(order).toEqual(['count', 'rate', 'insert']);
+    expect(order.slice(0, 3)).toEqual(['count', 'rate', 'insert']);
+  });
+
+  it('records the hash and size on the insert, as /capture/upload does', async () => {
+    await post();
+    const ins = calls.find((c) => c.text.includes('INSERT INTO captured_documents'))!;
+    expect(ins.text).toContain('raw_bytes_sha256');
+    expect(ins.text).toContain('raw_bytes_size');
+    expect(ins.values).toEqual(expect.arrayContaining([sha256(PDF), PDF.length]));
+  });
+
+  it('stores the bytes under the new id and the declared mime, then writes the pointer scoped to the company', async () => {
+    await post();
+    expect(m.store).toHaveBeenCalledTimes(1);
+    expect(m.store).toHaveBeenCalledWith(CO, DOC, PDF, 'application/pdf');
+    const upd = calls.find((c) => c.text.includes('UPDATE captured_documents'))!;
+    expect(upd.text).toContain('storage_bucket');
+    expect(upd.text).toContain('storage_path');
+    expect(upd.text).toMatch(/WHERE id = \? ?::uuid AND company_id = \?|WHERE id = \?::uuid AND company_id = \?/);
+    expect(upd.values).toEqual(expect.arrayContaining(['captured-documents', `${CO}/${DOC}`, DOC, CO]));
+  });
+
+  it('does everything before answering, in order: insert, store, pointer, then queue', async () => {
+    const order: string[] = [];
+    m.store.mockImplementation(async () => { order.push('store'); return { documentId: DOC, bucket: 'b', path: 'p', hash: 'h', size: 1 }; });
+    m.runAfterCommit.mockImplementation(() => { order.push('queue'); });
+    m.sql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const t = strings.join('?');
+      if (t.includes('COUNT(*)')) return [{ n: 0 }];
+      if (t.includes('INSERT INTO captured_documents')) { order.push('insert'); return [insertedRow()]; }
+      if (t.includes('UPDATE captured_documents')) { order.push('pointer'); return [insertedRow({ storage_path: 'p' })]; }
+      return [];
+    });
+    expect((await post()).statusCode).toBe(201);
+    expect(order).toEqual(['insert', 'store', 'pointer', 'queue']);
+  });
+
+  it('a Storage failure fails the request with 500 and queues nothing (the withAuth transaction rolls the insert back)', async () => {
+    m.store.mockRejectedValue(new Error('storage down'));
+    const res = await post();
+    expect(res.statusCode).toBe(500);
+    expect(m.runAfterCommit).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.text.includes('UPDATE captured_documents'))).toBe(false);
+  });
+
+  it('a failure writing the pointer queues nothing either', async () => {
+    m.sql.mockImplementation(async (strings: TemplateStringsArray) => {
+      const t = strings.join('?');
+      if (t.includes('COUNT(*)')) return [{ n: 0 }];
+      if (t.includes('INSERT INTO captured_documents')) return [insertedRow()];
+      throw new Error('pointer write failed');
+    });
+    expect((await post()).statusCode).toBe(500);
+    expect(m.runAfterCommit).not.toHaveBeenCalled();
+  });
+
+  it('stores nothing for a request that fails validation or a limit', async () => {
+    m.parse.mockResolvedValue({ files: {} });
+    await post();
+    m.parse.mockResolvedValue({ files: { file: file() } });
+    inFlight = 5;
+    await post();
+    m.rateLimit.mockResolvedValue(false);
+    inFlight = 0;
+    await post();
+    expect(m.store).not.toHaveBeenCalled();
+  });
+
+  it('the response carries retryable, false while it is being read, and never the storage pointer', async () => {
+    const res = await post();
+    const doc = (res.sent as { data: { document: Record<string, unknown> } }).data.document;
+    expect(doc.retryable).toBe(false);
+    expect(JSON.stringify(res.sent)).not.toContain('storage_path');
+    expect(JSON.stringify(res.sent)).not.toContain(`${CO}/${DOC}`);
   });
 
   it('still validates before it inserts: a file whose bytes do not match its type is a 400', async () => {
@@ -225,6 +312,14 @@ describe('GET /api/accounting/document-capture — read state', () => {
     const res = await get({ id: DOC });
     expect((res.sent as { data: Record<string, unknown> }).data).toMatchObject({
       readState: 'failed', readError: 'The read was interrupted — upload the document again.',
+    });
+  });
+
+  it('says retry only for a stale row that can be retried (stored file, pending, unposted)', async () => {
+    m.sql.mockResolvedValue([insertedRow({ created_at: minutesAgo(30), storage_path: 'co/doc', posted_at: null })]);
+    const res = await get({ id: DOC });
+    expect((res.sent as { data: Record<string, unknown> }).data).toMatchObject({
+      readState: 'failed', readError: 'The read was interrupted — retry it.', retryable: true,
     });
   });
 

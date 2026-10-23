@@ -293,6 +293,6 @@ describe('S-07: every legitimate users writer still succeeds', () => {
   it('data-subject-rights erasure (withAuth; the UPDATE on the migration_admin pool) anonymises names and email', async () => {
     const r = await callRoute(dsrRoute, { sub: me, method: 'POST', companyId: company, body: { action: 'erasure' } });
     expect(r.status).toBe(200);
-    expect(await userRow(me)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${me.slice(0, 8)}@deleted.invalid` });
+    expect(await userRow(me)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${me}@deleted.invalid` });
   });
 });

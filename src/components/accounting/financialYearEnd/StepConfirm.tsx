@@ -27,7 +27,7 @@ export function StepConfirm({ month, kind, endDate, onBack, onApplied }: Props) 
     setRefusals([]);
     try {
       await sendYearEndChange('POST', {
-        newYearEndMonth: month, kind, reason: reason.trim(), cipcFiledConfirmed: cipc, sarsNotifiedConfirmed: sars,
+        newYearEndMonth: month, kind, expectedEndDate: endDate, reason: reason.trim(), cipcFiledConfirmed: cipc, sarsNotifiedConfirmed: sars,
       });
       onApplied();
     } catch (err) {

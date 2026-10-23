@@ -58,7 +58,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const month = parseMonth(body.newYearEndMonth);
       if (month === null) return apiResponse.badRequest(res, 'newYearEndMonth must be a month 1-12');
+      const expectedEndDate = typeof body.expectedEndDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.expectedEndDate)
+        ? body.expectedEndDate : null;
+      if (expectedEndDate === null) {
+        return apiResponse.badRequest(res, 'expectedEndDate (the new year end you confirmed in the preview, YYYY-MM-DD) is required');
+      }
       const result = await applyYearEndChange(companyId, userId, {
+        expectedEndDate,
         newYearEndMonth: month,
         kind: parseKind(body.kind),
         reason: typeof body.reason === 'string' ? body.reason : '',

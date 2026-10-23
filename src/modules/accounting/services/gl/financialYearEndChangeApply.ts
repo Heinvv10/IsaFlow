@@ -39,6 +39,13 @@ export interface YearEndChangeApplyInput extends YearEndChangeRequest {
   reason: string;
   cipcFiledConfirmed: boolean;
   sarsNotifiedConfirmed: boolean;
+  /**
+   * The transition year's new end the user saw in the preview and confirmed
+   * CIPC/SARS for. The route requires it; when given, apply refuses a different
+   * outcome (a wizard left open across a year end would otherwise change the
+   * NEXT year).
+   */
+  expectedEndDate?: string;
 }
 
 export class YearEndChangeRefusedError extends Error {
@@ -110,6 +117,10 @@ export async function applyYearEndChange(
   `;
   const a = await assessYearEndChange(companyId, input, today);
   if (a.refusals.length > 0 || !a.chosen) throw new YearEndChangeRefusedError(a.refusals);
+  if (input.expectedEndDate !== undefined && a.chosen.endDate !== input.expectedEndDate) {
+    throw new YearEndChangeRefusedError([`The change would now end FY${a.currentYear.fiscalYear} on ${a.chosen.endDate}, `
+      + `not the ${input.expectedEndDate} you confirmed; preview it again.`]);
+  }
   const year = a.currentYear;
   const chosen = a.chosen;
 

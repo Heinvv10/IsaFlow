@@ -59,6 +59,11 @@ async function member(of: SetupUser, role: string): Promise<SetupUser> {
 }
 
 const OK = { reason: 'Align with the holding company year end', cipcFiledConfirmed: true, sarsNotifiedConfirmed: true };
+/** The end date the preview shows for moving the year end to February: what the wizard confirms and sends. */
+async function previewedEnd(o: SetupUser): Promise<string> {
+  const r = await call(o, 'GET', undefined, { newYearEndMonth: '2', kind: 'extend' });
+  return String((r.body.data?.preview as { chosen?: { endDate?: string } })?.chosen?.endDate);
+}
 const changes = async (co: string) => Number((await pool.query('SELECT COUNT(*)::int AS n FROM fiscal_year_end_changes WHERE company_id = $1', [co])).rows[0].n);
 
 describe('who may call it', () => {
@@ -81,6 +86,15 @@ describe('who may call it', () => {
 });
 
 describe('what it does for an owner', () => {
+  it('POST without the confirmed end date is refused (400), and a stale one is refused (409), writing nothing', async () => {
+    const o = await owner();
+    expect((await call(o, 'POST', { newYearEndMonth: 2, kind: 'extend', ...OK })).status).toBe(400);
+    const stale = await call(o, 'POST', { newYearEndMonth: 2, kind: 'extend', expectedEndDate: '2001-02-28', ...OK });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error?.details?.refusals?.join(' ')).toMatch(/you confirmed; preview it again/);
+    expect(await changes(o.homeCompanyId)).toBe(0);
+  });
+
   it('GET previews and writes nothing; a refusal is 409 with its list; an apply is recorded against the caller', async () => {
     const o = await owner();
     const preview = await call(o, 'GET', undefined, { newYearEndMonth: '2' });
@@ -88,12 +102,12 @@ describe('what it does for an owner', () => {
     expect((preview.body.data?.preview as { chosen?: { months?: number } })?.chosen?.months).toBeGreaterThan(0);
     expect(await changes(o.homeCompanyId)).toBe(0);
 
-    const refused = await call(o, 'POST', { newYearEndMonth: 2, ...OK, sarsNotifiedConfirmed: false });
+    const refused = await call(o, 'POST', { newYearEndMonth: 2, kind: 'extend', expectedEndDate: await previewedEnd(o), ...OK, sarsNotifiedConfirmed: false });
     expect(refused.status).toBe(409);
     expect(refused.body.error?.details?.refusals?.join(' ')).toMatch(/SARS/);
     expect(await changes(o.homeCompanyId)).toBe(0);
 
-    const applied = await call(o, 'POST', { newYearEndMonth: 2, ...OK });
+    const applied = await call(o, 'POST', { newYearEndMonth: 2, kind: 'extend', expectedEndDate: await previewedEnd(o), ...OK });
     expect(applied.status, JSON.stringify(applied.body)).toBe(200);
     const rec = (await pool.query('SELECT applied_by::text AS by, snapshot FROM fiscal_year_end_changes WHERE company_id = $1', [o.homeCompanyId])).rows;
     expect(rec).toHaveLength(1);
@@ -151,7 +165,7 @@ describe('an owner cannot write history by hand either (app_user, raw SQL)', () 
 
   it('marking a live change reversed without undoing it is refused', async () => {
     const o = await owner();
-    expect((await call(o, 'POST', { newYearEndMonth: 2, ...OK })).status).toBe(200);
+    expect((await call(o, 'POST', { newYearEndMonth: 2, kind: 'extend', expectedEndDate: await previewedEnd(o), ...OK })).status).toBe(200);
     const err = await asOwner(o, (c) => c.query(
       `UPDATE fiscal_year_end_changes SET reversed_at = now(), reversed_by = $1, reversal_reason = 'not really' WHERE company_id = $2`,
       [o.userId, o.homeCompanyId]));

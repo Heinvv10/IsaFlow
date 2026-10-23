@@ -99,6 +99,23 @@ describe('undoRun', () => {
     expect(joined.some((t) => /UPDATE bank_auto_post_runs/.test(t))).toBe(false);
   });
 
+  it('learning loop: each reversed row closes its auto-posted decision as undone; the skipped row does not', async () => {
+    routeSql([
+      { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
+      { match: /FROM bank_transactions\s+WHERE auto_post_run_id/, rows: [
+        { id: 't1', status: 'reconciled', matched_journal_line_id: 'jl-1', provisional_je_id: null },
+        { id: 't2', status: 'allocated', matched_journal_line_id: 'jl-2', provisional_je_id: null },
+      ] },
+    ]);
+
+    await undoRun('co-1', 'run-1', 'u-1');
+
+    const undone = sqlMock.mock.calls.filter((c) => /UPDATE categorization_decisions/.test((c[0] as TemplateStringsArray).join('?')));
+    expect(undone).toHaveLength(1);
+    // Keyed on the posting the locked row carried (its matched journal line), not "the latest auto-post".
+    expect(undone[0]!.slice(1)).toEqual(['undone', 'u-1', 'co-1', 't2', null, null, 'jl-2', 'co-1']);
+  });
+
   it('marks the run undone when every row was reversed', async () => {
     routeSql([
       { match: /FROM bank_auto_post_runs/, rows: [{ id: 'run-1', undone_at: null }] },
