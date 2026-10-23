@@ -17,6 +17,7 @@ import { SupplierNotInCompanyError } from '@/modules/accounting/services/core/co
 import { countBatchBills, getBatchMembers } from '@/modules/accounting/services/ap/batchPaymentMembers';
 import { pendingReservations } from '@/modules/accounting/services/ap/supplierBatchAllocationPlan';
 import { describeApprovalGate } from '@/modules/accounting/services/gl/approvalGate';
+import { batchChangedSinceApproval } from '@/modules/accounting/services/ap/batchApprovedDigest';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -54,6 +55,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         // R-035 PR5: the derived approval state while approve or process is still ahead.
         approval: batch.status === 'draft' || batch.status === 'approved'
           ? await describeApprovalGate(companyId, 'payment_batch', batch.id) : null,
+        // Migration 922: approved, but its content is no longer what was approved — file, send and process refuse it.
+        changedSinceApproval: batch.status === 'approved' || batch.status === 'processed'
+          ? await batchChangedSinceApproval(companyId, batch.id) : false,
       });
     }
 
