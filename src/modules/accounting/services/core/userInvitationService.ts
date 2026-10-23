@@ -8,7 +8,7 @@ import { sql } from '@/lib/neon';
 import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
 import type { PoolClient } from 'pg';
-import { migrationAdminPool, migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import type { PendingInvitation, InvitationWithToken, InvitationResult } from './userAccessService';
 import type { DbRow } from '@/types/db';
 
@@ -72,14 +72,7 @@ export async function createInvitation(
 
   const inv = await migrationAdminTx('create invitation', async (client) => {
     await assertCanInvite(client, companyId, invitedBy, role);
-    const member = await client.query(
-      `SELECT 1 FROM company_users cu JOIN users u ON u.id::TEXT = cu.user_id::TEXT
-        WHERE cu.company_id = $1::UUID AND lower(u.email) = lower($2) LIMIT 1`,
-      [companyId, email],
-    );
-    if ((member.rowCount ?? 0) > 0) {
-      throw new Error('This user is already a member of the company.');
-    }
+    await assertNotMember(client, companyId, email);
     const rows = await client.query(
       `INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
        VALUES ($1::UUID, $2, $3, $4, $5, $6::TIMESTAMPTZ)
@@ -129,6 +122,28 @@ export async function assertCanInvite(
   }
 }
 
+/**
+ * Refuses an address that already belongs to a member of the company. Run
+ * after assertCanInvite, so only an owner or admin learns the answer, which
+ * the members screen shows them anyway.
+ */
+export async function assertNotMember(client: PoolClient, companyId: string, email: string): Promise<void> {
+  const member = await client.query(
+    `SELECT 1 FROM company_users cu JOIN users u ON u.id::TEXT = cu.user_id::TEXT
+      WHERE cu.company_id = $1::UUID AND lower(u.email) = lower($2) LIMIT 1`,
+    [companyId, email],
+  );
+  if ((member.rowCount ?? 0) > 0) throw new InvitationConflictError('This user is already a member of the company.');
+}
+
+/** The address is already a member's (see assertNotMember): a 409. */
+export class InvitationConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvitationConflictError';
+  }
+}
+
 /** The inviter may not write this invitation (see assertCanInvite). */
 export class InvitationForbiddenError extends Error {
   constructor(message: string) {
@@ -151,20 +166,21 @@ export async function listPendingInvitations(companyId: string): Promise<Pending
 }
 
 // The send status, on the same pool as the invitation it describes: no app
-// role may UPDATE company_invitations (migration 930).
+// role may UPDATE company_invitations (migration 930). Through migrationAdminTx
+// so the change log names the sender, as for every write to a tracked table.
 export async function markInvitationEmailSent(invitationId: string, companyId: string): Promise<void> {
-  await migrationAdminPool().query(
+  await migrationAdminTx('invitation email sent', (client) => client.query(
     `UPDATE company_invitations SET email_sent_at = NOW(), email_error = NULL
       WHERE id = $1::UUID AND company_id = $2::UUID`,
     [invitationId, companyId],
-  );
+  ));
 }
 
 export async function markInvitationEmailFailed(invitationId: string, companyId: string, error: string): Promise<void> {
-  await migrationAdminPool().query(
+  await migrationAdminTx('invitation email failed', (client) => client.query(
     'UPDATE company_invitations SET email_error = $3 WHERE id = $1::UUID AND company_id = $2::UUID',
     [invitationId, companyId, error],
-  );
+  ));
 }
 
 export async function cancelInvitation(invitationId: string, companyId: string): Promise<void> {

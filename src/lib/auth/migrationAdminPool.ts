@@ -9,7 +9,12 @@
  *     verified session's user id, and emailVerificationService (register,
  *     resend, verify-email) owns the verification tokens whose payload becomes
  *     users.email: migration 918 takes both away from the service pool
- *     (S-07b follow-ups).
+ *     (S-07b follow-ups);
+ *   - every credential and membership write (S-07c, migration 930): PAT and
+ *     capture-key create and revoke, every OAuth write but the last-used
+ *     stamp, invitation create, refresh and send status, password-reset
+ *     tokens and the impersonation stash. Their rows are honoured as an
+ *     identity, so no app role may write them.
  */
 import pg from 'pg';
 // Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
@@ -24,7 +29,7 @@ let _pool: pg.Pool | null = null;
 export function migrationAdminPool(): pg.Pool {
   if (_pool) return _pool;
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
-  if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required for invite accept, change-email and erasure');
+  if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required: invitations, change-email, erasure, PATs, OAuth, password reset');
   _pool = new pg.Pool({
     connectionString: url,
     // change-email holds a connection (and its users row) across one GoTrue
@@ -32,6 +37,9 @@ export function migrationAdminPool(): pg.Pool {
     // starve invite accept, erasure and signup. A caller waiting longer than
     // the checkout bound for a connection gets an error instead of waiting
     // forever: the same bound rollbackFailed assumes for the other pools.
+    // Nothing else holds a connection across an outside call: the OAuth token
+    // endpoint checks a code or refresh token on the service pool before it
+    // comes here, and an invitation calls GoTrue between its transactions.
     max: 4,
     connectionTimeoutMillis: 15_000,
     ssl:

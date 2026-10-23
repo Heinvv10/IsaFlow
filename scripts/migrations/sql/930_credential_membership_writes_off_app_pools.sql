@@ -6,6 +6,9 @@
 -- privileged path later honours as an identity, a credential, a membership or
 -- a role, so a forged row is a minted credential:
 --   personal_access_tokens, oauth_authorisations   live bearer tokens;
+--   capture_api_keys                               a live upload credential,
+--                                                  acting as its creator (or,
+--                                                  with none, as manager);
 --   oauth_authorisation_codes                      exchanged for one;
 --   oauth_apps                                     says who may obtain one;
 --   company_invitations                            accepted on the
@@ -22,16 +25,20 @@
 -- access:
 --   company_users.role       the members screen changes a member's role;
 --                            this needs an existing membership (residual);
---   last_used_at/_ip         bearer validation stamps them on the service pool.
--- revoked_at is not granted back: an UPDATE that can set it can clear it, and
--- revive a revoked token. DELETE stays where it only removes access.
+--   last_used_at/_ip         bearer and capture-key validation stamp them on
+--                            the service pool.
+-- revoked_at and is_active are not granted back: an UPDATE that can set them
+-- can clear them, and revive a revoked token. DELETE stays where it only
+-- removes access. A definer function app roles may call that writes one of
+-- these tables is a rule too; the three that do are reviewed by name below.
 -- auth_password_reset_tokens and admin_impersonation_stash lose every
 -- privilege, as 918 did for the verification tokens (the stash's target and
 -- the token hashes are what the attack needs to read).
 --
 -- Also (S-07c LOWs):
 --   C1 refresh_customer_invoice_view_summary() refreshes at most once per 10
---      minutes and never concurrently, so a loop of calls is not a DoS;
+--      minutes and never concurrently, so a loop of calls is not a DoS (the
+--      lock is on a table app roles cannot lock, so they cannot hold it off);
 --      refresh_customer_invoice_view_summary_if_due() does the same and says
 --      whether it refreshed. The state row is unreadable by app roles.
 --   C3 waitlist_signups gets row security. The public form keeps INSERT of its
@@ -42,9 +49,13 @@
 -- migration and every deploy (scripts/check-app-login-roles.ts) run.
 --
 -- Deploy window: migrations apply before the code switch. Until the new code
--- is live, the previous release's PAT/OAuth/invitation/password-reset/
--- impersonation-end writes are refused 42501 and answer an error, minting
--- nothing; reads, bearer validation and invite acceptance keep working.
+-- is live (and after a code-only rollback) the previous release's writes to
+-- these tables are refused 42501 and answer an error, minting nothing: PAT,
+-- OAuth app and capture-key create AND revoke, OAuth code exchange and
+-- refresh (connected MCP clients must reconnect), invitation create, password
+-- reset, end-impersonation, and the public waitlist form (its RETURNING needs
+-- SELECT). Reads, bearer validation, invite acceptance and admin suspension
+-- (platform_admin) keep working.
 
 REVOKE INSERT, UPDATE ON public.company_invitations FROM app_user, PUBLIC;
 REVOKE INSERT, UPDATE ON public.oauth_apps FROM app_user, PUBLIC;
@@ -58,6 +69,9 @@ GRANT UPDATE (last_used_at, last_used_ip) ON public.personal_access_tokens TO ap
 
 REVOKE INSERT, UPDATE ON public.oauth_authorisations FROM app_user, PUBLIC;
 GRANT UPDATE (last_used_at, last_used_ip) ON public.oauth_authorisations TO app_user;
+
+REVOKE INSERT, UPDATE ON public.capture_api_keys FROM app_user, PUBLIC;
+GRANT UPDATE (last_used_at) ON public.capture_api_keys TO app_user;
 
 REVOKE ALL ON public.auth_password_reset_tokens FROM app_user, PUBLIC;
 REVOKE ALL ON public.admin_impersonation_stash FROM app_user, PUBLIC;
@@ -77,7 +91,9 @@ GRANT INSERT (name, email, signup_type, company_name, practice_name, phone, annu
 DROP POLICY IF EXISTS waitlist_public_insert ON public.waitlist_signups;
 CREATE POLICY waitlist_public_insert ON public.waitlist_signups FOR INSERT TO app_user WITH CHECK (true);
 
--- C1: one refresh at a time, at most one per 10 minutes.
+-- C1: one refresh at a time, at most one per 10 minutes. The lock is the state
+-- table's, which no app role may lock: an advisory key could be held by any
+-- session that can name it.
 CREATE TABLE IF NOT EXISTS public.matview_refresh_state (
   view_name    text PRIMARY KEY,
   refreshed_at timestamptz NOT NULL
@@ -97,10 +113,12 @@ AS $$
 DECLARE
   v_last pg_catalog.timestamptz;
 BEGIN
-  -- A fixed key: a second caller while one refresh runs does nothing.
-  IF NOT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('refresh_customer_invoice_view_summary', 0)) THEN
+  -- A second caller while one refresh runs does nothing.
+  BEGIN
+    LOCK TABLE public.matview_refresh_state IN EXCLUSIVE MODE NOWAIT;
+  EXCEPTION WHEN lock_not_available THEN
     RETURN false;
-  END IF;
+  END;
   -- Read after the lock, so a refresh that committed meanwhile is seen.
   SELECT s.refreshed_at INTO v_last FROM public.matview_refresh_state s
    WHERE s.view_name = 'customer_invoice_view_summary_mv';
@@ -144,8 +162,8 @@ AS $$
         OR (pg_catalog.to_regrole('isaflow_service') IS NOT NULL AND pg_catalog.pg_has_role('isaflow_service', r.oid, 'MEMBER'))
   ),
   -- 930: per table, the columns an app role may still INSERT or UPDATE, and
-  -- whether it may read and DELETE. Every other column privilege, and DELETE
-  -- or TRUNCATE where not allowed, is a violation.
+  -- whether it may read and DELETE. Every other column privilege, DELETE where
+  -- not allowed, and TRUNCATE anywhere, is a violation.
   rules (tbl, may_insert, may_update, may_read, may_delete) AS (VALUES
     ('public.company_invitations',        '{}'::text[], '{}'::text[],                    true,  true),
     ('public.company_users',              '{}',         '{role}',                        true,  true),
@@ -153,6 +171,7 @@ AS $$
     ('public.oauth_apps',                 '{}',         '{}',                            true,  true),
     ('public.oauth_authorisation_codes',  '{}',         '{}',                            true,  true),
     ('public.oauth_authorisations',       '{}',         '{last_used_at,last_used_ip}',   true,  true),
+    ('public.capture_api_keys',           '{}',         '{last_used_at}',                true,  true),
     ('public.auth_password_reset_tokens', '{}',         '{}',                            false, false),
     ('public.password_reset_tokens',      '{}',         '{}',                            false, false),
     ('public.admin_impersonation_stash',  '{}',         '{}',                            false, false),
@@ -197,8 +216,24 @@ AS $$
     FROM reach
    CROSS JOIN ruled
    CROSS JOIN (VALUES ('DELETE'), ('TRUNCATE')) p(priv)
-   WHERE NOT ruled.may_delete
+   WHERE (p.priv = 'TRUNCATE' OR NOT ruled.may_delete)
      AND pg_catalog.has_table_privilege(reach.oid, ruled.rel, p.priv)
+  UNION ALL
+  -- A definer runs as its owner, so a privilege rule cannot see what it
+  -- writes. Reviewed: create_company_with_owner (a NEW company, its caller as
+  -- owner), auth.set_default_company (is_default only) and the C1 refresh.
+  SELECT DISTINCT pg_catalog.format('%s (reachable from an app pool login) can EXECUTE %s, a definer that writes %s',
+                                    reach.rolname, p.oid::regprocedure, m.tbl)
+    FROM reach
+   CROSS JOIN pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   CROSS JOIN LATERAL (SELECT (pg_catalog.regexp_matches(p.prosrc,
+       '\m(?:insert\s+into|update|delete\s+from)\s+(?:public\.)?(' || (SELECT pg_catalog.string_agg(pg_catalog.substr(r.tbl, 8), '|') FROM rules r) || ')\M',
+       'gi'))[1] AS tbl) m
+   WHERE p.prosecdef AND n.nspname IN ('public', 'auth', 'app', 'platform_shared')
+     AND pg_catalog.has_function_privilege(reach.oid, p.oid, 'EXECUTE')
+     AND p.oid::regprocedure::text NOT IN ('create_company_with_owner(jsonb)', 'auth.set_default_company(uuid,uuid)',
+                                           'refresh_customer_invoice_view_summary_if_due()')
   UNION ALL
   SELECT 'waitlist_signups has no row security'
    WHERE NOT COALESCE((SELECT c.relrowsecurity FROM pg_catalog.pg_class c
@@ -232,6 +267,8 @@ BEGIN
       ('migration_admin', 'public.oauth_authorisations', 'SELECT, INSERT, UPDATE'),
       ('migration_admin', 'public.auth_password_reset_tokens', 'SELECT, INSERT, UPDATE, DELETE'),
       ('migration_admin', 'public.admin_impersonation_stash', 'SELECT, INSERT, DELETE'),
+      ('migration_admin', 'public.capture_api_keys', 'SELECT, INSERT, UPDATE'),
+      ('platform_admin', 'public.waitlist_signups', 'SELECT, UPDATE'),
       ('platform_admin', 'public.personal_access_tokens', 'UPDATE'),
       ('platform_admin', 'public.oauth_authorisations', 'UPDATE')) w(role, tbl, privs),
     LATERAL pg_catalog.unnest(pg_catalog.string_to_array(w.privs, ', ')) p(priv)

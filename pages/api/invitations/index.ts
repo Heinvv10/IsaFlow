@@ -53,10 +53,11 @@ const createInvitation: NextApiHandler = async (req, res) => {
   const tokenHash = hashInviteToken(token);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  // 1-3 run in one transaction on the migration_admin pool (S-07c): an
-  //    invitation is honoured by the accept routes on that pool, so no app role
-  //    may write company_invitations (migration 930), and the guard trigger's
-  //    rules are checked by assertCanInvite against the verified caller.
+  // 1 and 3 run on the migration_admin pool (S-07c): an invitation is honoured
+  //    by the accept routes on that pool, so no app role may write
+  //    company_invitations (migration 930), and the guard trigger's rules are
+  //    checked by assertCanInvite against the verified caller. GoTrue (2) is
+  //    called between them, holding no connection: that pool is small.
   //
   // 1. Insert invitation row. UNIQUE(company_id, email) means a resend — or a
   //    re-invite of someone who accepted and was later removed — collides with
@@ -66,11 +67,14 @@ const createInvitation: NextApiHandler = async (req, res) => {
   //    already promises. The old link stops working, which is what a resend
   //    means. Tenant-scoped by the conflict target, so this can never touch
   //    another company's invitation for the same address.
-  let inviteId: string;
+  let inv: { id: string; inserted: boolean };
   try {
-    inviteId = await migrationAdminTx('create invitation', async (client) => {
+    inv = await migrationAdminTx('create invitation', async (client) => {
+      // No assertNotMember here, unlike createInvitation: this route re-invites
+      // a member at another role, which accepting applies (never to an
+      // owner's row; PR #691, r035-n1b-members-accept).
       await assertCanInvite(client, companyId, user.id, role);
-      const inv = await client.query<{ id: string }>(
+      const rows = await client.query<{ id: string; inserted: boolean }>(
         `INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
          VALUES ($1::uuid, $2, $3, $4, $5, $6)
          ON CONFLICT (company_id, email) DO UPDATE SET
@@ -81,26 +85,10 @@ const createInvitation: NextApiHandler = async (req, res) => {
            accepted_at = NULL,
            email_sent_at = NULL,
            email_error = NULL
-         RETURNING id`,
+         RETURNING id, (xmax = 0) AS inserted`,
         [companyId, cleanEmail, role, user.id, tokenHash, expiresAt],
       );
-      const id = inv.rows[0]!.id;
-
-      // 2. Admin-create GoTrue user (email_confirm:true so they can sign in once password is set).
-      //    On 422 (already exists) adminCreateUser returns the existing user via lookup.
-      //    Inside the transaction, as before: a GoTrue failure leaves no invitation behind.
-      const gotrueUser = await adminCreateUser({
-        email: cleanEmail,
-        email_confirm: true,
-        user_metadata: { invite_id: id },
-      });
-
-      // 3. Stash gotrue_user_id on the invitation for later accept
-      await client.query(
-        'UPDATE company_invitations SET gotrue_user_id = $3::uuid WHERE id = $1::uuid AND company_id = $2::uuid',
-        [id, companyId, gotrueUser.id],
-      );
-      return id;
+      return rows.rows[0]!;
     });
   } catch (err) {
     if (err instanceof InvitationForbiddenError) {
@@ -108,6 +96,34 @@ const createInvitation: NextApiHandler = async (req, res) => {
     }
     throw err;
   }
+  const inviteId = inv.id;
+
+  // 2. Admin-create GoTrue user (email_confirm:true so they can sign in once password is set).
+  //    On 422 (already exists) adminCreateUser returns the existing user via lookup.
+  //    A new invitation GoTrue could not back is taken back, as the request
+  //    transaction's rollback used to; a refreshed one keeps its earlier user.
+  let gotrueUser: { id: string };
+  try {
+    gotrueUser = await adminCreateUser({
+      email: cleanEmail,
+      email_confirm: true,
+      user_metadata: { invite_id: inviteId },
+    });
+  } catch (err) {
+    if (inv.inserted) {
+      await migrationAdminTx('withdraw invitation', (client) => client.query(
+        'DELETE FROM company_invitations WHERE id = $1::uuid AND company_id = $2::uuid AND gotrue_user_id IS NULL',
+        [inviteId, companyId],
+      ));
+    }
+    throw err;
+  }
+
+  // 3. Stash gotrue_user_id on the invitation for later accept
+  await migrationAdminTx('invitation gotrue user', (client) => client.query(
+    'UPDATE company_invitations SET gotrue_user_id = $3::uuid WHERE id = $1::uuid AND company_id = $2::uuid',
+    [inviteId, companyId, gotrueUser.id],
+  ));
 
   // 4. Company name for the email
   const [company] = await sql<{ name: string }>`SELECT name FROM companies WHERE id = ${companyId}::uuid`;
@@ -139,7 +155,7 @@ const createInvitation: NextApiHandler = async (req, res) => {
   }
 
   if (emailError !== null) {
-    log.warn('invite email send failed', { inviteId: inviteId, message: emailError }, 'Invitations');
+    log.warn('invite email send failed', { inviteId, message: emailError }, 'Invitations');
     await markInvitationEmailFailed(inviteId, companyId, emailError);
     // 201, not 502: withAuth ROLLBACKs the request transaction on any status
     // >= 500, so the 502 this used to return discarded the invitation row, the

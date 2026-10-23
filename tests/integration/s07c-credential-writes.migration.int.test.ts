@@ -62,6 +62,20 @@ describe('S-07c: migration 930', () => {
       R(APP, 'INSERT waitlist_signups\\.promoted_company_id')],
     ['the throttle state readable', 'GRANT SELECT ON public.matview_refresh_state TO app_service', R('app_service', 'SELECT matview_refresh_state\\.')],
     ['the waitlist without row security', 'ALTER TABLE public.waitlist_signups DISABLE ROW LEVEL SECURITY', /930: waitlist_signups has no row security/],
+    ['memberships truncatable', 'GRANT TRUNCATE ON public.company_users TO app_user', R(APP, 'TRUNCATE company_users$')],
+    ['PATs truncatable', 'GRANT TRUNCATE ON public.personal_access_tokens TO PUBLIC', R('\\w+', 'TRUNCATE personal_access_tokens$')],
+    ['capture keys inserted', 'GRANT INSERT (company_id, label, key_hash, key_prefix) ON public.capture_api_keys TO app_user',
+      R(APP, 'INSERT capture_api_keys\\.')],
+    ['a capture key revivable', 'GRANT UPDATE (is_active) ON public.capture_api_keys TO app_service', R('app_service', 'UPDATE capture_api_keys\\.is_active')],
+    ['a code re-openable', 'GRANT UPDATE (used_at) ON public.oauth_authorisation_codes TO app_user', R(APP, 'UPDATE oauth_authorisation_codes\\.used_at')],
+    ['the stash deletable', 'GRANT DELETE ON public.admin_impersonation_stash TO app_user', R(APP, 'DELETE admin_impersonation_stash$')],
+    ['the pre-491 reset tokens readable', 'GRANT SELECT ON public.password_reset_tokens TO app_user', R(APP, 'SELECT password_reset_tokens\\.')],
+    ['a definer that mints, callable by app_user', `CREATE FUNCTION public.s07c_mint(u text) RETURNS void LANGUAGE sql SECURITY DEFINER
+      AS $f$ INSERT INTO public.company_users (company_id, user_id, role) VALUES (gen_random_uuid(), u, 'owner') $f$;
+      GRANT EXECUTE ON FUNCTION public.s07c_mint(text) TO app_user`, R(APP, 'EXECUTE s07c_mint\\(text\\), a definer that writes company_users')],
+    ['a definer that mints, callable through PUBLIC\'s default', `CREATE FUNCTION public.s07c_mint2() RETURNS void LANGUAGE sql
+      SECURITY DEFINER AS $f$ UPDATE public.personal_access_tokens SET revoked_at = NULL $f$`,
+    R('\\w+', 'EXECUTE s07c_mint2\\(\\), a definer that writes personal_access_tokens')],
   ])('refuses the mutant: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(GUARD_930);
@@ -74,6 +88,7 @@ describe('S-07c: migration 930', () => {
     ['a member\'s role', 'GRANT UPDATE (role) ON public.company_users TO app_user'],
     ['the bearer last-used stamp', 'GRANT UPDATE (last_used_at, last_used_ip) ON public.oauth_authorisations TO app_user'],
     ['a cancel', 'GRANT DELETE ON public.company_invitations TO app_user'],
+    ['the capture-key last-used stamp', 'GRANT UPDATE (last_used_at) ON public.capture_api_keys TO app_user'],
     ['a waitlist signup', 'GRANT INSERT (name, email) ON public.waitlist_signups TO app_user'],
   ])('allows what 930 grants back: %s', async (_, grant) => {
     await rolledBack(async (q) => {
@@ -91,6 +106,10 @@ describe('S-07c: migration 930', () => {
       /930: migration_admin cannot SELECT public\.auth_password_reset_tokens/],
     ['platform_admin, suspension\'s revoke-all', 'REVOKE UPDATE ON public.oauth_authorisations FROM platform_admin',
       /930: platform_admin cannot UPDATE public\.oauth_authorisations/],
+    ['migration_admin, the capture key mint', 'REVOKE INSERT ON public.capture_api_keys FROM migration_admin',
+      /930: migration_admin cannot INSERT public\.capture_api_keys/],
+    ['platform_admin, the waitlist promotion', 'REVOKE UPDATE ON public.waitlist_signups FROM platform_admin',
+      /930: platform_admin cannot UPDATE public\.waitlist_signups/],
   ])('refuses a database where the moved writes could not run: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(PREFLIGHT_930);

@@ -53,6 +53,11 @@ describe('C1 (930): the matview refresh is throttled', () => {
     expect(await refreshedAt()).toEqual(first);
   });
 
+  it('a call 9 minutes after the last does not refresh', async () => {
+    await fixture.query(`INSERT INTO matview_refresh_state VALUES ('customer_invoice_view_summary_mv', clock_timestamp() - interval '9 minutes')`);
+    expect(await callCron(matviewRoute, CRON)).toMatchObject({ status: 200, body: { data: { refreshed: false } } });
+  });
+
   it('a call 10 minutes after the last refreshes again', async () => {
     await fixture.query(`INSERT INTO matview_refresh_state VALUES ('customer_invoice_view_summary_mv', clock_timestamp() - interval '11 minutes')`);
     expect(await callCron(matviewRoute, CRON)).toMatchObject({ status: 200, body: { data: { refreshed: true } } });
@@ -73,6 +78,22 @@ describe('C1 (930): the matview refresh is throttled', () => {
       await a.query('ROLLBACK').catch(() => undefined);
       await b.query('RESET statement_timeout').catch(() => undefined);
       a.release(); b.release();
+    }
+  });
+
+  // Breaker round 1: an advisory key can be held by any session that names it.
+  it('an app pool cannot hold the refresh off: the advisory key is no lock, and the state table cannot be locked', async () => {
+    const c = await getDbPool().connect();
+    try {
+      await c.query(`SELECT pg_advisory_lock(hashtextextended('refresh_customer_invoice_view_summary', 0))`);
+      expect(await callCron(matviewRoute, CRON)).toMatchObject({ status: 200, body: { data: { refreshed: true } } });
+      await c.query('BEGIN');
+      await expect(c.query('LOCK TABLE public.matview_refresh_state IN ACCESS SHARE MODE NOWAIT'))
+        .rejects.toThrow('permission denied for table matview_refresh_state');
+    } finally {
+      await c.query('ROLLBACK').catch(() => undefined);
+      await c.query('SELECT pg_advisory_unlock_all()').catch(() => undefined);
+      c.release(true);
     }
   });
 
