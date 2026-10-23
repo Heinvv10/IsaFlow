@@ -22,6 +22,7 @@
 import {
   dayBefore,
   fiscalYearForDate,
+  assertDeclaredBasis,
   priorFiscalYear,
   requireFiscalYear,
 } from '@/modules/accounting/services/gl/fiscalYearRegistry';
@@ -83,7 +84,7 @@ export async function getFiscalRange(
   companyId: string,
   fiscalYear: number,
 ): Promise<FiscalRange> {
-  const year = await requireFiscalYear(companyId, fiscalYear);
+  const year = assertDeclaredBasis(companyId, await requireFiscalYear(companyId, fiscalYear));
   return { start: year.startDate, end: year.endDate };
 }
 
@@ -101,11 +102,11 @@ export async function getFiscalRangeWithPrior(
   fiscalYear: number,
   withPrior = false,
 ): Promise<{ current: FiscalRange; prior: FiscalRange | null }> {
-  const year = await requireFiscalYear(companyId, fiscalYear);
+  const year = assertDeclaredBasis(companyId, await requireFiscalYear(companyId, fiscalYear));
   const current = { start: year.startDate, end: year.endDate };
   if (!withPrior) return { current, prior: null };
 
-  const before = await priorFiscalYear(companyId, year);
+  const before = assertDeclaredBasis(companyId, await priorFiscalYear(companyId, year));
   return { current, prior: { start: before.startDate, end: before.endDate } };
 }
 
@@ -114,7 +115,7 @@ export async function getPriorFiscalRange(
   companyId: string,
   fiscalYear: number,
 ): Promise<FiscalRange> {
-  const year = await requireFiscalYear(companyId, fiscalYear);
-  const before = await priorFiscalYear(companyId, year);
+  const year = assertDeclaredBasis(companyId, await requireFiscalYear(companyId, fiscalYear));
+  const before = assertDeclaredBasis(companyId, await priorFiscalYear(companyId, year));
   return { start: before.startDate, end: before.endDate };
 }

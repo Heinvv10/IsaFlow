@@ -129,3 +129,17 @@ describe('general ledger year boundary', () => {
     expect(rows.find((r) => r.accountCode === 'R-4000')!.openingBalance).toBe(200);
   });
 });
+
+describe('no silent March for the AFS', () => {
+  it('refuses AFS ranges for a company with no usable financial_year_start and no stored year; a TB read still assumes March', async () => {
+    const bare = crypto.randomUUID();
+    await pool.query(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'FYREAD unset', NULL)`, [bare]);
+    try {
+      await expect(inTx(() => getFiscalRange(bare, 2026))).rejects.toThrow(/no usable financial_year_start/);
+      await expect(inTx(() => getFiscalRangeWithPrior(bare, 2026, true))).rejects.toThrow(/no usable financial_year_start/);
+      expect(await inTx(() => fiscalYearForDate(bare, '2026-05-01'))).toMatchObject({ startDate: '2026-03-01', assumed: true, stored: false });
+    } finally {
+      await pool.query('DELETE FROM companies WHERE id = $1', [bare]);
+    }
+  });
+});
