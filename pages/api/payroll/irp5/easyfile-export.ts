@@ -180,7 +180,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       })),
       taxThreshold: taxThresholdFor(taxYear, row.date_of_birth, row.id_number),
       medical: medical && {
-        fees: medical.fees, credit: medical.credit, additionalCredit: 0, age65OrOlder: age != null && age >= 65, recorded: medical.recorded,
+        fees: medical.fees, credit: medical.credit, additionalCredit: medical.additionalCredit, age65OrOlder: age != null && age >= 65, recorded: medical.recorded,
       },
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
