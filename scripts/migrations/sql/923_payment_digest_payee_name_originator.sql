@@ -28,6 +28,16 @@
 -- the name or the originator, so whether either changed between an approval and this deploy is not
 -- recorded anywhere. They are taken as they stand at deploy, as they were trusted until now.
 --
+-- AUTHORS (Hein, 2026-10-23: whoever changes what an approval covers may not approve it). A rename
+-- the digest sees joins the payee's bank_details_setters (application code, ap/supplierPaymentAuthors).
+-- The paying account gets its own: gl_accounts.bank_details_setters, written only by the bank-accounts
+-- PUT when the number or branch code changes (a new number restarts it, as for a payee), and derived
+-- LIVE by approval_supplier_payment_authors into every payment paid from the account — its own
+-- bank_account_id, or its batch's for a member — whatever its status, payments created later
+-- included, as the payee's setters are. Every list is NULL today, so no author list moves; a guard
+-- below refuses the migration if one does. Adding the column is catalogue-only (nullable, no
+-- default), under ACCESS EXCLUSIVE on gl_accounts, taken first and bounded by lock_timeout.
+--
 -- AFTER 874 and 922: the snapshot reads 874's live digest and 922's column; the first DO block
 -- refuses to run on anything older. Every table the digests read is locked first (874's order and
 -- modes, then the payment tables, batches before payees as the app takes them), so no edit can
@@ -45,6 +55,10 @@ BEGIN
     RAISE EXCEPTION 'migration 923: run as a role that bypasses RLS - the re-stamp must read every company''s documents';
   END IF;
 END $$;
+
+ALTER TABLE public.gl_accounts ADD COLUMN IF NOT EXISTS bank_details_setters UUID[];
+COMMENT ON COLUMN public.gl_accounts.bank_details_setters IS
+  'Who set this bank account''s CURRENT number / branch code (migration 923): authors of every payment paid from it. Written by the bank-accounts PUT only.';
 
 LOCK TABLE public.customer_invoices, public.customer_invoice_items, public.supplier_invoices,
            public.supplier_invoice_items, public.credit_notes IN SHARE MODE;
@@ -264,6 +278,49 @@ BEGIN
     AND b.digest IS DISTINCT FROM public.approval_document_digest(b.company_id, b.document_type, b.id);
   IF v_changed > 0 THEN
     RAISE EXCEPTION 'migration 923: approval_document_digest changed for % non-payment document(s)', v_changed;
+  END IF;
+END $$;
+
+-- 867's authors function, verbatim, but for the paying account's setters beside the payee's.
+DROP TABLE IF EXISTS pg_temp.r923_authors_before;
+CREATE TEMP TABLE r923_authors_before ON COMMIT DROP AS
+  SELECT b.company_id, b.document_type, b.id,
+         public.approval_document_authors(b.company_id, b.document_type, b.id) AS authors
+  FROM pg_temp.r923_before b
+  WHERE b.document_type IN ('supplier_payment', 'payment_batch');
+
+CREATE OR REPLACE FUNCTION public.approval_supplier_payment_authors(
+  p_company_id pg_catalog.uuid, p_payment_id pg_catalog.uuid
+) RETURNS pg_catalog.uuid[]
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT b.base || ARRAY(
+    SELECT DISTINCT d.author FROM public.payment_allocations pa
+    CROSS JOIN LATERAL unnest(public.approval_document_authors(sp.company_id, 'supplier_invoice', pa.invoice_id)) d(author)
+    WHERE pa.payment_id = sp.id AND d.author IS NOT NULL AND d.author <> ALL (b.base)
+    ORDER BY d.author)
+  FROM public.supplier_payments sp
+  LEFT JOIN public.suppliers s ON s.id = sp.supplier_id AND s.company_id = sp.company_id
+  LEFT JOIN public.gl_accounts ga ON ga.company_id = sp.company_id
+    AND ga.id = COALESCE(sp.bank_account_id, (SELECT pb.bank_account_id FROM public.supplier_payment_batches pb
+                                              WHERE pb.id = sp.batch_id AND pb.company_id = sp.company_id))
+  CROSS JOIN LATERAL (SELECT public.approval_add_author(sp.content_authors, sp.created_by) AS own) o
+  CROSS JOIN LATERAL (SELECT o.own || ARRAY(
+    SELECT DISTINCT x.author FROM unnest(COALESCE(s.bank_details_setters, '{}') || COALESCE(ga.bank_details_setters, '{}')) x(author)
+    WHERE x.author IS NOT NULL AND x.author <> ALL (o.own) ORDER BY x.author) AS base) b
+  WHERE sp.id = p_payment_id AND sp.company_id = p_company_id
+$$;
+
+DO $$
+DECLARE
+  v_changed pg_catalog.int8;
+BEGIN
+  SELECT count(*) INTO v_changed
+  FROM pg_temp.r923_authors_before a
+  WHERE a.authors IS DISTINCT FROM public.approval_document_authors(a.company_id, a.document_type, a.id);
+  IF v_changed > 0 THEN
+    RAISE EXCEPTION 'migration 923: approval_document_authors changed for % payment document(s)', v_changed;
   END IF;
 END $$;
 

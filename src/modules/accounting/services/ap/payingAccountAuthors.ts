@@ -10,10 +10,11 @@
  * processSupplierPayment takes (payment, then its journal's key share on the account). The caller holds the
  * company's role-write lock (bank-accounts PUT), which serialises every writer of these two columns.
  *
- * Named limits: only what pays from the account when the edit starts is stamped. A batch or payment pointed at the
- * account later is approved against the new number, as shown to its approver (expectedDigest); its editor is not
- * an author of it. A processed batch is history and is not stamped (as for payee bank edits): one re-approved after
- * the edit can be re-approved by its editor.
+ * The editor also joins the account's `bank_details_setters` (migration 923), which approval_supplier_payment_authors
+ * derives LIVE into every payment paid from the account (its own bank_account_id, or its batch's) whatever its status,
+ * those created later included — as a payee's setters are. A new number restarts the list at the editor (the old
+ * source is gone); a branch code or a reformat of the same digits appends. The content_authors stamps on what is in
+ * flight keep an editor whom a later restart drops.
  */
 
 import { sql } from '@/lib/neon';
@@ -72,6 +73,14 @@ export async function recordPayingAccountEdit(companyId: string, accountId: stri
   if (!locked.before || !after) return;
   const same = (c: string) => (locked.before![c] ?? null) === (after[c] ?? null);
   if (same('bank_account_number') && same('bank_branch_code')) return;
+  const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+  const repointed = digits(locked.before.bank_account_number) !== digits(after.bank_account_number);
+  await sql`
+    UPDATE gl_accounts
+    SET bank_details_setters = CASE WHEN ${repointed} THEN ARRAY[${userId}::UUID]
+                                    ELSE approval_add_author(bank_details_setters, ${userId}::UUID) END
+    WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID
+  `;
   if (locked.batchIds.length > 0) {
     await sql`
       UPDATE supplier_payment_batches

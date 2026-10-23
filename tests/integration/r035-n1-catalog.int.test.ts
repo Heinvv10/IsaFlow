@@ -122,7 +122,7 @@ const HELPERS: Record<string, HelperPin> = {
   'public.approval_roster_snapshot(uuid,text)': { md5: '879310d001e3e8d4882de532ab1499a0', result: 'jsonb', definer: false, volatility: 's' },
   'public.approval_rule_strictest_rank(uuid,text,numeric)': { md5: '23b7009e36d36f7fde8dc3fd9f6d2f44', result: 'integer', definer: false, volatility: 's' },
   'public.approval_supplier_invoice_gate_amount(numeric,numeric)': { md5: 'e1e7e46e7188788259f51638f9aa7536', result: 'numeric', definer: false, volatility: 'i' },
-  'public.approval_supplier_payment_authors(uuid,uuid)': { md5: 'cb2b3e8246a8c45b33f116db838c93a2', result: 'uuid[]', definer: false, volatility: 's' },
+  'public.approval_supplier_payment_authors(uuid,uuid)': { md5: '8eb8074c6e6557f9ad4acd426a274c8c', result: 'uuid[]', definer: false, volatility: 's' },
   'public.approval_supplier_payment_content(uuid,uuid)': { md5: '6c9b547f216344f245996cb90335033a', result: 'jsonb', definer: false, volatility: 's' },
   'public.approval_supplier_payment_gate_amount(numeric)': { md5: 'd4cf7981bd0db4cdb514891f17d6232a', result: 'numeric', definer: false, volatility: 'i' },
 };

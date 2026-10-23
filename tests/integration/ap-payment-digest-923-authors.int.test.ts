@@ -18,7 +18,7 @@ import bankAccounts from '../../pages/api/accounting/bank-accounts';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
-import { authorsOf, cleanupPr5, enforcePay, inRequest, payCompany, plantBill, plantPayment, plantSupplier } from './r035-pr5.helpers';
+import { authorsOf, cleanupPr5, enforcePay, inRequest, payCompany, plantBatch, plantBill, plantPayment, plantSupplier } from './r035-pr5.helpers';
 import { digestKit } from './ap-batch-approved-digest.helpers';
 
 assertDisposable();
@@ -26,7 +26,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
 const u = { a: '', b: '' };
-const { r, fixture } = digestKit(pool, u, tokens, companies);
+const { r, fixture, approve } = digestKit(pool, u, tokens, companies);
 
 beforeAll(async () => {
   for (const k of Object.keys(u) as (keyof typeof u)[]) u[k] = await createUser(pool, tokens);
@@ -43,6 +43,13 @@ const payingAccountOf = async (batchId: string) => (await pool.query(
   'SELECT bank_account_id FROM supplier_payment_batches WHERE id = $1', [batchId])).rows[0].bank_account_id as string;
 const setters = async (supplierId: string) => (await pool.query(
   'SELECT COALESCE(bank_details_setters::TEXT[], $2) AS s FROM suppliers WHERE id = $1', [supplierId, '{}'])).rows[0].s as string[];
+const accountSetters = async (accountId: string) => (await pool.query(
+  'SELECT COALESCE(bank_details_setters::TEXT[], $2) AS s FROM gl_accounts WHERE id = $1', [accountId, '{}'])).rows[0].s as string[];
+/** An enforced company's draft batch, and its paying account. */
+async function enforcedBatch() {
+  const { c, b } = await fixture(true);
+  return { c, b, bank: await payingAccountOf(b.id) };
+}
 /** u.a raises a request for the document's current content; u.b decides it. */
 async function bDecides(c: string, type: 'payment_batch' | 'supplier_payment', id: string) {
   const raised = await r.raise(u.a, c, type, id);
@@ -106,14 +113,40 @@ describe('a paying-account edit makes the editor an author of what pays from it'
     expect(reasonOf(res)).toBe(AUTHOR_REFUSED);
   });
 
-  it('the same number re-sent, or another column, stamps nothing; a processed batch is history and is left alone', async () => {
-    const { c, b } = await fixture(); // enforcement off: the raw status move below needs no approval
+  it('the same number re-sent, or another column, stamps nothing', async () => {
+    const { c, b } = await fixture();
     const account = await payingAccountOf(b.id);
     expect((await putAccount(c, { id: account, bankAccountNumber: '40000000001', bankName: 'Renamed Bank' })).state.statusCode).toBe(200);
     expect(await authorsOf(pool, c, 'payment_batch', b.id)).not.toContain(u.b);
-    await pool.query("UPDATE supplier_payment_batches SET status = 'processed' WHERE id = $1", [b.id])
-    expect((await putAccount(c, { id: account, bankAccountNumber: '40000009999' })).state.statusCode).toBe(200);
-    expect(await authorsOf(pool, c, 'payment_batch', b.id)).not.toContain(u.b);
+    expect(await accountSetters(account)).toEqual([]);
+  });
+
+  it('a processed batch, and a batch created after the edit, count the editor as an author (the account\'s setters)', async () => {
+    const { c, b, bank } = await enforcedBatch();
+    await r.approvedBy(pool, u.a, u.b, c, 'payment_batch', b.id);
+    await approve(c, b.id);
+    expect((await r.batch(u.a, c, 'process', b.id)).state.statusCode).toBe(200);
+    expect((await putAccount(c, { id: bank, bankAccountNumber: '40000009999' })).state.statusCode).toBe(200);
+    const processed = await bDecides(c, 'payment_batch', b.id); // the re-approval the file now needs
+    expect(processed.state.statusCode, JSON.stringify(processed.state.body)).toBe(403);
+    expect(reasonOf(processed)).toBe(AUTHOR_REFUSED);
+    const later = await plantBatch(pool, c, u.a, bank);
+    expect(await authorsOf(pool, c, 'payment_batch', later.id)).toContain(u.b);
+    const fresh = await bDecides(c, 'payment_batch', later.id);
+    expect(fresh.state.statusCode, JSON.stringify(fresh.state.body)).toBe(403);
+    expect(reasonOf(fresh)).toBe(AUTHOR_REFUSED);
+  });
+
+  it('a new number restarts the account\'s setters at its editor; a branch code appends', async () => {
+    const { c, b } = await fixture();
+    const account = await payingAccountOf(b.id);
+    await callRoute(bankAccounts, tokens[u.a]!, c, 'PUT', { id: account, bankBranchCode: '198765' }, '/api/accounting/bank-accounts');
+    expect(await accountSetters(account)).toEqual([u.a]);
+    await putAccount(c, { id: account, bankBranchCode: '250655' });
+    expect([...await accountSetters(account)].sort()).toEqual([u.a, u.b].sort());
+    await putAccount(c, { id: account, bankAccountNumber: '40000009999' });
+    expect(await accountSetters(account)).toEqual([u.b]);
+    expect(await authorsOf(pool, c, 'payment_batch', b.id)).toContain(u.a); // stamped on what was in flight: kept
   });
 });
 
