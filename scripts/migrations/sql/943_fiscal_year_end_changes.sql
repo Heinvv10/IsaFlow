@@ -16,7 +16,10 @@
 -- service's.
 --
 -- Rows are written by the service only. A member cannot rewrite history: the
--- only UPDATE allowed is marking an unreversed change reversed.
+-- only UPDATE allowed is marking an unreversed change reversed. The actor checks
+-- run whenever a request user is present (auth.uid(), set by withAuth for every
+-- app_user session); a session with no request user is a superuser/operator
+-- context (migrations, fixtures), which RLS and grants already confine.
 
 CREATE TABLE IF NOT EXISTS fiscal_year_end_changes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -154,7 +157,8 @@ BEGIN
   NEW.applied_at := now();
   SELECT fy.id, fy.start_date, fy.status INTO y FROM fiscal_years fy
    WHERE fy.id = NEW.fiscal_year_id AND fy.company_id = NEW.company_id;
-  IF NOT FOUND OR y.start_date <> NEW.transition_start OR y.status <> 'open' THEN
+  IF NOT FOUND OR y.start_date <> NEW.transition_start OR y.status <> 'open'
+     OR (SELECT fy.end_date FROM fiscal_years fy WHERE fy.id = NEW.fiscal_year_id) <> NEW.from_end_date THEN
     RAISE EXCEPTION 'a change of financial year end must name the company''s open transition year starting %', NEW.transition_start
       USING ERRCODE = '23514';
   END IF;
