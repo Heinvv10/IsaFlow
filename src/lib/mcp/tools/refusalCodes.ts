@@ -174,6 +174,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'RECURRING_TEMPLATE_NOT_DUE',
   'RECURRING_TEMPLATE_TOTALS_MISMATCH',
   'REVERSAL_BEFORE_ORIGINAL', // R-012: names only the caller's entry date and today; pre-write.
+  'FISCAL_PERIOD_NOT_GENERATED', // no period covers the date and none can be generated (a month beside closed periods); names only the date and the year; pre-write.
   'ROW_LOCK_TIMEOUT', // D8 round 9 (core/rowLockBudget): names the document; nothing acquired, retry.
   'RULE_AUTHORITY_REQUIRED',
   // Supplier bank verification (forensic-controls step 1): a bank file or
