@@ -8,6 +8,8 @@
 -- of an earlier month refused the later month (once; a recalculation cleared it).
 --
 -- reopened_at: the last reopen, clock_timestamp(). Writer: reopenPayrollRun.
+--   An AUDIT field only: no code reads it, and the gate does NOT use it (the
+--   last reopen alone cannot answer its question, below; approval_history can).
 -- approval_history: every approval a reopen ended, [approved_at, reopened_at).
 --   The last reopen alone is not enough: a month reopened, re-approved and
 --   reopened again has a gap BEFORE its last reopen, and a run calculated in

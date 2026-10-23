@@ -53,6 +53,13 @@ async function approvedMonths(f: SeveranceFixture, n: number): Promise<string[]>
   return ids;
 }
 const ok = (r: { statusCode: number; body: unknown }) => expect(r.statusCode, JSON.stringify(r.body).slice(0, 300)).toBe(200);
+/** The approval preview answers 200 with no blocker at all: nothing the gate (stale year-to-date or any other) refuses. */
+async function previewClear(f: SeveranceFixture, id: string) {
+  const r = await previewRun(f, id);
+  expect(r.statusCode, JSON.stringify(r.body).slice(0, 300)).toBe(200);
+  expect(r.body.data?.planHash, 'a preview with a plan').toEqual(expect.any(String));
+  expect(r.body.data?.blocker, JSON.stringify(r.body.data?.blocker)).toBeNull();
+}
 const warningCodes = async (runId: string, employee: string) =>
   ((await runLine(pool, runId, employee)).validation_results as Array<{ code: string }>).map(c => c.code);
 
@@ -161,7 +168,7 @@ describe('R1: the exact stale year-to-date gate', () => {
     const dec = await mk(f, 2026, 12);
     await calcOnly(f, dec);
     await pool.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [nov]);
-    expect((await previewRun(f, dec)).body.data?.blocker?.code ?? null).not.toBe('paye_year_to_date_stale');
+    await previewClear(f, dec);
     ok(await reopenRun(f, nov)); // ends an approval with no start: (-infinity, reopened_at)
     ok(await approveRun(f, nov));
     ok(await approveRun(f, dec));
@@ -173,8 +180,9 @@ describe('R1: the exact stale year-to-date gate', () => {
     const apr = ids[1]!;
     // Stranded: status approved, journal never linked (what K-079 left behind). The gate is judged by the preview only.
     await pool.query('UPDATE payroll_run_headers SET journal_entry_id = NULL WHERE id = $1', [apr]);
-    expect((await previewRun(f, apr)).body.data?.blocker?.code ?? null).not.toBe('paye_year_to_date_stale');
+    await previewClear(f, apr);
   });
+
   it('February approved first, January calculated (warned), February reopened, recalculated and re-approved: January is approved (its lines still warn of February)', async () => {
     const f = await seedEmployee(pool, fixtures, 'R1 later reopened after warning', 20_000);
     await approvedMonths(f, 10);
@@ -214,5 +222,24 @@ describe('R1: the exact stale year-to-date gate', () => {
     await calcOnly(f, jan);
     expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');
     ok(await approveRun(f, jan));
+  });
+
+  it('a reopen after the clock stepped back past approved_at still reopens; that approval is not kept (the gate then refuses conservatively)', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 clock step back', 20_000);
+    const ids = await approvedMonths(f, 10);
+    const dec = ids[9]!;
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan);
+    // What a clock stepped back an hour looks like to the reopen: its approval is "in the future".
+    await pool.query("UPDATE payroll_run_headers SET approved_at = clock_timestamp() + INTERVAL '1 hour' WHERE id = $1", [dec]);
+    ok(await reopenRun(f, dec));
+    const h = (await pool.query(
+      `SELECT status, reopened_at IS NOT NULL AS reopened, COALESCE(isempty(approval_history), true) AS nothing_kept
+         FROM payroll_run_headers WHERE id = $1`, [dec])).rows[0]!;
+    expect(h).toEqual({ status: 'calculated', reopened: true, nothing_kept: true });
+    ok(await approveRun(f, dec));
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/earlier month.*2026-12.*Recalculate the run/);
   });
 });
