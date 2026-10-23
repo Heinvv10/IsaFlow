@@ -162,7 +162,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white border border-gray-600 rounded-lg">
               Cancel
             </button>
-            <button type="submit" disabled={saving || employeesLoading || employees.length === 0} className="px-4 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-2">
+            <button type="submit" disabled={saving || employees.length === 0} className="px-4 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-2">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               <Plus className="h-4 w-4" />
               Create Directive

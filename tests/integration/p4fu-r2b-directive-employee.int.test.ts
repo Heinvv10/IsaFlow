@@ -179,6 +179,8 @@ describe('round 2 review: the create route\'s body and the employee record', () 
     expect((await applyStandalone(f, paid, '2026-05-21')).statusCode).toBe(200);
     const refused = await f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${paid}`, paid);
     expect(refused.statusCode, JSON.stringify(refused.body)).toBe(409);
+    // The paid guard's message: what paid it and the way back.
+    expect(refused.body.error?.message).toMatch(/outside payroll on 2026-05-21, so it cannot be deleted/);
     expect((await pool.query('SELECT 1 FROM tax_directives WHERE id = $1', [paid])).rowCount).toBe(1);
     const unpaid = await approvedDirective(f, 6_000, 0.2, '2026-05-01', '7777777780');
     expect((await f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${unpaid}`, unpaid)).statusCode).toBe(200);
