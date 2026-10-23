@@ -24,7 +24,7 @@ vi.mock('@/modules/accounting/services/payroll/payrollRunDirectiveClaim', () => 
 const headerRow = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 // approvePayrollRun takes its header lock through withTransaction (payrollRunLock).
 // The stale year-to-date blocker (PAYE 4a follow-ups G4) has its own tests (p4fu-brk-order, p4fu-cumulative-paye).
-vi.mock('@/modules/accounting/services/payroll/payrollYearToDate', () => ({ judgeYearToDateStale: vi.fn(async () => null) }));
+vi.mock('@/modules/accounting/services/payroll/payrollYearToDateGate', () => ({ judgeYearToDate: vi.fn(async () => ({ blocker: null, advisories: [] })) }));
 vi.mock('@/lib/neon', () => {
   const sql = vi.fn(async () => [headerRow.current]);
   return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };

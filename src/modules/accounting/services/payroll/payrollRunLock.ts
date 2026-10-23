@@ -228,7 +228,7 @@ export async function reopenPayrollRun(opts: {
   // the read above and this write (paid, say) must not be reopened by it.
   // The approval it ends is kept as [approved_at, reopened_at) in
   // approval_history (migration 925), one clock reading for both, for the stale
-  // year-to-date gate (payrollYearToDate#judgeYearToDateStale). If the clock
+  // year-to-date gate (payrollYearToDateGate#judgeYearToDate). If the clock
   // has stepped back past approved_at, the range would be inverted (an error):
   // it is empty instead, so that approval is not kept and the gate refuses a
   // month calculated during it conservatively (a recalculation clears it). Not
