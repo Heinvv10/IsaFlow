@@ -1,7 +1,9 @@
 import { sql } from '@/lib/neon';
 /**
  * Budget vs Actual Report API
- * GET /api/accounting/reports-budget-vs-actual?period=current|ytd|full_year
+ * GET /api/accounting/reports-budget-vs-actual?period=current|ytd|full_year[&fiscal_year=2027]
+ * `fiscal_year` (optional, ytd and full_year only) is a financial-year label from the
+ * registry: 404 when no year carries it, 400 when it is not a label.
  * Sage equivalent: Reports > Budget vs Actual
  *
  * Budgets come from budget_month_amounts (one amount per account per calendar
@@ -15,6 +17,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { loadWindowBudgets, resolveBudgetWindow } from '@/modules/accounting/services/reports/budgetWindowService';
+import { BudgetReportYearError, chosenReportYear, reportYearOptions } from '@/modules/accounting/services/reports/budgetReportYear';
+import { localISODate } from '@/lib/dateUtils';
 import {
   buildBudgetVsActualLines,
   type RawActualRow,
@@ -35,7 +39,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // rendered as UTC, which in SAST is 22:00 on the last day of the PREVIOUS
     // month, so "current month" used to open a day early.
     const period = String(req.query.period ?? 'ytd');
-    const { startDate, endDate } = await resolveBudgetWindow(companyId, period);
+    const chosen = await chosenReportYear(companyId, req.query.fiscal_year, period);
+    const { startDate, endDate, fiscalYear } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
     const budgets = await loadWindowBudgets(companyId, startDate, endDate);
 
     // Get actual GL balances for expense and revenue accounts. We don't filter
@@ -91,8 +96,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       total_variance: lines.reduce((s, l) => s + l.variance, 0),
     };
 
-    return apiResponse.success(res, { report });
+    return apiResponse.success(res, {
+      report, fiscal_year: fiscalYear.fiscalYear, years: await reportYearOptions(companyId, localISODate()),
+    });
   } catch (err) {
+    if (err instanceof BudgetReportYearError) {
+      return err.unknown ? apiResponse.notFound(res, 'Financial year', String(err.label)) : apiResponse.badRequest(res, err.message);
+    }
     log.error('Failed to generate budget vs actual report', { error: err, module: 'accounting' });
     return apiResponse.databaseError(res, err, 'Failed to generate budget vs actual report');
   }
