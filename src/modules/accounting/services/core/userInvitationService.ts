@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { sql } from '@/lib/neon';
 import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
+import { lockOwnersAndRequireOwner, OWNER_GRANT_REFUSED } from './ownerLock';
 import type { PendingInvitation, InvitationWithToken, InvitationResult } from './userAccessService';
 import type { DbRow } from '@/types/db';
 
@@ -47,6 +48,11 @@ export async function createInvitation(
   if (!isValidRole(role)) {
     throw new Error(`Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`);
   }
+  // Granting owner (auto-add or an owner invitation) takes an owner, read live
+  // under the owner lock, as updateCompanyUserRole's promotion does: not only
+  // the route's check on the request's role, which a caller demoted since
+  // withAuth still passes.
+  if (role === 'owner') await lockOwnersAndRequireOwner(companyId, invitedBy, OWNER_GRANT_REFUSED);
 
   const existing = (await sql`
     SELECT id FROM users WHERE email = ${email} LIMIT 1
