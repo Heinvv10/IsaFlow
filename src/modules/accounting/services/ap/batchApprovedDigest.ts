@@ -7,7 +7,8 @@
  * send and process compare it with the current digest and refuse a batch whose content
  * changed since, WHATEVER the payment_batch enforcement switch says: with enforcement
  * off, nothing else stood between an approval and money paid to bank details nobody
- * approved. The way out is re-approving the batch (approveBatch).
+ * approved. The way out is re-approving the batch (approveBatch). The digest does not cover the supplier NAME
+ * (the file's beneficiary / Netcash account holder): a rename after approval is not compared.
  *
  * A batch approved before migration 922 has no stored digest: allowed, with a warning
  * (Hein, 2026-10-23 — no backfill; today's digest is not evidence of what was approved).

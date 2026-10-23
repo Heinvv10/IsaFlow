@@ -142,7 +142,9 @@ describe('re-approve: the way out', () => {
     const refused = await eft(c, b.id);
     expect(refused.state.statusCode, JSON.stringify(refused.state.body)).toBe(409);
     expect(reasonOf(refused)).toBe(CHANGED);
-    await approve(c, b.id, u.b);
+    const reapproved = await r.batch(u.b, c, 'approve', b.id);
+    expect(reapproved.state.statusCode, JSON.stringify(reapproved.state.body)).toBe(200);
+    expect(dataOf<{ status: string }>(reapproved).status).toBe('processed'); // the answer says what it is
     expect((await batchState(pool, b.id)).status).toBe('processed');
     expect(await approvers(b.id)).toEqual([u.b]);
     const file = await eft(c, b.id);
@@ -180,6 +182,17 @@ describe('what stays as it was', () => {
     await approve(two.c, two.b.id);
     expect((await netcash(two.c, two.b.id)).state.statusCode).toBe(200);
     expect(submitEftBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('an unchanged processed batch still gets its file: processing does not move the digest', async () => {
+    const { c, b } = await fixture();
+    await approve(c, b.id);
+    const digest = await storedDigest(b.id);
+    expect((await r.batch(u.a, c, 'process', b.id)).state.statusCode).toBe(200);
+    expect(await digestOf(pool, c, 'payment_batch', b.id)).toBe(digest);
+    const file = await eft(c, b.id);
+    expect(file.state.statusCode, JSON.stringify(file.state.body)).toBe(200);
+    expect(contentOf(file)).toContain(OLD_ACCOUNT);
   });
 
   it('under enforcement the approval gate still answers first: APPROVAL_STALE for file, send and process', async () => {
