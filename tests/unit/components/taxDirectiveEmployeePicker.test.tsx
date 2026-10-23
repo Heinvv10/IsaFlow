@@ -22,8 +22,8 @@ beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
 afterEach(() => { cleanup(); });
 
 const EMPLOYEES = [
-  { id: 'e-1', employeeNumber: 'E001', firstName: 'Wanda', lastName: 'Test', taxNumber: '0123456789', status: 'terminated' },
-  { id: 'e-2', employeeNumber: 'E002', firstName: 'Sam', lastName: 'Other', taxNumber: null, status: 'active' },
+  { id: 'e-1', employeeNumber: 'E001', firstName: 'Wanda', lastName: 'Test', taxNumber: '0123456789', endDate: '2026-04-30' },
+  { id: 'e-2', employeeNumber: 'E002', firstName: 'Sam', lastName: 'Other', taxNumber: null },
 ];
 
 function serve(posted: unknown[]) {
@@ -46,7 +46,7 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
     const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
     await waitFor(() => expect(select.options.length).toBe(3));
-    expect([...select.options].map(o => o.text)).toEqual(['Select an employee', 'Test, Wanda (E001) - terminated', 'Other, Sam (E002)']);
+    expect([...select.options].map(o => o.text)).toEqual(['Select an employee', 'Test, Wanda (E001)', 'Other, Sam (E002)']);
     expect(select.required).toBe(true);
     expect(vi.mocked(apiFetch).mock.calls.map(c => String(c[0]))).toContain('/api/payroll/employees?include=terminated');
   });
