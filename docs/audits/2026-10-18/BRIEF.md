@@ -1,0 +1,10 @@
+# Shared brief — IsaFlow audit 2026-10-18 (read this first)
+
+- Code root: /home/hein/Workspace/IsaFlow-audit-20261018 (detached worktree at origin/master 6ee5e9108). Prefix EVERY Bash call with `cd /home/hein/Workspace/IsaFlow-audit-20261018 &&`. Never read code from other worktrees.
+- READ-ONLY audit. Do not edit source, do not commit, do not create branches, no git stash.
+- DATABASE: never connect to prod (`isaflow`). Do not run psql writes against isaflow_dev (no seeds, no inserts). Read-only SELECTs on isaflow_dev are allowed only if essential to confirm a defect (URL in /home/hein/Workspace/IsaFlow/.env.local; use PGOPTIONS='-c default_transaction_read_only=on'). Never print credentials.
+- Do not run `bun run ci`, `next build`, or deploy scripts. Targeted `bunx vitest run <file>` is allowed if it proves a finding.
+- Goal: find REAL bugs — wrong numbers, broken workflows, data corruption, tenant leaks, auth gaps, race conditions, unbalanced journals, rounding drift, wrong SA tax rules. Not style nits. Each finding needs: severity (CRITICAL/HIGH/MEDIUM/LOW), file:line, the concrete trigger (input/state → wrong output), and why. CRITICAL = wrong money / data loss / cross-tenant leak / auth bypass. "Looks fine" without evidence is not allowed; unverified suspicions go in a separate "PLAUSIBLE" list.
+- Prior audit: docs/audits/2026-09-08-combined-findings.md (K-001..K-281). For each finding, check whether it is already listed there and whether it is still present (git log may show a fix). Mark each finding NEW, or KNOWN-STILL-OPEN (K-id). Don't re-list K-items that are fixed.
+- Module rules: read the sibling `.claude.md` files for the areas you audit — they record business rules and intended behaviour.
+- Output: write your full report to docs/audits/2026-10-18/<your-area>.md in the code root (markdown table of findings + PLAUSIBLE list + what you covered and what you did NOT cover). Your final message: ≤15 lines — counts by severity and the top CRITICAL/HIGH findings with file:line.
