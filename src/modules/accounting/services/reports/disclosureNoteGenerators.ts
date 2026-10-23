@@ -8,6 +8,8 @@ import type { DisclosureNote } from './disclosureNoteService';
 import type { DbRow } from '@/types/db';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { periodPhrase } from '@/modules/accounting/services/afs/afsReportingPeriod';
+import { monthsSpanned } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { agedBucketTable, getAgedBucketTotals } from './agedBucketTotals';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
@@ -96,7 +98,7 @@ export async function notePPE(companyId: string, fiscalYear: number): Promise<Di
   const totalAccum = rows.reduce((s: number, r: DbRow) => s + (Number(r.total_accum_dep) || 0), 0);
   tableRows.push(['Total', fmt(totalCost), fmt(totalAccum), fmt(totalCost - totalAccum), '', '', '']);
 
-  const content = `The table below summarises the movement in property, plant and equipment for the year ended 31 December ${fiscalYear}. Depreciation is charged to profit or loss on a systematic basis over the estimated useful lives of the assets.`;
+  const content = `The table below summarises the movement in property, plant and equipment for the ${periodPhrase(monthsSpanned(start, end), end)}. Depreciation is charged to profit or loss on a systematic basis over the estimated useful lives of the assets.`;
 
   return {
     noteNumber: 2,
@@ -241,7 +243,7 @@ export async function noteTaxation(companyId: string, fiscalYear: number): Promi
   return {
     noteNumber: 7,
     title: 'Taxation',
-    content: `The company is registered for Value Added Tax (VAT) with SARS. VAT is levied at the standard rate of 15% on all taxable supplies. The reconciliation below reflects the net VAT position for the year ended 31 December ${fiscalYear}.`,
+    content: `The company is registered for Value Added Tax (VAT) with SARS. VAT is levied at the standard rate of 15% on all taxable supplies. The reconciliation below reflects the net VAT position for the ${periodPhrase(monthsSpanned(start, end), end)}.`,
     tables: [{
       headers: ['', 'Amount (R)'],
       rows: [

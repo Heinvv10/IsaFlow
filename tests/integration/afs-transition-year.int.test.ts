@@ -17,6 +17,7 @@ import { generateStatementOfFinancialPosition } from '@/modules/accounting/servi
 import { generateCover } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/cover';
 import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import { afsFilingDeadline } from '@/modules/accounting/services/afs/afsFilingDeadline';
+import { generateDisclosureNotes } from '@/modules/accounting/services/reports/disclosureNoteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
@@ -88,6 +89,22 @@ describe('the transition year FY2026 (14 months)', () => {
   it('cover says 14 months; the filing deadline is six months after 28 February 2027', async () => {
     expect(texts(await inTx(() => generateCover(co, 2026, 'ifrs_sme' as never)))).toContain('For the 14 months ended 2027-02-28');
     expect(await inTx(() => afsFilingDeadline(co, 2026))).toBe('2027-08-31');
+  });
+});
+
+describe('disclosure notes (the AFS Notes tab)', () => {
+  it('FY2026 carries a Reporting period note (IAS 1.36) right after the accounting policies; texts say 14 months', async () => {
+    const notes = await inTx(() => generateDisclosureNotes(co, 2026));
+    const i = notes.findIndex((n) => n.title === 'Reporting period');
+    expect(i).toBe(1);
+    expect(notes[i]!.content).toMatch(/14 months from 2026-01-01 to 2027-02-28.*IAS 1\.36/);
+    expect(notes.map((n) => n.content).join(' ')).not.toMatch(/31 December 2026/);
+    const vat = notes.find((n) => n.title === 'Taxation');
+    expect(vat?.content).toContain('14 months ended 2027-02-28');
+  });
+  it('FY2025 (twelve months, with a twelve-month comparative) has no such note', async () => {
+    const notes = await inTx(() => generateDisclosureNotes(co, 2025));
+    expect(notes.some((n) => n.title === 'Reporting period')).toBe(false);
   });
 });
 
