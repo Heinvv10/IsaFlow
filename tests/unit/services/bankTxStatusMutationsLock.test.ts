@@ -13,6 +13,12 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// The learning-loop log has its own suites (codingDecisionLog, coding-decision-paths); it is kept out of this
+// file's SQL sequence.
+vi.mock('@/modules/accounting/services/bank/codingDecisionLog', () => ({
+  postingRefOf: () => ({}), recordAllocationDecision: vi.fn(), recordAutoPostUndone: vi.fn(),
+  recordExcluded: vi.fn(), recordMatchDecision: vi.fn(),
+}));
 vi.mock('@/lib/neon', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/neon')>();
   return {

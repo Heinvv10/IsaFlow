@@ -116,7 +116,7 @@ export async function autoMatchTransactions(
             // victim) would otherwise abort the REQUEST transaction — the matches already applied would roll back behind a
             // 200 that counted them, and the next line would meet 25P02.
             await withSavepoint('auto_match_row', () =>
-              matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId));
+              matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId, triggeredBy));
             matchedCount++;
           } catch (matchErr) {
             if (isHeldRowError(matchErr)) { held++; firstHeld ??= matchErr; }

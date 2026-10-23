@@ -50,6 +50,8 @@ describe('S-07b: migration 916', () => {
     await rolledBack(async (q) => {
       await q(`CREATE ROLE s07b_member_writer NOLOGIN ${attr}`);
       await q('GRANT app_service TO s07b_member_writer');
+      // app_service has no INSERT since 930; the guard, not the privilege, is under test.
+      await q('GRANT INSERT ON company_users TO s07b_member_writer');
       await q('SET LOCAL ROLE s07b_member_writer');
       const write = q(`INSERT INTO company_users (company_id, user_id, role) VALUES ('${ids.other}', '${ids.me}', 'viewer')`);
       if (refusal) await expect(write).rejects.toThrow(refusal);
@@ -151,11 +153,13 @@ describe('S-07b: migration 917', () => {
     });
   });
 
-  it('the matview refresh wrapper runs for app_service only', async () => {
-    const r = await fixture.query(`SELECT r, has_function_privilege(r, 'public.refresh_customer_invoice_view_summary()', 'EXECUTE') AS x
-      FROM unnest(ARRAY['app_user', 'isaflow_app', 'app_service', 'isaflow_service']) r ORDER BY r`);
-    expect(r.rows).toEqual([
-      { r: 'app_service', x: true }, { r: 'app_user', x: false }, { r: 'isaflow_app', x: false }, { r: 'isaflow_service', x: true },
-    ]);
-  });
+  it.each(['refresh_customer_invoice_view_summary', 'refresh_customer_invoice_view_summary_if_due'])(
+    'the matview refresh wrapper %s() runs for migration_admin only (930: a caller can hold its lock)', async (fn) => {
+      const r = await fixture.query(`SELECT r, has_function_privilege(r, $1, 'EXECUTE') AS x
+        FROM unnest(ARRAY['app_user', 'isaflow_app', 'app_service', 'isaflow_service', 'migration_admin']) r ORDER BY r`, [`public.${fn}()`]);
+      expect(r.rows).toEqual([
+        { r: 'app_service', x: false }, { r: 'app_user', x: false }, { r: 'isaflow_app', x: false }, { r: 'isaflow_service', x: false },
+        { r: 'migration_admin', x: true },
+      ]);
+    });
 });

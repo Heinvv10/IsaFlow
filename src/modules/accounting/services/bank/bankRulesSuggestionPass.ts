@@ -10,6 +10,8 @@
 import { sql } from '@/lib/neon';
 import type { RuleApplyResult } from '../../types/bank.types';
 import { toSqlPattern } from './bankRulesMatchingHelpers';
+import { recordSuggestionsShown } from './codingDecisionLog';
+import { ruleSource } from './codingDecisionOutcome';
 
 /**
  * `match_type` is nullable. The SQL this arm used to build fell through to the
@@ -94,8 +96,16 @@ export async function applySuggestionRules(
         OR bt.suggested_supplier_id   IS DISTINCT FROM tm.supplier_id
         OR bt.suggested_client_id     IS DISTINCT FROM tm.client_id
       )
-    RETURNING bt.id, tm.rule_name
+    RETURNING bt.id, tm.rule_name, tm.gl_account_id, tm.supplier_id, tm.client_id
   `) as Record<string, unknown>[];
+
+  const idOrNull = (v: unknown): string | null => (v == null ? null : String(v));
+  await recordSuggestionsShown(companyId, updated.map((row) => ({
+    txId: String(row.id),
+    source: ruleSource(idOrNull(row.gl_account_id), idOrNull(row.supplier_id)),
+    glAccountId: idOrNull(row.gl_account_id),
+    contactId: idOrNull(row.supplier_id) ?? idOrNull(row.client_id),
+  })));
 
   return updated.map((row) => ({
     bankTxId: String(row.id), ruleName: String(row.rule_name), suggestion: true,

@@ -55,6 +55,9 @@ export async function storeCapturedBytes(
 export interface RawBytes {
   buffer: Buffer;
   hash: string;
+  /** The raw_bytes_sha256 COLUMN, null when the row has none. `hash` is fabricated from the bytes in that case, so it
+   * proves nothing; a caller that verifies the download compares against this. */
+  storedHash: string | null;
   size: number;
   fileType: string;
 }
@@ -87,6 +90,7 @@ export async function fetchRawBytes(
   return {
     buffer,
     hash: (row.raw_bytes_sha256 as string | null) ?? sha256(buffer),
+    storedHash: (row.raw_bytes_sha256 as string | null) ?? null,
     size: (row.raw_bytes_size as number | null) ?? buffer.length,
     fileType: (row.file_type as string | null) ?? 'bin',
   };

@@ -17,6 +17,7 @@ import { isPendingFeedRow, PendingFeedBadge, PendingFeedNotice } from './bank-tr
 import { BankTxLinkAction } from './bank-transactions/BankTxLinkAction';
 import type { BankTxLink } from '@/modules/accounting/types/bank.types';
 import { DimensionValue } from './bank-transactions/BankTxDimensionValue';
+import { SharedPoolHint } from './bank-transactions/SharedPoolHint';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -480,6 +481,7 @@ export function BankTxTable(props: Props) {
                             : 'Unallocated'
                           )}
                         </button>
+                        <SharedPoolHint suggestedStrategy={tx.suggestedStrategy} suggestedGlAccountId={tx.suggestedGlAccountId} selectedEntityId={sel?.entityId} />
                         {isOpen && (
                           <div data-bank-dropdown className={`absolute z-50 left-0 w-80 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-lg shadow-xl ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
                             <div className="p-2">
