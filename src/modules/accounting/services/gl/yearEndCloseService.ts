@@ -116,7 +116,8 @@ export async function closeFiscalYear(
   // the 14 months it is. A write path: no fallback and no template guess for a
   // label no year carries.
   const registryYear = await getFiscalYear(companyId, Number(yearLabel));
-  if (!registryYear) return { error: 'year_not_found' };
+  if (!registryYear || !registryYear.stored) return { error: 'year_not_found' };
+  if (registryYear.assumed) return { error: 'start_month_assumed' };
   const expected = { startDate: registryYear.startDate, endDate: registryYear.endDate };
   const actual = { startDate: fmtDate(yearRange.start_date), endDate: fmtDate(yearRange.end_date) };
   if (actual.startDate !== expected.startDate || actual.endDate !== expected.endDate) {
