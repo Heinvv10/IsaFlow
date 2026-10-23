@@ -124,6 +124,18 @@ describe('supplier writers against the bank-file gate: batch, then supplier', ()
     expect(await accountOf(supplierId)).toBe(NEW_ACCOUNT);
   });
 
+  it('a rename of a payee (approval content since 923) and an eft-generate of its batch do not deadlock', async () => {
+    const { c, b, supplierId } = await approvedBatch();
+    const { file, release } = await startParkedFileRequest(c, b.id, 'before'); // route holds the batch row
+    const edit = startWriter(c, () => updateSupplier(c, supplierId, { name: 'Renamed Payee' }, u.a));
+    expect(await blockedStatement(await edit.pid)).toContain(BATCHES);
+    release();
+    const [res, edited] = await Promise.all([file, edit.outcome]);
+
+    expect({ gate: gate.errorCode, edit: edited }).toEqual({ gate: undefined, edit: { ok: true } });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200); // the file went first, as approved
+  });
+
   it('a supplier merge moving a payee and an eft-generate of its batch do not deadlock', async () => {
     const { c, b, supplierId } = await approvedBatch();
     const primary = await plantSupplier(pool, c);
