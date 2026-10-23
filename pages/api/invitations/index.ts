@@ -110,20 +110,29 @@ const createInvitation: NextApiHandler = async (req, res) => {
       user_metadata: { invite_id: inviteId },
     });
   } catch (err) {
+    // Keyed on this request's token too: a concurrent resend that refreshed
+    // the row meanwhile owns it now.
     if (inv.inserted) {
       await migrationAdminTx('withdraw invitation', (client) => client.query(
-        'DELETE FROM company_invitations WHERE id = $1::uuid AND company_id = $2::uuid AND gotrue_user_id IS NULL',
-        [inviteId, companyId],
-      ));
+        `DELETE FROM company_invitations
+          WHERE id = $1::uuid AND company_id = $2::uuid AND token = $3 AND gotrue_user_id IS NULL`,
+        [inviteId, companyId, tokenHash],
+      )).catch((withdrawErr: unknown) => log.error('invite withdraw after a GoTrue failure failed',
+        { inviteId, error: withdrawErr instanceof Error ? withdrawErr.message : String(withdrawErr) }, 'Invitations'));
     }
     throw err;
   }
 
-  // 3. Stash gotrue_user_id on the invitation for later accept
-  await migrationAdminTx('invitation gotrue user', (client) => client.query(
-    'UPDATE company_invitations SET gotrue_user_id = $3::uuid WHERE id = $1::uuid AND company_id = $2::uuid',
-    [inviteId, companyId, gotrueUser.id],
+  // 3. Stash gotrue_user_id on the invitation for later accept. Keyed on the
+  //    token: a concurrent resend replaced it, and its own link is the live one.
+  const linked = await migrationAdminTx('invitation gotrue user', (client) => client.query(
+    'UPDATE company_invitations SET gotrue_user_id = $3::uuid WHERE id = $1::uuid AND company_id = $2::uuid AND token = $4',
+    [inviteId, companyId, gotrueUser.id, tokenHash],
   ));
+  if (linked.rowCount !== 1) {
+    return res.status(409).json({ success: false, error: { code: 'INVITATION_SUPERSEDED',
+      message: 'This invitation was re-sent at the same time; the newer one stands.' } });
+  }
 
   // 4. Company name for the email
   const [company] = await sql<{ name: string }>`SELECT name FROM companies WHERE id = ${companyId}::uuid`;

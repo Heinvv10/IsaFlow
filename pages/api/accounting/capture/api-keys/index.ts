@@ -57,7 +57,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
 
     const { raw, hash, prefix } = generateCaptureApiKey();
-    const createdBy = req.user?.id ?? null;
+    // Never a key with no creator: validation treats one as manager (S-06).
+    const createdBy = req.user?.id;
+    if (!createdBy) return apiResponse.unauthorized(res);
 
     // On the migration_admin pool, keyed on the verified company and caller
     // (S-07c): a row here is a live upload credential acting with its

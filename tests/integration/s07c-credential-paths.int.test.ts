@@ -192,6 +192,36 @@ describe('S-07c: /api/invitations, revoke and the password accept route (GoTrue 
     expect(openTx).toBe(0);
     expect(await invitation(u.email)).toBeUndefined();
   });
+
+  // Fix review round 2: the withdraw and the GoTrue-id write are keyed on this request's token.
+  it.each([
+    ['a resend (the row was refreshed, not inserted)', false],
+    ['a new invitation a concurrent resend refreshed meanwhile', true],
+  ])('GoTrue failing on %s: the row stands', async (_, concurrent) => {
+    const u = await newUser(true);
+    if (!concurrent) {
+      gotrueFor(u.id, u.email);
+      expect((await create(u.email, 'viewer')).status).toBe(201);
+    }
+    stubGotrue(async ({ method, path }) => {
+      if (method !== 'POST' || path !== '/admin/users') return undefined;
+      if (concurrent) await fixture.query('UPDATE company_invitations SET token = $3 WHERE company_id = $1 AND email = $2', [company, u.email, `concurrent-${u.id}`]);
+      return json(500, { msg: 'down' });
+    });
+    expect((await create(u.email, 'viewer')).status).toBe(500);
+    expect(await invitation(u.email)).toBeDefined();
+  });
+
+  it('a concurrent resend replacing the token before the GoTrue id is written: 409, and its own row is untouched', async () => {
+    const u = await newUser(true);
+    stubGotrue(async ({ method, path }) => {
+      if (method !== 'POST' || path !== '/admin/users') return undefined;
+      await fixture.query('UPDATE company_invitations SET token = $3 WHERE company_id = $1 AND email = $2', [company, u.email, `concurrent-${u.id}`]);
+      return json(200, { id: u.id, email: u.email });
+    });
+    expect(await create(u.email, 'viewer')).toMatchObject({ status: 409, body: { error: { code: 'INVITATION_SUPERSEDED' } } });
+    expect(await invitation(u.email)).toMatchObject({ token: `concurrent-${u.id}`, gotrue_user_id: null });
+  });
 });
 
 describe('S-07c: password reset, end of impersonation, waitlist', () => {

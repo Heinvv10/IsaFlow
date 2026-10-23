@@ -83,7 +83,8 @@ S-07c (migration 930, 2026-10-23) also takes effect on deploy:
   accepts it. The members screen says "Invitation sent" for everyone.
 - `waitlist_signups` gets row security; the public form may only INSERT.
 - The AR matview refresh runs at most once per 10 minutes and never twice at
-  once; the cron's answer says whether it refreshed.
+  once, on the migration_admin pool only; the cron's answer says whether it
+  refreshed.
 - verify-email provisions a tenant only when GoTrue's address for the token's
   user equals the signup's.
 - During the deploy window (930 applied, old code still serving) the old
@@ -95,12 +96,15 @@ S-07c (migration 930, 2026-10-23) also takes effect on deploy:
   fail until the new code is live, then reconnect), invitation create,
   password reset, "Return to my session" after Login-as (the admin signs out
   instead), and the public waitlist form (its `RETURNING` needs SELECT: leads
-  submitted in the window are lost). Reads, bearer and capture-key
+  submitted in the window are lost), and the nightly AR "last viewed"
+  refresh (the old cron calls it on the service pool, which may no longer;
+  the summary stays a day stale). Reads, bearer and capture-key
   validation, invite acceptance and logins keep working.
 - A code-only rollback leaves that state for as long as the old code runs. If
   it must run for more than an hour, re-grant the old writes by hand (as the
   owner), and expect `scripts/check-app-login-roles.ts` to refuse the next
-  deploy until they are revoked again (re-run 930's REVOKE lines):
+  deploy until they are revoked again (re-run 930's REVOKE and column GRANT
+  lines, and its `ENABLE ROW LEVEL SECURITY` on `waitlist_signups`):
 
   ```sql
   -- BREAK-GLASS, old code only: undoes 930's protection. Revert before deploying.
@@ -108,6 +112,7 @@ S-07c (migration 930, 2026-10-23) also takes effect on deploy:
     public.oauth_authorisations, public.capture_api_keys, public.company_invitations TO app_user;
   GRANT SELECT, INSERT, UPDATE, DELETE ON public.auth_password_reset_tokens, public.admin_impersonation_stash TO app_user;
   GRANT SELECT ON public.waitlist_signups TO app_user;
+  ALTER TABLE public.waitlist_signups DISABLE ROW LEVEL SECURITY;
   SELECT public.app_service_sync_policies();
   ```
 - 930's rules join 920's in `app_pool_reach_violations()`, so every later

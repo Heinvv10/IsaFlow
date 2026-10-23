@@ -17,7 +17,7 @@ import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { callRoute, userRow } from './s07-users-privilege-columns.helpers';
-import { CRON, callCron, fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
+import { CRON, attempt, callCron, fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
 const ids = newIds();
 const prefix = crypto.randomUUID().slice(0, 8);
@@ -63,8 +63,8 @@ describe('C1 (930): the matview refresh is throttled', () => {
     expect(await callCron(matviewRoute, CRON)).toMatchObject({ status: 200, body: { data: { refreshed: true } } });
   });
 
-  it('two calls at once on the service pool: one refreshes, the other returns at once without waiting', async () => {
-    const [a, b] = [await getDbPool().connect(), await getDbPool().connect()];
+  it('two calls at once on the migration_admin pool: one refreshes, the other returns at once without waiting', async () => {
+    const [a, b] = [await migrationAdminPool().connect(), await migrationAdminPool().connect()];
     try {
       await a.query('BEGIN');
       expect(await refreshIfDue(a)).toBe(true);
@@ -81,27 +81,34 @@ describe('C1 (930): the matview refresh is throttled', () => {
     }
   });
 
-  // Breaker round 1: an advisory key can be held by any session that names it.
-  it('an app pool cannot hold the refresh off: the advisory key is no lock, and the state table cannot be locked', async () => {
+  // Breaker rounds 1 and 2: a caller can hold the refresh's lock to the end of
+  // its own transaction, and an advisory key can be held by any session.
+  it.each([
+    ['call the refresh', 'SELECT refresh_customer_invoice_view_summary_if_due()', 'permission denied for function refresh_customer_invoice_view_summary_if_due'],
+    ['call its old name', 'SELECT refresh_customer_invoice_view_summary()', 'permission denied for function refresh_customer_invoice_view_summary'],
+    ['lock its state table', 'LOCK TABLE public.matview_refresh_state IN ACCESS SHARE MODE NOWAIT', 'permission denied for table matview_refresh_state'],
+  ])('an app pool cannot hold the refresh off: it may not %s', async (_, text, message) => {
+    for (const pool of [getDbPool(), getAuthPool()]) {
+      expect(await attempt(pool, [[text]])).toEqual({ code: '42501', message });
+    }
+  });
+
+  it('an advisory lock on the old key no longer holds the refresh off', async () => {
     const c = await getDbPool().connect();
     try {
       await c.query(`SELECT pg_advisory_lock(hashtextextended('refresh_customer_invoice_view_summary', 0))`);
       expect(await callCron(matviewRoute, CRON)).toMatchObject({ status: 200, body: { data: { refreshed: true } } });
-      await c.query('BEGIN');
-      await expect(c.query('LOCK TABLE public.matview_refresh_state IN ACCESS SHARE MODE NOWAIT'))
-        .rejects.toThrow('permission denied for table matview_refresh_state');
     } finally {
-      await c.query('ROLLBACK').catch(() => undefined);
       await c.query('SELECT pg_advisory_unlock_all()').catch(() => undefined);
       c.release(true);
     }
   });
 
-  it('the old name, which the previous release calls, is throttled the same way', async () => {
-    await getDbPool().query('SELECT refresh_customer_invoice_view_summary()');
+  it('the old name is throttled the same way', async () => {
+    await migrationAdminPool().query('SELECT refresh_customer_invoice_view_summary()');
     const first = await refreshedAt();
     expect(first).toBeInstanceOf(Date);
-    await getDbPool().query('SELECT refresh_customer_invoice_view_summary()');
+    await migrationAdminPool().query('SELECT refresh_customer_invoice_view_summary()');
     expect(await refreshedAt()).toEqual(first);
   });
 });

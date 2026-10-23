@@ -38,7 +38,7 @@ import {
   exchangeCode,
   refreshAccessToken,
 } from '@/lib/auth/oauth';
-import { resetSqlMock, mockSqlOnce } from './helpers';
+import { resetSqlMock, mockSqlOnce, sqlCallText } from './helpers';
 
 const APP_ID = '44444444-4444-4444-4444-444444444444';
 
@@ -70,5 +70,14 @@ describe('S-07c: the token endpoint reaches migration_admin only for a token tha
     await expect(refreshAccessToken({ refreshToken: OLD_REFRESH, clientId: CLIENT_ID }))
       .rejects.toThrowError(expect.objectContaining({ code: 'invalid_grant' }));
     expect(adminQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('a revoked or expired grant\'s current hash does not pass the pre-read; a rotated-out one does (replay revoke)', async () => {
+    mockSqlOnce([{ id: APP_ID }]);
+    mockSqlOnce([]);
+    await refreshAccessToken({ refreshToken: OLD_REFRESH, clientId: CLIENT_ID }).catch(() => undefined);
+    const text = sqlCallText(1);
+    expect(text).toMatch(/refresh_token_hash = +\? +AND revoked_at IS NULL AND refresh_token_expires_at > NOW\(\)/);
+    expect(text).toMatch(/OR previous_refresh_token_hash = /);
   });
 });

@@ -154,11 +154,12 @@ describe('S-07b: migration 917', () => {
   });
 
   it.each(['refresh_customer_invoice_view_summary', 'refresh_customer_invoice_view_summary_if_due'])(
-    'the matview refresh wrapper %s() runs for app_service only', async (fn) => {
+    'the matview refresh wrapper %s() runs for migration_admin only (930: a caller can hold its lock)', async (fn) => {
       const r = await fixture.query(`SELECT r, has_function_privilege(r, $1, 'EXECUTE') AS x
-        FROM unnest(ARRAY['app_user', 'isaflow_app', 'app_service', 'isaflow_service']) r ORDER BY r`, [`public.${fn}()`]);
+        FROM unnest(ARRAY['app_user', 'isaflow_app', 'app_service', 'isaflow_service', 'migration_admin']) r ORDER BY r`, [`public.${fn}()`]);
       expect(r.rows).toEqual([
-        { r: 'app_service', x: true }, { r: 'app_user', x: false }, { r: 'isaflow_app', x: false }, { r: 'isaflow_service', x: true },
+        { r: 'app_service', x: false }, { r: 'app_user', x: false }, { r: 'isaflow_app', x: false }, { r: 'isaflow_service', x: false },
+        { r: 'migration_admin', x: true },
       ]);
     });
 });

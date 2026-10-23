@@ -433,9 +433,9 @@ export async function refreshAccessToken(args: {
 
   // As in exchangeCode: a hash no grant of this app holds (current or rotated out) never reaches migration_admin.
   const known = (await sql`
-    SELECT 1 FROM oauth_authorisations
-     WHERE oauth_app_id = ${oauthAppId}::uuid
-       AND (refresh_token_hash = ${presentedHash} OR previous_refresh_token_hash = ${presentedHash})
+    SELECT 1 FROM oauth_authorisations WHERE oauth_app_id = ${oauthAppId}::uuid
+       AND ((refresh_token_hash = ${presentedHash} AND revoked_at IS NULL AND refresh_token_expires_at > NOW())
+            OR previous_refresh_token_hash = ${presentedHash})
      LIMIT 1
   `) as Row[];
   if (known.length === 0) {

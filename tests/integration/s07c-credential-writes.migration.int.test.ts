@@ -73,6 +73,21 @@ describe('S-07c: migration 930', () => {
     ['a definer that mints, callable by app_user', `CREATE FUNCTION public.s07c_mint(u text) RETURNS void LANGUAGE sql SECURITY DEFINER
       AS $f$ INSERT INTO public.company_users (company_id, user_id, role) VALUES (gen_random_uuid(), u, 'owner') $f$;
       GRANT EXECUTE ON FUNCTION public.s07c_mint(text) TO app_user`, R(APP, 'EXECUTE s07c_mint\\(text\\), a definer that writes company_users')],
+    ...([
+      ['a quoted name', `INSERT INTO "company_users" (user_id) VALUES (u)`, 'company_users'],
+      ['a comment between the keywords', `INSERT /* x */ INTO public.company_users (user_id) VALUES (u)`, 'company_users'],
+      ['UPDATE ONLY, spaced schema', `UPDATE ONLY public . personal_access_tokens SET revoked_at = NULL WHERE user_id = u`, 'personal_access_tokens'],
+      ['MERGE', `MERGE INTO public.capture_api_keys k USING (SELECT 1) s ON false WHEN NOT MATCHED THEN DO NOTHING`, 'capture_api_keys'],
+    ] as const).map(([how, stmt, tbl]) => [`a definer that mints with ${how}`, `CREATE FUNCTION public.s07c_evade(u text) RETURNS void
+      LANGUAGE plpgsql SECURITY DEFINER AS $f$ BEGIN ${stmt}; END $f$; GRANT EXECUTE ON FUNCTION public.s07c_evade(text) TO app_user`,
+    R(APP, `EXECUTE s07c_evade\\(text\\), a definer that writes ${tbl}`)] as [string, string, RegExp]),
+    ['a definer that runs dynamic SQL', `CREATE FUNCTION public.s07c_dyn(t text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+      AS $f$ BEGIN EXECUTE format('DELETE FROM %I', t); END $f$; GRANT EXECUTE ON FUNCTION public.s07c_dyn(text) TO app_user`,
+    R(APP, 'EXECUTE s07c_dyn\\(text\\), a definer that runs dynamic SQL')],
+    ['a definer in another schema', `CREATE SCHEMA s07c_other; CREATE FUNCTION s07c_other.mint(u text) RETURNS void LANGUAGE sql
+      SECURITY DEFINER AS $f$ INSERT INTO public.company_invitations (email) VALUES (u) $f$;
+      GRANT USAGE ON SCHEMA s07c_other TO app_user; GRANT EXECUTE ON FUNCTION s07c_other.mint(text) TO app_user`,
+    R(APP, 'EXECUTE s07c_other\\.mint\\(text\\), a definer that writes company_invitations')],
     ['a definer that mints, callable through PUBLIC\'s default', `CREATE FUNCTION public.s07c_mint2() RETURNS void LANGUAGE sql
       SECURITY DEFINER AS $f$ UPDATE public.personal_access_tokens SET revoked_at = NULL $f$`,
     R('\\w+', 'EXECUTE s07c_mint2\\(\\), a definer that writes personal_access_tokens')],
