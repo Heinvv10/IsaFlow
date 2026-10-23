@@ -39,6 +39,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   // Medical scheme fees the employee pays through payroll: deductions coded
   // 4005 (e@syFile 4005; BRS V25.3.0 p. 52-53, 101). Employer-paid medical aid
   // (the 3810 fringe benefit, deemed paid by the employee) is not supported.
+  // They decide the 65+ additional medical expenses tax credit (payeEngine).
   let medicalSchemeFees = 0;
 
   const breakdown: ComponentBreakdownItem[] = [];
@@ -100,13 +101,14 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? 1 + employee.medicalAidDependantsCount
     : employee.medicalAidDependantsCount;
 
-  const { regular, annualPaymentPaye, medicalCredit } = calculateCumulativePaye({
+  const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit } = calculateCumulativePaye({
     regularTaxable,
     annualPayments: annualTaxable,
-    ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0 },
+    ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
     taxYear,
     rebateAge,
     monthlyMedicalBeneficiaries: medicalBeneficiaries,
+    medicalSchemeFees,
   });
   const payeSplit = { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
@@ -160,6 +162,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     paye,
     payeSplit,
     medicalCredit,
+    additionalMedicalCredit,
     medicalSchemeFees: round2(medicalSchemeFees),
     uif,
     sdl: Math.round(sdl * 100) / 100,

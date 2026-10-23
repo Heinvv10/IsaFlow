@@ -25,6 +25,8 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 export interface MedicalRecord {
   fees: number;
   credit: number;
+  /** 4120: the lines' additional_medical_credit (the 65+ credit), recorded like `credit`. */
+  additionalCredit: number;
   recorded: boolean;
 }
 
@@ -47,6 +49,7 @@ export async function loadMedicalRecord(
                AND regexp_replace(item->>'sarsSourceCode', '^[ \t\r\n]+|[ \t\r\n]+$', '', 'g') = '4005'
            )))::numeric AS fees,
            SUM(l.medical_credit)::numeric AS credit,
+           SUM(l.additional_medical_credit)::numeric AS additional_credit,
            (array_agg(l.medical_credit IS NOT NULL ORDER BY h.period_year DESC, h.period_month DESC)
               FILTER (WHERE l.taxable_income > 0))[1] AS latest_recorded
     FROM payroll_run_lines l
@@ -60,6 +63,7 @@ export async function loadMedicalRecord(
   return new Map(rows.map(r => [String(r.employee_id), {
     fees: round2(Number(r.fees)),
     credit: round2(Number(r.credit)),
+    additionalCredit: round2(Number(r.additional_credit)),
     // No taxed line at all: nothing was taken off any tax, so nothing is missing.
     recorded: r.latest_recorded !== false,
   }]));

@@ -218,6 +218,7 @@ export async function calculatePayrollRun(
       annualTaxable: line.annualTaxable,
       paye: line.paye.monthlyPaye,
       medicalCredit: line.medicalCredit,
+      additionalMedicalCredit: line.additionalMedicalCredit,
       medicalSchemeFees: line.medicalSchemeFees,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,

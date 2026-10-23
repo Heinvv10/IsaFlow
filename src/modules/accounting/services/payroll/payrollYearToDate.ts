@@ -19,7 +19,10 @@
  *   only at their directive's figures, outside the tables);
  * - medicalCredit: the medical scheme fees tax credit the lines recorded
  *   (medical_credit, migration 926; a line before it recorded none, so the
- *   next line's record carries its credit: payeCumulative).
+ *   next line's record carries its credit: payeCumulative); likewise
+ *   additionalMedicalCredit (additional_medical_credit, the 65+ credit);
+ * - medicalSchemeFees: the fees deducted on those lines (loadMedicalRecord:
+ *   medical_scheme_fees, else the breakdown's deductions coded 4005).
  *
  * Every query is scoped by company_id.
  */
@@ -30,6 +33,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
+import { loadMedicalRecord } from './payrollMedicalRecord';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
@@ -45,7 +49,7 @@ export async function loadPayeYearToDate(
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH split AS (
-      SELECT l.employee_id, l.paye, b.directive_paye, l.medical_credit,
+      SELECT l.employee_id, l.paye, b.directive_paye, l.medical_credit, l.additional_medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
       FROM payroll_run_lines l
@@ -70,16 +74,24 @@ export async function loadPayeYearToDate(
            SUM(annual)::numeric AS annual,
            SUM(paye - directive_paye)::numeric AS table_paye,
            -- SUM skips a line written before migration 926 (NULL: recorded nothing).
-           SUM(medical_credit)::numeric AS medical_credit
+           SUM(medical_credit)::numeric AS medical_credit,
+           SUM(additional_medical_credit)::numeric AS additional_medical_credit
     FROM split
     GROUP BY employee_id
   `) as DbRow[];
+  // The same lines' medical scheme fees, by the one rule for them (a line before 926 from its breakdown).
+  const fees = await loadMedicalRecord(companyId, {
+    start: `${taxYear - 1}-03-01`,
+    end: period.month === 1 ? `${period.year - 1}-12-01` : `${period.year}-${String(period.month - 1).padStart(2, '0')}-01`,
+  }, employeeIds);
   return new Map(rows.map(r => [String(r.employee_id), {
     periods: Number(r.periods),
     periodicTaxable: round2(Number(r.periodic)),
     annualPayments: round2(Number(r.annual)),
     tablePaye: round2(Number(r.table_paye)),
     medicalCredit: round2(Number(r.medical_credit)),
+    additionalMedicalCredit: round2(Number(r.additional_medical_credit)),
+    medicalSchemeFees: fees.get(String(r.employee_id))?.fees ?? 0,
   }]));
 }
 
