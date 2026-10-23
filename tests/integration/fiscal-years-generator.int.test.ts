@@ -117,6 +117,14 @@ describe('on demand', () => {
     expect(p).toEqual({ fiscal_year: 2027, period_number: 6 });
   });
 
+  it('does not fill a month in a year that holds a closed period (no back-dating beside closed books)', async () => {
+    const id = await bareCompany(3);
+    await inTx(id, () => generateFiscalYearForDate(id, '2026-05-01'));
+    await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND start_date = '2026-03-01'`, [id]);
+    await pool.query(`DELETE FROM fiscal_periods WHERE company_id = $1 AND start_date = '2026-08-01'`, [id]);
+    expect(await inTx(id, () => ensureFiscalPeriodForDate(id, '2026-08-20'))).toBeNull();
+  });
+
   it('continues legacy January-December labels for a company whose periods carry them', async () => {
     const id = await bareCompany(3);
     await pool.query(
