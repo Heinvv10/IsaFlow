@@ -351,8 +351,9 @@ restored `.env.local` names too.
 A code rollback to a release from before the follow-up PR, with the env still
 on the new logins: that release's change-email updates GoTrue first and then
 fails its `users` write (918 took it from the service pool), logs the drift
-and answers 200, so the login and profile emails diverge. Restore the env
-first, as above.
+and answers 200, so the login and profile emails diverge; its register and
+verify-email recovery path fail with `permission denied for table
+auth_email_verification_tokens` (918). Restore the env first, as above.
 
 **Env first, then code.** Never run `scripts/rollback-deploy.sh` to a release
 older than this PR while the env still names `isaflow_app`: the old code

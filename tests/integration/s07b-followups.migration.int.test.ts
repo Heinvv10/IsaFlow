@@ -51,6 +51,8 @@ describe('S-07b follow-ups: migrations 918, 919 and 920', () => {
     ['users.email INSERT granted to app_user', 'GRANT INSERT (email) ON public.users TO app_user', /920: app_(service|user) \(reachable from an app pool login\) can INSERT users\.email/],
     ['the verification tokens re-granted to app_service', 'GRANT INSERT ON public.auth_email_verification_tokens TO app_service',
       /920: app_service \(reachable from an app pool login\) can INSERT auth_email_verification_tokens/],
+    ['four token columns granted for INSERT to app_user', 'GRANT INSERT (gotrue_user_id, token_hash, payload, expires_at) ON public.auth_email_verification_tokens TO app_user',
+      /920: app_(service|user) \(reachable from an app pool login\) can INSERT auth_email_verification_tokens/],
     ['the verification tokens readable by PUBLIC', 'GRANT SELECT ON public.auth_email_verification_tokens TO PUBLIC',
       /920: \w+ \(reachable from an app pool login\) can SELECT auth_email_verification_tokens/],
     ['the matview re-granted to app_user', 'GRANT SELECT ON public.customer_invoice_view_summary_mv TO app_user',
