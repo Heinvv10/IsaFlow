@@ -117,6 +117,12 @@ S-07c (migration 930, 2026-10-23) also takes effect on deploy:
   ```
 - 930's rules join 920's in `app_pool_reach_violations()`, so every later
   deploy refuses the code switch if one of these privileges comes back.
+- Every SECURITY DEFINER function is listed in `app_definer_reviews` with a
+  hash of its definition and owner, taken when 930 applies. It approves what
+  prod has at that moment: a definer someone changed by hand on prod would be
+  approved as it stands. The definer pre-check below lists any that the repo
+  does not know; a later migration that adds or changes one must update its
+  row, or CI and every deploy refuse it.
 
 ## 0. Before you start
 
