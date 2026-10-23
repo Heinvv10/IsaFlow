@@ -121,6 +121,18 @@ export class Api {
     return { status: res.status(), json: await res.json().catch(() => null) };
   }
 
+  /** multipart/form-data POST (file uploads) returning the unwrapped `data`; throws ApiError like post(). */
+  async postMultipart<T = any>(
+    path: string,
+    multipart: Record<string, string | { name: string; mimeType: string; buffer: Buffer }>,
+  ): Promise<T> {
+    return this.unwrap(
+      'POST',
+      path,
+      await this.ctx.post(path, { multipart, headers: { [CSRF_HEADER]: this.csrf } }),
+    );
+  }
+
   /** Raw GET — no envelope unwrapping, never throws. */
   async getRaw(path: string): Promise<{ status: number; json: any; text: string }> {
     const res = await this.ctx.get(path);

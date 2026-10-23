@@ -10,8 +10,9 @@ import type { PoolClient } from 'pg';
 
 import { ROLLBACK_TIMEOUT_MS } from '@/lib/rollbackFailed';
 import {
-  CHEAP_QUERY_TIMEOUT_MS, CLAIM_CONNECTION_TIMEOUT_MS, REQUEST_TIMEOUT_MS, SEND_WINDOW_MS, SETTLE_ATTEMPT_BUDGET_MS,
-  SETTLE_QUERY_TIMEOUT_MS, SETTLE_STATEMENT_TIMEOUT_MS, UNRECORDED_ANSWER_BUDGET_MS, UNRECORDED_ANSWER_CHECKOUT_MS,
+  ANSWER_SPOOL_TIMEOUT_MS, CHEAP_QUERY_TIMEOUT_MS, CLAIM_CONNECTION_TIMEOUT_MS, REQUEST_TIMEOUT_MS, SEND_START_DEADLINE_MS,
+  SEND_WINDOW_MS, SETTLE_ATTEMPT_BUDGET_MS, SETTLE_QUERY_TIMEOUT_MS, SETTLE_STATEMENT_TIMEOUT_MS, UNRECORDED_ANSWER_BUDGET_MS,
+  UNRECORDED_ANSWER_CHECKOUT_MS,
 } from '@/modules/accounting/services/ap/netcashTimeouts';
 import { bounded } from '@/modules/accounting/services/ap/netcashClaimSettle';
 
@@ -20,10 +21,21 @@ afterEach(() => { vi.useRealTimers(); });
 describe('the settle budget', () => {
   it('send + both settle attempts (each with an unanswered ROLLBACK) + the retry checkout + the durable record stay within 75% of SEND_WINDOW_MS', () => {
     // Round 15: the durable record (recordUnrecordedAnswer) runs before the 500 too: its checkout, attempt and ROLLBACK.
-    const record = UNRECORDED_ANSWER_CHECKOUT_MS + UNRECORDED_ANSWER_BUDGET_MS + ROLLBACK_TIMEOUT_MS;
+    // Round 18: when that fails too, the answer goes to the local spool (ANSWER_SPOOL_TIMEOUT_MS) before the 500.
+    const record = UNRECORDED_ANSWER_CHECKOUT_MS + UNRECORDED_ANSWER_BUDGET_MS + ROLLBACK_TIMEOUT_MS + ANSWER_SPOOL_TIMEOUT_MS;
     const worst = REQUEST_TIMEOUT_MS + 2 * (SETTLE_ATTEMPT_BUDGET_MS + ROLLBACK_TIMEOUT_MS) + CLAIM_CONNECTION_TIMEOUT_MS + record;
     expect(Number.isFinite(worst)).toBe(true);
     expect(worst).toBeLessThanOrEqual(0.75 * SEND_WINDOW_MS);
+  });
+
+  it('a send may START only so late that its own timeout still ends inside half of SEND_WINDOW_MS (the sender-side fence)', () => {
+    // The fence (netcashSendFence) measures from before the claim transaction on a monotonic clock; resolve measures
+    // the window from the claim's created_at on DB time. A send that starts by SEND_START_DEADLINE_MS ends by
+    // SEND_START_DEADLINE_MS + REQUEST_TIMEOUT_MS; the other half of the window is margin for clock rate, network
+    // and scheduling. Raise either bound and this goes red - the fence would no longer close the double-pay window.
+    expect(Number.isFinite(SEND_START_DEADLINE_MS)).toBe(true);
+    expect(SEND_START_DEADLINE_MS).toBeGreaterThanOrEqual(CLAIM_CONNECTION_TIMEOUT_MS + 2 * CHEAP_QUERY_TIMEOUT_MS); // a loaded box still sends
+    expect(SEND_START_DEADLINE_MS + REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(0.5 * SEND_WINDOW_MS);
   });
 
   it('the client gives up after the server would (query timeout above statement timeout), cheap statements sooner', () => {

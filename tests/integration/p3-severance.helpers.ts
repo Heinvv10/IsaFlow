@@ -30,11 +30,11 @@ export interface SeveranceFixture {
   call: ReturnType<typeof routeCaller>;
 }
 
-export async function seedRetrenchedEmployee(pool: Pool, endDate: string, name: string): Promise<SeveranceFixture> {
+export async function seedRetrenchedEmployee(pool: Pool, endDate: string, name: string, monthly = MONTHLY): Promise<SeveranceFixture> {
   const company = crypto.randomUUID();
   const admin = crypto.randomUUID();
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, name]);
-  await seedPayrollCompany(pool, company, MONTHLY);
+  await seedPayrollCompany(pool, company, monthly);
   const employee = String((await pool.query('SELECT id FROM payroll_employees WHERE company_id = $1', [company])).rows[0]!.id);
   await pool.query(
     `UPDATE payroll_employees SET end_date = $2::date, status = 'terminated', id_number = '8001015009087',
