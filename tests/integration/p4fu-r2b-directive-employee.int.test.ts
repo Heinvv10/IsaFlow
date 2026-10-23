@@ -77,7 +77,8 @@ describe('R4: the create route requires one of the company\'s employees', () => 
 
   it('another company\'s employee: 400, nothing written in either company', async () => {
     const [mine, theirs] = [await countDirectives(f.company), await countDirectives(other.company)];
-    const r = await post({ ...BODY, employee_id: other.employee });
+    // A company named in the body changes nothing: the session's company decides.
+    const r = await post({ ...BODY, employee_id: other.employee, company_id: other.company });
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
     expect(r.body.error?.message).toMatch(/not an employee of this company/);
     expect([await countDirectives(f.company), await countDirectives(other.company)]).toEqual([mine, theirs]);
