@@ -281,4 +281,10 @@ BEGIN
   IF NOT pg_catalog.has_function_privilege('migration_admin', 'public.company_member_role_is_owner(text)', 'EXECUTE') THEN
     RAISE EXCEPTION '930: migration_admin cannot EXECUTE company_member_role_is_owner(text), which assertCanInvite calls';
   END IF;
+  -- Adding a company keeps working only while the definer's owner may write
+  -- the membership itself, not through app_user's grant this revokes.
+  IF NOT pg_catalog.has_table_privilege((SELECT p.proowner FROM pg_catalog.pg_proc p
+       WHERE p.oid = 'public.create_company_with_owner(jsonb)'::pg_catalog.regprocedure), 'public.company_users', 'INSERT') THEN
+    RAISE EXCEPTION '930: the owner of create_company_with_owner(jsonb) cannot INSERT company_users, which the S-07c code writes on it';
+  END IF;
 END $$;

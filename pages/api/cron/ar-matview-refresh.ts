@@ -8,8 +8,8 @@
  * Authentication: X-Cron-Secret header must match CRON_SECRET env var.
  *
  * NOTE: REFRESH MATERIALIZED VIEW CONCURRENTLY needs a unique index on the
- * MV (mig 427 provides idx_cust_inv_view_summary), must be run by the view's
- * owner, and cannot run inside a transaction block. The service pool is not
+ * MV (mig 427 provides idx_cust_inv_view_summary) and must be run by the
+ * view's owner. The service pool is not
  * the owner (S-07b), so it calls the SECURITY DEFINER wrapper from migration
  * 915, which refreshes this one view and takes no input; since 930 it calls
  * refresh_customer_invoice_view_summary_if_due(), which skips, and says so,

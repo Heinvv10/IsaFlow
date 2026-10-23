@@ -110,6 +110,9 @@ describe('S-07c: migration 930', () => {
       /930: migration_admin cannot INSERT public\.capture_api_keys/],
     ['platform_admin, the waitlist promotion', 'REVOKE UPDATE ON public.waitlist_signups FROM platform_admin',
       /930: platform_admin cannot UPDATE public\.waitlist_signups/],
+    ['the add-company definer\'s owner', `CREATE ROLE s07c_definer_owner NOLOGIN;
+      ALTER FUNCTION public.create_company_with_owner(jsonb) OWNER TO s07c_definer_owner`,
+    /930: the owner of create_company_with_owner\(jsonb\) cannot INSERT company_users/],
   ])('refuses a database where the moved writes could not run: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(PREFLIGHT_930);

@@ -207,6 +207,9 @@ SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.prona
    AND has_function_privilege('app_user', p.oid, 'EXECUTE')
    AND p.prosrc ~* '\m(insert\s+into|update|delete\s+from)\s+(public\.)?(personal_access_tokens|oauth_apps|oauth_authorisation_codes|oauth_authorisations|capture_api_keys|company_invitations|company_users|auth_password_reset_tokens|password_reset_tokens|admin_impersonation_stash|waitlist_signups)\M'
    AND p.oid::regprocedure::text NOT IN ('create_company_with_owner(jsonb)', 'auth.set_default_company(uuid,uuid)');
+-- 930: adding a company must not depend on app_user's INSERT (930 refuses otherwise)
+SELECT pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.oid = 'public.create_company_with_owner(jsonb)'::regprocedure
+   AND NOT has_table_privilege(p.proowner, 'public.company_users', 'INSERT');
 -- After the deploy, 930's rules run on every deploy; by hand (zero rows):
 --   SELECT * FROM public.app_pool_reach_violations();
 -- 916: each guard must hold the old exemption line exactly once
