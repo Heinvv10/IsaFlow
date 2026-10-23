@@ -88,6 +88,11 @@ export function yearEndCloseRefusal(year: number, result: CloseYearError): McpTo
       );
     case 'year_not_found':
       return toolError(`Fiscal year ${year} has no periods. Nothing was posted.`);
+    case 'start_month_assumed':
+      return toolError(
+        `Fiscal year ${year} was cut on an assumed March start: the company has no financial year start month set. `
+        + 'Nothing was posted. A person has to set the start month in Settings first; do not retry until they have.',
+      );
     default: {
       // Exhaustive over CloseYearError, for the same reason the REST route is:
       // `unhandled` stops being `never` the moment a member is added without a
