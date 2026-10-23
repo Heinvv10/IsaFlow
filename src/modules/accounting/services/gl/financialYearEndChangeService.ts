@@ -87,6 +87,9 @@ export async function assessYearEndChange(
   const currentStartMonth = await readStartMonth(companyId);
   const refusals: string[] = [];
 
+  if (currentYear.assumed) {
+    refusals.push('The company has no usable financial year start month; set it in Settings > General before changing the year end.');
+  }
   if (currentYear.status !== 'open') {
     refusals.push(`FY${currentYear.fiscalYear} is ${currentYear.status}; only an open year can become a transition year.`);
   }

@@ -2,7 +2,7 @@
  * Change of financial year end (Feature B) and its undo (Feature G), on real
  * PostgreSQL, through the services with a fixed "today" (2026-10-23) so the
  * Companies Act s27(4)(b) "later than the filing date" rule is deterministic.
- * The route's RBAC/CSRF are in financial-year-end-change-route.int.test.ts.
+ * The route's RBAC/CSRF/refusal envelope: financial-year-end-change-route.int.test.ts.
  * All data synthetic.
  */
 import { afterAll, describe, expect, it } from 'vitest';
@@ -167,6 +167,38 @@ describe('undo', () => {
     expect(String(e1)).toMatch(/only be marked reversed/);
     const e2 = await pool.query(`DELETE FROM fiscal_year_end_changes WHERE company_id = $1`, [id]).catch((e) => e);
     expect(String(e2)).toMatch(/cannot be deleted/);
+  });
+});
+
+describe('undo refusals', () => {
+  it('refuses (409, not a 500) once the shortened transition year is itself closed', async () => {
+    const c = await company(1, ['2026-03-01']);
+    await inTx(c.id, () => applyYearEndChange(c.id, user, { newYearEndMonth: 11, ...OK }, TODAY));
+    await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND start_date <= '2026-11-01'`, [c.id]);
+    expect(await refusalOf(inTx(c.id, () => undoYearEndChange(c.id, user, 'Filed with CIPC in error'))))
+      .toMatch(/transition year is closed/);
+  });
+
+  it('refuses when the transition year has a year-end journal, and a second undo finds nothing to undo', async () => {
+    const c = await company(1, ['2026-03-01']);
+    await inTx(c.id, () => applyYearEndChange(c.id, user, { newYearEndMonth: 2, ...OK }, TODAY));
+    const ye = (await pool.query(`INSERT INTO gl_journal_entries (company_id, entry_date, created_by, description, status, source)
+                                   VALUES ($1, '2027-02-28', $2, 'YE', 'draft', 'year_end') RETURNING id`, [c.id, user])).rows[0].id;
+    expect(await refusalOf(inTx(c.id, () => undoYearEndChange(c.id, user, 'Filed with CIPC in error')))).toMatch(/year-end closing journal/);
+    await pool.query('DELETE FROM gl_journal_entries WHERE id = $1', [ye]);
+    await inTx(c.id, () => undoYearEndChange(c.id, user, 'Filed with CIPC in error'));
+    expect(await refusalOf(inTx(c.id, () => undoYearEndChange(c.id, user, 'Filed with CIPC in error')))).toMatch(/no change of financial year end to undo/);
+  });
+});
+
+describe('a month that allows both a shorter and a longer year', () => {
+  it('asks which, and applies the one chosen', async () => {
+    const c = await company(1, ['2026-03-01']);
+    const a = await inTx(c.id, () => assessYearEndChange(c.id, { newYearEndMonth: 2 }, '2026-01-10'));
+    expect(a.options.map((o) => o.kind)).toEqual(['shorten', 'extend']);
+    expect(a.refusals.join(' ')).toMatch(/choose one/);
+    const r = await inTx(c.id, () => applyYearEndChange(c.id, user, { newYearEndMonth: 2, kind: 'shorten', ...OK }, '2026-01-10'));
+    expect(r).toMatchObject({ endDate: '2026-02-28', months: 2 });
   });
 });
 
