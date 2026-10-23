@@ -69,7 +69,12 @@ $$;
 -- carry legacy January-December labels while its year is the declared March
 -- year (every company onboarded before #777) keeps getting them, so its new
 -- rows look exactly as they always have and cannot collide with its old ones.
-CREATE OR REPLACE FUNCTION public.fiscal_periods_generate(p_year uuid)
+--
+-- A year that already holds a closed or locked period is not filled: a new
+-- open month beside closed ones would let a journal be back-dated into books
+-- already closed. p_beside_closed is for a change of year end only, which
+-- extends the transition year with months after its old end.
+CREATE OR REPLACE FUNCTION public.fiscal_periods_generate(p_year uuid, p_beside_closed boolean DEFAULT false)
 RETURNS int
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public, pg_temp
@@ -80,6 +85,10 @@ BEGIN
   SELECT * INTO y FROM fiscal_years WHERE id = p_year;
   IF NOT FOUND THEN RAISE EXCEPTION 'fiscal_periods_generate: no fiscal year %', p_year; END IF;
   IF y.status IN ('closed', 'locked') THEN RETURN 0; END IF;
+  IF NOT p_beside_closed AND EXISTS (
+    SELECT 1 FROM fiscal_periods fp WHERE fp.fiscal_year_id = p_year AND fp.status IN ('closed', 'locked')) THEN
+    RETURN 0;
+  END IF;
 
   d := date_trunc('month', y.start_date)::date;
   WHILE d <= y.end_date LOOP
@@ -124,6 +133,6 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.fiscal_year_ensure(uuid, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fiscal_periods_generate(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fiscal_periods_generate(uuid, boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fiscal_year_ensure(uuid, date) TO app_user;
-GRANT EXECUTE ON FUNCTION public.fiscal_periods_generate(uuid) TO app_user;
+GRANT EXECUTE ON FUNCTION public.fiscal_periods_generate(uuid, boolean) TO app_user;
