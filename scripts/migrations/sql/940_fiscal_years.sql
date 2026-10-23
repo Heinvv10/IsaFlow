@@ -83,7 +83,11 @@ DROP TRIGGER IF EXISTS trg_fiscal_years_updated_at ON fiscal_years;
 CREATE TRIGGER trg_fiscal_years_updated_at BEFORE UPDATE ON fiscal_years
   FOR EACH ROW EXECUTE FUNCTION accounting_updated_at();
 
-ALTER TABLE fiscal_periods ADD COLUMN IF NOT EXISTS fiscal_year_id UUID REFERENCES fiscal_years(id);
+-- DEFERRABLE (immediate by default): a change of year end replaces the open
+-- years after the transition year and re-points their periods in one
+-- transaction (SET CONSTRAINTS ... DEFERRED).
+ALTER TABLE fiscal_periods ADD COLUMN IF NOT EXISTS fiscal_year_id UUID
+  CONSTRAINT fiscal_periods_fiscal_year_id_fkey REFERENCES fiscal_years(id) DEFERRABLE INITIALLY IMMEDIATE;
 CREATE INDEX IF NOT EXISTS idx_fiscal_periods_fiscal_year_id ON fiscal_periods (fiscal_year_id);
 
 -- ── The template: a year's range where no row holds the date yet ─────────────
