@@ -62,6 +62,7 @@ import {
   createCustomerPayment,
 } from '@/modules/accounting/services/ar/customerPaymentService';
 import type { CustomerPaymentCreateInput } from '@/modules/accounting/types/ar.types';
+import { ReceiptRefusal } from '@/modules/accounting/services/ar/receiptRefusal';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockWithTransaction = withTransaction as unknown as MockedFunction<
@@ -252,6 +253,17 @@ describe('createCustomerPayment — allocation validation', () => {
 
     await expect(createCustomerPayment(COMPANY_ID, input, USER_ID))
       .rejects.toThrow(/does not match payment/i);
+  });
+
+  it('refuses allocations a whole cent off the payment total as a typed ReceiptRefusal; float noise is not a cent', async () => {
+    for (const [total, amount] of [[100, 100.01], [100.01, 100]] as const) {
+      mockSql.mockResolvedValueOnce([lockRow(INVOICE_ID, '1000.00', '0')]);
+      mockSql.mockResolvedValueOnce([{ pending: '0' }]);
+      const err = await createCustomerPayment(COMPANY_ID, {
+        ...validInput, totalAmount: total, allocations: [{ invoiceId: INVOICE_ID, amount }],
+      }, USER_ID).catch((e: unknown) => e);
+      expect(err, `${total} vs ${amount}`).toBeInstanceOf(ReceiptRefusal);
+    }
   });
 
   it('rejects when invoice is not found', async () => {

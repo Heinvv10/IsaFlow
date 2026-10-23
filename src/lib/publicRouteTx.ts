@@ -15,8 +15,9 @@
  *
  * NOT an RLS context. Unlike `withAuth`, this issues no `SET LOCAL ROLE
  * app_user` and no `request.jwt.claims`, because a public gateway callback has
- * no authenticated tenant to set them from: the writes run as the pool owner
- * with row-level security bypassed, exactly as they did on the pool before.
+ * no authenticated tenant to set them from: the writes run as the service
+ * pool's login (isaflow_service since S-07b, under app_service's policies,
+ * which admit every tenant's rows; the table owner before it).
  * Tenant isolation on this path therefore rests entirely on the explicit
  * `company_id` predicates in the services called from `fn` — every query they
  * issue must carry one.

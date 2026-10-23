@@ -15,9 +15,10 @@ const submitEftBatch = vi.hoisted(() => vi.fn());
 vi.mock('@/modules/accounting/services/ap/netcashService', () => ({ submitEftBatch }));
 
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
+import eftFileRelease from '../../pages/api/accounting/eft-file-release';
 import { dataOf, messageOf } from './r035-pr2.helpers';
-import { cleanupPr5, plantBatch, plantSupplier } from './r035-pr5.helpers';
+import { cleanupPr5, plantApprovedBatch, plantSupplier } from './r035-pr5.helpers';
 import { bankCompany, bankRoutes, submissionsOf, verificationsOf } from './supplier-bank-verification.helpers';
 
 assertDisposable();
@@ -40,11 +41,16 @@ afterAll(() => cleanupPr5(pool, companies, Object.values(u)));
 /** A company with a two-payee draft batch (suppliers planted WITH bank details), switched on by B. */
 async function enforcedBatch() {
   const { company: c, bank } = await bankCompany(pool, [[u.a, 'admin'], [u.b, 'owner'], [u.c, 'admin'], [u.k, 'bookkeeper']], companies);
-  const batch = await plantBatch(pool, c, u.a, bank);
+  const batch = await plantApprovedBatch(pool, c, u.a, bank);
   const on = await r.toggle(u.b, c, true);
   expect(on.state.statusCode, JSON.stringify(on.state.body)).toBe(200);
   return { c, bank, batch, s: batch.members[0]!.supplierId };
 }
+
+/** AP-01: a bank file closes the Netcash channel for its batch until an admin releases it as not used. */
+const releaseFile = async (user: string, c: string, batchId: string) => expect((await callRoute(
+  eftFileRelease, tokens[user]!, c, 'POST', { batchId, reason: 'file not uploaded to the bank' }, '/api/accounting/eft-file-release',
+)).state.statusCode).toBe(200);
 
 const RAW = { payments: [{ accountHolder: 'Anyone', bankCode: '250655', accountNumber: '62000000009', amount: 100000, reference: 'x' }] };
 
@@ -98,6 +104,7 @@ describe('switching on', () => {
   it('a baselined batch is sendable: EFT file and Netcash submission go out', async () => {
     const { c, batch } = await enforcedBatch();
     expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);
+    await releaseFile(u.a, c, batch.id);
     const sent = await r.netcash(u.a, c, { batchPaymentId: batch.id });
     expect(sent.state.statusCode, JSON.stringify(sent.state.body)).toBe(200);
     expect(submitEftBatch).toHaveBeenCalledTimes(1);
@@ -133,11 +140,10 @@ describe('a bank-detail change blocks money leaving until someone else verifies'
     expect(await submissionsOf(pool, c)).toBe(0);
   });
 
-  it('a raw Netcash payments[] list is refused (403) whenever the control is on — no payment approval is enforced', async () => {
+  it('a raw Netcash payments[] list is refused (400, AP-01: every raw list) whenever the control is on', async () => {
     const { c } = await enforcedBatch();
     const res = await r.netcash(u.a, c, RAW);
-    expect(res.state.statusCode).toBe(403);
-    expect(reasonOf(res)).toBe('SUPPLIER_BANK_DETAILS_UNVERIFIED');
+    expect(res.state.statusCode).toBe(400);
     expect(submitEftBatch).not.toHaveBeenCalled();
     expect(await submissionsOf(pool, c)).toBe(0);
   });
@@ -244,14 +250,15 @@ describe('a bank-detail change blocks money leaving until someone else verifies'
 });
 
 describe('enforcement off', () => {
-  it('no gate at all: a changed, never-verified supplier is paid by EFT, Netcash batch and a raw list; verify is refused', async () => {
+  it('no gate at all: a changed, never-verified supplier is paid by EFT and Netcash batch; a raw list is refused; verify is refused', async () => {
     const { company: c, bank } = await bankCompany(pool, [[u.a, 'admin'], [u.c, 'admin']], companies);
-    const batch = await plantBatch(pool, c, u.a, bank);
+    const batch = await plantApprovedBatch(pool, c, u.a, bank);
     const s = batch.members[0]!.supplierId;
     await r.changeBank(u.a, c, s, { bankAccountNumber: '62444444444' });
     expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);
+    await releaseFile(u.a, c, batch.id);
     expect((await r.netcash(u.a, c, { batchPaymentId: batch.id })).state.statusCode).toBe(200);
-    expect((await r.netcash(u.a, c, RAW)).state.statusCode).toBe(200);
+    expect((await r.netcash(u.a, c, RAW)).state.statusCode).toBe(400);
     expect((await r.state(u.c, c, s)).state).toBe('not_enforced');
     const res = await r.verify(u.c, c, s);
     expect(res.state.statusCode).toBe(409);

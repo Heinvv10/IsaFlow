@@ -11,6 +11,7 @@ import { ArrowLeft, Layers, Loader2, AlertCircle, Check, Zap, XCircle } from 'lu
 import { formatDate } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
+import { BatchBankFileNotice } from '@/components/accounting/BatchBankFileNotice';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
@@ -171,6 +172,7 @@ export default function BatchPaymentDetailPage() {
         {actionError && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{actionError}</div>}
         {batch && <DocumentApprovalPanel documentType="payment_batch" documentId={batch.id} noun="batch" action="pay"
           approval={batch.approval} onChanged={load} />}
+        {batch && <div className="px-6 pt-4"><BatchBankFileNotice batchId={batch.id} /></div>}
         <div className="p-6 space-y-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">

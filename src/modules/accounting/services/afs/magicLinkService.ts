@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { listLiveCompanies } from '@/lib/auth/liveCompanies';
 import type { PortalContact, PortalRole } from './afsTypes';
 
 const MAGIC_LINK_EXPIRY_MS = 30 * 60 * 1000; // 30 minutes
@@ -53,6 +54,13 @@ export async function verifyMagicLink(
   if (links.length === 0) return null;
 
   const link = links[0] as { id: string; company_id: string; contact_id: string };
+
+  // A link minted before its company was suspended or deleted signs in to
+  // nothing (audit S-08 breaker REPRO 3): the same live test the request used.
+  if ((await listLiveCompanies([link.company_id])).length === 0) {
+    log.warn('Magic link refused: company is not live', { linkId: link.id, companyId: link.company_id }, 'magicLinkService');
+    return null;
+  }
 
   // Step 2: Atomically mark as used (race condition guard)
   const updated = (await sql`

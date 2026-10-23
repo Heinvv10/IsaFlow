@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { assertCustomerInCompany } from '../core/contactDirectoryService';
 import { invoicesPayable } from './invoicesPayable';
 import { assertAllocationShape, assertInvoiceTakesReceipts, assertWithinOutstanding, cents, lockReceiptInvoices } from './receiptInvoiceLock';
+import { ReceiptRefusal } from './receiptRefusal';
 import type {
   CustomerPayment,
   CustomerPaymentAllocation,
@@ -137,9 +138,11 @@ export async function createCustomerPayment(companyId: string,
       assertWithinOutstanding(invoice, cents(alloc.amount), cents(pendingRows[0]?.pending as string | null));
     }
 
-    const totalAllocated = input.allocations.reduce((s, a) => s + a.amount, 0);
-    if (Math.abs(totalAllocated - input.totalAmount) > 0.01) {
-      throw new Error(`Allocations total R${totalAllocated.toFixed(2)} does not match payment R${input.totalAmount.toFixed(2)}`);
+    // Whole cents, no tolerance (899): a draft whose allocations differ from its own total by a cent can never confirm
+    // cleanly. A typed refusal (a 4xx before any write), not a bare Error.
+    const allocatedCents = input.allocations.reduce((s, a) => s + cents(a.amount), 0);
+    if (allocatedCents !== cents(input.totalAmount)) {
+      throw new ReceiptRefusal(`Allocations total R${(allocatedCents / 100).toFixed(2)} does not match payment R${input.totalAmount.toFixed(2)}`);
     }
 
     // Pre-generate UUID so all queries can be batched atomically via HTTP transaction

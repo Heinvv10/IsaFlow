@@ -256,7 +256,10 @@ function buildLine(
 
   const total = Number(invoice.total_amount);
   const outstandingBefore = round2(total - Number(invoice.amount_paid ?? 0));
-  if (alloc.amount > outstandingBefore + EPS) {
+  // Whole cents, no tolerance (899): `customer_invoices_amount_paid_within_total` refuses a cent over,
+  // so a guard that lets it through only moves the failure to a 23514 mid-write. round2 absorbs float
+  // noise (0.1 + 0.2) on both sides; it does not forgive a whole cent.
+  if (round2(alloc.amount) > outstandingBefore) {
     throw new ReceiptRefusal(
       `R${alloc.amount.toFixed(2)} exceeds the R${outstandingBefore.toFixed(2)} outstanding on `
       + `invoice ${String(invoice.invoice_number)}.`,
@@ -271,7 +274,9 @@ function buildLine(
     outstandingBefore,
     outstandingAfter,
     statusBefore,
-    statusAfter: outstandingAfter <= EPS ? 'paid' : 'partially_paid',
+    // Whole cents (outstandingAfter is round2'd): the status the row will hold, which recomputeInvoiceStatus
+    // derives with no tolerance - a cent still owing is 'partially_paid'.
+    statusAfter: outstandingAfter <= 0 ? 'paid' : 'partially_paid',
   };
 }
 

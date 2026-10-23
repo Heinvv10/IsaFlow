@@ -1,32 +1,9 @@
 import { Check, Star, ChevronDown, ArrowRight } from 'lucide-react';
-import { APP_URL, PRICING_TIERS, TESTIMONIALS, FAQ_ITEMS, TRUST_COMPANIES } from './landingData';
+import { APP_URL, PRICING_TIERS, FAQ_ITEMS } from './landingData';
 
 interface FAQProps {
   openFaq: number | null;
   onToggle: (i: number) => void;
-}
-
-// ── Trust Bar ──────────────────────────────────────────────────────────────
-export function LandingTrustBar() {
-  return (
-    <section className="bg-white py-12 border-b border-gray-100">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <p className="text-xs font-semibold tracking-widest uppercase text-gray-600 dark:text-gray-400 mb-8">
-          Trusted by businesses worldwide
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-8 lg:gap-12">
-          {TRUST_COMPANIES.map((name) => (
-            <div
-              key={name}
-              className="text-sm font-semibold text-gray-700 dark:text-gray-300 tracking-wide"
-            >
-              {name}
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
 }
 
 // ── Pricing ────────────────────────────────────────────────────────────────
@@ -88,70 +65,6 @@ export function LandingPricing() {
               >
                 {tier.cta}
               </a>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ── Testimonials ───────────────────────────────────────────────────────────
-export function LandingTestimonials() {
-  const featured = TESTIMONIALS.find((t) => t.featured);
-  const supporting = TESTIMONIALS.filter((t) => !t.featured);
-
-  return (
-    <section id="testimonials" className="py-20 lg:py-28 bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-2xl mx-auto mb-16">
-          <p className="text-sm font-semibold text-teal-600 tracking-widest uppercase mb-3">
-            Testimonials
-          </p>
-          <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900">
-            Loved by finance teams
-          </h2>
-        </div>
-
-        {/* Featured testimonial */}
-        {featured && (
-          <div className="bg-white dark:bg-gray-900 rounded-3xl p-10 lg:p-14 mb-8 text-center max-w-4xl mx-auto">
-            <div className="flex justify-center mb-6">
-              {Array.from({ length: featured.stars }).map((_, i) => (
-                <Star key={i} className="w-5 h-5 text-teal-400 fill-teal-400" />
-              ))}
-            </div>
-            <blockquote className="text-xl lg:text-2xl font-medium text-slate-900 dark:text-white leading-relaxed mb-8">
-              &quot;{featured.quote}&quot;
-            </blockquote>
-            {featured.metric && (
-              <div className="inline-block px-4 py-2 bg-teal-500/20 text-teal-400 text-sm font-semibold rounded-full mb-6">
-                {featured.metric}
-              </div>
-            )}
-            <div>
-              <p className="font-semibold text-slate-900 dark:text-white">{featured.name}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">{featured.role}, {featured.company}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Supporting testimonials */}
-        <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          {supporting.map((t) => (
-            <div key={t.name} className="bg-white border border-gray-100 rounded-2xl p-8 shadow-sm border-l-4 border-l-teal-500">
-              <div className="flex mb-4">
-                {Array.from({ length: t.stars }).map((_, i) => (
-                  <Star key={i} className="w-4 h-4 text-teal-500 fill-teal-500" />
-                ))}
-              </div>
-              <blockquote className="text-gray-700 leading-relaxed mb-6 text-sm">
-                &quot;{t.quote}&quot;
-              </blockquote>
-              <div>
-                <p className="font-semibold text-gray-900 text-sm">{t.name}</p>
-                <p className="text-xs text-gray-600 dark:text-gray-400">{t.role}, {t.company}</p>
-              </div>
             </div>
           ))}
         </div>

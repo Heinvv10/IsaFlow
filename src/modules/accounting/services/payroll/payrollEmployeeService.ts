@@ -7,7 +7,7 @@ import { recordEmployeeChange } from './payrollEmployeeHistoryService';
 
 type Row = DbRow;
 
-function mapRow(r: Row): PayrollEmployee {
+export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
   return {
     id: String(r.id),
     companyId: String(r.company_id),
@@ -35,7 +35,7 @@ export async function listPayrollEmployees(companyId: string): Promise<PayrollEm
     WHERE company_id = ${companyId}::uuid AND status = 'active'
     ORDER BY last_name, first_name
   `) as Row[];
-  return rows.map(mapRow);
+  return rows.map(mapPayrollEmployeeRow);
 }
 
 /**
@@ -62,7 +62,7 @@ export async function listPayrollRunEmployees(
       )
     ORDER BY e.last_name, e.first_name
   `) as Row[];
-  return rows.map(mapRow);
+  return rows.map(mapPayrollEmployeeRow);
 }
 
 export async function getPayrollEmployee(
@@ -73,7 +73,7 @@ export async function getPayrollEmployee(
     SELECT * FROM payroll_employees
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   `) as Row[];
-  return rows.length > 0 && rows[0] ? mapRow(rows[0]) : null;
+  return rows.length > 0 && rows[0] ? mapPayrollEmployeeRow(rows[0]) : null;
 }
 
 export async function createPayrollEmployee(
@@ -97,7 +97,7 @@ export async function createPayrollEmployee(
     RETURNING *
   `) as Row[];
   if (!rows[0]) throw new Error('INSERT returned no row');
-  return mapRow(rows[0]);
+  return mapPayrollEmployeeRow(rows[0]);
 }
 
 export async function updatePayrollEmployee(
@@ -141,7 +141,7 @@ export async function updatePayrollEmployee(
     RETURNING *
   `) as Row[];
 
-  const updated = rows.length > 0 && rows[0] ? mapRow(rows[0]) : null;
+  const updated = rows.length > 0 && rows[0] ? mapPayrollEmployeeRow(rows[0]) : null;
 
   if (userId && before && updated && data.employmentType !== undefined) {
     await recordEmployeeChange({

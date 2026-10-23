@@ -30,9 +30,18 @@ export interface PayrollComponent {
   isSdlApplicable: boolean;
 }
 
+/** The SARS tax directive a lump-sum component (39xx) is paid under, and the PAYE it prescribes. */
+export interface DirectiveFigures {
+  id: string;
+  number: string | null;
+  paye: number;
+}
+
 export interface EmployeeComponent {
   component: PayrollComponent;
   amount: number;
+  /** Set on a lump-sum (39xx) component paid under a directive; see payrollCalculator. */
+  directive?: DirectiveFigures;
 }
 
 export interface PayrollPeriod {
@@ -124,7 +133,17 @@ export interface PayrollLineInput {
    * is spelled out rather than omitted so that forgetting is a type error.
    */
   annualPayrollEstimate: number | 'defer';
-  priorPeriodCumulativePaye?: number;
+  /**
+   * The employee's earlier periods of this tax year (payrollYearToDate), for
+   * the cumulative PAYE (payeCumulative). Absent = none: the first period,
+   * which gives the x12 result.
+   */
+  ytd?: PayeYearToDate;
+  /**
+   * True for a leaver paid after leaving (the severance-only line of a later
+   * run): no hours employed in the period, so no ETI (see payrollCalculator).
+   */
+  notEmployedInPeriod?: boolean;
 }
 
 export interface ComponentBreakdownItem {
@@ -134,13 +153,42 @@ export interface ComponentBreakdownItem {
   amount: number;
   isTaxable: boolean;
   isUifApplicable: boolean;
+  directive?: DirectiveFigures;
+}
+
+/** An employee's earlier periods of the tax year, as the cumulative PAYE needs them. */
+export interface PayeYearToDate {
+  /** Periods with periodic pay (the n of the cumulative formula, before this one). */
+  periods: number;
+  /** Periodic taxable remuneration, after taxable deductions. */
+  periodicTaxable: number;
+  /** Annual payments (3605) taxed by the annual-payment method. */
+  annualPayments: number;
+  /** PAYE deducted by the tables (regular + annual payments), directive PAYE excluded. */
+  tablePaye: number;
+}
+
+/** How a line's PAYE is made up (audit 2026-10-18 P3). */
+export interface PayeSplit {
+  /** Periodic PAYE on the regular remuneration, cumulative to date (payeCumulative). */
+  regular: number;
+  /** PAYE on annual payments (3605), by the SARS annual-payment method. */
+  annualPayment: number;
+  /** PAYE prescribed by the directives of the line's lump sums (39xx). */
+  directive: number;
 }
 
 export interface PayrollLineResult {
   employeeId: string;
   grossPay: number;
+  /** Regular plus annual-payment remuneration: what the tax tables were applied to. Lump sums are not in it. */
   taxableIncome: number;
+  /** taxableIncome split: periodic and annual payments (stored on the line for the next period's year-to-date). */
+  periodicTaxable: number;
+  annualTaxable: number;
+  /** The regular calculation's figures, except `monthlyPaye`, which is the line's whole PAYE (payeSplit summed). */
   paye: PayeResult;
+  payeSplit: PayeSplit;
   uif: UifResult;
   sdl: number;
   /** Remuneration this line contributes to the SDL leviable amount. */
