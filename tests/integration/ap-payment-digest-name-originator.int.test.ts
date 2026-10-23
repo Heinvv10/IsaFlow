@@ -96,6 +96,18 @@ describe('a payee renamed after approval (enforcement off)', () => {
     expect(submitEftBatch).toHaveBeenCalledTimes(1);
   });
 
+  it('a letter that only upper-cases to the same one (dotless i, long s) is a rename: refused', async () => {
+    for (const forged of ['MALLORY \u0131NC', 'MALLORY INC \u017FA']) {
+      const { c, b, supplierId } = await fixture();
+      await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [supplierId, forged.includes('\u017F') ? 'MALLORY INC SA' : 'MALLORY INC']);
+      await approve(c, b.id);
+      await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [supplierId, forged]);
+      const res = await eft(c, b.id);
+      expect(res.state.statusCode, `${forged}: ${JSON.stringify(res.state.body)}`).toBe(409);
+      expect(reasonOf(res)).toBe(CHANGED);
+    }
+  });
+
   it('an inner change (one more space between words) is a rename: refused', async () => {
     const { c, b, supplierId } = await fixture();
     await approve(c, b.id);

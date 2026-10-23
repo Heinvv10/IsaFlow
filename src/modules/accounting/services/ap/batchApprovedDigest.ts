@@ -3,7 +3,7 @@
  *
  * approveBatch stores the batch's `payment_batch` digest — approval_document_digest(),
  * the one the approval gate compares (gl/approvalDocuments): every member's payee, the
- * payee's bank details and name (upper(btrim()), migration 923), the amount, and the
+ * payee's bank details and name (upper(btrim() COLLATE "C"), migration 923), the amount, and the
  * paying account's number and branch (923) — in `approved_digest`. The bank file, the Netcash
  * send and process compare it with the current digest and refuse a batch whose content
  * changed since, WHATEVER the payment_batch enforcement switch says: with enforcement
