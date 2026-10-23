@@ -167,6 +167,8 @@ describe('undo', () => {
     expect(String(e1)).toMatch(/only be marked reversed/);
     const e2 = await pool.query(`DELETE FROM fiscal_year_end_changes WHERE company_id = $1`, [id]).catch((e) => e);
     expect(String(e2)).toMatch(/cannot be deleted/);
+    const e3 = await pool.query(`UPDATE fiscal_year_end_changes SET fiscal_year_id = NULL WHERE company_id = $1`, [id]).catch((e) => e);
+    expect(String(e3)).toMatch(/only be marked reversed/);
   });
 });
 
