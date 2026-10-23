@@ -114,3 +114,4 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/payroll/*`.
 - 2026-04-24: allow re-approve when `status=approved` but journal unposted.
 - 2026-04-24: drop `runId` from JE `sourceDocumentId`.
 - 2026-04-24: VIP-parity foundations (SARS codes, bureau, period lock, variance).
+- 2026-10-23 (Feature F): **the PAYE tax year is ALWAYS 1 March to the last day of February**, whatever the company's financial year end (`utils/payeTaxYear.ts`: `payeTaxYearOf`, `payeTaxPeriodNumber`, `payeTaxYearBounds`, leap years by date maths). `companies.financial_year_start` never anchors payroll (period-context, year-end status, IRP5 summary/EasyFile, tax tables). Test: `tests/integration/payroll-tax-year-fixed-march.int.test.ts`.
