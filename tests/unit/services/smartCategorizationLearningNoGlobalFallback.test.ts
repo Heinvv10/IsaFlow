@@ -51,7 +51,8 @@ function insertCalls(): string[] {
 }
 
 describe('learnFromAllocation — no global-pattern fallback (K-244)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    (await import('@/lib/neon') as unknown as { inSavepoint: string[] }).inSavepoint.length = 0;
     mockSql.mockReset();
     vi.mocked(log.error).mockClear();
     vi.mocked(withSavepoint).mockClear();
