@@ -30,19 +30,18 @@
 --
 -- AUTHORS (Hein, 2026-10-23: whoever changes what an approval covers may not approve it). A rename
 -- the digest sees joins the payee's bank_details_setters (application code, ap/supplierPaymentAuthors).
--- The paying account gets its own: gl_accounts.bank_details_setters, written only by the bank-accounts
+-- The paying account gets its own: gl_accounts.bank_details_setters (migration 922b), written only by the bank-accounts
 -- PUT when the number or branch code changes (a new number restarts it, as for a payee), and derived
 -- LIVE by approval_supplier_payment_authors into every payment paid from the account — its own
 -- bank_account_id, or its batch's for a member — whatever its status, payments created later
 -- included, as the payee's setters are. Every list is NULL today, so no author list moves; a guard
--- below refuses the migration if one does. Adding the column is catalogue-only (nullable, no
--- default), under ACCESS EXCLUSIVE on gl_accounts, taken first and bounded by lock_timeout.
+-- below refuses the migration if one does.
 --
--- AFTER 874 and 922: the snapshot reads 874's live digest and 922's column; the first DO block
--- refuses to run on anything older. Every table the digests read is locked first (874's order and
+-- AFTER 874, 922 and 922b: the snapshot reads 874's live digest and 922's column, the authors read
+-- 922b's; the first DO block refuses to run on anything older. Every table the digests read is locked first (874's order and
 -- modes, then the payment tables, batches before payees as the app takes them), so no edit can
 -- commit between the "before" snapshot and the re-stamp. Bounded; either timeout rolls back.
--- CREATE OR REPLACE keeps both functions' owner, grants and search_path; neither is a definer.
+-- CREATE OR REPLACE keeps the three functions' owner, grants and search_path; none is a definer.
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
@@ -55,10 +54,6 @@ BEGIN
     RAISE EXCEPTION 'migration 923: run as a role that bypasses RLS - the re-stamp must read every company''s documents';
   END IF;
 END $$;
-
-ALTER TABLE public.gl_accounts ADD COLUMN IF NOT EXISTS bank_details_setters UUID[];
-COMMENT ON COLUMN public.gl_accounts.bank_details_setters IS
-  'Who set this bank account''s CURRENT number / branch code (migration 923): authors of every payment paid from it. Written by the bank-accounts PUT only.';
 
 LOCK TABLE public.customer_invoices, public.customer_invoice_items, public.supplier_invoices,
            public.supplier_invoice_items, public.credit_notes IN SHARE MODE;
@@ -75,6 +70,11 @@ BEGIN
                  WHERE attrelid = 'public.supplier_payment_batches'::pg_catalog.regclass
                    AND attname = 'approved_digest' AND NOT attisdropped) THEN
     RAISE EXCEPTION 'migration 923: apply migration 922 first - 923 re-stamps supplier_payment_batches.approved_digest';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+                 WHERE attrelid = 'public.gl_accounts'::pg_catalog.regclass
+                   AND attname = 'bank_details_setters' AND NOT attisdropped) THEN
+    RAISE EXCEPTION 'migration 923: apply migration 922b first - 923''s authors read gl_accounts.bank_details_setters';
   END IF;
 END $$;
 
