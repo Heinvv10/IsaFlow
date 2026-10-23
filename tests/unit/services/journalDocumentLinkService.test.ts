@@ -139,10 +139,10 @@ describe('linkDocumentToJournal: only a finished read can be linked', () => {
     await refuses(doc('reading', 1), 'This document is still being read.');
   });
   it('refuses a document whose read failed or went silent: upload it again', async () => {
-    await refuses(doc('failed', 1), 'This document could not be read — upload it again.');
+    await refuses(doc('failed', 1), "This document's read did not finish — retry the read or upload the document again.");
   });
   it('refuses the same for a read gone silent', async () => {
-    await refuses(doc('reading', 30), 'This document could not be read — upload it again.');
+    await refuses(doc('reading', 30), "This document's read did not finish — retry the read or upload the document again.");
   });
 
   it('links a document whose read finished', async () => {
