@@ -13,10 +13,17 @@
  * The raw token never leaves this process except in the emailed link: only
  * sha256(token) is persisted, so a read of the table cannot be replayed to
  * activate someone's account. Mirrors passwordResetService (migration 491).
+ *
+ * Every statement runs on the migration_admin pool (S-07b follow-up, migration
+ * 918): a token's payload email becomes users.email when verify-email
+ * provisions the tenant, so a service-pool SQL injection that could write this
+ * table could plant any address on an account (and with it the invitations
+ * sent to that address). Neither app pool may touch the table.
  */
 
 import crypto from 'crypto';
-import { sql, withTransaction } from '@/lib/neon';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { log } from '@/lib/logger';
 import type {
   QueryRunner,
@@ -54,25 +61,34 @@ export async function createEmailVerificationToken(
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + VERIFICATION_TOKEN_EXPIRY_MS);
 
-  await withTransaction(async (tx) => {
-    await tx`
-      UPDATE auth_email_verification_tokens
-      SET consumed_at = now()
-      WHERE gotrue_user_id = ${userId}::uuid
-        AND consumed_at IS NULL
-        AND expires_at > now()
-    `;
-    await tx`
-      INSERT INTO auth_email_verification_tokens
-        (gotrue_user_id, token_hash, payload, expires_at)
-      VALUES (
-        ${userId}::uuid,
-        ${tokenHash},
-        ${JSON.stringify(pending)}::jsonb,
-        ${expiresAt.toISOString()}::timestamptz
-      )
-    `;
-  });
+  const client = await migrationAdminPool().connect();
+  let opened = false;
+  let unusable = false;
+  try {
+    opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE auth_email_verification_tokens
+          SET consumed_at = now()
+        WHERE gotrue_user_id = $1::uuid
+          AND consumed_at IS NULL
+          AND expires_at > now()`,
+      [userId],
+    );
+    await client.query(
+      `INSERT INTO auth_email_verification_tokens
+         (gotrue_user_id, token_hash, payload, expires_at)
+       VALUES ($1::uuid, $2, $3::jsonb, $4::timestamptz)`,
+      [userId, tokenHash, JSON.stringify(pending), expiresAt.toISOString()],
+    );
+    await client.query('COMMIT');
+    opened = false;
+  } catch (err) {
+    if (opened) unusable = await rollbackFailed(client, 'email verification token');
+    throw err;
+  } finally {
+    client.release(unusable);
+  }
 
   return { token, expiresAt };
 }
@@ -86,13 +102,14 @@ export async function createEmailVerificationToken(
  * tenant owned by a user that no longer exists.
  */
 export async function invalidateVerificationTokensForUser(userId: string): Promise<number> {
-  const rows = (await sql`
-    UPDATE auth_email_verification_tokens
-       SET consumed_at = now()
-     WHERE gotrue_user_id = ${userId}::uuid
-       AND consumed_at IS NULL
-    RETURNING id
-  `) as Array<{ id: string }>;
+  const { rows } = await migrationAdminPool().query<{ id: string }>(
+    `UPDATE auth_email_verification_tokens
+        SET consumed_at = now()
+      WHERE gotrue_user_id = $1::uuid
+        AND consumed_at IS NULL
+     RETURNING id`,
+    [userId],
+  );
   return rows.length;
 }
 
@@ -154,13 +171,14 @@ export async function consumeEmailVerificationToken(
 export async function findConsumedVerification(
   rawToken: string,
 ): Promise<ConsumedVerification | null> {
-  const rows = (await sql`
-    SELECT gotrue_user_id, payload
-      FROM auth_email_verification_tokens
-     WHERE token_hash = ${hashToken(rawToken)}
-       AND consumed_at IS NOT NULL
-     LIMIT 1
-  `) as Array<{ gotrue_user_id: string; payload: PendingSignup }>;
+  const { rows } = await migrationAdminPool().query<{ gotrue_user_id: string; payload: PendingSignup }>(
+    `SELECT gotrue_user_id, payload
+       FROM auth_email_verification_tokens
+      WHERE token_hash = $1
+        AND consumed_at IS NOT NULL
+      LIMIT 1`,
+    [hashToken(rawToken)],
+  );
 
   const row = rows[0];
   return row ? { gotrueUserId: row.gotrue_user_id, pending: row.payload } : null;
@@ -179,11 +197,11 @@ export async function findConsumedVerification(
  * the address again discards it (see /api/auth/register).
  */
 export async function purgeExpiredVerificationTokens(): Promise<number> {
-  const rows = (await sql`
-    DELETE FROM auth_email_verification_tokens
-     WHERE consumed_at IS NULL
-       AND expires_at < now()
-    RETURNING id
-  `) as Array<{ id: string }>;
+  const { rows } = await migrationAdminPool().query<{ id: string }>(
+    `DELETE FROM auth_email_verification_tokens
+      WHERE consumed_at IS NULL
+        AND expires_at < now()
+     RETURNING id`,
+  );
   return rows.length;
 }

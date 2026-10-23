@@ -104,7 +104,7 @@ describe('S-07b: every kind of legitimate path still works on the new logins', (
     expect((await fixture.query('SELECT count(*)::int AS n FROM rate_limit_counters WHERE key = $1', [key])).rows[0].n).toBe(1);
   });
 
-  it('email verification (service; table granted to app_service only) issues a token', async () => {
+  it('email verification (migration_admin pool, 918; no app role may touch the table) issues a token', async () => {
     const { token } = await createEmailVerificationToken(admin, { email: `${admin}@test.local`, firstName: 'A', lastName: 'B',
       companyName: 'S07b', phone: null, annualTurnoverCents: null, signupType: 'direct' });
     expect(token).toMatch(/^[0-9a-f]{64}$/);

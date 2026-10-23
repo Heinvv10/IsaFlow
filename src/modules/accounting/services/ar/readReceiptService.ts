@@ -108,9 +108,10 @@ export async function listInvoiceViews(
 }
 
 /**
- * Fetches "last viewed" metadata for a batch of invoices. Prefers the MV
- * (customer_invoice_view_summary) but falls back to the base table — same
- * shape either way. Company-scoped.
+ * Fetches "last viewed" metadata for a batch of invoices from
+ * customer_invoice_view_summary: since migration 919 a view that returns only
+ * the request's company (app.current_company_id()), over the materialized
+ * view. Company-scoped twice; outside a request transaction it returns nothing.
  */
 export async function getLastViewedSummary(
   companyId: string,

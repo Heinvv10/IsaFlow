@@ -15,16 +15,15 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-const { sqlMock, withTransactionMock, txMock } = vi.hoisted(() => {
-  const txMock = vi.fn();
-  return {
-    sqlMock: vi.fn(),
-    txMock,
-    withTransactionMock: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txMock)),
-  };
-});
+// Every statement runs on the migration_admin pool (migration 918): pool.query
+// for single statements, one checked-out client for the mint transaction.
+const { poolQuery, clientQuery, release } = vi.hoisted(() => ({
+  poolQuery: vi.fn(), clientQuery: vi.fn(), release: vi.fn(),
+}));
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: withTransactionMock }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminPool: () => ({ query: poolQuery, connect: async () => ({ query: clientQuery, release }) }),
+}));
 
 import {
   createEmailVerificationToken,
@@ -36,8 +35,8 @@ import {
 } from '@/lib/auth/emailVerificationService';
 import type { QueryRunner } from '@/modules/onboarding/services/tenantProvisioningService';
 
-const mockSql = sqlMock as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown>>;
-const mockTx = txMock as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown>>;
+const mockSql = poolQuery as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown>>;
+const mockTx = clientQuery as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown>>;
 
 const userId = '11111111-1111-1111-1111-111111111111';
 const pending: PendingSignup = {
@@ -50,18 +49,15 @@ const pending: PendingSignup = {
   signupType: 'direct',
 };
 
-/** Flatten a tagged-template call into an inspectable statement + values. */
+/** Each query(text, values) call as an inspectable statement + values. */
 function callsOf(mock: MockedFunction<(...a: unknown[]) => Promise<unknown>>) {
-  return mock.mock.calls.map((call) => ({
-    text: Array.isArray(call[0]) ? (call[0] as string[]).join(' ? ') : String(call[0]),
-    values: call.slice(1),
-  }));
+  return mock.mock.calls.map((call) => ({ text: String(call[0]), values: (call[1] as unknown[] | undefined) ?? [] }));
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockTx.mockResolvedValue([]);
-  mockSql.mockResolvedValue([]);
+  mockTx.mockResolvedValue({ rows: [] });
+  mockSql.mockResolvedValue({ rows: [] });
 });
 
 describe('createEmailVerificationToken', () => {
@@ -85,7 +81,18 @@ describe('createEmailVerificationToken', () => {
     await createEmailVerificationToken(userId, pending);
     const statements = callsOf(mockTx).map((c) => c.text).join('\n---\n');
     expect(statements).toMatch(/UPDATE auth_email_verification_tokens[\s\S]*consumed_at = now\(\)/i);
-    expect(withTransactionMock).toHaveBeenCalledTimes(1);
+    expect(callsOf(mockTx).map((c) => c.text.trim().split(/\s+/)[0])).toEqual(['BEGIN', 'UPDATE', 'INSERT', 'COMMIT']);
+    expect(release).toHaveBeenCalledWith(false);
+  });
+
+  it('rolls the mint back when the INSERT fails, and still releases the client', async () => {
+    mockTx.mockImplementation(async (text: unknown) => {
+      if (/INSERT/.test(String(text))) throw new Error('insert failed');
+      return { rows: [] };
+    });
+    await expect(createEmailVerificationToken(userId, pending)).rejects.toThrow('insert failed');
+    expect(callsOf(mockTx).map((c) => c.text)).toContain('ROLLBACK');
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('parks the pending signup as JSON without any credential field', async () => {
@@ -119,7 +126,7 @@ describe('consumeEmailVerificationToken', () => {
   });
 
   it('runs on the CALLER\'s client so it shares their transaction', async () => {
-    // If this ran on the module-level `sql` connection instead, a provisioning
+    // If this ran on the module's own pool instead, a provisioning
     // failure could not roll the consumption back and the link would be burnt.
     const { client, calls } = fakeClient([{ gotrue_user_id: userId, payload: pending }]);
     await consumeEmailVerificationToken(client, 'a'.repeat(64));
@@ -158,7 +165,7 @@ describe('consumeEmailVerificationToken', () => {
 
 describe('findConsumedVerification', () => {
   it('finds a consumed token so a half-finished signup can be completed', async () => {
-    mockSql.mockResolvedValueOnce([{ gotrue_user_id: userId, payload: pending }]);
+    mockSql.mockResolvedValueOnce({ rows: [{ gotrue_user_id: userId, payload: pending }] });
     expect(await findConsumedVerification('e'.repeat(64))).toEqual({
       gotrueUserId: userId,
       pending,
@@ -166,13 +173,13 @@ describe('findConsumedVerification', () => {
   });
 
   it('only matches CONSUMED rows — a live token must go through consume', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce({ rows: [] });
     await findConsumedVerification('f'.repeat(64));
     expect(callsOf(mockSql)[0]!.text).toMatch(/consumed_at IS NOT NULL/i);
   });
 
   it('does not mutate the row', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce({ rows: [] });
     await findConsumedVerification('0'.repeat(64));
     const { text } = callsOf(mockSql)[0]!;
     expect(text).toMatch(/^\s*SELECT/i);
@@ -182,7 +189,7 @@ describe('findConsumedVerification', () => {
 
 describe('purgeExpiredVerificationTokens', () => {
   it('deletes only unconsumed expired rows and reports the count', async () => {
-    mockSql.mockResolvedValueOnce([{ id: '1' }, { id: '2' }]);
+    mockSql.mockResolvedValueOnce({ rows: [{ id: '1' }, { id: '2' }] });
     expect(await purgeExpiredVerificationTokens()).toBe(2);
 
     const { text } = callsOf(mockSql)[0]!;
@@ -194,7 +201,7 @@ describe('purgeExpiredVerificationTokens', () => {
   it('touches token rows only — never users or companies', async () => {
     // It once also nominated GoTrue users for deletion, which raced with a
     // signup verifying in the same moment and destroyed a real customer's login.
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce({ rows: [] });
     await purgeExpiredVerificationTokens();
 
     const { text } = callsOf(mockSql)[0]!;
@@ -204,7 +211,7 @@ describe('purgeExpiredVerificationTokens', () => {
 
 describe('invalidateVerificationTokensForUser', () => {
   it('consumes every live token for that user', async () => {
-    mockSql.mockResolvedValueOnce([{ id: '1' }]);
+    mockSql.mockResolvedValueOnce({ rows: [{ id: '1' }] });
     expect(await invalidateVerificationTokensForUser(userId)).toBe(1);
 
     const { text, values } = callsOf(mockSql)[0]!;
@@ -214,7 +221,7 @@ describe('invalidateVerificationTokensForUser', () => {
   });
 
   it('is scoped to one user', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce({ rows: [] });
     await invalidateVerificationTokensForUser(userId);
     expect(callsOf(mockSql)[0]!.text).toMatch(/WHERE gotrue_user_id =/i);
   });
