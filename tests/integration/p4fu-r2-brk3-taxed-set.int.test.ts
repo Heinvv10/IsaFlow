@@ -23,7 +23,7 @@ import type { Route } from './w3-01-payroll.helpers';
 import createRun from '../../pages/api/payroll/runs';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import jeAction from '../../pages/api/accounting/journal-entries-action';
-import { approveRun, reopenRun, cleanSeveranceFixtures, runLine, type SeveranceFixture } from './p3-severance.helpers';
+import { approveRun, previewRun, reopenRun, cleanSeveranceFixtures, runLine, type SeveranceFixture } from './p3-severance.helpers';
 import { PERIODS, seedEmployee, setSalary } from './p4fu-cumulative.helpers';
 
 assertDisposable();
@@ -229,7 +229,7 @@ describe('R1 breaker 3: the taxed employees of each closed approval', () => {
     expect(await taxedSet(dec)).toBeNull();
   });
 
-  it('NAMED LIMIT (f): a PAID later month (legacy rows) cannot be reopened, so this arm does not judge it: January is approved', async () => {
+  it('NAMED LIMIT (f): a PAID later month (legacy rows) cannot be reopened, so it is not refused for: January is approved, with an advisory naming it', async () => {
     const f = await seedEmployee(pool, fixtures, 'BRK3 paid later', 20_000);
     const y = await secondEmployee(f);
     await setSalary(pool, { ...f, employee: y }, 2027, 1, 60_000);
@@ -242,6 +242,11 @@ describe('R1 breaker 3: the taxed employees of each closed approval', () => {
     await active(y, false);
     await calcOnly(f, jan);
     expect((await reopenRun(f, feb)).statusCode).toBe(400); // the remedy is not available for a paid month
-    ok(await approveRun(f, jan)); // February keeps counting Y's old January PAYE: the limit
+    const preview = await previewRun(f, jan);
+    expect(preview.body.data?.blocker ?? null).toBeNull();
+    const advisory = (preview.body.data?.plan?.advisories as Array<{ code: string; detail: string }>)
+      .find(a => a.code === 'paye_paid_later_month_stale');
+    expect(advisory?.detail).toMatch(/2027-02.*paid.*cannot be reopened/);
+    ok(await approveRun(f, jan)); // February keeps counting Y's old January PAYE: the limit, said out loud
   });
 });
