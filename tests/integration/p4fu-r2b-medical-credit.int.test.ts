@@ -45,11 +45,14 @@ afterAll(async () => {
 });
 
 describe('R3: payroll_run_lines.medical_credit', () => {
-  it('migration 926: a nullable numeric column', async () => {
-    const col = (await pool.query(
-      `SELECT data_type, is_nullable, numeric_precision, numeric_scale FROM information_schema.columns
-        WHERE table_name = 'payroll_run_lines' AND column_name = 'medical_credit'`)).rows[0];
-    expect(col).toEqual({ data_type: 'numeric', is_nullable: 'YES', numeric_precision: 14, numeric_scale: 2 });
+  it('migration 926: three nullable numeric columns', async () => {
+    const cols = (await pool.query(
+      `SELECT column_name, data_type, is_nullable, numeric_precision, numeric_scale FROM information_schema.columns
+        WHERE table_name = 'payroll_run_lines' AND column_name IN ('medical_credit', 'additional_medical_credit', 'medical_scheme_fees')
+        ORDER BY column_name`)).rows;
+    expect(cols).toEqual(['additional_medical_credit', 'medical_credit', 'medical_scheme_fees'].map(column_name => ({
+      column_name, data_type: 'numeric', is_nullable: 'YES', numeric_precision: 14, numeric_scale: 2,
+    })));
   });
 
   it('each month records the credit its PAYE used; PAYE is the same as without the record', async () => {

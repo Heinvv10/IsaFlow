@@ -107,7 +107,7 @@ describe('R4: the employee cannot be changed afterwards', () => {
     const second = (await pool.query<{ id: string }>(
       `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
        VALUES ($1, 'R4-2', 'Second', 'Person', '2021-01-01') RETURNING id`, [f.company])).rows[0]!.id;
-    for (const body of [{ employee_id: second }, { status: 'approved', employee_id: second }]) {
+    for (const body of [{ employee_id: second }, { status: 'approved', employee_id: second }, { employee_id: null }, { employee_id: f.employee }]) {
       const r = await f.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, { body });
       expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
       expect(r.body.error?.message).toMatch(/employee/);
@@ -148,3 +148,40 @@ describe('R6: the live updateTaxDirectiveStatus cancels through the paid guard',
     expect((await updateTaxDirectiveStatus(f.company, unpaid, 'cancelled', f.admin))?.status).toBe('cancelled');
   });
 });
+
+describe('round 2 review: the create route\'s body and the employee record', () => {
+  it('a non-string text field is a 400, not a 500 (security 2)', async () => {
+    for (const bad of [{ employee_name: 123 }, { employee_name: { x: 1 } }, { employee_tax_number: 123 }, { directive_number: [] },
+      { effective_date: 20260501 }, { expiry_date: true }, { sars_reference: 1 }, { notes: {} }, { issued_date: 5 }]) {
+      const r = await post({ ...BODY, employee_id: f.employee, ...bad });
+      expect(r.statusCode, JSON.stringify(bad)).toBe(400);
+    }
+  });
+
+  it('name and tax number default from the employee record when left out (security 3)', async () => {
+    const r = await post({ directive_type: 'severance', amount: 10_000, tax_rate: 0.1, effective_date: '2026-05-01', employee_id: f.employee });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+    const row = (await pool.query('SELECT employee_name, employee_tax_number FROM tax_directives WHERE id = $1', [r.body.data!.id])).rows[0]!;
+    expect(row).toEqual({ employee_name: 'Wanda Test', employee_tax_number: '0123456789' });
+  });
+
+  it('a tax number that is not the employee\'s is refused; the same number, or a different name, is accepted (security 3)', async () => {
+    const wrong = await post({ ...BODY, employee_id: f.employee, employee_tax_number: '0987654321' });
+    expect(wrong.statusCode).toBe(400);
+    expect(wrong.body.error?.message).toMatch(/tax number/);
+    expect((await post({ ...BODY, employee_id: f.employee, employee_tax_number: ' 0123456789 ' })).statusCode).toBe(201);
+    expect((await post({ ...BODY, employee_id: f.employee, employee_name: 'W. Test (as on the directive)' })).statusCode).toBe(201);
+  });
+
+  it('DELETE of a paid directive is a 409 and keeps it; an unpaid one is deleted (security 1)', async () => {
+    const paid = await approvedDirective(f, 6_000, 0.2, '2026-05-01', '7777777779');
+    expect((await applyStandalone(f, paid, '2026-05-21')).statusCode).toBe(200);
+    const refused = await f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${paid}`, paid);
+    expect(refused.statusCode, JSON.stringify(refused.body)).toBe(409);
+    expect((await pool.query('SELECT 1 FROM tax_directives WHERE id = $1', [paid])).rowCount).toBe(1);
+    const unpaid = await approvedDirective(f, 6_000, 0.2, '2026-05-01', '7777777780');
+    expect((await f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${unpaid}`, unpaid)).statusCode).toBe(200);
+    expect((await pool.query('SELECT 1 FROM tax_directives WHERE id = $1', [unpaid])).rowCount).toBe(0);
+  });
+});
+

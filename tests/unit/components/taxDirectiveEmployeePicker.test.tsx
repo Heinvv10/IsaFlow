@@ -87,4 +87,40 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     expect(await screen.findByText('Could not load the employees - try again')).toBeTruthy();
     expect(noRawText()).toBe(true);
   });
+
+  it('while the employees load: says so, and Create is disabled', async () => {
+    let release: (r: Response) => void = () => {};
+    vi.mocked(apiFetch).mockImplementation(() => new Promise<Response>(r => { release = r; }));
+    render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
+    expect(await screen.findByText('Loading employees...')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Create Directive/ }) as HTMLButtonElement).disabled).toBe(true);
+    release(ok(EMPLOYEES));
+    await waitFor(() => expect((screen.getByRole('button', { name: /Create Directive/ }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('no employees: says how to fix it, and Create is disabled', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok([]));
+    render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
+    expect(await screen.findByText('No payroll employees yet - add the employee under Payroll > Employees first')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Create Directive/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a failed load: the error, no stale list, and Create is disabled', async () => {
+    route(url => (url.startsWith('/api/payroll/employees') ? empty500() : ok([])));
+    render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
+    expect(await screen.findByText('Could not load the employees - try again')).toBeTruthy();
+    expect((screen.getByLabelText('Employee *') as HTMLSelectElement).options.length).toBe(1);
+    expect((screen.getByRole('button', { name: /Create Directive/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a submit with no employee picked (the browser\'s required check bypassed) POSTs nothing and says why', async () => {
+    const posted: unknown[] = [];
+    serve(posted);
+    render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
+    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(3));
+    fireEvent.submit(select.closest('form')!);
+    expect(await screen.findByText('Choose the employee the directive is paid to')).toBeTruthy();
+    expect(posted).toEqual([]);
+  });
 });

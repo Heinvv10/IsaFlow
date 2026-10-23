@@ -91,3 +91,13 @@ describe('R5: EMP201 employee count = distinct employees paid in the period', ()
     expect(onlyPayments.employeeCount).toBe(2);
   });
 });
+
+describe('R5: a stand-alone payment whose directive names no employee here', () => {
+  it('counts once by its directive; it cannot be matched to a run employee, so a person paid both ways counts twice (documented)', async () => {
+    await lumpSum(active, 'R5NOLINK1', '2026-05-25');
+    await pool.query(`UPDATE tax_directives SET employee_id = NULL WHERE company_id = $1 AND directive_number = 'R5NOLINK1'`, [f.company]);
+    expect((await generateEMP201(f.company, '2026-05-25', '2026-05-25')).employeeCount).toBe(1);
+    expect((await generateEMP201(f.company, '2026-05-01', '2026-05-31')).employeeCount).toBe(4);
+  });
+});
+

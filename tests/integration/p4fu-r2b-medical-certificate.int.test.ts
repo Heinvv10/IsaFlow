@@ -32,8 +32,9 @@ import {
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
-const fx: Record<'a' | 'b' | 'c', SeveranceFixture> = {} as never;
-const runs: Record<'a' | 'b' | 'c', string[]> = { a: [], b: [], c: [] };
+type Key = 'a' | 'b' | 'c' | 'd' | 'at65' | 'at64' | 'noDob';
+const fx: Record<Key, SeveranceFixture> = {} as never;
+const runs: Record<Key, string[]> = { a: [], b: [], c: [], d: [], at65: [], at64: [], noDob: [] };
 
 const SARS_PROFILE = `UPDATE companies SET paye_reference_number = '7123456789', sars_contact_first_name = 'Pat',
   sars_contact_last_name = 'Payroll', sars_contact_telephone = '0115550000',
@@ -41,8 +42,10 @@ const SARS_PROFILE = `UPDATE companies SET paye_reference_number = '7123456789',
 
 async function seed(
   name: string, monthly: number, beneficiaries: number, medicalAid: number, months: number[], otherCoded4005 = 0,
+  person: { born: string | null; idNumber: string } = { born: '1980-01-01', idNumber: '8001015009087' },
 ): Promise<{ f: SeveranceFixture; runs: string[] }> {
   const f = await seedRetrenchedEmployee(pool, '2027-02-28', name, monthly);
+  await pool.query('UPDATE payroll_employees SET date_of_birth = $2::date, id_number = $3 WHERE id = $1', [f.employee, person.born, person.idNumber]);
   await pool.query(SARS_PROFILE, [f.company]);
   await pool.query(
     `UPDATE payroll_employees SET status = 'active', medical_aid_main_member = true, medical_aid_dependants_count = $2 WHERE id = $1`,
@@ -106,6 +109,10 @@ beforeAll(async () => {
   ({ f: fx.a, runs: runs.a } = await seed('R3 cert A: credit wipes the tax', 13_000, 4, 2_000, eight));
   ({ f: fx.b, runs: runs.b } = await seed('R3 cert B: no 4005', 13_000, 4, 0, eight));
   ({ f: fx.c, runs: runs.c } = await seed('R3 cert C: taxed', 30_000, 2, 3_000, [3, 4], 500));
+  ({ f: fx.d, runs: runs.d } = await seed('R3 cert D: credit, no 4005', 30_000, 2, 0, [3, 4]));
+  ({ f: fx.at65, runs: runs.at65 } = await seed('R3 cert 65 on 28 Feb', 30_000, 2, 5_100, [3], 0, { born: '1962-02-28', idNumber: '6202285009087' }));
+  ({ f: fx.at64, runs: runs.at64 } = await seed('R3 cert 65 on 1 Mar', 30_000, 2, 5_100, [3], 0, { born: '1962-03-01', idNumber: '6203015009087' }));
+  ({ f: fx.noDob, runs: runs.noDob } = await seed('R3 cert no DOB', 30_000, 2, 0, [3], 0, { born: null, idNumber: '5806155009087' }));
 });
 
 afterAll(async () => {
@@ -163,4 +170,29 @@ describe('R3: medical fields on the e@syFile certificate', () => {
     expect(fields).toContain('4005,6000');
     expect(fields).toContain('4116,1504.00');
   });
+
+  it('D: PAYE took the MTC but no 4005 is deducted: no 4005/4116, and a warning naming the employee and the credit', async () => {
+    const out = await exportFile(fx.d);
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    expect(employeeRecord(out.file).filter(l => /^(4005|4116|4120),/.test(l))).toEqual([]);
+    expect(out.warnings).toEqual([expect.stringMatching(/^Wanda Test: .*R1504\.00.*4005/)]);
+  });
+
+  it('65 on the last day of the year (28 Feb 1962): the credit in PAYE and 4120; 1 Mar 1962: neither', async () => {
+    const paye = async (key: Key) => (await pool.query('SELECT paye::float8 AS paye FROM payroll_run_lines WHERE run_id = $1', [runs[key][0]])).rows[0]!.paye;
+    // 30 000: 37 383 a year for 65+ with member + 1 (3 115.25); less the 11 364.624 credit: 2 168.20. 64: 47 148 / 12 = 3 929.
+    expect([await paye('at65'), await paye('at64')]).toEqual([2_168.2, 3_929]);
+    const medical = async (key: Key) => employeeRecord((await exportFile(fx[key])).file).filter(l => /^(4005|4116|4120),/.test(l));
+    expect(await medical('at65')).toEqual(['4005,5100', '4116,752.00', '4120,947.05']);
+    expect(await medical('at64')).toEqual(['4005,5100', '4116,752.00']);
+  });
+
+  it('no date of birth but a 1958 ID number: PAYE took none of the 65+ rebates, and the export says so', async () => {
+    const out = await exportFile(fx.noDob);
+    expect(out.status, JSON.stringify(out.body)).toBe(200);
+    // (Member + 1 with no 4005 deduction: the no-4005 warning too.)
+    expect(out.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/^Wanda Test: no date of birth.*68/)]));
+    expect(out.warnings).toHaveLength(2);
+  });
 });
+
