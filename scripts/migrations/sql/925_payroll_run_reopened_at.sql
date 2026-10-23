@@ -1,7 +1,7 @@
 -- 925: when a payroll run was reopened, and the approval periods its reopens
 -- ended (PAYE 4a follow-ups round 2, R1).
 --
--- The stale year-to-date gate (payrollYearToDate#judgeYearToDateStale) asks,
+-- The stale year-to-date gate (payrollYearToDateGate#judgeYearToDate) asks,
 -- for another month of the tax year: was it approved, as it now stands, when
 -- this run was calculated? A reopen clears approved_at, so before this the
 -- headers kept no trace of an earlier approval, and an unchanged re-approval
@@ -16,7 +16,7 @@
 --   that gap left it out (tests/integration/p4fu-r2-exact-gate.int.test.ts,
 --   first case). A range whose approved_at was NULL (approved before 718) is
 --   unbounded below: approved since before anything the gate compares.
---   Reader: judgeYearToDateStale.
+--   Reader: payrollYearToDateGate#judgeYearToDate.
 -- approved_taxed_employees: every employee an approval a reopen ended taxed
 --   from the tables (periodic or annual taxable > 0; before 913, taxable
 --   income > 0), the UNION over all of them. The gate refuses this run for a

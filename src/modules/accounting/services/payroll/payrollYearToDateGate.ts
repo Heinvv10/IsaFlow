@@ -151,7 +151,7 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
       -- only a closed approval can cover that time) that pays someone from the tables whom an earlier version
       -- taxed and this run no longer does. A paid month cannot be reopened: an advisory, not a refusal (limit (f)).
       e.period > me.period
-        AND me.calculated_at > e.calculated_at
+        AND COALESCE(me.calculated_at, 'infinity'::timestamptz) > e.calculated_at -- no lines: rewritten after every month
         AND COALESCE(me.approval_history @> e.calculated_at, false)
         AND EXISTS (
           SELECT 1 FROM payroll_run_lines el
