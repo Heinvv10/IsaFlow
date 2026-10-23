@@ -9,10 +9,7 @@ import { log } from '@/lib/logger';
 import { calculateAgingBuckets, type AgingDetailInvoice } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
-import { getOpenDisputeTotals } from './disputeService';
-import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
-import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
-import { documentInPopulationExpr } from '@/modules/accounting/services/shared/documentPopulation';
+import { fetchARAgingInvoices } from './arAgingInvoices';
 type Row = DbRow;
 
 
@@ -40,69 +37,11 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
     // invariant would hold only by two clocks happening to agree.
     const todayStr = fmtDate(new Date());
 
-    const rows = (await sql`
-      SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
-        COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
-        (ci.due_date IS NULL) AS due_date_missing,
-        ci.total_amount,
-        ${sql.unsafe(effectivePaidExpr('ar'))} AS amount_paid,
-        (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) AS balance
-      FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-      LEFT JOIN LATERAL (
-        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
-      ) unpaid ON TRUE
-      WHERE ci.company_id = ${companyId}
-        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
-        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
-        -- A soft-deleted invoice leaves this report exactly when the delete's
-        -- reversal reaches the ledger, and not one day earlier: the reversal is
-        -- dated TODAY whenever the invoice's own period is closed, so an undated
-        -- exclusion drops the document from every earlier as-at date while the
-        -- control account still carries it. See shared/softDeleteLedgerPresence.
-        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
-        AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
-        AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
-      -- POINT IN TIME. amount_paid on the invoice is a CURRENT snapshot, so
-      -- reading it made asAtDate decorative: it only re-bucketed today's
-      -- balances by age. What was owed on a past date is reconstructed from
-      -- the allocation history instead — every customer_payments row carries a
-      -- payment_date, and for real client companies the allocations reconcile
-      -- to amount_paid exactly.
-      --
-      -- Status is NOT filtered to the open set here: an invoice that is paid
-      -- TODAY was still outstanding on an earlier date, and filtering it out
-      -- is what erased settled debt from historical aging. Only 'draft' and
-      -- 'cancelled' are excluded; there is no 'void' status in this schema.
-      -- See src/lib/constants/invoiceStatuses.ts for why aging is exempt from
-      -- the open-status sets the live surfaces share.
-      -- An invoice with no due date is still a debt. Filtering
-      -- due_date IS NOT NULL here dropped 34 invoices worth R13,908,380.43
-      -- from production's AR aging — not shown in a bucket, not in a total,
-      -- and not reported as excluded. Every such row carries an invoice_date,
-      -- so it is aged from that instead, which is conservative: an undated
-      -- invoice reads as older than it may be, rather than vanishing.
-      ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)
-    `) as Row[];
+    // One query for the aging, its drill-down and the open-items export:
+    // ar/arAgingInvoices (disputes included). An invoice is open here exactly
+    // when it is open there.
+    const invoices: AgingInvoice[] = await fetchARAgingInvoices(companyId, asAtStr, todayStr);
 
-    const invoiceIds = rows.map((r: Row) => String(r.id));
-    // Disputes are rewound to the same date as the balances (R-059): a
-    // dispute raised after asAtStr had not moved anything out of a bucket then.
-    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
-
-    const invoices: AgingInvoice[] = rows.map((r: Row) => ({
-      id: String(r.id),
-      entityId: String(r.entity_id),
-      entityName: String(r.entity_name),
-      dueDate: String(r.due_date),
-      dueDateMissing: r.due_date_missing === true,
-      totalAmount: Number(r.total_amount),
-      amountPaid: Number(r.amount_paid),
-      balance: Number(r.balance),
-      disputedAmount: disputedTotals.get(String(r.id)) ?? 0,
-    }));
-
-    // Include unallocated credit notes as negative balances
     const cnRows = (await sql`
       SELECT cn.id, cn.client_id AS entity_id, c.name AS entity_name,
         cn.credit_date AS due_date, cn.total_amount, 0 AS amount_paid,
@@ -168,56 +107,9 @@ export async function getARAgingDetail(companyId: string,
     const clientRows = (await sql`SELECT id, name AS name FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}`) as Row[];
     if (clientRows.length === 0) throw new Error(`Client ${clientId} not found`);
 
-    const rows = (await sql`
-      SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
-        COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
-        (ci.due_date IS NULL) AS due_date_missing,
-        ci.invoice_number, ci.total_amount,
-        ${sql.unsafe(effectivePaidExpr('ar'))} AS amount_paid,
-        (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) AS balance
-      FROM customer_invoices ci
-      JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-      LEFT JOIN LATERAL (
-        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
-      ) unpaid ON TRUE
-      WHERE ci.company_id = ${companyId}
-        AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
-        -- Status rule: shared/documentPopulation (NULL-safe, one definition).
-        AND ${sql.unsafe(documentInPopulationExpr('ci'))}
-        -- A soft-deleted invoice leaves this report exactly when the delete's
-        -- reversal reaches the ledger, and not one day earlier: the reversal is
-        -- dated TODAY whenever the invoice's own period is closed, so an undated
-        -- exclusion drops the document from every earlier as-at date while the
-        -- control account still carries it. See shared/softDeleteLedgerPresence.
-        AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
-        AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
-        AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
-      -- An invoice with no due date is still a debt. Filtering
-      -- due_date IS NOT NULL here dropped 34 invoices worth R13,908,380.43
-      -- from production's AR aging — not shown in a bucket, not in a total,
-      -- and not reported as excluded. Every such row carries an invoice_date,
-      -- so it is aged from that instead, which is conservative: an undated
-      -- invoice reads as older than it may be, rather than vanishing.
-      ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)
-    `) as Row[];
-
-    const invoiceIds = rows.map((r: Row) => String(r.id));
-    // Disputes are rewound to the same date as the balances (R-059): a
-    // dispute raised after asAtStr had not moved anything out of a bucket then.
-    const disputedTotals = await getOpenDisputeTotals(companyId, invoiceIds, asAtStr);
-
-    const invoices: AgingDetailInvoice[] = rows.map((r: Row) => ({
-      id: String(r.id),
-      invoiceNumber: String(r.invoice_number),
-      entityId: String(r.entity_id),
-      entityName: String(r.entity_name),
-      dueDate: String(r.due_date),
-      dueDateMissing: r.due_date_missing === true,
-      totalAmount: Number(r.total_amount),
-      amountPaid: Number(r.amount_paid),
-      balance: Number(r.balance),
-      disputedAmount: disputedTotals.get(String(r.id)) ?? 0,
-    }));
+    // The drill-down's row shape is unchanged: the export-only header fields stay out of it.
+    const invoices: AgingDetailInvoice[] = (await fetchARAgingInvoices(companyId, asAtStr, todayStr, clientId))
+      .map(({ invoiceDate: _d, reference: _r, ...inv }) => inv);
 
     const buckets = calculateAgingBuckets(invoices, asAt);
     return {

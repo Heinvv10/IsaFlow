@@ -16,6 +16,7 @@ import { SEND_WINDOW_MS } from './netcashTimeouts';
 import { NETCASH_SEND_LOCK_CLASS } from './netcashSendLock';
 import { isAnswerPendingRecord } from './netcashLateSettler';
 import { unappliedAcceptedAnswer } from './netcashUnrecordedAnswer';
+import { replaySpooledAnswers } from './netcashAnswerSpoolReplay';
 
 export type ResolveOutcome = 'failed' | 'submitted';
 
@@ -24,7 +25,7 @@ export type ResolveResult =
   | { kind: 'not_found' }
   | { kind: 'not_resolvable'; status: string }
   | { kind: 'changed'; from: string; to: string }
-  | { kind: 'answer_pending'; outcome?: string; batchReference?: string }
+  | { kind: 'answer_pending'; outcome?: string; batchReference?: string; file?: string }
   | { kind: 'in_flight' };
 
 export interface ResolveInput {
@@ -38,6 +39,10 @@ export interface ResolveInput {
 
 export async function resolveSubmission(input: ResolveInput): Promise<ResolveResult> {
   const { companyId, submissionId, outcome, note, userId, userEmail } = input;
+  // Residual 3a: answers spooled to local disk while the database was unwell move into audit_log now that it answers (no
+  // cron; with an empty spool this is one directory listing). Bounded and never throws; the check below reads the spool
+  // too, so a replay that could not finish never lets a row through.
+  await replaySpooledAnswers();
   const found = (await sql`
     SELECT id, status, batch_reference, (EXTRACT(EPOCH FROM (NOW() - created_at)) * 1000)::FLOAT8 AS age_ms /* netcash_resolve_read */
     FROM netcash_submissions
@@ -48,11 +53,11 @@ export async function resolveSubmission(input: ResolveInput): Promise<ResolveRes
   // row may say 'pending' while Netcash holds the batch. Not resolvable until the answer is written or given up on.
   if (isAnswerPendingRecord(submissionId)) return { kind: 'answer_pending' };
   const previous = String(found[0].status);
-  // Round 14, in any process: a pending row whose settle could not record Netcash's ACCEPTANCE (kept in audit_log) is
-  // not freed - recording it as submitted is allowed, and so is anything once the answer is on the row.
+  // Round 14, in any process: a pending row whose settle could not record Netcash's ACCEPTANCE (kept in audit_log, or
+  // in the local spool when audit_log could not take it either, residual 3a) is not freed - recording it as submitted is allowed, and so is anything once the answer is on the row.
   if (previous === 'pending' && outcome === 'failed') {
     const kept = await unappliedAcceptedAnswer(companyId, submissionId);
-    if (kept) return { kind: 'answer_pending', outcome: kept.outcome, batchReference: kept.batchReference };
+    if (kept) return { kind: 'answer_pending', outcome: kept.outcome, batchReference: kept.batchReference, file: kept.file };
   }
   // pending/unknown: either outcome. submitted/processing (Netcash accepted it): 'failed' only, on the operator's word -
   // whatever the last poll said, which is a display hint and never consulted here.

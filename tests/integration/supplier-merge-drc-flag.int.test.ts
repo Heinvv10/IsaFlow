@@ -61,14 +61,14 @@ describeIfDb('supplier merge — DRC flags must agree', () => {
   });
 
   it('the shared guard passes when the flags agree, and the merge goes ahead', async () => {
-    await inTx(fx, () => assertSupplierMergeKeepsDrcFlag(fx.companyId, plain, plain2));
+    await inTx(fx, () => assertSupplierMergeKeepsDrcFlag(fx.companyId, plain, plain2, plain));
     await inTx(fx, () => mergeEntities(fx.companyId, 'supplier', plain2, plain, fx.userId));
     expect(await billsOn(plain2)).toBe(1);
   });
 
   it('reads flags only within the company: a foreign supplier id is not a match', async () => {
     const foreign = await seedSupplier(other, 'Foreign');
-    const msg = await refusal(inTx(fx, () => assertSupplierMergeKeepsDrcFlag(fx.companyId, flagged, foreign)));
+    const msg = await refusal(inTx(fx, () => assertSupplierMergeKeepsDrcFlag(fx.companyId, flagged, foreign, flagged)));
     expect(msg).toContain('not found');
   });
 
@@ -80,7 +80,7 @@ describeIfDb('supplier merge — DRC flags must agree', () => {
     const order: string[] = [];
     try {
       await a.query('BEGIN');
-      await runOn(fx, a, () => assertSupplierMergeKeepsDrcFlag(fx.companyId, x, y));
+      await runOn(fx, a, () => assertSupplierMergeKeepsDrcFlag(fx.companyId, x, y, x));
       await b.query('BEGIN');
       const flip = runOn(fx, b, () => updateSupplier(fx.companyId, y, { subjectToDrcVat: true }))
         .then(() => order.push('flag changed'));

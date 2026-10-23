@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto';
 import type { TaggedSql, Customer, Supplier } from './types';
+import { deriveAmountPaid } from '../lib/amountPaid';
+import { log } from '../../src/lib/logger';
 
 function daysAgo(n: number): string {
   const d = new Date();
@@ -32,6 +34,12 @@ export async function seedCustomerInvoices(
     const invDate = daysAgo(inv.days);
     const dueDate = daysAgo(inv.days - 30);
     const invId = randomUUID();
+    const { amountPaid, clamped } = deriveAmountPaid(total, total - inv.paid);
+    if (clamped) {
+      log.warn('amount_paid clamped to customer_invoices_amount_paid_within_total', {
+        invoiceNumber: inv.num, total, original: inv.paid, stored: amountPaid,
+      }, 'qa-seed');
+    }
 
     await sql`
       INSERT INTO customer_invoices (
@@ -39,7 +47,7 @@ export async function seedCustomerInvoices(
         status, invoice_date, due_date, notes, created_by, currency_code
       ) VALUES (
         ${invId}::uuid, ${companyId}::uuid, ${inv.num}, ${cust.id}::uuid,
-        ${inv.sub}, 15, ${tax}, ${total}, ${inv.paid},
+        ${inv.sub}, 15, ${tax}, ${total}, ${amountPaid},
         ${inv.status}, ${invDate}::date, ${dueDate}::date, ${inv.desc}, ${adminId}, 'ZAR'
       )
     `;

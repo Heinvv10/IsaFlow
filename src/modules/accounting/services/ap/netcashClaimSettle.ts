@@ -109,6 +109,14 @@ export async function settleRows(client: Queryable, p: ClaimPrincipal, submissio
      WHERE id = $1::UUID AND company_id = $2::UUID AND status = 'pending'`,
     [submissionId, p.companyId, s.status, s.batchReference, JSON.stringify(s.netcashResponse), s.submittedAt, settleToken]);
   if (rowCount === 1) return { kind: 'settled' };
+  // A send the fence refused (netcashSendFence) never reached Netcash: there is no answer to keep, and a lateSendResult
+  // would show the page's "Netcash answered this send after it was resolved ... held twice" note for a batch never sent.
+  if ((answer.netcashResponse as { fenced?: unknown } | null)?.fenced === true) {
+    const { rows: current } = await client.query<{ status: string }>(
+      'SELECT status FROM netcash_submissions WHERE id = $1::UUID AND company_id = $2::UUID', [submissionId, p.companyId]);
+    if (!current[0]) throw new Error(`netcash claim ${submissionId} not found for settlement`);
+    return { kind: 'lost', status: current[0].status };
+  }
   const { rows } = await client.query<{ status: string; batch_id: string | null }>(
     `UPDATE netcash_submissions
      SET netcash_response = COALESCE(netcash_response, '{}'::JSONB) || jsonb_build_object('lateSendResult', $3::JSONB)

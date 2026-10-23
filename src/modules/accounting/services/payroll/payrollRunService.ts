@@ -1,4 +1,4 @@
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listPayrollRunEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
@@ -7,7 +7,9 @@ import { calculatePayrollLine } from './payrollCalculator';
 import { applySdlToLines, estimateAnnualRemuneration } from './sdlLeviabilityService';
 import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear, getTaxYearConfig } from './taxTables';
-import { isPayrollRunLocked, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals } from './payrollRunLock';
+import {
+  isPayrollRunLocked, lockCompanyPayrollApprovals, lockPayrollRunHeader, PayrollRunLockedError, saveCalculatedRunTotals,
+} from './payrollRunLock';
 import { journalInForceOrNull } from './payrollJournalChain';
 import type { EmployeeComponent, PayrollEmployee, PayrollPeriod, ValidationResult } from './payrollTypes';
 import type { ApplyLoanResult } from './payrollLoanService';
@@ -15,9 +17,10 @@ import { applyRunLoans } from './payrollRunLoanApplication';
 import { appendLoanComponents } from './payrollRunLoanComponents';
 import { appendTerminationIfEndingThisPeriod, severanceOnlyComponents } from './payrollRunTermination';
 import { listSeveranceOnlyRunEmployees } from './payrollSeveranceDirective';
+import { replaceRunLines, type LineInsert } from './payrollRunLineWriter';
+import { laterPeriodsWarnings, loadPayeYearToDate } from './payrollYearToDate';
 
 export { getPayrollRunLines, type PayrollRunLine } from './payrollRunLines';
-
 
 type Row = DbRow;
 
@@ -113,6 +116,9 @@ export async function calculatePayrollRun(
   log.info('Calculating payroll run', { runId, companyId }, 'payrollRunService');
 
   // Locked for the whole calculation, with a bounded wait: see lockPayrollRunHeader.
+  // The company approval lock first, in approval's order (PAYE 4a follow-ups G4): a calculation then
+  // never reads its year-to-date and later-month warnings while an approval is in flight.
+  await lockCompanyPayrollApprovals(runId, companyId);
   const run = await lockPayrollRunHeader(runId, companyId);
   if (!run) throw new Error('Payroll run not found');
 
@@ -139,15 +145,6 @@ export async function calculatePayrollRun(
   let totalUifEmployer = 0;
   let totalEti = 0;
   let totalNet = 0;
-
-  type LineInsert = {
-    employeeId: string;
-    grossPay: number; taxableIncome: number; paye: number;
-    uifEmployee: number; uifEmployer: number;
-    sdl: number; sdlLeviable: number;
-    eti: number; netPay: number;
-    componentBreakdown: string; validationResults: string;
-  };
 
   const lineInserts: LineInsert[] = [];
 
@@ -176,6 +173,9 @@ export async function calculatePayrollRun(
     ...employees.map(employee => ({ employee, severanceOnly: false })),
     ...severanceOnly.map(employee => ({ employee, severanceOnly: true })),
   ];
+  // Earlier periods of the tax year, for the cumulative PAYE (PAYE 4a follow-ups G4).
+  const ytdByEmployee = await loadPayeYearToDate(companyId, runId, period, population.map(p => p.employee.id));
+  const laterApproved = await laterPeriodsWarnings(companyId, runId, period);
 
   for (const { employee, severanceOnly: onlySeverance } of population) {
     const terminationWarnings: ValidationResult[] = [];
@@ -198,6 +198,7 @@ export async function calculatePayrollRun(
       period,
       taxYear,
       annualPayrollEstimate: 'defer',
+      ytd: ytdByEmployee.get(employee.id),
       notEmployedInPeriod: onlySeverance,
     });
 
@@ -213,6 +214,8 @@ export async function calculatePayrollRun(
       employeeId: employee.id,
       grossPay: line.grossPay,
       taxableIncome: line.taxableIncome,
+      periodicTaxable: line.periodicTaxable,
+      annualTaxable: line.annualTaxable,
       paye: line.paye.monthlyPaye,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,
@@ -224,6 +227,8 @@ export async function calculatePayrollRun(
       validationResults: JSON.stringify([
         ...empValidation, ...lineValidation, ...validateEti(employee, line.eti, periodDate),
         ...line.validationResults, ...terminationWarnings,
+        // Only a line taxed from the tables feeds the later months' cumulative PAYE.
+        ...((line.periodicTaxable > 0 || line.annualTaxable > 0) && laterApproved.has(employee.id) ? [laterApproved.get(employee.id)!] : []),
       ]),
     });
 
@@ -248,43 +253,7 @@ export async function calculatePayrollRun(
   );
   const totalSdl = applySdlToLines(lineInserts, annualRemuneration, taxYear);
 
-  // All DB mutations in one transaction so a partial failure cannot corrupt
-  // state — but via `withTransaction`, NEVER raw BEGIN/COMMIT.
-  //
-  // This used to issue `sql`BEGIN``/`sql`COMMIT`` directly. Those route onto
-  // the ALS request client (`neon/query.ts` LazyQuery.run), which is the transaction
-  // `withAuth` opens for every request — so the COMMIT committed the WHOLE
-  // request, not this block: every earlier write in the request was made
-  // durable, and any enclosing savepoint ceased to exist. On the MCP path that
-  // destroyed the registry's per-tool savepoint, so a later failure could not
-  // roll this back and the RELEASE SAVEPOINT afterwards errored into a generic
-  // failure over lines that were already committed.
-  //
-  // `withTransaction` nests a SAVEPOINT when a request transaction is in
-  // flight and opens a real transaction only when there is none, which is
-  // correct under both callers.
-  await withTransaction(async (tx) => {
-    await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid AND run_id IN (
-      SELECT id FROM payroll_run_headers WHERE company_id = ${companyId}::uuid
-    )`;
-
-    for (const ins of lineInserts) {
-      await tx`
-        INSERT INTO payroll_run_lines (
-          run_id, employee_id, gross_pay, taxable_income, paye,
-          uif_employee, uif_employer, sdl, eti, net_pay,
-          component_breakdown, validation_results, created_at
-        ) VALUES (
-          ${runId}::uuid, ${ins.employeeId}::uuid,
-          ${ins.grossPay}, ${ins.taxableIncome}, ${ins.paye},
-          ${ins.uifEmployee}, ${ins.uifEmployer},
-          ${ins.sdl}, ${ins.eti}, ${ins.netPay},
-          ${ins.componentBreakdown},
-          ${ins.validationResults}, clock_timestamp()
-        )
-      `;
-    }
-  });
+  await replaceRunLines(runId, companyId, lineInserts);
 
   const updated = await saveCalculatedRunTotals(runId, companyId, {
     gross: r(totalGross), paye: r(totalPaye), uif: r(totalUifEmployee + totalUifEmployer),
