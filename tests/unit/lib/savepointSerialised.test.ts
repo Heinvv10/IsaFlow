@@ -17,7 +17,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { withSavepoint, sql } from '@/lib/neon';
+import { withSavepoint, sql, SavepointQueueTimeoutError, savepointQueueWait } from '@/lib/neon';
 import { als } from '@/lib/als';
 
 function pgLikeClient() {
@@ -93,5 +93,31 @@ describe('withSavepoint on one request connection', () => {
     expect(fast).toBe(9);
     release();
     expect(await slow).toBe('a');
+  });
+
+  it('a plain sibling write never lands inside a sibling savepoint that rolls back', async () => {
+    const pg = pgLikeClient();
+    await inRequest(pg.client, () => Promise.allSettled([
+      withSavepoint('sp_bad', async () => { await sql`SELECT 1`; await sql`SELECT 2`; await sql`SELECT FAIL`; }),
+      (async () => { await sql`INSERT plain_write`; })(),
+    ]));
+    const at = pg.log.indexOf('INSERT plain_write');
+    expect(at).toBeGreaterThan(pg.log.indexOf('ROLLBACK TO SAVEPOINT sp_bad'));
+  });
+
+  it('a savepoint whose sibling awaits it fails loudly after the bound instead of hanging', async () => {
+    const pg = pgLikeClient();
+    const saved = savepointQueueWait.ms;
+    savepointQueueWait.ms = 100;
+    try {
+      const outcome = await inRequest(pg.client, async () => {
+        // Started outside `work`, so its savepoint queues behind `work`, which awaits it.
+        const lookup = (async () => { await sql`SELECT 1`; return withSavepoint('lookup', () => sql`SELECT 2`); })();
+        return withSavepoint('work', async () => { await lookup; return 'ok'; }).catch((e: unknown) => e);
+      });
+      expect(outcome).toBeInstanceOf(SavepointQueueTimeoutError);
+    } finally {
+      savepointQueueWait.ms = saved;
+    }
   });
 });

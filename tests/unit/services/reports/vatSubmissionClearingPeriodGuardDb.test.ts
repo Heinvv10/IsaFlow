@@ -35,6 +35,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
+import { FiscalPeriodNotGeneratedError } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
 import { submitVATReturn } from '@/modules/accounting/services/reports/vatSubmissionService';
 
 async function countWrites(client: PoolClient, f: VatFixture): Promise<{ jes: number; returns: number }> {
@@ -174,7 +175,7 @@ describe('submitVATReturn — P2-11 refuses a clearing date with no fiscal perio
         als.run(ctxFor(client, f.companyId), () =>
           submitVATReturn(f.companyId, { periodStart: '2027-05-01', periodEnd: '2027-06-30' }, FIXTURE_USER_ID),
         ),
-      ).rejects.toThrow();
+      ).rejects.toBeInstanceOf(FiscalPeriodNotGeneratedError);
 
       expect(await countWrites(client, f)).toEqual({ jes: 0, returns: 0 });
     });
