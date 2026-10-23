@@ -100,6 +100,14 @@ describe('S-07c: migration 930', () => {
     ['a reviewed definer whose body changed', `CREATE OR REPLACE FUNCTION public.invite_token_company_name() RETURNS text LANGUAGE sql
       SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $f$ SELECT 'changed'::text $f$`,
     /930: invite_token_company_name\(\) is a SECURITY DEFINER function changed since its row in app_definer_reviews/],
+    // Breaker round 5: settings outside the body change what a definer does.
+    ...([
+      ['its search_path', `ALTER FUNCTION auth.set_default_company(uuid, uuid) SET search_path = pg_catalog, public, auth, pg_temp, public`],
+      ['its owner', `CREATE ROLE s07c_new_owner NOLOGIN; GRANT s07c_new_owner TO CURRENT_USER;
+        ALTER FUNCTION auth.set_default_company(uuid, uuid) OWNER TO s07c_new_owner`],
+      ['its volatility', 'ALTER FUNCTION auth.set_default_company(uuid, uuid) STABLE'],
+    ] as const).map(([what, alter]) => [`a reviewed definer whose ${what} changed`, alter,
+      /930: auth\.set_default_company\(uuid,uuid\) is a SECURITY DEFINER function changed since its row in app_definer_reviews/] as [string, string, RegExp]),
     ['the review list writable', 'GRANT INSERT ON public.app_definer_reviews TO app_user', R(APP, 'INSERT app_definer_reviews\\.')],
     ['a definer in another schema', `CREATE SCHEMA s07c_other; CREATE FUNCTION s07c_other.mint(u text) RETURNS void LANGUAGE sql
       SECURITY DEFINER AS $f$ INSERT INTO public.company_invitations (email) VALUES (u) $f$;
@@ -123,7 +131,7 @@ describe('S-07c: migration 930', () => {
     ['the capture-key last-used stamp', 'GRANT UPDATE (last_used_at) ON public.capture_api_keys TO app_user'],
     ['a definer once it is reviewed', `CREATE FUNCTION public.s07c_reviewed() RETURNS int LANGUAGE sql SECURITY DEFINER AS $f$ SELECT 1 $f$;
       GRANT EXECUTE ON FUNCTION public.s07c_reviewed() TO app_user;
-      INSERT INTO public.app_definer_reviews SELECT 's07c_reviewed()', 'nothing (test)', md5(prosrc) FROM pg_proc WHERE oid = 's07c_reviewed()'::regprocedure`],
+      INSERT INTO public.app_definer_reviews VALUES ('s07c_reviewed()', 'nothing (test)', public.app_definer_hash('s07c_reviewed()'::regprocedure))`],
     ['a waitlist signup', 'GRANT INSERT (name, email) ON public.waitlist_signups TO app_user'],
   ])('allows what 930 grants back: %s', async (_, grant) => {
     await rolledBack(async (q) => {
@@ -158,7 +166,7 @@ describe('S-07c: migration 930', () => {
 
   // CI's fixture applies every migration on the branch: a definer added
   // without its reviewed row fails here, before it can stop a deploy.
-  it('on the fixture as migrated, no violation; every reviewed row names a definer that exists', async () => {
+  it('on the fixture as migrated, no violation; no reviewed row outlives its definer (renamed or dropped)', async () => {
     expect((await fixture.query('SELECT * FROM public.app_pool_reach_violations()')).rows).toEqual([]);
     expect((await fixture.query(`SELECT signature FROM public.app_definer_reviews r
       WHERE NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.prosecdef AND p.oid = to_regprocedure(r.signature))`)).rows).toEqual([]);

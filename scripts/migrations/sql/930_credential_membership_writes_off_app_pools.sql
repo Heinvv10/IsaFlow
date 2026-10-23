@@ -158,10 +158,25 @@ GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO migr
 
 -- Every SECURITY DEFINER function outside the catalog, reviewed: its signature
 -- as regprocedure prints it under search_path pg_catalog, public, what it
--- writes, and the md5 of its body at review. A new definer, or a CREATE OR
+-- writes, and app_definer_hash() at review: the whole definition (body,
+-- SECURITY DEFINER, SET search_path and the other settings) and its owner, so
+-- an ALTER FUNCTION is a change too (breaker round 5). The hash is of THIS
+-- server's definitions: a major-version upgrade can deparse them differently
+-- and is then refused until a migration re-reviews the rows. A new definer, or a CREATE OR
 -- REPLACE that changes one, is refused on every deploy (and in CI, by
 -- s07c-credential-writes.migration.int.test.ts) until the migration that
 -- makes it inserts or updates its row.
+CREATE OR REPLACE FUNCTION public.app_definer_hash(p_fn oid)
+RETURNS text
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT pg_catalog.md5(pg_catalog.pg_get_functiondef(p.oid) || ' owner ' || pg_catalog.pg_get_userbyid(p.proowner))
+    FROM pg_catalog.pg_proc p WHERE p.oid = p_fn
+$$;
+REVOKE ALL ON FUNCTION public.app_definer_hash(oid) FROM PUBLIC;
+
 CREATE TABLE IF NOT EXISTS public.app_definer_reviews (
   signature text PRIMARY KEY,
   writes    text NOT NULL,
@@ -169,7 +184,7 @@ CREATE TABLE IF NOT EXISTS public.app_definer_reviews (
 );
 REVOKE ALL ON public.app_definer_reviews FROM app_user, PUBLIC;
 INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
-SELECT v.signature, v.writes, pg_catalog.md5(COALESCE(pg_catalog.pg_get_function_sqlbody(p.oid), p.prosrc))
+SELECT v.signature, v.writes, public.app_definer_hash(p.oid)
   FROM (VALUES
     ('auth.set_default_company(uuid,uuid)', 'company_users.is_default of the caller''s own memberships only'),
     ('auth.user_admin_companies()', 'nothing (read)'),
@@ -286,14 +301,14 @@ AS $$
      AND pg_catalog.has_table_privilege(reach.oid, ruled.rel, p.priv)
   UNION ALL
   -- A definer runs as its owner, so no privilege rule sees what it writes.
-  SELECT pg_catalog.format('%s is a SECURITY DEFINER function %s app_definer_reviews: review what it writes, then insert or update its row in the migration that %s it',
+  SELECT pg_catalog.format('%s is a SECURITY DEFINER function %s app_definer_reviews: review what it writes, then insert or update its row, with public.app_definer_hash(oid), in the migration that %s it',
                            p.oid::regprocedure, CASE WHEN r.signature IS NULL THEN 'not in' ELSE 'changed since its row in' END,
                            CASE WHEN r.signature IS NULL THEN 'creates' ELSE 'changes' END)
     FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
     LEFT JOIN public.app_definer_reviews r ON r.signature = p.oid::regprocedure::text
    WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-     AND r.body_md5 IS DISTINCT FROM pg_catalog.md5(COALESCE(pg_catalog.pg_get_function_sqlbody(p.oid), p.prosrc))
+     AND r.body_md5 IS DISTINCT FROM public.app_definer_hash(p.oid)
   UNION ALL
   SELECT 'waitlist_signups has no row security'
    WHERE NOT COALESCE((SELECT c.relrowsecurity FROM pg_catalog.pg_class c
