@@ -80,8 +80,12 @@ async function remedy(f: SeveranceFixture, jan: string, feb: string, employee: s
   const stale = (await runLine(pool, feb, employee)).paye as number;
   ok(await reopenRun(f, feb));
   ok(await approveRun(f, jan)); // February no longer approved: nothing left to refuse January for
-  await reverseJournal(f, feb);
   await calcOnly(f, feb);
+  // February's figures changed: approval refuses them onto its old journal and says to reverse it first.
+  const onOld = await approveRun(f, feb);
+  expect(onOld.statusCode).toBe(400);
+  expect(JSON.stringify(onOld.body)).toMatch(/Reverse journal .* first/);
+  await reverseJournal(f, feb);
   ok(await approveRun(f, feb));
   return { stale, current: (await runLine(pool, feb, employee)).paye as number };
 }

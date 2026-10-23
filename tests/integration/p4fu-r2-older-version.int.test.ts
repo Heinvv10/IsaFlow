@@ -107,7 +107,7 @@ describe('R1 review 2: a later month calculated from an earlier version of this 
     ok(await approveRun(f, jan));
     // February's year-to-date no longer counts January's old taxed line (and its R2 115 PAYE) for X.
     expect(await ytd()).toMatchObject({ periods: 10, tablePaye: 10 * 2115 });
-    await reverseJournal(f, feb);
+    // No journal reversal: February's figures come out the same, so it is approved onto its own journal.
     await calcOnly(f, feb);
     ok(await approveRun(f, feb));
   });
