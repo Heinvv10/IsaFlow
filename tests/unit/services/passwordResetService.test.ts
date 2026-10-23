@@ -11,21 +11,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import crypto from 'crypto';
 
-vi.mock('@/lib/neon', () => {
-  const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return {
-    sql: sqlMock,
-    // withTransaction invokes its callback with the same mock so we can inspect
-    // the statements issued inside the transaction.
-    withTransaction: vi.fn((cb: (tx: typeof sqlMock) => unknown) => cb(sqlMock)),
-  };
-});
+// S-07c (migration 930): every statement runs on the migration_admin pool.
+const { adminQueryMock } = vi.hoisted(() => ({ adminQueryMock: vi.fn() }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminPool: () => ({ query: adminQueryMock }),
+}));
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
-import { sql } from '@/lib/neon';
 import {
   issuePasswordResetToken,
   supersedePasswordResetTokens,
@@ -34,20 +29,25 @@ import {
 } from '@/lib/auth/passwordResetService';
 
 const USER_ID = '11111111-1111-1111-1111-111111111111';
-const sqlMock = sql as unknown as ReturnType<typeof vi.fn>;
 
 function sha256(s: string): string {
   return crypto.createHash('sha256').update(s).digest('hex');
 }
 
-/** Interpolated values (not the template-strings array) of a tagged sql call. */
+/** Positional params of admin-pool call N. */
 function callValues(callIndex: number): unknown[] {
-  return sqlMock.mock.calls[callIndex]!.slice(1);
+  return adminQueryMock.mock.calls[callIndex]![1] as unknown[];
+}
+function callText(callIndex: number): string {
+  return String(adminQueryMock.mock.calls[callIndex]![0]);
+}
+function rowsOnce(rows: unknown[]): void {
+  adminQueryMock.mockResolvedValueOnce({ rows, rowCount: rows.length });
 }
 
 beforeEach(() => {
-  sqlMock.mockReset();
-  sqlMock.mockResolvedValue([]);
+  adminQueryMock.mockReset();
+  adminQueryMock.mockResolvedValue({ rows: [], rowCount: 0 });
 });
 
 describe('issuePasswordResetToken', () => {
@@ -60,22 +60,22 @@ describe('issuePasswordResetToken', () => {
 
   it('persists only the sha256 hash of the token, never the raw token', async () => {
     const { token } = await issuePasswordResetToken(USER_ID);
-    const allValues = sqlMock.mock.calls.flatMap((_, i) => callValues(i));
+    const allValues = adminQueryMock.mock.calls.flatMap((_, i) => callValues(i));
     expect(allValues).not.toContain(token); // raw token never hits the DB
     expect(allValues).toContain(sha256(token)); // hash is the INSERT'd token_hash
   });
 
   it('only inserts — prior links stay live until the new one is delivered (R-032)', async () => {
     await issuePasswordResetToken(USER_ID);
-    expect(sqlMock).toHaveBeenCalledTimes(1);
-    expect(String((sqlMock.mock.calls[0]![0] as unknown as string[]).join('?'))).toMatch(/INSERT INTO auth_password_reset_tokens/);
+    expect(adminQueryMock).toHaveBeenCalledTimes(1);
+    expect(callText(0)).toMatch(/INSERT INTO auth_password_reset_tokens/);
   });
 });
 
 describe('supersedePasswordResetTokens / withdrawPasswordResetToken', () => {
   it('retires only the user\'s tokens issued before the delivered one (ordering proven in r-032-reset-supersede-order)', async () => {
     await supersedePasswordResetTokens(USER_ID, 'keep-hash');
-    const text = (sqlMock.mock.calls[0]![0] as unknown as string[]).join('?');
+    const text = callText(0);
     expect(text).toMatch(/SET consumed_at = now\(\)/);
     expect(text).toMatch(/\(t\.created_at, t\.id\) < \(k\.created_at, k\.id\)/);
     expect(callValues(0)).toEqual(['keep-hash', USER_ID]);
@@ -83,17 +83,16 @@ describe('supersedePasswordResetTokens / withdrawPasswordResetToken', () => {
 
   it('withdraws exactly the one token that was never sent', async () => {
     await withdrawPasswordResetToken('unsent-hash');
-    const text = (sqlMock.mock.calls[0]![0] as unknown as string[]).join('?');
-    expect(text).toMatch(/WHERE token_hash = \? AND consumed_at IS NULL/);
+    const text = callText(0);
+    expect(text).toMatch(/WHERE token_hash = \$1 AND consumed_at IS NULL/);
     expect(callValues(0)).toEqual(['unsent-hash']);
   });
 });
 
 describe('consumePasswordResetToken', () => {
   it('resolves the user for a valid token and marks it consumed atomically', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ id: 'tok-1', user_id: USER_ID }]) // SELECT
-      .mockResolvedValueOnce([{ id: 'tok-1' }]); // UPDATE ... RETURNING
+    rowsOnce([{ id: 'tok-1', user_id: USER_ID }]); // SELECT
+    rowsOnce([{ id: 'tok-1' }]); // UPDATE ... RETURNING
     const result = await consumePasswordResetToken('rawtoken');
     expect(result).toEqual({ userId: USER_ID });
     // Looked up by hash, not by the raw token.
@@ -101,14 +100,13 @@ describe('consumePasswordResetToken', () => {
   });
 
   it('returns null for an unknown or expired token', async () => {
-    sqlMock.mockResolvedValueOnce([]); // SELECT finds nothing
+    rowsOnce([]); // SELECT finds nothing
     expect(await consumePasswordResetToken('nope')).toBeNull();
   });
 
   it('returns null when the token was already consumed in a race (UPDATE affects 0 rows)', async () => {
-    sqlMock
-      .mockResolvedValueOnce([{ id: 'tok-1', user_id: USER_ID }]) // SELECT
-      .mockResolvedValueOnce([]); // UPDATE affected nothing — lost the race
+    rowsOnce([{ id: 'tok-1', user_id: USER_ID }]); // SELECT
+    rowsOnce([]); // UPDATE affected nothing — lost the race
     expect(await consumePasswordResetToken('rawtoken')).toBeNull();
   });
 });

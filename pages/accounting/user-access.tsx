@@ -93,19 +93,17 @@ export default function UserAccessPage() {
     e.preventDefault();
     if (!inviteEmail.trim()) return;
     setInviting(true); setError(null);
-    let autoAdded = false;
     try {
       const res = await apiFetch('/api/accounting/company-invitations', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
       });
       await assertOk(res, 'Could not send the invitation - try again');
-      autoAdded = Boolean(((await res.json()) as { data?: { autoAdded?: boolean } }).data?.autoAdded);
     } catch (err) { setError(apiErrorMessage(err, 'Could not send the invitation - try again')); setInviting(false); return; }
-    showFeedback(autoAdded ? `${inviteEmail} was found and added directly.` : `Invitation sent to ${inviteEmail}.`);
+    showFeedback(`Invitation sent to ${inviteEmail}.`);
     setInviteEmail('');
     try {
-      if (autoAdded) await loadData(); else await loadInvitations();
+      await loadInvitations();
     } catch (err) {
       setError(apiErrorMessage(err, 'The invitation was sent, but the list could not be refreshed - reload the page'));
     } finally { setInviting(false); }
