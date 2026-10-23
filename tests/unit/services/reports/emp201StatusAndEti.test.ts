@@ -13,6 +13,10 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Directives paid outside payroll (PAYE 4a follow-ups G1) have their own tests (p3fu-standalone-directive-filing).
+vi.mock('@/modules/accounting/services/payroll/directivePaymentFiling', () => ({
+  listStandaloneDirectivePayments: vi.fn(async () => []),
+}));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },

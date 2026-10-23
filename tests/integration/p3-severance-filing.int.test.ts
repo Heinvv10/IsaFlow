@@ -70,9 +70,11 @@ describe('P3: filing carries severance paid by directive in the run', () => {
     const row = data.rows[0]!;
     expect(row.paye).toBe(APRIL_PAYE + 3_000);
     expect(row.grossSalary).toBe(60_000);
-    expect(row.lumpSums).toEqual([
-      { sourceCode: '3901', directiveNumber: '9876543210', directiveIssuedDate: '2026-05-05', amount: 30_000, paye: 3_000 },
-    ]);
+    // No issued date captured: 3231 falls back to the effective date, flagged (PAYE 4a follow-ups G3).
+    expect(row.lumpSums).toEqual([expect.objectContaining({
+      sourceCode: '3901', directiveNumber: '9876543210', directiveIssuedDate: '2026-05-05', amount: 30_000, paye: 3_000,
+      issuedDateFallback: true, payeCode: '4115', paidBy: 'run',
+    })]);
   });
 
   it('the e@syFile file splits 3601 from 3605, 3601/4102 from 3901/4115, and carries the directive group', async () => {

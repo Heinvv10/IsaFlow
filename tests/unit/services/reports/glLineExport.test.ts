@@ -17,7 +17,9 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: (...a: unknown[]) 
 vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
   getLedgerPostedThrough: vi.fn().mockResolvedValue('2026-10-09T08:00:00.000Z'),
 }));
-vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+// The auth wrapper is the identity here; its Bearer / cookie / scope behaviour on
+// this route is tests/unit/api/glLinesExportAuth.test.ts.
+vi.mock('@/lib/auth/withBearerOrCookieAuth', () => ({ withBearerOrCookieAuth: (h: unknown) => h }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
 vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: vi.fn().mockResolvedValue(true) }));
 

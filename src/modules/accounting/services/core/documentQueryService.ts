@@ -21,7 +21,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
-import type { LinkedDocument } from '@/types/procurement/document.types';
+import type { AccountingEntityType, LinkedDocument } from '@/types/procurement/document.types';
 import {
   VALID_ENTITY_TYPES,
   mapRow,
@@ -83,6 +83,36 @@ export async function listEntityDocuments(
         mapRow(r as Record<string, unknown>, 'linked', r.link_reason as string)),
     ],
   };
+}
+
+/**
+ * Which of `ids` carry at least one active document in the entity store,
+ * directly or through document_links. ONE query for a whole export page.
+ * The fence is the `owned` CTE: an id counts only when it is a row of the
+ * table `entityType` names AND belongs to `companyId`, so a foreign or
+ * mistyped id never reads procurement_documents.
+ */
+export async function entityIdsWithDocuments(
+  companyId: string,
+  entityType: AccountingEntityType,
+  ids: readonly string[],
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = (await sql`
+    WITH owned AS (
+      SELECT id FROM supplier_invoices WHERE ${entityType} = 'supplier_invoice' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
+      UNION ALL SELECT id FROM customer_invoices WHERE ${entityType} = 'customer_invoice' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
+      UNION ALL SELECT id FROM supplier_payments WHERE ${entityType} = 'supplier_payment' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
+      UNION ALL SELECT id FROM customer_payments WHERE ${entityType} = 'customer_payment' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
+      UNION ALL SELECT id FROM credit_notes WHERE ${entityType} = 'credit_note' AND company_id = ${companyId}::uuid AND id = ANY(${ids as string[]}::uuid[])
+    )
+    SELECT o.id FROM owned o
+    WHERE EXISTS (SELECT 1 FROM procurement_documents pd
+                  WHERE pd.entity_type = ${entityType} AND pd.entity_id = o.id AND pd.is_active = true)
+       OR EXISTS (SELECT 1 FROM document_links dl JOIN procurement_documents pd ON pd.id = dl.document_id
+                  WHERE dl.linked_entity_type = ${entityType} AND dl.linked_entity_id = o.id AND pd.is_active = true)
+  `) as DbRow[];
+  return new Set(rows.map((r) => String(r.id)));
 }
 
 export interface BankAttachmentRow {

@@ -30,7 +30,7 @@ import { suspendUser, activateUser, resetOnboarding } from '@/modules/admin/serv
 import { updateUser } from '@/modules/admin/services/adminUserService';
 import { convertUserToBureauOwner } from '@/modules/bureau/services/bureauService';
 import { hashInviteToken } from '@/lib/auth/inviteToken';
-import { getDbPool } from '@/lib/neon';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { pool, asRole, inServiceContext, callRoute, userRow, urlAsRole } from './s07-users-privilege-columns.helpers';
 import { signSession } from './r-032-fake-gotrue.helpers';
 
@@ -213,7 +213,7 @@ describe('S-07: every legitimate users writer still succeeds', () => {
     expect((await userRow(invitee)).onboarding_completed).toBe(true);
   });
 
-  it('change-email POST (withUserAuth, pool role) mirrors the new email', async () => {
+  it('change-email POST (withUserAuth, migration_admin pool) writes the new email', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ access_token: 'x', id: me }), {
       status: 200, headers: { 'content-type': 'application/json' } })));
     const r = await callRoute(changeEmailRoute, { sub: me, method: 'POST',
@@ -279,8 +279,8 @@ describe('S-07: every legitimate users writer still succeeds', () => {
   });
 
   it('data-subject-rights erasure answers an error, not "anonymized", when its UPDATE matched no row', async () => {
-    // What a pool role that FORCE RLS filters out would see: the write runs and matches nothing.
-    const spy = vi.spyOn(getDbPool(), 'query').mockResolvedValueOnce({ rowCount: 0, rows: [] } as never);
+    // What a missing profile row gives: the write runs (on the migration_admin pool, 918) and matches nothing.
+    const spy = vi.spyOn(migrationAdminPool(), 'query').mockResolvedValueOnce({ rowCount: 0, rows: [] } as never);
     try {
       const r = await callRoute(dsrRoute, { sub: me, method: 'POST', companyId: company, body: { action: 'erasure' } });
       expect(String(spy.mock.calls[0]?.[0])).toMatch(/UPDATE users SET first_name = 'Anonymized'/);
@@ -290,7 +290,7 @@ describe('S-07: every legitimate users writer still succeeds', () => {
     }
   });
 
-  it('data-subject-rights erasure (withAuth; the UPDATE on the pool role) anonymises names and email', async () => {
+  it('data-subject-rights erasure (withAuth; the UPDATE on the migration_admin pool) anonymises names and email', async () => {
     const r = await callRoute(dsrRoute, { sub: me, method: 'POST', companyId: company, body: { action: 'erasure' } });
     expect(r.status).toBe(200);
     expect(await userRow(me)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${me.slice(0, 8)}@deleted.invalid` });
