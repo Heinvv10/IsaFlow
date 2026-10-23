@@ -10,8 +10,8 @@
  *  - A table cursor carries a fixed kind and the row id — never a name — so a
  *    name of any length or script pages (a ~280-character name overflowed the
  *    512-character cursor and broke paging).
- *  - FY / FY_Period_No follow the company's financial_year_start, March when
- *    it is unset.
+ *  - FY / FY_Period_No are the registry year holding the date (a stored year,
+ *    else the template from the company's declared month, March when unset).
  *
  * `sql` is a data source here, not the thing under test: it serves rows and
  * honours the bound keyset; nothing asserts SQL text.
@@ -27,6 +27,7 @@ vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
 
 import { exportGlLinesTool } from '@/lib/mcp/tools/exportGlLines';
 import type { McpToolContext } from '@/lib/mcp/types';
+import { fiscalYearSqlFake, type FakeYear } from '../../helpers/fiscalYearSqlFake';
 
 const CO = '11111111-1111-4111-8111-111111111111';
 const ctx = (scopes = ['read:reports']) => ({ userId: 'u1', companyId: CO, scopes, tokenJti: 'j', oauthAppId: 'a' } as McpToolContext);
@@ -37,7 +38,10 @@ const decode = (c: unknown) => JSON.parse(Buffer.from(String(c), 'base64url').to
 const text = (call: unknown[]) => (Array.isArray(call[0]) ? (call[0] as string[]).join('$') : '');
 const queries = () => sqlMock.mock.calls.length;
 
-let fyStart: unknown = 3;
+/** The month the registry's TEMPLATE year starts in (no year is stored here); null reads as March. */
+let fyStart: number | null = 3;
+/** Stored years for the registry (a transition year test sets these). */
+let storedYears: readonly FakeYear[] = [];
 const lines = Array.from({ length: 30 }, (_, i) => ({
   line_id: uuid(i + 1), entry_id: uuid(1000 + Math.floor(i / 2)), entry_date: '2026-04-01',
   debit: i % 2 === 0 ? 10 : 0, credit: i % 2 === 0 ? 0 : 10, entry_number: 'JE-1', source: 'manual', status: 'posted',
@@ -50,6 +54,7 @@ const parties = Array.from({ length: 7 }, (_, i) => ({
 
 beforeEach(() => {
   fyStart = 3;
+  storedYears = [];
   sqlMock.mockReset();
   sqlMock.mockImplementation((strings: unknown, ...values: unknown[]) => {
     const t = Array.isArray(strings) ? (strings as string[]).join('$') : '';
@@ -57,7 +62,11 @@ beforeEach(() => {
       return Promise.resolve([{ row_count: lines.length, posted_row_count: lines.length, txn_count: 15, control_total: '0.00',
         unbalanced_txn_count: 0, first_date: '2026-04-01', last_date: '2026-04-01' }]);
     }
-    if (t.includes('FROM companies')) return Promise.resolve([{ name: 'Co', financial_year_start: fyStart }]);
+    // The registry's database function, answered by the fake: stored years, else the declared month's template.
+    if (t.includes('fiscal_year_for_date')) {
+      return fiscalYearSqlFake(storedYears, { templateMonth: fyStart ?? 3 })(strings as TemplateStringsArray, ...values);
+    }
+    if (t.includes('FROM companies')) return Promise.resolve([{ name: 'Co' }]);
     if (t.includes('WITH page AS')) {
       const [cLine, limit] = [values[10] as string | null, values[11] as number];
       return Promise.resolve(lines.filter((l) => cLine === null || l.line_id > cLine).slice(0, limit));
@@ -130,14 +139,21 @@ describe('export_gl_lines: a table cursor carries no user text', () => {
   });
 });
 
-describe('export_gl_lines: FY follows the company year start', () => {
+describe('export_gl_lines: FY is the registry year holding the date', () => {
   const fyOf = async () => {
     const r = body(await exportGlLinesTool.handler({ limit: 1 }, ctx()));
     const cols = r.columns as string[];
     const row = (r.rows as unknown[][])[0]!;
     return [row[cols.indexOf('FY')], row[cols.indexOf('FY_Period_No')]];
   };
-  it('July, January, and March when unset', async () => {
+  it('a stored 14-month transition year counts its months 1 to 14, whatever the declared month', async () => {
+    fyStart = 3;
+    storedYears = [{ fiscalYear: 2027, startDate: '2026-01-01', endDate: '2027-02-28' }];
+    // The lines are dated 2026-04-01: month 4 of the stored year, labelled FY27.
+    expect(await fyOf()).toEqual(['FY27', 4]);
+  });
+
+  it('a template year: July, January, and March when unset', async () => {
     fyStart = 7;
     expect(await fyOf()).toEqual(['FY26', 10]);
     fyStart = 1;

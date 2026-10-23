@@ -34,7 +34,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
-import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from '@/modules/accounting/services/gl/fiscalYearBasis';
+import { withFiscalYears } from './glLineExportFiscalYears';
 import { GL_LINE_EXPORT_SCHEMA_VERSION, isoDate, toNum, type ExportEntity } from './glLineExportRows';
 
 export type GlLineExportStatus = 'posted' | 'all';
@@ -57,22 +57,12 @@ export interface GlLineExportCursor {
 
 export const GL_LINE_EXPORT_MAX_PAGE = 5000;
 
-/**
- * The entity every row carries: the company's name and its fiscal basis.
- * READ PATH: a company with no usable financial_year_start falls back to March
- * (the column default), visibly here, as the trial balance does — an export
- * refusing to run over a missing setting helps nobody.
- */
+/** The entity every row carries: the company's name. Its fiscal years ride on each row (glLineExportFiscalYears). */
 export async function getExportEntity(companyId: string): Promise<ExportEntity> {
   const rows = (await sql`
-    SELECT name, financial_year_start FROM companies WHERE id = ${companyId}::UUID LIMIT 1
+    SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1
   `) as DbRow[];
-  return {
-    name: String(rows[0]?.name ?? ''),
-    fyStartMonth: resolveFiscalYearStartMonth(
-      rows[0]?.financial_year_start, companyId, { fallback: DEFAULT_FY_START_MONTH },
-    ),
-  };
+  return { name: String(rows[0]?.name ?? '') };
 }
 
 export function clampPage(limit: number): number {
@@ -98,7 +88,7 @@ export async function fetchGlLineExportPage(
   const cLine = cursor?.lineId ?? null;
   const pageSize = clampPage(limit);
 
-  return (await sql`
+  const rows = (await sql`
     WITH page AS (
       SELECT jl.id AS line_id, jl.journal_entry_id AS entry_id, je.entry_date,
              jl.gl_account_id, jl.debit, jl.credit, jl.vat_type, jl.description AS line_description,
@@ -227,6 +217,7 @@ export async function fetchGlLineExportPage(
       AND cu.company_id = ${companyId}::UUID
     ORDER BY p.entry_date, p.entry_id, p.line_id
   `) as DbRow[];
+  return withFiscalYears(companyId, rows);
 }
 
 /** The cursor after a page, or null when the page was the last. */
