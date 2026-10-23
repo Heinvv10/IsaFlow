@@ -32,33 +32,45 @@ production app). Never print the secret: every check below counts or compares.
   change. The repo now has `scripts/isaflow-management-packs.service` and
   `.timer`.
 
-The new unit differs from its siblings in one way: the header reaches curl on
-stdin (`-H @-`), not as an argument. The siblings expand `${CRON_SECRET}` into
-curl's argv, which `/proc/<pid>/cmdline` shows to every local account while
-curl runs (up to `--max-time`, 300-900 s). See "Follow-up" below.
+All seven cron units in the repo (`scripts/isaflow-{management-packs,ar-matview-refresh,dunning-send,fraud-scan,mirror-scan,sent-mirror-scan}.service`,
+plus `isaflow-expectations` and `isaflow-flow-month-reset`, which are in the
+repo but not installed) now pass the header on curl's stdin (`-H @-`). The
+installed siblings still expand `${CRON_SECRET}` into curl's argv, which
+`/proc/<pid>/cmdline` shows to every local account while curl runs (up to
+`--max-time`, 300-900 s). So every installed unit is replaced BEFORE the
+rotation, or the new secret leaks the same way on the next run.
+`tests/unit/scripts/cronUnitsSecret.test.ts` runs each repo unit's ExecStart
+with curl stubbed and fails if the secret reaches argv or the unit file.
 
-## 1. Replace the unit
+## 1. Replace the units
 
 From the repo, at the merged master:
 
 ```bash
-sudo install -o root -g root -m 0644 scripts/isaflow-management-packs.service /etc/systemd/system/isaflow-management-packs.service
-sudo install -o root -g root -m 0644 scripts/isaflow-management-packs.timer   /etc/systemd/system/isaflow-management-packs.timer
+for u in management-packs ar-matview-refresh dunning-send fraud-scan mirror-scan sent-mirror-scan; do
+  sudo install -o root -g root -m 0644 "scripts/isaflow-$u.service" "/etc/systemd/system/isaflow-$u.service"
+done
+sudo install -o root -g root -m 0644 scripts/isaflow-management-packs.timer /etc/systemd/system/isaflow-management-packs.timer
 sudo systemctl daemon-reload
 ```
+
+Only management-packs' timer changes (same schedule, written down in the repo
+for the first time); the siblings' timers stay as installed.
 
 Verify:
 ```bash
 sudo grep -cE 'Cron-Secret: [A-Za-z0-9]{16,}' /etc/systemd/system/isaflow-*.service   # every line :0
-systemctl show isaflow-management-packs.service -p EnvironmentFiles               # /home/velo/isaflow/.env.local
-systemctl list-timers isaflow-management-packs.timer                             # next run 06:00
+grep -lE 'CRON_SECRET\}' /etc/systemd/system/isaflow-*.service                         # no output
+grep -c -- '-H @-' /etc/systemd/system/isaflow-*.service | grep -v ':0'                 # the six units, :1 each
+systemctl show isaflow-management-packs.service -p EnvironmentFiles                     # /home/velo/isaflow/.env.local
+systemctl list-timers 'isaflow-*'                                                       # next runs unchanged
 ```
 
 ## 2. Prove it runs (still with the old secret)
 
 ```bash
-sudo systemctl start isaflow-management-packs.service
-journalctl -u isaflow-management-packs --since -2min --no-pager | tail -5
+sudo systemctl start isaflow-management-packs.service isaflow-ar-matview-refresh.service
+journalctl -u isaflow-management-packs -u isaflow-ar-matview-refresh --since -2min --no-pager | tail -8
 ```
 Expect `"success":true` and `Deactivated successfully`. The scheduler only
 acts on the day of month a pack is due; a run on another day reports
@@ -68,53 +80,48 @@ env file's `CRON_SECRET` was not read: stop and check step 1.
 ## 3. Rotate CRON_SECRET
 
 Only `/home/velo/isaflow/.env.local` needs the new value: the app reads it at
-start, and every cron unit (all six, after step 1) reads it at each run, so no
-unit changes. The new value is generated and written inside one root shell
-and never reaches an argv, a terminal or a history file:
+start, and every cron unit reads it at each run, so no unit changes.
+
+Every file step runs **as velo**, never as root. `/home/velo/isaflow` is
+velo's directory: a root write or `shred` through a path in it would follow a
+symlink velo (that is, the app process) planted there, to any file on the box.
+As velo, the worst a planted link does is point velo at its own files. The
+new value is generated and written inside one shell and never reaches an argv,
+a terminal or a history file:
 
 ```bash
-sudo cp -p /home/velo/isaflow/.env.local /home/velo/isaflow/.env.local.pre-cron-rotate
-sudo bash -c 'umask 077; f=/home/velo/isaflow/.env.local
-  NEW=$(openssl rand -hex 32) awk '"'"'BEGIN { n = ENVIRON["NEW"] } /^CRON_SECRET=/ { print "CRON_SECRET=" n; next } { print }'"'"' "$f" > "$f.tmp"
-  chown velo:velo "$f.tmp" && chmod 600 "$f.tmp" && mv "$f.tmp" "$f"'
+sudo -u velo cp -p /home/velo/isaflow/.env.local /home/velo/isaflow/.env.local.pre-cron-rotate
+sudo -u velo sh -c 'umask 077; f=/home/velo/isaflow/.env.local; t=$(mktemp "$f.XXXXXX") &&
+  NEW=$(openssl rand -hex 32) awk '"'"'BEGIN { n = ENVIRON["NEW"] } /^CRON_SECRET=/ { print "CRON_SECRET=" n; next } { print }'"'"' "$f" > "$t" &&
+  mv "$t" "$f"'
 sudo systemctl restart isaflow
 ```
 
 Verify, by count and comparison only:
 ```bash
-sudo grep -c '^CRON_SECRET=' /home/velo/isaflow/.env.local                 # 1
-sudo stat -c '%U:%G %a' /home/velo/isaflow/.env.local                       # velo:velo 600
-sudo bash -c 'cmp -s <(grep ^CRON_SECRET= /home/velo/isaflow/.env.local) <(grep ^CRON_SECRET= /home/velo/isaflow/.env.local.pre-cron-rotate) && echo SAME || echo CHANGED'   # CHANGED
+sudo -u velo grep -c '^CRON_SECRET=' /home/velo/isaflow/.env.local                # 1
+sudo stat -c '%U:%G %a' /home/velo/isaflow/.env.local                             # velo:velo 600
+sudo -u velo bash -c 'cmp -s <(grep ^CRON_SECRET= /home/velo/isaflow/.env.local) <(grep ^CRON_SECRET= /home/velo/isaflow/.env.local.pre-cron-rotate) && echo SAME || echo CHANGED'   # CHANGED
 sudo systemctl start isaflow-management-packs.service isaflow-ar-matview-refresh.service
 journalctl -u isaflow-management-packs -u isaflow-ar-matview-refresh --since -2min --no-pager | grep -c '"success":true'   # 2
 ```
 
-Then remove the copy holding the old value, and the older backups that hold it
-too (all 0600, but they are what a rollback would restore, which would bring
-the leaked value back):
+Then remove, as velo, the copy holding the old value and the older backups
+that hold it too (all 0600, but they are what a rollback would restore, which
+would bring the leaked value back):
 
 ```bash
-sudo shred -u /home/velo/isaflow/.env.local.pre-cron-rotate
+sudo -u velo rm -f /home/velo/isaflow/.env.local.pre-cron-rotate
 ```
 For `/home/velo/isaflow/.env.local.bak`, `/home/velo/isaflow/.env.pre-h4fix-20260706`
 and `/home/velo/isaflow-rollback/.env.local.bak-20261020-gs-apparmor`: either
-delete them, or rewrite their `CRON_SECRET` line with the same `awk` from the
-live file's value. Deleting is simpler unless a rollback plan names one.
+delete them (as velo), or rewrite their `CRON_SECRET` line from the live file
+with the same `awk`, as velo. Deleting is simpler unless a rollback plan names one.
 
-**Ordering with the S-07b runbook:** its step 5 copies `.env.local` to
+**Ordering with the S-07b runbook:** its step 5b copies `.env.local` to
 `.env.local.pre-s07b` as the rollback point. Rotate first, or that copy holds
 the old value and an S-07b rollback restores it.
 
-Rollback of the rotation: `sudo cp -p .env.local.pre-cron-rotate .env.local &&
-sudo systemctl restart isaflow` (before the shred). It restores the leaked
+Rollback of the rotation: `sudo -u velo cp -p .env.local.pre-cron-rotate .env.local &&
+sudo systemctl restart isaflow` (before the `rm`). It restores the leaked
 value; only do it if the new one breaks something.
-
-## Follow-up (not done here)
-
-The five sibling units still pass `X-Cron-Secret: ${CRON_SECRET}` as a curl
-argument, so the (new) secret is visible in `ps` output for as long as each
-run lasts. The repo copies are `scripts/isaflow-{ar-matview-refresh,dunning-send,fraud-scan,mirror-scan,sent-mirror-scan}.service`
-(plus `isaflow-expectations` and `isaflow-flow-month-reset`, which are in the
-repo but not installed). Moving them to the stdin form used by
-`scripts/isaflow-management-packs.service` is a small change; reinstall with
-the same `install` + `daemon-reload` as step 1.

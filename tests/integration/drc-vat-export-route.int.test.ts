@@ -49,13 +49,16 @@ const vatColumn = (csv: unknown): string => String(csv).split('\n')[1]!.split(',
 
 describe('drc-vat-export: the VAT rate is this company\'s own', () => {
   it('ignores another company\'s vat_rate even where app_settings runs as its owner (before 917 is live)', async () => {
+    // Each shard runs one file at a time on its own cluster; still, put back exactly what was there.
+    const before = (await fixture.query(`SELECT reloptions FROM pg_class WHERE oid = 'public.app_settings'::regclass`)).rows[0].reloptions as string[] | null;
     await fixture.query('ALTER VIEW public.app_settings SET (security_invoker = false)');
     try {
       const r = await exportCsv();
       expect(r.status).toBe(200);
       expect(vatColumn(r.body)).toBe('150.00');
     } finally {
-      await fixture.query('ALTER VIEW public.app_settings SET (security_invoker = true)');
+      await fixture.query(before?.includes('security_invoker=true')
+        ? 'ALTER VIEW public.app_settings SET (security_invoker = true)' : 'ALTER VIEW public.app_settings RESET (security_invoker)');
     }
   });
 
@@ -65,12 +68,15 @@ describe('drc-vat-export: the VAT rate is this company\'s own', () => {
       const r = await exportCsv();
       expect(r.status).toBe(200);
       expect(vatColumn(r.body)).toBe('200.00');
+      expect(String(r.body).split('\n')[0]).toBe('Invoice,Supplier,Date,Amount (excl),VAT (20%)');
     } finally {
       await fixture.query(`DELETE FROM accounting_settings WHERE company_id = $1 AND key = 'vat_rate'`, [company]);
     }
   });
 
   it('a failed settings read is not swallowed: 500 naming the real error', async () => {
+    const held = (await fixture.query(`SELECT has_table_privilege('app_user', 'public.app_settings', 'SELECT') AS h`)).rows[0].h as boolean;
+    expect(held).toBe(true);
     await fixture.query('REVOKE SELECT ON public.app_settings FROM app_user');
     try {
       const r = await exportCsv();

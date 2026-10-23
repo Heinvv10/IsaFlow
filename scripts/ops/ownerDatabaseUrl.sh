@@ -47,8 +47,13 @@ OWNER_ENV_FILE=${OWNER_ENV_FILE:-/etc/isaflow/owner.env}
 # $OWNER_ENV_FILE first, then owner_database_url over <env-file> (its
 # OWNER_DATABASE_URL, with a warning to move it, then DATABASE_URL, with the
 # not-set warning). Both files are read as `<prefix> cat <file>`, so deploy.sh
-# passes `sudo` and the root-run backup scripts pass nothing. A missing or
-# unreadable owner file counts as absent.
+# passes `sudo` and the root-run backup scripts pass nothing. A missing owner
+# file counts as absent; one that exists but yields no OWNER_DATABASE_URL (no
+# such line, or unreadable) counts as absent with a warning naming it.
+#
+# PRODUCTION ONLY: the owner file names production's database, and it wins
+# over <env-file>. A caller after another database's owner URL (dev's parity
+# side) uses owner_database_url on its own env file instead.
 owner_database_url_for() {
   local env_file="$1" line text
   shift
@@ -56,6 +61,9 @@ owner_database_url_for() {
   if [ -n "$line" ]; then
     printf '%s\n' "${line#OWNER_DATABASE_URL=}"
     return 0
+  fi
+  if "$@" test -e "$OWNER_ENV_FILE" 2> /dev/null; then
+    echo "WARNING: $OWNER_ENV_FILE exists but gave no OWNER_DATABASE_URL (missing, empty or unreadable) - falling back to $env_file." >&2
   fi
   text=$("$@" cat "$env_file") || return 1
   if printf '%s\n' "$text" | grep -qE '^OWNER_DATABASE_URL=.'; then

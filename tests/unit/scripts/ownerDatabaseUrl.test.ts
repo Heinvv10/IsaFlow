@@ -83,9 +83,17 @@ describe('owner_database_url_for: the owner file, then the app env, then DATABAS
     expect(r.stderr).toMatch(/WARNING: OWNER_DATABASE_URL is read from .*\.env\.local, which the app process loads; move it to .*owner\.env/);
   });
 
-  it('an owner file without the variable (or only commented out) counts as absent', () => {
-    expect(forEnv('#OWNER_DATABASE_URL=postgresql://wrong@h/x\nDATABASE_URL=postgresql://wrong@h/y\n', APP_ENV_OWNER).stdout)
-      .toBe('postgresql://postgres:e@h:1/isaflow\n');
+  it.each([
+    ['only commented out, or other variables', '#OWNER_DATABASE_URL=postgresql://wrong@h/x\nDATABASE_URL=postgresql://wrong@h/y\n'],
+    ['an empty value', 'OWNER_DATABASE_URL=\n'],
+  ])('an owner file holding %s counts as absent, with a warning naming it', (_, owner) => {
+    const r = forEnv(owner, APP_ENV_OWNER);
+    expect(r.stdout).toBe('postgresql://postgres:e@h:1/isaflow\n');
+    expect(r.stderr).toMatch(/WARNING: .*owner\.env exists but gave no OWNER_DATABASE_URL/);
+  });
+
+  it('a missing owner file falls back without that warning', () => {
+    expect(forEnv(null, APP_ENV_OWNER).stderr).not.toMatch(/exists but gave no/);
   });
 
   it('then DATABASE_URL, with the not-set warning', () => {

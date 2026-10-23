@@ -16,8 +16,12 @@
  *
  * public.users.email is written FIRST, in a transaction on the
  * migration_admin pool, and committed only once GoTrue has accepted the new
- * address, so the profile email and the login email cannot drift apart on a
- * refusal (S-07b follow-up B). The service pool may not write users.email at
+ * address, so a definite GoTrue refusal leaves both emails as they were
+ * (S-07b follow-up B). Two drifts remain: GoTrue applies the change but its
+ * reply is lost (timeout, cut-off body: answered 503 and rolled back here), and
+ * the COMMIT fails after GoTrue accepted (logged as drift, 500). While GoTrue
+ * is asked, the caller's users row stays locked and one of the pool's two
+ * connections is held, for at most the GoTrue call's bound. The service pool may not write users.email at
  * all (migration 918): injected SQL there could otherwise hand any account's
  * address, and with it pending invitations, to someone else.
  */

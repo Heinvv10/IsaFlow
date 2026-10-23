@@ -11,7 +11,7 @@
 // the caller's users row is already locked by an uncommitted write: that is
 // what tells DB-first from GoTrue-first, since a GoTrue refusal leaves the
 // stored email unchanged either way.
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { decodeJwt } from 'jose';
 import changeEmailRoute from '../../pages/api/auth/change-email';
 import { getAuthPool } from '@/lib/auth/authPool';
@@ -31,6 +31,7 @@ afterAll(async () => {
 });
 // Every suite's route calls share one client IP; the route allows 5 per 15 minutes.
 beforeEach(() => fixture.query(`DELETE FROM rate_limit_counters WHERE key LIKE '%change-email%'`));
+afterEach(() => { vi.unstubAllGlobals(); });
 
 async function newUser(withRow = true): Promise<string> {
   const id = crypto.randomUUID();
@@ -42,11 +43,11 @@ async function newUser(withRow = true): Promise<string> {
   return id;
 }
 
-interface Gotrue { updates: string[]; rowLockedAtUpdate: boolean | null }
+interface Gotrue { updates: string[]; rowLockedAtUpdate: boolean | null; bodies: unknown[] }
 
 /** GoTrue: /token and /user answer for the caller; PUT /admin/users answers `adminStatus`. */
 function stubGotrue(adminStatus: number): Gotrue {
-  const seen: Gotrue = { updates: [], rowLockedAtUpdate: null };
+  const seen: Gotrue = { updates: [], rowLockedAtUpdate: null, bodies: [] };
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   vi.stubGlobal('fetch', vi.fn(async (input: unknown, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -58,6 +59,7 @@ function stubGotrue(adminStatus: number): Gotrue {
     const m = /\/admin\/users\/([0-9a-f-]+)$/.exec(url.pathname);
     if (m && init?.method === 'PUT') {
       seen.updates.push(m[1]!);
+      seen.bodies.push(JSON.parse(String(init.body)));
       const c = await fixture.connect();
       try {
         await c.query('BEGIN');
@@ -84,10 +86,12 @@ describe('change-email: the database first, then GoTrue', () => {
   it('GoTrue accepts: 200, users.email changed, and the row was already written when GoTrue was asked', async () => {
     const u = await newUser();
     const gt = stubGotrue(200);
-    const r = await change(u, `${u}-new@test.local`);
-    vi.unstubAllGlobals();
+    // Mixed case in: both stores get the same lower-cased address.
+    const r = await change(u, `${u}-NEW@Test.Local`);
     expect(r.status).toBe(200);
-    expect(gt).toEqual({ updates: [u], rowLockedAtUpdate: true });
+    expect(gt).toMatchObject({ updates: [u], rowLockedAtUpdate: true });
+    // email_confirm: the admin update skips GoTrue's double confirmation (see the route's header).
+    expect(gt.bodies).toEqual([{ email: `${u}-new@test.local`, email_confirm: true }]);
     expect((await userRow(u)).email).toBe(`${u}-new@test.local`);
   });
 
@@ -97,7 +101,7 @@ describe('change-email: the database first, then GoTrue', () => {
     const r = await change(u, `${u}-new@test.local`);
     vi.unstubAllGlobals();
     expect(r).toMatchObject({ status: 409, body: { error: { code: 'EMAIL_TAKEN' } } });
-    expect(gt).toEqual({ updates: [u], rowLockedAtUpdate: true });
+    expect(gt).toMatchObject({ updates: [u], rowLockedAtUpdate: true });
     expect((await userRow(u)).email).toBe(`${u}@test.local`);
   });
 
@@ -110,7 +114,7 @@ describe('change-email: the database first, then GoTrue', () => {
     const r = await change(u, `${u}-new@test.local`);
     vi.unstubAllGlobals();
     expect(r).toMatchObject({ status, body: { error: { code } } });
-    expect(gt).toEqual({ updates: [u], rowLockedAtUpdate: true });
+    expect(gt).toMatchObject({ updates: [u], rowLockedAtUpdate: true });
     expect((await userRow(u)).email).toBe(`${u}@test.local`);
   });
 
@@ -136,6 +140,8 @@ describe('change-email: the database first, then GoTrue', () => {
   it('GoTrue accepts but the COMMIT fails: 500, the drift is logged, users.email unchanged', async () => {
     const u = await newUser();
     // A deferred constraint trigger raises at COMMIT, after GoTrue has answered.
+    await fixture.query('DROP TRIGGER IF EXISTS s07b_ce_commit_fail ON public.users');
+    await fixture.query('DROP FUNCTION IF EXISTS public.s07b_ce_commit_fail()');
     await fixture.query(`CREATE FUNCTION public.s07b_ce_commit_fail() RETURNS trigger LANGUAGE plpgsql AS $f$
       BEGIN IF NEW.email LIKE '%-commitfail@test.local' THEN RAISE EXCEPTION 's07b: commit refused'; END IF; RETURN NULL; END $f$`);
     await fixture.query(`CREATE CONSTRAINT TRIGGER s07b_ce_commit_fail AFTER UPDATE ON public.users DEFERRABLE INITIALLY DEFERRED
