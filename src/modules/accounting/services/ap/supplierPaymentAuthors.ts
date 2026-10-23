@@ -147,6 +147,14 @@ export async function recordBankDetailsSetter(companyId: string, supplierId: str
                      AND sp.status IN ('draft', 'approved'))
     `;
   }
+  // In id order, as payingAccountAuthors.lockPaymentsFromAccount takes them: the UPDATE alone locks in scan order, and
+  // a paying-account edit stamping two of the same payments would cross it (40P01). Held the supplier row, so no
+  // payment of this supplier can appear in between (its FK takes KEY SHARE on the supplier).
+  await sql`
+    SELECT id FROM supplier_payments
+    WHERE company_id = ${companyId}::UUID AND supplier_id = ${supplierId}::UUID AND status IN ('draft', 'approved')
+    ORDER BY id FOR UPDATE
+  `;
   await sql`
     UPDATE supplier_payments
     SET content_authors = approval_add_author(content_authors, ${userId}::UUID), content_edited_at = NOW()
