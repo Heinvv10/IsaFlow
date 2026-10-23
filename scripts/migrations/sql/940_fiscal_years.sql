@@ -26,7 +26,7 @@
 -- TypeScript re-derives it.
 --
 -- INVARIANTS (enforced here, not by convention):
---   * a year is 1 day to 15 months long (Companies Act 71 of 2008, s27(4)) and
+--   * a year is 2 days to 15 months long (Companies Act 71 of 2008, s27(4)) and
 --     a company's years never overlap;
 --   * every period lies inside its year, of the same company (deferred, so a
 --     change of year end can move a year's edges and its periods in one
@@ -283,9 +283,16 @@ BEGIN
 
   -- 3. The period fits no template year (a whole-year "period" of a fixture):
   --    the year is its label group, as the periods describe it.
+  --    Widening a year re-cuts the range its reports cover, so it is refused
+  --    once any journal sits in the year (only fixture-shaped data reaches here).
   SELECT fy.id, LEAST(fy.start_date, p_start), GREATEST(fy.end_date, p_end) INTO y, lo, hi
     FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
   IF y IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM gl_journal_entries je JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+                WHERE fp.fiscal_year_id = y AND je.company_id = p_company) THEN
+      RAISE EXCEPTION 'period % to % fits no financial year of company %, and FY% already holds journals: it is not widened',
+        p_start, p_end, p_company, p_label USING ERRCODE = '23514';
+    END IF;
     UPDATE fiscal_years SET start_date = lo, end_date = hi WHERE id = y;
     RETURN y;
   END IF;
@@ -348,7 +355,12 @@ BEGIN
       CASE WHEN TG_OP <> 'DELETE' THEN NEW.fiscal_year_id END,
       CASE WHEN TG_OP <> 'INSERT' THEN OLD.fiscal_year_id END]) AS u
     WHERE u IS NOT NULL
+    ORDER BY u  -- a fixed lock order across concurrent writers
   LOOP
+    -- Lock the year first, then derive: two transactions closing the year's last
+    -- two periods serialise here, and the second derives from the first's
+    -- committed period (each statement takes a fresh snapshot under READ COMMITTED).
+    PERFORM 1 FROM fiscal_years WHERE id = y FOR UPDATE;
     UPDATE fiscal_years SET status = public.fiscal_year_derived_status(y)
      WHERE id = y AND status IS DISTINCT FROM public.fiscal_year_derived_status(y);
   END LOOP;
@@ -508,6 +520,9 @@ $$;
 -- fiscal_year_id, which the guard allows anyway (OLD NULL), but the year's
 -- status is derived once at the end instead of per row.
 
+-- Linking touches each period's updated_at (its accounting_updated_at trigger);
+-- accepted: the row did change (fiscal_year_id), and no trigger is switched off
+-- (the entity-change census refuses migrations that do).
 DO $$
 DECLARE
   p record;

@@ -18,6 +18,7 @@ const queries: string[] = [];
 let responder: (text: string) => unknown[] = () => [];
 
 vi.mock('@/lib/neon', () => ({
+  withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
   sql: vi.fn((strings: readonly string[]) => {
     const text = strings.join('?');
     queries.push(text);
