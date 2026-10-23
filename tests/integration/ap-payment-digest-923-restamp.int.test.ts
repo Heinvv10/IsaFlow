@@ -42,6 +42,7 @@ function definition(file: string, fn: string): string {
 }
 const OLD_CONTENT = definition('867_supplier_payment_approval_enforcement.sql', 'approval_supplier_payment_content');
 const OLD_DIGEST = definition('874_customer_invoice_line_revenue_coding.sql', 'approval_document_digest');
+const OLD_AUTHORS = definition('867_supplier_payment_approval_enforcement.sql', 'approval_supplier_payment_authors');
 
 /** The migration, in one transaction as apply-migrations runs it; returns its notices. */
 async function migrate(): Promise<string[]> {
@@ -191,6 +192,21 @@ describe('migration 923 re-stamps what is provably unchanged since approval', ()
       expect(MIGRATION.split(arm)).toHaveLength(2);
       await expect(client.query(MIGRATION.replace(arm, 'si.supplier_id, si.invoice_date,')))
         .rejects.toThrow(/approval_document_digest changed for \d+ non-payment document/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  it('refuses when an existing payment\'s authors would move (an account already carrying setters)', async () => {
+    const { company, bank } = await payCompany(pool, [[u.a, 'admin']], companies);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(OLD_AUTHORS);
+      await plantPayment(client, company, u.a, bank); // a draft single payment from `bank`: in the snapshot
+      await client.query('UPDATE gl_accounts SET bank_details_setters = ARRAY[$2::UUID] WHERE id = $1', [bank, u.b]);
+      await expect(client.query(MIGRATION)).rejects.toThrow(/approval_document_authors changed for \d+ payment document/);
     } finally {
       await client.query('ROLLBACK');
       client.release();
