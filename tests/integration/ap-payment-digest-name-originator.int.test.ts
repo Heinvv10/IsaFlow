@@ -84,8 +84,9 @@ describe('a payee renamed after approval (enforcement off)', () => {
     const one = await fixture();
     await approve(one.c, one.b.id);
     const name = await nameOf(one.supplierId);
-    await rename(one.c, one.supplierId, `  ${name.toUpperCase()} `);
-    expect(await nameOf(one.supplierId)).not.toBe(name); // the write really changed the stored name
+    // Raw: the supplier writer trims, but an importer or a raw write may not.
+    await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [one.supplierId, `  ${name.toUpperCase()} `]);
+    expect(await nameOf(one.supplierId)).toBe(`  ${name.toUpperCase()} `);
     const file = await eft(one.c, one.b.id);
     expect(file.state.statusCode, JSON.stringify(file.state.body)).toBe(200);
     const two = await fixture();
