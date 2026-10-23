@@ -19,7 +19,7 @@ import changeEmailRoute from '../../pages/api/auth/change-email';
 import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
-import { createInvitation } from '@/modules/accounting/services/core/userInvitationService';
+import { createInvitation, InvitationForbiddenError } from '@/modules/accounting/services/core/userInvitationService';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -142,5 +142,41 @@ describe('S-07c A: an existing account is invited, never added', () => {
     expect(await invite(x)).toMatchObject({ status: 200, body: { data: { autoAdded: false } } });
     await createInvitation(company, x, 'admin', me).catch(() => undefined);
     expect(await memberships(u.id)).toEqual([]);
+  });
+});
+
+// The guard trigger does not judge migration_admin, so createInvitation checks
+// its rules itself, against the inviter's membership as it stands: the routes'
+// own checks read the role once, when the request began.
+describe('S-07c A: createInvitation checks the inviter (assertCanInvite)', () => {
+  const pending = async (email: string) =>
+    (await fixture.query('SELECT 1 FROM company_invitations WHERE company_id = $1 AND email = $2', [company, email])).rows.length;
+
+  it('an admin may not invite an owner', async () => {
+    const email = `${crypto.randomUUID()}@test.local`;
+    await expect(createInvitation(company, email, 'owner', me)).rejects.toBeInstanceOf(InvitationForbiddenError);
+    expect(await pending(email)).toBe(0);
+  });
+
+  it('an owner may', async () => {
+    const email = `${crypto.randomUUID()}@test.local`;
+    expect((await createInvitation(company, email, 'owner', ids.owner)).invitation.role).toBe('owner');
+  });
+
+  it.each([
+    ['a viewer', 'viewer'],
+    ['an admin demoted since the request began', 'manager'],
+  ])('%s may not invite at all', async (_, role) => {
+    const u = await newUser();
+    await fixture.query('INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, $3)', [company, u.id, role]);
+    const email = `${crypto.randomUUID()}@test.local`;
+    await expect(createInvitation(company, email, 'viewer', u.id)).rejects.toBeInstanceOf(InvitationForbiddenError);
+    expect(await pending(email)).toBe(0);
+  });
+
+  it('nor may someone who is not a member', async () => {
+    const u = await newUser();
+    const email = `${crypto.randomUUID()}@test.local`;
+    await expect(createInvitation(ids.other, email, 'viewer', u.id)).rejects.toBeInstanceOf(InvitationForbiddenError);
   });
 });
