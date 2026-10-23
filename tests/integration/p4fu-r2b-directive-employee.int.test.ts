@@ -21,9 +21,10 @@ import { assertDisposable, request, response } from './mfa-impersonation-postgre
 import directives from '../../pages/api/accounting/tax-directives';
 import directive from '../../pages/api/accounting/tax-directives/[id]';
 import employeesRoute from '../../pages/api/payroll/employees';
+import jeAction from '../../pages/api/accounting/journal-entries-action';
 import type { Route } from './w3-01-payroll.helpers';
 import {
-  applyStandalone, approvedDirective, cleanSeveranceFixtures, seedRetrenchedEmployee, type SeveranceFixture,
+  applyStandalone, approvedDirective, cleanSeveranceFixtures, directivePayments, seedRetrenchedEmployee, type SeveranceFixture,
 } from './p3-severance.helpers';
 import { TaxDirectivePaidError, updateTaxDirectiveStatus } from '@/modules/accounting/services/payroll/taxDirectiveService';
 
@@ -182,6 +183,17 @@ describe('round 2 review: the create route\'s body and the employee record', () 
     const unpaid = await approvedDirective(f, 6_000, 0.2, '2026-05-01', '7777777780');
     expect((await f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${unpaid}`, unpaid)).statusCode).toBe(200);
     expect((await pool.query('SELECT 1 FROM tax_directives WHERE id = $1', [unpaid])).rowCount).toBe(0);
+  });
+
+  it('DELETE of a directive whose stand-alone payment was reversed: still 409 (the payment row records it), no 500', async () => {
+    const d = await approvedDirective(f, 6_000, 0.2, '2026-05-01', '7777777781');
+    expect((await applyStandalone(f, d, '2026-05-22')).statusCode).toBe(200);
+    const journal = String((await directivePayments(pool, d))[0]!.journal_entry_id);
+    const reversed = await f.call(jeAction as Route, 'POST', '/api/accounting/journal-entries-action', undefined, { body: { id: journal, action: 'reverse' } });
+    expect(reversed.statusCode, JSON.stringify(reversed.body)).toBe(200);
+    const r = await f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${d}`, d);
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(409);
+    expect(r.body.error?.message).toMatch(/payment record/);
   });
 });
 
