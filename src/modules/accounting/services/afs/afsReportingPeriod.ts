@@ -14,7 +14,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { priorFiscalYear, requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { assertDeclaredBasis, priorFiscalYear, requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 
 export interface PeriodSpan {
   start: string;
@@ -58,8 +58,9 @@ async function changeReason(companyId: string, fiscalYearId: string | null): Pro
 }
 
 export async function getReportingPeriod(companyId: string, fiscalYear: number): Promise<ReportingPeriod> {
-  const year = await requireFiscalYear(companyId, fiscalYear);
-  const before = await priorFiscalYear(companyId, year);
+  // Strict, as every AFS range: no statement is built on an assumed start month.
+  const year = assertDeclaredBasis(companyId, await requireFiscalYear(companyId, fiscalYear));
+  const before = assertDeclaredBasis(companyId, await priorFiscalYear(companyId, year));
   const current = span(year.startDate, year.endDate, year.months, 'Current year (R)');
   const prior = span(before.startDate, before.endDate, before.months, 'Prior year (R)');
   const comparable = current.months === 12 && prior.months === 12;
