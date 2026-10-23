@@ -16,6 +16,7 @@ import {
   noteCash,
   noteTaxation,
 } from './disclosureNoteGenerators';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 
 export interface NoteTable {
   headers: string[];
@@ -54,6 +55,13 @@ export async function generateDisclosureNotes(
   ];
 
   const notes: DisclosureNote[] = [];
+  // IAS 1.36: a year (or its comparative) that is not twelve months says so, right
+  // after the accounting policies (afsReportingPeriod). A year no label carries
+  // has no notes to qualify; the per-note savepoints still report it.
+  const period = await withSavepoint('dn_reporting_period', () => getReportingPeriod(companyId, fiscalYear)).catch((err) => {
+    log.warn('Reporting period note skipped', { fiscalYear, error: err instanceof Error ? err.message : String(err) }, 'disclosureNoteService');
+    return null;
+  });
   for (const [name, gen] of generators) {
     const note = await withSavepoint(`dn_${name}`, gen).catch((err) => {
       log.warn(
@@ -64,6 +72,9 @@ export async function generateDisclosureNotes(
       return null;
     });
     if (note) notes.push(note);
+    if (name === 'accountingPolicies' && period?.comparabilityNote) {
+      notes.push({ noteNumber: 1.1, title: 'Reporting period', content: period.comparabilityNote, source: 'auto' });
+    }
   }
   return notes;
 }
