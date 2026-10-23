@@ -70,6 +70,17 @@ CREATE POLICY tenant_isolation ON fiscal_year_end_changes FOR ALL TO app_user
   WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 GRANT SELECT, INSERT, UPDATE ON fiscal_year_end_changes TO app_user;
 
+-- The requesting user (auth.uid()) is an owner or admin of the company.
+CREATE OR REPLACE FUNCTION public.fiscal_year_end_change_actor_ok(p_company uuid)
+RETURNS boolean
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT EXISTS (SELECT 1 FROM company_users cu
+                  WHERE cu.company_id = p_company AND cu.user_id::text = auth.uid()::text
+                    AND cu.role IN ('owner', 'admin'))
+$$;
+
 CREATE OR REPLACE FUNCTION public.fiscal_year_end_changes_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -94,6 +105,14 @@ BEGIN
         IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['reversed_by', 'reversed_at', 'reversal_reason']) THEN
     RAISE EXCEPTION 'a change of financial year end can only be marked reversed, once' USING ERRCODE = '55000';
   END IF;
+  -- Marked reversed only by an owner/admin, and only once the transition year
+  -- really ends where it did before the change (the undo has restored it).
+  IF auth.uid() IS NOT NULL AND NOT public.fiscal_year_end_change_actor_ok(OLD.company_id) THEN
+    RAISE EXCEPTION 'only an owner or admin may undo a change of financial year end' USING ERRCODE = '42501';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM fiscal_years fy WHERE fy.id = OLD.fiscal_year_id AND fy.end_date = OLD.from_end_date) THEN
+    RAISE EXCEPTION 'a change of financial year end is marked reversed only after the year end is restored' USING ERRCODE = '23514';
+  END IF;
   RETURN NEW;
 END;
 $$;
@@ -117,6 +136,14 @@ BEGIN
   IF auth.uid() IS NOT NULL AND NEW.applied_by::text IS DISTINCT FROM auth.uid()::text THEN
     RAISE EXCEPTION 'a change of financial year end is recorded as applied by the requesting user' USING ERRCODE = '42501';
   END IF;
+  IF auth.uid() IS NOT NULL AND NOT public.fiscal_year_end_change_actor_ok(NEW.company_id) THEN
+    RAISE EXCEPTION 'only an owner or admin may record a change of financial year end' USING ERRCODE = '42501';
+  END IF;
+  -- Born live and now: never backdated, never already reversed.
+  IF NEW.reversed_at IS NOT NULL OR NEW.reversed_by IS NOT NULL OR NEW.reversal_reason IS NOT NULL THEN
+    RAISE EXCEPTION 'a change of financial year end is recorded live; it is reversed by undoing it' USING ERRCODE = '23514';
+  END IF;
+  NEW.applied_at := now();
   SELECT fy.id, fy.start_date, fy.status INTO y FROM fiscal_years fy
    WHERE fy.id = NEW.fiscal_year_id AND fy.company_id = NEW.company_id;
   IF NOT FOUND OR y.start_date <> NEW.transition_start OR y.status <> 'open' THEN
@@ -126,7 +153,7 @@ BEGIN
   NEW.snapshot := jsonb_build_object(
     'years', COALESCE((SELECT jsonb_agg(jsonb_build_object(
         'id', fy.id, 'fiscal_year', fy.fiscal_year, 'start_date', fy.start_date::text, 'end_date', fy.end_date::text,
-        'kind', fy.kind, 'change_id', fy.change_id, 'created_at', fy.created_at) ORDER BY fy.start_date)
+        'kind', fy.kind, 'change_id', fy.change_id, 'created_at', fy.created_at, 'updated_at', fy.updated_at) ORDER BY fy.start_date)
       FROM fiscal_years fy WHERE fy.company_id = NEW.company_id AND fy.start_date >= NEW.transition_start), '[]'::jsonb),
     'periods', COALESCE((SELECT jsonb_agg(jsonb_build_object(
         'id', fp.id, 'fiscal_year_id', fp.fiscal_year_id, 'fiscal_year', fp.fiscal_year,

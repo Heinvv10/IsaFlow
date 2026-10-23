@@ -123,3 +123,38 @@ describe('change records cannot be forged', () => {
     } finally { await pool.query('ROLLBACK'); }
   });
 });
+
+describe('an owner cannot write history by hand either (app_user, raw SQL)', () => {
+  async function asOwner(o: SetupUser, fn: (c: import('pg').PoolClient) => Promise<unknown>): Promise<unknown> {
+    const client = await pool.connect();
+    let err: unknown = null;
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: o.userId })]);
+      await client.query("SELECT set_config('app.current_company_id', $1, true)", [o.homeCompanyId]);
+      await client.query('SET LOCAL ROLE app_user');
+      await fn(client);
+    } catch (e) { err = e; } finally { await client.query('ROLLBACK'); client.release(); }
+    return err;
+  }
+
+  it('a record born reversed is refused', async () => {
+    const o = await owner();
+    const y = (await pool.query(`SELECT id, start_date::text s FROM fiscal_years WHERE company_id = $1`, [o.homeCompanyId])).rows[0];
+    const err = await asOwner(o, (c) => c.query(
+      `INSERT INTO fiscal_year_end_changes (company_id, fiscal_year_id, from_start_month, to_start_month, transition_start,
+         from_end_date, to_end_date, months, reason, cipc_filed_confirmed, sars_notified_confirmed, applied_by, reversed_by, reversed_at)
+       VALUES ($1, $2, 1, 3, $3, '2026-12-31', '2027-02-28', 14, 'forged history row', true, true, $4, $4, now())`,
+      [o.homeCompanyId, y.id, y.s, o.userId]));
+    expect(String(err)).toMatch(/recorded live/);
+  });
+
+  it('marking a live change reversed without undoing it is refused', async () => {
+    const o = await owner();
+    expect((await call(o, 'POST', { newYearEndMonth: 2, ...OK })).status).toBe(200);
+    const err = await asOwner(o, (c) => c.query(
+      `UPDATE fiscal_year_end_changes SET reversed_at = now(), reversed_by = $1, reversal_reason = 'not really' WHERE company_id = $2`,
+      [o.userId, o.homeCompanyId]));
+    expect(String(err)).toMatch(/only after the year end is restored/);
+  });
+});

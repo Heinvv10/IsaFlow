@@ -162,7 +162,9 @@ describe('undo', () => {
   });
 
   it('a change record cannot be rewritten or deleted', async () => {
-    const id = made[made.length - 1]!;
+    const c = await company(1, ['2026-03-01']);
+    await inTx(c.id, () => applyYearEndChange(c.id, user, { newYearEndMonth: 2, ...OK }, TODAY));
+    const id = c.id;
     const e1 = await pool.query(`UPDATE fiscal_year_end_changes SET reason = 'rewritten history here' WHERE company_id = $1`, [id]).catch((e) => e);
     expect(String(e1)).toMatch(/only be marked reversed/);
     const e2 = await pool.query(`DELETE FROM fiscal_year_end_changes WHERE company_id = $1`, [id]).catch((e) => e);

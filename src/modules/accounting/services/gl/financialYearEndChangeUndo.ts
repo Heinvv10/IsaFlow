@@ -24,7 +24,7 @@ import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { repointPeriodToItsYear, YearEndChangeRefusedError } from './financialYearEndChangeApply';
 
-interface SnapYear { id: string; fiscal_year: number; start_date: string; end_date: string; kind: string; change_id: string | null; created_at: string }
+interface SnapYear { id: string; fiscal_year: number; start_date: string; end_date: string; kind: string; change_id: string | null; created_at: string; updated_at: string }
 interface SnapPeriod { id: string; fiscal_year_id: string; fiscal_year: number; period_number: number; period_name: string }
 
 export interface LiveChange {
@@ -110,6 +110,7 @@ export async function undoRefusals(companyId: string, change: LiveChange | null)
        AND entry_date BETWEEN ${change.transitionStart}::DATE AND ${change.toEndDate}::DATE
   `) as DbRow[];
   if (Number(ye[0]!.n) > 0) out.push('The transition year has a year-end closing journal; the change can no longer be undone.');
+
   return out;
 }
 
@@ -143,9 +144,9 @@ export async function undoYearEndChange(companyId: string, userId: string, reaso
     if (y.id === change.fiscalYearId) continue;
     // The one place outside the generator that writes a year: the snapshot's own row, back with its own id.
     await sql`
-      INSERT INTO fiscal_years (id, company_id, fiscal_year, start_date, end_date, kind, change_id, created_at)
+      INSERT INTO fiscal_years (id, company_id, fiscal_year, start_date, end_date, kind, change_id, created_at, updated_at)
       VALUES (${y.id}::UUID, ${companyId}::UUID, ${y.fiscal_year}, ${y.start_date}::DATE, ${y.end_date}::DATE,
-              ${y.kind}, ${y.change_id}::UUID, ${y.created_at}::TIMESTAMPTZ)
+              ${y.kind}, ${y.change_id}::UUID, ${y.created_at}::TIMESTAMPTZ, ${y.updated_at}::TIMESTAMPTZ)
     `;
   }
 
