@@ -9,6 +9,7 @@ import { doBlock, fixture, migration, newIds, rolledBack, setup, teardown } from
 
 const ids = newIds();
 const M916 = migration('916_service_role_member_guards.sql');
+const M916B = migration('916b_revoke_app_user_backfill_view.sql');
 const M917 = migration('917_app_role_hardening.sql');
 const PATCH_916 = doBlock(M916, 'expected exactly once');
 const GUARD_916 = doBlock(M916, 'exempts every role but app_user');
@@ -105,6 +106,16 @@ describe('S-07b: migration 917', () => {
       await q(GUARD_917);
       await q(mutate);
       await expect(q(GUARD_917)).rejects.toThrow(msg);
+    });
+  });
+
+  // Production's shape (2026-10-23): app_user held SELECT on the backfill view, which 917 refuses. 916b revokes it.
+  it('916b clears production\'s grant on the backfill view, so 917\'s guard passes', async () => {
+    await rolledBack(async (q) => {
+      await q('GRANT SELECT ON public.ap_payment_document_backfill_candidates TO app_user');
+      await expect(q(GUARD_917)).rejects.toThrow(/917: view ap_payment_document_backfill_candidates runs as an RLS-bypassing owner/);
+      await q(M916B);
+      await expect(q(GUARD_917)).resolves.toBeTruthy();
     });
   });
 
