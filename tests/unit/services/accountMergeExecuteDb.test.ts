@@ -196,6 +196,9 @@ describe('mergeAccounts writes', async () => {
   it.skipIf(!reachable)('reparents the children and cascades level through the subtree', async () => {
     await withFixture(async (c, f) => {
       // Move the source's postings out of the way so only the tree work remains.
+      // The closed-period posting moves too: reopen its period first (941 refuses moving a
+      // posted journal out of a period that is not open).
+      await c.query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [f.closedPeriodId]);
       await c.query(
         `UPDATE gl_journal_entries SET fiscal_period_id = $1, -- dated inside it: a journal's period holds its date (941)
               entry_date = (SELECT GREATEST(start_date, LEAST(end_date, CURRENT_DATE)) FROM fiscal_periods WHERE id = $1)

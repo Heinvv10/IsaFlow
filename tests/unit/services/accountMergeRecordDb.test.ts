@@ -95,6 +95,9 @@ describe('the merge record', async () => {
   it.skipIf(!reachable)('records the tree work a reversal would have to undo', async (c0) => {
     void c0;
     await withFixture(async (c, f) => {
+      // The closed-period posting moves too: reopen its period first (941 refuses moving a
+      // posted journal out of a period that is not open).
+      await c.query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [f.closedPeriodId]);
       await c.query(
         `UPDATE gl_journal_entries SET fiscal_period_id = $1, -- dated inside it: a journal's period holds its date (941)
               entry_date = (SELECT GREATEST(start_date, LEAST(end_date, CURRENT_DATE)) FROM fiscal_periods WHERE id = $1)
@@ -123,6 +126,9 @@ describe('the write re-checks the row state it classified', async () => {
       // one of their periods is closed before the UPDATE runs. The predicate on
       // the UPDATE must exclude it, and the count mismatch must abort the whole
       // merge rather than move half of it.
+      // The closed-period posting moves too: reopen its period first (941 refuses moving a
+      // posted journal out of a period that is not open).
+      await c.query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [f.closedPeriodId]);
       await c.query(
         `UPDATE gl_journal_entries SET fiscal_period_id = $1, -- dated inside it: a journal's period holds its date (941)
               entry_date = (SELECT GREATEST(start_date, LEAST(end_date, CURRENT_DATE)) FROM fiscal_periods WHERE id = $1)
@@ -141,6 +147,8 @@ describe('the write re-checks the row state it classified', async () => {
             SELECT journal_entry_id FROM gl_journal_lines WHERE gl_account_id = $3 LIMIT 1)`,
         [f.closedPeriodId, f.companyId, f.sourceId],
       );
+      // Close it again (it was reopened above only so its own posting could leave).
+      await c.query(`UPDATE fiscal_periods SET status = 'closed' WHERE id = $1`, [f.closedPeriodId]);
       await expect(mergeAccounts(f.companyId, f.sourceId, f.targetId))
         .rejects.toBeInstanceOf(AccountMergeError);
 
@@ -193,6 +201,9 @@ describe('the write re-checks the row state it classified', async () => {
 
   it.skipIf(!reachable)('the digest commits to the SET of lines, not their order', async () => {
     await withFixture(async (c, f) => {
+      // The closed-period posting moves too: reopen its period first (941 refuses moving a
+      // posted journal out of a period that is not open).
+      await c.query(`UPDATE fiscal_periods SET status = 'open' WHERE id = $1`, [f.closedPeriodId]);
       await c.query(
         `UPDATE gl_journal_entries SET fiscal_period_id = $1, -- dated inside it: a journal's period holds its date (941)
               entry_date = (SELECT GREATEST(start_date, LEAST(end_date, CURRENT_DATE)) FROM fiscal_periods WHERE id = $1)
