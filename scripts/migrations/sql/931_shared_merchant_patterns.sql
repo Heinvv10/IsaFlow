@@ -199,6 +199,12 @@ BEGIN
     UNION ALL SELECT 'public'
   LOOP
     FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP
+      -- A maintenance role in pg_read_all_data (Supabase's supabase_read_only_user) reads every table by
+      -- design, this one included, as 888 notes for its sequence; no REVOKE can take that away. SELECT only,
+      -- and never for a role the app or admin pools run as.
+      CONTINUE WHEN v_priv = 'SELECT' AND v_role <> 'public'
+        AND v_role NOT IN ('app_user', 'platform_admin', 'migration_admin', 'isaflow_app', 'isaflow_service', 'app_service')
+        AND pg_catalog.pg_has_role(v_role, 'pg_read_all_data', 'MEMBER');
       IF pg_catalog.has_table_privilege(v_role, 'public.shared_merchant_patterns', v_priv) THEN
         RAISE EXCEPTION 'migration 931: % still holds % on shared_merchant_patterns', v_role, v_priv;
       END IF;
