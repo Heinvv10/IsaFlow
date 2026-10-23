@@ -251,7 +251,7 @@ SELECT v.signature, v.writes, public.app_definer_hash(p.oid)
      'shared_merchant_patterns only (full replace); migration_admin only; refuses any field but the five it stores'),
     ('shared_pool_lookup(uuid,text[])',
      'nothing (read): exact merchant keys, at most 500, for the caller''s active, pool-eligible company')) v(signature, writes)
-  JOIN pg_catalog.pg_proc p ON p.oid::pg_catalog.regprocedure::pg_catalog.text = v.signature
+  JOIN pg_catalog.pg_proc p ON p.oid = pg_catalog.to_regprocedure(v.signature)
 ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 
 DO $$
