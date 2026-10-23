@@ -44,10 +44,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // The financial year's own dates (a 14-month transition year included),
     // never January-December of the label.
     const year = await getFiscalYear(companyId, Number(doc.fiscal_year));
-    if (year) {
-      periodStart = year.startDate;
-      periodEnd = year.endDate;
-    }
+    // A label no financial year carries (a change of year end can skip one) is
+    // said plainly, never answered with some other year's dates.
+    if (!year) return apiResponse.notFound(res, 'Financial year', String(doc.fiscal_year));
+    periodStart = year.startDate;
+    periodEnd = year.endDate;
   } else if (doc.document_type === 'management_pack' && doc.period) {
     const [y, m] = doc.period.split('-').map(Number);
     if (y && m) {

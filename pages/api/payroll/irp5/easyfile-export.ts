@@ -177,7 +177,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
 
   const payeRef = String(company.paye_reference_number).trim();
-
   const aggMap = new Map<string, DbRow>();
   aggRows.forEach((r) => aggMap.set(String(r.employee_id), r));
 

@@ -93,7 +93,7 @@ export default function BudgetManagementPage() {
   };
 
   const handleDelete = async (glAccountId: string) => {
-    setBusy(glAccountId); setSuccess('');
+    setBusy(glAccountId); setSuccess(''); setError('');
     try {
       const res = await apiFetch('/api/accounting/budgets-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -108,7 +108,7 @@ export default function BudgetManagementPage() {
 
   const handleCopy = async () => {
     if (!nextYear) return;
-    setBusy('copy'); setSuccess('');
+    setBusy('copy'); setSuccess(''); setError('');
     try {
       const res = await apiFetch('/api/accounting/budgets-action', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -117,7 +117,8 @@ export default function BudgetManagementPage() {
       });
       await assertOk(res, 'Could not copy the budgets - try again');
       const json = await res.json();
-      setSuccess(`Copied ${json.data?.copied || 0} budgets to ${nextYear.fiscalYear}`);
+      setSuccess(`Copied ${json.data?.copied || 0} budgets to ${nextYear.fiscalYear}, month by month`
+        + ' (months beyond the shorter year are not copied; months already budgeted there are kept)');
     } catch (err) { setError(apiErrorMessage(err, 'Could not copy the budgets - try again')); }
     finally { setBusy(''); }
   };
