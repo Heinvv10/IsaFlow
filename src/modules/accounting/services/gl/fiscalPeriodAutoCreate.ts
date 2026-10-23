@@ -16,7 +16,9 @@
  * else the template) and is built by the one generator,
  * fiscalYearGenerator.generateFiscalYearForDate. A date in a GAP of an existing
  * year now gets its month's period too; a date in a closed or locked year
- * never does (the database refuses it, and the generator skips such a year).
+ * never does (the database refuses it, and the generator skips such a year),
+ * and nor does a gap in a year holding closed or locked periods, which is
+ * refused (FiscalPeriodNotGeneratedError) rather than posted with no period.
  *
  * ── WHY CREATE RATHER THAN REFUSE ───────────────────────────────────────────
  *
@@ -44,9 +46,51 @@
  */
 
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
+import type { DbRow } from '@/lib/neon';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
 import { fiscalYearForDate } from './fiscalYearRegistry';
 import { generateFiscalYearForDate } from './fiscalYearGenerator';
+import { ClosedFiscalPeriodError } from './journalEntryPostingGuards';
+
+/**
+ * No period covers the date, and generating its fiscal year did not create one:
+ * the generator adds no month to a year that already holds closed or locked
+ * periods (migration 942), nor a part month at a year's edge. Refused, because
+ * the null this used to return was stored as fiscal_period_id NULL and posted
+ * past postJournalEntry's `if (entry.fiscalPeriodId)` closed-period check —
+ * outside every period-bounded report. An IS-A ClosedFiscalPeriodError: the
+ * remedy is the period's (create or re-open it), and every route that answers
+ * a closed period with a 400 answers this one too.
+ */
+export class FiscalPeriodNotGeneratedError extends ClosedFiscalPeriodError {
+  readonly code = 'FISCAL_PERIOD_NOT_GENERATED';
+  constructor(entryDate: string, year: { fiscalYear: number; startDate: string; endDate: string }, holdsClosed: boolean) {
+    super('closed');
+    this.name = 'FiscalPeriodNotGeneratedError';
+    const why = holdsClosed
+      ? `fiscal year FY${year.fiscalYear} already holds closed or locked periods, and no month is added beside them`
+      : `it falls in a part month at the edge of fiscal year FY${year.fiscalYear} (${year.startDate} to ${year.endDate}), `
+        + 'which is never generated';
+    this.message = `No fiscal period covers ${entryDate}, and none can be created for it: ${why}. `
+      + `Create or re-open the period covering ${entryDate} before posting on it.`;
+  }
+}
+
+/**
+ * Does the generator refuse to fill this stored year? It does when the year
+ * already holds a closed or locked period (fiscal_periods_generate, migration
+ * 942), so a gap in it is not auto-creatable.
+ */
+export async function yearHoldsClosedPeriod(companyId: string, fiscalYearId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM fiscal_periods
+     WHERE company_id = ${companyId}::UUID AND fiscal_year_id = ${fiscalYearId}::UUID
+       AND status IN ('closed', 'locked')
+     LIMIT 1
+  `) as DbRow[];
+  return rows.length > 0;
+}
 
 /**
  * How far back a date may reach and still have its year created automatically.
@@ -66,6 +110,21 @@ export function isAutoCreatableYear(year: number, today: Date = new Date()): boo
   return year >= current - AUTO_CREATE_YEARS_BACK && year <= current + AUTO_CREATE_YEARS_FORWARD;
 }
 
+/**
+ * Outside the window by the calendar year alone, so the registry need not be
+ * asked — and must not be: its year template chains at most 500 years from a
+ * company's stored years and RAISES beyond that, which aborts the caller's
+ * transaction even when the error is caught. A year chained forward is
+ * labelled at least the calendar year of any day in it, one chained backward
+ * at most the calendar year after, so a date for which neither is in the
+ * window is outside it whatever the company's years look like (a typo'd 9999).
+ */
+export function isOutsideWindowByCalendarYear(date: string, today: Date = new Date()): boolean {
+  const calendarYear = Number(date.slice(0, 4));
+  return Number.isInteger(calendarYear)
+    && !isAutoCreatableYear(calendarYear, today) && !isAutoCreatableYear(calendarYear + 1, today);
+}
+
 export interface EnsureOptions {
   /** Injected for tests; defaults to the real period lookup. */
   lookup?: (companyId: string, entryDate: string) => Promise<string | null>;
@@ -78,11 +137,16 @@ export interface EnsureOptions {
  * auto-create window and not closed or locked.
  *
  * Returns null — exactly the previous behaviour — when the year is outside the
- * window, closed or locked, or when the period still cannot be resolved after
- * generating. Null is deliberately not an exception: this runs on every journal
- * write, and turning a previously-succeeding post into a throw is the outcome
- * the whole design set out to avoid. A NULL that reaches the ledger is still
- * detected by integrity check #9, which fails the post-deploy gate.
+ * window, or closed or locked. Null is deliberately not an exception: this runs
+ * on every journal write, and turning a previously-succeeding post into a throw
+ * is the outcome the whole design set out to avoid. A NULL that reaches the
+ * ledger is still detected by integrity check #9, which fails the post-deploy
+ * gate.
+ *
+ * @throws FiscalPeriodNotGeneratedError when the year is inside the window and
+ *   open but generating it still leaves the date uncovered (a gap beside closed
+ *   periods). Before the generator, createFiscalYear refused such a year and
+ *   that refusal was rethrown, so this throws where the old code threw.
  */
 export async function ensureFiscalPeriodForDate(
   companyId: string,
@@ -92,6 +156,15 @@ export async function ensureFiscalPeriodForDate(
   const lookup = opts?.lookup ?? getFiscalPeriodIdForDate;
   const existing = await lookup(companyId, entryDate);
   if (existing) return existing;
+
+  if (isOutsideWindowByCalendarYear(entryDate, opts?.today)) {
+    log.warn(
+      'No fiscal period covers this date and its year is outside the auto-create window',
+      { companyId, entryDate },
+      'accounting',
+    );
+    return null;
+  }
 
   // The FISCAL year the date falls in — the stored year that holds it, else the
   // template year the generator would create — never the calendar year read off
@@ -136,5 +209,10 @@ export async function ensureFiscalPeriodForDate(
 
   // Re-read rather than trusting the generator, so the id always comes from the
   // same query the rest of the system resolves periods with.
-  return await lookup(companyId, entryDate);
+  const covering = await lookup(companyId, entryDate);
+  if (!covering) {
+    throw new FiscalPeriodNotGeneratedError(
+      entryDate, year, await yearHoldsClosedPeriod(companyId, generated.fiscalYearId));
+  }
+  return covering;
 }

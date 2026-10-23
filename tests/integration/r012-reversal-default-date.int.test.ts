@@ -50,6 +50,8 @@ async function periods(ranges: Array<[string, string, 'open' | 'closed']>): Prom
     SELECT id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID)`;
   await sql`UPDATE gl_journal_entries SET fiscal_period_id = NULL WHERE company_id = ${fx.companyId}::UUID`;
   await sql`DELETE FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID`;
+  // The years that held them too: a new layout's years must not overlap the old ones.
+  await sql`DELETE FROM fiscal_years WHERE company_id = ${fx.companyId}::UUID`;
   let n = 0;
   for (const [start, end, status] of ranges) {
     n++;
@@ -206,11 +208,17 @@ describeIfDb('R-012: the MCP reverse tool and an uncreatable missing period', ()
     await sql`DELETE FROM gl_account_balances WHERE fiscal_period_id IN (
       SELECT id FROM fiscal_periods WHERE company_id = ${fx2.companyId}::UUID)`;
     await sql`DELETE FROM fiscal_periods WHERE company_id = ${fx2.companyId}::UUID`;
-    // One closed period ending two days ago: today is uncovered, and its fiscal
-    // year cannot be created because this period overlaps that year's range.
+    await sql`DELETE FROM fiscal_years WHERE company_id = ${fx2.companyId}::UUID`;
+    // One fiscal year, day(-400)..day(30), whose only period is closed and ends
+    // two days ago: today is uncovered, and no period can be created for it —
+    // the generator adds no month to a year that already holds a closed period
+    // (migration 942; before it, the overlap with this period refused the year).
+    await sql`
+      INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
+      VALUES (${fx2.companyId}::UUID, ${Number(day(30).slice(0, 4))}, ${day(-400)}::DATE, ${day(30)}::DATE)`;
     await sql`
       INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-      VALUES (${fx2.companyId}::UUID, ${`R012G-${fx2.tag}`}, 1, 2150, ${day(-400)}::DATE, ${day(-2)}::DATE, 'closed')`;
+      VALUES (${fx2.companyId}::UUID, ${`R012G-${fx2.tag}`}, 1, ${Number(day(30).slice(0, 4))}, ${day(-400)}::DATE, ${day(-2)}::DATE, 'closed')`;
   }, 120000);
   afterAll(async () => { await dropFixture(fx2); }, 120000);
 

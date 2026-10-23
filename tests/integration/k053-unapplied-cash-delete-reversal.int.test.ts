@@ -44,6 +44,7 @@ import { getUnappliedControlCash } from '@/modules/accounting/services/reconcili
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { softDelete, undoDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears, setPeriodsEndingBy } from './helpers/fiscalYearSeed';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -59,7 +60,6 @@ function shift(days: number): string {
 }
 const TODAY = fmtDate(new Date());
 const CLOSED_END = shift(-60);
-const OPEN_START = shift(-59);
 const OPEN_END = shift(400);
 const DOC_DATE = shift(-120);
 /** Inside the closed period, after the document, well before the delete. */
@@ -120,9 +120,7 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
               VALUES (${USER}, ${USER + '@test.local'}, 'admin', true)`;
     await sql`INSERT INTO company_users (company_id, user_id, role)
               VALUES (${COMPANY}::UUID, ${USER}, 'admin')`;
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'K053ORPH prior ' + TAG}, 1, 2026, '2020-01-01', ${CLOSED_END}::date, 'open'),
-                     (${COMPANY}::UUID, ${'K053ORPH current ' + TAG}, 2, 2026, ${OPEN_START}::date, ${OPEN_END}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), OPEN_END);
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
     await account(revenue, '4000', 'Sales', 'revenue', 'credit', 'default_revenue');
     await account(vatOutput, '2200', 'VAT Output', 'liability', 'credit', 'vat_output');
@@ -176,8 +174,7 @@ describeIfDb('K-053 a soft-delete reversal is not an unapplied-cash orphan', () 
       VALUES (${COMPANY}::UUID, ${pairReversal}::UUID, ${bank}::UUID, 0, ${PAIR}, ${'reversal'}),
              (${COMPANY}::UUID, ${pairReversal}::UUID, ${receivable}::UUID, ${PAIR}, 0, ${'reversal'})`;
 
-    await sql`UPDATE fiscal_periods SET status = 'closed'
-              WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
+    await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
     await inTx(() => softDelete(COMPANY, 'customer_invoice', invoice, USER));
   }, 180000);
 
