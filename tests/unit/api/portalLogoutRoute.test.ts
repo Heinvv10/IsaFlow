@@ -65,7 +65,12 @@ describe('POST /api/accounting/portal/auth/logout', () => {
     expect(clearsSession(out.cookies)).toBe(true);
   });
 
-  it.each([['foreign site', 'https://evil.example'], ['opaque origin', 'null']])(
+  it.each([
+    ['foreign site', 'https://evil.example'],
+    ['opaque origin', 'null'],
+    ['lookalike that extends the app origin', `${APP}.evil.example`],
+    ['app origin with a trailing slash', `${APP}/`],
+  ])(
     'refuses a %s Origin: clears nothing, lands on the login page told sign out did not complete', async (_, origin) => {
       const out = await call('POST', { origin });
       expect(out.status).toBe(303);
