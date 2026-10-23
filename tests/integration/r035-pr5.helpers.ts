@@ -107,6 +107,18 @@ export async function plantBatch(db: Db, company: string, createdBy: string, ban
   return { id: b.id, number: b.batch_number, members };
 }
 
+/**
+ * An APPROVED batch, for the tests that send one to the bank (eft-generate / netcash/submit refuse a draft, whatever the
+ * enforcement switch says). Only for a company that does not enforce payment_batch: the status UPDATE would otherwise
+ * need the approval the DB trigger demands.
+ */
+export async function plantApprovedBatch(db: Db, company: string, createdBy: string, bank: string,
+  amounts: number[] = [1150, 2300]): Promise<Batch> {
+  const batch = await plantBatch(db, company, createdBy, bank, amounts);
+  await db.query("UPDATE supplier_payment_batches SET status = 'approved' WHERE id = $1 AND company_id = $2", [batch.id, company]);
+  return batch;
+}
+
 export const digestOf = async (db: Db, company: string, type: PayType, id: string) => (await db.query(
   'SELECT approval_document_digest($1,$2,$3) AS d', [company, type, id])).rows[0].d as string | null;
 
@@ -192,8 +204,8 @@ export async function cleanupPr5(pool: Pool, companies: string[], users: string[
   await pool.query(
     'DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = ANY($1))', [companies]);
   await pool.query('DELETE FROM supplier_payments WHERE company_id = ANY($1)', [companies]);
-  await pool.query('DELETE FROM supplier_payment_batches WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM netcash_submissions WHERE company_id = ANY($1)', [companies]);
+  await pool.query('DELETE FROM supplier_payment_batches WHERE company_id = ANY($1)', [companies]);
   await pool.query('DELETE FROM bank_transactions WHERE company_id = ANY($1)', [companies]);
   await cleanupPr4(pool, companies, users);
 }

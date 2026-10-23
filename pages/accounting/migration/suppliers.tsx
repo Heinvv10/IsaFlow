@@ -1,9 +1,11 @@
 import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Upload, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { parseMigrationCsv, type ParsedCsv } from '@/components/accounting/migration/parseMigrationCsv';
+import { TemplateDownloadCard } from '@/components/accounting/migration/TemplateDownloadCard';
 
 const SUPPLIER_FIELDS = [
   'name', 'email', 'phone', 'vat_number', 'registration_number',
@@ -20,10 +22,14 @@ interface ParsedSupplier {
   mapped: Partial<Record<SupplierField, string>>;
 }
 
+/**
+ * What importCustomers / importSuppliers return (migrationContactService).
+ * `skipped` counts every row not imported, the failed ones (`errors`) included.
+ */
 interface ImportResult {
-  succeeded: number;
-  failed: number;
+  imported: number;
   skipped: number;
+  errors: { row?: number; message: string }[];
 }
 
 export default function SuppliersImportPage() {
@@ -39,31 +45,28 @@ export default function SuppliersImportPage() {
   const handleFile = async (file: File) => {
     setError('');
     setImportResult(null);
-    const Papa = (await import('papaparse')).default;
-    Papa.parse<Record<string, string>>(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: ({ data, meta }) => {
-        const cols = meta.fields ?? [];
-        setColumns(cols);
-        const autoMapping: FieldMapping = {};
-        for (const field of SUPPLIER_FIELDS) {
-          const match = cols.find(c => c.toLowerCase().replace(/[\s_-]/g, '') === field.replace(/_/g, ''));
-          if (match) autoMapping[field] = match;
-        }
-        setFieldMapping(autoMapping);
-        setRows(data.map(raw => ({
-          raw,
-          mapped: Object.fromEntries(
-            SUPPLIER_FIELDS.filter(f => autoMapping[f]).map(f => [f, raw[autoMapping[f]!] ?? ''])
-          ) as Partial<Record<SupplierField, string>>,
-        })));
-      },
-      error: err => {
-        log.warn('CSV parse error', { error: err }, 'migration');
-        setError('Could not read the CSV file - check it is a valid CSV and try again');
-      },
-    });
+    let csv: ParsedCsv;
+    try {
+      csv = await parseMigrationCsv(file);
+    } catch (err) {
+      log.warn('CSV parse error', { error: err }, 'migration');
+      setError('Could not read the CSV file - check it is a valid CSV and try again');
+      return;
+    }
+    const { data, fields: cols } = csv;
+    setColumns(cols);
+    const autoMapping: FieldMapping = {};
+    for (const field of SUPPLIER_FIELDS) {
+      const match = cols.find(c => c.toLowerCase().replace(/[\s_-]/g, '') === field.replace(/_/g, ''));
+      if (match) autoMapping[field] = match;
+    }
+    setFieldMapping(autoMapping);
+    setRows(data.map(raw => ({
+      raw,
+      mapped: Object.fromEntries(
+        SUPPLIER_FIELDS.filter(f => autoMapping[f]).map(f => [f, raw[autoMapping[f]!] ?? ''])
+      ) as Partial<Record<SupplierField, string>>,
+    })));
   };
 
   const onFieldMapChange = (field: SupplierField, col: string) => {
@@ -119,22 +122,6 @@ export default function SuppliersImportPage() {
     }
   };
 
-  const downloadTemplate = async () => {
-    try {
-      const res = await apiFetch('/api/accounting/migration/templates?step=suppliers');
-      await assertOk(res, 'Could not download the template - try again');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'suppliers-template.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not download the template - try again'));
-    }
-  };
-
   const visibleFields = SUPPLIER_FIELDS.filter(f => fieldMapping[f]);
 
   return (
@@ -154,17 +141,19 @@ export default function SuppliersImportPage() {
         {importResult && (
           <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm mb-4">
             <CheckCircle2 className="h-4 w-4" />
-            Imported {importResult.succeeded} suppliers. Skipped: {importResult.skipped}. Failed: {importResult.failed}.
+            Imported {importResult.imported} suppliers. Skipped: {importResult.skipped - importResult.errors.length}. Failed: {importResult.errors.length}.
           </div>
+        )}
+        {importResult && importResult.errors.length > 0 && (
+          <ul className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-xs mb-4 space-y-1">
+            {importResult.errors.slice(0, 50).map((e, i) => (
+              <li key={i}>{e.row != null ? `Row ${e.row + 1}: ` : ''}{e.message}</li>
+            ))}
+          </ul>
         )}
 
         <div className="space-y-6">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">1. Download Template</h2>
-            <button onClick={downloadTemplate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              <Download className="h-4 w-4" /> Download CSV Template
-            </button>
-          </div>
+          <TemplateDownloadCard step="suppliers" onError={setError} />
 
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">2. Upload Your CSV</h2>

@@ -21,8 +21,9 @@
  * THE CONNECTION MUST BYPASS RLS. `supplier_payments` carries a forced
  * tenant_isolation policy whose WITH CHECK reads `app.current_company_id()`,
  * which is set by the request middleware and by nothing here. Run this as a
- * role with BYPASSRLS — `postgres` and `migration_admin` both have it, and
- * DATABASE_URL is `postgres` in every environment. On a role without it every
+ * role with BYPASSRLS — `postgres` and `migration_admin` both have it. It
+ * reads OWNER_DATABASE_URL first: since S-07b, DATABASE_URL may be the
+ * isaflow_app login, which does not bypass RLS. On a role without it every
  * INSERT is refused outright, which is loud rather than silent, but it is
  * refused after the diff has been printed and is a wasted run.
  *
@@ -205,8 +206,8 @@ function diffLine(label: string, before: number, after: number, mustHold: boolea
 }
 
 async function main(): Promise<void> {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL not set');
+  const url = process.env.OWNER_DATABASE_URL || process.env.DATABASE_URL;
+  if (!url) throw new Error('OWNER_DATABASE_URL / DATABASE_URL not set');
   if (!COMPANY_ID && !ROLLBACK_BATCH) {
     throw new Error('--company <uuid> is required (this is a per-tenant remedy)');
   }

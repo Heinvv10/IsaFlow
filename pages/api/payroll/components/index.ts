@@ -7,6 +7,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { normaliseSarsCode } from '@/modules/accounting/services/payroll/payeAnnualPayment';
 import {
   withAuth,
   type AuthenticatedNextApiRequest,
@@ -35,13 +36,15 @@ async function handler(
     const { name, sarsSourceCode, componentType, isTaxable, isUifApplicable, isSdlApplicable } =
       req.body as Record<string, unknown>;
 
-    if (!name || !sarsSourceCode || !componentType) {
+    const code = normaliseSarsCode(sarsSourceCode == null ? '' : String(sarsSourceCode));
+    if (!name || !code || !componentType) {
       return apiResponse.badRequest(res, 'name, sarsSourceCode, componentType are required');
     }
 
     const data: Omit<PayrollComponent, 'id'> = {
       name: String(name),
-      sarsSourceCode: String(sarsSourceCode),
+      // Normalised as PAYE classifies it (normaliseSarsCode), so the stored code is the one every reader sees.
+      sarsSourceCode: code,
       componentType: String(componentType) as PayrollComponent['componentType'],
       isTaxable: isTaxable !== false,
       isUifApplicable: isUifApplicable !== false,

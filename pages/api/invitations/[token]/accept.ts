@@ -1,10 +1,5 @@
 // pages/api/invitations/[token]/accept.ts
 import type { NextApiHandler } from 'next';
-import pg from 'pg';
-// Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
-// in this process. This file builds its own Pool, so it must not depend on
-// src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
-import '@/lib/pgTypes';
 import { withInviteToken, type InviteTokenRequest } from '@/lib/auth/withInviteToken';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { adminUpdateUser, signIn, type GoTrueTokenResponse } from '@/lib/auth/gotrue';
@@ -15,30 +10,7 @@ import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { isLiveCompanyForUser, pickInitialCompanyId } from '@/lib/auth/liveCompanies';
-
-// Memoised, like every other pool in the repo (src/lib/neon/pool.ts,
-// src/lib/auth/withInviteToken.ts). Building one per request cost a TCP + TLS
-// handshake to the BYPASSRLS role on every accept attempt, including each of
-// the ten rate-limited password guesses admitted before the 429.
-let _adminPool: pg.Pool | null = null;
-function adminPool(): pg.Pool {
-  if (_adminPool) return _adminPool;
-  const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
-  if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required for invite accept');
-  _adminPool = new pg.Pool({
-    connectionString: url,
-    max: 2,
-    ssl:
-      process.env.DATABASE_SSL === 'strict'
-        ? { rejectUnauthorized: true }
-        : process.env.DATABASE_SSL === 'disable'
-          ? false
-          : { rejectUnauthorized: false },
-  });
-  // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
-  _adminPool.on('error', (err) => log.warn('invite accept pool error', { message: err.message }, 'Auth'));
-  return _adminPool;
-}
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 
 /**
  * `firstName` / `lastName` arrive in an anonymous request body. Neither type
@@ -141,7 +113,7 @@ const handler: NextApiHandler = async (req, res) => {
   //    INSERT (no pre-existing membership to satisfy USING) and `users` is
   //    readable only by auth.uid(), which is empty inside the invite-token
   //    transaction — so the step-2 lookup below would silently see no rows.
-  const client = await adminPool().connect();
+  const client = await migrationAdminPool().connect();
   let tok: GoTrueTokenResponse;
   let opened = false;
   let unusable = false;
