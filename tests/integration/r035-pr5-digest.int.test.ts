@@ -73,7 +73,7 @@ describe('supplier_payment', () => {
     expect(await moved('supplier_payment', p.id, edit(p.id))).toBe(true);
   });
 
-  it.each(['bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type', 'bank_account_holder'])(
+  it.each(['bank_name', 'bank_account_number', 'bank_branch_code', 'bank_account_type', 'bank_account_holder', 'name'])(
     "the payee's live %s moves it", async (column) => {
       const p = await plantPayment(pool, fx.company, a, fx.bank);
       expect(await moved('supplier_payment', p.id, supplier(`${column} = ${column} || 'x'`)(p.supplierId))).toBe(true);

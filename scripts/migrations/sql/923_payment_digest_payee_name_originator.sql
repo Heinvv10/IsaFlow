@@ -34,6 +34,16 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '120s';
 
+-- The snapshot and the re-stamp read every company's payments, payees and accounts. Under a role that
+-- RLS binds they would read none, and every approval would be left stale (or the guard below would
+-- see nothing to compare): refuse instead (871's check).
+DO $$
+BEGIN
+  IF NOT COALESCE((SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname = current_user), false) THEN
+    RAISE EXCEPTION 'migration 923: run as a role that bypasses RLS - the re-stamp must read every company''s documents';
+  END IF;
+END $$;
+
 LOCK TABLE public.customer_invoices, public.customer_invoice_items, public.supplier_invoices,
            public.supplier_invoice_items, public.credit_notes IN SHARE MODE;
 LOCK TABLE public.approval_requests, public.supplier_payment_batches IN SHARE ROW EXCLUSIVE MODE;

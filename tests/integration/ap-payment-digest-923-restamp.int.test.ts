@@ -156,6 +156,18 @@ describe('migration 923 re-stamps what is provably unchanged since approval', ()
     expect(reasonOf(await eft(keptOn.c, keptOn.b.id))).toBe('APPROVAL_STALE');
   });
 
+  it('refuses to run under a role RLS binds (it would re-stamp from an empty snapshot)', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await expect(client.query(MIGRATION)).rejects.toThrow(/run as a role that bypasses RLS/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
   it('refuses to run before 874 (its digest is what the snapshot reads), changing nothing', async () => {
     const client = await pool.connect();
     try {
