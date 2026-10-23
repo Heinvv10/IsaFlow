@@ -12,7 +12,8 @@
 --           NULL, reported by the integrity check as before.
 --   UPDATE  only when entry_date or fiscal_period_id changes, so existing rows
 --           never block an unrelated update. A new entry_date re-derives the
---           period; an explicit new id must hold entry_date.
+--           period (a non-draft entry may not move to a date no period covers);
+--           an explicit new id must hold entry_date.
 --
 -- Measured on isaflow_dev before writing (2026-10-23): 0 journals whose stored
 -- period does not hold their date, 0 cross-company, 21 NULL with no covering
@@ -44,6 +45,14 @@ BEGIN
    ORDER BY fp.start_date
    LIMIT 1;
 
+  -- A journal that is not a draft never moves out of every period: re-dating a
+  -- posted entry to a date no period covers would drop it from every period
+  -- report (integrity check #9 would then fail the deploy gate).
+  IF TG_OP = 'UPDATE' AND covering IS NULL AND COALESCE(NEW.status, 'draft') <> 'draft'
+     AND NEW.entry_date IS DISTINCT FROM OLD.entry_date THEN
+    RAISE EXCEPTION 'journal entry % (%): no fiscal period covers the new entry_date %; create that period first',
+      NEW.id, NEW.status, NEW.entry_date USING ERRCODE = '23514';
+  END IF;
   IF NEW.fiscal_period_id IS NULL
      OR (TG_OP = 'UPDATE' AND NEW.fiscal_period_id IS NOT DISTINCT FROM OLD.fiscal_period_id) THEN
     NEW.fiscal_period_id := covering;

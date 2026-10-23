@@ -10,12 +10,8 @@
  * So the dry run must show: which periods block the close (named, not counted),
  * and the retained-earnings journal that would post — every line, both totals.
  *
- * Two defects are fixed here alongside it. The `app_settings` lookup for the
- * retained-earnings account was NOT scoped by company, on a view that has a
- * `company_id` column — one tenant's setting would have chosen another tenant's
- * equity account. And the account lookup was `LIMIT 1` with no ORDER BY, which
- * is a heap-order winner: with a code match and a name match both present,
- * which one you get depends on physical row order.
+ * Also pinned: the retained-earnings lookup is company-scoped and deterministic
+ * (it was an unscoped `app_settings` read and a `LIMIT 1` heap-order winner).
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
@@ -66,24 +62,15 @@ function retainedEarnings(accounts: Array<{ code: string }>): void {
   })) as never);
 }
 
-/**
- * open-period probe → year range → revenue → expenses →
- * the already-closed lookup → (live path only) the fiscal period covering the
- * closing date. Retained
- * earnings comes from the system-account RESOLVER and costs no sql call.
- */
+/** open periods → year range → revenue → expenses → closed lookup → (live) closing period; RE via the resolver. */
 function mockReads(openPeriods: unknown[] = [], years?: readonly FakeYear[],
                    range = { start_date: '2026-03-01', end_date: '2027-02-28' }): void {
   if (years) fakeRegistry.years = years;
   mockSql
     .mockResolvedValueOnce(openPeriods)
     .mockResolvedValueOnce([range])
-    .mockResolvedValueOnce([
-      { id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000000.00' },
-    ])
-    .mockResolvedValueOnce([
-      { id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '400000.00' },
-    ])
+    .mockResolvedValueOnce([{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000000.00' }])
+    .mockResolvedValueOnce([{ id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '400000.00' }])
     .mockResolvedValueOnce([])                       // no existing closing journal (K-113 lookup)
     .mockResolvedValueOnce([{ id: 'fp-12' }]);
   retainedEarnings([{ code: '3200' }]);
@@ -91,9 +78,7 @@ function mockReads(openPeriods: unknown[] = [], years?: readonly FakeYear[],
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // mockReset, not just clearAllMocks: the latter clears recorded calls but
-  // leaves the mockResolvedValueOnce QUEUE intact, so a dry-run test that does
-  // not consume the queued fiscal-period lookup leaks it into the next test.
+  // mockReset too: clearAllMocks leaves the mockResolvedValueOnce QUEUE, which would leak between tests.
   mockSql.mockReset();
   resetFakeRegistry();
   writes.length = 0;
