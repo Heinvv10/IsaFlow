@@ -123,8 +123,22 @@ export async function laterPeriodsWarnings(
 
 /**
  * The approval-gate blocker for a run judged on a stale picture of its tax
- * year (PAYE 4a follow-ups G4; exact since round 2, R1). For each OTHER month
- * of the same tax year that is approved or paid now, refused exactly when:
+ * year (PAYE 4a follow-ups G4; exact since round 2, R1).
+ *
+ * THE RULE: refused when another approved month of the tax year and this run
+ * were not computed against each other as both now stand, unless (later month
+ * only) each employee that month pays from the tables and this run still taxes
+ * carries, on this run's line, the warning naming that month — an employee this
+ * run no longer taxes can carry none, so only reopening that month clears it.
+ * COMPLETE for approved pairs: a later month's year-to-date per employee is
+ * the earlier month's lines as they were when it was calculated — the same
+ * version (nothing stale), none (stale where the earlier month taxes them now)
+ * or an older version (stale for anyone the later month taxes); a pair is
+ * first judged when its second member is approved, and neither can change
+ * again without a reopen and a new approval, which judges it again. What it
+ * does not cover: NAMED LIMITS below.
+ *
+ * In detail, for each OTHER month of the same tax year approved or paid now:
  * - EARLIER month: this run's cumulative PAYE missed it — that month, as it
  *   now stands, was not approved when this run was calculated;
  * - LATER month: its PAYE missed this run — this run, as it now stands, was
@@ -193,6 +207,10 @@ export async function laterPeriodsWarnings(
  * that month approved) puts the warning on the line, the gate passes,
  * although that month's PAYE counted the old figures. The warning says the
  * month "did not include this month"; it included an older version of it.
+ * (d) Only approved months are judged: a month reopened and left so (or
+ * cancelled) is in no pair, and the months that read it keep counting PAYE it
+ * no longer declares until it is approved again (that approval judges them).
+ * (e) A caller with no outer transaction (Timing, above).
  *
  * Read-only; under the gate's company approval lock. Null when current.
  */
