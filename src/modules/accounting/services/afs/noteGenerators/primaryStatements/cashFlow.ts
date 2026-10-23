@@ -13,6 +13,8 @@ import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from '../noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { periodPhrase } from '@/modules/accounting/services/afs/afsReportingPeriod';
+import { monthsSpanned } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type DbRow = Record<string, unknown>;
@@ -64,7 +66,7 @@ export async function generateCashFlow(
     content: {
       title: 'Statement of Cash Flows',
       blocks: [
-        { type: 'paragraph', text: `For the year ended ${end}. Indirect method (v1 skeleton).` },
+        { type: 'paragraph', text: `For the ${periodPhrase(monthsSpanned(start, end), end)}. Indirect method (v1 skeleton).` },
         {
           type: 'table',
           headers: ['Line', 'Current year (R)'],
