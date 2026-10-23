@@ -132,7 +132,4 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.fiscal_year_ensure(uuid, date) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fiscal_periods_generate(uuid, boolean) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.fiscal_year_ensure(uuid, date) TO app_user;
-GRANT EXECUTE ON FUNCTION public.fiscal_periods_generate(uuid, boolean) TO app_user;
+-- SECURITY INVOKER, so EXECUTE stays with PUBLIC (see 940).

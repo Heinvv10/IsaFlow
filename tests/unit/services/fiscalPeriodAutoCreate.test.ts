@@ -33,6 +33,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+// The one query of its own: does the generated year hold a closed or locked period?
+const holdsClosed = vi.hoisted(() => ({ rows: [{ x: 1 }] as unknown[] }));
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => holdsClosed.rows) }));
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriodIdForDate: vi.fn(),
 }));
@@ -50,8 +53,11 @@ import {
   AUTO_CREATE_YEARS_BACK,
   AUTO_CREATE_YEARS_FORWARD,
   isAutoCreatableYear,
+  isOutsideWindowByCalendarYear,
   ensureFiscalPeriodForDate,
+  FiscalPeriodNotGeneratedError,
 } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
+import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingGuards';
 
 const COMPANY = 'cccccccc-0000-4000-8000-cccccccccccc';
 const PERIOD = 'pppppppp-0000-4000-8000-pppppppppppp';
@@ -88,6 +94,18 @@ const year = (over: Partial<FiscalYearRecord> = {}): FiscalYearRecord => ({
   kind: 'normal', stored: false, months: 12, ...over,
 });
 
+describe('isOutsideWindowByCalendarYear — decided without the registry', () => {
+  it('is true only when neither the calendar year nor the next one is in the window', () => {
+    expect(isOutsideWindowByCalendarYear('9999-12-31', TODAY)).toBe(true);
+    expect(isOutsideWindowByCalendarYear(`${2026 + AUTO_CREATE_YEARS_FORWARD + 1}-01-01`, TODAY)).toBe(true);
+    expect(isOutsideWindowByCalendarYear(`${2026 + AUTO_CREATE_YEARS_FORWARD}-12-31`, TODAY)).toBe(false);
+    // A date one year before the window can sit in a year labelled for the next calendar year.
+    expect(isOutsideWindowByCalendarYear(`${2026 - AUTO_CREATE_YEARS_BACK - 1}-06-01`, TODAY)).toBe(false);
+    expect(isOutsideWindowByCalendarYear(`${2026 - AUTO_CREATE_YEARS_BACK - 2}-06-01`, TODAY)).toBe(true);
+    expect(isOutsideWindowByCalendarYear('not-a-date', TODAY)).toBe(false);
+  });
+});
+
 describe('ensureFiscalPeriodForDate', () => {
   const lookup = vi.fn();
 
@@ -122,9 +140,11 @@ describe('ensureFiscalPeriodForDate', () => {
 
   it('returns null without generating when the year is outside the window', async () => {
     lookup.mockResolvedValue(null);
-    vi.mocked(fiscalYearForDate).mockResolvedValueOnce(year({ fiscalYear: 9999 }));
     expect(await ensureFiscalPeriodForDate(COMPANY, '9999-01-01', { lookup, today: TODAY })).toBeNull();
     expect(generateFiscalYearForDate).not.toHaveBeenCalled();
+    // Decided by the calendar year: the registry's template raises for a date this far
+    // from the stored years, and that error would abort the caller's transaction.
+    expect(fiscalYearForDate).not.toHaveBeenCalled();
   });
 
   it.each(['closed', 'locked'] as const)('returns null without generating when the year is %s', async (status) => {
@@ -147,10 +167,28 @@ describe('ensureFiscalPeriodForDate', () => {
     await expect(ensureFiscalPeriodForDate(COMPANY, '2026-05-01', { lookup, today: TODAY })).rejects.toThrow('boom');
   });
 
-  it('returns null when the generator still leaves the date uncovered (a month beside closed periods)', async () => {
+  // A null here is stored as fiscal_period_id NULL and posts past the closed-period
+  // check, outside every period-bounded report (the R267k hole this module closes).
+  it('REFUSES when the generator still leaves the date uncovered (a month beside closed periods)', async () => {
     lookup.mockResolvedValue(null);
     vi.mocked(generateFiscalYearForDate).mockResolvedValueOnce({ fiscalYearId: 'y1', periodsCreated: 0 });
-    expect(await ensureFiscalPeriodForDate(COMPANY, '2026-05-01', { lookup, today: TODAY })).toBeNull();
+    const err = await ensureFiscalPeriodForDate(COMPANY, '2026-05-01', { lookup, today: TODAY }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(FiscalPeriodNotGeneratedError);
+    expect(err).toBeInstanceOf(ClosedFiscalPeriodError);
+    expect((err as Error).message).toMatch(/No fiscal period covers 2026-05-01.*FY2027 already holds closed or locked periods/);
+  });
+
+  it('names a part month at the year edge when the year holds no closed period', async () => {
+    lookup.mockResolvedValue(null);
+    vi.mocked(generateFiscalYearForDate).mockResolvedValueOnce({ fiscalYearId: 'y1', periodsCreated: 0 });
+    holdsClosed.rows = [];
+    try {
+      const err = await ensureFiscalPeriodForDate(COMPANY, '2026-05-01', { lookup, today: TODAY }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(FiscalPeriodNotGeneratedError);
+      expect((err as Error).message).toMatch(/2026-05-01.*part month at the edge of fiscal year FY2027 \(2026-03-01 to 2027-02-28\)/);
+    } finally {
+      holdsClosed.rows = [{ x: 1 }];
+    }
   });
 
   it('uses the real period lookup when none is injected', async () => {
