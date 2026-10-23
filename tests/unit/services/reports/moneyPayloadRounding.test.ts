@@ -35,6 +35,9 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+// Fiscal years are the registry's (March-based here); it must not take entries from the sql queues below.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../../helpers/fiscalYearSqlFake')).registryMock());
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -192,7 +195,6 @@ describe('general_ledger (getGeneralLedgerLines) — payload guard', () => {
       universe_count: '20',
     };
     mockSql
-      .mockResolvedValueOnce([{ financial_year_start: 3 }]) // fiscalYearBasis.getFiscalYearStartMonth
       .mockResolvedValueOnce([{ retained: '0' }])           // trialBalanceBasis retained earnings b/f
       .mockResolvedValueOnce([row]);
 
@@ -208,7 +210,7 @@ describe('general_ledger (getGeneralLedgerLines) — payload guard', () => {
 describe('trial_balance (getTrialBalanceReport) — payload guard', () => {
   it('a set of accounts with sub-cent drift still rounds every total to 2dp', async () => {
     const mockSql = sql as SqlMock;
-    const periodMeta = { start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 };
+    const periodMeta = { start_date: '2026-02-01', end_date: '2026-02-28' };
     const accountRows = [
       { account_code: '1000', account_name: 'Bank', account_type: 'asset', normal_balance: 'debit', closing_debit: '0.1', closing_credit: '0', opening_net: '0', period_debit: '0.1', period_credit: '0' },
       { account_code: '1001', account_name: 'Bank2', account_type: 'asset', normal_balance: 'debit', closing_debit: '0.2', closing_credit: '0', opening_net: '0', period_debit: '0.2', period_credit: '0' },

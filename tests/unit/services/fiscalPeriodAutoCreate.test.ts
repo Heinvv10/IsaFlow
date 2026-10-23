@@ -34,16 +34,18 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
-  createFiscalYear: vi.fn(),
   getFiscalPeriodIdForDate: vi.fn(),
-  resolveCompanyPeriodAlignment: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({
+  fiscalYearForDate: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/gl/fiscalYearGenerator', () => ({
+  generateFiscalYearForDate: vi.fn(),
 }));
 
-import {
-  createFiscalYear,
-  getFiscalPeriodIdForDate,
-  resolveCompanyPeriodAlignment,
-} from '@/modules/accounting/services/gl/fiscalPeriodService';
+import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
+import { fiscalYearForDate, type FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearGenerator';
 import {
   AUTO_CREATE_YEARS_BACK,
   AUTO_CREATE_YEARS_FORWARD,
@@ -81,157 +83,79 @@ describe('isAutoCreatableYear — the bound', () => {
   });
 });
 
+const year = (over: Partial<FiscalYearRecord> = {}): FiscalYearRecord => ({
+  id: null, fiscalYear: 2027, startDate: '2026-03-01', endDate: '2027-02-28', status: 'open',
+  kind: 'normal', stored: false, months: 12, ...over,
+});
+
 describe('ensureFiscalPeriodForDate', () => {
   const lookup = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     lookup.mockReset();
-    // These cases predate fiscal alignment and assert the CALENDAR behaviour,
-    // so they pin the company to a January start where the two coincide. The
-    // March-start boundary is covered in ensureFiscalPeriodAlignment.test.ts.
-    vi.mocked(resolveCompanyPeriodAlignment).mockResolvedValue({
-      declaredStartMonth: 1, observedStartMonth: 1, startMonth: 1, aligned: true,
-    });
+    vi.mocked(fiscalYearForDate).mockResolvedValue(year());
+    vi.mocked(generateFiscalYearForDate).mockResolvedValue({ fiscalYearId: 'y1', periodsCreated: 12 });
   });
 
-  it('returns the existing period without creating anything', async () => {
+  it('returns the existing period without resolving or generating anything', async () => {
     lookup.mockResolvedValueOnce(PERIOD);
-    const id = await ensureFiscalPeriodForDate(COMPANY, '2026-08-29', { lookup, today: TODAY });
-    expect(id).toBe(PERIOD);
-    expect(createFiscalYear).not.toHaveBeenCalled();
+    expect(await ensureFiscalPeriodForDate(COMPANY, '2026-08-29', { lookup, today: TODAY })).toBe(PERIOD);
+    expect(fiscalYearForDate).not.toHaveBeenCalled();
+    expect(generateFiscalYearForDate).not.toHaveBeenCalled();
   });
 
-  it('creates the year, then returns the period the second lookup finds', async () => {
+  it('generates the year holding the date, then returns what the second lookup finds', async () => {
     lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(PERIOD);
-    vi.mocked(createFiscalYear).mockResolvedValueOnce([] as never);
-
-    const id = await ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY });
-
-    expect(createFiscalYear).toHaveBeenCalledWith(COMPANY, 2027);
-    expect(id).toBe(PERIOD);
-    // Re-read rather than trusting the create: the period id must come from the
-    // same query the rest of the system uses.
+    expect(await ensureFiscalPeriodForDate(COMPANY, '2027-01-15', { lookup, today: TODAY })).toBe(PERIOD);
+    expect(fiscalYearForDate).toHaveBeenCalledWith(COMPANY, '2027-01-15');
+    expect(generateFiscalYearForDate).toHaveBeenCalledWith(COMPANY, '2027-01-15');
     expect(lookup).toHaveBeenCalledTimes(2);
   });
 
-  it('takes the YEAR from the date string, not from today', async () => {
-    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(PERIOD);
-    vi.mocked(createFiscalYear).mockResolvedValueOnce([] as never);
-    await ensureFiscalPeriodForDate(COMPANY, '2019-12-31', { lookup, today: TODAY });
-    expect(createFiscalYear).toHaveBeenCalledWith(COMPANY, 2019);
+  it('applies the window to the FISCAL year label the registry gives, not the calendar year', async () => {
+    lookup.mockResolvedValue(null);
+    vi.mocked(fiscalYearForDate).mockResolvedValueOnce(year({ fiscalYear: 2026 + AUTO_CREATE_YEARS_FORWARD + 1 }));
+    expect(await ensureFiscalPeriodForDate(COMPANY, '2026-12-01', { lookup, today: TODAY })).toBeNull();
+    expect(generateFiscalYearForDate).not.toHaveBeenCalled();
   });
 
-  it('returns NULL without creating when the year is outside the window', async () => {
-    // Exactly today's behaviour for an absurd date — no worse, and no fiscal
-    // year 9999 conjured out of a typo.
-    lookup.mockResolvedValueOnce(null);
-    const id = await ensureFiscalPeriodForDate(COMPANY, '9999-12-31', { lookup, today: TODAY });
-    expect(id).toBeNull();
-    expect(createFiscalYear).not.toHaveBeenCalled();
+  it('returns null without generating when the year is outside the window', async () => {
+    lookup.mockResolvedValue(null);
+    vi.mocked(fiscalYearForDate).mockResolvedValueOnce(year({ fiscalYear: 9999 }));
+    expect(await ensureFiscalPeriodForDate(COMPANY, '9999-01-01', { lookup, today: TODAY })).toBeNull();
+    expect(generateFiscalYearForDate).not.toHaveBeenCalled();
   });
 
-  /**
-   * Losing the race is decided by the OUTCOME, never by the error's text.
-   *
-   * The first version of this matched `/already exists/i`, and its test mocked
-   * exactly that string — which is the message `createFiscalYear`'s own
-   * pre-check SELECT throws. But in a REAL race both pre-checks pass before
-   * either commits, and the loser's INSERT dies on
-   * `uq_fiscal_periods_company_year_period` with a raw Postgres 23505 whose
-   * message says "duplicate key value violates unique constraint". That does
-   * not match, so the very case the test claimed to cover would have 500'd —
-   * worse than the silent NULL it replaced, because the loser's journal is
-   * perfectly valid and its period now exists.
-   *
-   * This codebase learned the same lesson once already, for invoice numbers:
-   * "Detection must key on SQLSTATE 23505 — pg localises/rewords messages"
-   * (customerInvoiceCreateRetry.test.ts). Rather than enumerate SQLSTATEs,
-   * ensureFiscalPeriodForDate now asks the only question that matters: after
-   * the failure, does the period exist? If yes, someone created it and we are
-   * done. If no, the failure was real.
-   */
-  it('survives a raw 23505 from the losing INSERT in a real race', async () => {
-    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(PERIOD);
-    const dup = Object.assign(
-      new Error('duplicate key value violates unique constraint "uq_fiscal_periods_company_year_period"'),
-      { code: '23505' },
-    );
-    vi.mocked(createFiscalYear).mockRejectedValueOnce(dup);
-
-    const id = await ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY });
-    expect(id).toBe(PERIOD);
+  it.each(['closed', 'locked'] as const)('returns null without generating when the year is %s', async (status) => {
+    lookup.mockResolvedValue(null);
+    vi.mocked(fiscalYearForDate).mockResolvedValueOnce(year({ status, stored: true, id: 'y0' }));
+    expect(await ensureFiscalPeriodForDate(COMPANY, '2026-05-01', { lookup, today: TODAY })).toBeNull();
+    expect(generateFiscalYearForDate).not.toHaveBeenCalled();
   });
 
-  it('survives a 23P01 exclusion-constraint violation the same way', async () => {
-    // fiscal_periods carries an EXCLUDE constraint (migration 502). An overlap
-    // raises 23P01, whose message shares no wording with 23505 — another reason
-    // not to enumerate error shapes.
-    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(PERIOD);
-    const overlap = Object.assign(
-      new Error('conflicting key value violates exclusion constraint "fiscal_periods_no_overlap"'),
-      { code: '23P01' },
-    );
-    vi.mocked(createFiscalYear).mockRejectedValueOnce(overlap);
-
-    const id = await ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY });
-    expect(id).toBe(PERIOD);
+  it('returns null rather than throwing when the year cannot be resolved (bad date, company gone)', async () => {
+    lookup.mockResolvedValue(null);
+    vi.mocked(fiscalYearForDate).mockRejectedValueOnce(new Error('invalid input syntax for type date'));
+    expect(await ensureFiscalPeriodForDate(COMPANY, 'not-a-date', { lookup, today: TODAY })).toBeNull();
+    expect(generateFiscalYearForDate).not.toHaveBeenCalled();
   });
 
-  it("survives createFiscalYear's own pre-check message too", async () => {
-    // The app-level path: the pre-check SELECT sees the year and refuses before
-    // inserting anything. Still a lost race, still success.
-    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(PERIOD);
-    vi.mocked(createFiscalYear).mockRejectedValueOnce(new Error('Fiscal year 2027 already exists'));
-
-    const id = await ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY });
-    expect(id).toBe(PERIOD);
+  it('does not swallow a real generator failure', async () => {
+    lookup.mockResolvedValue(null);
+    vi.mocked(generateFiscalYearForDate).mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '42501' }));
+    await expect(ensureFiscalPeriodForDate(COMPANY, '2026-05-01', { lookup, today: TODAY })).rejects.toThrow('boom');
   });
 
-  it('does not swallow a REAL creation failure — no period afterwards', async () => {
-    // A permission error leaves no period behind, so the re-read still misses
-    // and the original error must surface. Returning null would silently
-    // reinstate the NULL-period hole this whole module exists to close.
-    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
-    vi.mocked(createFiscalYear).mockRejectedValueOnce(
-      Object.assign(new Error('permission denied for table fiscal_periods'), { code: '42501' }),
-    );
-
-    await expect(
-      ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY }),
-    ).rejects.toThrow(/permission denied/);
-  });
-
-  it('rethrows the ORIGINAL error, not a generic one, so the cause survives', async () => {
-    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
-    const original = Object.assign(new Error('deadlock detected'), { code: '40P01' });
-    vi.mocked(createFiscalYear).mockRejectedValueOnce(original);
-
-    await expect(
-      ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY }),
-    ).rejects.toBe(original);
-  });
-
-  it('returns null rather than throwing when the year exists but still covers nothing', async () => {
-    // Defensive: if the second lookup still misses, the caller gets the same
-    // NULL it would have got before. Better a known-detectable NULL than a
-    // throw on a path that used to succeed.
-    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
-    vi.mocked(createFiscalYear).mockResolvedValueOnce([] as never);
-    const id = await ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY });
-    expect(id).toBeNull();
+  it('returns null when the generator still leaves the date uncovered (a month beside closed periods)', async () => {
+    lookup.mockResolvedValue(null);
+    vi.mocked(generateFiscalYearForDate).mockResolvedValueOnce({ fiscalYearId: 'y1', periodsCreated: 0 });
+    expect(await ensureFiscalPeriodForDate(COMPANY, '2026-05-01', { lookup, today: TODAY })).toBeNull();
   });
 
   it('uses the real period lookup when none is injected', async () => {
-    // Every test above injects `lookup`, which would happily pass even if the
-    // default pointed at a function that does not exist — the first draft of
-    // this module imported a name that was never exported, and only tsc caught
-    // it. This exercises the default path so the wiring is covered by a test
-    // too.
     vi.mocked(getFiscalPeriodIdForDate).mockResolvedValueOnce(PERIOD);
-    const id = await ensureFiscalPeriodForDate(COMPANY, '2026-08-29', { today: TODAY });
-    expect(id).toBe(PERIOD);
+    expect(await ensureFiscalPeriodForDate(COMPANY, '2026-08-29')).toBe(PERIOD);
     expect(getFiscalPeriodIdForDate).toHaveBeenCalledWith(COMPANY, '2026-08-29');
-    expect(createFiscalYear).not.toHaveBeenCalled();
   });
 });
