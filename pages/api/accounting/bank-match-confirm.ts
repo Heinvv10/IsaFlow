@@ -226,7 +226,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
         : null;
 
       await assertImporterMayMatch(companyId, bankTransactionId, candidateId, userId); // step 2: not the importer's own journal
-      await matchTransaction(companyId, bankTransactionId, candidateId);
+      await matchTransaction(companyId, bankTransactionId, candidateId, undefined, userId);
       await sql`
         UPDATE bank_transactions
         SET allocation_type = 'transfer',
@@ -243,7 +243,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     } else {
       // journal_line — match to existing GL entry
       await assertImporterMayMatch(companyId, bankTransactionId, candidateId, userId); // step 2: not the importer's own journal
-      await matchTransaction(companyId, bankTransactionId, candidateId);
+      await matchTransaction(companyId, bankTransactionId, candidateId, undefined, userId);
       log.info('Confirmed match: journal line', { bankTransactionId, candidateId }, 'accounting-api');
     }
 
