@@ -18,6 +18,7 @@ import {
   cancelInvitation,
   markInvitationEmailSent,
   markInvitationEmailFailed,
+  OwnerProtectedError,
 } from '@/modules/accounting/services/core/userAccessService';
 import { sendInviteEmail } from '@/modules/accounting/services/core/emailService';
 import { checkSendRateLimit } from '@/lib/rateLimit';
@@ -115,6 +116,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       return apiResponse.success(res, { ...result, emailSent });
     } catch (err) {
+      if (err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Invite failed.');
     }
   }
