@@ -1,5 +1,6 @@
 import { getAge } from './payeEngine';
-import { calculateAnnualPaymentPaye, payeTreatment } from './payeAnnualPayment';
+import { payeTreatment } from './payeAnnualPayment';
+import { calculateCumulativePaye } from './payeCumulative';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
 import { resolveEtiForEmployee } from './etiEngine';
@@ -25,8 +26,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   let grossPay = 0;
   // Taxable earnings by how PAYE treats them (payeTreatment): periodic pay is
-  // annualised ×12, annual payments (3605) are taxed by the SARS annual-payment
-  // method, lump sums (39xx) carry only their directive's PAYE.
+  // taxed cumulatively to date (payeCumulative), annual payments (3605) by the
+  // SARS annual-payment method on top of it, lump sums (39xx) carry only their
+  // directive's PAYE.
   let periodicTaxable = 0;
   let annualPayments = 0;
   let taxableDeductions = 0;
@@ -93,9 +95,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? 1 + employee.medicalAidDependantsCount
     : employee.medicalAidDependantsCount;
 
-  const { regular, annualPaymentPaye } = calculateAnnualPaymentPaye({
-    regularMonthlyTaxable: regularTaxable,
+  const { regular, annualPaymentPaye } = calculateCumulativePaye({
+    regularTaxable,
     annualPayments: annualTaxable,
+    ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0 },
     taxYear,
     rebateAge,
     monthlyMedicalBeneficiaries: medicalBeneficiaries,
@@ -147,6 +150,8 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     employeeId: employee.id,
     grossPay: Math.round(grossPay * 100) / 100,
     taxableIncome: Math.round(taxableIncome * 100) / 100,
+    periodicTaxable: round2(regularTaxable),
+    annualTaxable: round2(annualTaxable),
     paye,
     payeSplit,
     uif,
