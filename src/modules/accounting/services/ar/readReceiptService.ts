@@ -108,9 +108,10 @@ export async function listInvoiceViews(
 }
 
 /**
- * Fetches "last viewed" metadata for a batch of invoices. Prefers the MV
- * (customer_invoice_view_summary) but falls back to the base table — same
- * shape either way. Company-scoped.
+ * Fetches "last viewed" metadata for a batch of invoices from the MV
+ * (customer_invoice_view_summary), through current_company_invoice_view_summary()
+ * (migration 919): the MV has no RLS, so the definer returns only the request's
+ * company. Company-scoped twice: outside a request it returns nothing.
  */
 export async function getLastViewedSummary(
   companyId: string,
@@ -123,7 +124,7 @@ export async function getLastViewedSummary(
            last_viewed_at,
            view_count,
            distinct_sessions
-    FROM customer_invoice_view_summary
+    FROM current_company_invoice_view_summary()
     WHERE company_id = ${companyId}::uuid
       AND customer_invoice_id = ANY(${invoiceIds}::uuid[])
   `) as DbRow[];

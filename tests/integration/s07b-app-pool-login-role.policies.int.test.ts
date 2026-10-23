@@ -89,15 +89,13 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
     });
   });
 
-  it('app_service holds direct grants on two tables only, beyond what it inherits from app_user', async () => {
+  it('app_service holds direct grants on one table only, beyond what it inherits from app_user', async () => {
     const t = await fixture.query(`SELECT c.relname, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
       WHERE a.grantee = 'app_service'::regrole ORDER BY 1, 2`);
     expect(t.rows).toEqual(['DELETE', 'INSERT', 'SELECT', 'UPDATE'].map((p) => ({ relname: 'auth_email_verification_tokens', privilege_type: p })));
+    // 918 took users.email / updated_at back: change-email and the erasure write them on migration_admin.
     const c = await fixture.query(`SELECT table_name, column_name, privilege_type FROM information_schema.column_privileges
       WHERE grantee = 'app_service' AND table_name <> 'auth_email_verification_tokens' ORDER BY 1, 2`);
-    expect(c.rows).toEqual([
-      { table_name: 'users', column_name: 'email', privilege_type: 'UPDATE' },
-      { table_name: 'users', column_name: 'updated_at', privilege_type: 'UPDATE' },
-    ]);
+    expect(c.rows).toEqual([]);
   });
 });

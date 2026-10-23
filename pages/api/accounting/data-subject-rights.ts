@@ -6,7 +6,8 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql, getDbPool } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess} from '@/lib/auth';
@@ -79,19 +80,19 @@ async function handleErasure(req: NextApiRequest, res: NextApiResponse) {
 
   const placeholder = `anonymized_${userId.slice(0, 8)}`;
 
-  // On the pool role, outside the request's app_user transaction (migration 902).
-  // app_user may not write users.email: createInvitation adds an existing user to
-  // a company by email, and no in-database guard holds against app_user SQL that
-  // can switch role or forge request.jwt.claims mid-statement. userId is the
-  // verified session's, not auth.uid(). It commits on its own, which is safe for
-  // an idempotent erasure that is this handler's last write.
-  const erased = await getDbPool().query(
+  // On the migration_admin pool, outside the request's app_user transaction
+  // (migrations 902, 918). Neither app pool may write users.email:
+  // createInvitation adds an existing user to a company by email, and no
+  // in-database guard holds against SQL that can switch role or forge
+  // request.jwt.claims mid-statement. userId is the verified session's, not
+  // auth.uid(). One statement, so it commits on its own, which is safe for an
+  // idempotent erasure that is this handler's last write.
+  const erased = await migrationAdminPool().query(
     `UPDATE users SET first_name = 'Anonymized', last_name = $2, email = $3, updated_at = NOW()
       WHERE id = $1`,
     [userId, placeholder, `${placeholder}@deleted.invalid`],
   );
-  // Never answer "anonymized" for a write that matched nothing: no profile row,
-  // or a pool role that FORCE RLS on users filters out.
+  // Never answer "anonymized" for a write that matched nothing: no profile row.
   if (erased.rowCount !== 1) {
     log.error('Data subject erasure matched no users row', { userId, rowCount: erased.rowCount }, 'data-subject-rights');
     throw new Error('Data subject erasure did not update the profile');
