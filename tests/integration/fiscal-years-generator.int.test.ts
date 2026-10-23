@@ -99,12 +99,23 @@ describe('on demand', () => {
       [marchYear[0], marchYear[1], 12], [Number(marchYear[0]) + 1, `${marchYear[0]}-03-01`, 12]]);
   });
 
-  it('continues from the last stored year, not from the declared month', async () => {
-    const id = await bareCompany(3);
-    await pool.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1, 2026, '2026-01-01', '2026-12-31')`, [id]);
-    await inTx(id, () => generateFiscalYearForDate(id, '2027-05-10'));
+  it('after a short transition year, labels never repeat (the year after is NOT given the label the declared month would)', async () => {
+    // The shape a change of year end leaves: FY2027 shrunk to March-June 2026
+    // (it keeps its label) and the start month now July. The declared month alone
+    // would label July 2026 - June 2027 as FY2027 again.
+    const id = await bareCompany(7);
+    await pool.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, kind) VALUES ($1, 2027, '2026-03-01', '2026-06-30', 'transition')`, [id]);
+    await inTx(id, () => generateFiscalYearForDate(id, '2026-09-10'));
     expect((await yearsOf(id)).map((r) => [r.fiscal_year, r.s, r.e])).toEqual([
-      [2026, '2026-01-01', '2026-12-31'], [2027, '2027-01-01', '2027-12-31']]);
+      [2027, '2026-03-01', '2026-06-30'], [2028, '2026-07-01', '2027-06-30']]);
+  });
+
+  it('a stored year that does not end where the declared month begins is not chained from (a whole-year fixture period)', async () => {
+    const id = await bareCompany(3);
+    await pool.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1, 2025, '2025-01-01', '2025-12-31')`, [id]);
+    await inTx(id, () => generateFiscalYearForDate(id, '2026-06-10'));
+    expect((await yearsOf(id)).map((r) => [r.fiscal_year, r.s, r.e])).toEqual([
+      [2025, '2025-01-01', '2025-12-31'], [2027, '2026-03-01', '2027-02-28']]);
   });
 
   it('a June year end generates July-June years numbered 1-12 from July', async () => {
