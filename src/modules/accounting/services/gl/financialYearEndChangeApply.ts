@@ -171,9 +171,15 @@ export async function applyYearEndChange(
     companyId, userId, action: 'update', entityType: 'fiscal_year_end_change', entityId: changeId,
     entityRef: `FY${year.fiscalYear} ${year.startDate}..${chosen.endDate}`,
     changes: {
-      fromEnd: year.endDate, toEnd: chosen.endDate, months: chosen.months, reason: input.reason.trim(),
-      fromStartMonth: a.currentStartMonth, toStartMonth: chosen.newStartMonth,
-      cipcFiledConfirmed: true, sarsNotifiedConfirmed: true, movedPeriods: moved.length,
+      fields: [
+        { field: 'year_end', label: 'Financial year end', old: year.endDate, new: chosen.endDate },
+        { field: 'financial_year_start', label: 'Financial year start month',
+          old: String(a.currentStartMonth), new: String(chosen.newStartMonth) },
+      ],
+      metadata: {
+        reason: input.reason.trim(), months: String(chosen.months), transitionStart: year.startDate,
+        cipcFiledConfirmed: 'true', sarsNotifiedConfirmed: 'true', movedPeriods: String(moved.length),
+      },
     },
   });
   log.info('Financial year end changed', { companyId, changeId, fiscalYear: year.fiscalYear, to: chosen.endDate }, 'accounting');
