@@ -6,7 +6,7 @@
  *          employee_id cannot be changed (400): a run's claim at approval does
  *          not re-read it, so moving an approved directive would let a run
  *          calculated for the first employee claim it. Cancel and create anew.
- * DELETE — remove directive
+ * DELETE — remove directive; 409 while it is paid or a payment row names it
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -80,7 +80,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'DELETE') {
-    const deleted = await deleteTaxDirective(companyId, directiveId);
+    let deleted;
+    try {
+      deleted = await deleteTaxDirective(companyId, directiveId);
+    } catch (err) {
+      // Raised before anything is written (paid or with a payment record).
+      if (err instanceof TaxDirectivePaidError) return apiResponse.conflict(res, err.message);
+      throw err;
+    }
     if (!deleted) return apiResponse.notFound(res, 'TaxDirective', directiveId);
     return apiResponse.success(res, { deleted: true });
   }
