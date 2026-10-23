@@ -29,8 +29,11 @@
 --                            the service pool.
 -- revoked_at and is_active are not granted back: an UPDATE that can set them
 -- can clear them, and revive a revoked token. DELETE stays where it only
--- removes access. A definer function app roles may call that writes one of
--- these tables is a rule too; the three that do are reviewed by name below.
+-- removes access. A SECURITY DEFINER function runs as its owner, which may
+-- write any of them, so every definer an app role may EXECUTE must be listed,
+-- reviewed, in public.app_definer_reviews; an unlisted one is a violation.
+-- (Reading the source instead was evaded every round: comments, quoting,
+-- U& identifiers, BEGIN ATOMIC bodies, views, triggers.)
 -- auth_password_reset_tokens and admin_impersonation_stash lose every
 -- privilege, as 918 did for the verification tokens (the stash's target and
 -- the token hashes are what the attack needs to read).
@@ -152,6 +155,42 @@ $$;
 REVOKE ALL ON FUNCTION public.refresh_customer_invoice_view_summary() FROM PUBLIC, app_service;
 GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO migration_admin;
 
+-- The reviewed SECURITY DEFINER functions app roles may EXECUTE, by signature
+-- as regprocedure prints it with search_path pg_catalog, public. A new one is
+-- refused on every deploy until a migration adds its row, saying what it
+-- writes and why that is safe to call with forged claims. Named limit: a
+-- CREATE OR REPLACE that keeps a listed signature is not flagged again, so
+-- review a changed definer's body as you would a new one.
+CREATE TABLE IF NOT EXISTS public.app_definer_reviews (
+  signature text PRIMARY KEY,
+  writes    text NOT NULL
+);
+REVOKE ALL ON public.app_definer_reviews FROM app_user, PUBLIC;
+INSERT INTO public.app_definer_reviews (signature, writes) VALUES
+  ('auth.set_default_company(uuid,uuid)', 'company_users.is_default of the caller''s own memberships only'),
+  ('auth.user_admin_companies()', 'nothing (read)'),
+  ('auth.user_admin_companies(text)', 'nothing (read)'),
+  ('auth.user_companies()', 'nothing (read)'),
+  ('approval_company_member_name(uuid,text)', 'nothing (read)'),
+  ('approval_company_member_profile(uuid,text)', 'nothing (read)'),
+  ('approval_company_other_members(uuid,text)', 'nothing (read)'),
+  ('approval_enforcement_set(uuid,text,boolean,text)', 'approval_enforcement, audit_log (R-035; no credential or membership)'),
+  ('approval_request_decide(uuid,uuid,text,text,text,text)', 'approval_requests, audit_log (R-035)'),
+  ('approval_request_lock(uuid,uuid)', 'nothing (row lock)'),
+  ('approval_request_raise(uuid,text,uuid,uuid,text)', 'approval_requests (R-035)'),
+  ('approval_request_rebind(uuid,uuid,uuid,text)', 'approval_requests (R-035)'),
+  ('approval_rule_create(uuid,text,text,text,text,text,numeric,text)', 'approval_rules (R-035)'),
+  ('approval_rule_delete(uuid,uuid,text)', 'approval_rules (R-035)'),
+  ('approval_rule_lock(uuid,uuid,text)', 'nothing (row lock)'),
+  ('approval_rule_update(uuid,uuid,text,text,text,text,numeric,text,boolean)', 'approval_rules (R-035)'),
+  ('audit_check_run_record(jsonb,jsonb)', 'audit_check_runs, audit_check_results'),
+  ('audit_snapshot_record(jsonb,jsonb,jsonb,jsonb)', 'audit_snapshots and their lines'),
+  ('company_member_directory(uuid)', 'nothing (read)'),
+  ('create_company_with_owner(jsonb)', 'a NEW company, with its caller as owner (company_users); grants nothing over an existing one'),
+  ('current_company_invoice_view_summary()', 'nothing (read, 919)'),
+  ('invite_token_company_name()', 'nothing (read, 648)')
+ON CONFLICT (signature) DO NOTHING;
+
 -- 920's rules, unchanged, plus one per table above.
 CREATE OR REPLACE FUNCTION public.app_pool_reach_violations()
 RETURNS SETOF text
@@ -179,25 +218,13 @@ AS $$
     ('public.password_reset_tokens',      '{}',         '{}',                            false, false),
     ('public.admin_impersonation_stash',  '{}',         '{}',                            false, false),
     ('public.matview_refresh_state',      '{}',         '{}',                            false, false),
+    ('public.app_definer_reviews',        '{}',         '{}',                            false, false),
     ('public.waitlist_signups',
      '{name,email,signup_type,company_name,practice_name,phone,annual_turnover_cents,ip,user_agent}',
                                                         '{}',                            false, false)
   ),
   ruled AS (
     SELECT pg_catalog.to_regclass(r.tbl) AS rel, r.* FROM rules r WHERE pg_catalog.to_regclass(r.tbl) IS NOT NULL
-  ),
-  -- Every definer in any schema but the catalog's, its source with comments
-  -- and double quotes removed, lower-cased and whitespace collapsed, less the
-  -- two reviewed by name: create_company_with_owner (a NEW company, its
-  -- caller as owner) and auth.set_default_company (is_default only).
-  definers AS (
-    SELECT p.oid,
-           pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.regexp_replace(pg_catalog.regexp_replace(p.prosrc,
-             '/\*.*?\*/|--[^\n]*', ' ', 'g'), '"', '', 'g')), '\s+', ' ', 'g') AS src
-      FROM pg_catalog.pg_proc p
-      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-     WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-       AND p.oid::regprocedure::text NOT IN ('create_company_with_owner(jsonb)', 'auth.set_default_company(uuid,uuid)')
   )
   SELECT pg_catalog.format('%s (reachable from an app pool login) can %s users.email', reach.rolname, p.priv)
     FROM reach CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) p(priv)
@@ -235,24 +262,15 @@ AS $$
    WHERE (p.priv = 'TRUNCATE' OR NOT ruled.may_delete)
      AND pg_catalog.has_table_privilege(reach.oid, ruled.rel, p.priv)
   UNION ALL
-  -- A definer runs as its owner, so a privilege rule cannot see what it
-  -- writes; this reads its source. A write it can read is refused, and so is
-  -- dynamic SQL (EXECUTE), which it cannot. Named limit: a definer that calls
-  -- an invoker helper to do the write is still only caught by review.
-  SELECT DISTINCT pg_catalog.format('%s (reachable from an app pool login) can EXECUTE %s, a definer that writes %s',
-                                    reach.rolname, d.oid::regprocedure, m.tbl)
+  -- A definer runs as its owner, so no privilege rule sees what it writes.
+  SELECT DISTINCT pg_catalog.format('%s (reachable from an app pool login) can EXECUTE %s, a SECURITY DEFINER function not in app_definer_reviews: review what it writes, then add it there',
+                                    reach.rolname, p.oid::regprocedure)
     FROM reach
-   CROSS JOIN definers d
-   CROSS JOIN LATERAL (SELECT (pg_catalog.regexp_matches(d.src,
-       '\m(?:insert into|update(?: only)?|delete from(?: only)?|merge into|truncate(?: table)?(?: only)?) ?(?:[a-z_][a-z0-9_$]* ?\. ?)?('
-         || (SELECT pg_catalog.string_agg(pg_catalog.substr(r.tbl, 8), '|') FROM rules r) || ')\M', 'g'))[1] AS tbl) m
-   WHERE pg_catalog.has_function_privilege(reach.oid, d.oid, 'EXECUTE')
-  UNION ALL
-  SELECT DISTINCT pg_catalog.format('%s (reachable from an app pool login) can EXECUTE %s, a definer that runs dynamic SQL, which this check cannot read',
-                                    reach.rolname, d.oid::regprocedure)
-    FROM reach
-   CROSS JOIN definers d
-   WHERE d.src ~ '\mexecute\M' AND pg_catalog.has_function_privilege(reach.oid, d.oid, 'EXECUTE')
+   CROSS JOIN pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+   WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+     AND pg_catalog.has_function_privilege(reach.oid, p.oid, 'EXECUTE')
+     AND NOT EXISTS (SELECT 1 FROM public.app_definer_reviews r WHERE r.signature = p.oid::regprocedure::text)
   UNION ALL
   SELECT 'waitlist_signups has no row security'
    WHERE NOT COALESCE((SELECT c.relrowsecurity FROM pg_catalog.pg_class c
