@@ -102,10 +102,10 @@ describe('S-07c: migration 930', () => {
     /930: invite_token_company_name\(\) is a SECURITY DEFINER function changed since its row in app_definer_reviews/],
     // Breaker round 5: settings outside the body change what a definer does.
     ...([
-      ['its search_path', `ALTER FUNCTION auth.set_default_company(uuid, uuid) SET search_path = pg_catalog, public, auth, pg_temp, public`],
-      ['its owner', `CREATE ROLE s07c_new_owner NOLOGIN; GRANT s07c_new_owner TO CURRENT_USER;
+      ['search_path', `ALTER FUNCTION auth.set_default_company(uuid, uuid) SET search_path = pg_catalog, public, auth, pg_temp, public`],
+      ['owner', `CREATE ROLE s07c_new_owner NOLOGIN; GRANT s07c_new_owner TO CURRENT_USER;
         ALTER FUNCTION auth.set_default_company(uuid, uuid) OWNER TO s07c_new_owner`],
-      ['its volatility', 'ALTER FUNCTION auth.set_default_company(uuid, uuid) STABLE'],
+      ['volatility', 'ALTER FUNCTION auth.set_default_company(uuid, uuid) STABLE'],
     ] as const).map(([what, alter]) => [`a reviewed definer whose ${what} changed`, alter,
       /930: auth\.set_default_company\(uuid,uuid\) is a SECURITY DEFINER function changed since its row in app_definer_reviews/] as [string, string, RegExp]),
     ['the review list writable', 'GRANT INSERT ON public.app_definer_reviews TO app_user', R(APP, 'INSERT app_definer_reviews\\.')],
