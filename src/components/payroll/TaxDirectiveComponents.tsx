@@ -3,10 +3,11 @@
  * Used by /payroll/tax-directives page.
  */
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { X, Loader2, Calculator, Plus } from 'lucide-react';
 import { calculateLumpSumTax, type LumpSumCalculation } from '@/lib/taxCalculations';
+import { DirectiveEmployeeSelect, useDirectiveEmployees } from './TaxDirectiveEmployeeSelect';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -15,15 +16,6 @@ const fmtCurrency = (n: number) =>
 
 const DIRECTIVE_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
 type DirectiveType = typeof DIRECTIVE_TYPES[number];
-
-/** What the picker reads from GET /api/payroll/employees (a write role gets the full record). */
-interface PickerEmployee {
-  id: string;
-  employeeNumber: string;
-  firstName: string;
-  lastName: string;
-  taxNumber?: string | null;
-}
 
 const inputCls = 'w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-400 focus:outline-none focus:border-teal-500';
 const labelCls = 'block text-xs font-medium text-gray-400 mb-1';
@@ -38,8 +30,7 @@ interface CreateModalProps {
 export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [employees, setEmployees] = useState<PickerEmployee[]>([]);
-  const [employeesError, setEmployeesError] = useState('');
+  const { employees, loading: employeesLoading, error: employeesError } = useDirectiveEmployees();
   const [form, setForm] = useState({
     employee_id: '',
     employee_name: '',
@@ -59,22 +50,6 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(f => ({ ...f, [k]: e.target.value }));
 
-  // Leavers included: severance, retirement and death directives are for people who have left.
-  useEffect(() => {
-    let live = true;
-    void (async () => {
-      try {
-        const res = await apiFetch('/api/payroll/employees?include=terminated');
-        await assertOk(res, 'Could not load the employees - try again');
-        const json = await res.json();
-        if (live) setEmployees(Array.isArray(json.data) ? json.data as PickerEmployee[] : []);
-      } catch (err) {
-        if (live) setEmployeesError(apiErrorMessage(err, 'Could not load the employees - try again'));
-      }
-    })();
-    return () => { live = false; };
-  }, []);
-
   // The directive is paid to this employee (a run, or /apply): name and tax number follow the pick, still editable.
   const pickEmployee = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const picked = employees.find(emp => emp.id === e.target.value);
@@ -88,6 +63,11 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // The select is required, but a submit can get past the browser's check: never POST without the employee.
+    if (!form.employee_id) {
+      setError('Choose the employee the directive is paid to');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -126,19 +106,9 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
           {error && (
             <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{error}</p>
           )}
-          {employeesError && (
-            <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{employeesError}</p>
-          )}
           <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label htmlFor="td-employee" className={labelCls}>Employee *</label>
-              <select id="td-employee" className={inputCls} value={form.employee_id} onChange={pickEmployee} required>
-                <option value="">Select an employee</option>
-                {employees.map(emp => (
-                  <option key={emp.id} value={emp.id}>{`${emp.lastName}, ${emp.firstName} (${emp.employeeNumber})`}</option>
-                ))}
-              </select>
-            </div>
+            <DirectiveEmployeeSelect value={form.employee_id} onChange={pickEmployee} employees={employees}
+              loading={employeesLoading} error={employeesError} inputCls={inputCls} labelCls={labelCls} />
             <div className="col-span-2">
               <label htmlFor="td-employee-name" className={labelCls}>Employee Name *</label>
               <input id="td-employee-name" className={inputCls} value={form.employee_name} onChange={set('employee_name')} required placeholder="Full name, as on the directive" />
@@ -192,7 +162,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white border border-gray-600 rounded-lg">
               Cancel
             </button>
-            <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-2">
+            <button type="submit" disabled={saving || employeesLoading || employees.length === 0} className="px-4 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-2">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               <Plus className="h-4 w-4" />
               Create Directive
