@@ -46,7 +46,7 @@
  */
 
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
 import { fiscalYearForDate } from './fiscalYearRegistry';
@@ -171,7 +171,7 @@ export async function ensureFiscalPeriodForDate(
   // the date string, which on a March start is wrong ten months out of twelve.
   let year: Awaited<ReturnType<typeof fiscalYearForDate>>;
   try {
-    year = await fiscalYearForDate(companyId, entryDate);
+    year = await withSavepoint('ensure_fp_year', () => fiscalYearForDate(companyId, entryDate));
   } catch (err) {
     // An unparseable date, or a company row that has gone. Null is the
     // pre-existing behaviour for a date no period covers; a throw here would

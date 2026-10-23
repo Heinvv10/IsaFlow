@@ -47,6 +47,7 @@ afterAll(async () => {
     await q('DELETE FROM gl_account_balances WHERE gl_account_id IN ($1, $2)', [acctA, acctB]);
     await q('DELETE FROM gl_journal_lines WHERE journal_entry_id IN (SELECT id FROM gl_journal_entries WHERE company_id = $1)', [co]);
     await q('DELETE FROM gl_journal_entries WHERE company_id = $1', [co]);
+    await q('DELETE FROM gl_account_balances WHERE gl_account_id IN ($1, $2)', [acctA, acctB]);
     await q('DELETE FROM gl_accounts WHERE company_id = $1', [co]);
     await q('DELETE FROM fiscal_periods WHERE company_id = $1', [co]);
     await q('DELETE FROM companies WHERE id = $1', [co]);
@@ -187,8 +188,47 @@ describe("a journal's period is derived from its entry_date (941)", () => {
       `SELECT COALESCE(SUM(b.debit_total), 0)::numeric AS d FROM gl_account_balances b JOIN fiscal_periods fp ON fp.id = b.fiscal_period_id
         WHERE b.gl_account_id = $1 AND fp.company_id = $2 AND fp.start_date = $3`, [acctA, co, start])).rows[0].d;
     expect(Number(await bal('2025-03-01'))).toBe(100);
+    // A posted entry may not move to a date no period covers (it would leave every period report).
+    const e = await err(q(`UPDATE gl_journal_entries SET entry_date = '2025-04-05' WHERE id = $1`, [j.id]));
+    expect(e?.code).toBe('23514');
+    expect(e?.message).toMatch(/no fiscal period covers the new entry_date/);
+    // Into a covered month: the period re-derives and the cache moves with it.
+    await addPeriod('2025-04-01', '2025-04-30', 2025, 4);
     await q(`UPDATE gl_journal_entries SET entry_date = '2025-04-05' WHERE id = $1`, [j.id]);
-    // April has no period yet: the date re-derives to NULL and the cache drops it from March.
     expect(Number(await bal('2025-03-01'))).toBe(0);
+    expect(Number(await bal('2025-04-01'))).toBe(100);
+  });
+});
+
+describe('tenant and deletion guards', () => {
+  it('refuses a period linked to ANOTHER company\'s year (composite FK), whatever RLS shows', async () => {
+    const other = crypto.randomUUID();
+    await q(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'FYINV other', 3)`, [other]);
+    try {
+      const theirs = (await q(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1, 2031, '2030-03-01', '2031-02-28') RETURNING id`, [other])).rows[0].id;
+      const e = await err(q(`INSERT INTO fiscal_periods (company_id, fiscal_year_id, period_name, period_number, fiscal_year, start_date, end_date)
+                             VALUES ($1, $2, 'X', 1, 2031, '2030-03-01', '2030-03-31')`, [co, theirs]));
+      expect(e?.code).toBe('23503');
+    } finally {
+      await q('DELETE FROM fiscal_years WHERE company_id = $1', [other]);
+      await q('DELETE FROM companies WHERE id = $1', [other]);
+    }
+  });
+
+  it('the app role cannot delete a closed period of a company with journals (it would reopen the year)', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')`, [co, user]);
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: user })]);
+      await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [co]);
+      const e = await err(client.query(`DELETE FROM fiscal_periods WHERE company_id = $1 AND start_date = '2024-03-01'`, [co]));
+      expect(e?.code).toBe('55000');
+      expect(e?.message).toMatch(/cannot be deleted/);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
   });
 });
