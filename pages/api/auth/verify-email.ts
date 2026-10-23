@@ -16,7 +16,8 @@ import pg from 'pg';
 // in this process. This file builds its own Pool, so it must not depend on
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
-import { adminGetUser, adminUpdateUser, type GoTrueUser } from '@/lib/auth/gotrue';
+import { adminUpdateUser, type GoTrueUser } from '@/lib/auth/gotrue';
+import { adminGetUser } from '@/lib/auth/gotrueAdminUser';
 import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
 import {
   consumeEmailVerificationToken,
