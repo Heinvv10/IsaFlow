@@ -114,6 +114,25 @@ export async function ensureCustomerInvoicesBucket(): Promise<void> {
   customerInvoicesBucketChecked = true;
 }
 
+/** The object is not in the bucket (deleted, or never uploaded): retrying cannot help. Any other failure is a plain Error. */
+export class CapturedDocumentMissingError extends Error {
+  constructor(readonly path: string, detail: string) {
+    super(`Storage object missing: ${detail}`);
+    this.name = 'CapturedDocumentMissingError';
+  }
+}
+
+interface StorageFailure { message?: string; status?: number | string; statusCode?: number | string }
+
+/**
+ * Only a 404 whose message names the OBJECT is a missing file. "Bucket not found", "Project not found" or a gateway's bare
+ * 404 are configuration or transport faults that a retry can outlive, so they stay plain (retryable) errors.
+ */
+function isObjectMissing(error: StorageFailure): boolean {
+  const is404 = String(error.statusCode) === '404' || String(error.status) === '404';
+  return is404 && /^object not found\b/i.test((error.message ?? '').trim());
+}
+
 export async function downloadCapturedDocument(
   bucket: string,
   path: string,
@@ -122,6 +141,7 @@ export async function downloadCapturedDocument(
 
   if (error || !data) {
     log.error('Storage download failed', { bucket, path, error: error?.message }, 'supabase-storage');
+    if (error && isObjectMissing(error as StorageFailure)) throw new CapturedDocumentMissingError(path, error.message);
     throw new Error(`Storage download failed: ${error?.message ?? 'no data'}`);
   }
 

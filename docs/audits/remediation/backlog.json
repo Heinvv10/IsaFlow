@@ -7786,15 +7786,15 @@
       "correctedTrigger": null,
       "severityRationale": "Low: categorization_patterns.company_id is SET NOT NULL (220_multi_company_scoping.sql:102), and 348_rls_and_auth_helpers.sql:82-92 makes the table ENABLE+FORCE RLS with WITH CHECK (company_id = app.current_company_id()), so the company-less retry always failed and could not mint a global row; it did mask the first INSERT's real error behind the NOT NULL one. The readers' `OR cp.company_id IS NULL` (smartCategorizationService.ts:69,114) is dead for the same reason.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "2a17c46a8",
+      "currentSha": "2a17c46a8ee81aed5aee6dea0a6c6c4788778fce",
       "status": "fixed",
       "dependencies": [],
       "testNames": [
         "tests/unit/services/smartCategorizationLearningNoGlobalFallback.test.ts"
       ],
       "evidencePaths": [],
-      "fixCommit": "2a17c46a8",
-      "pr": null,
+      "fixCommit": "2a17c46a8ee81aed5aee6dea0a6c6c4788778fce",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/759",
       "deployedSha": null,
       "historicalDataImpact": "None: no NULL-company rows can exist. Pre-220 NULL rows (including the 30 source='system' seeds from 212_smart_categorization.sql:25-55) were not deleted but backfilled to company 00000000-0000-0000-0000-000000000001 (220_multi_company_scoping.sql:73) before SET NOT NULL (:102), and no later migration drops it; the fallback could only fail.",
       "canonicalItem": null,

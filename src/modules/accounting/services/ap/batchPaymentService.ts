@@ -18,6 +18,7 @@ import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { assertApprovalCleared } from '../gl/approvalGate';
+import { assertBatchUnchangedSinceApproval } from './batchApprovedDigest';
 
 type Row = DbRow;
 
@@ -165,6 +166,7 @@ export async function processBatch(companyId: string, id: string, userId: string
   // under the lock — an approval taken before enforcement, or a line (or a
   // payee's bank details) changed since, is not paid. Nothing written yet.
   await assertApprovalCleared(companyId, 'payment_batch', id);
+  await assertBatchUnchangedSinceApproval(companyId, id); // migration 922: enforcement on or off; payees share-locked
   await assertBatchMembersStillAllocatable(companyId, id);
 
   // CLAIM the batch before anything is posted. What this replaced read
