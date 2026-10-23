@@ -187,12 +187,30 @@ export async function listBureauMembers(bureauId: string): Promise<BureauMember[
   }));
 }
 
-/** True if the user is a member of the bureau (any role). */
-export async function userIsBureauMember(userId: string, bureauId: string): Promise<boolean> {
+/**
+ * The caller's role in the bureau, or null when not a member. OWNER means bureaus.owner_user_id — the one
+ * owner column: NOT NULL, set by createBureauForOwner (which also writes the bureau_users 'owner' row), and
+ * what every owner-only check reads (clients, company links, sharing). Nothing in the app transfers a
+ * bureau or adds a second owner, so a bureau_users 'owner' row for anyone else is stale (say, a hand-made
+ * transfer that moved owner_user_id only): it reads as 'accountant', never as owner, and the owner keeps
+ * owner rights even with their bureau_users row missing.
+ */
+export async function getBureauRole(userId: string, bureauId: string): Promise<BureauRole | null> {
   const rows = (await sql`
-    SELECT 1 FROM bureau_users WHERE bureau_id = ${bureauId} AND user_id = ${userId} LIMIT 1
-  `) as unknown as Array<{ '?column?': number }>;
-  return rows.length > 0;
+    SELECT CASE WHEN b.owner_user_id = ${userId} THEN 'owner'
+                WHEN bu.role = 'owner' THEN 'accountant'
+                ELSE bu.role END AS role
+      FROM bureaus b
+      LEFT JOIN bureau_users bu ON bu.bureau_id = b.id AND bu.user_id = ${userId}
+     WHERE b.id = ${bureauId}::UUID AND (b.owner_user_id = ${userId} OR bu.user_id IS NOT NULL)
+     LIMIT 1
+  `) as unknown as Array<{ role: BureauRole }>;
+  return rows[0]?.role ?? null;
+}
+
+/** True if the user is a member of the bureau (any role, the owner included). */
+export async function userIsBureauMember(userId: string, bureauId: string): Promise<boolean> {
+  return (await getBureauRole(userId, bureauId)) !== null;
 }
 
 /**
