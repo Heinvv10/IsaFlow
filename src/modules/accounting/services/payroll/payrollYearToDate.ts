@@ -153,8 +153,7 @@ export async function laterPeriodsWarnings(
  * holds that lock only for its own block; there an approval or a reopen
  * committed inside the window can be misjudged.
  *
- * Read-only; under the gate's company approval lock. Null when current. A run
- * with no lines has no PAYE: it neither misses a month nor is missed.
+ * Read-only; under the gate's company approval lock. Null when current.
  */
 export async function judgeYearToDateStale(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
@@ -171,7 +170,7 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
     )
     SELECT e.period_year, e.period_month, e.period > me.period AS later
     FROM runs e, me
-    WHERE e.id <> me.id AND me.calculated_at IS NOT NULL AND e.calculated_at IS NOT NULL
+    WHERE e.id <> me.id
       AND e.status = ANY(${declarable}::text[])
       AND e.period >= me.year_start AND e.period < (me.year_start + INTERVAL '1 year')
       AND CASE
