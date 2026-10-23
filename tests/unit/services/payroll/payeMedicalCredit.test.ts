@@ -22,8 +22,8 @@ import type {
   EmployeeComponent, PayeYearToDate, PayrollComponent, PayrollEmployee,
 } from '@/modules/accounting/services/payroll/payrollTypes';
 
-const NONE: PayeYearToDate = { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0 };
-const base = { taxYear: 2027, rebateAge: 40 };
+const NONE: PayeYearToDate = { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
+const base = { taxYear: 2027, rebateAge: 40, medicalSchemeFees: 0 };
 const comp = (code: string, extra: Partial<PayrollComponent> = {}): PayrollComponent => ({
   id: `c-${code}`, name: code, sarsSourceCode: code, componentType: 'earning',
   isTaxable: true, isUifApplicable: true, isSdlApplicable: true, ...extra,
@@ -41,7 +41,7 @@ function year(salaries: number[], beneficiaries: number) {
     const r = calculateCumulativePaye({ ...base, regularTaxable: s, annualPayments: 0, ytd, monthlyMedicalBeneficiaries: beneficiaries });
     ytd = {
       periods: ytd.periods + 1, periodicTaxable: ytd.periodicTaxable + s, annualPayments: 0,
-      tablePaye: ytd.tablePaye + r.regular.monthlyPaye, medicalCredit: ytd.medicalCredit + r.medicalCredit,
+      tablePaye: ytd.tablePaye + r.regular.monthlyPaye, medicalCredit: ytd.medicalCredit + r.medicalCredit, additionalMedicalCredit: 0, medicalSchemeFees: 0,
     };
     return r;
   });
@@ -93,7 +93,7 @@ describe('R3: the medical credit a line applied', () => {
 
   it('earlier lines with no record (before migration 926) are carried by the first line that has one', () => {
     // Month 3 at R20 000, member + 1: the credit to date is 9 024 x 3/12 = 2 256, none recorded before.
-    const ytd = { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 2_726, medicalCredit: 0 };
+    const ytd = { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 2_726, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
     const r = calculateCumulativePaye({ ...base, regularTaxable: 20_000, annualPayments: 0, ytd, monthlyMedicalBeneficiaries: 2 });
     expect(r.medicalCredit).toBe(2_256);
     expect(r.regular.monthlyPaye).toBe(1_363);
@@ -101,14 +101,14 @@ describe('R3: the medical credit a line applied', () => {
 
   it('a credit the liability no longer holds (dependants removed mid-year) is a negative record, so the year still adds up', () => {
     // Months 1-2 recorded 752 each (member + 1). Month 3 member only: credit to date 4 512 x 3/12 = 1 128, less 1 504.
-    const ytd = { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 2_726, medicalCredit: 1_504 };
+    const ytd = { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 2_726, medicalCredit: 1_504, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
     const r = calculateCumulativePaye({ ...base, regularTaxable: 20_000, annualPayments: 0, ytd, monthlyMedicalBeneficiaries: 1 });
     expect(r.medicalCredit).toBe(-376);
   });
 
   it('65 and older: the credit is taken after the secondary rebate', () => {
     // Age 66, R14 000: tax(168 000) = 30 240 - 17 820 - 9 765 = 2 655 < 9 024: 2 655 used, 221.25 a month.
-    const r = calculateCumulativePaye({ taxYear: 2027, rebateAge: 66, regularTaxable: 14_000, annualPayments: 0, ytd: NONE, monthlyMedicalBeneficiaries: 2 });
+    const r = calculateCumulativePaye({ taxYear: 2027, rebateAge: 66, medicalSchemeFees: 0, regularTaxable: 14_000, annualPayments: 0, ytd: NONE, monthlyMedicalBeneficiaries: 2 });
     expect(r.regular.monthlyPaye).toBe(0);
     expect(r.medicalCredit).toBe(221.25);
   });
@@ -121,7 +121,7 @@ describe('R3: the medical credit a line applied', () => {
       employee: employee(2),
       components: [{ component: comp('3901', { isUifApplicable: false }), amount: 50_000, directive: { id: 'd', number: '1', paye: 5_000 } }],
       period: { year: 2026, month: 7 }, taxYear: 2027, annualPayrollEstimate: 'defer',
-      ytd: { periods: 3, periodicTaxable: 60_000, annualPayments: 0, tablePaye: 4_089, medicalCredit: 0 }, notEmployedInPeriod: true,
+      ytd: { periods: 3, periodicTaxable: 60_000, annualPayments: 0, tablePaye: 4_089, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 }, notEmployedInPeriod: true,
     });
     expect(severance.medicalCredit).toBe(0);
   });

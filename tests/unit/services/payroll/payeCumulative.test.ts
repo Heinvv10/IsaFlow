@@ -15,8 +15,8 @@ import { calculateCumulativePaye } from '@/modules/accounting/services/payroll/p
 import { annualTaxAfterCredits, calculatePAYE } from '@/modules/accounting/services/payroll/payeEngine';
 import type { PayeYearToDate } from '@/modules/accounting/services/payroll/payrollTypes';
 
-const NONE: PayeYearToDate = { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0 };
-const base = { taxYear: 2027, rebateAge: 46, monthlyMedicalBeneficiaries: 0 };
+const NONE: PayeYearToDate = { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
+const base = { taxYear: 2027, rebateAge: 46, monthlyMedicalBeneficiaries: 0, medicalSchemeFees: 0 };
 
 /** Runs a year month by month, carrying the year-to-date as the run service does. */
 function year(salaries: number[], bonuses: number[] = salaries.map(() => 0)) {
@@ -26,7 +26,7 @@ function year(salaries: number[], bonuses: number[] = salaries.map(() => 0)) {
     const total = Math.round((r.regular.monthlyPaye + r.annualPaymentPaye) * 100) / 100;
     ytd = {
       periods: ytd.periods + (s > 0 ? 1 : 0), periodicTaxable: ytd.periodicTaxable + s,
-      annualPayments: ytd.annualPayments + bonuses[i]!, tablePaye: ytd.tablePaye + total, medicalCredit: 0,
+      annualPayments: ytd.annualPayments + bonuses[i]!, tablePaye: ytd.tablePaye + total, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0,
     };
     return { regular: r.regular.monthlyPaye, annual: r.annualPaymentPaye, total };
   });
@@ -95,13 +95,13 @@ describe('cumulative PAYE', () => {
   });
 
   it('a period with no periodic pay and no annual payment deducts nothing from the tables', () => {
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 0, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 0, medicalCredit: 0 } });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 0, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 } });
     expect([r.regular.monthlyPaye, r.annualPaymentPaye]).toEqual([0, 0]);
   });
 
   it('a bonus-only period does not count as a period worked: the annual equivalent stays on the periods with pay', () => {
     // n = 2, AE = 240 000: 25 380 × 2/12 + (tax(260 000) − tax(240 000)) − 4 230 = 4 792, all of it the bonus's.
-    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 20_000, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 4_230, medicalCredit: 0 } });
+    const r = calculateCumulativePaye({ ...base, regularTaxable: 0, annualPayments: 20_000, ytd: { periods: 2, periodicTaxable: 40_000, annualPayments: 0, tablePaye: 4_230, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 } });
     expect([r.regular.monthlyPaye, r.annualPaymentPaye, r.periods]).toEqual([0, 4_792, 2]);
   });
 
