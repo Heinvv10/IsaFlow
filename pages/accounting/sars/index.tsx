@@ -73,7 +73,9 @@ const daysUntil = (d: string) => {
   // 'YYYY-MM-DD' as a local calendar day: new Date(d) parses it as UTC midnight,
   // which is the previous local day west of UTC.
   const due = new Date(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
-  return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  // Both are local midnights, so the gap is whole days give or take the hour a
+  // daylight-saving change adds or removes: round, never ceil (ceil read 10 days as 11).
+  return Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 };
 
 export default function SARSDashboard() {
