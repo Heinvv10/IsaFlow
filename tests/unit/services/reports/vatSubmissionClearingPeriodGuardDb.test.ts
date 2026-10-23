@@ -138,17 +138,37 @@ describe('submitVATReturn — P2-11 refuses a clearing date with no fiscal perio
     });
   });
 
-  it('throws — and writes nothing — when the year exists but has a GAP', async () => {
+  // Stored financial years (migrations 940-942): a gap inside an OPEN year is a
+  // month the generator builds, so the filing posts into it; a year holding a
+  // closed period is never filled, so the gap there stays loud. (Before, every
+  // gap in an existing year was refused.)
+  it('fills a GAP inside an open year and posts the clearing into the period it built', async () => {
     if (!dbUp) return;
     await inRolledBackTx(async (client) => {
       const f = await seedVatCompany(client, 'submit gap year');
-      // A year that exists but does not cover the clearing date. Not
-      // hypothetical: the demo company's fiscal periods jump straight from
-      // 2023-12 to 2024-02. createFiscalYear refuses to rebuild an existing
-      // year, so ensureFiscalPeriodForDate rethrows instead of returning NULL —
-      // this case was already loud, and must stay that way.
       await seedFiscalPeriod(client, f.companyId, '2027-05-01', '2027-06-30', 1, 2027);
       await seedTradeVat(client, f, '2027-05-15', '2027-05-20');
+
+      await als.run(ctxFor(client, f.companyId), () =>
+        submitVATReturn(f.companyId, { periodStart: '2027-05-01', periodEnd: '2027-06-30' }, FIXTURE_USER_ID),
+      );
+
+      const rows = await clearingEntry(client, f);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.entry_date).toBe('2027-07-01');
+      const { rows: held } = await client.query<{ s: string; e: string }>(
+        'SELECT start_date::text s, end_date::text e FROM fiscal_periods WHERE id = $1', [rows[0]!.fiscal_period_id]);
+      expect(held[0]).toEqual({ s: '2027-07-01', e: '2027-07-31' });
+    });
+  });
+
+  it('throws — and writes nothing — when the gap is in a year holding a closed period', async () => {
+    if (!dbUp) return;
+    await inRolledBackTx(async (client) => {
+      const f = await seedVatCompany(client, 'submit gap closed year');
+      const closed = await seedFiscalPeriod(client, f.companyId, '2027-05-01', '2027-06-30', 1, 2027);
+      await seedTradeVat(client, f, '2027-05-15', '2027-05-20');
+      await client.query(`UPDATE fiscal_periods SET status = 'closed' WHERE id = $1`, [closed]);
 
       await expect(
         als.run(ctxFor(client, f.companyId), () =>
