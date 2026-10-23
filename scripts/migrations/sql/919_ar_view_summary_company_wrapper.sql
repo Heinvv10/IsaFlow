@@ -2,19 +2,65 @@
 -- across tenants.
 --
 -- S-07b follow-up C (2026-10-23, pre-existing, LOW). customer_invoice_view_summary
--- (427) is a materialized view, and Postgres has no RLS on those: app_user
+-- (427) was a materialized view, and Postgres has no RLS on those: app_user
 -- held SELECT on it, so any request (and, by inheritance, the service pool)
 -- could read every company's per-invoice view counts and last-viewed times.
 --
--- The readers (customerInvoiceReadService: list, count, export, detail;
--- readReceiptService.getLastViewedSummary) now read
--- public.current_company_invoice_view_summary(), a SECURITY DEFINER function
--- that returns only the rows of app.current_company_id(), the company withAuth,
--- the bearer pipeline and extension tokens set on every request transaction.
--- With no company set it returns nothing. That puts the view on the same
--- footing as an RLS table (the claim is the boundary); it is not a view owned
--- by an RLS-bypassing role, which 917 refuses. The refresh cron is unchanged:
--- it calls 915's definer wrapper.
+-- Shape after this migration:
+--   customer_invoice_view_summary_mv   the materialized view, renamed; no app
+--                                      role may read it (refused below, and
+--                                      on every deploy by 920).
+--   current_company_invoice_view_summary()
+--                                      SECURITY DEFINER; the _mv rows of
+--                                      app.current_company_id() only, the
+--                                      company withAuth, the bearer pipeline
+--                                      and extension tokens set on every
+--                                      request transaction; nothing when no
+--                                      company is set.
+--   customer_invoice_view_summary      a security_invoker view over that
+--                                      function, under the OLD name, so the
+--                                      readers (customerInvoiceReadService list
+--                                      / count / export, readReceiptService
+--                                      getLastViewedSummary) are unchanged.
+--
+-- Why a view under the old name: deploy.sh applies migrations before the code
+-- switch, and rollback-deploy.sh (run automatically when post-deploy
+-- verification fails) reverts code only. Code from before this migration
+-- reads customer_invoice_view_summary as app_user; with the view it still
+-- works, and still sees only its own company. security_invoker, so 917's rule
+-- against views running as an RLS-bypassing owner holds; the caller needs
+-- only EXECUTE on the function. That puts the counts on the same footing as
+-- an RLS table: the request's company claim is the boundary.
+--
+-- Cost: Postgres never inlines a SECURITY DEFINER function, so each query
+-- reads the company's whole summary (indexed on company_id; one row per
+-- viewed invoice) and joins or filters it, and the AR list's count can no
+-- longer drop the unused join. Bounded per company; acceptable at today's
+-- sizes.
+--
+-- The refresh cron calls 915's refresh_customer_invoice_view_summary(),
+-- replaced here to refresh the renamed view; same name, same grant.
+
+DO $$
+BEGIN
+  IF (SELECT c.relkind FROM pg_catalog.pg_class c
+       WHERE c.oid = pg_catalog.to_regclass('public.customer_invoice_view_summary')) = 'm' THEN
+    ALTER MATERIALIZED VIEW public.customer_invoice_view_summary RENAME TO customer_invoice_view_summary_mv;
+  END IF;
+END $$;
+
+REVOKE ALL ON public.customer_invoice_view_summary_mv FROM app_user, PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.refresh_customer_invoice_view_summary()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  REFRESH MATERIALIZED VIEW CONCURRENTLY public.customer_invoice_view_summary_mv;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION public.current_company_invoice_view_summary()
 RETURNS TABLE (customer_invoice_id uuid, company_id uuid, last_viewed_at timestamptz,
@@ -25,34 +71,16 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
   SELECT s.customer_invoice_id, s.company_id, s.last_viewed_at, s.view_count, s.distinct_sessions
-    FROM public.customer_invoice_view_summary s
+    FROM public.customer_invoice_view_summary_mv s
    WHERE s.company_id = app.current_company_id()
 $$;
 REVOKE ALL ON FUNCTION public.current_company_invoice_view_summary() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.current_company_invoice_view_summary() TO app_user;
 
-REVOKE SELECT ON public.customer_invoice_view_summary FROM app_user, PUBLIC;
--- The baseline also grants app_user INSERT/UPDATE/DELETE on it (348's default
--- privileges); a materialized view refuses those anyway, but nothing should
--- read as granted that cannot be used.
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.customer_invoice_view_summary FROM app_user, PUBLIC;
-
--- Refuse the migration if any role either app login can reach may SELECT a
--- materialized view: none has RLS, so each would be cross-tenant. A later
--- materialized view gets a company-filtered definer like the one above.
-DO $$
-DECLARE
-  r record;
-BEGIN
-  FOR r IN SELECT ro.rolname, c.relname
-             FROM pg_catalog.pg_class c
-             JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-             CROSS JOIN pg_catalog.pg_roles ro
-            WHERE c.relkind = 'm' AND n.nspname IN ('public', 'auth', 'app', 'platform_shared')
-              AND (pg_catalog.pg_has_role('isaflow_app', ro.oid, 'MEMBER')
-                   OR pg_catalog.pg_has_role('isaflow_service', ro.oid, 'MEMBER'))
-              AND pg_catalog.has_table_privilege(ro.oid, c.oid, 'SELECT')
-            ORDER BY ro.rolname, c.relname LOOP
-    RAISE EXCEPTION '919: % (reachable from an app pool login) can SELECT the materialized view %', r.rolname, r.relname;
-  END LOOP;
-END $$;
+CREATE OR REPLACE VIEW public.customer_invoice_view_summary WITH (security_invoker = true) AS
+  SELECT customer_invoice_id, company_id, last_viewed_at, view_count, distinct_sessions
+    FROM public.current_company_invoice_view_summary();
+-- Only SELECT: 348's default privileges would also give app_user writes, which
+-- a view over a function refuses anyway.
+REVOKE ALL ON public.customer_invoice_view_summary FROM app_user, PUBLIC;
+GRANT SELECT ON public.customer_invoice_view_summary TO app_user;

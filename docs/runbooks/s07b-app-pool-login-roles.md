@@ -46,11 +46,15 @@ The follow-up PR (migrations 918 and 919, 2026-10-23) also takes effect on deplo
   second: a GoTrue refusal leaves both emails as they were, a missing profile
   row answers 404, and an address another profile holds answers 409 before
   GoTrue is asked.
-- The AR "last viewed" materialized view is no longer readable by app_user
-  (919); the AR list, export and invoice-views drawer read it through
+- The AR "last viewed" materialized view is renamed
+  `customer_invoice_view_summary_mv` and no app role may read it (919). The old
+  name is now a `security_invoker` view over
   `current_company_invoice_view_summary()`, which returns only the request's
-  company. 919 refuses to apply if any role an app login reaches can SELECT a
-  materialized view.
+  company, so the AR list, export and invoice-views drawer work unchanged, in
+  the new code and in the old (during the deploy window and after a code-only
+  rollback). 920 makes "no app login reaches `users.email` or a materialized
+  view" a deploy check: `scripts/check-app-login-roles.ts` refuses the code
+  switch on either from then on.
 - `drc-vat-export` reads only its own company's `vat_rate`, and a failed read
   answers 500 instead of being swallowed.
 - The deploy and the backup scripts read the owner URL from
@@ -104,10 +108,10 @@ SELECT r.rolname FROM pg_roles r
 -- 918: app_user (or PUBLIC) must not be able to write users.email. app_service
 -- does not exist yet: 915 creates it and grants it the column, 918 revokes it.
 SELECT 'app_user' WHERE has_column_privilege('app_user', 'public.users', 'email', 'UPDATE');
--- 919: materialized views other than the AR view summary that app_user can SELECT
+-- 920: materialized views other than the AR view summary that app_user can read
 SELECT c.oid::regclass FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
  WHERE c.relkind = 'm' AND n.nspname IN ('public','auth','app','platform_shared')
-   AND has_table_privilege('app_user', c.oid, 'SELECT')
+   AND has_any_column_privilege('app_user', c.oid, 'SELECT')
    AND c.oid::regclass::text <> 'customer_invoice_view_summary';
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (
@@ -117,7 +121,7 @@ SELECT proname, hits FROM (
  WHERE prosrc !~ 'pg_has_role\(current_user' AND hits <> 1;
 ```
 
-## 1. Deploy the code (migrations 915-919 included)
+## 1. Deploy the code (migrations 915-920 included)
 
 915b refuses to apply if a role either app login can reach owns an object in ANY
 database of the cluster (pg_shdepend). It fails safe, and the parity gate meets
@@ -286,8 +290,11 @@ sudo bash -c '. scripts/ops/ownerDatabaseUrl.sh; owner_database_url_for /home/ve
 The last line, run from the repo, runs the deploy's own lookup with its output
 discarded and counts its warnings: 0 means it took the owner file.
 
-5b. Change `/home/velo/isaflow/.env.local`. Keep a copy first:
-`sudo cp -p .env.local .env.local.pre-s07b`.
+5b. Change `/home/velo/isaflow/.env.local`. If `CRON_SECRET` has not been
+rotated yet (`docs/runbooks/cron-secret-management-packs.md`), rotate it
+first: the copy made here is the rollback point and would otherwise keep the
+leaked value. Keep a copy, as velo (a root `cp` into velo's directory would
+follow a symlink velo planted): `sudo -u velo cp -p .env.local .env.local.pre-s07b`.
 
 ```
 SERVICE_DATABASE_URL=postgresql://isaflow_service:<pw>@<same host:port>/isaflow?<same params>
@@ -300,6 +307,12 @@ they are. The app refuses to boot if `DATABASE_URL` names isaflow_app while
 `SERVICE_DATABASE_URL` is unset (validateEnv), so set both together.
 
 Check: `sudo grep -c '^OWNER_DATABASE_URL=' /home/velo/isaflow/.env.local` → 0.
+
+5c. Restart the WAL archiver, a long-running unit that loaded its connection
+when it started (step 4's `enable --now` does not restart a running unit):
+`sudo systemctl restart isaflow-wal-archive` and check that
+`journalctl -u isaflow-wal-archive --since -2min` shows it connected, with no
+`OWNER_DATABASE_URL` warning.
 
 One-off owner scripts (for example `scripts/ap-backfill-supplier-payments.ts`)
 read `OWNER_DATABASE_URL` from their own environment. Load it inside the
@@ -331,6 +344,12 @@ Do not `source` the file: a URL's `&` would end the assignment.
 
 `/etc/isaflow/owner.env` can stay: it names `postgres`, which is what the
 restored `.env.local` names too.
+
+A code rollback to a release from before the follow-up PR, with the env still
+on the new logins: that release's change-email updates GoTrue first and then
+fails its `users` write (918 took it from the service pool), logs the drift
+and answers 200, so the login and profile emails diverge. Restore the env
+first, as above.
 
 **Env first, then code.** Never run `scripts/rollback-deploy.sh` to a release
 older than this PR while the env still names `isaflow_app`: the old code

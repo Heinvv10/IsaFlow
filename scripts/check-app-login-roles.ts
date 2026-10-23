@@ -3,7 +3,9 @@
  * switch): the app's login roles (migrations 915, 915b) still cannot
  * reach the owner, and, once either can log in, the runbook's out-of-band
  * controls are in place (docs/runbooks/s07b-app-pool-login-roles.md, steps 2
- * and 3b). Exits 1 on any violation, 0 otherwise.
+ * and 3b); and, from migration 920, that neither login reaches a role that
+ * may write users.email or read a materialized view. Exits 1 on any violation,
+ * 0 otherwise.
  *
  * Usage: DATABASE_URL=<owner URL> bun scripts/check-app-login-roles.ts
  */
@@ -15,7 +17,10 @@ export async function appLoginRoleViolations(sql: TaggedSql): Promise<string[] |
   const [login] = await sql<{ live: boolean }>`
     SELECT COALESCE(bool_or(rolcanlogin), false) AS live FROM pg_roles WHERE rolname IN ('isaflow_app', 'isaflow_service')`;
   const rows = await sql<{ v: string }>`SELECT public.app_login_role_violations(${login?.live ?? false}) AS v`;
-  return rows.map((r) => r.v);
+  // 920: users.email and materialized views out of the logins' reach (S-07b follow-ups).
+  const [reach] = await sql<{ f: string | null }>`SELECT to_regprocedure('public.app_pool_reach_violations()')::text AS f`;
+  const more = reach?.f ? await sql<{ v: string }>`SELECT v FROM public.app_pool_reach_violations() v ORDER BY 1` : [];
+  return [...rows, ...more].map((r) => r.v);
 }
 
 async function main(): Promise<number> {

@@ -57,7 +57,7 @@ LOG:  database system is ready to accept connections
 
 ## Which statements, which tags
 
-Each row on its own fresh container (`h-probe.sh`, below), as `postgres`
+Each tag on its own fresh container (`h-probe.sh`, at the end of this runbook), as `postgres`
 (NOSUPERUSER on every image tested) and as `lr`, a login with no privileges:
 
 | Statement | 15.8.1.085 (prod) | 15.14.1.151 | 15.14.1.152 | 15.19.0.007 |
@@ -192,8 +192,28 @@ Posting it is an outward action: Hein decides.
 
 ## How the table was produced
 
-A script that starts `supabase/postgres:<tag>` as a container named
-`s07bfu-h-<tag>`, waits for init, runs the five statements (one per fresh
-connection, counting `signal 11` lines in the log before and after each), and
-removes the container with `docker rm -fv` by name. Images pulled by exact tag.
-No `docker system prune`, nothing on the live stack.
+The probe, as run (throwaway containers only; never point it at the live stack):
+
+```bash
+#!/usr/bin/env bash
+# h-probe.sh <tag>: throwaway supabase/postgres:<tag>, run the GRANT-to-keyword cases, report, remove.
+tag=$1; C="s07bfu-h-${tag//./}"; export PGPASSWORD=s07bfu
+docker rm -fv "$C" >/dev/null 2>&1
+docker run -d --name "$C" -e POSTGRES_PASSWORD=s07bfu -p 127.0.0.1::5432 "supabase/postgres:$tag" >/dev/null || exit 1
+for i in $(seq 1 120); do docker logs "$C" 2>&1 | grep -q "PostgreSQL init process complete" && break; sleep 2; done
+P=$(docker port "$C" 5432 | head -1 | cut -d: -f2)
+up() { for i in $(seq 1 60); do PGCONNECT_TIMEOUT=2 psql "postgresql://supabase_admin@127.0.0.1:$P/postgres" -XAtc "select 1" >/dev/null 2>&1 && return 0; sleep 1; done; return 1; }
+up || { echo "$tag: never came up"; docker rm -fv "$C" >/dev/null; exit 1; }
+psql "postgresql://supabase_admin@127.0.0.1:$P/postgres" -Xq -c "CREATE ROLE s07bfu_r NOLOGIN; CREATE ROLE s07bfu_login LOGIN PASSWORD 's07bfu' NOINHERIT;"
+for c in "postgres|GRANT s07bfu_r TO PUBLIC" "postgres|GRANT s07bfu_r TO CURRENT_USER" "postgres|REVOKE s07bfu_r FROM PUBLIC" \
+         "s07bfu_login|GRANT s07bfu_r TO PUBLIC" "s07bfu_login|GRANT s07bfu_nope TO SESSION_USER"; do
+  who=${c%%|*}; sql=${c#*|}; b=$(docker logs "$C" 2>&1 | grep -c "signal 11")
+  out=$(PGCONNECT_TIMEOUT=5 psql "postgresql://$who@127.0.0.1:$P/postgres" -X -c "$sql" 2>&1 | head -1)
+  sleep 2; a=$(docker logs "$C" 2>&1 | grep -c "signal 11")
+  echo "  [$who] $sql => $([ "$a" -gt "$b" ] && echo SEGFAULT || echo "$out")"; up
+done
+docker rm -fv "$C" >/dev/null && echo "  removed $C"
+```
+
+Run as `h-probe.sh 15.8.1.085`, `15.14.1.151`, `15.14.1.152`, `15.19.0.007`,
+each pulled by exact tag. No `docker system prune`; nothing on the live stack.

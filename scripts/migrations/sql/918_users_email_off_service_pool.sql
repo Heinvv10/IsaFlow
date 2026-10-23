@@ -27,21 +27,7 @@
 
 REVOKE UPDATE (email, updated_at) ON public.users FROM app_service;
 
--- Refuse the migration, and so the deploy, if any role either app login can
--- reach (itself, app_user, app_service, or PUBLIC's grants) can still UPDATE
--- users.email: a grant from another grantor, a table-level grant, or one
--- reaching a login through a role it can SET ROLE to survives the REVOKE above.
--- has_column_privilege counts table-level grants, PUBLIC and inherited roles.
-DO $$
-DECLARE
-  r record;
-BEGIN
-  FOR r IN SELECT rolname FROM pg_catalog.pg_roles
-            WHERE pg_catalog.pg_has_role('isaflow_app', oid, 'MEMBER')
-               OR pg_catalog.pg_has_role('isaflow_service', oid, 'MEMBER')
-            ORDER BY rolname LOOP
-    IF pg_catalog.has_column_privilege(r.rolname, 'public.users', 'email', 'UPDATE') THEN
-      RAISE EXCEPTION '918: % (reachable from an app pool login) can UPDATE users.email', r.rolname;
-    END IF;
-  END LOOP;
-END $$;
+-- 920 refuses the deploy if any role either app login reaches can still
+-- UPDATE users.email (a grant from another grantor, a table-level grant, or one
+-- reaching a login through a role it can SET ROLE to survives the REVOKE
+-- above), and scripts/check-app-login-roles.ts re-checks it on every deploy.

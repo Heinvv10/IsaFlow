@@ -34,7 +34,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       si.total_amount, si.invoice_date,
       COALESCE(si.total_amount * ${vatRate}, 0) AS vat_amount
     FROM supplier_invoices si
-    JOIN suppliers s ON s.id = si.supplier_id
+    JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = si.company_id
     WHERE si.is_drc = true AND si.company_id = ${companyId}
     ORDER BY si.invoice_date DESC
     LIMIT ${EXPORT_ROW_CEILING + 1}
@@ -46,7 +46,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const pageRows = truncated ? rows.slice(0, EXPORT_ROW_CEILING) : rows;
 
   const csvLines = [
-    'Invoice,Supplier,Date,Amount (excl),VAT (15%)',
+    `Invoice,Supplier,Date,Amount (excl),VAT (${Number((vatRate * 100).toFixed(2))}%)`,
     ...pageRows.map((r: Record<string, unknown>) => [
       csvCell(String(r.invoice_number)),
       csvCell(String(r.supplier_name)),

@@ -3,17 +3,19 @@ Description=IsaFlow — mirror-inbox IMAP scan (PRD-05 Phase 9)
 After=network-online.target isaflow.service
 Wants=network-online.target
 
+# The X-Cron-Secret header reaches curl on stdin (-H @-), never its argv, which
+# /proc/<pid>/cmdline shows every local account (scripts/isaflow-management-packs.service).
 [Service]
 Type=oneshot
 User=velo
 Group=velo
 EnvironmentFile=/home/velo/isaflow/.env.local
-ExecStart=/usr/bin/curl --silent --show-error --fail \
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
   --max-time 300 \
   -X POST \
-  -H "X-Cron-Secret: ${CRON_SECRET}" \
+  -H @- \
   -H "Content-Type: application/json" \
-  http://127.0.0.1:3101/api/cron/mirror-scan
+  http://127.0.0.1:3101/api/cron/mirror-scan'
 
 StandardOutput=journal
 StandardError=journal

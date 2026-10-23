@@ -23,6 +23,11 @@ export function migrationAdminPool(): pg.Pool {
   _pool = new pg.Pool({
     connectionString: url,
     max: 2,
+    // change-email holds a connection (and its users row) across one GoTrue
+    // call, bounded at AUTH_UPSTREAM_TIMEOUT_MS; a caller waiting longer than
+    // this for a connection gets an error instead of waiting forever. The
+    // same checkout bound rollbackFailed assumes for the other pools.
+    connectionTimeoutMillis: 15_000,
     ssl:
       process.env.DATABASE_SSL === 'strict'
         ? { rejectUnauthorized: true }
