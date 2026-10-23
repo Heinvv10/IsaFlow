@@ -36,7 +36,10 @@ export async function generateStatementOfFinancialPosition(
   const lines = rollUpTotals(await fetchSectionLines(companyId, 'balance_sheet', fiscalYear, true));
   const adjusted = lines.map((l) => (isAssetLine(l) ? l : flipSign(l)));
   const blocks = [
-    ...renderHierarchicalTable(adjusted, true, [`As at ${period.current.end} (R)`, `As at ${period.prior.end} (R)`]),
+    // A 12/12 pair keeps the headers it always had; otherwise each column names its date.
+    ...renderHierarchicalTable(adjusted, true, period.comparable
+      ? ['Current year (R)', 'Prior year (R)']
+      : [`As at ${period.current.end} (R)`, `As at ${period.prior.end} (R)`]),
     ...(period.comparabilityNote ? [{ type: 'paragraph' as const, text: period.comparabilityNote }] : []),
   ];
 

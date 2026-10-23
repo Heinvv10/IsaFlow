@@ -40,10 +40,15 @@ export function periodPhrase(months: number, end: string): string {
   return months === 12 ? `year ended ${end}` : `${months} months ended ${end}`;
 }
 
+/** An amount column's header: the twelve-month wording, or what a column of another length covers. */
+export function amountHeader(months: number, end: string, twelveHeader = 'Current year (R)'): string {
+  return months === 12 ? twelveHeader : `${months} months to ${end} (R)`;
+}
+
 function span(start: string, end: string, months: number, twelveHeader: string): PeriodSpan {
   return {
     start, end, months, phrase: periodPhrase(months, end),
-    header: months === 12 ? twelveHeader : `${months} months to ${end} (R)`,
+    header: amountHeader(months, end, twelveHeader),
   };
 }
 

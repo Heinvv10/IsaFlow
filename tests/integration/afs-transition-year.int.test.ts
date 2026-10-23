@@ -14,6 +14,7 @@ import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fisc
 import { applyYearEndChange } from '@/modules/accounting/services/gl/financialYearEndChangeApply';
 import { generateIncomeStatement } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/incomeStatement';
 import { generateStatementOfFinancialPosition } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/balanceSheet';
+import { generateCashFlow } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/cashFlow';
 import { generateCover } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/cover';
 import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import { afsFilingDeadline } from '@/modules/accounting/services/afs/afsFilingDeadline';
@@ -86,6 +87,12 @@ describe('the transition year FY2026 (14 months)', () => {
     expect(texts(bs).join(' ')).toMatch(/IAS 1\.36/);
   });
 
+  it('cash flow: the paragraph and the amount column both say 14 months', async () => {
+    const cf = await inTx(() => generateCashFlow(co, 2026, 'ifrs_sme' as never));
+    expect(texts(cf)[0]).toContain('14 months ended 2027-02-28');
+    expect(headers(cf)).toEqual(['Line', '14 months to 2027-02-28 (R)']);
+  });
+
   it('cover says 14 months; the filing deadline is six months after 28 February 2027', async () => {
     expect(texts(await inTx(() => generateCover(co, 2026, 'ifrs_sme' as never)))).toContain('For the 14 months ended 2027-02-28');
     expect(await inTx(() => afsFilingDeadline(co, 2026))).toBe('2027-08-31');
@@ -120,5 +127,11 @@ describe('the year after, FY2028', () => {
     const p = await inTx(() => getReportingPeriod(co, 2025));
     expect(p.comparable).toBe(true);
     expect(p.comparabilityNote).toBeNull();
+  });
+
+  it('a 12/12 year keeps the column headers it always had (balance sheet and cash flow)', async () => {
+    expect(headers(await inTx(() => generateStatementOfFinancialPosition(co, 2025, 'ifrs_sme' as never))))
+      .toEqual(['Line', 'Current year (R)', 'Prior year (R)']);
+    expect(headers(await inTx(() => generateCashFlow(co, 2025, 'ifrs_sme' as never)))).toEqual(['Line', 'Current year (R)']);
   });
 });

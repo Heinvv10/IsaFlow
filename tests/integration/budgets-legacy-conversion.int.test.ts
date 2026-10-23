@@ -12,19 +12,20 @@ import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const co = crypto.randomUUID(), acct = crypto.randomUUID(), acct2 = crypto.randomUUID();
+const bare = crypto.randomUUID(), bareAcct = crypto.randomUUID(); // declares March, no periods at all
 
 beforeEach(async () => {
-  await pool.query('DELETE FROM budget_month_amounts WHERE company_id = $1', [co]);
-  await pool.query('DELETE FROM accounting_budgets WHERE company_id = $1', [co]);
+  await pool.query('DELETE FROM budget_month_amounts WHERE company_id = ANY($1)', [[co, bare]]);
+  await pool.query('DELETE FROM accounting_budgets WHERE company_id = ANY($1)', [[co, bare]]);
 });
 
 afterAll(async () => {
   try {
-    await pool.query('DELETE FROM budget_month_amounts WHERE company_id = $1', [co]);
-    await pool.query('DELETE FROM accounting_budgets WHERE company_id = $1', [co]);
-    await pool.query('DELETE FROM gl_accounts WHERE company_id = $1', [co]);
+    await pool.query('DELETE FROM budget_month_amounts WHERE company_id = ANY($1)', [[co, bare]]);
+    await pool.query('DELETE FROM accounting_budgets WHERE company_id = ANY($1)', [[co, bare]]);
+    await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1)', [[co, bare]]);
     await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [co]);
-    await pool.query('DELETE FROM companies WHERE id = $1', [co]);
+    await pool.query('DELETE FROM companies WHERE id = ANY($1)', [[co, bare]]);
   } finally { await pool.end(); }
 });
 
@@ -41,15 +42,19 @@ async function setup() {
      SELECT $1, TO_CHAR(MAKE_DATE(2026, m, 1), 'FMMonth YYYY'), m, 2026, MAKE_DATE(2026, m, 1),
             (MAKE_DATE(2026, m, 1) + INTERVAL '1 month' - INTERVAL '1 day')::date
        FROM generate_series(1, 12) m`, [co]);
+  await pool.query(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'BUDCONV bare', 3)`, [bare]);
+  await pool.query(
+    `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+     VALUES ($1, $2, 'B-5000', 'Rent', 'expense', 'debit', 3, true)`, [bareAcct, bare]);
 }
-const budget = (account: string, fy: number, pa: unknown, annual = 0) => pool.query(
+const budget = (account: string, fy: number, pa: unknown, annual = 0, company = co) => pool.query(
   `INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, period_amounts, annual_amount)
-   VALUES ($1, 'old', $2, $3, $4::jsonb, $5)`, [co, fy, account, JSON.stringify(pa), annual]);
-const months = async (account: string) => (await pool.query(
+   VALUES ($1, 'old', $2, $3, $4::jsonb, $5)`, [company, fy, account, JSON.stringify(pa), annual]);
+const months = async (account: string, company = co) => (await pool.query(
   `SELECT to_char(month, 'YYYY-MM') m, amount::float a FROM budget_month_amounts WHERE company_id = $1 AND gl_account_id = $2 ORDER BY month`,
-  [co, account])).rows.map((r) => [r.m, r.a]);
-const convert = async () => (await pool.query('SELECT public.budget_months_from_legacy($1) AS n', [co])).rows[0].n as number;
-const mismatches = async () => (await pool.query('SELECT public.budget_months_legacy_mismatches($1) AS n', [co])).rows[0].n as number;
+  [company, account])).rows.map((r) => [r.m, r.a]);
+const convert = async (company = co) => (await pool.query('SELECT public.budget_months_from_legacy($1) AS n', [company])).rows[0].n as number;
+const mismatches = async (company = co) => (await pool.query('SELECT public.budget_months_legacy_mismatches($1) AS n', [company])).rows[0].n as number;
 
 describe('944 conversion', () => {
   it('named month keys land in the calendar months of the label\'s periods, zero months kept', async () => {
@@ -104,6 +109,38 @@ describe('944 conversion', () => {
     await setup();
     await budget(acct, 2026, [1, 2, 3]);
     await expect(convert()).rejects.toThrow(/not an object/);
+  });
+
+  it('a company with no periods at all reads its label as the declared-month window: a March company\'s FY2026 jan is January 2027', async () => {
+    await setup();
+    await budget(bareAcct, 2026, { jan: 1, feb: 2, mar: 3, dec: 12 }, 0, bare);
+    await convert(bare);
+    expect(await months(bareAcct, bare)).toEqual([['2026-03', 3], ['2026-12', 12], ['2027-01', 1], ['2027-02', 2]]);
+    expect(await mismatches(bare)).toBe(0);
+  });
+
+  it('a month name shadows a stale numeric key for the same month, as the reader read it', async () => {
+    await setup();
+    await budget(acct, 2026, { jan: 100, 0: 50 });
+    expect(await convert()).toBe(1);
+    expect(await months(acct)).toEqual([['2026-01', 100]]);
+    expect(await mismatches()).toBe(0);
+  });
+
+  it('an empty string is 0, as the reader\'s Number(\'\') was', async () => {
+    await setup();
+    await budget(acct, 2026, { jan: 100, feb: '' });
+    await convert();
+    expect(await months(acct)).toEqual([['2026-01', 100], ['2026-02', 0]]);
+    expect(await mismatches()).toBe(0);
+  });
+
+  it('a row naming another company\'s account (never shown by any reader) is not converted and does not fail verification', async () => {
+    await setup();
+    await budget(bareAcct, 2026, { jan: 9 });
+    expect(await convert()).toBe(0);
+    expect((await pool.query('SELECT COUNT(*)::int n FROM budget_month_amounts WHERE company_id = $1', [co])).rows[0].n).toBe(0);
+    expect(await mismatches()).toBe(0);
   });
 
   it('the verification sees an amount that went missing', async () => {
