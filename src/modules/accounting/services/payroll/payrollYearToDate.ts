@@ -45,7 +45,7 @@ export async function loadPayeYearToDate(
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH split AS (
-      SELECT l.employee_id, l.paye, b.directive_paye, COALESCE(l.medical_credit, 0) AS medical_credit,
+      SELECT l.employee_id, l.paye, b.directive_paye, l.medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
       FROM payroll_run_lines l
@@ -69,6 +69,7 @@ export async function loadPayeYearToDate(
            SUM(periodic)::numeric AS periodic,
            SUM(annual)::numeric AS annual,
            SUM(paye - directive_paye)::numeric AS table_paye,
+           -- SUM skips a line written before migration 926 (NULL: recorded nothing).
            SUM(medical_credit)::numeric AS medical_credit
     FROM split
     GROUP BY employee_id
