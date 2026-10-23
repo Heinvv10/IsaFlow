@@ -13,6 +13,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createHash } from 'crypto';
 
+// S-07c (migration 930): oauth writes run on the migration_admin pool; the
+// client lookup (a SELECT) stays on sql.
+const { adminQueryMock } = vi.hoisted(() => ({ adminQueryMock: vi.fn() }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminPool: () => ({ query: adminQueryMock }),
+  migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) => fn({ query: adminQueryMock }),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
@@ -31,16 +38,28 @@ import {
   refreshAccessToken,
   OauthExchangeError,
 } from '@/lib/auth/oauth';
-import {
-  sqlMock,
-  resetSqlMock,
-  mockSqlOnce,
-  sqlCallText,
-  sqlCallValues,
-  allSqlValues,
-} from './helpers';
+import { sqlMock, resetSqlMock, mockSqlOnce } from './helpers';
+
+/** Queue `rows` as the result of the NEXT admin-pool statement. */
+function mockAdminOnce(rows: unknown[]): void {
+  adminQueryMock.mockResolvedValueOnce({ rows, rowCount: rows.length });
+}
+function adminText(i: number): string {
+  const call = adminQueryMock.mock.calls[i];
+  if (!call) throw new Error(`no admin-pool call at index ${i}`);
+  return String(call[0]);
+}
+function adminValues(i: number): unknown[] {
+  const call = adminQueryMock.mock.calls[i];
+  if (!call) throw new Error(`no admin-pool call at index ${i}`);
+  return call[1] as unknown[];
+}
+function allAdminValues(): unknown[] {
+  return adminQueryMock.mock.calls.flatMap((c) => c[1] as unknown[]);
+}
 
 const APP_ID = '44444444-4444-4444-4444-444444444444';
+const KNOWN = [{ '?column?': 1 }];
 const AUTH_ID = '55555555-5555-5555-5555-555555555555';
 const USER_ID = 'user-gotrue-1';
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
@@ -58,6 +77,8 @@ function s256Challenge(verifier: string): string {
 
 beforeEach(() => {
   resetSqlMock();
+  adminQueryMock.mockReset();
+  adminQueryMock.mockResolvedValue({ rows: [], rowCount: 0 });
   vi.mocked(log.warn).mockClear();
 });
 
@@ -69,7 +90,8 @@ describe('exchangeCode (auth-code grant)', () => {
   };
 
   it('happy path: consumes the code and mints hashed oat_/ort_ tokens', async () => {
-    mockSqlOnce([codeRow]); // atomic consume UPDATE returns the consent row
+    mockSqlOnce(KNOWN);           // the service-pool pre-read finds the code
+    mockAdminOnce([codeRow]); // atomic consume UPDATE returns the consent row
     const result = await exchangeCode({
       code: CODE,
       redirectUri: REDIRECT,
@@ -84,18 +106,18 @@ describe('exchangeCode (auth-code grant)', () => {
 
     // The consume query is keyed on the code HASH, the S256(verifier) challenge,
     // AND the requesting app (client B must never exchange client A's code).
-    const consumeValues = sqlCallValues(0);
+    const consumeValues = adminValues(0);
     expect(consumeValues).toContain(sha256Hex(CODE));
     expect(consumeValues).toContain(s256Challenge(VERIFIER));
     expect(consumeValues).toContain(APP_ID);
 
     // Re-consent semantics: one authorisation per (app,user,company), un-revoked on upsert.
-    const insertText = sqlCallText(1);
+    const insertText = adminText(1);
     expect(insertText).toContain('ON CONFLICT');
     expect(insertText).toContain('revoked_at = NULL');
 
     // Only hashes are persisted — raw tokens never appear in any SQL value.
-    const persisted = allSqlValues();
+    const persisted = allAdminValues();
     expect(persisted).toContain(sha256Hex(result.accessToken));
     expect(persisted).toContain(sha256Hex(result.refreshToken));
     for (const raw of [CODE, result.accessToken, result.refreshToken]) {
@@ -104,9 +126,10 @@ describe('exchangeCode (auth-code grant)', () => {
   });
 
   it('PKCE, single-use, and expiry guards live in ONE atomic consume statement', async () => {
-    mockSqlOnce([codeRow]);
+    mockSqlOnce(KNOWN);
+    mockAdminOnce([codeRow]);
     await exchangeCode({ code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID });
-    const text = sqlCallText(0);
+    const text = adminText(0);
     expect(text).toContain('SET used_at = NOW()');
     expect(text).toContain('used_at IS NULL');
     expect(text).toContain('expires_at > NOW()');
@@ -117,19 +140,21 @@ describe('exchangeCode (auth-code grant)', () => {
 
   it('rejects a PKCE S256 verifier mismatch without minting tokens', async () => {
     // wrong verifier → challenge differs → WHERE matches 0 rows
-    mockSqlOnce([]);
+    mockSqlOnce(KNOWN);
+    mockAdminOnce([]);
     await expect(
       exchangeCode({ code: CODE, redirectUri: REDIRECT, codeVerifier: 'wrong-verifier', oauthAppId: APP_ID }),
     ).rejects.toThrowError(
       expect.objectContaining({ name: 'OauthExchangeError', code: 'invalid_grant' }),
     );
-    expect(sqlCallValues(0)).toContain(s256Challenge('wrong-verifier'));
+    expect(adminValues(0)).toContain(s256Challenge('wrong-verifier'));
     // no token insert happened — the consume UPDATE was the only statement
-    expect(sqlMock.mock.calls.length).toBe(1);
+    expect(adminQueryMock.mock.calls.length).toBe(1);
   });
 
   it('auth code is single-use: second exchange of the same code is rejected', async () => {
-    mockSqlOnce([codeRow]); // first consume wins
+    mockSqlOnce(KNOWN); mockSqlOnce(KNOWN); // both pre-reads see it unused; the second consume loses the race
+    mockAdminOnce([codeRow]); // first consume wins
     const first = await exchangeCode({
       code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID,
     });
@@ -141,19 +166,20 @@ describe('exchangeCode (auth-code grant)', () => {
     await expect(
       exchangeCode({ code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID }),
     ).rejects.toThrowError(expect.objectContaining({ code: 'invalid_grant' }));
-    const secondConsume = sqlCallText(2); // calls: 0=first consume, 1=token insert, 2=second consume
+    const secondConsume = adminText(2); // calls: 0=first consume, 1=token insert, 2=second consume
     expect(secondConsume).toContain('used_at IS NULL');
     expect(secondConsume).toContain('SET used_at = NOW()');
   });
 
   it('scopes on the minted oat_ come from the stored consent row, never caller input', async () => {
-    mockSqlOnce([{ ...codeRow, scopes: ['read:invoices'] }]);
+    mockSqlOnce(KNOWN);
+    mockAdminOnce([{ ...codeRow, scopes: ['read:invoices'] }]);
     const result = await exchangeCode({
       code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID,
     });
     expect(result.scopes).toEqual(['read:invoices']);
     // consented scopes flow into the authorisation insert unchanged
-    expect(sqlCallValues(1)).toEqual(expect.arrayContaining([['read:invoices']]));
+    expect(adminValues(1)).toEqual(expect.arrayContaining([['read:invoices']]));
     // no offline_access consented → no refresh token minted
     expect(result.refreshToken).toBe('');
   });
@@ -171,7 +197,8 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
 
   it('rotates atomically: new oat_/ort_ issued, old hash stashed as previous', async () => {
     mockSqlOnce([{ id: APP_ID }]); // client lookup
-    mockSqlOnce([rotatedRow]);     // rotation UPDATE wins
+    mockSqlOnce(KNOWN);            // the presented hash is a grant's
+    mockAdminOnce([rotatedRow]);   // rotation UPDATE wins (admin pool)
     const result = await refreshAccessToken({ refreshToken: OLD_REFRESH, clientId: CLIENT_ID });
 
     expect(result.accessToken).toMatch(/^oat_[A-Za-z0-9]{32}$/);
@@ -179,34 +206,35 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
     expect(result.refreshToken).not.toBe(OLD_REFRESH);
     expect(result.scopes).toEqual(['read:reports', 'offline_access']);
 
-    const rotationText = sqlCallText(1);
+    const rotationText = adminText(0);
     // single-statement rotation: old hash keyed in WHERE, stashed for replay detection
     expect(rotationText).toContain('previous_refresh_token_hash = refresh_token_hash');
     expect(rotationText).toContain('revoked_at IS NULL');
     expect(rotationText).toContain('refresh_token_expires_at > NOW()');
-    const rotationValues = sqlCallValues(1);
+    const rotationValues = adminValues(0);
     expect(rotationValues).toContain(sha256Hex(OLD_REFRESH));
     expect(rotationValues).toContain(sha256Hex(result.refreshToken));
     // app binding: client B can never rotate client A's refresh token
     expect(rotationText).toContain('oauth_app_id =');
     expect(rotationValues).toContain(APP_ID);
-    expect(allSqlValues()).not.toContain(OLD_REFRESH);
-    expect(allSqlValues()).not.toContain(result.refreshToken);
+    expect([...allAdminValues(), ...sqlMock.mock.calls.flatMap((x) => x.slice(1))]).not.toContain(OLD_REFRESH);
+    expect(allAdminValues()).not.toContain(result.refreshToken);
   });
 
   it('replaying a rotated-out ort_ REVOKES the entire authorisation', async () => {
     mockSqlOnce([{ id: APP_ID }]); // client lookup
-    mockSqlOnce([]);               // rotation finds no current-hash row
-    mockSqlOnce([{ id: AUTH_ID, user_id: USER_ID, company_id: COMPANY_ID }]); // previous-hash match
+    mockSqlOnce(KNOWN);            // it is a rotated-out hash
+    mockAdminOnce([]);             // rotation finds no current-hash row
+    mockAdminOnce([{ id: AUTH_ID, user_id: USER_ID, company_id: COMPANY_ID }]); // previous-hash match
 
     await expect(
       refreshAccessToken({ refreshToken: OLD_REFRESH, clientId: CLIENT_ID }),
     ).rejects.toThrowError(expect.objectContaining({ code: 'invalid_grant' }));
 
-    const replayText = sqlCallText(2);
+    const replayText = adminText(1);
     expect(replayText).toContain('SET revoked_at = NOW()');
     expect(replayText).toContain('previous_refresh_token_hash =');
-    expect(sqlCallValues(2)).toContain(sha256Hex(OLD_REFRESH));
+    expect(adminValues(1)).toContain(sha256Hex(OLD_REFRESH));
     expect(log.warn).toHaveBeenCalledWith(
       expect.stringContaining('replay'),
       expect.objectContaining({ clientId: CLIENT_ID }),
@@ -216,12 +244,13 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
 
   it('rejects refresh of a revoked (or unknown/expired) authorisation', async () => {
     mockSqlOnce([{ id: APP_ID }]); // client lookup
-    mockSqlOnce([]);               // rotation: revoked_at IS NULL guard fails
-    mockSqlOnce([]);               // replay probe: nothing to revoke either
+    mockSqlOnce(KNOWN);            // a revoked grant still holds the hash
+    mockAdminOnce([]);             // rotation: revoked_at IS NULL guard fails
+    mockAdminOnce([]);             // replay probe: nothing to revoke either
     await expect(
       refreshAccessToken({ refreshToken: OLD_REFRESH, clientId: CLIENT_ID }),
     ).rejects.toThrowError(expect.objectContaining({ code: 'invalid_grant' }));
-    expect(sqlCallText(1)).toContain('revoked_at IS NULL');
+    expect(adminText(0)).toContain('revoked_at IS NULL');
   });
 
   it('rejects an unknown client before touching any token row', async () => {
@@ -230,6 +259,7 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
       refreshAccessToken({ refreshToken: OLD_REFRESH, clientId: 'client_ghost' }),
     ).rejects.toThrowError(expect.objectContaining({ code: 'invalid_client' }));
     expect(sqlMock.mock.calls.length).toBe(1);
+    expect(adminQueryMock).not.toHaveBeenCalled();
   });
 
   it('errors actually thrown by exchange and refresh carry no token material', async () => {

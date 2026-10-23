@@ -1,12 +1,14 @@
 /**
- * S-04 follow-on (blind review finding 3): createInvitation grants owner two
- * ways — it INSERTs an existing user straight into company_users at the
- * invited role, or writes an owner invitation. Like updateCompanyUserRole's
- * promotion, it must take the owner lock and read the inviter's role live
- * after it, not trust the request's role.
+ * S-04 follow-on (blind review finding 3): createInvitation grants owner by
+ * writing an owner invitation (since S-07c it never adds an existing user
+ * directly). Like updateCompanyUserRole's promotion, it must take the owner
+ * lock and read the inviter's role live after it, not trust the request's
+ * role. Since S-07c the write runs on the migration_admin pool
+ * (assertCanInvite), so that is where the lock and the read are recorded.
  *
  * POST /api/accounting/company-invitations runs the REAL userInvitationService
- * here; only `sql`, the rate limit and the mailer are replaced. The real-PG
+ * here; only `sql`, the migration_admin client, the rate limit and the mailer
+ * are replaced. The real-PG
  * proof (incl. an inviter being demoted at that moment) is
  * tests/integration/s04-owner-grant-invitations.int.test.ts.
  */
@@ -14,18 +16,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const h = vi.hoisted(() => ({ statements: [] as string[], inviterRole: 'owner', userExists: true }));
+const h = vi.hoisted(() => ({ statements: [] as string[], inviterRole: 'owner' }));
 
-vi.mock('@/lib/neon', () => ({
-  sql: vi.fn((strings: TemplateStringsArray) => {
-    const text = strings.join('?').replace(/\s+/g, ' ').trim();
+vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
+vi.mock('@/lib/auth/migrationAdminPool', () => {
+  const query = async (raw: string, params: unknown[] = []) => {
+    const text = raw.replace(/\s+/g, ' ').trim();
     h.statements.push(text);
-    if (/^SELECT role FROM company_users/.test(text)) return Promise.resolve([{ role: h.inviterRole }]);
-    if (/^SELECT id FROM users/.test(text)) return Promise.resolve(h.userExists ? [{ id: 'existing-user' }] : []);
-    if (/^INSERT INTO company_invitations/.test(text)) return Promise.resolve([{ id: 'inv-1', role: 'owner' }]);
-    return Promise.resolve([]);
-  }),
-}));
+    if (/^SELECT public.company_member_role_is_owner/.test(text)) return { rows: [{ owner: params[0] === 'owner' }] };
+    if (/^SELECT role FROM company_users/.test(text)) return { rows: [{ role: h.inviterRole }] };
+    if (/^INSERT INTO company_invitations/.test(text)) return { rows: [{ id: 'inv-1', role: params[2] }], rowCount: 1 };
+    return { rows: [], rowCount: 0 };
+  };
+  return { migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) => fn({ query }), migrationAdminPool: () => ({ query }) };
+});
 vi.mock('@/lib/auth', () => ({ withAuth: (fn: unknown) => fn, withWriteAccess: (fn: unknown) => fn }));
 vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
@@ -61,11 +65,10 @@ describe('company-invitations — only a live owner grants owner', () => {
   beforeEach(() => {
     h.statements.length = 0;
     h.inviterRole = 'owner';
-    h.userExists = true;
   });
 
   // withAuth read 'owner' when the request began; the inviter was demoted since.
-  it('answers 403 to auto-adding an existing user as owner when the inviter is no longer an owner', async () => {
+  it('answers 403 to an owner invitation when the inviter is no longer an owner', async () => {
     h.inviterRole = 'admin';
     const { promise, res } = post('owner', 'owner');
     await promise;
@@ -77,7 +80,6 @@ describe('company-invitations — only a live owner grants owner', () => {
 
   it('refuses an owner invitation from a non-owner at the service, writing nothing', async () => {
     h.inviterRole = 'admin';
-    h.userExists = false;
     await expect(createInvitation(COMPANY_ID, 'invitee@co.test', 'owner', 'inviter'))
       .rejects.toBeInstanceOf(OwnerProtectedError);
     expect(writes()).toEqual([]);
@@ -90,16 +92,15 @@ describe('company-invitations — only a live owner grants owner', () => {
     expect(inviterReadAt()).toBeGreaterThan(lockAt());
   });
 
-  it('lets an owner auto-add an existing user as owner', async () => {
+  it('lets an owner invite as owner through the route: an invitation, never a membership', async () => {
     const { promise, res } = post('owner', 'owner');
     await promise;
     expect(statusOf(res)).toBe(200);
-    expect(writes()).toEqual([expect.stringMatching(/^INSERT INTO company_users/)]);
+    expect(writes()).toEqual([expect.stringMatching(/^INSERT INTO company_invitations/)]);
     expect(inviterReadAt()).toBeGreaterThan(lockAt());
   });
 
   it('lets an owner send an owner invitation', async () => {
-    h.userExists = false;
     await expect(createInvitation(COMPANY_ID, 'invitee@co.test', 'owner', 'inviter'))
       .resolves.toMatchObject({ autoAdded: false });
     expect(writes()).toEqual([expect.stringMatching(/^INSERT INTO company_invitations/)]);

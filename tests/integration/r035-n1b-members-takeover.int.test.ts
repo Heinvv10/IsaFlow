@@ -31,9 +31,9 @@ afterAll(() => cleanupMembers(pool, companies, users));
 const asApp = (c: string, sub: string, fn: (cl: PoolClient) => Promise<unknown>) => asRole(pool, 'app_user', c, { sub }, fn, true);
 const INVITE = `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at)
                 VALUES($1,$2,$3,$4,$5, now() + interval '7 days')`;
-/** An owner's legitimate owner invitation for an outsider's address. */
+/** Seeds an owner's owner invitation for an outsider's address (app_user cannot INSERT since 930; the route writes on migration_admin). */
 async function ownerInvitation(c: string) {
-  await asApp(c, p.o, (cl) => cl.query(INVITE, [c, 'ceo@n1bc.test', 'owner', p.o, tokenHash(crypto.randomUUID())]));
+  await pool.query(INVITE, [c, 'ceo@n1bc.test', 'owner', p.o, tokenHash(crypto.randomUUID())]);
 }
 const invitations = async (c: string) => (await pool.query(
   'SELECT email, role, token, accepted_at IS NOT NULL AS accepted FROM company_invitations WHERE company_id = $1', [c])).rows;
@@ -45,12 +45,12 @@ describe("an admin cannot take over an owner's invitation", () => {
     ['upsert over it keeping role owner', `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at)
        VALUES($1,'ceo@n1bc.test','viewer',current_setting('request.jwt.claims')::jsonb->>'sub',$3, now() + interval '7 days')
        ON CONFLICT (company_id,email) DO UPDATE SET token = EXCLUDED.token, email = $2, role = company_invitations.role`],
-  ])('%s (RC003) — and the accept finds nothing', async (_label, statement) => {
+  ])('%s (42501 since 930; the guard\'s RC003 is behind it) — and the accept finds nothing', async (_label, statement) => {
     const c = await company(pool, p, companies);
     await ownerInvitation(c);
     const before = await invitations(c);
     const raw = `n1bt${'0'.repeat(28)}${crypto.randomUUID().replace(/-/g, '')}`;
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(statement, [c, emailOf(p.x), tokenHash(raw)])))).toBe('RC003');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(statement, [c, emailOf(p.x), tokenHash(raw)])))).toBe('42501');
     expect(await invitations(c)).toEqual(before);
     expect((await acceptAsInvitee(p.x, raw)).state.statusCode).toBe(404);
     expect(await roleOf(pool, c, p.x)).toBeNull();
@@ -61,32 +61,32 @@ describe("an admin cannot take over an owner's invitation", () => {
     ['its token alone', "UPDATE company_invitations SET token = md5(random()::text) WHERE company_id = $1 AND role = 'owner'"],
     ['its expiry alone (reviving it)', "UPDATE company_invitations SET expires_at = now() + interval '90 days' WHERE company_id = $1 AND role = 'owner'"],
     ['its sender, to the admin', "UPDATE company_invitations SET invited_by = current_setting('request.jwt.claims')::jsonb->>'sub' WHERE company_id = $1 AND role = 'owner'"],
-  ])('change %s (RC003)', async (_label, statement) => {
+  ])('change %s (42501 since 930; the guard\'s RC003 is behind it)', async (_label, statement) => {
     const c = await company(pool, p, companies);
     await ownerInvitation(c);
     const before = await invitations(c);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(statement, [c])))).toBe('RC003');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(statement, [c])))).toBe('42501');
     expect(await invitations(c)).toEqual(before);
   });
 
-  it('re-open an accepted owner invitation (RC003)', async () => {
+  it('re-open an accepted owner invitation (42501 since 930; the guard\'s RC003 is behind it)', async () => {
     const c = await company(pool, p, companies);
     await ownerInvitation(c);
     await pool.query('UPDATE company_invitations SET accepted_at = now() WHERE company_id = $1', [c]);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
-      'UPDATE company_invitations SET accepted_at = NULL WHERE company_id = $1', [c])))).toBe('RC003');
+      'UPDATE company_invitations SET accepted_at = NULL WHERE company_id = $1', [c])))).toBe('42501');
   });
 
-  it('but may turn it into a lesser invitation (a re-invite at another role), and mark its email sent', async () => {
+  it('can no longer turn it into a lesser invitation or mark its email sent as app_user (42501 since 930; the route writes on the migration_admin pool)', async () => {
     const c = await company(pool, p, companies);
     await ownerInvitation(c);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
-      'UPDATE company_invitations SET email_sent_at = now(), email_error = NULL WHERE company_id = $1', [c])))).toBe('ok');
+      'UPDATE company_invitations SET email_sent_at = now(), email_error = NULL WHERE company_id = $1', [c])))).toBe('42501');
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(`${INVITE}
       ON CONFLICT (company_id,email) DO UPDATE SET role = EXCLUDED.role, invited_by = EXCLUDED.invited_by,
         token = EXCLUDED.token, expires_at = EXCLUDED.expires_at, accepted_at = NULL`,
-      [c, 'ceo@n1bc.test', 'viewer', p.a, tokenHash(crypto.randomUUID())])))).toBe('ok');
-    expect((await invitations(c)).map((i) => i.role)).toEqual(['viewer']);
+      [c, 'ceo@n1bc.test', 'viewer', p.a, tokenHash(crypto.randomUUID())])))).toBe('42501');
+    expect((await invitations(c)).map((i) => i.role)).toEqual(['owner']);
   });
 });
 
@@ -189,17 +189,17 @@ describe('the last owner', () => {
 });
 
 describe('invitation rules with no other test', () => {
-  it.each(['Owner', 'OWNER', 'owner ', 'super_admin', 'accountant'])('a role off the invitation list: %j (RC002)', async (role) => {
+  it.each(['Owner', 'OWNER', 'owner ', 'super_admin', 'accountant'])('a role off the invitation list: %j (42501 since 930; the guard\'s RC002 is behind it)', async (role) => {
     const c = await company(pool, p, companies);
-    expect(await outcome(asApp(c, p.a, (cl) => cl.query(INVITE, [c, emailOf(p.x), role, p.a, tokenHash(crypto.randomUUID())])))).toBe('RC002');
+    expect(await outcome(asApp(c, p.a, (cl) => cl.query(INVITE, [c, emailOf(p.x), role, p.a, tokenHash(crypto.randomUUID())])))).toBe('42501');
   });
 
-  it("an owner of another company cannot move this company's invitation there (RC004)", async () => {
+  it("an owner of another company cannot move this company's invitation there (42501 since 930; the guard's RC004 is behind it)", async () => {
     const c = await company(pool, p, companies);
     const d = await company(pool, p, companies, [[p.m, 'owner']]); // m: manager of c, owner of d
-    await asApp(c, p.o, (cl) => cl.query(INVITE, [c, emailOf(p.x), 'viewer', p.o, tokenHash(crypto.randomUUID())]));
+    await pool.query(INVITE, [c, emailOf(p.x), 'viewer', p.o, tokenHash(crypto.randomUUID())]);
     expect(await outcome(asRole(pool, 'app_user', d, { sub: p.m }, (cl) => cl.query(
-      'UPDATE company_invitations SET company_id = $1 WHERE company_id = $2', [d, c]), true))).toBe('RC004');
+      'UPDATE company_invitations SET company_id = $1 WHERE company_id = $2', [d, c]), true))).toBe('42501');
     expect((await invitations(c)).length).toBe(1);
   });
 

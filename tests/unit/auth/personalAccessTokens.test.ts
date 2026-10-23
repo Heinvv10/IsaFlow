@@ -18,6 +18,12 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
   assertNotImpersonating: async () => undefined,
 }));
+// S-07c (migration 930): createPat / revokePat write on the migration_admin pool;
+// validatePat and the listing stay on sql.
+const { adminQueryMock } = vi.hoisted(() => ({ adminQueryMock: vi.fn() }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminPool: () => ({ query: adminQueryMock }),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
@@ -55,8 +61,20 @@ function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex');
 }
 
+function mockAdminOnce(rows: unknown[]): void {
+  adminQueryMock.mockResolvedValueOnce({ rows, rowCount: rows.length });
+}
+function adminText(i: number): string {
+  return String(adminQueryMock.mock.calls[i]![0]);
+}
+function adminValues(i: number): unknown[] {
+  return adminQueryMock.mock.calls[i]![1] as unknown[];
+}
+
 beforeEach(() => {
   resetSqlMock();
+  adminQueryMock.mockReset();
+  adminQueryMock.mockResolvedValue({ rows: [], rowCount: 0 });
 });
 
 describe('PAT_SCOPES vocabulary', () => {
@@ -87,20 +105,20 @@ describe('createPat (mint)', () => {
   };
 
   it('mints pat_ prefixed token and stores only the SHA-256 hash, never the raw token', async () => {
-    mockSqlOnce([{ id: PAT_ID }]);
+    mockAdminOnce([{ id: PAT_ID }]);
     const { id, raw, prefix } = await createPat(input);
     expect(id).toBe(PAT_ID);
     expect(raw).toMatch(/^pat_[A-Za-z0-9]{32}$/);
     expect(prefix).toBe(raw.slice(0, 12));
-    const persisted = allSqlValues();
+    const persisted = adminValues(0);
     expect(persisted).toContain(sha256(raw));
     expect(persisted).not.toContain(raw);
   });
 
   it('scopes the insert to the minting user and company (multi-tenant)', async () => {
-    mockSqlOnce([{ id: PAT_ID }]);
+    mockAdminOnce([{ id: PAT_ID }]);
     await createPat(input);
-    expect(sqlCallValues(0)).toEqual(expect.arrayContaining([USER_ID, COMPANY_ID]));
+    expect(adminValues(0)).toEqual(expect.arrayContaining([USER_ID, COMPANY_ID]));
   });
 
   it('rejects minting with a scope outside PAT_SCOPES', async () => {
@@ -108,30 +126,31 @@ describe('createPat (mint)', () => {
       createPat({ ...input, scopes: ['admin:everything'] }),
     ).rejects.toThrow(/unknown scope/);
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(adminQueryMock).not.toHaveBeenCalled();
   });
 
   it('accepts every scope in the PAT_SCOPES vocabulary', async () => {
-    mockSqlOnce([{ id: PAT_ID }]);
+    mockAdminOnce([{ id: PAT_ID }]);
     await expect(
       createPat({ ...input, scopes: [...PAT_SCOPES] }),
     ).resolves.toMatchObject({ id: PAT_ID });
   });
 
   it('caps expiry at 365 days', async () => {
-    mockSqlOnce([{ id: PAT_ID }]);
+    mockAdminOnce([{ id: PAT_ID }]);
     await createPat({ ...input, expiresInDays: 10_000 });
-    expect(sqlCallValues(0)).toContain(365);
-    expect(sqlCallValues(0)).not.toContain(10_000);
+    expect(adminValues(0)).toContain(365);
+    expect(adminValues(0)).not.toContain(10_000);
   });
 
   it('floors expiry at 1 day', async () => {
-    mockSqlOnce([{ id: PAT_ID }]);
+    mockAdminOnce([{ id: PAT_ID }]);
     await createPat({ ...input, expiresInDays: 0 });
-    expect(sqlCallValues(0)).toContain(1);
+    expect(adminValues(0)).toContain(1);
   });
 
   it('throws when the insert returns no row instead of minting silently', async () => {
-    mockSqlOnce([]);
+    mockAdminOnce([]);
     await expect(createPat(input)).rejects.toThrow(/no row/);
   });
 });
@@ -200,16 +219,16 @@ describe('validatePat (verify)', () => {
 
 describe('revokePat', () => {
   it('revokes only the caller-owned token within the caller company', async () => {
-    mockSqlOnce([{ id: PAT_ID }]);
+    mockAdminOnce([{ id: PAT_ID }]);
     await expect(revokePat(PAT_ID, USER_ID, COMPANY_ID)).resolves.toBe(true);
-    expect(sqlCallText(0)).toContain('revoked_at = NOW()');
-    expect(sqlCallValues(0)).toEqual(
+    expect(adminText(0)).toContain('revoked_at = NOW()');
+    expect(adminValues(0)).toEqual(
       expect.arrayContaining([PAT_ID, USER_ID, COMPANY_ID]),
     );
   });
 
   it('returns false when the token is unknown, already revoked, or not owned', async () => {
-    mockSqlOnce([]);
+    mockAdminOnce([]);
     await expect(revokePat(PAT_ID, USER_ID, COMPANY_ID)).resolves.toBe(false);
   });
 });

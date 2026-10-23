@@ -92,7 +92,9 @@ const READ_BY_HAND = new Set([
   '871_fx_pr0_refuse_foreign_currency.sql', '872_approval_request_definer_writes.sql',
   '876_supplier_bank_verification.sql', '877_bank_controls_step2.sql',
   '881_approval_rule_enforcement_definer_writes.sql', '884_validate_dimension_fks.sql',
-  '885_bank_rule_switch_definer.sql', '891_audit_snapshots.sql', '903_categorization_decisions.sql'
+  '885_bank_rule_switch_definer.sql', '891_audit_snapshots.sql', '903_categorization_decisions.sql',
+  // 930 (S-07c): GRANT/REVOKE EXECUTE ON FUNCTION and a definer list naming manual_journal_approval_gate(); no DDL on either table.
+  '930_credential_membership_writes_off_app_pools.sql',
 ]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */
