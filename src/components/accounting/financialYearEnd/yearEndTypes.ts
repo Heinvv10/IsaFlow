@@ -16,6 +16,11 @@ export function fmtDay(date: string): string {
   return `${d} ${MONTH_NAMES[m - 1]!.slice(0, 3)} ${y}`;
 }
 
+/** The South African calendar day of a timestamp (an ISO instant), for display. */
+export function fmtInstantDay(iso: string): string {
+  return fmtDay(new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date(iso)));
+}
+
 export function monthOf(date: string): number {
   return Number(date.split('-')[1]);
 }
