@@ -3,7 +3,7 @@
  * Pattern learning from user allocations — split from smartCategorizationMatchingService.ts.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { extractLearningPattern } from './smartCategorizationMatchingService';
 import { resolveVatCodeForAccount } from '../gl/inputVatDenial';
@@ -16,7 +16,7 @@ export async function learnFromAllocation(
   glAccountId: string,
   category: string,
   vatCode?: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const txRows = (await sql`
       SELECT description FROM bank_transactions
@@ -24,13 +24,13 @@ export async function learnFromAllocation(
     `) as DbRow[];
 
     const firstTx = txRows[0];
-    if (!firstTx) return;
+    if (!firstTx) return false;
 
     const description = String(firstTx.description || '').trim();
-    if (description.length < 3) return;
+    if (description.length < 3) return false;
 
     const pattern = extractLearningPattern(description);
-    if (!pattern || pattern.length < 3) return;
+    if (!pattern || pattern.length < 3) return false;
 
     // `vatCode || 'standard'` was the default here. Learning a restaurant into
     // Staff Welfare therefore minted a pattern claiming input tax on
@@ -41,42 +41,49 @@ export async function learnFromAllocation(
       companyId, glAccountId, vatCode || 'none', { learningPattern: pattern },
     );
 
-    const existing = (await sql`
-      SELECT id, usage_count FROM categorization_patterns
-      WHERE UPPER(pattern) = ${pattern.toUpperCase()}
-        AND source = 'learned'
-        AND company_id = ${companyId}::uuid
-      LIMIT 1
-    `) as DbRow[];
+    // Own savepoint: a failed statement here must not abort the caller's
+    // request transaction (learning is non-critical; the caught error would
+    // otherwise turn the request's COMMIT into a rollback).
+    await withSavepoint('learn_pattern', async () => {
+      const existing = (await sql`
+        SELECT id, usage_count FROM categorization_patterns
+        WHERE UPPER(pattern) = ${pattern.toUpperCase()}
+          AND source = 'learned'
+          AND company_id = ${companyId}::uuid
+        LIMIT 1
+      `) as DbRow[];
 
-    const existingRow = existing[0];
-    if (existingRow) {
-      const newCount = Number(existingRow.usage_count) + 1;
-      const newConfidence = Math.min(0.95, 0.60 + newCount * 0.05);
-      await sql`
-        UPDATE categorization_patterns
-        SET gl_account_id = ${glAccountId}::UUID,
-            category = ${category},
-            vat_code = ${learnedVatCode},
-            usage_count = ${newCount},
-            confidence = ${newConfidence},
-            last_used_at = NOW()
-        WHERE id = ${existingRow.id}::UUID
-      `;
-    } else {
-      // K-244: always tenant-scoped. company_id is NOT NULL (migration 220);
-      // a retry without it could only fail, or mint a cross-tenant pattern.
-      await sql`
-        INSERT INTO categorization_patterns
-          (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source, company_id)
-        VALUES
-          (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
-      `;
-    }
+      const existingRow = existing[0];
+      if (existingRow) {
+        const newCount = Number(existingRow.usage_count) + 1;
+        const newConfidence = Math.min(0.95, 0.60 + newCount * 0.05);
+        await sql`
+          UPDATE categorization_patterns
+          SET gl_account_id = ${glAccountId}::UUID,
+              category = ${category},
+              vat_code = ${learnedVatCode},
+              usage_count = ${newCount},
+              confidence = ${newConfidence},
+              last_used_at = NOW()
+          WHERE id = ${existingRow.id}::UUID
+        `;
+      } else {
+        // K-244: always tenant-scoped. company_id is NOT NULL (migration 220);
+        // a retry without it could only fail, or mint a cross-tenant pattern.
+        await sql`
+          INSERT INTO categorization_patterns
+            (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source, company_id)
+          VALUES
+            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
+        `;
+      }
+    });
 
     log.info('Learned categorization pattern', { pattern, category, glAccountId, companyId }, 'accounting');
+    return true;
   } catch (err) {
     log.error('Failed to learn from allocation', { txId, companyId, error: err }, 'accounting');
-    // Non-critical: don't throw
+    // Non-critical: don't throw; the caller reports learned: false
+    return false;
   }
 }
