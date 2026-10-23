@@ -18,12 +18,22 @@ export interface LumpSumCalculation {
   breakdown: Array<{ bracket: string; amount: number; tax: number; rate: number }>;
 }
 
-// SA SARS retirement/severance lump sum brackets (2024)
+/** The tax year LUMP_SUM_BRACKETS are for (1 March 2026 – 28 February 2027). */
+export const LUMP_SUM_TAX_YEAR = 2027;
+
+// SARS "Retirement fund lump sum benefits or severance benefits" table, 2027
+// tax year (unchanged since 2024): https://www.sars.gov.za/tax-rates/income-tax/retirement-lump-sum-benefits/
+// (retrieved 2026-10-22). 1 – 550 000: 0%; 550 001 – 770 000: 18% above
+// 550 000; 770 001 – 1 155 000: 39 600 + 27% above 770 000; 1 155 001 and
+// above: 143 550 + 36% above 1 155 000. The only copy in the codebase: the pay
+// run never taxes a lump sum from a table, only at its directive's figures
+// (payrollSeveranceDirective). An estimate: SARS aggregates earlier lump sums,
+// which this does not see.
 const LUMP_SUM_BRACKETS: LumpSumBracket[] = [
-  { from: 0,         to: 500_000,   rate: 0.00, label: 'R0 – R500,000 (0%)' },
-  { from: 500_000,   to: 700_000,   rate: 0.18, label: 'R500,001 – R700,000 (18%)' },
-  { from: 700_000,   to: 1_050_000, rate: 0.27, label: 'R700,001 – R1,050,000 (27%)' },
-  { from: 1_050_000, to: null,      rate: 0.36, label: 'Over R1,050,000 (36%)' },
+  { from: 0,         to: 550_000,   rate: 0.00, label: 'R0 – R550,000 (0%)' },
+  { from: 550_000,   to: 770_000,   rate: 0.18, label: 'R550,001 – R770,000 (18%)' },
+  { from: 770_000,   to: 1_155_000, rate: 0.27, label: 'R770,001 – R1,155,000 (27%)' },
+  { from: 1_155_000, to: null,      rate: 0.36, label: 'Over R1,155,000 (36%)' },
 ];
 
 export function calculateLumpSumTax(

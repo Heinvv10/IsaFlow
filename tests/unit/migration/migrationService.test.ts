@@ -190,16 +190,18 @@ describe('migrationTemplateService — getTemplate', () => {
   });
 
   it('returns Sage Cloud 3-digit COA template', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
+    const { getTemplate, getTemplateGuidance } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('sage_cloud', 'chart-of-accounts');
     expect(template).toContain('account_code');
-    expect(template).toContain('3-digit');
+    expect(template).toContain('111,Bank Account');
+    // The code-format note is page guidance now, not a `#` row Papa read as data.
+    expect(getTemplateGuidance('chart-of-accounts', 'sage_cloud')).toContain('3-digit');
   });
 
   it('returns Sage 50 7-digit COA template', async () => {
-    const { getTemplate } = await import('@/modules/accounting/services/core/migrationTemplateService');
+    const { getTemplate, getTemplateGuidance } = await import('@/modules/accounting/services/core/migrationTemplateService');
     const template = getTemplate('sage_50', 'chart-of-accounts');
-    expect(template).toContain('7-digit');
+    expect(getTemplateGuidance('chart-of-accounts', 'sage_50')).toContain('7-digit');
     expect(template).toContain('1000000');
   });
 

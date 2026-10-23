@@ -1,7 +1,7 @@
 // tests/integration/k096-mandate-verify-scoping.int.test.ts
 //
 // K-096 adjacent cases for scoping the mandate writes in
-// `GET /api/billing/paystack/mandate/verify`:
+// `POST /api/billing/paystack/mandate/verify`:
 //
 //   1. The failed/abandoned branch marks only the mandate the reference
 //      resolved to, not every pending mandate the company has — a user
@@ -18,6 +18,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { als } from '@/lib/als';
 
 vi.mock('@/lib/auth', () => ({ withAuth: (h: unknown) => h }));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (h: unknown) => h }));
 
 const verifyTransaction = vi.fn();
 vi.mock('@/modules/billing/services/paystackClient', () => ({
@@ -103,7 +104,7 @@ describeIfDb('K-096 mandate verify write scoping', () => {
       await als.run({ client, userId: 'k096', companyId, claims: {} }, async () => {
         try {
           await route(
-            { method: 'GET', query: { ref }, headers: {}, companyId, user: { id: 'k096' } } as unknown as NextApiRequest,
+            { method: 'POST', query: {}, body: { ref }, headers: {}, companyId, companyRole: 'owner', user: { id: 'k096' } } as unknown as NextApiRequest,
             res,
           );
         } catch (err) {

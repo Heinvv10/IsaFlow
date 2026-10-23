@@ -102,7 +102,7 @@ describe('loan detail schedule and events tabs', () => {
 
 describe('supplier migration import', () => {
   async function runImport(session: () => Response) {
-    const post = () => ok({ succeeded: 7, failed: 0, skipped: 0 });
+    const post = () => ok({ imported: 7, skipped: 0, errors: [] });
     vi.mocked(apiFetch).mockImplementation(async (u: unknown) => (String(u).includes('/migration/session') ? session() : post()));
     const { container } = render(<SuppliersImportPage />);
     const file = new File(['name\nD2 Supplier\n'], 'suppliers.csv', { type: 'text/csv' });

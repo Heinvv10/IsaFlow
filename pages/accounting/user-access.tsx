@@ -156,6 +156,8 @@ export default function UserAccessPage() {
                 {users.map((u) => {
                   const isSelf = u.userId === user?.id;
                   const isLastOwner = u.role === 'owner' && ownerCount <= 1;
+                  // S-04: only an owner may change or remove an owner. The API is the gate.
+                  const ownerLocked = u.role === 'owner' && myRole !== 'owner';
                   const isExpanded = expandedUserId === u.userId;
                   return (
                     <div key={u.userId} className="border-b border-gray-200 dark:border-gray-800 last:border-b-0">
@@ -172,7 +174,7 @@ export default function UserAccessPage() {
                         <div className="hidden sm:block w-52 text-gray-600 dark:text-gray-400 truncate">{u.email}</div>
                         {/* Role */}
                         <div className="w-36">
-                          {isAdmin && !isSelf ? (
+                          {isAdmin && !isSelf && !ownerLocked ? (
                             <select
                               value={u.role}
                               onClick={(e) => e.stopPropagation()}
@@ -190,7 +192,7 @@ export default function UserAccessPage() {
                         <div className="hidden md:block w-28 text-gray-600 dark:text-gray-400 text-xs">{fmt(u.joinedAt)}</div>
                         {isAdmin && (
                           <div className="flex items-center gap-3 w-20 justify-end" onClick={(e) => e.stopPropagation()}>
-                            {!isSelf && !isLastOwner && (
+                            {!isSelf && !isLastOwner && !ownerLocked && (
                               confirmRemove === u.userId ? (
                                 <span className="flex items-center gap-2">
                                   <button onClick={() => handleRemove(u.userId)} className="text-xs text-red-400 hover:text-red-300">Confirm</button>
