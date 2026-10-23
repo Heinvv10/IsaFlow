@@ -66,6 +66,10 @@ export function HistoryPanel({ history, undo, onUndone }: Props) {
             <button type="button" data-testid="undo-change" className={BTN_SECONDARY} onClick={() => setOpen(true)}>Undo latest change</button>
           ) : (
             <div data-testid="undo-form">
+              <p data-testid="undo-allowance-note" className="mb-2 text-sm text-[var(--ff-text-secondary)]">
+                Undoing restores the books, but the notice already filed with CIPC still counts: the year end
+                cannot be changed again during this financial year (Companies Act s27(4)(a)).
+              </p>
               <label htmlFor="undo-reason" className="block text-sm font-medium text-[var(--ff-text-secondary)] mb-1">Reason for undoing (at least {MIN_REASON} characters)</label>
               <textarea id="undo-reason" data-testid="undo-reason" rows={3} className={INPUT_CLS} value={reason} onChange={e => setReason(e.target.value)} />
               {error && (
