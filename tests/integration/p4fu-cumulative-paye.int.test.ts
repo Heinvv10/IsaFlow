@@ -209,10 +209,14 @@ describe('G4: the year-to-date', () => {
       `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, approved_at) VALUES ($1, 2027, 3, 'approved', NOW())`,
       [f.company]);
     expect(await judgeYearToDateStale(f.company, march)).toBeNull();
-    // April 2026 (a later month of the same tax year) approved after it: stale.
+    // April 2026 (a later month of the same tax year) approved after it, paying the same employee from the
+    // tables: stale (a later month that paid no one on March's lines would have missed no one).
+    const april = (await pool.query(
+      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, approved_at) VALUES ($1, 2026, 4, 'approved', NOW()) RETURNING id`,
+      [f.company])).rows[0]!.id;
     await pool.query(
-      `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status, approved_at) VALUES ($1, 2026, 4, 'approved', NOW())`,
-      [f.company]);
+      `INSERT INTO payroll_run_lines (run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, net_pay)
+       VALUES ($1, $2, 20000, 20000, 20000, 0, 2115, 17885)`, [april, f.employee]);
     expect((await judgeYearToDateStale(f.company, march))?.detail).toMatch(/later month.*2026-04/);
   });
 });

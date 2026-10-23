@@ -147,6 +147,64 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     ok(await approveRun(f, jan));
   });
 
+  /** January reopened, February calculated while it was (missing it), January recalculated (no warning), February approved. */
+  async function febMissedJan(name: string, beforeFeb?: (f: SeveranceFixture) => Promise<void>) {
+    const f = await seedEmployee(pool, fixtures, name, 20_000);
+    const ids: string[] = [];
+    for (const p of PERIODS.slice(0, 11)) { const id = await mk(f, p.year, p.month); await calcOnly(f, id); ok(await approveRun(f, id)); ids.push(id); }
+    const jan = ids[10]!;
+    ok(await reopenRun(f, jan));
+    await beforeFeb?.(f);
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb);
+    await calcOnly(f, jan);
+    ok(await approveRun(f, feb));
+    return { f, jan, feb };
+  }
+
+  it('February pays the shared employee only untaxed amounts: it read no year-to-date for them, so January is approved', async () => {
+    const { f, jan, feb } = await febMissedJan('R1 later month untaxed', async (f) => {
+      // From February the employee's salary stops and an untaxed allowance is all February pays them.
+      await pool.query(
+        `UPDATE payroll_employee_components SET effective_to = '2027-01-31' WHERE employee_id = $1 AND effective_to IS NULL`, [f.employee]);
+      const allowance = String((await pool.query(
+        `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+         VALUES ($1, 'Untaxed allowance', '3702', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id);
+      await pool.query(
+        `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 1500, '2027-02-01')`,
+        [f.employee, allowance]);
+    });
+    const febLine = (await pool.query(
+      'SELECT periodic_taxable::float8 AS p, annual_taxable::float8 AS a FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2',
+      [feb, f.employee])).rows[0];
+    expect(febLine).toEqual({ p: 0, a: 0 }); // on February's lines, nothing taxed from the tables
+    expect(await warningCodes(jan, f.employee)).not.toContain('PAYE_LATER_PERIODS_APPROVED');
+    ok(await approveRun(f, jan));
+  });
+
+  it('February\'s lines from before cumulative PAYE (no periodic_taxable) read no year-to-date: January is approved', async () => {
+    const { f, jan, feb } = await febMissedJan('R1 later month pre-cumulative');
+    await pool.query('UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL WHERE run_id = $1', [feb]);
+    ok(await approveRun(f, jan));
+  });
+
+  it('a pre-cumulative January line (no periodic_taxable, no warning) that a cumulative February missed: January is refused', async () => {
+    const { f, jan } = await febMissedJan('R1 this run pre-cumulative');
+    await pool.query(
+      `UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL, validation_results = '[]'::jsonb WHERE run_id = $1`, [jan]);
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02.*Recalculate the run/);
+  });
+
+  it('a legacy validation_results that is not an array reads as no warning: refused, not a 500', async () => {
+    const { f, jan } = await febMissedJan('R1 legacy validation shape');
+    await pool.query(`UPDATE payroll_run_lines SET validation_results = '{}'::jsonb WHERE run_id = $1`, [jan]);
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode, JSON.stringify(refused.body).slice(0, 200)).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02/);
+  });
+
   // Named limits, pinned so a change to them is deliberate (judgeYearToDateStale's comment, the module .claude.md).
   const asPreCumulative = (runId: string) => pool.query(
     `UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL, validation_results = '[]'::jsonb WHERE run_id = $1`, [runId]);
