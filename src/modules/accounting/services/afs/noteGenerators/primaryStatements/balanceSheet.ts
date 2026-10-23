@@ -10,7 +10,7 @@
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, type SectionLine } from './_helpers';
-import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 
 // Asset codes from the canonical catalogue. Anything not in this set
 // (and on the BS) is treated as equity or liability and sign-flipped.
@@ -31,10 +31,14 @@ export async function generateStatementOfFinancialPosition(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateStatementOfFinancialPosition', { companyId, fiscalYear }, 'AfsPrimary');
-  const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
+  const period = await getReportingPeriod(companyId, fiscalYear);
+  const fyEnd = period.current.end;
   const lines = rollUpTotals(await fetchSectionLines(companyId, 'balance_sheet', fiscalYear, true));
   const adjusted = lines.map((l) => (isAssetLine(l) ? l : flipSign(l)));
-  const blocks = renderHierarchicalTable(adjusted, true);
+  const blocks = [
+    ...renderHierarchicalTable(adjusted, true, [`As at ${period.current.end} (R)`, `As at ${period.prior.end} (R)`]),
+    ...(period.comparabilityNote ? [{ type: 'paragraph' as const, text: period.comparabilityNote }] : []),
+  ];
 
   // Published so the pre-export blockers have something to check. They used to
   // read totalAssets/totalLiabilities/totalEquity from a snapshot that only

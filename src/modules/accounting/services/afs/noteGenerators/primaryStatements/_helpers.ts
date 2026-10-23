@@ -205,9 +205,11 @@ export function rollUpTotals(lines: SectionLine[]): SectionLine[] {
 export function renderHierarchicalTable(
   lines: SectionLine[],
   hasPriorYear: boolean,
+  /** Amount column headers when a period is not twelve months (afsReportingPeriod). */
+  columns: [string, string] = ['Current year (R)', 'Prior year (R)'],
 ): NoteContent['blocks'] {
   const visible = lines.filter((l) => l.isHeader || l.isTotal || l.currentAmount !== 0 || l.priorAmount !== 0);
-  const headers = hasPriorYear ? ['Line', 'Current year (R)', 'Prior year (R)'] : ['Line', 'Current year (R)'];
+  const headers = hasPriorYear ? ['Line', columns[0], columns[1]] : ['Line', columns[0]];
   const rows: string[][] = [];
   for (const l of visible) {
     const indent = l.parentCode ? '  ' : '';

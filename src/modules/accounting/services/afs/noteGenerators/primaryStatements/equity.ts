@@ -19,6 +19,8 @@ import { fetchSectionLines, type SectionLine } from './_helpers';
 import { ACCUMULATED_PROFIT_CODE, DERIVED_ACCUMULATED_PROFIT_CODE } from './derivedAccumulatedProfit';
 import { fetchDividendsPaid } from './dividendsPaid';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { periodPhrase } from '@/modules/accounting/services/afs/afsReportingPeriod';
+import { monthsSpanned } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 
 // BSACCPL: the derived accumulated-profit line a taxonomy without BS045 gets (derivedAccumulatedProfit.ts).
 const EQUITY_CODES = new Set(['BS043', 'BS044', 'BS045', 'BS046', 'BS047', 'BS048', DERIVED_ACCUMULATED_PROFIT_CODE]);
@@ -63,7 +65,7 @@ export async function generateChangesInEquity(
     content: {
       title: 'Statement of Changes in Equity',
       blocks: [
-        { type: 'paragraph', text: `Movements in equity for the year ended ${fyEnd}.` },
+        { type: 'paragraph', text: `Movements in equity for the ${periodPhrase(monthsSpanned(fyStart, fyEnd), fyEnd)}.` },
         {
           type: 'table',
           headers: ['Component', 'Opening (R)', ...(showDividends ? ['Dividends (R)'] : []), 'Movement (R)', 'Closing (R)'],
