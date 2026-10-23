@@ -174,6 +174,12 @@ describe('makeAutoCreatable — exactly when ensureFiscalPeriodForDate would gen
     expect(await makeAutoCreatable(CO, TODAY)('2026-07-15')).toBe(true);
   });
 
+  it('a GAP in an open year that holds a CLOSED or LOCKED period is NOT (the generator adds no month beside it)', async () => {
+    fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }];
+    responder = (text) => (text.includes("status IN ('closed', 'locked')") ? [{ '?column?': 1 }] : []);
+    expect(await makeAutoCreatable(CO, TODAY)('2026-07-15')).toBe(false);
+  });
+
   it('a date in a CLOSED or LOCKED year is NOT', async () => {
     fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', status: 'closed' }];
     expect(await makeAutoCreatable(CO, TODAY)('2026-07-15')).toBe(false);

@@ -24,7 +24,8 @@
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { isAutoCreatableYear } from './fiscalPeriodAutoCreate';
+import { isRealCalendarDate } from '@/lib/validation';
+import { isAutoCreatableYear, isOutsideWindowByCalendarYear, yearHoldsClosedPeriod } from './fiscalPeriodAutoCreate';
 import { fiscalYearForDate } from './fiscalYearRegistry';
 import { isLedgerDate } from './ledgerDateRange';
 import {
@@ -95,7 +96,9 @@ export async function earliestPostableDate(
  * Exactly its conditions: the registry year holding the date (a stored year,
  * else the template year) has its label inside the auto-create window and is
  * not closed or locked. A date in a GAP of an existing open year is postable:
- * the generator now fills the missing month, and there is no overlap refusal.
+ * the generator now fills the missing month, and there is no overlap refusal —
+ * unless the year already holds a closed or locked period, beside which the
+ * generator adds no month (and the post is refused).
  * An unparseable date answers false, as ensureFiscalPeriodForDate answers NULL.
  * `today` is injectable for tests.
  */
@@ -112,7 +115,8 @@ export function makeAutoCreatable(
       // answers NULL for exactly this failure, so no uncovered date is postable.
       return false;
     }
-    return isAutoCreatableYear(year.fiscalYear, today) && year.status !== 'closed' && year.status !== 'locked';
+    if (!isAutoCreatableYear(year.fiscalYear, today) || year.status === 'closed' || year.status === 'locked') return false;
+    return !(year.id && await yearHoldsClosedPeriod(companyId, year.id));
   };
 }
 
@@ -127,11 +131,15 @@ export async function isDateAutoCreatable(companyId: string, date: string): Prom
 /**
  * Is `date`'s fiscal year outside the auto-create window (R-012)? A typo'd
  * year such as 9999: posting never creates it. Distinct from "not
- * auto-creatable", which also covers a closed or locked year. When the year
- * cannot be resolved the answer is unknown: false — which makes the resolver
- * REFUSE even a typo'd-year entry. Deliberate: failing closed.
+ * auto-creatable", which also covers a closed or locked year. A date whose
+ * calendar year alone proves it is answered without the registry, which
+ * cannot place it (isOutsideWindowByCalendarYear). When the year cannot be
+ * resolved the answer is unknown: false — which makes the resolver REFUSE.
+ * Deliberate: failing closed.
  */
 export async function isOutsideAutoCreateWindow(companyId: string, date: string): Promise<boolean> {
+  // Before the ledger-range check: 9999 is outside that range too, and is exactly the typo'd year meant here.
+  if (isRealCalendarDate(date) && isOutsideWindowByCalendarYear(date)) return true;
   if (!isLedgerDate(date)) return false;
   try {
     const year = await fiscalYearForDate(companyId, date);

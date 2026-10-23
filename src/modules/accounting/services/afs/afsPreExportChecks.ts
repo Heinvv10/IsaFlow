@@ -458,9 +458,10 @@ export async function runPreExportChecks(
       passed: false,
       severity: 'blocker',
       detail:
-        `The financial year this company reports on is not set, so the period ` +
-        `these statements cover cannot be determined. Set the financial year ` +
-        `start under Settings > General. (${err instanceof Error ? err.message : String(err)})`,
+        `The period these statements cover cannot be determined: the company has no financial ` +
+        `year with this label (a change of year end can skip one), or its financial year start ` +
+        `is not set. Check Accounting > Financial Years and Settings > General. ` +
+        `(${err instanceof Error ? err.message : String(err)})`,
     }];
   }
 

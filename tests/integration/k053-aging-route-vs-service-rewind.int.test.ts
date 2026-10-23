@@ -44,6 +44,7 @@ import { softDelete } from '@/modules/accounting/services/core/softDeleteService
 import arAgingRoute from '../../pages/api/accounting/reports-ar-aging';
 import apAgingRoute from '../../pages/api/accounting/reports-ap-aging';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears, setPeriodsEndingBy } from './helpers/fiscalYearSeed';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -61,7 +62,6 @@ function shift(days: number): string {
 }
 const TODAY = fmtDate(new Date());
 const CLOSED_END = shift(-60);
-const OPEN_START = shift(-59);
 const OPEN_END = shift(400);
 const DOC_DATE = shift(-120);
 const DUE_DATE = shift(-100);
@@ -160,9 +160,7 @@ describeIfDb('K-053 the ageing routes and services on a book with settlements an
               VALUES (${USER}, ${USER + '@test.local'}, 'admin', true)`;
     await sql`INSERT INTO company_users (company_id, user_id, role)
               VALUES (${COMPANY}::UUID, ${USER}, 'admin')`;
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'K053RWD prior ' + TAG}, 1, 2026, '2020-01-01', ${CLOSED_END}::date, 'open'),
-                     (${COMPANY}::UUID, ${'K053RWD current ' + TAG}, 2, 2026, ${OPEN_START}::date, ${OPEN_END}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), OPEN_END);
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
     await account(payable, '2100', 'Trade Creditors', 'liability', 'credit', 'payable');
     await account(revenue, '4000', 'Sales', 'revenue', 'credit', 'default_revenue');
@@ -208,8 +206,7 @@ describeIfDb('K-053 the ageing routes and services on a book with settlements an
     await sql`INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated)
               VALUES (${apPayment}::UUID, ${apSettled}::UUID, ${PAID})`;
 
-    await sql`UPDATE fiscal_periods SET status = 'closed'
-              WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
+    await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
 
     token = await new SignJWT({ sub: USER, aal: 'aal2' })
       .setProtectedHeader({ alg: 'HS256' })

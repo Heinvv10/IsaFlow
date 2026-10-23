@@ -8,6 +8,18 @@
 // a deadline reminder — and it came back on the next run after somebody
 // dismissed it. Both are statements about rows over several runs, which a
 // stubbed `sql` cannot show.
+//
+// WHAT MAKES IT UNKNOWN NOW (migration 940). The deadline is six months after
+// the end of the company's stored financial year with the statement's label
+// (gl/fiscalYearRegistry). A NULL financial_year_start no longer makes it
+// unknown: the year template reads NULL as March, like every other reader. What
+// remains is a statement labelled with a year no financial year carries — the
+// label a change of year end skipped. Each company here has FY2025
+// (Jan-Dec 2025) and a 14-month transition FY2026 (Jan 2026 - Feb 2027), so
+// FY2027 belongs to no year (the next one is FY2028, from March 2027). The
+// tests that set and cleared the year start now relabel the open statement
+// between the skipped FY2027 and the real FY2026; the lifecycle asserted is
+// unchanged.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
@@ -28,8 +40,11 @@ const describeIfDb = isDisposableDb(DATABASE_URL) ? describe : describe.skip;
 describeIfDb('the alert for a filing deadline that cannot be assessed', () => {
   let admin: Pool;
 
-  const setYearStart = (company: string, month: number | null) =>
-    admin.query('UPDATE companies SET financial_year_start = $2 WHERE id = $1', [company, month]);
+  /** The open statement's year: a real one, or the label the transition skipped. */
+  const SKIPPED = 2027;
+  const REAL = 2026;
+  const setStatementYear = (company: string, label: number) =>
+    admin.query(`UPDATE afs_documents SET fiscal_year = $2 WHERE company_id = $1`, [company, label]);
   const rows = async (company: string) => (await admin.query(
     `SELECT dismissed_at IS NULL AS active, dismissed_by FROM compliance_alerts
       WHERE company_id = $1 AND alert_type = $2 ORDER BY fired_at`, [company, UNKNOWN])).rows;
@@ -43,15 +58,19 @@ describeIfDb('the alert for a filing deadline that cannot be assessed', () => {
     for (const company of [COMPANY, OTHER]) {
       await admin.query(`INSERT INTO companies (id, name, is_active) VALUES ($1, 'Deadline Alert Fixture', true)`, [company]);
       await admin.query(
+        `INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, kind)
+         VALUES ($1, 2025, '2025-01-01', '2025-12-31', 'normal'), ($1, 2026, '2026-01-01', '2027-02-28', 'transition')`,
+        [company]);
+      await admin.query(
         `INSERT INTO afs_documents (company_id, fiscal_year, document_type, reporting_framework, status)
-         VALUES ($1, 2031, 'afs', 'ifrs_smes', 'draft')`, [company]);
+         VALUES ($1, $2, 'afs', 'ifrs_smes', 'draft')`, [company, SKIPPED]);
     }
   }, 60000);
 
   beforeEach(async () => {
     await admin.query('DELETE FROM compliance_alerts WHERE company_id = ANY($1)', [[COMPANY, OTHER]]);
-    await setYearStart(COMPANY, null);
-    await setYearStart(OTHER, null);
+    await setStatementYear(COMPANY, SKIPPED);
+    await setStatementYear(OTHER, SKIPPED);
   });
 
   afterAll(async () => {
@@ -66,20 +85,20 @@ describeIfDb('the alert for a filing deadline that cannot be assessed', () => {
     expect(await rows(COMPANY)).toEqual([{ active: true, dismissed_by: null }]);
   });
 
-  it('is withdrawn when the financial year start is set', async () => {
+  it('is withdrawn when the statement is for a year the company has', async () => {
     await detectAndFireAfsAlerts(COMPANY);
-    await setYearStart(COMPANY, 3);
+    await setStatementYear(COMPANY, REAL);
     await detectAndFireAfsAlerts(COMPANY);
     expect(await activeTypes(COMPANY)).not.toContain(UNKNOWN);
     // Withdrawn by the system, not dismissed by a person.
     expect(await rows(COMPANY)).toEqual([{ active: false, dismissed_by: null }]);
   });
 
-  it('comes back if the year start is cleared again after a withdrawal', async () => {
+  it('comes back if the statement is for a missing year again after a withdrawal', async () => {
     await detectAndFireAfsAlerts(COMPANY);
-    await setYearStart(COMPANY, 3);
+    await setStatementYear(COMPANY, REAL);
     await detectAndFireAfsAlerts(COMPANY);
-    await setYearStart(COMPANY, null);
+    await setStatementYear(COMPANY, SKIPPED);
     await detectAndFireAfsAlerts(COMPANY);
     expect(await activeTypes(COMPANY)).toContain(UNKNOWN);
   });
@@ -107,13 +126,13 @@ describeIfDb('the alert for a filing deadline that cannot be assessed', () => {
   it('touches no other company\'s alert, raising, dismissing or withdrawing', async () => {
     await detectAndFireAfsAlerts(OTHER);
     await detectAndFireAfsAlerts(COMPANY);
-    await setYearStart(COMPANY, 3);
+    await setStatementYear(COMPANY, REAL);
     await detectAndFireAfsAlerts(COMPANY);
     expect(await rows(OTHER)).toEqual([{ active: true, dismissed_by: null }]);
     // And another company's dismissal does not silence this one's.
     const [theirs] = (await getActiveAfsAlerts(OTHER)).filter((a) => a.alertType === UNKNOWN);
     await dismissAfsAlert(OTHER, theirs!.id, USER);
-    await setYearStart(COMPANY, null);
+    await setStatementYear(COMPANY, SKIPPED);
     await detectAndFireAfsAlerts(COMPANY);
     expect(await activeTypes(COMPANY)).toContain(UNKNOWN);
   });
@@ -123,6 +142,7 @@ async function cleanup(admin: Pool): Promise<void> {
   const companies = [COMPANY, OTHER];
   await admin.query('DELETE FROM compliance_alerts WHERE company_id = ANY($1)', [companies]);
   await admin.query('DELETE FROM afs_documents WHERE company_id = ANY($1)', [companies]);
+  await admin.query('DELETE FROM fiscal_years WHERE company_id = ANY($1)', [companies]);
   await admin.query('DELETE FROM companies WHERE id = ANY($1)', [companies]);
   await admin.query('DELETE FROM users WHERE id = $1', [USER]);
 }
