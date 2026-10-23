@@ -34,7 +34,8 @@
 --   * a closed or locked period cannot be moved, re-dated or relabelled, and
 --     nothing is added to a closed or locked year; a closed or locked year
 --     cannot be re-dated or relabelled;
---   * a year's status follows its periods: locked/closed only when every day
+--   * a year's status is never written, only derived from its periods
+--     (enforced by trigger on every INSERT/UPDATE): locked/closed only when every day
 --     of the year is covered by periods that all are, closing while any period
 --     is closing, otherwise open.
 --
@@ -274,7 +275,8 @@ $$;
 
 -- ── Status follows the periods ───────────────────────────────────────────────
 
-CREATE OR REPLACE FUNCTION public.fiscal_year_derived_status(p_year uuid)
+-- p_start/p_end: the year's range as it will be (a BEFORE UPDATE passes NEW's).
+CREATE OR REPLACE FUNCTION public.fiscal_year_derived_status(p_year uuid, p_start date, p_end date)
 RETURNS varchar
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
@@ -283,12 +285,31 @@ AS $$
     WHEN COUNT(fp.id) = 0 THEN 'open'
     WHEN bool_or(fp.status = 'closing') THEN 'closing'
     WHEN bool_and(fp.status IN ('closed', 'locked'))
-         AND SUM(fp.end_date - fp.start_date + 1) = MAX(fy.end_date - fy.start_date + 1)
+         AND SUM(fp.end_date - fp.start_date + 1) = (p_end - p_start + 1)
       THEN CASE WHEN bool_and(fp.status = 'locked') THEN 'locked' ELSE 'closed' END
     ELSE 'open'
   END
-  FROM fiscal_years fy LEFT JOIN fiscal_periods fp ON fp.fiscal_year_id = fy.id
-  WHERE fy.id = p_year
+  FROM fiscal_periods fp WHERE fp.fiscal_year_id = p_year
+$$;
+
+CREATE OR REPLACE FUNCTION public.fiscal_year_derived_status(p_year uuid)
+RETURNS varchar
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT public.fiscal_year_derived_status(fy.id, fy.start_date, fy.end_date) FROM fiscal_years fy WHERE fy.id = p_year
+$$;
+
+-- A new year has no periods yet: it is open, whatever the INSERT says.
+CREATE OR REPLACE FUNCTION public.fiscal_years_insert_open()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  NEW.status := 'open';
+  RETURN NEW;
+END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.fiscal_years_sync_status()
@@ -413,9 +434,9 @@ BEGIN
     RAISE EXCEPTION 'fiscal year FY% is %: it cannot be re-dated or relabelled', OLD.fiscal_year, OLD.status
       USING ERRCODE = '55000';
   END IF;
-  IF NEW.start_date IS DISTINCT FROM OLD.start_date OR NEW.end_date IS DISTINCT FROM OLD.end_date THEN
-    NEW.status := public.fiscal_year_derived_status(NEW.id);  -- coverage changed
-  END IF;
+  -- Status is never written, only derived (an app_user UPDATE of status alone
+  -- cannot mark a year closed): from the periods, with the new coverage.
+  NEW.status := public.fiscal_year_derived_status(NEW.id, NEW.start_date, NEW.end_date);
   RETURN NEW;
 END;
 $$;
@@ -510,6 +531,10 @@ DROP TRIGGER IF EXISTS trg_fiscal_years_guard_closed ON fiscal_years;
 CREATE TRIGGER trg_fiscal_years_guard_closed BEFORE UPDATE ON fiscal_years
   FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_guard_closed();
 
+DROP TRIGGER IF EXISTS trg_fiscal_years_insert_open ON fiscal_years;
+CREATE TRIGGER trg_fiscal_years_insert_open BEFORE INSERT ON fiscal_years
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_insert_open();
+
 DROP TRIGGER IF EXISTS trg_fiscal_years_guard_delete ON fiscal_years;
 CREATE TRIGGER trg_fiscal_years_guard_delete BEFORE DELETE ON fiscal_years
   FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_guard_delete();
@@ -525,8 +550,10 @@ REVOKE ALL ON FUNCTION public.fiscal_year_for_date(uuid, date) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.fiscal_year_for_label(uuid, int) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.fiscal_year_link_period(uuid, int, date, date) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.fiscal_year_derived_status(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fiscal_year_derived_status(uuid, date, date) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fiscal_year_template(uuid, date) TO app_user;
 GRANT EXECUTE ON FUNCTION public.fiscal_year_for_date(uuid, date) TO app_user;
 GRANT EXECUTE ON FUNCTION public.fiscal_year_for_label(uuid, int) TO app_user;
 GRANT EXECUTE ON FUNCTION public.fiscal_year_link_period(uuid, int, date, date) TO app_user;
 GRANT EXECUTE ON FUNCTION public.fiscal_year_derived_status(uuid) TO app_user;
+GRANT EXECUTE ON FUNCTION public.fiscal_year_derived_status(uuid, date, date) TO app_user;
