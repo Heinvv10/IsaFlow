@@ -24,13 +24,22 @@ export interface ResolvedBudgetWindow extends BudgetWindow {
   fiscalYear: FiscalYearRecord;
 }
 
-/** `current` = this month to date; `full_year` = the registry year in full; anything else = year to date. */
+/**
+ * `current` = this month to date; `full_year` = the registry year in full; anything else = year to date.
+ * A `chosen` year (budgetReportYear) replaces the year holding today: `full_year` is its whole
+ * range, year to date runs from its start to today, held inside the year.
+ */
 export async function resolveBudgetWindow(
   companyId: string,
   period: string,
   now: Date = new Date(),
+  chosen: FiscalYearRecord | null = null,
 ): Promise<ResolvedBudgetWindow> {
   const today = localISODate(now);
+  if (chosen) {
+    const upTo = today < chosen.startDate ? chosen.startDate : today > chosen.endDate ? chosen.endDate : today;
+    return { startDate: chosen.startDate, endDate: period === 'full_year' ? chosen.endDate : upTo, fiscalYear: chosen };
+  }
   if (period === 'current') {
     const window = currentMonthWindow(now);
     return { ...window, fiscalYear: await fiscalYearForDate(companyId, window.startDate) };

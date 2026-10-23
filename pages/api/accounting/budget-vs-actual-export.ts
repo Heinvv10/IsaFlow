@@ -6,7 +6,8 @@
  * (budgetWindowService) so the CSV matches exactly what the UI report shows.
  *
  * Query params:
- *   period   current | ytd | full_year   (default: ytd)
+ *   period       current | ytd | full_year   (default: ytd)
+ *   fiscal_year  optional financial-year label (ytd and full_year); 404 if no year carries it, 400 if not a label
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -20,6 +21,7 @@ import { csvVal } from '@/lib/csv';
 import { localISODate } from '@/lib/dateUtils';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { loadWindowBudgets, resolveBudgetWindow } from '@/modules/accounting/services/reports/budgetWindowService';
+import { BudgetReportYearError, chosenReportYear } from '@/modules/accounting/services/reports/budgetReportYear';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -31,7 +33,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // The same window and budgets as the report (reports-budget-vs-actual.ts):
     // registry year for ytd / full_year, calendar months summed from
     // budget_month_amounts.
-    const { startDate, endDate } = await resolveBudgetWindow(companyId, period);
+    const chosen = await chosenReportYear(companyId, req.query.fiscal_year, period);
+    const { startDate, endDate } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
     const budgets = await loadWindowBudgets(companyId, startDate, endDate);
 
     // Fetch actual GL amounts for expense and revenue accounts in the period
@@ -112,6 +115,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     return res.status(200).send(csv);
   } catch (err) {
+    if (err instanceof BudgetReportYearError) {
+      return err.unknown ? apiResponse.notFound(res, 'Financial year', String(err.label)) : apiResponse.badRequest(res, err.message);
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error('Failed to export budget vs actual report', { error: msg });
     return apiResponse.badRequest(res, 'Failed to export budget vs actual report');

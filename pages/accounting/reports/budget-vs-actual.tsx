@@ -10,7 +10,7 @@ import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { BarChart3, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { longDate, parseReportPeriod } from '@/components/accounting/budgets/budgetClient';
+import { longDate, monthLabel, parseReportPeriod } from '@/components/accounting/budgets/budgetClient';
 
 interface BudgetLine {
   account_code: string;
@@ -22,6 +22,8 @@ interface BudgetLine {
   variance_pct: number;
 }
 
+interface ReportYear { fiscalYear: number; startDate: string; endDate: string; kind: string }
+
 interface BudgetReport {
   period: string;
   lines: BudgetLine[];
@@ -30,33 +32,52 @@ interface BudgetReport {
   total_variance: number;
 }
 
+/** The report's query string: the period, and the financial-year label when one is chosen. */
+function reportQuery(period: string, year: number | null): string {
+  const params = new URLSearchParams({ period });
+  if (year !== null) params.set('fiscal_year', String(year));
+  return params.toString();
+}
+
 export default function BudgetVsActualPage() {
   const [report, setReport] = useState<BudgetReport | null>(null);
   const [fiscalPeriod, setFiscalPeriod] = useState('current');
+  // The financial year picked for year to date / full year; null = the year holding today.
+  const [chosenYear, setChosenYear] = useState<number | null>(null);
+  const [years, setYears] = useState<ReportYear[]>([]);
+  const [shownYear, setShownYear] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
 
+  const selectedYear = chosenYear ?? shownYear;
+  const yearOptions: Array<{ fiscalYear: number; startDate: string; endDate: string }> = years.length > 0
+    ? years : selectedYear !== null ? [{ fiscalYear: selectedYear, startDate: '', endDate: '' }] : [];
   // The range the report itself covers, so a drill-down foots to its line.
   const range = parseReportPeriod(report?.period);
 
+  // The current month has no year to choose; the other periods take the chosen one.
+  const yearParam = fiscalPeriod !== 'current' && chosenYear !== null ? chosenYear : null;
   const loadReport = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ period: fiscalPeriod });
-      const res = await apiFetch(`/api/accounting/reports-budget-vs-actual?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-budget-vs-actual?${reportQuery(fiscalPeriod, yearParam)}`);
       await assertOk(res, 'Could not load the budget report - try again');
       const json = await res.json();
       const data = json.data || json;
       setReport(data.report || data);
+      setYears(data.years ?? []);
+      setShownYear(data.fiscal_year ?? null);
     } catch (err) {
       setReport(null);
+      setYears([]);
+      setShownYear(null);
       setError(apiErrorMessage(err, 'Could not load the budget report - try again'));
     } finally {
       setIsLoading(false);
     }
-  }, [fiscalPeriod]);
+  }, [fiscalPeriod, yearParam]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
@@ -83,8 +104,7 @@ export default function BudgetVsActualPage() {
                 </div>
               </div>
               <button onClick={() => {
-                const params = new URLSearchParams({ period: fiscalPeriod });
-                window.open(`/api/accounting/budget-vs-actual-export?${params}`, '_blank');
+                window.open(`/api/accounting/budget-vs-actual-export?${reportQuery(fiscalPeriod, yearParam)}`, '_blank');
               }} disabled={!report || !report.lines || report.lines.length === 0}
                 className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
@@ -104,6 +124,20 @@ export default function BudgetVsActualPage() {
               <option value="ytd">Year to Date</option>
               <option value="full_year">Full Year</option>
             </select>
+            {fiscalPeriod !== 'current' && (selectedYear !== null) && (
+              <select
+                value={selectedYear}
+                onChange={(e) => setChosenYear(Number(e.target.value))}
+                data-testid="report-year"
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
+              >
+                {yearOptions.map(y => (
+                  <option key={y.fiscalYear} value={y.fiscalYear}>
+                    {y.startDate ? `${y.fiscalYear}: ${monthLabel(y.startDate.slice(0, 7))} - ${monthLabel(y.endDate.slice(0, 7))}` : y.fiscalYear}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {isLoading ? (
