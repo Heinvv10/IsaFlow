@@ -5,10 +5,22 @@
  * Spec: SARS BRS — PAYE Employer Reconciliation v25.2.0 (effective 1 March 2026).
  *
  * MVP scope:
- *   - IRP5 certificates only (no IT3(a), no ITREG)
+ *   - IRP5 certificates, and an IT3(a) when no tax was deducted at all (4150
+ *     reason 04 with a directive, else 02; BRS V25.3.0 p. 17, 58, 108). No ITREG.
  *   - Natural persons with valid RSA ID (nature-of-person A)
- *   - Income code 3601 (gross salary/wages)
- *   - Deduction codes 4102 (PAYE), 4141 (total UIF: employee + employer), 4142 (SDL)
+ *   - Income code 3601 (gross salary/wages), and 3605 annual payments (bonus,
+ *     leave pay on resignation, notice pay — SARS PAYE-GEN-01-G21 (2027) p. 33:
+ *     "Reflect under code 3605"), which 3601 then excludes
+ *   - Lump sums paid under a SARS directive, in a run (audit 2026-10-18 P3) or
+ *     outside payroll (directivePaymentFiling, PAYE 4a follow-ups G1): the
+ *     income code (3901, or 3907 for other lump sums) with its PAYE under 4115
+ *     for 3901 (G21 (2027) p. 22) and under 4102 for 3907 (G21 p. 21; BRS
+ *     V25.3.0 p. 57 lists the 4115 codes), and the lump-sum directive group
+ *     3230 number, 3231 issued date, 3232 income source code, 3233 income
+ *     amount (BRS "Directive Information", p. 41–44; the optional 3234 type
+ *     indicator is left out). 3601 excludes them.
+ *   - Deduction codes 4102 (PAYE), 4115 (PAYE on lump sums), 4141 (total UIF:
+ *     employee + employer), 4142 (SDL)
  *   - Periods-of-employment field derived from employee start/end dates
  *
  * Deliberately out of scope — will be added in later iterations:
@@ -16,23 +28,24 @@
  *     4149 total tax/UIF/SDL): their exact definitions need the BRS in hand, so
  *     they are not guessed. Do not submit this file without checking e@syFile's
  *     import validation for them.
- *   - Reason code 4150 (a reason for non-deduction of tax, not an amount).
+ *   - Reason codes 4150 other than 02 and 04 (08 needs 4116, not emitted).
  *   - ETI (codes 3026, 3190, 7002-7009)
  *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
- *   - Tax directives (code 3220)
- *   - Fringe benefits, allowances, lump sums (codes 3605, 3701-3713, 3801-3815)
+ *   - Fixed-rate PAYE directives
+ *   - Fringe benefits and allowances (codes 3701-3713, 3801-3815)
  *   - Non-natural persons / directors / asylum seekers
  *
  * The service throws UsageError on missing employer data so the caller can
  * surface a clear remediation message to the user.
  */
 
-export class UsageError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'UsageError';
-  }
-}
+import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber } from './easyFileFields';
+import { validateEmployee } from './easyFileEmployeeChecks';
+import { lumpSumPayeCode } from './payrollLumpSumFiling';
+import { validateCertificateTaxFields } from './irp5ValidationEngine';
+
+export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
+export { splitCertificateIncome } from './payrollLumpSumFiling';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,75 +85,29 @@ export interface EmployeeInput {
   uifEmployee: number;            // part of 4141 (total UIF) — cents kept
   uifEmployer: number;            // part of 4141 (total UIF) — cents kept
   sdl4142: number;                // 4142 (SDL) — cents kept
+  /** Annual payments (3605), NOT included in grossSalary3601. Their PAYE stays in 4102. */
+  annualPayments3605?: number;
+  /** Lump sums paid under a directive, NOT included in grossSalary3601. */
+  lumpSums?: LumpSumInput[];
+  /**
+   * The employee's tax threshold for the year (by age). An IT3(a) with reason 02
+   * ("earn less than the tax threshold") is written only when 3601 + 3605 is at
+   * or under it; without it, or above it, a certificate with no tax is refused.
+   */
+  taxThreshold?: number;
+}
+
+export interface LumpSumInput {
+  sourceCode: string;             // income code, and 3232
+  directiveNumber: string;        // 3230 — AN15, numeric for 3901
+  directiveIssuedDate: string;    // 3231 — CCYYMMDD
+  amount: number;                 // the income code and 3233 — cents dropped
+  paye: number;                   // part of 4115 — cents kept
 }
 
 export interface BuildInput {
   employer: EmployerInput;
   employees: EmployeeInput[];
-}
-
-// ─── Field formatters ─────────────────────────────────────────────────────────
-
-type FieldType = 'A' | 'AN' | 'FT' | 'N' | 'N_CENTS';
-
-/** BRS §3: no commas or pipes are allowed inside values (rule h). */
-function assertNoForbiddenChars(value: string, code: number): void {
-  if (value.includes(',') || value.includes('|')) {
-    throw new UsageError(`Field ${code} contains a forbidden character (comma or pipe): "${value}"`);
-  }
-}
-
-/** BRS §3(m): data fields cannot start with a space. */
-function assertNoLeadingSpace(value: string, code: number): void {
-  if (value.startsWith(' ')) {
-    throw new UsageError(`Field ${code} must not start with a space: "${value}"`);
-  }
-}
-
-export function formatField(code: number, value: string | number | null, type: FieldType): string | null {
-  if (value === null || value === undefined || value === '') return null;
-
-  if (type === 'A' || type === 'AN' || type === 'FT') {
-    const str = String(value);
-    assertNoForbiddenChars(str, code);
-    assertNoLeadingSpace(str, code);
-    // BRS §3(l): Alpha / AN / FT wrapped in opening + closing double quotes.
-    return `${code},"${str}"`;
-  }
-
-  if (type === 'N_CENTS') {
-    // Cents must be present with a decimal point (§3 and code-level rules for 4101/4102/4115/4141/4142/...).
-    const num = Number(value);
-    if (num < 0) throw new UsageError(`Field ${code} cannot be negative (BRS §3(g))`);
-    return `${code},${num.toFixed(2)}`;
-  }
-
-  // Plain numeric — cents dropped, integer only (BRS §3(j)).
-  const num = Number(value);
-  if (num < 0) throw new UsageError(`Field ${code} cannot be negative (BRS §3(g))`);
-  return `${code},${Math.floor(num)}`;
-}
-
-// ─── Validators for the critical employer ref numbers ─────────────────────────
-
-/** BRS: code 2020 must be 10 numeric chars. Starts with 7 if registered for PAYE; otherwise 0/1/2/3/9. */
-export function isValidPayeRef(value: string): boolean {
-  return /^[01237][0-9]{9}$/.test(value);
-}
-
-/** BRS: code 2022 — L + 9 digits. */
-export function isValidSdlRef(value: string): boolean {
-  return /^L[0-9]{9}$/.test(value);
-}
-
-/** BRS: code 2024 — U + 9 digits. */
-export function isValidUifRef(value: string): boolean {
-  return /^U[0-9]{9}$/.test(value);
-}
-
-/** BRS: SARS income tax number — 10 numeric, first digit 0/1/2/3/9. */
-export function isValidTaxNumber(value: string): boolean {
-  return /^[01239][0-9]{9}$/.test(value);
 }
 
 // ─── Record builders ──────────────────────────────────────────────────────────
@@ -209,38 +176,45 @@ export function buildEmployerRecord(e: EmployerInput): string[] {
   return lines.filter((l): l is string => l !== null);
 }
 
-function validateEmployee(emp: EmployeeInput): void {
-  if (emp.certificateNumber.length !== 30) {
-    throw new UsageError(`Certificate number (code 3010) must be exactly 30 characters: "${emp.certificateNumber}" (${emp.certificateNumber.length})`);
-  }
-  if (!/^[A-Z0-9]{30}$/.test(emp.certificateNumber)) {
-    throw new UsageError('Certificate number (code 3010) must be uppercase letters and digits only');
-  }
-  if (!/^\d{13}$/.test(emp.idNumber)) {
-    throw new UsageError(`ID number (code 3060) must be 13 digits for natural persons: "${emp.idNumber}"`);
-  }
-  if (emp.taxNumber && !isValidTaxNumber(emp.taxNumber)) {
-    throw new UsageError('Tax number (code 3150) must be 10 digits starting with 0/1/2/3/9');
-  }
-  if (!/^\d{8}$/.test(emp.employmentStartDate)) {
-    throw new UsageError('Employment start date (code 3200) must be CCYYMMDD');
-  }
-  if (emp.employmentEndDate && !/^\d{8}$/.test(emp.employmentEndDate)) {
-    throw new UsageError('Employment end date (code 3210) must be CCYYMMDD');
-  }
-  if (emp.periodsInYoA < 0 || emp.periodsInYoA > 12) {
-    throw new UsageError('Periods in year of assessment (code 3215) must be 0..12');
-  }
-  if (emp.grossSalary3601 <= 0) {
-    throw new UsageError('At least one income code must be greater than zero — 3601 (gross salary) must be > 0 for an IRP5');
-  }
+/** One income line per lump-sum source code, in code order, amounts summed. */
+function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
+  const byCode = new Map<string, number>();
+  for (const l of lumpSums) byCode.set(l.sourceCode, (byCode.get(l.sourceCode) ?? 0) + l.amount);
+  return [...byCode.keys()].sort().map(code => formatField(Number(code), byCode.get(code)!, 'N'));
+}
+
+/**
+ * Reason 02 is a statement to SARS that the employee earned less than the tax
+ * threshold. Nil PAYE above it (medical credits: reason 08, which needs 4116,
+ * not produced; or a payroll error) has no reason this file can state.
+ */
+function assertUnderThreshold(emp: EmployeeInput): void {
+  const income = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0);
+  if (emp.taxThreshold != null && income <= emp.taxThreshold) return;
+  throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): no PAYE was deducted on R${income.toFixed(2)} `
+    + (emp.taxThreshold == null
+      ? 'and the tax threshold is not known (it needs the employee\'s age, from the date of birth or ID number, and the tax tables of that year), '
+      : `which is above the tax threshold of R${emp.taxThreshold.toFixed(2)}, `)
+    + ((emp.lumpSums ?? []).length > 0 ? 'beside a nil-tax directive, ' : '')
+    + 'so no reason for non-deduction (4150) can be stated: 02 and 04 are only for pay under the threshold, and 08 (medical credits) '
+    + 'needs code 4116, which this file does not produce. Check the payroll, or file this certificate by hand.');
 }
 
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
+  const lumpSums = emp.lumpSums ?? [];
+  const under4115 = lumpSums.filter(l => lumpSumPayeCode(l.sourceCode) === '4115');
+  const paye4115 = Math.round(under4115.reduce((t, l) => t + l.paye, 0) * 100) / 100;
+  // No tax at all: an IT3(a) with a reason code instead of the tax fields (BRS
+  // V25.3.0 p. 17, 3015). 04 "non-taxable earnings, including nil directives"
+  // when a directive is on it (valid only then, p. 58), else 02 "earn less than
+  // the tax threshold" (p. 108).
+  const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
+  // Lump sums are outside 3601/3605: a nil directive beside taxable pay over the threshold is no reason 04 either.
+  if (it3a) assertUnderThreshold(emp);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
-    formatField(3015, 'IRP5', 'AN'),
+    formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
     formatField(3020, 'A', 'A'),
     formatField(3025, emp.yearOfAssessment, 'N'),
     formatField(3030, emp.surname, 'FT'),
@@ -252,14 +226,30 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(3210, emp.employmentEndDate, 'N'),
     // 3215 — N4.4 periods in YoA. Render with 4-decimal precision per BRS.
     `3215,${emp.periodsInYoA.toFixed(4)}`,
-    formatField(3601, emp.grossSalary3601, 'N'),
-    formatField(4102, emp.paye4102, 'N_CENTS'),
+    ...lumpSums.flatMap(l => [
+      formatField(3230, l.directiveNumber, 'AN'),
+      formatField(3231, l.directiveIssuedDate, 'N'),
+      formatField(3232, l.sourceCode, 'N'),
+      formatField(3233, l.amount, 'N'),
+    ]),
+    formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
+    formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
+    ...lumpIncome(lumpSums),
+    it3a ? null : formatField(4102, emp.paye4102, 'N_CENTS'),
+    // 4115 only for 3901 / 3915 / 3920-3924 (lumpSumPayeCode); a 3907's PAYE is in 4102.
+    !it3a && under4115.length > 0 ? formatField(4115, paye4115, 'N_CENTS') : null,
     // 4141 is ONE field: the employee's and the employer's UIF together.
     formatField(4141, Math.round((emp.uifEmployee + emp.uifEmployer) * 100) / 100, 'N_CENTS'),
     formatField(4142, emp.sdl4142, 'N_CENTS'),
+    it3a ? `4150,${lumpSums.length > 0 ? '04' : '02'}` : null,
     '9999,9999',
   ];
-  return lines.filter((l): l is string => l !== null);
+  const record = lines.filter((l): l is string => l !== null);
+  const broken = validateCertificateTaxFields(record);
+  if (broken.length > 0) {
+    throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): ${broken.map(m => m.message).join(' ')}`);
+  }
+  return record;
 }
 
 export function buildTrailerRecord(recordCount: number): string[] {

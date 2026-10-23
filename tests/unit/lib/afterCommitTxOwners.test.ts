@@ -12,6 +12,10 @@ const h = vi.hoisted(() => ({ events: [] as string[], commitThrows: false }));
 const client = {
   query: vi.fn(async (text: string) => {
     const verb = String(text).trim().split(/\s+/)[0]!.toUpperCase();
+    if (/FROM company_users/i.test(String(text))) {
+      // The pairer is a manager in good standing (S-06b standing recheck).
+      return { rows: [{ role: 'manager', account_user_id: 'user-1', is_active: true, status: 'active', suspended_at: null }] };
+    }
     if (/FROM bank_feed_connections/i.test(String(text))) {
       return { rows: [{ id: 'conn-1', company_id: 'company-1', bank_account_id: 'ba-1', provider: 'extension', is_active: true }] };
     }

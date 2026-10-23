@@ -1,4 +1,7 @@
 {
+  "tests/integration/ap01-netcash-durable-answer.int.test.ts": 26,
+  "tests/integration/ap01-netcash-late-settler.int.test.ts": 22,
+  "tests/integration/ap01-netcash-settle-bounds.int.test.ts": 22,
   "tests/integration/audit-snapshots-auto.int.test.ts": 325,
   "tests/integration/audit-snapshots-compare.int.test.ts": 104,
   "tests/integration/audit-snapshots-followups.int.test.ts": 56,

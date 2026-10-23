@@ -12,35 +12,14 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
-import type { CapturedDocumentAction, CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
+import type { CapturedDocumentAction } from '@/modules/accounting/types/documentCapture.types';
+import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
+import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
 import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 import {
   type LifecycleGate,
   releaseClaimForLifecycleAction,
 } from '@/modules/accounting/services/capture/captureLifecycleGate';
-
-function mapRow(row: Record<string, unknown>): CapturedDocument {
-  return {
-    id: row.id as string,
-    fileName: row.file_name as string,
-    fileType: row.file_type as string,
-    fileSize: row.file_size as number | null,
-    documentType: row.document_type as string | null,
-    extractedData: row.extracted_data ? (typeof row.extracted_data === 'string' ? JSON.parse(row.extracted_data as string) : row.extracted_data) : null,
-    vendorName: row.vendor_name as string | null,
-    documentDate: row.document_date ? fmtDate(row.document_date) : null,
-    referenceNumber: row.reference_number as string | null,
-    totalAmount: row.total_amount !== null && row.total_amount !== undefined ? parseFloat(String(row.total_amount)) : null,
-    vatAmount: row.vat_amount !== null && row.vat_amount !== undefined ? parseFloat(String(row.vat_amount)) : null,
-    status: (row.status as CapturedDocument['status']) || 'pending',
-    matchedInvoiceId: row.matched_invoice_id as string | null,
-    matchedBankTxId: row.matched_bank_tx_id as string | null,
-    notes: row.notes as string | null,
-    uploadedBy: row.uploaded_by as string | null,
-    createdAt: new Date(row.created_at as string).toISOString(),
-  };
-}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -85,12 +64,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // refuses having written nothing.
       let gate: LifecycleGate;
       try {
-        gate = await releaseClaimForLifecycleAction(companyId, id);
+        gate = await releaseClaimForLifecycleAction(companyId, id, action);
       } catch (err) {
         if (respondIfLockTimeout(res, err)) return;
         throw err;
       }
       if (gate === 'missing') return apiResponse.notFound(res, 'Captured document', id);
+      if (gate === 'reading') return apiResponse.conflict(res, STILL_BEING_READ);
       if (gate === 'refused') {
         return refusePosted(res, id, action === 'confirm' ? 'confirmed' : 'rejected');
       }
@@ -101,6 +81,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'match_bank_tx') {
+      // A plain read is enough: reading -> done is one-way, so a row seen done cannot go back to reading.
+      if (isBeingRead(existing)) return apiResponse.conflict(res, STILL_BEING_READ);
       const { user } = req as CompanyAuthedRequest;
       return handleMatchBankTx(res, id, companyId, user?.id ?? null, data);
     }

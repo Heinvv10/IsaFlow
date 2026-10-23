@@ -16,6 +16,7 @@ import {
   type DirectiveStatus,
 } from '@/modules/accounting/services/payroll/taxDirectiveService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { isIsoDate } from '@/modules/accounting/services/payroll/taxDirectiveDates';
 
 const VALID_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
 const VALID_STATUSES = ['pending', 'approved', 'expired', 'cancelled'] as const;
@@ -52,6 +53,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!body.effective_date) {
       return apiResponse.badRequest(res, 'effective_date is required');
     }
+    if (body.issued_date != null && !isIsoDate(body.issued_date)) {
+      return apiResponse.badRequest(res, 'issued_date must be a date in YYYY-MM-DD format from 2000 to today');
+    }
+    // A rate is a fraction of the gross (0.18 = 18%): above 1 the PAYE would exceed the lump sum.
+    if (body.tax_rate != null && (isNaN(Number(body.tax_rate)) || Number(body.tax_rate) < 0 || Number(body.tax_rate) > 1)) {
+      return apiResponse.badRequest(res, 'tax_rate must be a fraction between 0 and 1 (0.18 = 18%)');
+    }
 
     const input: TaxDirectiveCreateInput = {
       employee_id: body.employee_id,
@@ -62,6 +70,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       amount: Number(body.amount),
       tax_rate: body.tax_rate != null ? Number(body.tax_rate) : undefined,
       effective_date: body.effective_date,
+      issued_date: body.issued_date ?? undefined,
       expiry_date: body.expiry_date,
       sars_reference: body.sars_reference,
       notes: body.notes,

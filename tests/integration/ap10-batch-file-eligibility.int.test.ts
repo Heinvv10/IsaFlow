@@ -3,7 +3,8 @@
  * (eft-generate) or a Netcash submission may carry, with approval enforcement
  * OFF (the gate used to return before looking at the status at all):
  *   - a cancelled or reversed batch is never sent (409), by either route;
- *   - a draft batch still is (companies without enforcement export drafts today);
+ *   - nor is a draft batch (409 BATCH_NOT_SENDABLE): only an approved or processed
+ *     one is, whatever the enforcement switch says;
  *   - a cancelled member payment is not a payee: it is neither written to the
  *     file nor transmitted, nor counted in the totals.
  * Judged by the file's records, the Netcash sender's calls and the submissions
@@ -19,7 +20,7 @@ vi.mock('@/modules/accounting/services/ap/netcashService', () => ({ submitEftBat
 import eftGenerate from '../../pages/api/accounting/eft-generate';
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { callRoute, createUser } from './r035-approval.helpers';
+import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
 import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
 
@@ -38,10 +39,13 @@ beforeEach(() => {
 });
 afterAll(() => cleanupPr5(pool, companies, [user])); // ends the pool
 
-async function fixture() {
+/** An APPROVED batch by default (the only kind a file may be made for); plantBatch makes a draft. */
+async function fixture(status = 'approved') {
   const { company: c, bank } = await payCompany(pool, [[user, 'admin']], companies);
   await pool.query("UPDATE companies SET netcash_enabled = true, netcash_service_key = 'k', netcash_payouts_key = 'k' WHERE id = $1", [c]);
-  return { c, batch: await plantBatch(pool, c, user, bank) };
+  const batch = await plantBatch(pool, c, user, bank);
+  if (status !== 'draft') await pool.query('UPDATE supplier_payment_batches SET status = $2 WHERE id = $1', [batch.id, status]);
+  return { c, batch };
 }
 const eft = (c: string, batchId: string) =>
   callRoute(eftGenerate, tokens[user]!, c, 'POST', { batchId, bank: 'fnb' }, '/api/accounting/eft-generate');
@@ -49,6 +53,8 @@ const netcash = (c: string, batchPaymentId: string) =>
   callRoute(netcashSubmit, tokens[user]!, c, 'POST', { batchPaymentId }, '/api/accounting/netcash/submit');
 const submissions = async (c: string) =>
   (await pool.query('SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].n as number;
+const exportRecords = async (batchId: string) =>
+  (await pool.query("SELECT count(*)::INT AS n FROM audit_log WHERE entity_type = 'batch_bank_file' AND entity_id = $1", [batchId])).rows[0].n as number;
 const records = (content: string) => content.split('\n').filter((l) => l.startsWith('STD'));
 
 describe('batch status, enforcement off', () => {
@@ -64,13 +70,40 @@ describe('batch status, enforcement off', () => {
     expect(await submissions(c)).toBe(0);
   });
 
-  it.each(['draft', 'approved', 'processed'])('a %s batch is still sent', async (status) => {
-    const { c, batch } = await fixture();
-    await pool.query('UPDATE supplier_payment_batches SET status = $2 WHERE id = $1', [batch.id, status]);
+  it('a draft batch gets no EFT file, no export record and no Netcash submission (BATCH_NOT_SENDABLE)', async () => {
+    const { c, batch } = await fixture('draft');
+    const file = await eft(c, batch.id);
+    expect(file.state.statusCode, JSON.stringify(file.state.body)).toBe(409);
+    expect(reasonOf(file)).toBe('BATCH_NOT_SENDABLE');
+    expect(JSON.stringify(file.state.body)).not.toContain('"content"');
+    expect(await exportRecords(batch.id)).toBe(0);
+    const sent = await netcash(c, batch.id);
+    expect(sent.state.statusCode, JSON.stringify(sent.state.body)).toBe(409);
+    expect(reasonOf(sent)).toBe('BATCH_NOT_SENDABLE');
+    expect(submitEftBatch).not.toHaveBeenCalled();
+    expect(await submissions(c)).toBe(0);
+  });
+
+  // No 'unknown status' case: supplier_payment_batches_status_check (migration 691) admits only draft, approved, processed,
+  // cancelled and reversed, so another status cannot be inserted. The gate's allow-list refuses one all the same.
+
+  it('a batch approved afterwards is sent: the refusal left no claim and no record behind', async () => {
+    const { c, batch } = await fixture('draft');
+    expect((await eft(c, batch.id)).state.statusCode).toBe(409);
+    await pool.query("UPDATE supplier_payment_batches SET status = 'approved' WHERE id = $1", [batch.id]);
+    const file = await eft(c, batch.id);
+    expect(file.state.statusCode, JSON.stringify(file.state.body)).toBe(200);
+    expect(await exportRecords(batch.id)).toBe(1);
+  });
+
+  it.each(['approved', 'processed'])('a %s batch is still sent', async (status) => {
+    const { c, batch } = await fixture(status);
     const file = await eft(c, batch.id);
     expect(file.state.statusCode, JSON.stringify(file.state.body)).toBe(200);
     expect(records(dataOf<{ content: string }>(file).content)).toHaveLength(2);
-    expect((await netcash(c, batch.id)).state.statusCode).toBe(200);
+    // AP-01: a batch with a bank file is not also sent to Netcash - the other channel is its own batch.
+    const other = await fixture(status);
+    expect((await netcash(other.c, other.batch.id)).state.statusCode).toBe(200);
     expect(submitEftBatch).toHaveBeenCalledTimes(1);
   });
 });

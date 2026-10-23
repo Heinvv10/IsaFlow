@@ -147,3 +147,17 @@ describe('importChartOfAccounts — income-statement rows never land with a NULL
   // It is a property of the ON CONFLICT clause and is proven against Postgres instead:
   // tests/integration/w2-28-system-role-holes-import.int.test.ts, "a re-import keeps a classification made by hand…".
 });
+
+describe('importChartOfAccounts — row errors name the uploaded row', () => {
+  it('reports the input position, not the position after unreadable rows are dropped and parents sorted first', async () => {
+    const rows = [
+      { ...acct('1999', 'asset'), accountType: 'Nonsense' as AccountImportRow['accountType'] }, // input 9: type unreadable
+      acct('1810', 'asset', { parentCode: '9999' }),                                           // input 10: parent missing
+      acct('1820', 'asset', { accountSubtype: 'Bank ' }),                                      // input 11: subtype invalid
+    ];
+    const r = await importChartOfAccounts(CO, 'sess', [...ACCOUNTS, ...rows], MAP);
+    expect(r.errors.map((e) => [e.row, e.field])).toEqual([
+      [9, 'accountType'], [11, 'accountSubtype'], [10, 'parentCode'],
+    ]);
+  });
+});

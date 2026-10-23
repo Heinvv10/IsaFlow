@@ -91,8 +91,18 @@ describe('eft-generate', () => {
     expect(data.content).toContain('62000000001');
   });
 
-  it('enforcement off: a draft batch gets its file as before, now with its real amounts', async () => {
+  it('enforcement off: a draft batch is refused 409 BATCH_NOT_SENDABLE and gets no file', async () => {
     const { c, b } = await fixture([]);
+    const res = await eft(c, b.id);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+    expect(reasonOf(res)).toBe('BATCH_NOT_SENDABLE');
+    expect(messageOf(res)).toBe(DRAFT);
+    expect(JSON.stringify(res.state.body)).not.toContain('"content"');
+  });
+
+  it('enforcement off: an approved batch gets its file as before, now with its real amounts', async () => {
+    const { c, b } = await fixture([]);
+    expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(200);
     const res = await eft(c, b.id);
     expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
     expect(dataOf<{ totalAmount: number }>(res).totalAmount).toBe(3450);
@@ -138,21 +148,15 @@ describe('netcash/submit', () => {
     expect(sent.every((p) => p.accountNumber === '62000000001')).toBe(true);
   });
 
-  it('refuses a raw payments[] list 403 under (coupled) payment enforcement, before anything is sent', async () => {
-    const { c } = await fixture(['supplier_payment']);
-    const res = await netcash(c, RAW);
-    expect(res.state.statusCode).toBe(403);
-    expect(messageOf(res)).toBe('Supplier payment approvals are enforced, and a raw payment list cannot be approved — submit an approved batch.');
-    expect(submitEftBatch).not.toHaveBeenCalled();
-    expect((await pool.query('SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].n).toBe(0);
-  });
-
-  it('enforcement off: a raw list is sent as before', async () => {
-    const { c } = await fixture([]);
-    const res = await netcash(c, RAW);
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
-    expect(submitEftBatch).toHaveBeenCalledTimes(1);
-  });
+  it.each([['under (coupled) payment enforcement', ['supplier_payment'] as PayType[]], ['with enforcement off', [] as PayType[]]])(
+    'refuses a raw payments[] list 400 %s, before anything is sent or recorded (AP-01)', async (_n, enforced) => {
+      const { c } = await fixture(enforced);
+      const res = await netcash(c, RAW);
+      expect(res.state.statusCode).toBe(400);
+      expect(messageOf(res)).toMatch(/raw payment list cannot be approved or claimed/);
+      expect(submitEftBatch).not.toHaveBeenCalled();
+      expect((await pool.query('SELECT count(*)::INT AS n FROM netcash_submissions WHERE company_id = $1', [c])).rows[0].n).toBe(0);
+    });
 
   it('a read-only member cannot submit (withWriteAccess, round 1 LOW f)', async () => {
     const { c } = await fixture([]);

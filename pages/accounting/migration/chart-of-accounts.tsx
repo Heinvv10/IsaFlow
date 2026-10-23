@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Upload, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { downloadTemplate as saveTemplate } from '@/components/accounting/migration/downloadTemplate';
+import { parseMigrationCsv, type ParsedCsv } from '@/components/accounting/migration/parseMigrationCsv';
+import { TemplateDownloadCard } from '@/components/accounting/migration/TemplateDownloadCard';
 import { CoaImportResult, type CoaImportSummary } from '@/components/accounting/migration/CoaImportResult';
 
 const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'account_subtype', 'normal_balance', 'parent_code', 'description'] as const;
@@ -79,33 +80,30 @@ export default function ChartOfAccountsPage() {
   const handleFile = async (file: File) => {
     setError('');
     setImportResult(null);
-    const Papa = (await import('papaparse')).default;
-    Papa.parse<Record<string, string>>(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: ({ data, meta }) => {
-        const cols = meta.fields ?? [];
-        setColumns(cols);
-        const autoMapping: FieldMapping = {};
-        for (const field of COA_FIELDS) {
-          const match = cols.find(c => c.toLowerCase().replace(/[\s_-]/g, '') === field.replace(/_/g, ''));
-          if (match) autoMapping[field] = match;
-        }
-        setFieldMapping(autoMapping);
-        const parsed: ParsedRow[] = data.map(raw => ({
-          raw,
-          mapped: Object.fromEntries(
-            COA_FIELDS.filter(f => autoMapping[f]).map(f => [f, raw[autoMapping[f]!] ?? ''])
-          ) as Partial<Record<CoaField, string>>,
-        }));
-        setRows(parsed);
-        applyAutoDetect(parsed, autoMapping);
-      },
-      error: err => {
-        log.warn('CSV parse error', { error: err }, 'migration');
-        setError('Could not read the CSV file - check it is a valid CSV and try again');
-      },
-    });
+    let csv: ParsedCsv;
+    try {
+      csv = await parseMigrationCsv(file);
+    } catch (err) {
+      log.warn('CSV parse error', { error: err }, 'migration');
+      setError('Could not read the CSV file - check it is a valid CSV and try again');
+      return;
+    }
+    const { data, fields: cols } = csv;
+    setColumns(cols);
+    const autoMapping: FieldMapping = {};
+    for (const field of COA_FIELDS) {
+      const match = cols.find(c => c.toLowerCase().replace(/[\s_-]/g, '') === field.replace(/_/g, ''));
+      if (match) autoMapping[field] = match;
+    }
+    setFieldMapping(autoMapping);
+    const parsed: ParsedRow[] = data.map(raw => ({
+      raw,
+      mapped: Object.fromEntries(
+        COA_FIELDS.filter(f => autoMapping[f]).map(f => [f, raw[autoMapping[f]!] ?? ''])
+      ) as Partial<Record<CoaField, string>>,
+    }));
+    setRows(parsed);
+    applyAutoDetect(parsed, autoMapping);
   };
 
   const onFieldMapChange = (field: CoaField, col: string) => {
@@ -131,7 +129,9 @@ export default function ChartOfAccountsPage() {
         accountName: r.mapped.account_name ?? '',
         accountType: r.mapped.account_type ?? '',
         accountSubtype: r.mapped.account_subtype || undefined,
-        normalBalance: r.mapped.normal_balance ?? 'debit',
+        // Blank when the file has none: the server derives it from the (translated)
+        // account type. Defaulting to 'debit' imported every liability as a debit.
+        normalBalance: r.mapped.normal_balance ?? '',
         parentCode: r.mapped.parent_code,
         description: r.mapped.description,
       }));
@@ -146,15 +146,6 @@ export default function ChartOfAccountsPage() {
       setError(apiErrorMessage(err, 'Could not import the chart of accounts - try again'));
     } finally {
       setIsImporting(false);
-    }
-  };
-
-  const downloadTemplate = async () => {
-    setError('');
-    try {
-      await saveTemplate(`/api/accounting/migration/templates?sourceSystem=${sourceSystem}&step=chart-of-accounts`, `coa-template-${sourceSystem}.csv`);
-    } catch (err) {
-      setError(apiErrorMessage(err, 'Could not download the template - try again'));
     }
   };
 
@@ -176,13 +167,7 @@ export default function ChartOfAccountsPage() {
         {importResult && <CoaImportResult result={importResult} />}
 
         <div className="space-y-6">
-          {/* Download template */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h2 className="font-semibold text-[var(--ff-text-primary)] mb-3">1. Download Template</h2>
-            <button onClick={downloadTemplate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              <Download className="h-4 w-4" /> Download CSV Template
-            </button>
-          </div>
+          <TemplateDownloadCard step="chart-of-accounts" sourceSystem={sourceSystem} onError={setError} />
 
           {/* Upload */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">

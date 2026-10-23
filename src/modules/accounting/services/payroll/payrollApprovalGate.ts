@@ -6,6 +6,10 @@
  *
  * In order:
  *   1. status: draft / calculated / processed, or approved with no journal;
+ *   1a. severance lines whose SARS directive was paid by something else, or no
+ *      longer matches them (`severance_directive_unavailable`, audit
+ *      2026-10-18 P3, payrollRunDirectiveClaim) — re-checked under the
+ *      directive's row lock when approval claims it;
  *   2. a run that links a journal (reopen keeps `journal_entry_id`) is judged
  *      by what that journal's reversal chain leaves in the LEDGER
  *      (payrollJournalChain) — never by `reversed_at`, which says only that a
@@ -34,6 +38,8 @@ import type { DbRow } from '@/lib/neon';
 import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
+import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
+import { judgeYearToDateStale } from './payrollYearToDate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
 import {
   buildPayrollJournalPlan,
@@ -197,11 +203,19 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const out = chain?.state === 'out';
   const replaces = out ? linked : null;
   const posted = out ? null : linked;
-  const plan = out && chain ? await datedForReplacement(companyId, built, chain) : built;
+  const dated = out && chain ? await datedForReplacement(companyId, built, chain) : built;
+  // Leavers whose approved severance directive this run does not pay, and why (P3); not in the hash.
+  const plan = { ...dated, advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId)] };
 
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
     const statusRefusal = approvalStatusRefusal(plan.status, linkedId);
     if (statusRefusal) return { code: 'status_not_approvable', detail: statusRefusal };
+    // Severance lines whose directive another payer took, or that no longer match it (P3).
+    const directives = await judgeRunDirectives(companyId, runId);
+    if (directives) return directives;
+    // Cumulative PAYE read a year-to-date an earlier month's later approval made stale (G4).
+    const staleYearToDate = await judgeYearToDateStale(companyId, runId);
+    if (staleYearToDate) return staleYearToDate;
     if (linkedId && !out) {
       const numbers = chain?.journals.map((j) => j.entryNumber).join(', ');
       if (!chain || !linked || chain.state === 'unclear') {
