@@ -56,9 +56,11 @@ ALTER TABLE fiscal_years ADD CONSTRAINT fiscal_years_change_id_fkey
 ALTER TABLE fiscal_year_end_changes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fiscal_year_end_changes FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON fiscal_year_end_changes;
-CREATE POLICY tenant_isolation ON fiscal_year_end_changes TO app_user
-  USING (company_id IN (SELECT cu.company_id FROM company_users cu WHERE cu.user_id = auth.uid()))
-  WITH CHECK (company_id = app.current_company_id());
+-- The active company AND membership (migration 897's form): a member of two
+-- companies working in A cannot read or write B's rows through app_user.
+CREATE POLICY tenant_isolation ON fiscal_year_end_changes FOR ALL TO app_user
+  USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 GRANT SELECT, INSERT, UPDATE ON fiscal_year_end_changes TO app_user;
 
 CREATE OR REPLACE FUNCTION public.fiscal_year_end_changes_guard()
