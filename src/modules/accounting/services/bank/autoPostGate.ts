@@ -8,6 +8,7 @@
  */
 
 import type { AutoPostSettings } from './autoPostSettingsService';
+import { isSharedPoolStrategy } from '../core/categorizationStrategy';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,10 @@ export function evaluate(
 ): GateDecision {
   const isProvisionalPath = confidence === null;
   const isLlm = strategy === 'llm';
+
+  // Rung 1: a shared-pool suggestion is NEVER auto-posted, whatever the settings or confidence (Hein,
+  // 2026-10-21, decision 8). It is other companies' habit, not this company's coding: a person decides.
+  if (isSharedPoolStrategy(strategy)) return { outcome: 'skip', reason: 'shared pool suggestions are never auto-posted' };
 
   // Rung 2 always applies: tx must be in the 'imported' state.
   if (tx.status !== 'imported') return { outcome: 'skip', reason: 'not eligible' };

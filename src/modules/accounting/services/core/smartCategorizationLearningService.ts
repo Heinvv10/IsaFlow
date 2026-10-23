@@ -3,7 +3,7 @@
  * Pattern learning from user allocations — split from smartCategorizationMatchingService.ts.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { extractLearningPattern } from './smartCategorizationMatchingService';
 import { resolveVatCodeForAccount } from '../gl/inputVatDenial';
@@ -16,77 +16,74 @@ export async function learnFromAllocation(
   glAccountId: string,
   category: string,
   vatCode?: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
-    const txRows = (await sql`
-      SELECT description FROM bank_transactions
-      WHERE id = ${txId}::UUID AND company_id = ${companyId}::uuid
-    `) as DbRow[];
+    // Own savepoint: a failed statement here must not abort the caller's
+    // request transaction (learning is non-critical; the caught error would
+    // otherwise turn the request's COMMIT into a rollback).
+    return await withSavepoint('learn_pattern', async (): Promise<boolean> => {
+      const txRows = (await sql`
+        SELECT description FROM bank_transactions
+        WHERE id = ${txId}::UUID AND company_id = ${companyId}::uuid
+      `) as DbRow[];
 
-    const firstTx = txRows[0];
-    if (!firstTx) return;
+      const firstTx = txRows[0];
+      if (!firstTx) return false;
 
-    const description = String(firstTx.description || '').trim();
-    if (description.length < 3) return;
+      const description = String(firstTx.description || '').trim();
+      if (description.length < 3) return false;
 
-    const pattern = extractLearningPattern(description);
-    if (!pattern || pattern.length < 3) return;
+      const pattern = extractLearningPattern(description);
+      if (!pattern || pattern.length < 3) return false;
 
-    // `vatCode || 'standard'` was the default here. Learning a restaurant into
-    // Staff Welfare therefore minted a pattern claiming input tax on
-    // entertainment, which the rule auto-post path then honoured on every
-    // future charge. Absent a code, learn 'none' — never invent a claim — and
-    // let the account's own denial override an explicit 'standard'.
-    const { vatCode: learnedVatCode } = await resolveVatCodeForAccount(
-      companyId, glAccountId, vatCode || 'none', { learningPattern: pattern },
-    );
+      // `vatCode || 'standard'` was the default here. Learning a restaurant into
+      // Staff Welfare therefore minted a pattern claiming input tax on
+      // entertainment, which the rule auto-post path then honoured on every
+      // future charge. Absent a code, learn 'none' — never invent a claim — and
+      // let the account's own denial override an explicit 'standard'.
+      const { vatCode: learnedVatCode } = await resolveVatCodeForAccount(
+        companyId, glAccountId, vatCode || 'none', { learningPattern: pattern },
+      );
 
-    const existing = (await sql`
-      SELECT id, usage_count FROM categorization_patterns
-      WHERE UPPER(pattern) = ${pattern.toUpperCase()}
-        AND source = 'learned'
-        AND company_id = ${companyId}::uuid
-      LIMIT 1
-    `) as DbRow[];
+      const existing = (await sql`
+        SELECT id, usage_count FROM categorization_patterns
+        WHERE UPPER(pattern) = ${pattern.toUpperCase()}
+          AND source = 'learned'
+          AND company_id = ${companyId}::uuid
+        LIMIT 1
+      `) as DbRow[];
 
-    const existingRow = existing[0];
-    if (existingRow) {
-      const newCount = Number(existingRow.usage_count) + 1;
-      const newConfidence = Math.min(0.95, 0.60 + newCount * 0.05);
-      await sql`
-        UPDATE categorization_patterns
-        SET gl_account_id = ${glAccountId}::UUID,
-            category = ${category},
-            vat_code = ${learnedVatCode},
-            usage_count = ${newCount},
-            confidence = ${newConfidence},
-            last_used_at = NOW()
-        WHERE id = ${existingRow.id}::UUID
-      `;
-    } else {
-      // Check if company_id column exists on categorization_patterns
-      // (older DBs may not have it — use a safe INSERT)
-      try {
+      const existingRow = existing[0];
+      if (existingRow) {
+        const newCount = Number(existingRow.usage_count) + 1;
+        const newConfidence = Math.min(0.95, 0.60 + newCount * 0.05);
+        await sql`
+          UPDATE categorization_patterns
+          SET gl_account_id = ${glAccountId}::UUID,
+              category = ${category},
+              vat_code = ${learnedVatCode},
+              usage_count = ${newCount},
+              confidence = ${newConfidence},
+              last_used_at = NOW()
+          WHERE id = ${existingRow.id}::UUID
+        `;
+      } else {
+        // K-244: always tenant-scoped. company_id is NOT NULL (migration 220);
+        // a retry without it could only fail, or mint a cross-tenant pattern.
         await sql`
           INSERT INTO categorization_patterns
             (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source, company_id)
           VALUES
             (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
         `;
-      } catch {
-        // Fallback without company_id if column doesn't exist
-        await sql`
-          INSERT INTO categorization_patterns
-            (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source)
-          VALUES
-            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned')
-        `;
       }
-    }
 
-    log.info('Learned categorization pattern', { pattern, category, glAccountId, companyId }, 'accounting');
+      log.info('Learned categorization pattern', { pattern, category, glAccountId, companyId }, 'accounting');
+      return true;
+    });
   } catch (err) {
-    log.error('Failed to learn from allocation', { txId, error: err }, 'accounting');
-    // Non-critical: don't throw
+    log.error('Failed to learn from allocation', { txId, companyId, error: err }, 'accounting');
+    // Non-critical: don't throw; the caller reports learned: false
+    return false;
   }
 }

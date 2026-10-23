@@ -5,6 +5,13 @@
  *
  * A long digital PDF takes the VLM 70-104 s and Cloudflare cuts a request at 100 s, so the upload answers at once
  * (201 `{ document }`, readState 'reading') and `runCaptureRead` fills the row after COMMIT. Clients poll `?id=`.
+ *
+ * The upload is STORED before the answer (as /capture/upload does: insert with the hash and size, store the bytes,
+ * write the pointer), so the job reads it back from Storage and a failed read can be retried (action 'retry').
+ * If Storage fails the request fails 500 and the withAuth transaction rolls the row back. The reverse leaves an
+ * orphan: the object is uploaded before COMMIT, so a failure after it (the pointer write, or COMMIT itself) leaves
+ * an object in the bucket under `<companyId>/<documentId>` that no row points to. Harmless, and the same as the
+ * existing upload route; nothing sweeps them.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -15,6 +22,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import { checkAiRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
@@ -162,10 +170,10 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
 
     const fileName = file.originalFilename || `capture_${Date.now()}.${fileTypeKey}`;
 
-    const [row] = await sql`
+    const [inserted] = await sql`
       INSERT INTO captured_documents (
         company_id, file_name, file_type, file_size, document_type,
-        extracted_data, status, uploaded_by, read_state
+        extracted_data, status, uploaded_by, read_state, raw_bytes_sha256, raw_bytes_size
       ) VALUES (
         ${companyId},
         ${fileName},
@@ -175,13 +183,25 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
         '{}'::jsonb,
         'pending',
         ${user?.id || null},
-        'reading'
+        'reading',
+        ${sha256(buffer)},
+        ${buffer.length}
       )
+      RETURNING id
+    ` as Record<string, unknown>[];
+    const documentId = String(inserted?.id);
+
+    // The AI unit above is spent even if Storage fails here (500, row rolled back): accepted, nothing refunds it.
+    const stored = await storeCapturedBytes(companyId, documentId, buffer, mimeType);
+    const [row] = await sql`
+      UPDATE captured_documents
+      SET storage_bucket = ${stored.bucket}, storage_path = ${stored.path}
+      WHERE id = ${documentId}::uuid AND company_id = ${companyId}
       RETURNING *
     ` as Record<string, unknown>[];
-    const documentId = String(row?.id);
 
-    runAfterCommit('capture-read', () => runCaptureRead(companyId, documentId, buffer, mimeType));
+    // The first read is attempt 0; the job loads the bytes from Storage, so the closure holds ids only.
+    runAfterCommit('capture-read', () => runCaptureRead(companyId, documentId, 0));
 
     log.info('Document captured, read queued', { id: documentId }, 'document-capture');
 

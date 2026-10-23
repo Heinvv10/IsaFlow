@@ -132,15 +132,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     switch (body.action) {
       case 'match': {
         await assertImporterMayMatch(companyId, body.bankTransactionId, body.journalLineId, userId); // step 2: 403 pre-write
-        const tx = await matchTransaction(companyId, body.bankTransactionId, body.journalLineId, body.reconciliationId);
+        const tx = await matchTransaction(companyId, body.bankTransactionId, body.journalLineId, body.reconciliationId, userId);
         return apiResponse.success(res, tx);
       }
       case 'unmatch': {
-        const tx = await unmatchTransaction(companyId, body.bankTransactionId);
+        const tx = await unmatchTransaction(companyId, body.bankTransactionId, userId);
         return apiResponse.success(res, tx);
       }
       case 'exclude': {
-        const tx = await excludeTransaction(companyId, body.bankTransactionId, body.excludeReason);
+        const tx = await excludeTransaction(companyId, body.bankTransactionId, body.excludeReason, userId);
         return apiResponse.success(res, tx);
       }
       case 'auto_match': {

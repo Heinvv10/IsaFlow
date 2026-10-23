@@ -214,7 +214,12 @@ describe('a bank-detail change blocks money leaving until someone else verifies'
     expect(reasonOf(res)).toBe('FINGERPRINT_STALE');
   });
 
-  it('the file read details replaced — and the replacement verified — before its lock: refused, the file is not built from them', async () => {
+  // Migration 922 moved the payee share-lock into the bank-file gate, BEFORE the file reads the payees (it used to
+  // read first and lock in the verification gate): a replacement committed meanwhile is waited for and then READ, so
+  // the file can no longer be built from details it read before they were replaced. This batch was approved by a
+  // status write (no stored digest, the legacy path); one approved through approveBatch is refused as changed instead
+  // (tests/integration/ap-batch-approved-digest*.int.test.ts).
+  it('details replaced — and the replacement verified — while the file waits for its lock: the file carries only the verified replacement', async () => {
     const { c, batch, s } = await enforcedBatch();
     const held = await pool.connect();
     await held.query('BEGIN');
@@ -223,15 +228,17 @@ describe('a bank-detail change blocks money leaving until someone else verifies'
       `INSERT INTO supplier_bank_verifications(company_id, supplier_id, fingerprint, kind, method, note, verified_by)
        SELECT company_id, id, supplier_bank_fingerprint(bank_name, bank_account_number, bank_branch_code, bank_account_type,
               bank_account_holder), 'verified', 'other', 'race', $2 FROM suppliers WHERE id = $1`, [s, u.c]);
-    const generating = r.eft(u.a, c, batch.id); // reads the old account, then waits on the payee lock
+    const generating = r.eft(u.a, c, batch.id); // waits on the payee lock, before reading the payees
     await new Promise((resolve) => setTimeout(resolve, 500));
     await held.query('COMMIT');
     held.release();
     const res = await generating;
-    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
-    expect(reasonOf(res)).toBe('SUPPLIER_BANK_DETAILS_UNVERIFIED');
-    expect((await r.state(u.b, c, s)).state).toBe('verified'); // the NEW details are verified; a fresh file may go
-    expect((await r.eft(u.a, c, batch.id)).state.statusCode).toBe(200);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    // The replaced payee's line (R1 150) carries the verified replacement, never the account it replaced.
+    const line = dataOf<{ content: string }>(res).content.split('\n').find((l) => l.startsWith('STD') && l.includes('115000'));
+    expect(line).toContain('62999999999');
+    expect(line).not.toContain('62000000001');
+    expect((await r.state(u.b, c, s)).state).toBe('verified');
   });
 
   it('a bank edit racing the EFT file: the file waits, then refuses 409 for the new details', async () => {

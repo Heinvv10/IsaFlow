@@ -18,7 +18,9 @@ import {
   cancelInvitation,
   markInvitationEmailSent,
   markInvitationEmailFailed,
+  OwnerProtectedError,
 } from '@/modules/accounting/services/core/userAccessService';
+import { InvitationConflictError, InvitationForbiddenError } from '@/modules/accounting/services/core/userInvitationService';
 import { sendInviteEmail } from '@/modules/accounting/services/core/emailService';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 type Row = Record<string, unknown>;
@@ -74,12 +76,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       const result = await createInvitation(companyId, emailLower, role, invitedBy);
 
-      // Path 1: user already existed — auto-added, no email needed
-      if (result.autoAdded || !result.invitation) {
-        return apiResponse.success(res, { ...result, emailSent: false });
-      }
-
-      // Path 2: invitation token created — look up company name and send email
+      // Every invitee, with an account or without, gets a token by email
+      // (S-07c): look up the company name and send it.
       const companyRows = (await sql`
         SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1
       `) as Row[];
@@ -101,20 +99,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
         if (emailResult.success) {
           emailSent = true;
-          await markInvitationEmailSent(invitationId);
+          await markInvitationEmailSent(invitationId, companyId);
           log.info('Invite email sent', { invitationId, to: emailLower }, 'company-invitations');
         } else {
-          await markInvitationEmailFailed(invitationId, emailResult.error ?? 'Unknown error');
+          await markInvitationEmailFailed(invitationId, companyId, emailResult.error ?? 'Unknown error');
           log.warn('Invite email failed to send', { invitationId, error: emailResult.error }, 'company-invitations');
         }
       } catch (emailErr) {
         const errMsg = emailErr instanceof Error ? emailErr.message : 'Email send threw';
-        await markInvitationEmailFailed(invitationId, errMsg).catch(() => undefined);
+        await markInvitationEmailFailed(invitationId, companyId, errMsg).catch((markErr: unknown) =>
+          log.warn('Invite email failure not recorded', { invitationId, error: markErr instanceof Error ? markErr.message : String(markErr) }, 'company-invitations'));
         log.error('Invite email threw', { invitationId, error: errMsg }, 'company-invitations');
       }
 
       return apiResponse.success(res, { ...result, emailSent });
     } catch (err) {
+      if (err instanceof InvitationForbiddenError || err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof InvitationConflictError) return apiResponse.conflict(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Invite failed.');
     }
   }

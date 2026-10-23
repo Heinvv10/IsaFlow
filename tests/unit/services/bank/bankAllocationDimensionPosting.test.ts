@@ -13,6 +13,12 @@ vi.mock('@/modules/accounting/services/ap/bankLinePaymentGate', () => ({ assertB
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   assertCustomerInCompany: vi.fn(), assertSupplierInCompany: vi.fn(),
 }));
+// The learning-loop log has its own suites (codingDecisionLog, coding-decision-paths); it is kept out of this
+// file's SQL sequence.
+vi.mock('@/modules/accounting/services/bank/codingDecisionLog', () => ({
+  postingRefOf: () => ({}), recordAllocationDecision: vi.fn(), recordAutoPostUndone: vi.fn(),
+  recordExcluded: vi.fn(), recordMatchDecision: vi.fn(),
+}));
 vi.mock('@/lib/neon', async () => {
   const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   return {

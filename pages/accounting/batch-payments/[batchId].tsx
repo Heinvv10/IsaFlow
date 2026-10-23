@@ -12,6 +12,7 @@ import { formatDate } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import { BatchBankFileNotice } from '@/components/accounting/BatchBankFileNotice';
+import { BatchChangedSinceApprovalNotice } from '@/components/accounting/BatchChangedSinceApprovalNotice';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 
@@ -46,6 +47,8 @@ interface BatchDetail {
   payments: BatchPayment[];
   billCount?: number;
   approval?: DocumentApprovalState | null; // R-035 PR5: while approve / process is ahead
+  changedSinceApproval?: boolean; // its content is no longer what was approved: re-approve before file / send / process
+  contentDigest?: string | null; // read with the payments shown; an approve sends it back as what was seen
 }
 
 export default function BatchPaymentDetailPage() {
@@ -86,7 +89,8 @@ export default function BatchPaymentDetailPage() {
       const res = await apiFetch('/api/accounting/batch-payments-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, id: batch.id }),
+        body: JSON.stringify({ action, id: batch.id,
+          ...(action === 'approve' && batch.contentDigest ? { expectedDigest: batch.contentDigest } : {}) }),
       });
       // R-035: 409 is the approval gate — reload so the panel offers Submit for approval.
       if (res.status === 409) await load();
@@ -146,7 +150,7 @@ export default function BatchPaymentDetailPage() {
                 )}
                 {batch.status === 'approved' && (
                   <>
-                    {!held && <button onClick={() => doAction('process')} disabled={!!actionBusy}
+                    {!held && !batch.changedSinceApproval && <button onClick={() => doAction('process')} disabled={!!actionBusy}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
                       {actionBusy === 'process' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />} Process
                     </button>}
@@ -169,6 +173,8 @@ export default function BatchPaymentDetailPage() {
           </div>
         </div>
 
+        {batch?.changedSinceApproval && <BatchChangedSinceApprovalNotice busy={actionBusy === 'approve'}
+          disabled={!!actionBusy} onReapprove={() => void doAction('approve')} />}
         {actionError && <div className="mx-6 mt-4 flex items-center gap-2 p-3 bg-red-500/10 rounded-lg text-red-400 text-sm"><AlertCircle className="h-4 w-4" />{actionError}</div>}
         {batch && <DocumentApprovalPanel documentType="payment_batch" documentId={batch.id} noun="batch" action="pay"
           approval={batch.approval} onChanged={load} />}

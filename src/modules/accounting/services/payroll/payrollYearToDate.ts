@@ -32,7 +32,6 @@ import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
-import type { PayrollJournalNote } from './payrollJournalBuilder';
 import { loadMedicalRecord } from './payrollMedicalRecord';
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -127,81 +126,14 @@ export async function laterPeriodsWarnings(
     list.push(`${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`);
     months.set(key, list);
   }
+  // `periods` is what judgeYearToDateStale matches on; the message is for people.
   return new Map([...months].map(([employee, list]) => [employee, {
     code: 'PAYE_LATER_PERIODS_APPROVED',
     severity: 'warning' as const,
+    periods: list,
     message: `Later runs of this tax year that pay this employee are already approved (${list.join(', ')}). PAYE is cumulative over `
       + 'the year, so their PAYE did not include this month: the next run calculated after them corrects it. If February is '
       + 'among them, nothing follows and IsaFlow has no PAYE adjustment: the difference stays until the employee\'s assessment, '
       + 'unless those runs are reopened and recalculated in order.',
   }]));
-}
-
-/**
- * The approval-gate blocker for a run judged on a stale picture of its tax
- * year: another month of the same tax year was approved AFTER this run's
- * lines were calculated.
- * - An EARLIER month: this run's cumulative PAYE may have left it out (two
- *   months calculated before either was approved, or the earlier one reopened
- *   at the time). Recalculating picks it up. Conservative: a re-approval of an
- *   unchanged earlier month re-stamps approved_at (and lines_confirmed_at,
- *   updated_at), so it is refused too, though that run had seen it: the stored
- *   headers keep no reopen history to tell the two apart. One recalculation
- *   clears it; an exact rule needs a reopen-history column.
- * - A LATER month whose PAYE left this one out, while this run's lines do not
- *   yet carry PAYE_LATER_PERIODS_APPROVED (a calculation now adds it,
- *   laterPeriodsWarnings): for a run never approved before (no journal), a
- *   later month approved after this run was calculated; for a reopened run, a
- *   later month CALCULATED after this run's last change (its reopen or
- *   recalculation, `updated_at`), when this run was not declarable. A later
- *   month calculated before the reopen saw this run, so an unchanged
- *   re-approval passes. Recalculating puts the warning on the lines.
- *   (`updated_at` is NOW(), its transaction's start, and line times are
- *   clock_timestamp(): the skew can only make this fire early, a refusal a
- *   recalculation clears, never miss.)
- * Approvals of a company are serialised by lockCompanyPayrollApprovals, taken
- * before the gate, so a concurrent approval is either committed (and seen) or
- * waits. Null when current. Read-only. "Calculated" is the first line's clock
- * time, the nearest stored point to the year-to-date read; an approval
- * committed in the moments between that read and the first line insert is not
- * seen (a narrow race; the next month's calculation still trues it up).
- */
-export async function judgeYearToDateStale(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
-  const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
-  const rows = (await sql`
-    WITH me AS (
-      SELECT h.period_year, h.period_month, h.journal_entry_id, h.updated_at,
-             make_date(CASE WHEN h.period_month >= 3 THEN h.period_year ELSE h.period_year - 1 END, 3, 1) AS year_start,
-             (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
-      FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
-    )
-    SELECT e.period_year, e.period_month,
-           make_date(e.period_year, e.period_month, 1) > make_date(me.period_year, me.period_month, 1) AS later
-    FROM payroll_run_headers e, me
-    WHERE e.company_id = ${companyId}::uuid AND e.id <> ${runId}::uuid
-      AND e.status = ANY(${declarable}::text[])
-      AND make_date(e.period_year, e.period_month, 1) >= me.year_start
-      AND make_date(e.period_year, e.period_month, 1) < (me.year_start + INTERVAL '1 year')
-      AND CASE
-        WHEN make_date(e.period_year, e.period_month, 1) < make_date(me.period_year, me.period_month, 1)
-          THEN e.approved_at > me.calculated_at
-        WHEN me.journal_entry_id IS NULL THEN e.approved_at > me.calculated_at
-        ELSE (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = e.id) > me.updated_at
-      END
-    ORDER BY e.period_year, e.period_month
-  `) as DbRow[];
-  if (rows.length === 0) return null;
-  const month = (r: DbRow) => `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`;
-  const earlier = rows.filter(r => r.later !== true).map(month);
-  const later = rows.filter(r => r.later === true).map(month);
-  return {
-    code: 'paye_year_to_date_stale',
-    detail: (earlier.length > 0
-      ? `An earlier month of this tax year (${earlier.join(', ')}) was approved after this run was calculated, so this run's `
-        + 'cumulative PAYE may have left it out (it was not approved, or was reopened, when this run was calculated; a '
-        + 're-approval of an unchanged month looks the same). '
-      : `A later month of this tax year (${later.join(', ')}) was approved after this run was calculated, so that month's `
-        + 'cumulative PAYE left this one out. ')
-      + 'Recalculate the run, then approve it.',
-  };
 }

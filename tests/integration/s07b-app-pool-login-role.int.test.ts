@@ -132,24 +132,30 @@ describe('S-07b: the service pool cannot get to the owner either', () => {
 });
 
 // S-07b breaker F1: the member guards let every role but app_user through.
+// Since S-07c (930) app_user, and so the service pool, may not INSERT either
+// table or UPDATE either beyond company_users.role: those writes are refused
+// by privilege before a guard runs. The guards still judge role changes and
+// removals.
 describe('S-07b (916): the service pool takes app_user\'s member rules', () => {
   const pool = (): Pool => getDbPool();
   const asOwner = { claims: { sub: owner, companyId: company } };
 
   it.each([
     ['adds a member to another tenant', `INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'owner')`,
-      () => [other, me], /^Only owners and admins can change the members of a company$/],
+      () => [other, me], /^permission denied for table company_users$/],
     ['writes an invitation', `INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
-      VALUES ($1, 'x@test.local', 'owner', $2, 'h', NOW() + interval '1 day')`, () => [other, me], /^Only owners and admins can invite users\.$/],
+      VALUES ($1, 'x@test.local', 'owner', $2, 'h', NOW() + interval '1 day')`, () => [other, me], /^permission denied for table company_invitations$/],
   ] as Array<[string, string, () => unknown[], RegExp]>)('with no claims, refused when it %s', async (_, text, params, msg) => {
     expect(await attempt(pool(), [[text, params()]])).toMatchObject({ message: expect.stringMatching(msg) });
   });
 
   it.each([
     ['grants an unknown role', `INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'super_admin')`,
-      () => [company, ids.invitee], /^Invalid role/],
+      () => [company, ids.invitee], /^permission denied for table company_users$/],
     ['moves a membership', `UPDATE company_users SET company_id = $1 WHERE company_id = $2 AND user_id = $3`,
-      () => [other, company, me], /^Only owners and admins can change the members of a company$/],
+      () => [other, company, me], /^permission denied for table company_users$/],
+    ['grants an unknown role to a member', `UPDATE company_users SET role = 'super_admin' WHERE company_id = $1 AND user_id = $2`,
+      () => [company, me], /^Invalid role/],
     ['removes the last owner', `DELETE FROM company_users WHERE company_id = $1 AND user_id = $2`,
       () => [company, owner], /^You cannot remove yourself from the company\.$/],
     ['demotes the last owner', `UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2`,

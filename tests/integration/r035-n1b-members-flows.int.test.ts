@@ -97,10 +97,12 @@ describe('invitations', () => {
     "%s's %s invitation, accepted at /invite/<token>, makes the invitee that role", async (_label, by, role) => {
       const c = await company(pool, p, companies);
       const raw = `n1bf${'0'.repeat(28)}${crypto.randomUUID().replace(/-/g, '')}`;
-      // Written as the route writes it — as app_user, by the inviter — so the guard judges it.
-      expect(await outcome(asRole(pool, 'app_user', c, { sub: p[by] }, (cl) => cl.query(
-        `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at)
-         VALUES($1,$2,$3,$4,$5, now() + interval '7 days')`, [c, emailOf(p.x), role, p[by], tokenHash(raw)]), true))).toBe('ok');
+      const insert = `INSERT INTO company_invitations(company_id,email,role,invited_by,token,expires_at)
+         VALUES($1,$2,$3,$4,$5, now() + interval '7 days')`;
+      const args = [c, emailOf(p.x), role, p[by], tokenHash(raw)];
+      // app_user is refused by privilege since S-07c (930): the route writes the invitation on the migration_admin pool.
+      expect(await outcome(asRole(pool, 'app_user', c, { sub: p[by] }, (cl) => cl.query(insert, args), true))).toBe('42501');
+      await pool.query(insert, args); // seeded as the route now writes it; the accept below is what this proves
       expect((await acceptAsInvitee(p.x, raw)).state.statusCode).toBe(200);
       expect(await roleOf(pool, c, p.x)).toBe(role);
     });
