@@ -41,8 +41,10 @@ function computeAnnualMedicalCredits(
  * G21 2027 p. 10 only says the credit "must be taken into account to calculate
  * monthly PAYE"; the guide is where the formula is. Hein 2026-10-23.
  */
-function computeAdditionalMedicalCredit(age: number, annualFees: number, medicalCredits: number): number {
-  if (age < 65 || annualFees <= 0) return 0;
+function computeAdditionalMedicalCredit(age: number, monthlyBeneficiaries: number, annualFees: number, medicalCredits: number): number {
+  // No scheme membership on the employee (no MTC): 4005 fees with no member to pay them for are a data
+  // error, and "fees as exceeds three times the MTC" would otherwise be a third of all of them.
+  if (age < 65 || monthlyBeneficiaries <= 0 || annualFees <= 0) return 0;
   return 0.333 * Math.max(0, annualFees - 3 * medicalCredits);
 }
 
@@ -64,7 +66,8 @@ export function annualTaxAfterCredits(input: PayeInput): {
   const config = getTaxYearConfig(input.taxYear);
   const rebates = computeRebates(input.ageAtPeriodEnd, config);
   const medicalCredits = computeAnnualMedicalCredits(input.monthlyMedicalBeneficiaries, config);
-  const additionalMedicalCredits = computeAdditionalMedicalCredit(input.ageAtPeriodEnd, input.annualMedicalSchemeFees ?? 0, medicalCredits);
+  const additionalMedicalCredits = computeAdditionalMedicalCredit(
+    input.ageAtPeriodEnd, input.monthlyMedicalBeneficiaries, input.annualMedicalSchemeFees ?? 0, medicalCredits);
   const grossAnnualTax = computeAnnualTax(input.annualTaxableIncome, config.brackets);
   const taxAfterRebates = Math.max(0, grossAnnualTax - rebates);
   const taxAfterMedicalCredit = Math.max(0, taxAfterRebates - medicalCredits);
@@ -75,6 +78,12 @@ export function annualTaxAfterCredits(input: PayeInput): {
   };
 }
 
+/**
+ * `medicalCreditsApplied` is the medical scheme fees tax credit (section 6A)
+ * only, as before R3; the 65+ additional credit is in `annualTax` but not in
+ * that field (adding a field would change every stored PayeResult shape). The
+ * additional credit a line took is PayrollLineResult.additionalMedicalCredit.
+ */
 export function calculatePAYE(input: PayeInput): PayeResult {
   const { annualTax, rebates, medicalCredits: annualMedicalCredits } = annualTaxAfterCredits(input);
   const monthlyPaye = Math.round((annualTax / 12) * 100) / 100;
