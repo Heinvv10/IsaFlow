@@ -62,7 +62,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
   // Leavers included: severance, retirement and death directives are for people who have left.
   useEffect(() => {
     let live = true;
-    (async () => {
+    void (async () => {
       try {
         const res = await apiFetch('/api/payroll/employees?include=terminated');
         await assertOk(res, 'Could not load the employees - try again');
