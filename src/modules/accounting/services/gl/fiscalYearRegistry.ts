@@ -20,7 +20,7 @@
  * host runs at UTC+2).
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { FiscalPeriodStatus } from '../../types/gl.types';
@@ -95,9 +95,12 @@ function mapYear(r: DbRow): FiscalYearRecord {
 
 /** The financial year holding `date`: the stored year, else the template year. */
 export async function fiscalYearForDate(companyId: string, date: string): Promise<FiscalYearRecord> {
-  const rows = (await sql`
+  // In a savepoint: the template can refuse (no free label, no usable start
+  // month on a write path), and a raised error must not poison the caller's
+  // request transaction.
+  const rows = (await withSavepoint('fy_for_date', () => sql`
     SELECT * FROM public.fiscal_year_for_date(${companyId}::UUID, ${fmtDate(date)}::DATE)
-  `) as DbRow[];
+  `)) as DbRow[];
   if (rows.length === 0) throw new Error(`fiscalYearForDate: no fiscal year for company ${companyId} on ${date}`);
   return mapYear(rows[0]!);
 }
@@ -105,9 +108,9 @@ export async function fiscalYearForDate(companyId: string, date: string): Promis
 /** The financial year labelled `fiscalYear`, or null when the template skips that label. */
 export async function getFiscalYear(companyId: string, fiscalYear: number): Promise<FiscalYearRecord | null> {
   if (!Number.isInteger(fiscalYear)) throw new Error(`getFiscalYear: invalid fiscal year ${String(fiscalYear)}`);
-  const rows = (await sql`
+  const rows = (await withSavepoint('fy_for_label', () => sql`
     SELECT * FROM public.fiscal_year_for_label(${companyId}::UUID, ${fiscalYear}::INT)
-  `) as DbRow[];
+  `)) as DbRow[];
   return rows[0] ? mapYear(rows[0]) : null;
 }
 

@@ -63,26 +63,12 @@ export function applyInputRefusals(input: YearEndChangeApplyInput): string[] {
   const out: string[] = [];
   if (typeof input.reason !== 'string' || input.reason.trim().length < 10) {
     out.push('Give the reason for the change (at least 10 characters).');
+  } else if (input.reason.trim().length > 2000) {
+    out.push('Keep the reason to 2000 characters.');
   }
   if (input.cipcFiledConfirmed !== true) out.push('Confirm that the notice of change has been filed with CIPC.');
   if (input.sarsNotifiedConfirmed !== true) out.push('Confirm that SARS has been notified of the change.');
   return out;
-}
-
-/** The years from the transition year on, and their periods: what undo restores. */
-async function snapshot(companyId: string, fromStart: string): Promise<Record<string, unknown>> {
-  const years = (await sql`
-    SELECT id, fiscal_year, start_date::text AS start_date, end_date::text AS end_date, kind, change_id, created_at
-      FROM fiscal_years WHERE company_id = ${companyId}::UUID AND start_date >= ${fromStart}::DATE
-     ORDER BY start_date
-  `) as DbRow[];
-  const periods = (await sql`
-    SELECT fp.id, fp.fiscal_year_id, fp.fiscal_year, fp.period_number, fp.period_name
-      FROM fiscal_periods fp JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
-     WHERE fp.company_id = ${companyId}::UUID AND fy.start_date >= ${fromStart}::DATE
-     ORDER BY fp.start_date
-  `) as DbRow[];
-  return { years, periods };
 }
 
 /**
@@ -111,8 +97,17 @@ export async function applyYearEndChange(
   const inputRefusals = applyInputRefusals(input);
   if (inputRefusals.length > 0) throw new YearEndChangeRefusedError(inputRefusals);
 
-  // One change at a time per company; the assessment is re-read under the lock.
+  // One change at a time per company; the assessment is re-read under the lock,
+  // and every period from the current year on is row-locked first, so a period
+  // closed concurrently is either seen by the assessment (a 409) or waits.
   await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`fy-end-change:${companyId}`}, 0))`;
+  await sql`
+    SELECT fp.id FROM fiscal_periods fp
+     WHERE fp.company_id = ${companyId}::UUID
+       AND fp.end_date >= (SELECT MIN(fy.start_date) FROM fiscal_years fy
+                            WHERE fy.company_id = ${companyId}::UUID AND fy.end_date >= ${today}::DATE)
+     ORDER BY fp.id FOR UPDATE
+  `;
   const a = await assessYearEndChange(companyId, input, today);
   if (a.refusals.length > 0 || !a.chosen) throw new YearEndChangeRefusedError(a.refusals);
   const year = a.currentYear;
@@ -120,17 +115,16 @@ export async function applyYearEndChange(
 
   // The current year must be a stored row to become the transition year.
   const yearId = year.id ?? (await generateFiscalYearForDate(companyId, year.startDate)).fiscalYearId;
-  const snap = await snapshot(companyId, year.startDate);
 
   const boundary = chosen.endDate < year.endDate ? chosen.endDate : year.endDate;
   const changeRows = (await sql`
     INSERT INTO fiscal_year_end_changes (
       company_id, fiscal_year_id, from_start_month, to_start_month, transition_start, from_end_date, to_end_date,
-      months, reason, cipc_filed_confirmed, sars_notified_confirmed, snapshot, applied_by
+      months, reason, cipc_filed_confirmed, sars_notified_confirmed, applied_by
     ) VALUES (
       ${companyId}::UUID, ${yearId}::UUID, ${a.currentStartMonth}, ${chosen.newStartMonth}, ${year.startDate}::DATE,
       ${year.endDate}::DATE, ${chosen.endDate}::DATE, ${chosen.months}, ${input.reason.trim()},
-      true, true, ${JSON.stringify(snap)}::JSONB, ${userId}::UUID
+      true, true, ${userId}::UUID
     ) RETURNING id
   `) as DbRow[];
   const changeId = String(changeRows[0]!.id);
@@ -164,7 +158,8 @@ export async function applyYearEndChange(
 
   const drift = (await sql`
     SELECT COUNT(*)::int AS n FROM gl_journal_entries je JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
-     WHERE je.company_id = ${companyId}::UUID AND je.entry_date NOT BETWEEN fp.start_date AND fp.end_date
+     WHERE je.company_id = ${companyId}::UUID AND fp.company_id = ${companyId}::UUID
+       AND fp.start_date > ${boundary}::DATE AND je.entry_date NOT BETWEEN fp.start_date AND fp.end_date
   `) as DbRow[];
   if (Number(drift[0]!.n) > 0) {
     throw new Error(`Change of year end aborted: ${drift[0]!.n} journal(s) would sit in a period that does not hold their date`);

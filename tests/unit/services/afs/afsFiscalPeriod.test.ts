@@ -16,7 +16,7 @@ import {
 } from '../../../helpers/fiscalYearSqlFake';
 
 const state = vi.hoisted(() => ({ sql: (async () => []) as (...a: unknown[]) => Promise<unknown[]> }));
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => state.sql(...a) }));
+vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => state.sql(...a) , withSavepoint: (_n: string, fn: () => Promise<unknown>) => fn() }));
 
 import {
   getFiscalRange, getFiscalRangeWithPrior, getPriorFiscalRange, fiscalWindowForPeriod,

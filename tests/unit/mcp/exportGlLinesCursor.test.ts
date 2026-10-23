@@ -19,7 +19,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a), withTransaction: vi.fn() }));
+vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a), withTransaction: vi.fn() , withSavepoint: (_n: string, fn: () => Promise<unknown>) => fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
   getLedgerPostedThrough: vi.fn().mockResolvedValue('2026-10-09T08:00:00.000Z'),

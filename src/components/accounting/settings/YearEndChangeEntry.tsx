@@ -4,6 +4,7 @@
  * section then stays hidden.
  */
 import { useEffect, useState } from 'react';
+import { fmtDay, fmtInstantDay } from '@/components/accounting/financialYearEnd/yearEndTypes';
 import Link from 'next/link';
 import { apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -12,11 +13,6 @@ type Overview = Awaited<ReturnType<typeof load>>;
 
 function load() {
   return apiJson('/api/accounting/financial-year-end-change', undefined, 'Could not load the financial year end');
-}
-
-function fmtDay(date: string): string {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
-  return `${d} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]} ${y}`;
 }
 
 export function YearEndChangeEntry() {
@@ -41,7 +37,7 @@ export function YearEndChangeEntry() {
       </p>
       {latest && (
         <p className="text-xs text-[var(--ff-text-tertiary)] mt-1" data-testid="latest-year-end-change">
-          Latest change: {latest.appliedAt.slice(0, 10)}, year end moved to {fmtDay(latest.toEndDate)}{latest.reversedAt ? ' (undone)' : ''}.
+          Latest change: {fmtInstantDay(latest.appliedAt)}, year end moved to {fmtDay(latest.toEndDate)}{latest.reversedAt ? ' (undone)' : ''}.
         </p>
       )}
       <Link href="/accounting/financial-year-end-change" data-testid="change-year-end-link"

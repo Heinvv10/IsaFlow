@@ -29,7 +29,7 @@ export default function FinancialYearEndChangePage() {
   const [checking, setChecking] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [month, setMonth] = useState<number | null>(null);
-    const [appliedEnd, setAppliedEnd] = useState<string | null>(null);
+  const [appliedEnd, setAppliedEnd] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
