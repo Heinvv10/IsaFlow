@@ -4,7 +4,9 @@
 --   * the payee's NAME: the EFT file's beneficiary name (eft-generate) and the Netcash account holder
 --     (netcash/submit). Added to the payee's bank tuple in approval_supplier_payment_content as
 --     upper(btrim(name)) (Hein, 2026-10-23): a change of case or of leading / trailing spaces is the
---     same name and keeps the approval; any other rename stales it.
+--     same name and keeps the approval; any other rename stales it. COLLATE "C" so only ASCII letters
+--     fold: under a linguistic collation upper() maps dotless i to I and long s to S, so a name that
+--     differs in the file would read as the same one (breaker, 2026-10-23).
 --   * the paying account's bank_account_number and bank_branch_code (gl_accounts, read for the batch's
 --     or the payment's own company only, as eft-generate reads the file's originator). Added to the
 --     payment_batch arm after the account id, and to the supplier_payment arm beside the content.
@@ -110,7 +112,7 @@ CREATE TEMP TABLE r923_before ON COMMIT DROP AS
      OR EXISTS (SELECT 1 FROM public.approval_requests ar
                 WHERE ar.document_type = 'manual_journal' AND ar.document_id = je.id);
 
--- 867's function, verbatim, but for upper(btrim(s.name)) at the end of the payee's bank tuple.
+-- 867's function, verbatim, but for upper(btrim(s.name) COLLATE "C") at the end of the payee's bank tuple.
 CREATE OR REPLACE FUNCTION public.approval_supplier_payment_content(
   p_company_id pg_catalog.uuid, p_payment_id pg_catalog.uuid
 ) RETURNS pg_catalog.jsonb
@@ -121,7 +123,7 @@ AS $$
     sp.supplier_id, sp.payment_date, trim_scale(sp.total_amount), sp.payment_method, sp.bank_account_id,
     sp.reference, sp.project_id, sp.cost_center_id,
     (SELECT jsonb_build_array(s.bank_name, s.bank_account_number, s.bank_branch_code,
-                              s.bank_account_type, s.bank_account_holder, upper(btrim(s.name)))
+                              s.bank_account_type, s.bank_account_holder, upper(btrim(s.name) COLLATE "C"))
      FROM public.suppliers s WHERE s.id = sp.supplier_id AND s.company_id = sp.company_id),
     COALESCE((
       SELECT jsonb_agg(jsonb_build_array(pa.invoice_id, trim_scale(pa.amount_allocated))
