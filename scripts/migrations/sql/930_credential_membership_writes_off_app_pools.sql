@@ -30,8 +30,9 @@
 -- revoked_at and is_active are not granted back: an UPDATE that can set them
 -- can clear them, and revive a revoked token. DELETE stays where it only
 -- removes access. A SECURITY DEFINER function runs as its owner, which may
--- write any of them, so every definer an app role may EXECUTE must be listed,
--- reviewed, in public.app_definer_reviews; an unlisted one is a violation.
+-- write any of them, so every definer (a trigger function needs no EXECUTE
+-- grant to run) must be listed, reviewed, in public.app_definer_reviews with
+-- the hash of its body; an unlisted or changed one is a violation.
 -- (Reading the source instead was evaded every round: comments, quoting,
 -- U& identifiers, BEGIN ATOMIC bodies, views, triggers.)
 -- auth_password_reset_tokens and admin_impersonation_stash lose every
@@ -155,40 +156,62 @@ $$;
 REVOKE ALL ON FUNCTION public.refresh_customer_invoice_view_summary() FROM PUBLIC, app_service;
 GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO migration_admin;
 
--- The reviewed SECURITY DEFINER functions app roles may EXECUTE, by signature
--- as regprocedure prints it with search_path pg_catalog, public. A new one is
--- refused on every deploy until a migration adds its row, saying what it
--- writes and why that is safe to call with forged claims. Named limit: a
--- CREATE OR REPLACE that keeps a listed signature is not flagged again, so
--- review a changed definer's body as you would a new one.
+-- Every SECURITY DEFINER function outside the catalog, reviewed: its signature
+-- as regprocedure prints it under search_path pg_catalog, public, what it
+-- writes, and the md5 of its body at review. A new definer, or a CREATE OR
+-- REPLACE that changes one, is refused on every deploy (and in CI, by
+-- s07c-credential-writes.migration.int.test.ts) until the migration that
+-- makes it inserts or updates its row.
 CREATE TABLE IF NOT EXISTS public.app_definer_reviews (
   signature text PRIMARY KEY,
-  writes    text NOT NULL
+  writes    text NOT NULL,
+  body_md5  text NOT NULL
 );
 REVOKE ALL ON public.app_definer_reviews FROM app_user, PUBLIC;
-INSERT INTO public.app_definer_reviews (signature, writes) VALUES
-  ('auth.set_default_company(uuid,uuid)', 'company_users.is_default of the caller''s own memberships only'),
-  ('auth.user_admin_companies()', 'nothing (read)'),
-  ('auth.user_admin_companies(text)', 'nothing (read)'),
-  ('auth.user_companies()', 'nothing (read)'),
-  ('approval_company_member_name(uuid,text)', 'nothing (read)'),
-  ('approval_company_member_profile(uuid,text)', 'nothing (read)'),
-  ('approval_company_other_members(uuid,text)', 'nothing (read)'),
-  ('approval_enforcement_set(uuid,text,boolean,text)', 'approval_enforcement, audit_log (R-035; no credential or membership)'),
-  ('approval_request_decide(uuid,uuid,text,text,text,text)', 'approval_requests, audit_log (R-035)'),
-  ('approval_request_lock(uuid,uuid)', 'nothing (row lock)'),
-  ('approval_request_raise(uuid,text,uuid,uuid,text)', 'approval_requests (R-035)'),
-  ('approval_request_rebind(uuid,uuid,uuid,text)', 'approval_requests (R-035)'),
-  ('approval_rule_create(uuid,text,text,text,text,text,numeric,text)', 'approval_rules (R-035)'),
-  ('approval_rule_delete(uuid,uuid,text)', 'approval_rules (R-035)'),
-  ('approval_rule_lock(uuid,uuid,text)', 'nothing (row lock)'),
-  ('approval_rule_update(uuid,uuid,text,text,text,text,numeric,text,boolean)', 'approval_rules (R-035)'),
-  ('audit_check_run_record(jsonb,jsonb)', 'audit_check_runs, audit_check_results'),
-  ('audit_snapshot_record(jsonb,jsonb,jsonb,jsonb)', 'audit_snapshots and their lines'),
-  ('company_member_directory(uuid)', 'nothing (read)'),
-  ('create_company_with_owner(jsonb)', 'a NEW company, with its caller as owner (company_users); grants nothing over an existing one'),
-  ('current_company_invoice_view_summary()', 'nothing (read, 919)'),
-  ('invite_token_company_name()', 'nothing (read, 648)')
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+SELECT v.signature, v.writes, pg_catalog.md5(COALESCE(pg_catalog.pg_get_function_sqlbody(p.oid), p.prosrc))
+  FROM (VALUES
+    ('auth.set_default_company(uuid,uuid)', 'company_users.is_default of the caller''s own memberships only'),
+    ('auth.user_admin_companies()', 'nothing (read)'),
+    ('auth.user_admin_companies(text)', 'nothing (read)'),
+    ('auth.user_companies()', 'nothing (read)'),
+    ('approval_company_member_name(uuid,text)', 'nothing (read)'),
+    ('approval_company_member_profile(uuid,text)', 'nothing (read)'),
+    ('approval_company_other_members(uuid,text)', 'nothing (read)'),
+    ('approval_enforcement_set(uuid,text,boolean,text)', 'approval_enforcement, audit_log (R-035; no credential or membership)'),
+    ('approval_request_decide(uuid,uuid,text,text,text,text)', 'approval_requests, audit_log (R-035)'),
+    ('approval_request_lock(uuid,uuid)', 'nothing (row lock)'),
+    ('approval_request_raise(uuid,text,uuid,uuid,text)', 'approval_requests (R-035)'),
+    ('approval_request_rebind(uuid,uuid,uuid,text)', 'approval_requests (R-035)'),
+    ('approval_rule_create(uuid,text,text,text,text,text,numeric,text)', 'approval_rules (R-035)'),
+    ('approval_rule_delete(uuid,uuid,text)', 'approval_rules (R-035)'),
+    ('approval_rule_lock(uuid,uuid,text)', 'nothing (row lock)'),
+    ('approval_rule_update(uuid,uuid,text,text,text,text,numeric,text,boolean)', 'approval_rules (R-035)'),
+    ('audit_check_run_record(jsonb,jsonb)', 'audit_check_runs, audit_check_results'),
+    ('audit_snapshot_record(jsonb,jsonb,jsonb,jsonb)', 'audit_snapshots and their lines'),
+    ('company_member_directory(uuid)', 'nothing (read)'),
+    ('create_company_with_owner(jsonb)', 'a NEW company, with its caller as owner (company_users); grants nothing over an existing one'),
+    ('current_company_invoice_view_summary()', 'nothing (read, 919)'),
+    ('invite_token_company_name()', 'nothing (read, 648)'),
+    ('payment_approval_cleared(uuid,text,uuid)', 'nothing (read)'),
+    ('refresh_customer_invoice_view_summary()', 'via the _if_due one; migration_admin only (930)'),
+    ('refresh_customer_invoice_view_summary_if_due()', 'matview_refresh_state; migration_admin only (930)'),
+    ('seed_company_afs_statement_lines(uuid)', 'afs_statement_lines of the given company (called by create_company_with_owner)'),
+    ('seed_company_chart_of_accounts(uuid)', 'gl_accounts of the given company (same)'),
+    ('seed_company_default_taxonomy(uuid)', 'company taxonomy rows (same)'),
+    ('seed_company_fiscal_periods(uuid)', 'fiscal_periods of the given company (same)'),
+    ('entity_change_capture()', 'trigger: entity_changes only'),
+    ('credit_note_approval_gate()', 'trigger: refuses, writes nothing'),
+    ('customer_invoice_approval_gate()', 'trigger: refuses, writes nothing'),
+    ('fx_document_currency_gate()', 'trigger: refuses, writes nothing'),
+    ('fx_settlement_refusal()', 'trigger: refuses, writes nothing'),
+    ('manual_journal_approval_gate()', 'trigger: refuses, writes nothing'),
+    ('payment_batch_approval_gate()', 'trigger: refuses, writes nothing'),
+    ('payment_batch_member_gate()', 'trigger: refuses, writes nothing'),
+    ('supplier_invoice_approval_gate()', 'trigger: refuses, writes nothing'),
+    ('supplier_payment_approval_gate()', 'trigger: refuses, writes nothing')
+  ) v(signature, writes)
+  JOIN pg_catalog.pg_proc p ON p.oid = pg_catalog.to_regprocedure(v.signature)
 ON CONFLICT (signature) DO NOTHING;
 
 -- 920's rules, unchanged, plus one per table above.
@@ -263,14 +286,14 @@ AS $$
      AND pg_catalog.has_table_privilege(reach.oid, ruled.rel, p.priv)
   UNION ALL
   -- A definer runs as its owner, so no privilege rule sees what it writes.
-  SELECT DISTINCT pg_catalog.format('%s (reachable from an app pool login) can EXECUTE %s, a SECURITY DEFINER function not in app_definer_reviews: review what it writes, then add it there',
-                                    reach.rolname, p.oid::regprocedure)
-    FROM reach
-   CROSS JOIN pg_catalog.pg_proc p
+  SELECT pg_catalog.format('%s is a SECURITY DEFINER function %s app_definer_reviews: review what it writes, then insert or update its row in the migration that %s it',
+                           p.oid::regprocedure, CASE WHEN r.signature IS NULL THEN 'not in' ELSE 'changed since its row in' END,
+                           CASE WHEN r.signature IS NULL THEN 'creates' ELSE 'changes' END)
+    FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    LEFT JOIN public.app_definer_reviews r ON r.signature = p.oid::regprocedure::text
    WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-     AND pg_catalog.has_function_privilege(reach.oid, p.oid, 'EXECUTE')
-     AND NOT EXISTS (SELECT 1 FROM public.app_definer_reviews r WHERE r.signature = p.oid::regprocedure::text)
+     AND r.body_md5 IS DISTINCT FROM pg_catalog.md5(COALESCE(pg_catalog.pg_get_function_sqlbody(p.oid), p.prosrc))
   UNION ALL
   SELECT 'waitlist_signups has no row security'
    WHERE NOT COALESCE((SELECT c.relrowsecurity FROM pg_catalog.pg_class c

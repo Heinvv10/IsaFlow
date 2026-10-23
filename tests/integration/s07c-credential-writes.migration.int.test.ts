@@ -26,6 +26,8 @@ type Q = (text: string) => Promise<unknown>;
 const rows = async (q: Q, text: string) => ((await q(text)) as { rows: Array<Record<string, unknown>> }).rows;
 const R = (who: string, what: string) => new RegExp(`930: ${who} \\(reachable from an app pool login\\) can ${what}`);
 const APP = 'app_(service|user)';
+/** A definer with no reviewed row (`sig` a regex-escaped signature). */
+const D = (sig: string) => new RegExp(`930: ${sig} is a SECURITY DEFINER function not in app_definer_reviews`);
 
 describe('S-07c: migration 930', () => {
   it('applies twice after 915-920 as a NON-superuser postgres, and 915-920 re-apply after it', async () => {
@@ -72,7 +74,7 @@ describe('S-07c: migration 930', () => {
     ['the pre-491 reset tokens readable', 'GRANT SELECT ON public.password_reset_tokens TO app_user', R(APP, 'SELECT password_reset_tokens\\.')],
     ['a definer that mints, callable by app_user', `CREATE FUNCTION public.s07c_mint(u text) RETURNS void LANGUAGE sql SECURITY DEFINER
       AS $f$ INSERT INTO public.company_users (company_id, user_id, role) VALUES (gen_random_uuid(), u, 'owner') $f$;
-      GRANT EXECUTE ON FUNCTION public.s07c_mint(text) TO app_user`, R(APP, 'EXECUTE s07c_mint\\(text\\), a SECURITY DEFINER function not in app_definer_reviews')],
+      GRANT EXECUTE ON FUNCTION public.s07c_mint(text) TO app_user`, D('s07c_mint\\(text\\)')],
     ...([
       ['a quoted name', `INSERT INTO "company_users" (user_id) VALUES (u)`, 'company_users'],
       ['a comment between the keywords', `INSERT /* x */ INTO public.company_users (user_id) VALUES (u)`, 'company_users'],
@@ -83,21 +85,29 @@ describe('S-07c: migration 930', () => {
       ['a U& identifier', `INSERT INTO U&"\\0063ompany_users" (user_id) VALUES (u)`, 'company_users'],
     ] as const).map(([how, stmt, tbl]) => [`a definer that mints with ${how}`, `CREATE FUNCTION public.s07c_evade(u text) RETURNS void
       LANGUAGE plpgsql SECURITY DEFINER AS $f$ BEGIN ${stmt}; END $f$; GRANT EXECUTE ON FUNCTION public.s07c_evade(text) TO app_user`,
-    R(APP, `EXECUTE s07c_evade\\(text\\), a SECURITY DEFINER function not in app_definer_reviews`)] as [string, string, RegExp]),
+    D('s07c_evade\\(text\\)')] as [string, string, RegExp]),
     ['a definer that runs dynamic SQL', `CREATE FUNCTION public.s07c_dyn(t text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
       AS $f$ BEGIN EXECUTE format('DELETE FROM %I', t); END $f$; GRANT EXECUTE ON FUNCTION public.s07c_dyn(text) TO app_user`,
-    R(APP, 'EXECUTE s07c_dyn\\(text\\), a SECURITY DEFINER function not in app_definer_reviews')],
+    D('s07c_dyn\\(text\\)')],
     ['a BEGIN ATOMIC body', `CREATE FUNCTION public.s07c_atomic(u text) RETURNS void LANGUAGE sql SECURITY DEFINER
       BEGIN ATOMIC INSERT INTO public.company_users (company_id, user_id, role) VALUES (gen_random_uuid(), u, 'owner'); END;
-      GRANT EXECUTE ON FUNCTION public.s07c_atomic(text) TO app_user`, R(APP, 'EXECUTE s07c_atomic\\(text\\), a SECURITY DEFINER function not in app_definer_reviews')],
+      GRANT EXECUTE ON FUNCTION public.s07c_atomic(text) TO app_user`, D('s07c_atomic\\(text\\)')],
+    // Breaker round 4: a trigger function runs without EXECUTE, so every definer needs a row.
+    ['a trigger-only definer', `CREATE FUNCTION public.s07c_trg() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+      AS $f$ BEGIN INSERT INTO public.company_users (company_id, user_id, role) VALUES (NEW.company_id, auth.uid(), 'owner'); RETURN NEW; END $f$;
+      REVOKE ALL ON FUNCTION public.s07c_trg() FROM PUBLIC;
+      CREATE TRIGGER s07c_trg AFTER INSERT ON public.customers FOR EACH ROW EXECUTE FUNCTION public.s07c_trg()`, D('s07c_trg\\(\\)')],
+    ['a reviewed definer whose body changed', `CREATE OR REPLACE FUNCTION public.invite_token_company_name() RETURNS text LANGUAGE sql
+      SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $f$ SELECT 'changed'::text $f$`,
+    /930: invite_token_company_name\(\) is a SECURITY DEFINER function changed since its row in app_definer_reviews/],
     ['the review list writable', 'GRANT INSERT ON public.app_definer_reviews TO app_user', R(APP, 'INSERT app_definer_reviews\\.')],
     ['a definer in another schema', `CREATE SCHEMA s07c_other; CREATE FUNCTION s07c_other.mint(u text) RETURNS void LANGUAGE sql
       SECURITY DEFINER AS $f$ INSERT INTO public.company_invitations (email) VALUES (u) $f$;
       GRANT USAGE ON SCHEMA s07c_other TO app_user; GRANT EXECUTE ON FUNCTION s07c_other.mint(text) TO app_user`,
-    R(APP, 'EXECUTE s07c_other\\.mint\\(text\\), a SECURITY DEFINER function not in app_definer_reviews')],
+    D('s07c_other\\.mint\\(text\\)')],
     ['a definer that mints, callable through PUBLIC\'s default', `CREATE FUNCTION public.s07c_mint2() RETURNS void LANGUAGE sql
       SECURITY DEFINER AS $f$ UPDATE public.personal_access_tokens SET revoked_at = NULL $f$`,
-    R('\\w+', 'EXECUTE s07c_mint2\\(\\), a SECURITY DEFINER function not in app_definer_reviews')],
+    D('s07c_mint2\\(\\)')],
   ])('refuses the mutant: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(GUARD_930);
@@ -113,7 +123,7 @@ describe('S-07c: migration 930', () => {
     ['the capture-key last-used stamp', 'GRANT UPDATE (last_used_at) ON public.capture_api_keys TO app_user'],
     ['a definer once it is reviewed', `CREATE FUNCTION public.s07c_reviewed() RETURNS int LANGUAGE sql SECURITY DEFINER AS $f$ SELECT 1 $f$;
       GRANT EXECUTE ON FUNCTION public.s07c_reviewed() TO app_user;
-      INSERT INTO public.app_definer_reviews VALUES ('s07c_reviewed()', 'nothing (test)')`],
+      INSERT INTO public.app_definer_reviews SELECT 's07c_reviewed()', 'nothing (test)', md5(prosrc) FROM pg_proc WHERE oid = 's07c_reviewed()'::regprocedure`],
     ['a waitlist signup', 'GRANT INSERT (name, email) ON public.waitlist_signups TO app_user'],
   ])('allows what 930 grants back: %s', async (_, grant) => {
     await rolledBack(async (q) => {
@@ -144,6 +154,14 @@ describe('S-07c: migration 930', () => {
       await q(mutate);
       await expect(q(PREFLIGHT_930)).rejects.toThrow(msg);
     });
+  });
+
+  // CI's fixture applies every migration on the branch: a definer added
+  // without its reviewed row fails here, before it can stop a deploy.
+  it('on the fixture as migrated, no violation; every reviewed row names a definer that exists', async () => {
+    expect((await fixture.query('SELECT * FROM public.app_pool_reach_violations()')).rows).toEqual([]);
+    expect((await fixture.query(`SELECT signature FROM public.app_definer_reviews r
+      WHERE NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.prosecdef AND p.oid = to_regprocedure(r.signature))`)).rows).toEqual([]);
   });
 
   it('the deploy\'s check runs 930\'s rules', async () => {
