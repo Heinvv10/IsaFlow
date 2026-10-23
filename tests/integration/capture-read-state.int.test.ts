@@ -94,7 +94,7 @@ describe('migration 909_captured_document_read_state', () => {
   });
 });
 
-describe('migration 910_captured_document_read_attempt', () => {
+describe('migration 921_captured_document_read_attempt', () => {
   it('adds read_attempt, NOT NULL INTEGER defaulting to 0', async () => {
     const { rows } = await pool.query(
       `SELECT data_type, is_nullable, column_default FROM information_schema.columns
