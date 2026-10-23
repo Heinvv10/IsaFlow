@@ -112,12 +112,23 @@ describeIfDb('AFS pre-export blockers actually block', () => {
     });
   }
 
-  it('reports an unset financial year as a blocker, not as a crash', async () => {
-    // getFiscalRange refuses an unusable financial_year_start rather than
-    // assuming March, which is right. Letting that refusal escape turns a
+  it('reports a financial year that cannot be found as a blocker, not as a crash', async () => {
+    // getFiscalRange refuses a label no financial year carries rather than
+    // guessing a range, which is right. Letting that refusal escape turns a
     // misconfiguration into a 500 and tells the accountant nothing about what
     // to fix.
-    await admin.query('UPDATE companies SET financial_year_start = NULL WHERE id = $1', [COMPANY]);
+    //
+    // Migration 940 changed what makes the year unfindable. It used to be an
+    // unset financial_year_start; years are stored rows now and the template
+    // reads an unset start as March, so that no longer refuses. What does is a
+    // label a change of year end skipped: FY2030 here runs fourteen months
+    // (Jan 2030 - Feb 2031), so the next year is FY2032 and no year is FY2031.
+    await admin.query(
+      `INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, kind)
+       VALUES ($1, 2030, '2030-01-01', '2031-02-28', 'transition')`,
+      [COMPANY],
+    );
+    await admin.query('UPDATE afs_documents SET fiscal_year = 2031 WHERE id = $1', [DOCUMENT]);
     try {
       const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
       const period = check(checks, 'Reporting period known');
@@ -126,7 +137,8 @@ describeIfDb('AFS pre-export blockers actually block', () => {
       expect(period?.severity).toBe('blocker');
       expect(period?.detail).toMatch(/Settings/);
     } finally {
-      await admin.query('UPDATE companies SET financial_year_start = 1 WHERE id = $1', [COMPANY]);
+      await admin.query('UPDATE afs_documents SET fiscal_year = $2 WHERE id = $1', [DOCUMENT, FISCAL_YEAR]);
+      await admin.query('DELETE FROM fiscal_years WHERE company_id = $1', [COMPANY]);
     }
   });
 
@@ -299,5 +311,6 @@ async function cleanup(admin: Pool): Promise<void> {
   await admin.query('DELETE FROM gl_journal_lines WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM gl_accounts WHERE company_id = $1', [COMPANY]);
+  await admin.query('DELETE FROM fiscal_years WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM companies WHERE id = $1', [COMPANY]);
 }
