@@ -8,12 +8,12 @@ Type=oneshot
 User=velo
 Group=velo
 EnvironmentFile=/home/velo/isaflow/.env.local
-ExecStart=/usr/bin/curl --silent --show-error --fail \
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
   --max-time 900 \
   -X POST \
-  -H "X-Cron-Secret: ${CRON_SECRET}" \
+  -H @- \
   -H "Content-Type: application/json" \
-  http://127.0.0.1:3101/api/cron/shared-merchant-pool
+  http://127.0.0.1:3101/api/cron/shared-merchant-pool'
 
 StandardOutput=journal
 StandardError=journal
