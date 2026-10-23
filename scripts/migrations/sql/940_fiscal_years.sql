@@ -111,7 +111,7 @@ AS $$
 DECLARE
   prev_label int; prev_end date; next_label int; next_start date;
   s date; e date; lbl int; m int; steps int := 0; used_fallback boolean := false;
-  raw_prev_end date; raw_next_start date;
+  raw_prev_end date; raw_prev_label int;
 BEGIN
   SELECT fy.fiscal_year, fy.end_date INTO prev_label, prev_end
     FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.end_date < p_date
@@ -120,18 +120,18 @@ BEGIN
     FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.start_date > p_date
    ORDER BY fy.start_date LIMIT 1;
 
-  -- A stored year is chained from only when the year after it starts in the
-  -- declared month (true of every declared year and, once a change of year end
-  -- has set the new month, of a transition year). A year cut from a fixture's
-  -- whole-year "period" does not re-cut every later year.
+  -- Later years are chained FORWARD from a stored year only when the year after
+  -- it starts in the declared month (every declared year, and a transition year
+  -- once its change has set the new month). A year cut from a fixture's
+  -- whole-year "period" does not re-cut every later year; the template then
+  -- takes the declared month, kept clear of that year. Walking BACK from the
+  -- next stored year (a post-change company's pre-change calendar years) always
+  -- applies: those years are history and the year before them is theirs.
   SELECT CASE WHEN c.financial_year_start BETWEEN 1 AND 12 THEN c.financial_year_start END
     INTO m FROM companies c WHERE c.id = p_company;
-  raw_prev_end := prev_end; raw_next_start := next_start;
+  raw_prev_end := prev_end; raw_prev_label := prev_label;
   IF prev_end IS NOT NULL AND m IS NOT NULL AND EXTRACT(MONTH FROM prev_end + 1)::int <> m THEN
     prev_label := NULL; prev_end := NULL;
-  END IF;
-  IF next_start IS NOT NULL AND m IS NOT NULL AND EXTRACT(MONTH FROM next_start)::int <> m THEN
-    next_label := NULL; next_start := NULL;
   END IF;
 
   IF prev_end IS NOT NULL THEN
@@ -162,6 +162,10 @@ BEGIN
       e := s - 1; steps := steps + 1;
       IF steps > 500 THEN RAISE EXCEPTION 'fiscal_year_template: % is too far from the stored years', p_date; END IF;
     END LOOP;
+    IF raw_prev_end IS NOT NULL AND s <= raw_prev_end THEN s := raw_prev_end + 1; END IF;
+    IF raw_prev_label IS NOT NULL AND lbl <= raw_prev_label THEN
+      RAISE EXCEPTION 'fiscal_year_template: no free label for the year holding % (between FY% and FY%)', p_date, raw_prev_label, next_label;
+    END IF;
   ELSE
     -- No stored year: the declared month. No silent March (gl/fiscalYearBasis):
     -- an unusable financial_year_start is refused, not guessed.
@@ -183,11 +187,10 @@ BEGIN
     END IF;
     e := (s + INTERVAL '12 months')::date - 1;
     lbl := EXTRACT(YEAR FROM e)::int;
-    -- Never across a stored year the chaining rule set aside.
-    IF raw_prev_end IS NOT NULL AND s <= raw_prev_end THEN s := raw_prev_end + 1; END IF;
-    IF raw_next_start IS NOT NULL AND e >= raw_next_start THEN e := raw_next_start - 1; END IF;
-    IF EXISTS (SELECT 1 FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.fiscal_year = lbl) THEN
-      RAISE EXCEPTION 'fiscal_year_template: the year holding % would take label FY%, which another stored year of company % holds', p_date, lbl, p_company;
+    -- Never across, nor under the label of, a stored year the chaining rule set aside.
+    IF raw_prev_end IS NOT NULL THEN
+      IF s <= raw_prev_end THEN s := raw_prev_end + 1; END IF;
+      lbl := GREATEST(lbl, raw_prev_label + 1);
     END IF;
   END IF;
 
