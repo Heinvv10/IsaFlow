@@ -25,12 +25,12 @@ async function switchTwice() {
   vi.mocked(apiFetch).mockReset().mockImplementation((url) => {
     const u = String(url);
     if (u.includes('chart-of-accounts')) return Promise.resolve(ok([]));
-    if (u.includes('fiscal_year=')) return new Promise<Response>((resolve) => { pending.push({ url: u, resolve }); });
+    if (/\/budgets(\?|$)/.test(u)) return new Promise<Response>((resolve) => { pending.push({ url: u, resolve }); });
     return Promise.resolve(ok({}));
   });
   const answer = (year: string, payload: unknown) =>
     act(async () => {
-      pending.find((p) => p.url.endsWith(`fiscal_year=${year}`))!.resolve(payload instanceof Response ? payload : ok(payload));
+      pending.find((p) => p.url.endsWith(year === '' ? '/api/accounting/budgets' : `?fiscal_year=${year}`))!.resolve(payload instanceof Response ? payload : ok(payload));
     });
 
   render(<BudgetsPage />);
@@ -72,5 +72,16 @@ describe('budgets page year switching', () => {
     await answer('2027', empty500());
     expect(screen.queryByText(/Could not load budgets/)).toBeNull();
     expect(screen.getByText('Sales again 2026')).toBeTruthy();
+  });
+});
+
+describe('budgets page first load', () => {
+  it('asks for the current year with no fiscal_year parameter at all', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
+      ok(String(url).includes('chart-of-accounts') ? [] : budgetsPayload([budgetRow()])));
+    render(<BudgetsPage />);
+    await screen.findByText('D2 Sales Budget');
+    const urls = vi.mocked(apiFetch).mock.calls.map(([u]) => String(u)).filter((u) => /\/budgets(\?|$)/.test(u));
+    expect(urls).toEqual(['/api/accounting/budgets']);
   });
 });

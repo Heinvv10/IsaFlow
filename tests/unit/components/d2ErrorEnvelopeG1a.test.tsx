@@ -81,7 +81,7 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
     const MSG = 'D2 server says no: budget already exists for this account';
     script((u, m) => (u.endsWith('/api/accounting/budgets') && m === 'POST' ? refuse(MSG, 409) : undefined), {
       '/chart-of-accounts': { accounts: [{ id: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense' }] },
-      '/budgets?': budgetsPayload([]),
+      '/api/accounting/budgets': budgetsPayload([]),
     });
     render(<BudgetsPage />);
     fireEvent.click(screen.getByRole('button', { name: /add budget/i }));
@@ -96,7 +96,7 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
   it('budgets: copy-to-next-year refusal is shown', async () => {
     const MSG = 'D2 server says no: next year already has budgets';
     script((u, m) => (u.includes('budgets-action') && m === 'POST' ? refuse(MSG, 409) : undefined), {
-      '/budgets?': budgetsPayload([budgetRow({ glAccountId: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense', notes: '' })]),
+      '/api/accounting/budgets': budgetsPayload([budgetRow({ glAccountId: 'g1', accountCode: '5000', accountName: 'Rent', accountType: 'expense', notes: '' })]),
     });
     render(<BudgetsPage />);
     const copy = await screen.findByRole('button', { name: /copy to/i });

@@ -35,7 +35,7 @@ const SALES = {
 function serve(items: unknown[]) {
   script((u) => {
     if (u.includes('chart-of-accounts')) return ok(GL);
-    if (u.includes('/budgets?')) return ok({ items, fiscalYear: 2026, year: TRANSITION, monthKeys: KEYS, years: [TRANSITION, NEXT] });
+    if (/\/budgets(\?|$)/.test(u)) return ok({ items, fiscalYear: 2026, year: TRANSITION, monthKeys: KEYS, years: [TRANSITION, NEXT] });
     return undefined;
   });
 }
