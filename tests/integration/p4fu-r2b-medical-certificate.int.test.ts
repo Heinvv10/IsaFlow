@@ -44,6 +44,10 @@ async function seed(name: string, monthly: number, beneficiaries: number, medica
     `UPDATE payroll_employees SET status = 'active', medical_aid_main_member = true, medical_aid_dependants_count = $2 WHERE id = $1`,
     [f.employee, beneficiaries - 1]);
   if (medicalAid > 0) {
+    // A voluntary deduction is owed to the scheme: approval posts it to 2175 (payrollJournalBuilder).
+    await pool.query(
+      `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+       VALUES ($1, '2175', 'Other Employee Deductions Payable', 'liability', 'credit', 1)`, [f.company]);
     const comp = (await pool.query<{ id: string }>(
       `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
        VALUES ($1, 'Medical aid', '4005', 'deduction', false) RETURNING id`, [f.company])).rows[0]!.id;
@@ -55,7 +59,8 @@ async function seed(name: string, monthly: number, beneficiaries: number, medica
   for (const month of months) {
     const id = await createRunFor(f, month);
     await calculateRun(f, id);
-    expect((await approveRun(f, id)).statusCode).toBe(200);
+    const approved = await approveRun(f, id);
+    expect(approved.statusCode, `${name} month ${month}: ${JSON.stringify(approved.body)}`).toBe(200);
     ids.push(id);
   }
   return { f, runs: ids };
