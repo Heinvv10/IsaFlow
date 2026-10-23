@@ -23,6 +23,7 @@ import { replaySpooledAnswers } from '@/modules/accounting/services/ap/netcashAn
 import { probeSpoolWritable } from '@/modules/accounting/services/ap/netcashAnswerSpool';
 import { submitEftBatch, type NetcashPayment, type NetcashSubmitResult } from '@/modules/accounting/services/ap/netcashService';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
+import { BatchChangedSinceApprovalError } from '@/modules/accounting/services/ap/batchApprovedDigest';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import { assertSuppliersBankVerified, respondIfBankDetailsUnverified } from '@/modules/accounting/services/ap/supplierBankVerificationGate';
 
@@ -93,6 +94,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   } catch (err) {
     if (respondIfApprovalRequired(res, err)) return;
     if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message, { reason: err.code, batchStatus: err.batchStatus });
+    // Migration 922: its content changed since it was approved — re-approve it first. Enforcement on or off.
+    if (err instanceof BatchChangedSinceApprovalError) return apiResponse.conflict(res, err.message, { reason: err.code, batchId: err.batchId });
     throw err;
   }
   const batchReference = String(batch[0].batch_number ?? batchPaymentId);

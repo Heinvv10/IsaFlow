@@ -21,6 +21,7 @@ import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/appr
 import { respondIfBankControlRefused } from '@/modules/accounting/services/bank/bankControlResponse';
 import { BatchAlreadyReversedError, reverseBatch } from '@/modules/accounting/services/ap/batchPaymentReversal';
 import { respondIfLockTimeout } from '@/lib/apiDocumentLock';
+import { BatchChangedSinceApprovalError } from '@/modules/accounting/services/ap/batchApprovedDigest';
 import {
   isRetryableSupplierPaymentRefusal,
   isSupplierPaymentRefusal,
@@ -77,7 +78,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // with the invoices not updated — and reported it to the user as a 400.
     if (err instanceof BatchNotProcessableError || err instanceof BatchNotApprovableError
         || err instanceof BatchAlreadyReversedError) {
-      return apiResponse.conflict(res, err.message);
+      return apiResponse.conflict(res, err.message, { reason: err.code });
+    }
+    // Migration 922: process refuses a batch whose content changed since it was approved; re-approve is the way out.
+    if (err instanceof BatchChangedSinceApprovalError) {
+      return apiResponse.conflict(res, err.message, { reason: err.code, batchId: err.batchId });
     }
     if (err instanceof Error && err.message === 'Batch not found') {
       return apiResponse.notFound(res, 'Batch');

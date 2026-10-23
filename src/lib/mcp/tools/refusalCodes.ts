@@ -52,6 +52,10 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // Listed because every `readonly code` must be; no MCP tool reverses or
   // processes a batch yet, so no agent can receive it today.
   'BATCH_ALREADY_REVERSED',
+  // Migration 922: an approved / processed batch whose payees, bank details or amounts changed since its approval,
+  // refused by eft-generate, netcash/submit and process whatever the enforcement switch says. Names only the
+  // caller's own batch id; raised before any write. No MCP tool sends or processes a batch today.
+  'BATCH_CHANGED_SINCE_APPROVAL',
   // R-035 PR5: a batch that is no longer a draft when approve runs; names its
   // status only, raised before any write. No MCP tool approves a batch today.
   'BATCH_NOT_APPROVABLE',
