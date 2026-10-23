@@ -223,7 +223,7 @@ describe('REPRO route security', () => {
     const c = await company(3, ['2026-03-01']);
     const other = await company(3, ['2026-03-01']);
     const owner = await routeUser(c.id, 'owner');
-    const body = { newYearEndMonth: 11, ...OK };
+    const body = { newYearEndMonth: 11, expectedEndDate: '2026-11-30', ...OK }; // FY2027 shortened to end Nov 2026
     const before = await writes(c.id);
 
     for (const role of ['viewer', 'accountant']) {
@@ -247,7 +247,7 @@ describe('REPRO route security', () => {
 
     // A 409 refusal commits nothing.
     expect((await call(owner, c.id, 'POST', { ...body, reason: 'short' })).status).toBe(409);
-    expect((await call(owner, c.id, 'POST', { ...body, newYearEndMonth: 8 })).status).toBe(409);
+    expect((await call(owner, c.id, 'POST', { ...body, newYearEndMonth: 8, expectedEndDate: '2026-08-31' })).status).toBe(409);
     expect((await call(owner, c.id, 'DELETE', { reason: 'nothing to undo yet' })).status).toBe(409);
     expect(await writes(c.id)).toEqual(before);
     expect(await writes(other.id)).toMatchObject({ ch: 0, fys: 3 });

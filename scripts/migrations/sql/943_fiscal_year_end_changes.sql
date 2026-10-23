@@ -165,7 +165,7 @@ BEGIN
   NEW.snapshot := jsonb_build_object(
     'years', COALESCE((SELECT jsonb_agg(jsonb_build_object(
         'id', fy.id, 'fiscal_year', fy.fiscal_year, 'start_date', fy.start_date::text, 'end_date', fy.end_date::text,
-        'kind', fy.kind, 'change_id', fy.change_id, 'created_at', fy.created_at, 'updated_at', fy.updated_at) ORDER BY fy.start_date)
+        'kind', fy.kind, 'change_id', fy.change_id, 'created_at', fy.created_at) ORDER BY fy.start_date)
       FROM fiscal_years fy WHERE fy.company_id = NEW.company_id AND fy.start_date >= NEW.transition_start), '[]'::jsonb),
     'periods', COALESCE((SELECT jsonb_agg(jsonb_build_object(
         'id', fp.id, 'fiscal_year_id', fp.fiscal_year_id, 'fiscal_year', fp.fiscal_year,
