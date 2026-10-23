@@ -3,19 +3,20 @@
  *
  * approveBatch stores the batch's `payment_batch` digest — approval_document_digest(),
  * the one the approval gate compares (gl/approvalDocuments): every member's payee, the
- * payee's bank details and the amount — in `approved_digest`. The bank file, the Netcash
+ * payee's bank details and name (upper(btrim() COLLATE "C"), migration 923), the amount, and the
+ * paying account's number and branch (923) — in `approved_digest`. The bank file, the Netcash
  * send and process compare it with the current digest and refuse a batch whose content
  * changed since, WHATEVER the payment_batch enforcement switch says: with enforcement
  * off, nothing else stood between an approval and money paid to bank details nobody
- * approved. The way out is re-approving the batch (approveBatch). The digest does not cover the supplier NAME
- * (the file's beneficiary / Netcash account holder): a rename after approval is not compared.
+ * approved. The way out is re-approving the batch (approveBatch).
  *
  * A batch approved before migration 922 has no stored digest: allowed, with a warning
  * (Hein, 2026-10-23 — no backfill; today's digest is not evidence of what was approved).
  *
  * Call with the batch row already locked by this transaction. The payees are
- * share-locked here, in id order (batch → supplier, the #789 lock order): a bank-detail
- * edit (updateSupplier locks the supplier FOR UPDATE) in flight is waited for and then
+ * share-locked here, in id order (batch → supplier, the #789 lock order), then the
+ * paying account (→ gl_accounts): a bank-detail edit or rename (updateSupplier locks the
+ * supplier FOR UPDATE) or an edit of the paying account in flight is waited for and then
  * seen by the compare, or waits for this request to end.
  */
 
@@ -28,8 +29,8 @@ import { resolveApprovalDocument } from '../gl/approvalDocuments';
 export class BatchChangedSinceApprovalError extends Error {
   readonly code = 'BATCH_CHANGED_SINCE_APPROVAL';
   constructor(readonly batchId: string) {
-    super('This batch changed after it was approved (a payee, their bank details or an amount), '
-      + 'so it cannot be paid as it stands. Check the batch and re-approve it.');
+    super('This batch changed after it was approved (a payee, their name or bank details, an amount, '
+      + 'or the paying account), so it cannot be paid as it stands. Check the batch and re-approve it.');
     this.name = 'BatchChangedSinceApprovalError';
   }
 }
@@ -48,7 +49,7 @@ export class BatchContentNotAsShownError extends Error {
   }
 }
 
-/** FOR SHARE on the batch's payees, in id order, held to the end of the transaction. */
+/** FOR SHARE on the batch's payees, in id order, then on its paying account; held to the end of the transaction. */
 export async function lockBatchPayees(companyId: string, batchId: string): Promise<void> {
   await sql`
     SELECT s.id FROM suppliers s
@@ -56,6 +57,13 @@ export async function lockBatchPayees(companyId: string, batchId: string): Promi
       AND s.id IN (SELECT sp.supplier_id FROM supplier_payments sp
                    WHERE sp.batch_id = ${batchId}::UUID AND sp.company_id = ${companyId}::UUID)
     ORDER BY s.id
+    FOR SHARE
+  `;
+  await sql`
+    SELECT ga.id FROM gl_accounts ga
+    WHERE ga.company_id = ${companyId}::UUID
+      AND ga.id = (SELECT b.bank_account_id FROM supplier_payment_batches b
+                   WHERE b.id = ${batchId}::UUID AND b.company_id = ${companyId}::UUID)
     FOR SHARE
   `;
 }
