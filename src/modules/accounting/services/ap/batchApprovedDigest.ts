@@ -29,8 +29,8 @@ import { resolveApprovalDocument } from '../gl/approvalDocuments';
 export class BatchChangedSinceApprovalError extends Error {
   readonly code = 'BATCH_CHANGED_SINCE_APPROVAL';
   constructor(readonly batchId: string) {
-    super('This batch changed after it was approved (a payee, their name or bank details, an amount, or the paying account), '
-      + 'so it cannot be paid as it stands. Check the batch and re-approve it.');
+    super('This batch changed after it was approved (a payee, their name or bank details, an amount, '
+      + 'or the paying account), so it cannot be paid as it stands. Check the batch and re-approve it.');
     this.name = 'BatchChangedSinceApprovalError';
   }
 }
