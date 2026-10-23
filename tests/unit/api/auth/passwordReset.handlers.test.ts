@@ -45,7 +45,7 @@ vi.mock('@/lib/auth/sessionRevocation', () => ({
 
 const sendEmail = vi.fn(async () => ({ success: true }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail: (...a: unknown[]) => sendEmail(...a) }));
-vi.mock('@/lib/email-templates-shared', () => ({ emailLayout: (s: string) => s, ctaButton: (l: string, u: string) => `${l}:${u}` }));
+vi.mock('@/lib/email-templates-shared', () => ({ emailLayout: (s: string) => s, emailContentRow: (s: string) => s, ctaButton: (l: string, u: string) => `${l}:${u}` }));
 
 import doResetHandler from '../../../../pages/api/auth/do-reset-password';
 import forgotHandler from '../../../../pages/api/auth/forgot-password';

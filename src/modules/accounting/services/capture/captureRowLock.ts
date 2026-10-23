@@ -118,14 +118,15 @@ export async function lockWithTimeout(rowId: string, read: () => Promise<DbRow[]
  * Hold the captured document for the rest of the request.
  *
  * Returns null when the row does not exist or belongs to another tenant, so
- * callers keep their own NOT_FOUND wording.
+ * callers keep their own NOT_FOUND wording. The read columns come back too, for `isBeingRead`.
  */
 export async function lockCapturedDocumentForUpdate(
   companyId: string,
   documentId: string,
 ): Promise<DbRow | null> {
   return lockWithTimeout(documentId, async () => (await sql`
-    SELECT extracted_data, vendor_name, status, posted_at FROM captured_documents
+    SELECT extracted_data, vendor_name, status, posted_at, read_state, read_heartbeat_at, created_at
+    FROM captured_documents
     WHERE id = ${documentId}::uuid AND company_id = ${companyId}
     FOR UPDATE`) as DbRow[]);
 }

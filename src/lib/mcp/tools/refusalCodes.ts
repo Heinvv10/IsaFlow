@@ -56,7 +56,8 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // status only, raised before any write. No MCP tool approves a batch today.
   'BATCH_NOT_APPROVABLE',
   // R-035 PR5: a batch sent to the bank (eft-generate / netcash) while still a
-  // draft under enforcement; names its status only, raised before any write.
+  // draft (or cancelled / reversed), enforcement on or off; names its status
+  // only, raised before any write.
   'BATCH_NOT_SENDABLE',
   'BATCH_NOT_PROCESSABLE',
   'BILL_LINE_ACCOUNT_REFUSED',
@@ -180,6 +181,7 @@ export const REFUSAL_CODES: ReadonlySet<string> = new Set([
   // names the caller's own suppliers, raised before anything is sent. Listed
   // because every `readonly code` must be; no MCP tool sends money.
   'SUPPLIER_BANK_DETAILS_UNVERIFIED',
+  'SUPPLIER_BATCH_LOCK_TIMEOUT',
   // A refund larger than the contact's on-account credit (migration 681). One fixed sentence written for the user, naming the contact, the two amounts
   // and the as-at date the caller itself supplied — no id, no table — and
   // raised BEFORE the journal posts, so there is nothing written to leak.
