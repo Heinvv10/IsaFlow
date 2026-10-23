@@ -24,6 +24,7 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
+import { CodingMetricsStrip } from '@/components/accounting/bank-transactions/CodingMetricsStrip';
 import { actionableIds } from '@/components/accounting/bank-transactions/pendingFeedRow';
 
 type Tab = 'new' | 'reviewed' | 'excluded';
@@ -296,6 +297,7 @@ export default function BankTransactionsPage() {
 
         {/* Table */}
         <div className="px-4 py-2">
+          <CodingMetricsStrip />
           <AutoPostRunsPanel onUndone={loadTransactions} />
           {relinkFailed && (
             <div className="flex items-center gap-2 text-xs text-amber-400 py-1 pb-2">

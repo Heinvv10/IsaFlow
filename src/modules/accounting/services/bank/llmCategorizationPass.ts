@@ -15,6 +15,7 @@ import {
   type ChartOfAccountEntry,
 } from '@/modules/accounting/services/core/aiCategorizationService';
 import { sweep as gateSweep, getAutoPostSettings, type SweepResult } from './autoPostGateService';
+import { recordSuggestionsShown } from './codingDecisionLog';
 
 // ─── Residual selector ────────────────────────────────────────────────────────
 
@@ -242,6 +243,7 @@ export async function persistLlmResult(
     WHERE id = ${txId}::UUID
       AND company_id = ${companyId}::UUID
   `;
+  await recordSuggestionsShown(companyId, [{ txId, source: 'llm', glAccountId: r.glAccountId, confidence: r.confidence }]);
 }
 
 // ─── Daily ceiling helpers ────────────────────────────────────────────────────
