@@ -39,7 +39,7 @@ import { approvalStatusRefusal } from './payrollApprovalRefusal';
 import { closedPeriodBlocker } from './payrollJournalParts';
 import { readJournalChain, runRecalculatedSince, type JournalChain } from './payrollJournalChain';
 import { judgeRunDirectives, unpaidLeaverDirectiveNotes } from './payrollRunDirectiveClaim';
-import { judgeYearToDateStale } from './payrollYearToDate';
+import { judgeYearToDate } from './payrollYearToDateGate';
 import { findTerminationsPaidElsewhere } from './payrollTerminationPaidCheck';
 import {
   buildPayrollJournalPlan,
@@ -204,8 +204,17 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const replaces = out ? linked : null;
   const posted = out ? null : linked;
   const dated = out && chain ? await datedForReplacement(companyId, built, chain) : built;
-  // Leavers whose approved severance directive this run does not pay, and why (P3); not in the hash.
-  const plan = { ...dated, advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId)] };
+  // Cumulative PAYE read a year-to-date that is no longer what the other months declare (G4, round 2 R1).
+  // Judged here, before the blocker below, because its advisories belong in the plan: one more read-only
+  // query on every judgement, run before the status and directive checks under the same locks. Its
+  // blocker is still returned only after theirs, so blocker precedence is unchanged.
+  const yearToDate = await judgeYearToDate(companyId, runId);
+  // Leavers whose approved severance directive this run does not pay, and why (P3), and a paid later month
+  // this run's change leaves stale (R1 limit (f)); neither is in the hash.
+  const plan = {
+    ...dated,
+    advisories: [...dated.advisories, ...await unpaidLeaverDirectiveNotes(companyId, runId), ...yearToDate.advisories],
+  };
 
   const blocker = await (async (): Promise<PayrollJournalNote | null> => {
     const statusRefusal = approvalStatusRefusal(plan.status, linkedId);
@@ -213,9 +222,7 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
     // Severance lines whose directive another payer took, or that no longer match it (P3).
     const directives = await judgeRunDirectives(companyId, runId);
     if (directives) return directives;
-    // Cumulative PAYE read a year-to-date an earlier month's later approval made stale (G4).
-    const staleYearToDate = await judgeYearToDateStale(companyId, runId);
-    if (staleYearToDate) return staleYearToDate;
+    if (yearToDate.blocker) return yearToDate.blocker;
     if (linkedId && !out) {
       const numbers = chain?.journals.map((j) => j.entryNumber).join(', ');
       if (!chain || !linked || chain.state === 'unclear') {
