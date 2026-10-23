@@ -38,7 +38,7 @@ describe('attachDocumentToProvisional: the claim refusal', () => {
   });
   it('not_read (the read failed or went silent) -> refused with the upload-again message (400)', async () => {
     vi.mocked(claimCapturedDocumentForPosting).mockResolvedValueOnce('not_read');
-    expect(await attachDocumentToProvisional('c', 'je', 'd')).toEqual({ kind: 'refused', message: 'This document could not be read — upload it again.' });
+    expect(await attachDocumentToProvisional('c', 'je', 'd')).toEqual({ kind: 'refused', message: "This document's read did not finish — retry the read or upload the document again." });
   });
   it('content_posted stays refused', async () => {
     vi.mocked(claimCapturedDocumentForPosting).mockResolvedValueOnce('content_posted');

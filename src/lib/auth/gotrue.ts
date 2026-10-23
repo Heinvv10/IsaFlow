@@ -86,7 +86,7 @@ export async function verifyToken(token: string, impersonationProof?: string): P
   return claims;
 }
 
-async function gotrueFetch(
+export async function gotrueFetch(
   path: string,
   init: RequestInit,
   extraHeaders: Record<string, string> = {}
@@ -102,7 +102,7 @@ async function gotrueFetch(
   return res;
 }
 
-function adminHeaders(): Record<string, string> {
+export function adminHeaders(): Record<string, string> {
   const key = getEnv('SUPABASE_SERVICE_ROLE_KEY');
   return { Authorization: `Bearer ${key}`, apikey: key };
 }

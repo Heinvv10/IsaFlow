@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS fiscal_years (
   -- The change of year end that made this a transition year (Feature B's table).
   change_id UUID,
   -- True when the year was cut on an ASSUMED March start (a period linked for a
-  -- company with no usable financial_year_start). Strict readers refuse it.
+  -- company with no usable financial_year_start). Strict readers refuse it while
+  -- the company still has no usable start month; declaring one confirms it.
   assumed_start BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -115,11 +116,12 @@ DECLARE
   prev_label int; prev_end date; next_label int; next_start date;
   s date; e date; lbl int; m int; steps int := 0; used_fallback boolean := false;
   raw_prev_end date; raw_prev_label int;
+  prev_assumed boolean := false; next_assumed boolean := false; start_unusable boolean;
 BEGIN
-  SELECT fy.fiscal_year, fy.end_date INTO prev_label, prev_end
+  SELECT fy.fiscal_year, fy.end_date, fy.assumed_start INTO prev_label, prev_end, prev_assumed
     FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.end_date < p_date
    ORDER BY fy.end_date DESC LIMIT 1;
-  SELECT fy.fiscal_year, fy.start_date INTO next_label, next_start
+  SELECT fy.fiscal_year, fy.start_date, fy.assumed_start INTO next_label, next_start, next_assumed
     FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.start_date > p_date
    ORDER BY fy.start_date LIMIT 1;
 
@@ -132,6 +134,7 @@ BEGIN
   -- applies: those years are history and the year before them is theirs.
   SELECT CASE WHEN c.financial_year_start BETWEEN 1 AND 12 THEN c.financial_year_start END
     INTO m FROM companies c WHERE c.id = p_company;
+  start_unusable := m IS NULL;
   raw_prev_end := prev_end; raw_prev_label := prev_label;
   IF prev_end IS NOT NULL AND m IS NOT NULL AND EXTRACT(MONTH FROM prev_end + 1)::int <> m THEN
     prev_label := NULL; prev_end := NULL;
@@ -197,7 +200,12 @@ BEGIN
     END IF;
   END IF;
 
-  fiscal_year := lbl; start_date := s; end_date := e; assumed := used_fallback;
+  -- A year chained from a year cut on an assumed start month is assumed too,
+  -- while the company still has no usable start month.
+  fiscal_year := lbl; start_date := s; end_date := e;
+  assumed := used_fallback
+          OR (start_unusable AND ((prev_end IS NOT NULL AND COALESCE(prev_assumed, false))
+                                  OR (prev_end IS NULL AND next_start IS NOT NULL AND COALESCE(next_assumed, false))));
   RETURN NEXT;
 END;
 $$;
@@ -211,8 +219,9 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   RETURN QUERY
-    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true, fy.assumed_start
-      FROM fiscal_years fy
+    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true,
+           fy.assumed_start AND NOT COALESCE(c.financial_year_start BETWEEN 1 AND 12, false)
+      FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
      WHERE fy.company_id = p_company AND p_date BETWEEN fy.start_date AND fy.end_date;
   IF NOT FOUND THEN
     RETURN QUERY
@@ -235,8 +244,10 @@ DECLARE
   probe date; t record; steps int := 0;
 BEGIN
   RETURN QUERY
-    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true, fy.assumed_start
-      FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
+    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true,
+           fy.assumed_start AND NOT COALESCE(c.financial_year_start BETWEEN 1 AND 12, false)
+      FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
+     WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
   IF FOUND THEN RETURN; END IF;
 
   SELECT fy.fiscal_year, fy.end_date INTO prev_label, prev_end FROM fiscal_years fy

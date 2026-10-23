@@ -9,7 +9,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
+import { getDbPool } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { apiResponse } from '@/lib/apiResponse';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
@@ -113,22 +113,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     user_agent:            clean(req.headers['user-agent'], 500),
   };
 
-  // Insert; duplicate emails no-op. We use ON CONFLICT on the unique
-  // (lower(email)) index from migration 432.
-  const rows = await sql`
-    INSERT INTO waitlist_signups
-      (name, email, signup_type, company_name, practice_name, phone,
-       annual_turnover_cents, ip, user_agent)
-    VALUES
-      (${lead.name}, ${lead.email}, ${lead.signup_type},
-       ${lead.company_name}, ${lead.practice_name},
-       ${lead.phone}, ${lead.annual_turnover_cents},
-       ${lead.ip}, ${lead.user_agent})
-    ON CONFLICT ((lower(email))) DO NOTHING
-    RETURNING id
-  `;
+  // Insert; duplicate emails no-op, through the unique (lower(email)) index
+  // from migration 432. App roles may only INSERT this table, never read it
+  // (migration 930): so no RETURNING, the row count says whether the address
+  // was new, and no conflict target, whose inference needs SELECT on email.
+  // The only other unique key is the generated id.
+  const inserted = await getDbPool().query(
+    `INSERT INTO waitlist_signups
+       (name, email, signup_type, company_name, practice_name, phone,
+        annual_turnover_cents, ip, user_agent)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     ON CONFLICT DO NOTHING`,
+    [lead.name, lead.email, lead.signup_type, lead.company_name, lead.practice_name,
+      lead.phone, lead.annual_turnover_cents, lead.ip, lead.user_agent],
+  );
 
-  const isNew = rows.length > 0;
+  const isNew = (inserted.rowCount ?? 0) > 0;
 
   log.info('waitlist signup', { email: lead.email, isNew, ip }, 'waitlist');
 

@@ -76,6 +76,8 @@ function unreadable(files: { name: string; sql: string }[]): string[] {
 
 /**
  * Read by hand (2026-10-12): none of their EXECUTEs adds or renames a column of gl_journal_entries / gl_journal_lines.
+ * 903 (2026-10-21): its one EXECUTE revokes grants on categorization_decisions; "journal" is that table's own
+ * posted_journal_entry_id column, and it ALTERs no journal table.
  */
 const READ_BY_HAND = new Set([
   '000_users_and_auth.sql', '200_accounting_foundation.sql', '201_accounts_payable.sql',
@@ -91,7 +93,9 @@ const READ_BY_HAND = new Set([
   '871_fx_pr0_refuse_foreign_currency.sql', '872_approval_request_definer_writes.sql',
   '876_supplier_bank_verification.sql', '877_bank_controls_step2.sql',
   '881_approval_rule_enforcement_definer_writes.sql', '884_validate_dimension_fks.sql',
-  '885_bank_rule_switch_definer.sql', '891_audit_snapshots.sql'
+  '885_bank_rule_switch_definer.sql', '891_audit_snapshots.sql', '903_categorization_decisions.sql',
+  // 930 (S-07c): GRANT/REVOKE EXECUTE ON FUNCTION and a definer list naming manual_journal_approval_gate(); no DDL on either table.
+  '930_credential_membership_writes_off_app_pools.sql',
 ]);
 
 /** The columns a snapshot's canonical row freezes: what `je.` / `jl.` the row's jsonb_build_object reads. */

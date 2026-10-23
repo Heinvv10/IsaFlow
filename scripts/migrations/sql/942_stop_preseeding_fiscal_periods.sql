@@ -45,8 +45,8 @@ BEGIN
    WHERE fy.company_id = p_company AND p_date BETWEEN fy.start_date AND fy.end_date;
   IF y IS NOT NULL THEN RETURN y; END IF;
   SELECT * INTO t FROM public.fiscal_year_template(p_company, p_date);
-  INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
-  VALUES (p_company, t.fiscal_year, t.start_date, t.end_date)
+  INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, assumed_start)
+  VALUES (p_company, t.fiscal_year, t.start_date, t.end_date, t.assumed)
   ON CONFLICT DO NOTHING
   RETURNING id INTO y;
   IF y IS NULL THEN
