@@ -82,6 +82,8 @@ export async function createInvitation(
          token = EXCLUDED.token,
          expires_at = EXCLUDED.expires_at,
          accepted_at = NULL,
+         email_sent_at = NULL,
+         email_error = NULL,
          created_at = NOW()
        RETURNING *`,
       [companyId, email, role, invitedBy, tokenHash, expiresAt],
