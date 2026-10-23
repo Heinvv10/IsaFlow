@@ -75,7 +75,10 @@ describe('R4: the create route requires one of the company\'s employees', () => 
     expect(await countDirectives(f.company)).toBe(before);
   });
 
-  it('another company\'s employee: 400, nothing written in either company', async () => {
+  it('another company\'s employee: 400, nothing written in either company, even for a member of both', async () => {
+    // A member of both companies reads both companies' employees under RLS (membership), so only the
+    // route's own company predicate keeps the active company's directive off the other's employee.
+    await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [other.company, f.admin]);
     const [mine, theirs] = [await countDirectives(f.company), await countDirectives(other.company)];
     // A company named in the body changes nothing: the session's company decides.
     const r = await post({ ...BODY, employee_id: other.employee, company_id: other.company });
