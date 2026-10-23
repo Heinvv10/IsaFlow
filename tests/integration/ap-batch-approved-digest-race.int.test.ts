@@ -32,7 +32,7 @@ vi.mock('@/modules/accounting/services/ap/batchBankFileGate', async (orig) => {
 import { updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { createUser, reasonOf } from './r035-approval.helpers';
-import { cleanupPr5 } from './r035-pr5.helpers';
+import { cleanupPr5, digestOf } from './r035-pr5.helpers';
 import { lockOrderKit } from './ap-supplier-batch-lock-order.helpers';
 import { CHANGED, NEW_ACCOUNT, OLD_ACCOUNT, digestKit } from './ap-batch-approved-digest.helpers';
 
@@ -41,7 +41,7 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
 const companies: string[] = [];
 const tokens: Record<string, string> = {};
 const u = { a: '', b: '' };
-const { eft, fixture, approve, exportRecords, contentOf } = digestKit(pool, u, tokens, companies);
+const { r, eft, fixture, approve, exportRecords, storedDigest, contentOf } = digestKit(pool, u, tokens, companies);
 
 beforeAll(async () => {
   for (const k of Object.keys(u) as (keyof typeof u)[]) u[k] = await createUser(pool, tokens);
@@ -102,5 +102,25 @@ describe('a bank-detail edit racing eft-generate: never a file with unapproved d
     expect(await accountOf(supplierId)).toBe(NEW_ACCOUNT);
     // And the next file is refused: the details are no longer the approved ones.
     expect(reasonOf(await eft(c, b.id))).toBe(CHANGED);
+  });
+
+  it('approve waits for a bank edit in flight and stores the digest of what it then sees: the file goes to the new details', async () => {
+    const { c, b, supplierId } = await fixture();
+    const held = await pool.connect();
+    try {
+      await held.query('BEGIN');
+      const holder = (await held.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      await held.query('UPDATE suppliers SET bank_account_number = $2 WHERE id = $1', [supplierId, NEW_ACCOUNT]);
+      const approving = r.batch(u.a, c, 'approve', b.id);
+      await blockedBy(holder); // approve waits on the payee row before it computes the digest
+      await held.query('COMMIT');
+      expect((await approving).state.statusCode).toBe(200);
+    } finally {
+      held.release(true);
+    }
+    expect(await storedDigest(b.id)).toBe(await digestOf(pool, c, 'payment_batch', b.id));
+    const file = await eft(c, b.id);
+    expect(file.state.statusCode, JSON.stringify(file.state.body)).toBe(200);
+    expect(contentOf(file)).toContain(NEW_ACCOUNT);
   });
 });

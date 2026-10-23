@@ -54,7 +54,8 @@ export async function assertBatchMayBeSent(companyId: string, batchId: string, b
   await lockBatchPayees(companyId, batchId);
   // Under enforcement the gate answers first, as it always has (APPROVAL_STALE for changed content).
   if (await isEnforced(companyId, 'payment_batch')) await assertApprovalCleared(companyId, 'payment_batch', batchId);
-  // Then, enforcement on or off: what was approved is what is sent (migration 922). A processed batch is compared
-  // too: its file is still built from the payees' live bank details.
+  // Then, enforcement on or off: the content the batch digest covers is what was approved (migration 922) — its
+  // payees, their bank details, the amounts; not the supplier NAME the file carries as beneficiary. A processed batch
+  // is compared too: its file is still built from the payees' live bank details.
   await assertBatchUnchangedSinceApproval(companyId, batchId);
 }

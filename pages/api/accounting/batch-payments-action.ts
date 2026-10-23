@@ -41,8 +41,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
     switch (action) {
       case 'approve': {
-        await approveBatch(companyId, id, userId);
-        return apiResponse.success(res, { status: 'approved' });
+        // A re-approval (migration 922) keeps a processed batch processed: answer the status it has now.
+        return apiResponse.success(res, { status: await approveBatch(companyId, id, userId) });
       }
       case 'process': {
         if (await withJournalDateRefusal(res, () => processBatch(companyId, id, userId)) === JOURNAL_DATE_REFUSED) return;

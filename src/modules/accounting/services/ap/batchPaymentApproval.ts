@@ -46,9 +46,9 @@ const APPROVABLE: ReadonlySet<string> = new Set(['draft', 'approved', 'processed
  * without this it could never be sent. A re-approval leaves the status as it is. Either
  * way the digest approved is stored in the same UPDATE, and the members carry the
  * approver. An approved or processed batch that has not changed — or that has no stored
- * digest — is refused BatchNotApprovableError, as before.
+ * digest — is refused BatchNotApprovableError, as before. Returns the batch's status afterwards.
  */
-export async function approveBatch(companyId: string, id: string, userId: string): Promise<void> {
+export async function approveBatch(companyId: string, id: string, userId: string): Promise<string> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // The batch row first, 5s-bounded like processBatch's lock. This used to
   // UPDATE unlocked and ignore the row count, so approving a processed or
@@ -86,7 +86,7 @@ export async function approveBatch(companyId: string, id: string, userId: string
       WHERE batch_id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'draft'
     `;
     log.info('Approved batch', { id }, 'accounting');
-    return;
+    return 'approved';
   }
   // Re-approval: every member still paid by the batch, its status left as it is.
   await sql`
@@ -99,4 +99,5 @@ export async function approveBatch(companyId: string, id: string, userId: string
       metadata: { reapproved: 'true', status } },
   });
   log.info('Re-approved batch whose content changed since its approval', { id }, 'accounting');
+  return status;
 }
