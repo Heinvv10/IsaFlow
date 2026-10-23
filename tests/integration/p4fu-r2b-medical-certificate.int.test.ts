@@ -14,7 +14,9 @@
  *   is not true: 08.
  * - B: the same pay and family, no medical aid deduction: refused, naming 4005.
  * - C: R30 000 a month, member + 1, R3 000 medical aid, March and April: an
- *   IRP5, 4116 = 2 x 752 = 1 504.00, 4005 = 6 000. With its latest line's
+ *   IRP5, 4116 = 2 x 752 = 1 504.00, 4005 = 6 000 (an R500 non-deduction
+ *   component coded 4005 is not the employee's fees, here or in a line's
+ *   breakdown). With its latest line's
  *   record removed (a month calculated before migration 926) the three fields
  *   are left off and the export says so.
  */
@@ -37,7 +39,9 @@ const SARS_PROFILE = `UPDATE companies SET paye_reference_number = '7123456789',
   sars_contact_last_name = 'Payroll', sars_contact_telephone = '0115550000',
   physical_address_line1 = '1 Main Road', physical_city = 'Pretoria', physical_postal_code = '0181' WHERE id = $1`;
 
-async function seed(name: string, monthly: number, beneficiaries: number, medicalAid: number, months: number[]): Promise<{ f: SeveranceFixture; runs: string[] }> {
+async function seed(
+  name: string, monthly: number, beneficiaries: number, medicalAid: number, months: number[], otherCoded4005 = 0,
+): Promise<{ f: SeveranceFixture; runs: string[] }> {
   const f = await seedRetrenchedEmployee(pool, '2027-02-28', name, monthly);
   await pool.query(SARS_PROFILE, [f.company]);
   await pool.query(
@@ -54,6 +58,17 @@ async function seed(name: string, monthly: number, beneficiaries: number, medica
     await pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, $3, '2020-01-01')`,
       [f.employee, comp, medicalAid]);
+  }
+  if (otherCoded4005 > 0) {
+    // A component coded 4005 that is not a deduction is not the employee's fees (the calculator counts
+    // deductions only). An employer contribution cannot be stored at all: component_type is VARCHAR(20)
+    // and 'employer_contribution' is 21 characters, so this is a (non-taxable) earning mis-coded 4005.
+    const comp = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Medical aid allowance', '4005', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id;
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, $3, '2020-01-01')`,
+      [f.employee, comp, otherCoded4005]);
   }
   const ids: string[] = [];
   for (const month of months) {
@@ -90,7 +105,7 @@ beforeAll(async () => {
   const eight = [3, 4, 5, 6, 7, 8, 9, 10];
   ({ f: fx.a, runs: runs.a } = await seed('R3 cert A: credit wipes the tax', 13_000, 4, 2_000, eight));
   ({ f: fx.b, runs: runs.b } = await seed('R3 cert B: no 4005', 13_000, 4, 0, eight));
-  ({ f: fx.c, runs: runs.c } = await seed('R3 cert C: taxed', 30_000, 2, 3_000, [3, 4]));
+  ({ f: fx.c, runs: runs.c } = await seed('R3 cert C: taxed', 30_000, 2, 3_000, [3, 4], 500));
 });
 
 afterAll(async () => {

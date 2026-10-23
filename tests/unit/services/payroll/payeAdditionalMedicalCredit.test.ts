@@ -127,6 +127,15 @@ describe('the calculator passes the 4005 fees through', () => {
     employee: employee(born), period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 'defer',
     components: [{ component: comp('3601', 'earning'), amount: 30_000 }, { component: comp('4005', 'deduction'), amount: 5_100 }],
   });
+  it('65 on the last day of the year (born 28 Feb 1962) already qualifies', () => {
+    const at65 = calculatePayrollLine({
+      employee: { ...employee(1962), dateOfBirth: new Date(1962, 1, 28) } as PayrollEmployee, period: { year: 2026, month: 3 }, taxYear: 2027,
+      annualPayrollEstimate: 'defer',
+      components: [{ component: comp('3601', 'earning'), amount: 30_000 }, { component: comp('4005', 'deduction'), amount: 5_100 }],
+    });
+    expect([at65.paye.monthlyPaye, at65.additionalMedicalCredit]).toEqual([2_168.2, 947.05]);
+  });
+
   it('67 at the year end: 2 168.20 and 947.05 recorded; 64: 3 929 and nil', () => {
     expect([line(1959).paye.monthlyPaye, line(1959).additionalMedicalCredit]).toEqual([2_168.2, 947.05]);
     // Born June 1962: 64 on 28 Feb 2027. tax(360 000) = 73 992 - 17 820 - 9 024 = 47 148 / 12 = 3 929.
