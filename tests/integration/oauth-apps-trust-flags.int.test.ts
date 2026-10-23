@@ -54,14 +54,15 @@ const OWNER = 'oauth-trust-flag-test-user';
  * set so the owner policy admits the row. Returns the error message, or null
  * when the statement succeeded.
  */
-async function asAppUser(body: (q: (text: string, params?: unknown[]) => Promise<unknown>) => Promise<void>) {
+async function asAppUser(body: (q: (text: string, params?: unknown[]) => Promise<unknown>) => Promise<void>,
+  role: 'app_user' | 'migration_admin' = 'app_user') {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
       JSON.stringify({ sub: OWNER }),
     ]);
-    await client.query('SET LOCAL ROLE app_user');
+    await client.query(`SET LOCAL ROLE ${role}`);
     try {
       await body((text, params) => client.query(text, params as never[]));
       return null;
@@ -124,7 +125,17 @@ describe('oauth_apps trust flags (migration 693)', () => {
 
   // The other half of the gate: tightening a privilege breaks things in the
   // other direction too, so prove the writes the app DOES make still work.
-  it('still allows registerOauthApp\'s own column list, with both flags false', async () => {
+  // Since S-07c (930) app_user may not write oauth_apps at all; registerOauthApp
+  // and revokeOauthApp run on the migration_admin pool.
+  it('refuses registerOauthApp\'s own column list as app_user (930)', async () => {
+    const err = await asAppUser(async (q) => {
+      await q(`INSERT INTO oauth_apps (name, redirect_uris, client_id, owner_user_id, is_dynamic, token_endpoint_auth_method)
+         VALUES ('Legit', ARRAY['https://ok.example/cb'], 'c_legit_app_user', $1, TRUE, 'none')`, [OWNER]);
+    });
+    expect(err).toBe('permission denied for table oauth_apps');
+  });
+
+  it('still allows registerOauthApp\'s own column list on migration_admin, with both flags false', async () => {
     let flags: { is_verified: boolean; is_first_party: boolean } | undefined;
     const err = await asAppUser(async (q) => {
       await q(
@@ -139,7 +150,7 @@ describe('oauth_apps trust flags (migration 693)', () => {
         `SELECT is_verified, is_first_party FROM oauth_apps WHERE client_id = 'c_legit_trust'`,
       )) as { rows: { is_verified: boolean; is_first_party: boolean }[] };
       flags = res.rows[0];
-    });
+    }, 'migration_admin');
     expect(err).toBeNull();
     // The DEFAULT still applies to a column the writer may not name.
     expect(flags).toEqual({ is_verified: false, is_first_party: false });
@@ -289,16 +300,15 @@ describe('oauth_apps trust flags (migration 693)', () => {
     expect(verified).toBe(true);
   });
 
-  it('still allows revokeOauthApp\'s UPDATE of revoked_at', async () => {
-    const err = await asAppUser(async (q) => {
-      await q(
-        `INSERT INTO oauth_apps (name, redirect_uris, client_id, owner_user_id,
-                                 is_dynamic, token_endpoint_auth_method)
-         VALUES ('Legit', ARRAY['https://ok.example/cb'], 'c_revoke_trust', $1, TRUE, 'none')`,
-        [OWNER],
-      );
+  it('still allows revokeOauthApp\'s UPDATE of revoked_at on migration_admin, and refuses it as app_user (930)', async () => {
+    await pool.query(`INSERT INTO oauth_apps (name, redirect_uris, client_id, owner_user_id, is_dynamic, token_endpoint_auth_method)
+      VALUES ('Legit', ARRAY['https://ok.example/cb'], 'c_revoke_trust', $1, TRUE, 'none')`, [OWNER]);
+    // An UPDATE that can set revoked_at can clear it and revive the app.
+    expect(await asAppUser(async (q) => {
       await q(`UPDATE oauth_apps SET revoked_at = NOW() WHERE client_id = 'c_revoke_trust'`);
-    });
-    expect(err).toBeNull();
+    })).toBe('permission denied for table oauth_apps');
+    expect(await asAppUser(async (q) => {
+      await q(`UPDATE oauth_apps SET revoked_at = NOW() WHERE client_id = 'c_revoke_trust'`);
+    }, 'migration_admin')).toBeNull();
   });
 });

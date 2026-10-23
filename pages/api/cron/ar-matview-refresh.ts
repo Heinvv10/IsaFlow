@@ -11,7 +11,9 @@
  * MV (mig 427 provides idx_cust_inv_view_summary), must be run by the view's
  * owner, and cannot run inside a transaction block. The service pool is not
  * the owner (S-07b), so it calls the SECURITY DEFINER wrapper from migration
- * 915, which refreshes this one view and takes no input.
+ * 915, which refreshes this one view and takes no input; since 930 it calls
+ * refresh_customer_invoice_view_summary_if_due(), which skips, and says so,
+ * while another refresh runs or within 10 minutes of the last.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -40,11 +42,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const started = Date.now();
   log.info('Cron triggered: ar-matview-refresh', {}, 'cron-ar-matview-refresh');
 
-  await sql`SELECT refresh_customer_invoice_view_summary()`;
+  // false: another refresh is running, or one finished under 10 minutes ago
+  // (migration 930), so a loop of calls cannot keep the view refreshing.
+  const [row] = await sql<{ refreshed: boolean }>`SELECT refresh_customer_invoice_view_summary_if_due() AS refreshed`;
+  const refreshed = row?.refreshed === true;
   const durationMs = Date.now() - started;
 
-  log.info('Cron complete: ar-matview-refresh', { durationMs }, 'cron-ar-matview-refresh');
-  return apiResponse.success(res, { refreshed: 'customer_invoice_view_summary', durationMs });
+  log.info('Cron complete: ar-matview-refresh', { refreshed, durationMs }, 'cron-ar-matview-refresh');
+  return apiResponse.success(res, { view: 'customer_invoice_view_summary', refreshed, durationMs });
 }
 
 export default withErrorHandler(handler as Parameters<typeof withErrorHandler>[0]);
