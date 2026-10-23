@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
-vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
+vi.mock('next/link', () => ({ default: ({ children, href }: { children: React.ReactNode; href?: string }) => <a href={href}>{children}</a> }));
 vi.mock('next/head', () => ({ default: () => null }));
 vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, push: vi.fn() }) }));
 vi.mock('@/lib/apiFetch', async (orig) => ({ ...(await orig<typeof import('@/lib/apiFetch')>()), apiFetch: vi.fn(async () => new Response('', { status: 500 })) }));
@@ -18,6 +18,7 @@ vi.mock('@/components/accounting/afs/AfsStatementsTab', () => ({ AfsStatementsTa
 vi.mock('@/components/accounting/afs/AfsReviewTab', () => ({ AfsReviewTab: () => <p>TAB Review</p> }));
 vi.mock('@/components/accounting/afs/AfsExportTab', () => ({ AfsExportTab: () => <p>TAB Export</p> }));
 
+import { apiFetch } from '@/lib/apiFetch';
 import AfsDocumentPage, { getServerSideProps } from '../../../pages/accounting/afs/[documentId]/index';
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
@@ -59,6 +60,13 @@ describe('afs document period lookup', () => {
     render(<AfsDocumentPage documentId="doc-1" periodStart="" periodEnd="" periodError={null} />);
     expect(screen.queryByText(/Period:/)).toBeNull();
     expect(screen.queryByText(/TAB Overview/)).toBeNull();
+  });
+  it('an AFS document links to the report templates for its own period', async () => {
+    const doc = { id: 'doc-1', documentType: 'afs', fiscalYear: 2026, status: 'draft', version: 1 };
+    (apiFetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Response(JSON.stringify({ data: { document: doc } }), { status: 200 }));
+    render(<AfsDocumentPage documentId="doc-1" periodStart="2026-01-01" periodEnd="2027-02-28" periodError={null} />);
+    const link = await screen.findByText('Report templates for this period');
+    expect(link.closest('a')?.getAttribute('href')).toBe('/accounting/afs/report-templates?document_id=doc-1');
   });
   it('the page shows the tabs when the period is known', () => {
     render(<AfsDocumentPage documentId="doc-1" periodStart="2023-03-01" periodEnd="2023-03-31" periodError={null} />);

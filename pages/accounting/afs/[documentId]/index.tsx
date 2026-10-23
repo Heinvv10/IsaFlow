@@ -154,6 +154,14 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {doc?.documentType === 'afs' && (
+                <Link
+                  href={`/accounting/afs/report-templates?document_id=${encodeURIComponent(documentId)}`}
+                  className="text-sm text-blue-500 hover:underline"
+                >
+                  Report templates for this period
+                </Link>
+              )}
               {doc?.status === 'draft' && (
                 <button
                   onClick={() => { void handleSubmitForReview(); }}

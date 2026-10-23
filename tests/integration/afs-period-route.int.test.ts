@@ -38,7 +38,7 @@ async function call(documentId: string): Promise<Out> {
   return { status: out.state.statusCode, body: (out.state.body ?? {}) as Out['body'] };
 }
 
-type TemplatesOut = { status: number; body: { data?: { templates: { practitionerReport: string; directorsReport: string } }; error?: { message?: string } } };
+type TemplatesOut = { status: number; body: { data?: { period: unknown; templates: { practitionerReport: string; directorsReport: string } }; error?: { message?: string } } };
 
 async function callTemplates(user: SetupUser, query: Record<string, string>): Promise<TemplatesOut> {
   const req = request({ 'sb-access-token': user.token, active_company_id: user.homeCompanyId }, 'GET') as unknown as
@@ -144,6 +144,7 @@ describe('GET /api/accounting/afs/report-templates', () => {
     expect(r.body.data!.templates.directorsReport).toContain('for the 14 months ended 2027-02-28');
     expect(r.body.data!.templates.practitionerReport).toContain('for the period then ended');
     expect(r.body.data!.templates.practitionerReport).not.toContain('year then ended');
+    expect(r.body.data!.period).toEqual({ start: '2026-01-01', end: '2027-02-28', months: 14, phrase: '14 months ended 2027-02-28' });
   });
 
   it('a twelve-month year reads "year ended <real end>" and "for the year then ended"', async () => {
@@ -161,6 +162,7 @@ describe('GET /api/accounting/afs/report-templates', () => {
   it('without a document the wording keeps its placeholders', async () => {
     const r = await callTemplates(u, {});
     expect(r.body.data!.templates.directorsReport).toContain('for the year ended {periodEnd}');
+    expect(r.body.data!.period).toBeNull();
   });
 
   it('a skipped label is a 404, a malformed id a 400, another company\'s document a 404', async () => {
