@@ -35,10 +35,15 @@ export async function sendYearEndChange(method: 'POST' | 'DELETE', body: Record<
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  if (res.ok) return ((await res.json()) as { data?: unknown }).data;
+  // A refusal carries its list in error.details.refusals, which apiJson drops.
   const text = await res.text();
-  let json: { data?: unknown; error?: { message?: string; details?: { refusals?: unknown } } } = {};
-  try { json = JSON.parse(text) as typeof json; } catch { /* non-JSON body: fall through to the status message */ }
-  if (res.ok) return json.data;
+  let json: { error?: { message?: string; details?: { refusals?: unknown } } };
+  try {
+    json = JSON.parse(text) as typeof json;
+  } catch {
+    json = {}; // a non-JSON error body: the generic sentence below says what failed
+  }
   const message = json.error?.message ?? 'The change could not be completed - try again';
   const raw = json.error?.details?.refusals;
   const refusals = Array.isArray(raw) ? raw.map(String) : [];
