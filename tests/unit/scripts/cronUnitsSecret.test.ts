@@ -15,8 +15,9 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 const DIR = join(process.cwd(), 'scripts');
+// Every unit that calls the app (port 3101), whatever its header text says.
 const UNITS = readdirSync(DIR).filter((f) => /^isaflow-.*\.service$/.test(f))
-  .filter((f) => /cron-secret/i.test(readFileSync(join(DIR, f), 'utf8')));
+  .filter((f) => /127\.0\.0\.1:3101\//.test(readFileSync(join(DIR, f), 'utf8')));
 const SECRET = 'unit-test-secret-0123456789abcdef';
 
 /** The ExecStart command line, continuation lines joined, as systemd would hand it to /bin/sh. */

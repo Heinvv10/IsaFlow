@@ -122,6 +122,6 @@ with the same `awk`, as velo. Deleting is simpler unless a rollback plan names o
 `.env.local.pre-s07b` as the rollback point. Rotate first, or that copy holds
 the old value and an S-07b rollback restores it.
 
-Rollback of the rotation: `sudo -u velo cp -p .env.local.pre-cron-rotate .env.local &&
+Rollback of the rotation: `sudo -u velo cp -p /home/velo/isaflow/.env.local.pre-cron-rotate /home/velo/isaflow/.env.local &&
 sudo systemctl restart isaflow` (before the `rm`). It restores the leaked
 value; only do it if the new one breaks something.
