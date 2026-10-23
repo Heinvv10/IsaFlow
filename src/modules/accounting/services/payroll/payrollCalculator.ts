@@ -1,5 +1,5 @@
 import { getAge } from './payeEngine';
-import { payeTreatment } from './payeAnnualPayment';
+import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
 import { calculateCumulativePaye } from './payeCumulative';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
@@ -36,6 +36,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   let uifLeviable = 0;
   let sdlLeviable = 0;
   let totalDeductions = 0;
+  // Medical scheme fees the employee pays through payroll: deductions coded
+  // 4005 (e@syFile 4005; BRS V25.3.0 p. 52-53, 101). Employer-paid medical aid
+  // (the 3810 fringe benefit, deemed paid by the employee) is not supported.
+  let medicalSchemeFees = 0;
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
@@ -77,6 +81,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     } else if (component.componentType === 'deduction') {
       totalDeductions += amount;
       if (component.isTaxable) taxableDeductions += amount;
+      if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
     }
   }
 
@@ -155,6 +160,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     paye,
     payeSplit,
     medicalCredit,
+    medicalSchemeFees: round2(medicalSchemeFees),
     uif,
     sdl: Math.round(sdl * 100) / 100,
     sdlLeviable: Math.round(sdlLeviable * 100) / 100,

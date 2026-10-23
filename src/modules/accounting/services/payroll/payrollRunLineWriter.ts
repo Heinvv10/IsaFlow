@@ -13,6 +13,8 @@ export interface LineInsert {
   paye: number;
   /** The medical scheme fees tax credit the PAYE took into account (migration 926, payeCumulative). */
   medicalCredit: number;
+  /** Deductions coded 4005 on the line (migration 926). */
+  medicalSchemeFees: number;
   uifEmployee: number; uifEmployer: number;
   sdl: number; sdlLeviable: number;
   eti: number; netPay: number;
@@ -43,12 +45,12 @@ export async function replaceRunLines(runId: string, companyId: string, lineInse
     for (const ins of lineInserts) {
       await tx`
         INSERT INTO payroll_run_lines (
-          run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, medical_credit,
+          run_id, employee_id, gross_pay, taxable_income, periodic_taxable, annual_taxable, paye, medical_credit, medical_scheme_fees,
           uif_employee, uif_employer, sdl, eti, net_pay,
           component_breakdown, validation_results, created_at
         ) VALUES (
           ${runId}::uuid, ${ins.employeeId}::uuid,
-          ${ins.grossPay}, ${ins.taxableIncome}, ${ins.periodicTaxable}, ${ins.annualTaxable}, ${ins.paye}, ${ins.medicalCredit},
+          ${ins.grossPay}, ${ins.taxableIncome}, ${ins.periodicTaxable}, ${ins.annualTaxable}, ${ins.paye}, ${ins.medicalCredit}, ${ins.medicalSchemeFees},
           ${ins.uifEmployee}, ${ins.uifEmployer},
           ${ins.sdl}, ${ins.eti}, ${ins.netPay},
           ${ins.componentBreakdown},

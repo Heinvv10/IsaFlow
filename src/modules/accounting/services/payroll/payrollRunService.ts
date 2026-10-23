@@ -218,6 +218,7 @@ export async function calculatePayrollRun(
       annualTaxable: line.annualTaxable,
       paye: line.paye.monthlyPaye,
       medicalCredit: line.medicalCredit,
+      medicalSchemeFees: line.medicalSchemeFees,
       uifEmployee: line.uif.employeeContribution,
       uifEmployer: line.uif.employerContribution,
       sdl: 0, // set below, once the run's own leviable total decides leviability
