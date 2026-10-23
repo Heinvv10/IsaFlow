@@ -111,6 +111,7 @@ AS $$
 DECLARE
   prev_label int; prev_end date; next_label int; next_start date;
   s date; e date; lbl int; m int; steps int := 0; used_fallback boolean := false;
+  raw_prev_end date; raw_next_start date;
 BEGIN
   SELECT fy.fiscal_year, fy.end_date INTO prev_label, prev_end
     FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.end_date < p_date
@@ -118,6 +119,20 @@ BEGIN
   SELECT fy.fiscal_year, fy.start_date INTO next_label, next_start
     FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.start_date > p_date
    ORDER BY fy.start_date LIMIT 1;
+
+  -- A stored year is chained from only when the year after it starts in the
+  -- declared month (true of every declared year and, once a change of year end
+  -- has set the new month, of a transition year). A year cut from a fixture's
+  -- whole-year "period" does not re-cut every later year.
+  SELECT CASE WHEN c.financial_year_start BETWEEN 1 AND 12 THEN c.financial_year_start END
+    INTO m FROM companies c WHERE c.id = p_company;
+  raw_prev_end := prev_end; raw_next_start := next_start;
+  IF prev_end IS NOT NULL AND m IS NOT NULL AND EXTRACT(MONTH FROM prev_end + 1)::int <> m THEN
+    prev_label := NULL; prev_end := NULL;
+  END IF;
+  IF next_start IS NOT NULL AND m IS NOT NULL AND EXTRACT(MONTH FROM next_start)::int <> m THEN
+    next_label := NULL; next_start := NULL;
+  END IF;
 
   IF prev_end IS NOT NULL THEN
     -- Twelve-month steps on from the last stored year: after a transition the
@@ -168,6 +183,12 @@ BEGIN
     END IF;
     e := (s + INTERVAL '12 months')::date - 1;
     lbl := EXTRACT(YEAR FROM e)::int;
+    -- Never across a stored year the chaining rule set aside.
+    IF raw_prev_end IS NOT NULL AND s <= raw_prev_end THEN s := raw_prev_end + 1; END IF;
+    IF raw_next_start IS NOT NULL AND e >= raw_next_start THEN e := raw_next_start - 1; END IF;
+    IF EXISTS (SELECT 1 FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.fiscal_year = lbl) THEN
+      RAISE EXCEPTION 'fiscal_year_template: the year holding % would take label FY%, which another stored year of company % holds', p_date, lbl, p_company;
+    END IF;
   END IF;
 
   fiscal_year := lbl; start_date := s; end_date := e; assumed := used_fallback;
@@ -269,7 +290,9 @@ BEGIN
   IF y IS NOT NULL THEN RETURN y; END IF;
 
   -- 2. The template year, when it holds the whole period and nothing is in its way.
-  SELECT * INTO t FROM public.fiscal_year_template(p_company, p_start);
+  -- The read fallback: a legacy writer (or the backfill) linking a period of a
+  -- company with no usable start month still gets a year, never an abort.
+  SELECT * INTO t FROM public.fiscal_year_template(p_company, p_start, 3);
   IF t.start_date <= p_start AND t.end_date >= p_end THEN
     INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
     VALUES (p_company, t.fiscal_year, t.start_date, t.end_date)
@@ -399,6 +422,12 @@ BEGIN
     RAISE EXCEPTION 'fiscal period % (%) is %: it cannot be moved, re-dated or relabelled',
       OLD.id, OLD.period_name, OLD.status USING ERRCODE = '55000';
   END IF;
+  -- Locked is final for the application role (reopenPeriod refuses it too).
+  IF TG_OP = 'UPDATE' AND OLD.status = 'locked' AND NEW.status IS DISTINCT FROM 'locked'
+     AND NOT (SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = current_user)
+     AND pg_has_role(current_user, 'app_user', 'MEMBER') THEN
+    RAISE EXCEPTION 'fiscal period % (%) is locked: it cannot be reopened', OLD.id, OLD.period_name USING ERRCODE = '55000';
+  END IF;
   IF TG_OP = 'INSERT' OR NEW.fiscal_year_id IS DISTINCT FROM OLD.fiscal_year_id THEN
     SELECT fy.status INTO year_status FROM fiscal_years fy WHERE fy.id = NEW.fiscal_year_id;
     IF year_status IN ('closed', 'locked') THEN
@@ -411,9 +440,9 @@ END;
 $$;
 
 -- The application role (app_user, and the login roles that inherit it) cannot
--- delete a closed or locked period of a company with journals: that would reopen
--- its year and let a month be generated beside closed books. No app path deletes
--- a closed period (rebuildUnusedFiscalPeriods refuses any period not open).
+-- delete a closed or locked period: that would reopen its year and let a month
+-- be added beside closed books. No app path deletes one
+-- (rebuildUnusedFiscalPeriods refuses any period not open).
 -- A superuser (fixtures, an operator's data correction) is not stopped.
 CREATE OR REPLACE FUNCTION public.fiscal_periods_guard_delete()
 RETURNS trigger
@@ -423,8 +452,7 @@ AS $$
 BEGIN
   IF OLD.status IN ('closed', 'locked')
      AND NOT (SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = current_user)
-     AND pg_has_role(current_user, 'app_user', 'MEMBER')
-     AND EXISTS (SELECT 1 FROM gl_journal_entries je WHERE je.company_id = OLD.company_id) THEN
+     AND pg_has_role(current_user, 'app_user', 'MEMBER') THEN
     RAISE EXCEPTION 'fiscal period % (%) is %: it cannot be deleted', OLD.id, OLD.period_name, OLD.status
       USING ERRCODE = '55000';
   END IF;
@@ -447,6 +475,13 @@ BEGIN
     FROM fiscal_periods fp JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
    WHERE fp.id = NEW.id
      AND (fy.company_id <> fp.company_id OR fp.start_date < fy.start_date OR fp.end_date > fy.end_date);
+  IF NOT FOUND AND EXISTS (
+       SELECT 1 FROM gl_journal_entries je JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+        WHERE fp.id = NEW.id AND je.company_id = fp.company_id
+          AND je.entry_date NOT BETWEEN fp.start_date AND fp.end_date) THEN
+    RAISE EXCEPTION 'fiscal period % would no longer hold the journals that point at it; move or re-date them first', NEW.id
+      USING ERRCODE = '23514';
+  END IF;
   IF FOUND THEN
     RAISE EXCEPTION 'fiscal period % (% to %) lies outside its fiscal year FY% (% to %)%',
       bad.period_name, bad.start_date, bad.end_date, bad.fiscal_year, bad.ys, bad.ye,
