@@ -35,7 +35,10 @@ vi.mock('@/lib/logger', () => ({
 }));
 // The one query of its own: does the generated year hold a closed or locked period?
 const holdsClosed = vi.hoisted(() => ({ rows: [{ x: 1 }] as unknown[] }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => holdsClosed.rows) }));
+vi.mock('@/lib/neon', () => ({
+  sql: vi.fn(async () => holdsClosed.rows),
+  withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
+}));
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriodIdForDate: vi.fn(),
 }));
