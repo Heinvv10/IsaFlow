@@ -9,7 +9,7 @@ import { hashInviteToken } from '@/lib/auth/inviteToken';
 import { log } from '@/lib/logger';
 import type { PoolClient } from 'pg';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
-import { OwnerProtectedError, OWNER_GRANT_REFUSED } from './ownerLock';
+import { OwnerProtectedError, OWNER_GRANT_REFUSED, ownerLockKey } from './ownerLock';
 import type { PendingInvitation, InvitationWithToken, InvitationResult } from './userAccessService';
 import type { DbRow } from '@/types/db';
 
@@ -117,7 +117,9 @@ export async function assertCanInvite(
   );
   const grantsOwner = owner.rows[0]?.owner === true;
   if (grantsOwner) {
-    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`company_owners:${companyId}`]);
+    // Bounded: this holds one of the migration_admin pool's few connections.
+    await client.query(`SET LOCAL lock_timeout = '5s'`);
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [ownerLockKey(companyId)]);
   }
   // By person, lower-cased, as the member role guard counts owners.
   const actor = await client.query<{ role: string }>(
