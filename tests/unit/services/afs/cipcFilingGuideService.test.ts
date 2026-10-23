@@ -23,6 +23,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 const requireFiscalYear = vi.fn();
 vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({
   requireFiscalYear: (...a: unknown[]) => requireFiscalYear(...a),
+  assertDeclaredBasis: (_c: string, y: unknown) => y,
 }));
 
 const computePisScoreForDocument = vi.fn();
