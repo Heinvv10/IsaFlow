@@ -33,3 +33,33 @@ owner_database_url() {
   } >&2
   printf '%s\n' "$url"
 }
+
+# Production keeps OWNER_DATABASE_URL in its own file, root:root 0600, outside
+# the deploy directory (rsync --delete would remove it from there) and outside
+# what the app process loads: the app runs as velo with EnvironmentFile=.env.local,
+# so an owner URL in .env.local is in the app's environment (S-07b follow-up F,
+# docs/runbooks/s07b-app-pool-login-roles.md step 5).
+OWNER_ENV_FILE=${OWNER_ENV_FILE:-/etc/isaflow/owner.env}
+
+# owner_database_url_for <env-file> [<reader prefix>...]
+#
+# The owner URL for the database <env-file> points at: OWNER_DATABASE_URL from
+# $OWNER_ENV_FILE first, then owner_database_url over <env-file> (its
+# OWNER_DATABASE_URL, with a warning to move it, then DATABASE_URL, with the
+# not-set warning). Both files are read as `<prefix> cat <file>`, so deploy.sh
+# passes `sudo` and the root-run backup scripts pass nothing. A missing or
+# unreadable owner file counts as absent.
+owner_database_url_for() {
+  local env_file="$1" line text
+  shift
+  line=$("$@" cat "$OWNER_ENV_FILE" 2> /dev/null | grep -E '^OWNER_DATABASE_URL=.' | head -1 || true)
+  if [ -n "$line" ]; then
+    printf '%s\n' "${line#OWNER_DATABASE_URL=}"
+    return 0
+  fi
+  text=$("$@" cat "$env_file") || return 1
+  if printf '%s\n' "$text" | grep -qE '^OWNER_DATABASE_URL=.'; then
+    echo "WARNING: OWNER_DATABASE_URL is read from $env_file, which the app process loads; move it to $OWNER_ENV_FILE (docs/runbooks/s07b-app-pool-login-roles.md step 5)." >&2
+  fi
+  printf '%s\n' "$text" | owner_database_url "$env_file"
+}
