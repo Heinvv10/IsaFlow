@@ -1,0 +1,109 @@
+// tests/integration/s07c-credential-writes.migration.int.test.ts
+//
+// S-07c: migration 930 takes credential and membership writes away from the
+// app pools and adds a rule per table to app_pool_reach_violations() (920),
+// which the migration and every deploy (scripts/check-app-login-roles.ts) run.
+// It applies twice, after 915-920, as a NON-superuser postgres, as production's
+// deploy runs; 915 and 919 still re-apply after it; and every rule refuses the
+// re-grant it exists for. What 930 closes: s07c-credential-writes.int.test.ts.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { closeSql, createSql } from '../../scripts/_pg';
+import { appLoginRoleViolations } from '../../scripts/check-app-login-roles';
+import { doBlock, fixture, migration, newIds, rolledBack, setup, teardown } from './s07b-app-pool-login-role.helpers';
+
+const ids = newIds();
+const BEFORE = ['915_app_pool_login_roles.sql', '915b_app_login_role_violations.sql', '916_service_role_member_guards.sql',
+  '916b_revoke_app_user_backfill_view.sql', '917_app_role_hardening.sql', '917b_app_login_role_violations_views.sql',
+  '918_users_email_off_service_pool.sql', '919_ar_view_summary_company_wrapper.sql', '920_app_pool_reach_violations.sql'].map(migration);
+const M930 = migration('930_credential_membership_writes_off_app_pools.sql');
+const GUARD_930 = doBlock(M930, "RAISE EXCEPTION '930: %'");
+
+beforeAll(() => setup(ids), 60000);
+afterAll(async () => { await closeSql(); await teardown(ids, []); });
+
+type Q = (text: string) => Promise<unknown>;
+const rows = async (q: Q, text: string) => ((await q(text)) as { rows: Array<Record<string, unknown>> }).rows;
+const R = (who: string, what: string) => new RegExp(`930: ${who} \\(reachable from an app pool login\\) can ${what}`);
+const APP = 'app_(service|user)';
+
+describe('S-07c: migration 930', () => {
+  it('applies twice after 915-920 as a NON-superuser postgres, and 915-920 re-apply after it', async () => {
+    await rolledBack(async (q) => {
+      expect((await rows(q, 'SELECT rolsuper AS s FROM pg_roles WHERE rolname = current_user'))[0]!.s).toBe(true);
+      await q('ALTER ROLE postgres NOSUPERUSER');
+      for (let i = 0; i < 2; i++) for (const m of [...BEFORE, M930]) await q(m);
+      expect((await rows(q, 'SELECT rolsuper AS s FROM pg_roles WHERE rolname = current_user'))[0]!.s).toBe(false);
+      expect(await rows(q, 'SELECT * FROM public.app_pool_reach_violations()')).toEqual([]);
+    });
+  });
+
+  it.each([
+    ['PATs inserted by app_user', 'GRANT INSERT ON public.personal_access_tokens TO app_user', R(APP, 'INSERT personal_access_tokens\\.')],
+    ['a PAT revivable', 'GRANT UPDATE (revoked_at) ON public.personal_access_tokens TO app_user', R(APP, 'UPDATE personal_access_tokens\\.revoked_at')],
+    ['OAuth tokens re-keyable by PUBLIC', 'GRANT UPDATE (access_token_hash) ON public.oauth_authorisations TO PUBLIC',
+      R('\\w+', 'UPDATE oauth_authorisations\\.access_token_hash')],
+    ['OAuth grants inserted by app_service', 'GRANT INSERT ON public.oauth_authorisations TO app_service', R('app_service', 'INSERT oauth_authorisations\\.')],
+    ['codes inserted by isaflow_service', 'GRANT INSERT ON public.oauth_authorisation_codes TO isaflow_service',
+      R('isaflow_service', 'INSERT oauth_authorisation_codes\\.')],
+    ['an OAuth app re-pointable', 'GRANT UPDATE (redirect_uris) ON public.oauth_apps TO app_user', R(APP, 'UPDATE oauth_apps\\.redirect_uris')],
+    ['invitations by column', 'GRANT INSERT (company_id, email, role, invited_by, token, expires_at) ON public.company_invitations TO app_user',
+      R(APP, 'INSERT company_invitations\\.')],
+    ['an invitation re-pointable', 'GRANT UPDATE (email) ON public.company_invitations TO app_user', R(APP, 'UPDATE company_invitations\\.email')],
+    ['memberships inserted', 'GRANT INSERT ON public.company_users TO app_user', R(APP, 'INSERT company_users\\.')],
+    ['a membership movable', 'GRANT UPDATE (user_id) ON public.company_users TO app_user', R(APP, 'UPDATE company_users\\.user_id')],
+    ['reset tokens readable', 'GRANT SELECT ON public.auth_password_reset_tokens TO app_user', R(APP, 'SELECT auth_password_reset_tokens\\.')],
+    ['reset tokens deletable', 'GRANT DELETE ON public.auth_password_reset_tokens TO app_service', R('app_service', 'DELETE auth_password_reset_tokens$')],
+    ['the stash re-targetable', 'GRANT UPDATE (target_user_id) ON public.admin_impersonation_stash TO app_user',
+      R(APP, 'UPDATE admin_impersonation_stash\\.target_user_id')],
+    ['the stash truncatable', 'GRANT TRUNCATE ON public.admin_impersonation_stash TO app_user', R(APP, 'TRUNCATE admin_impersonation_stash$')],
+    ['the waitlist readable', 'GRANT SELECT (email) ON public.waitlist_signups TO app_user', R(APP, 'SELECT waitlist_signups\\.email')],
+    ['a promoted signup insertable', 'GRANT INSERT (promoted_company_id) ON public.waitlist_signups TO app_user',
+      R(APP, 'INSERT waitlist_signups\\.promoted_company_id')],
+    ['the throttle state readable', 'GRANT SELECT ON public.matview_refresh_state TO app_service', R('app_service', 'SELECT matview_refresh_state\\.')],
+    ['the waitlist without row security', 'ALTER TABLE public.waitlist_signups DISABLE ROW LEVEL SECURITY', /930: waitlist_signups has no row security/],
+  ])('refuses the mutant: %s', async (_, mutate, msg) => {
+    await rolledBack(async (q) => {
+      await q(GUARD_930);
+      await q(mutate);
+      await expect(q(GUARD_930)).rejects.toThrow(msg);
+    });
+  });
+
+  it.each([
+    ['a member\'s role', 'GRANT UPDATE (role) ON public.company_users TO app_user'],
+    ['the bearer last-used stamp', 'GRANT UPDATE (last_used_at, last_used_ip) ON public.oauth_authorisations TO app_user'],
+    ['a cancel', 'GRANT DELETE ON public.company_invitations TO app_user'],
+    ['a waitlist signup', 'GRANT INSERT (name, email) ON public.waitlist_signups TO app_user'],
+  ])('allows what 930 grants back: %s', async (_, grant) => {
+    await rolledBack(async (q) => {
+      await q(grant);
+      await q(GUARD_930);
+    });
+  });
+
+  it('the deploy\'s check runs 930\'s rules', async () => {
+    const url = new URL(String(fixture.options.connectionString));
+    url.searchParams.set('sslmode', 'disable');
+    const sql = createSql(url.toString());
+    await fixture.query('GRANT INSERT ON public.personal_access_tokens TO app_service');
+    try {
+      expect(await appLoginRoleViolations(sql)).toContain(
+        'app_service (reachable from an app pool login) can INSERT personal_access_tokens.token_hash');
+    } finally {
+      await fixture.query('REVOKE INSERT ON public.personal_access_tokens FROM app_service');
+    }
+    expect((await appLoginRoleViolations(sql))!.filter((v) => v.includes('reachable from an app pool login'))).toEqual([]);
+  });
+
+  it('the throttled refresh is a definer with pg_temp last; the old name delegates to it', async () => {
+    const r = await fixture.query(`SELECT p.proname, p.prosecdef AS d, p.proconfig AS c, pg_get_function_result(p.oid) AS t,
+        EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0) AS public
+      FROM pg_proc p WHERE p.proname IN ('refresh_customer_invoice_view_summary', 'refresh_customer_invoice_view_summary_if_due')
+      ORDER BY 1`);
+    const config = ['search_path=pg_catalog, public, pg_temp'];
+    expect(r.rows).toEqual([
+      { proname: 'refresh_customer_invoice_view_summary', d: true, c: config, t: 'void', public: false },
+      { proname: 'refresh_customer_invoice_view_summary_if_due', d: true, c: config, t: 'boolean', public: false },
+    ]);
+  });
+});

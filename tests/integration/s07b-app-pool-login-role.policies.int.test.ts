@@ -75,7 +75,9 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
     const r = await fixture.query(`SELECT t, coalesce((SELECT string_agg(polcmd::text, '' ORDER BY polcmd) FROM pg_policy
         WHERE polrelid = t::regclass AND 'app_service'::regrole = ANY (polroles)), '') AS cmds
       FROM unnest(ARRAY['users', 'companies', 'gl_journal_entries', 'flow_bundles', 'impersonation_sessions',
-                        'entity_changes', 'audit_snapshots', 'company_invitations', 'approval_requests']) t`);
+                        'entity_changes', 'audit_snapshots', 'company_invitations', 'approval_requests',
+                        'company_users', 'personal_access_tokens', 'oauth_apps', 'oauth_authorisation_codes',
+                        'oauth_authorisations', 'waitlist_signups']) t`);
     expect(Object.fromEntries(r.rows.map((x) => [x.t, x.cmds]))).toEqual({
       users: 'rw',                    // 902: app_user selects and updates columns; no insert or delete
       companies: 'rw',                // app_user creates no company (the definer does)
@@ -84,8 +86,16 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
       impersonation_sessions: '',     // excluded: no service path reads it
       entity_changes: 'r',            // the forensic log: app_user only reads it
       audit_snapshots: 'r',           // written by the definer only
-      company_invitations: 'adrw',    // and 916's guard binds app_service on writes
+      company_invitations: 'dr',      // 930: written on the migration_admin pool; a cancel deletes
       approval_requests: 'r',         // 872: writes only through the definer functions
+      // 930: no app role inserts a credential or a membership. UPDATE stays only
+      // where a column grant came back: a member's role, the bearer last-used stamp.
+      company_users: 'drw',
+      personal_access_tokens: 'drw',
+      oauth_apps: 'dr',               // the dynamic-client prune deletes
+      oauth_authorisation_codes: 'dr',
+      oauth_authorisations: 'drw',
+      waitlist_signups: 'a',          // 930: the public form inserts; nothing reads it
     });
   });
 

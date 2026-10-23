@@ -53,7 +53,7 @@ function mapInvitation(r: DbRow): PendingInvitation {
  * Runs on the migration_admin pool, as do the other invitation writes in this
  * file: an invitation is honoured by the accept routes on that pool, so a row
  * planted from an app pool (forged claims) would hand out a membership, and
- * no app role may write the table (migration 921). company_invitations_role_guard
+ * no app role may write the table (migration 930). company_invitations_role_guard
  * does not judge this role, so its rules are checked here, against the
  * inviter's membership as it stands: `invitedBy` must be the verified caller.
  */
@@ -151,7 +151,7 @@ export async function listPendingInvitations(companyId: string): Promise<Pending
 }
 
 // The send status, on the same pool as the invitation it describes: no app
-// role may UPDATE company_invitations (migration 921).
+// role may UPDATE company_invitations (migration 930).
 export async function markInvitationEmailSent(invitationId: string, companyId: string): Promise<void> {
   await migrationAdminPool().query(
     `UPDATE company_invitations SET email_sent_at = NOW(), email_error = NULL

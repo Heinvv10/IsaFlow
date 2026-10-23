@@ -17,6 +17,7 @@ import pg from 'pg';
 import '@/lib/pgTypes';
 import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
+import { als } from '@/lib/als';
 
 let _pool: pg.Pool | null = null;
 
@@ -50,14 +51,23 @@ export function migrationAdminPool(): pg.Pool {
  * a ROLLBACK on any throw, and a connection whose ROLLBACK failed destroyed
  * rather than pooled (R-176). For the fixed, parameterised statements above,
  * keyed on ids the TypeScript layer verified, never on claims read in SQL.
+ *
+ * Inside a request, the request's verified claims are set on the transaction
+ * for entity_change_capture alone, so the change log still names the actor and
+ * the session (impersonation included). This role bypasses RLS and the member
+ * guards, so nothing here is decided by them.
  */
 export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const claims = als.getStore()?.claims;
   const client = await migrationAdminPool().connect();
   let opened = false;
   let unusable = false;
   try {
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
+    if (claims && Object.keys(claims).length > 0) {
+      await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
+    }
     const result = await fn(client);
     await client.query('COMMIT');
     opened = false;

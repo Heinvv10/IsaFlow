@@ -55,7 +55,7 @@ const createInvitation: NextApiHandler = async (req, res) => {
 
   // 1-3 run in one transaction on the migration_admin pool (S-07c): an
   //    invitation is honoured by the accept routes on that pool, so no app role
-  //    may write company_invitations (migration 921), and the guard trigger's
+  //    may write company_invitations (migration 930), and the guard trigger's
   //    rules are checked by assertCanInvite against the verified caller.
   //
   // 1. Insert invitation row. UNIQUE(company_id, email) means a resend — or a

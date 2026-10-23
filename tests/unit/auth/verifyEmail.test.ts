@@ -16,12 +16,13 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const {
   consumeMock, findConsumedMock, provisionMock,
-  updateUserMock, sendEmailMock, sqlMock, clientQueryMock, releaseMock, endMock,
+  updateUserMock, getUserMock, sendEmailMock, sqlMock, clientQueryMock, releaseMock, endMock,
 } = vi.hoisted(() => ({
   consumeMock: vi.fn(),
   findConsumedMock: vi.fn(),
   provisionMock: vi.fn(),
   updateUserMock: vi.fn(),
+  getUserMock: vi.fn(),
   sendEmailMock: vi.fn(),
   sqlMock: vi.fn(),
   clientQueryMock: vi.fn(),
@@ -39,7 +40,7 @@ vi.mock('pg', () => ({
     },
   },
 }));
-vi.mock('@/lib/auth/gotrue', () => ({ adminUpdateUser: updateUserMock }));
+vi.mock('@/lib/auth/gotrue', () => ({ adminUpdateUser: updateUserMock, adminGetUser: getUserMock }));
 vi.mock('@/lib/auth/emailVerificationService', () => ({
   consumeEmailVerificationToken: consumeMock,
   findConsumedVerification: findConsumedMock,
@@ -55,6 +56,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import handler from '@/../pages/api/auth/verify-email';
+import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
 
 const TOKEN = 'a'.repeat(64);
 
@@ -95,6 +97,7 @@ beforeEach(() => {
   consumeMock.mockResolvedValue({ gotrueUserId: 'user-1', pending });
   provisionMock.mockResolvedValue({ companyId: 'company-1', paygEligible: true });
   updateUserMock.mockResolvedValue(undefined);
+  getUserMock.mockResolvedValue({ id: 'user-1', email: 'Lead@Example.co.za' });
   sendEmailMock.mockResolvedValue(undefined);
   findConsumedMock.mockResolvedValue(null);
   sqlMock.mockResolvedValue([]);
@@ -294,5 +297,44 @@ describe('verify-email — one tenant per user', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body.data?.companyId).toBe('existing-company');
     expect(clientStatements()).toContain('COMMIT');
+  });
+});
+
+// S-07c C4: the token's payload email becomes users.email and the tenant's
+// address, so a tenant is provisioned only for the address GoTrue holds for
+// the token's user. A refusal or an outage consumes nothing.
+describe('verify-email — the payload email must be the GoTrue user\'s (S-07c C4)', () => {
+  it('reads the token user from GoTrue and provisions when the addresses match (case-insensitively)', async () => {
+    const res = mockRes();
+    await handler(req(), res);
+    expect(getUserMock).toHaveBeenCalledWith('user-1');
+    expect(res.statusCode).toBe(200);
+    expect(provisionMock).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['another address', { id: 'user-1', email: 'someone-else@example.co.za' }],
+    ['no GoTrue user', null],
+  ])('%s: 409 EMAIL_MISMATCH, nothing provisioned or confirmed, the consumption rolled back', async (_, user) => {
+    getUserMock.mockResolvedValueOnce(user);
+    const res = mockRes();
+    await handler(req(), res);
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ error: { code: 'EMAIL_MISMATCH' } });
+    expect(provisionMock).not.toHaveBeenCalled();
+    expect(updateUserMock).not.toHaveBeenCalled();
+    expect(clientStatements()).toContain('ROLLBACK');
+    expect(clientStatements()).not.toContain('COMMIT');
+  });
+
+  it('a GoTrue outage: 503 CONFIRMATION_INCOMPLETE, nothing provisioned, the consumption rolled back', async () => {
+    getUserMock.mockRejectedValueOnce(new AuthUpstreamUnavailableError('gotrue adminGetUser unavailable: 503'));
+    const res = mockRes();
+    await handler(req(), res);
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toMatchObject({ error: { code: 'CONFIRMATION_INCOMPLETE' } });
+    expect(provisionMock).not.toHaveBeenCalled();
+    expect(clientStatements()).toContain('ROLLBACK');
+    expect(clientStatements()).not.toContain('COMMIT');
   });
 });

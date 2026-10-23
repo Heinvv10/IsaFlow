@@ -35,7 +35,11 @@ vi.mock('pg', () => ({
     },
   },
 }));
-vi.mock('@/lib/auth/gotrue', () => ({ adminUpdateUser: updateUserMock }));
+// adminGetUser (S-07c C4) answers with the token's own address; verifyEmail.test.ts covers a mismatch.
+vi.mock('@/lib/auth/gotrue', () => ({
+  adminUpdateUser: updateUserMock,
+  adminGetUser: vi.fn(async (id: string) => ({ id, email: 'lead@example.co.za' })),
+}));
 vi.mock('@/lib/auth/emailVerificationService', () => ({
   consumeEmailVerificationToken: consumeMock,
   findConsumedVerification: findConsumedMock,

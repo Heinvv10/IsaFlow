@@ -16,7 +16,7 @@ import pg from 'pg';
 // in this process. This file builds its own Pool, so it must not depend on
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
-import { adminUpdateUser } from '@/lib/auth/gotrue';
+import { adminGetUser, adminUpdateUser, type GoTrueUser } from '@/lib/auth/gotrue';
 import { AuthUpstreamUnavailableError } from '@/lib/auth/authUpstream';
 import {
   consumeEmailVerificationToken,
@@ -99,6 +99,14 @@ const INVALID_TOKEN = {
   },
 } as const;
 
+const EMAIL_MISMATCH = {
+  success: false,
+  error: {
+    code: 'EMAIL_MISMATCH',
+    message: 'This confirmation link does not match the account it was issued for. Please sign up again.',
+  },
+} as const;
+
 const CONFIRMATION_INCOMPLETE = {
   success: false,
   error: {
@@ -171,6 +179,25 @@ const handler: NextApiHandler = async (req, res) => {
 
     gotrueUserId = consumed.gotrueUserId;
     email = consumed.pending.email;
+
+    // The token's payload email becomes users.email and the tenant's contact
+    // address; provision only for the address GoTrue holds for this user, so a
+    // planted or stale payload cannot claim someone else's (S-07c C4). A
+    // refusal or an outage rolls the consumption back: the link still works.
+    let gotrueUser: GoTrueUser | null;
+    try {
+      gotrueUser = await adminGetUser(gotrueUserId);
+    } catch (err) {
+      if (!(err instanceof AuthUpstreamUnavailableError)) throw err;
+      unusable = await rollbackFailed(client, 'verify-email');
+      log.warn('verification hit an auth outage before provisioning — the link still works', { message: err.message }, 'auth');
+      return res.status(503).json(CONFIRMATION_INCOMPLETE);
+    }
+    if (gotrueUser?.email?.trim().toLowerCase() !== email.trim().toLowerCase()) {
+      unusable = await rollbackFailed(client, 'verify-email');
+      log.error('verification refused: token email is not the GoTrue user\'s', { gotrueUserId, found: gotrueUser !== null }, 'auth');
+      return res.status(409).json(EMAIL_MISMATCH);
+    }
     companyName = consumed.pending.companyName;
     signupType = consumed.pending.signupType;
 
