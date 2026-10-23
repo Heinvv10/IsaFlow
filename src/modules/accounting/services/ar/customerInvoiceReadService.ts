@@ -135,7 +135,7 @@ export async function listCustomerInvoices(
         END AS aging_bucket
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
-      LEFT JOIN customer_invoice_view_summary vs
+      LEFT JOIN current_company_invoice_view_summary() vs
         ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
       WHERE ${where}
       -- id breaks ties: dozens of invoices share a date, and without a total
@@ -147,7 +147,7 @@ export async function listCustomerInvoices(
       SELECT COUNT(*) AS total
       FROM customer_invoices ci
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
-      LEFT JOIN customer_invoice_view_summary vs
+      LEFT JOIN current_company_invoice_view_summary() vs
         ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
       WHERE ${where}
     `,
@@ -175,7 +175,7 @@ export async function exportCustomerInvoices(
       to_char(ci.due_date, 'YYYY-MM-DD') AS due_date, NULL AS project_name
     FROM customer_invoices ci
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
-    LEFT JOIN customer_invoice_view_summary vs
+    LEFT JOIN current_company_invoice_view_summary() vs
       ON vs.customer_invoice_id = ci.id AND vs.company_id = ci.company_id
     WHERE ${where}
     ORDER BY ci.invoice_date DESC, ci.id DESC
