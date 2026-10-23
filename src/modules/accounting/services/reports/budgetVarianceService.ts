@@ -16,25 +16,24 @@
  */
 
 import { sql } from '@/lib/neon';
-import {
-  budgetMonthKeysInWindow,
-  sumBudgetForWindow,
-} from './budgetPeriodWindow';
+import { budgetMonthKeysInWindow } from './budgetPeriodWindow';
+import { loadWindowBudgets } from './budgetWindowService';
 import {
   buildBudgetVsActualLines,
   type BudgetVsActualLine,
   type RawActualRow,
 } from './budgetVsActualLines';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 
 export interface BudgetVarianceRow extends BudgetVsActualLine {
   account_id: string;
 }
 
 export interface BudgetVarianceResult {
-  /** The budget year the window was matched against — re-derivable, not guessed. */
+  /** The financial year (registry label) holding the window's start. */
   fiscalYear: number;
-  /** Calendar month keys the budget was summed over, in window order. */
+  /** The 'YYYY-MM' calendar months the budget was summed over, in window order. */
   monthKeys: string[];
   /** Accounts that carry a budget for this window. */
   rows: BudgetVarianceRow[];
@@ -54,31 +53,12 @@ export async function getBudgetVariance(
   periodStart: string,
   periodEnd: string,
 ): Promise<BudgetVarianceResult> {
-  const fiscalYear = Number(periodStart.slice(0, 4));
   const monthKeys = budgetMonthKeysInWindow(periodStart, periodEnd);
-
-  const budgetRows = (await sql`
-    SELECT ab.gl_account_id, ga.account_code, ab.period_amounts, ab.annual_amount
-    FROM accounting_budgets ab
-    JOIN gl_accounts ga ON ga.id = ab.gl_account_id AND ga.company_id = ${companyId}::UUID
-    WHERE ab.company_id = ${companyId}::UUID AND ab.fiscal_year = ${fiscalYear}
-  `) as Array<{
-    gl_account_id: string;
-    account_code: string;
-    period_amounts: Record<string, unknown> | null;
-    annual_amount: string | number | null;
-  }>;
-
-  const budgets: Record<string, number> = {};
-  for (const row of budgetRows) {
-    const total = sumBudgetForWindow(
-      row.period_amounts ?? {},
-      Number(row.annual_amount ?? 0),
-      monthKeys,
-    );
-    budgets[row.account_code] = total;
-    budgets[row.gl_account_id] = total;
-  }
+  // The financial year holding the window's start: a label for the reader to
+  // re-derive against, not a key the budget is looked up by (budgets are per
+  // calendar month, so a window spanning two years sums both).
+  const fiscalYear = (await fiscalYearForDate(companyId, periodStart)).fiscalYear;
+  const budgets = await loadWindowBudgets(companyId, periodStart, periodEnd);
 
   // is_active is absent on purpose: it is a picker flag, and an account
   // deactivated mid-year still spent what it spent.
@@ -127,7 +107,7 @@ export async function getBudgetVariance(
 
   return {
     fiscalYear,
-    monthKeys: [...monthKeys],
+    monthKeys,
     rows,
     unbudgeted,
     // Every revenue and expense account the actuals query returned, before

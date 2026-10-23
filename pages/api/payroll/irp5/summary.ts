@@ -12,6 +12,11 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import {
+  PAYE_TAX_YEAR_END_MONTH,
+  PAYE_TAX_YEAR_START_MONTH,
+  payeTaxYearBounds,
+} from '@/modules/accounting/utils/payeTaxYear';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import {
@@ -44,7 +49,7 @@ export interface Irp5EmployeeRow {
 }
 
 function taxYearRange(taxYear: number): { startMonth: number; startYear: number; endMonth: number; endYear: number } {
-  return { startMonth: 3, startYear: taxYear - 1, endMonth: 2, endYear: taxYear };
+  return { startMonth: PAYE_TAX_YEAR_START_MONTH, startYear: taxYear - 1, endMonth: PAYE_TAX_YEAR_END_MONTH, endYear: taxYear };
 }
 
 function deriveStatus(
@@ -70,6 +75,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const taxYear = taxYearRaw;
 
   const { startMonth, startYear, endMonth, endYear } = taxYearRange(taxYear);
+  const bounds = payeTaxYearBounds(taxYear);
   // The screen previews the e@syFile export, so it must aggregate exactly the
   // runs that export declares.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
@@ -126,8 +132,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       WHERE  company_id     = ${companyId}::uuid
         AND  directive_type = 'severance'
         AND  status         = 'approved'
-        AND  effective_date <= ${`${endYear}-02-28`}::date
-        AND  (expiry_date IS NULL OR expiry_date >= ${`${startYear}-03-01`}::date)
+        AND  effective_date <= ${bounds.end}::date
+        AND  (expiry_date IS NULL OR expiry_date >= ${bounds.start}::date)
     ` as Promise<Row[]>,
   ]);
 
