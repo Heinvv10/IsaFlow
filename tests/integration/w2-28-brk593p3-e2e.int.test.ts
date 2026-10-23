@@ -125,7 +125,7 @@ for (const template of ['isaflow_standard', 'xero_compatible', 'sage_compatible'
       // branch (the breaker's own out/p3-e2e.{pr,master}.txt). It says nothing about roles, so it is left out
       // of the pass condition; every other step must succeed.
       const { '9 year-end close': yearEndStep, ...roleSteps } = steps;
-      expect(String(yearEndStep)).toMatch(/financial year starts in month/);
+      expect(String(yearEndStep)).toMatch(/financial year with that label runs/);
       expect(JSON.stringify(roleSteps)).not.toMatch(/"(4\d\d|5\d\d) |ERROR|THROWN/);
     }, 120_000);
   });
