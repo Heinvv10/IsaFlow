@@ -31,9 +31,7 @@ import { currentBatchDigest, lockBatchPayees } from './batchApprovedDigest';
 export class BatchNotApprovableError extends Error {
   readonly code = 'BATCH_NOT_APPROVABLE';
   constructor(readonly batchStatus: string) {
-    super(batchStatus === 'approved' || batchStatus === 'processed'
-      ? `Batch is ${batchStatus} and unchanged since its approval — there is nothing to re-approve.`
-      : `Batch is ${batchStatus}, not draft — it cannot be approved.`);
+    super(`Batch is ${batchStatus}, not draft — it cannot be approved.`);
     this.name = 'BatchNotApprovableError';
   }
 }
