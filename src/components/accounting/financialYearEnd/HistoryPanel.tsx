@@ -3,7 +3,7 @@ import { log } from '@/lib/logger';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
 import { INPUT_CLS } from '@/components/accounting/settings/settingsTypes';
-import { BTN_PRIMARY, BTN_SECONDARY, CARD_CLS, MIN_REASON, YearEndRefusedError, fmtDay, sendYearEndChange } from './yearEndTypes';
+import { BTN_PRIMARY, BTN_SECONDARY, CARD_CLS, MIN_REASON, YearEndRefusedError, fmtDay, sendYearEndChange, fmtInstantDay } from './yearEndTypes';
 
 interface Props {
   history: YearEndChangeRecord[];
@@ -46,7 +46,7 @@ export function HistoryPanel({ history, undo, onUndone }: Props) {
           <thead><tr className="text-left text-xs uppercase text-[var(--ff-text-secondary)]"><th className="py-1">Applied</th><th>Year end</th><th>Months</th><th>Reason</th><th>Status</th></tr></thead>
           <tbody>{history.map(h => (
             <tr key={h.id} className="border-t border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] align-top">
-              <td className="py-1">{h.appliedAt.slice(0, 10)}</td>
+              <td className="py-1">{fmtInstantDay(h.appliedAt)}</td>
               <td>{fmtDay(h.fromEndDate)} to {fmtDay(h.toEndDate)}</td>
               <td>{h.months}</td>
               <td>{h.reason}</td>

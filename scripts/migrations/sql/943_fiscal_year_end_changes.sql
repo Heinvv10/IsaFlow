@@ -21,19 +21,22 @@
 CREATE TABLE IF NOT EXISTS fiscal_year_end_changes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-  -- The transition year this change made.
-  fiscal_year_id UUID NOT NULL REFERENCES fiscal_years(id),
+  -- The transition year this change made (NULL only if a later change ever
+  -- removed it; the dates below keep the record readable).
+  fiscal_year_id UUID,
   from_start_month INT NOT NULL CHECK (from_start_month BETWEEN 1 AND 12),
   to_start_month INT NOT NULL CHECK (to_start_month BETWEEN 1 AND 12),
   transition_start DATE NOT NULL,
   from_end_date DATE NOT NULL,
   to_end_date DATE NOT NULL,
   months INT NOT NULL CHECK (months BETWEEN 1 AND 15),
-  reason TEXT NOT NULL CHECK (length(btrim(reason)) >= 10),
+  reason TEXT NOT NULL CHECK (length(btrim(reason)) BETWEEN 10 AND 2000),
   cipc_filed_confirmed BOOLEAN NOT NULL CHECK (cipc_filed_confirmed),
   sars_notified_confirmed BOOLEAN NOT NULL CHECK (sars_notified_confirmed),
   -- The years (from the transition year on) and their periods before the change.
-  snapshot JSONB NOT NULL,
+  -- Built by the database at INSERT (fiscal_year_end_changes_build), never taken
+  -- from the caller, so a forged record cannot steer an undo.
+  snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
   applied_by UUID NOT NULL,
   applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   reversed_by UUID,
@@ -43,6 +46,10 @@ CREATE TABLE IF NOT EXISTS fiscal_year_end_changes (
     CHECK ((reversed_by IS NULL) = (reversed_at IS NULL)),
   CONSTRAINT fiscal_year_end_changes_dates CHECK (to_end_date <> from_end_date AND to_end_date > transition_start)
 );
+
+ALTER TABLE fiscal_year_end_changes DROP CONSTRAINT IF EXISTS fiscal_year_end_changes_year_fkey;
+ALTER TABLE fiscal_year_end_changes ADD CONSTRAINT fiscal_year_end_changes_year_fkey
+  FOREIGN KEY (company_id, fiscal_year_id) REFERENCES fiscal_years (company_id, id) ON DELETE SET NULL (fiscal_year_id);
 
 CREATE INDEX IF NOT EXISTS idx_fiscal_year_end_changes_company ON fiscal_year_end_changes (company_id, applied_at DESC);
 -- s27(4)(a), and the serialiser for two applies racing on one year.
@@ -75,6 +82,11 @@ BEGIN
     END IF;
     RETURN OLD;
   END IF;
+  -- The FK's ON DELETE SET NULL (fiscal_year_id) is the one other change allowed.
+  IF NEW.fiscal_year_id IS NULL AND OLD.fiscal_year_id IS NOT NULL
+     AND (to_jsonb(NEW) - 'fiscal_year_id') IS NOT DISTINCT FROM (to_jsonb(OLD) - 'fiscal_year_id') THEN
+    RETURN NEW;
+  END IF;
   IF OLD.reversed_at IS NOT NULL
      OR NEW.reversed_at IS NULL
      OR (to_jsonb(NEW) - ARRAY['reversed_by', 'reversed_at', 'reversal_reason'])
@@ -88,3 +100,44 @@ $$;
 DROP TRIGGER IF EXISTS trg_fiscal_year_end_changes_guard ON fiscal_year_end_changes;
 CREATE TRIGGER trg_fiscal_year_end_changes_guard BEFORE UPDATE OR DELETE ON fiscal_year_end_changes
   FOR EACH ROW EXECUTE FUNCTION public.fiscal_year_end_changes_guard();
+
+-- At INSERT: the snapshot is read from the live tables (the years from the
+-- transition year on, and their periods), the applier is the request's user
+-- when there is one, and the transition year must be the company's open year
+-- starting on transition_start.
+CREATE OR REPLACE FUNCTION public.fiscal_year_end_changes_build()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  y record;
+BEGIN
+  IF auth.uid() IS NOT NULL AND NEW.applied_by::text IS DISTINCT FROM auth.uid()::text THEN
+    RAISE EXCEPTION 'a change of financial year end is recorded as applied by the requesting user' USING ERRCODE = '42501';
+  END IF;
+  SELECT fy.id, fy.start_date, fy.status INTO y FROM fiscal_years fy
+   WHERE fy.id = NEW.fiscal_year_id AND fy.company_id = NEW.company_id;
+  IF NOT FOUND OR y.start_date <> NEW.transition_start OR y.status <> 'open' THEN
+    RAISE EXCEPTION 'a change of financial year end must name the company''s open transition year starting %', NEW.transition_start
+      USING ERRCODE = '23514';
+  END IF;
+  NEW.snapshot := jsonb_build_object(
+    'years', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'id', fy.id, 'fiscal_year', fy.fiscal_year, 'start_date', fy.start_date::text, 'end_date', fy.end_date::text,
+        'kind', fy.kind, 'change_id', fy.change_id, 'created_at', fy.created_at) ORDER BY fy.start_date)
+      FROM fiscal_years fy WHERE fy.company_id = NEW.company_id AND fy.start_date >= NEW.transition_start), '[]'::jsonb),
+    'periods', COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'id', fp.id, 'fiscal_year_id', fp.fiscal_year_id, 'fiscal_year', fp.fiscal_year,
+        'period_number', fp.period_number, 'period_name', fp.period_name) ORDER BY fp.start_date)
+      FROM fiscal_periods fp JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
+     WHERE fp.company_id = NEW.company_id AND fy.start_date >= NEW.transition_start), '[]'::jsonb));
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_fiscal_year_end_changes_build ON fiscal_year_end_changes;
+CREATE TRIGGER trg_fiscal_year_end_changes_build BEFORE INSERT ON fiscal_year_end_changes
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_year_end_changes_build();
+ALTER TABLE fiscal_year_end_changes ENABLE ALWAYS TRIGGER trg_fiscal_year_end_changes_build;
+ALTER TABLE fiscal_year_end_changes ENABLE ALWAYS TRIGGER trg_fiscal_year_end_changes_guard;

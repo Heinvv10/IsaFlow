@@ -29,7 +29,7 @@ interface SnapPeriod { id: string; fiscal_year_id: string; fiscal_year: number; 
 
 export interface LiveChange {
   id: string;
-  fiscalYearId: string;
+  fiscalYearId: string | null;
   fromStartMonth: number;
   fromEndDate: string;
   toEndDate: string;
@@ -46,7 +46,7 @@ export async function latestLiveChange(companyId: string): Promise<LiveChange | 
   const r = rows[0];
   if (!r) return null;
   return {
-    id: String(r.id), fiscalYearId: String(r.fiscal_year_id), fromStartMonth: Number(r.from_start_month),
+    id: String(r.id), fiscalYearId: r.fiscal_year_id ? String(r.fiscal_year_id) : null, fromStartMonth: Number(r.from_start_month),
     fromEndDate: fmtDate(r.from_end_date), toEndDate: fmtDate(r.to_end_date), transitionStart: fmtDate(r.transition_start),
     snapshot: r.snapshot as LiveChange['snapshot'],
   };
@@ -96,6 +96,13 @@ export async function undoRefusals(companyId: string, change: LiveChange | null)
   if (closed.length > 0) {
     out.push(`Periods after ${boundary} have already been closed (${closed.map((r) => r.period_name).join(', ')}); `
       + 'the change can no longer be undone.');
+  }
+  const ty = change.fiscalYearId ? (await sql`
+    SELECT status FROM fiscal_years WHERE id = ${change.fiscalYearId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[] : [];
+  if (!ty[0]) out.push('The transition year this change made no longer exists; it cannot be undone.');
+  else if (String(ty[0].status) !== 'open') {
+    out.push(`The transition year is ${String(ty[0].status)}; reopen its periods before undoing the change.`);
   }
   const ye = (await sql`
     SELECT COUNT(*)::int AS n FROM gl_journal_entries
