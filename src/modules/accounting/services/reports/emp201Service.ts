@@ -28,6 +28,15 @@ export interface EMP201Data {
   totalUIF_employer: number;
   totalUIF: number;
   totalSDL: number;
+  /**
+   * Employees paid in the period: distinct across the declarable runs' lines
+   * and the directives paid outside payroll (PAYE 4a follow-ups round 2, R5).
+   * No SARS text in hand defines this figure (the EMP201 return declares PAYE,
+   * SDL, UIF and ETI amounts), so the definition is IsaFlow's: each person paid
+   * remuneration the declaration covers, counted once however many runs or
+   * payments paid them. It was the largest run header count, which left out a
+   * leaver paid only a stand-alone lump sum.
+   */
   employeeCount: number;
   totalTaxableRemuneration: number;
   totalDeductions: number;
@@ -134,7 +143,9 @@ export async function generateEMP201(
         prh.total_paye,
         prh.total_uif,
         prh.total_sdl,
-        prh.total_eti
+        prh.total_eti,
+        -- Lines have no company_id; the header's company predicate below scopes them.
+        ARRAY(SELECT DISTINCT l.employee_id::text FROM payroll_run_lines l WHERE l.run_id = prh.id) AS employee_ids
       FROM payroll_run_headers prh
       WHERE prh.company_id = ${companyId}::uuid
         AND prh.status = ANY(${declarableStatuses}::text[])
@@ -143,9 +154,8 @@ export async function generateEMP201(
       ORDER BY prh.period_year, prh.period_month
     `) as Row[];
 
-    const directivePayments: EMP201DirectivePayment[] = (
-      await listStandaloneDirectivePayments(companyId, { start: startDate, end: endDate })
-    ).map(p => ({
+    const standalone = await listStandaloneDirectivePayments(companyId, { start: startDate, end: endDate });
+    const directivePayments: EMP201DirectivePayment[] = standalone.map(p => ({
       paymentId: p.paymentId, directiveNumber: p.directiveNumber, paymentDate: p.paymentDate, gross: p.gross, paye: p.paye,
     }));
 
@@ -156,7 +166,8 @@ export async function generateEMP201(
     let totalUIF = 0;
     let totalSDL = 0;
     let totalGross = directivePayments.reduce((t, p) => t + p.gross, 0);
-    let maxEmployeeCount = 0;
+    // A payment whose directive names no employee here still paid someone: counted by its directive.
+    const paid = new Set<string>(standalone.map(p => p.employeeId ?? `directive:${p.directiveId}`));
 
     const payrollRuns: EMP201PayrollRun[] = runs.map((r: Row) => {
       const paye = Number(r.total_paye) || 0;
@@ -173,7 +184,7 @@ export async function generateEMP201(
       totalUIF += uif;
       totalSDL += sdl;
       totalGross += gross;
-      maxEmployeeCount = Math.max(maxEmployeeCount, count);
+      for (const id of (r.employee_ids as string[] | null) ?? []) paid.add(id);
 
       const month = String(r.period_month).padStart(2, '0');
       return {
@@ -208,7 +219,7 @@ export async function generateEMP201(
       totalUIF_employer: uifEmployer,
       totalUIF: roundCents(totalUIF),
       totalSDL: roundCents(totalSDL),
-      employeeCount: maxEmployeeCount,
+      employeeCount: paid.size,
       totalTaxableRemuneration: roundCents(totalGross),
       // Total remitted to SARS — PAYE net of ETI, plus UIF and SDL.
       totalDeductions: roundCents(payePayable + totalUIF + totalSDL),
