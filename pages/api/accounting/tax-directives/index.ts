@@ -1,7 +1,9 @@
 /**
  * Tax Directives API — collection
  * GET  — list directives (?status=, ?search=)
- * POST — create a new directive
+ * POST — create a new directive. employee_id is required and must be one of
+ *        the company's payroll employees (400): a run pays a directive only to
+ *        its employee and the stand-alone payment refuses one without.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -17,9 +19,11 @@ import {
 } from '@/modules/accounting/services/payroll/taxDirectiveService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { isIsoDate } from '@/modules/accounting/services/payroll/taxDirectiveDates';
+import { getPayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
 
 const VALID_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
 const VALID_STATUSES = ['pending', 'approved', 'expired', 'cancelled'] as const;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
@@ -38,6 +42,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const body = req.body as Partial<TaxDirectiveCreateInput>;
 
+    // Checked before any query: a malformed id would be a 22P02 (a 500) in the lookup.
+    if (typeof body.employee_id !== 'string' || !UUID_RE.test(body.employee_id)) {
+      return apiResponse.badRequest(res, 'employee_id is required: choose the payroll employee the directive is paid to');
+    }
+    if (!(await getPayrollEmployee(body.employee_id, companyId))) {
+      return apiResponse.badRequest(res, 'employee_id is not an employee of this company');
+    }
     if (!body.employee_name?.trim()) {
       return apiResponse.badRequest(res, 'employee_name is required');
     }

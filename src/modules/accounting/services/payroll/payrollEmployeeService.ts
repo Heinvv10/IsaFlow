@@ -29,10 +29,19 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
   };
 }
 
-export async function listPayrollEmployees(companyId: string): Promise<PayrollEmployee[]> {
+/**
+ * Active employees; with `includeTerminated`, leavers too (the tax-directive
+ * form: severance, retirement and death directives are for people who left).
+ * 'inactive' employees are never listed.
+ */
+export async function listPayrollEmployees(
+  companyId: string,
+  opts: { includeTerminated?: boolean } = {},
+): Promise<PayrollEmployee[]> {
+  const statuses = opts.includeTerminated ? ['active', 'terminated'] : ['active'];
   const rows = (await sql`
     SELECT * FROM payroll_employees
-    WHERE company_id = ${companyId}::uuid AND status = 'active'
+    WHERE company_id = ${companyId}::uuid AND status = ANY(${statuses}::text[])
     ORDER BY last_name, first_name
   `) as Row[];
   return rows.map(mapPayrollEmployeeRow);
