@@ -6,6 +6,7 @@
  * uses the codes valid at the time, not today's set.
  */
 
+import { medicalFieldRules } from './easyFileMedicalFields';
 import {
   getSarsCode,
   isKnownSarsCode,
@@ -237,8 +238,8 @@ export async function validateEmployeeIrp5(
  * (Jun-26): p. 17 (3015) an IRP5 needs 4101, 4102 or 4115 above nil and no
  * 4150, an IT3(a) needs 4150 and none of 4101/4102/4115; p. 57 (4115) it is
  * mandatory beside 3901/3915/3920-3924; p. 58 (4150) only 2-10, and 04 needs
- * the directive information; p. 59-61 4116/4120 only beside 4005, 4116 with
- * every 4005, and 08 only with a medical credit (above nil, Hein 2026-10-23).
+ * the directive information; p. 59-61 the medical rules (medicalFieldRules:
+ * 4005/4116/4120, 4120 against the age, 08 only with a credit above nil).
  * buildIrp5File refuses a file that breaks them.
  */
 export function validateCertificateTaxFields(lines: string[]): ValidationMessage[] {
@@ -251,23 +252,13 @@ export function validateCertificateTaxFields(lines: string[]): ValidationMessage
   const err = (code: string, message: string) => msgs.push({ severity: 'error', code, message, field: code });
   const tax = ['4101', '4102', '4115'].filter(c => field.has(c));
   const reason = field.get('4150');
-  // BRS V25.3.0 p. 59-60: 4116 and 4120 only beside a 4005 value; 4116 mandatory with one (from 2015).
-  if ((field.has('4116') || field.has('4120')) && !(Number(field.get('4005')) > 0)) {
-    err('MEDICAL_CREDIT_WITHOUT_4005', 'The medical credits (4116, 4120) need the medical scheme contributions (4005).');
-  }
-  if (Number(field.get('4005')) > 0 && !field.has('4116')) {
-    err('MEDICAL_FEES_WITHOUT_4116', 'Medical scheme contributions (4005) need the medical scheme fees tax credit (4116, 0.00 if nil).');
-  }
+  medicalFieldRules(field, err);
   if (field.get('3015') === 'IT3(a)') {
     if (reason == null) err('IT3A_WITHOUT_REASON_CODE', 'An IT3(a) needs a reason code for non-deduction of tax (4150).');
     else if (!/^(0?[2-9]|10)$/.test(reason)) err('IT3A_INVALID_REASON_CODE', `Reason code 4150 must be 02 to 10, not ${reason}.`);
     if (tax.length > 0) err('IT3A_WITH_TAX_FIELD', `An IT3(a) must not carry ${tax.join(', ')}.`);
     if (reason != null && Number(reason) === 4 && !field.has('3230')) {
       err('REASON_04_WITHOUT_DIRECTIVE', 'Reason code 04 (nil directive) needs the directive information (3230-3233).');
-    }
-    // p. 61: 08 "only valid ... if codes 4116 and/ or 4120 has been completed"; above nil (Hein 2026-10-23): a nil credit removed no tax.
-    if (reason != null && Number(reason) === 8 && !(Number(field.get('4116')) > 0 || Number(field.get('4120')) > 0)) {
-      err('REASON_08_WITHOUT_MEDICAL_CREDIT', 'Reason code 08 (medical credits) needs a medical credit above nil (4116 or 4120).');
     }
     return msgs;
   }

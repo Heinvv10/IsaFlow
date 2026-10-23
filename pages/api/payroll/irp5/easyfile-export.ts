@@ -35,6 +35,7 @@ import {
   ageAtYearEnd, firstTwoNames, initialsFromName, monthsBetween, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -148,11 +149,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
     warnings.push(...employeeLumpSums.filter(l => l.issuedDateFallback).map(l => issuedDateWarning(who, l)));
-    // 4005/4116/4120 (easyFileMedicalFields): not reported when the latest month predates the credit record.
+    // 4005/4116/4120 (easyFileMedicalFields) and what the file cannot carry about them.
     const medical = medicalByEmployee.get(String(row.id));
     const age = ageAtYearEnd(taxYear, row.date_of_birth, row.id_number);
-    if (medical && !medical.recorded && medical.fees > 0) warnings.push(`${who}: medical aid contributions (4005) and the medical credits `
-      + '(4116/4120) are not on the certificate: the latest month was calculated before IsaFlow recorded the credits. Add them in e@syFile.');
+    warnings.push(...medicalCertificateWarnings(who, medical, { age, dateOfBirthMissing: !row.date_of_birth }));
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
