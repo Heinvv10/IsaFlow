@@ -65,6 +65,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   let periodStart = '{periodStart}';
   let periodEnd = '{periodEnd}';
   let periodMonths = 12;
+  let period: { start: string; end: string; months: number; phrase: string } | null = null;
   const documentId = req.query.document_id;
   if (documentId !== undefined) {
     if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'document_id must be an AFS document id');
@@ -75,9 +76,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!docs[0]) return apiResponse.notFound(res, 'AFS document', documentId);
     if (docs[0].fiscal_year != null) {
       const fiscalYear = Number(docs[0].fiscal_year);
-      const period = await findReportingPeriod(companyId, fiscalYear, 'afs-report-templates-api');
-      if (!period) return apiResponse.notFound(res, 'Financial year', String(fiscalYear));
-      ({ start: periodStart, end: periodEnd, months: periodMonths } = period.current);
+      const found = await findReportingPeriod(companyId, fiscalYear, 'afs-report-templates-api');
+      if (!found) return apiResponse.notFound(res, 'Financial year', String(fiscalYear));
+      period = found.current;
+      ({ start: periodStart, end: periodEnd, months: periodMonths } = period);
     }
   }
 
@@ -105,6 +107,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     reportType,
     entityType,
     framework,
+    // What the wording is for: null when no document was named (the dates stay placeholders).
+    period: period && { start: period.start, end: period.end, months: period.months, phrase: period.phrase },
     templates: {
       practitionerReport: practitionerReport.join('\n'),
       directorsResponsibility: directorsResponsibility.join('\n'),
