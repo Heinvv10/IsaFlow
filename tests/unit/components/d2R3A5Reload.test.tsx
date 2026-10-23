@@ -53,7 +53,7 @@ const dateInput = (c: HTMLElement) => c.querySelector('input[type="date"]')!;
 describe('a failed reload clears the previous rows', () => {
   it('budgets: change the fiscal year', async () => {
     const row = budgetRow();
-    script(u => (u.includes('fiscal_year=2027') ? empty500() : u.includes('/budgets?') ? ok(budgetsPayload([row])) : ok([])));
+    script(u => (u.includes('fiscal_year=2027') ? empty500() : /\/budgets(\?|$)/.test(u) ? ok(budgetsPayload([row])) : ok([])));
     render(<BudgetsPage />);
     await screen.findByText('D2 Sales Budget');
     fireEvent.change(screen.getByTestId('budget-year'), { target: { value: '2027' } });

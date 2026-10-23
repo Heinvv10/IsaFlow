@@ -58,7 +58,7 @@ describe('D2 success envelope is honoured (group 1a)', () => {
   });
 
   it('success: budgets renders the data it received', async () => {
-    answer({ '/budgets?': { items: [{ id: 'b1', glAccountId: 'g1', accountCode: '5000', accountName: 'Quokka Rentals', accountType: 'expense',
+    answer({ '/api/accounting/budgets': { items: [{ id: 'b1', glAccountId: 'g1', accountCode: '5000', accountName: 'Quokka Rentals', accountType: 'expense',
       fiscalYear: 2026, annualAmount: 1200, months: [], notes: '' }] } });
     render(<BudgetsPage />);
     await sees('Quokka Rentals');

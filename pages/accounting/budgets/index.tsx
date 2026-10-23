@@ -38,7 +38,7 @@ export default function BudgetManagementPage() {
     setLoading(true);
     void (async () => {
       try {
-        const res = await apiFetch(`/api/accounting/budgets?fiscal_year=${chosenYear ?? ''}`, { credentials: 'include' });
+        const res = await apiFetch(`/api/accounting/budgets${chosenYear === null ? '' : `?fiscal_year=${chosenYear}`}`, { credentials: 'include' });
         await assertOk(res, 'Could not load budgets - try again');
         const json = await res.json();
         if (stale) return;
