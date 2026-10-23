@@ -175,4 +175,18 @@ describe('R1: the exact stale year-to-date gate', () => {
     await pool.query('UPDATE payroll_run_headers SET journal_entry_id = NULL WHERE id = $1', [apr]);
     expect((await previewRun(f, apr)).body.data?.blocker?.code ?? null).not.toBe('paye_year_to_date_stale');
   });
+  it('February approved first, January calculated (warned), February reopened, recalculated and re-approved: January is approved (its lines still warn of February)', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 later reopened after warning', 20_000);
+    await approvedMonths(f, 10);
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb);
+    ok(await approveRun(f, feb)); // January back-filled later
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan);
+    expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');
+    ok(await reopenRun(f, feb));
+    await calcOnly(f, feb); // January is not approved: February still leaves it out, as the warning says
+    ok(await approveRun(f, feb));
+    ok(await approveRun(f, jan));
+  });
 });
