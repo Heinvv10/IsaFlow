@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS fiscal_years (
   kind VARCHAR(20) NOT NULL DEFAULT 'normal' CHECK (kind IN ('normal', 'transition')),
   -- The change of year end that made this a transition year (Feature B's table).
   change_id UUID,
+  -- True when the year was cut on an ASSUMED March start (a period linked for a
+  -- company with no usable financial_year_start). Strict readers refuse it.
+  assumed_start BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT fiscal_years_company_label_key UNIQUE (company_id, fiscal_year),
@@ -208,7 +211,7 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   RETURN QUERY
-    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true, false
+    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true, fy.assumed_start
       FROM fiscal_years fy
      WHERE fy.company_id = p_company AND p_date BETWEEN fy.start_date AND fy.end_date;
   IF NOT FOUND THEN
@@ -232,7 +235,7 @@ DECLARE
   probe date; t record; steps int := 0;
 BEGIN
   RETURN QUERY
-    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true, false
+    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true, fy.assumed_start
       FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
   IF FOUND THEN RETURN; END IF;
 
@@ -297,8 +300,8 @@ BEGIN
   -- company with no usable start month still gets a year, never an abort.
   SELECT * INTO t FROM public.fiscal_year_template(p_company, p_start, 3);
   IF t.start_date <= p_start AND t.end_date >= p_end THEN
-    INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
-    VALUES (p_company, t.fiscal_year, t.start_date, t.end_date)
+    INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, assumed_start)
+    VALUES (p_company, t.fiscal_year, t.start_date, t.end_date, t.assumed)
     ON CONFLICT DO NOTHING
     RETURNING id INTO y;
     IF y IS NOT NULL THEN RETURN y; END IF;
@@ -425,10 +428,14 @@ BEGIN
     RAISE EXCEPTION 'fiscal period % (%) is %: it cannot be moved, re-dated or relabelled',
       OLD.id, OLD.period_name, OLD.status USING ERRCODE = '55000';
   END IF;
+  -- A period never changes company: its journals and balance rows would follow
+  -- it into another tenant.
+  IF TG_OP = 'UPDATE' AND NEW.company_id IS DISTINCT FROM OLD.company_id THEN
+    RAISE EXCEPTION 'fiscal period % cannot move to another company', OLD.id USING ERRCODE = '55000';
+  END IF;
   -- Locked is final for the application role (reopenPeriod refuses it too).
   IF TG_OP = 'UPDATE' AND OLD.status = 'locked' AND NEW.status IS DISTINCT FROM 'locked'
-     AND NOT (SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = current_user)
-     AND pg_has_role(current_user, 'app_user', 'MEMBER') THEN
+     AND NOT public.fiscal_period_override() THEN
     RAISE EXCEPTION 'fiscal period % (%) is locked: it cannot be reopened', OLD.id, OLD.period_name USING ERRCODE = '55000';
   END IF;
   IF TG_OP = 'INSERT' OR NEW.fiscal_year_id IS DISTINCT FROM OLD.fiscal_year_id THEN
@@ -442,11 +449,21 @@ BEGIN
 END;
 $$;
 
--- The application role (app_user, and the login roles that inherit it) cannot
--- delete a closed or locked period: that would reopen its year and let a month
--- be added beside closed books. No app path deletes one
--- (rebuildUnusedFiscalPeriods refuses any period not open).
--- A superuser (fixtures, an operator's data correction) is not stopped.
+-- Only a superuser (fixtures, an operator's data correction) may delete a closed
+-- or locked period or reopen a locked one (a custom setting would not do: any
+-- role can set one): that would reopen its year and
+-- let a month be added beside closed books. No app path does either
+-- (rebuildUnusedFiscalPeriods refuses any period not open; reopenPeriod refuses
+-- a locked one). Every other role — app_user, platform_admin, migration_admin —
+-- is refused.
+CREATE OR REPLACE FUNCTION public.fiscal_period_override()
+RETURNS boolean
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT COALESCE((SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = current_user), false)
+$$;
+
 CREATE OR REPLACE FUNCTION public.fiscal_periods_guard_delete()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -454,8 +471,7 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
   IF OLD.status IN ('closed', 'locked')
-     AND NOT (SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = current_user)
-     AND pg_has_role(current_user, 'app_user', 'MEMBER') THEN
+     AND NOT public.fiscal_period_override() THEN
     RAISE EXCEPTION 'fiscal period % (%) is %: it cannot be deleted', OLD.id, OLD.period_name, OLD.status
       USING ERRCODE = '55000';
   END IF;
@@ -480,8 +496,8 @@ BEGIN
      AND (fy.company_id <> fp.company_id OR fp.start_date < fy.start_date OR fp.end_date > fy.end_date);
   IF NOT FOUND AND EXISTS (
        SELECT 1 FROM gl_journal_entries je JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
-        WHERE fp.id = NEW.id AND je.company_id = fp.company_id
-          AND je.entry_date NOT BETWEEN fp.start_date AND fp.end_date) THEN
+        WHERE fp.id = NEW.id
+          AND (je.company_id <> fp.company_id OR je.entry_date NOT BETWEEN fp.start_date AND fp.end_date)) THEN
     RAISE EXCEPTION 'fiscal period % would no longer hold the journals that point at it; move or re-date them first', NEW.id
       USING ERRCODE = '23514';
   END IF;
