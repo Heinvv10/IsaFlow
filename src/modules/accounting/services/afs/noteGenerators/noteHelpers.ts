@@ -41,13 +41,13 @@ export async function fetchBalancesByNote(
   companyId: string,
   noteNumber: number,
   fiscalYear: number,
-  priorYear?: number,
+  withPrior = false,
 ): Promise<AfsLineBalance[]> {
-  // Comparative on the SAME fiscal calendar as the current year; both from one
-  // lookup. Hard-coding January-December here reintroduced the very defect the
-  // current year was fixed for, silently and only in the prior-year column.
+  // The comparative is the registry year immediately before this one, whatever
+  // its length. Re-applying this year's length to "fiscalYear - 1" would
+  // report a transition year's comparative as twelve months of the wrong dates.
   const { current: { start, end }, prior } =
-    await getFiscalRangeWithPrior(companyId, fiscalYear, priorYear);
+    await getFiscalRangeWithPrior(companyId, fiscalYear, withPrior);
   const priorStart = prior?.start ?? null;
   const priorEnd = prior?.end ?? null;
 
@@ -95,15 +95,15 @@ export async function fetchBalancesByCodes(
   companyId: string,
   codes: string[],
   fiscalYear: number,
-  priorYear?: number,
+  withPrior = false,
 ): Promise<AfsLineBalance[]> {
   if (codes.length === 0) return [];
 
-  // Comparative on the SAME fiscal calendar as the current year; both from one
-  // lookup. Hard-coding January-December here reintroduced the very defect the
-  // current year was fixed for, silently and only in the prior-year column.
+  // The comparative is the registry year immediately before this one, whatever
+  // its length. Re-applying this year's length to "fiscalYear - 1" would
+  // report a transition year's comparative as twelve months of the wrong dates.
   const { current: { start, end }, prior } =
-    await getFiscalRangeWithPrior(companyId, fiscalYear, priorYear);
+    await getFiscalRangeWithPrior(companyId, fiscalYear, withPrior);
   const priorStart = prior?.start ?? null;
   const priorEnd = prior?.end ?? null;
 
@@ -180,12 +180,12 @@ export async function fetchSubtypeBalances(
   companyId: string,
   subtypes: string[],
   fiscalYear: number,
-  opts?: { priorYear?: number; creditNormal?: boolean },
+  opts?: { withPrior?: boolean; creditNormal?: boolean },
 ): Promise<{ current: number; prior: number }> {
-  // Same fiscal calendar as the current year — see the note in
-  // fetchBalancesByNote about the prior-year column reintroducing the defect.
+  // The comparative is the registry year immediately before this one — see the
+  // note in fetchBalancesByNote.
   const { current: { start, end }, prior } =
-    await getFiscalRangeWithPrior(companyId, fiscalYear, opts?.priorYear);
+    await getFiscalRangeWithPrior(companyId, fiscalYear, opts?.withPrior);
   const priorStart = prior?.start ?? null;
   const priorEnd = prior?.end ?? null;
   const sign = opts?.creditNormal ? -1 : 1;

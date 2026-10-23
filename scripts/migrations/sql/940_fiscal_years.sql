@@ -72,11 +72,12 @@ CREATE INDEX IF NOT EXISTS idx_fiscal_years_company_end ON fiscal_years (company
 
 ALTER TABLE fiscal_years ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fiscal_years FORCE ROW LEVEL SECURITY;
--- The same tenant policy fiscal_periods carries (migration 220 lineage).
 DROP POLICY IF EXISTS tenant_isolation ON fiscal_years;
-CREATE POLICY tenant_isolation ON fiscal_years TO app_user
-  USING (company_id IN (SELECT cu.company_id FROM company_users cu WHERE cu.user_id = auth.uid()))
-  WITH CHECK (company_id = app.current_company_id());
+-- The active company AND membership (migration 897's form): a member of two
+-- companies working in A cannot read or write B's rows through app_user.
+CREATE POLICY tenant_isolation ON fiscal_years FOR ALL TO app_user
+  USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 GRANT SELECT, INSERT, UPDATE, DELETE ON fiscal_years TO app_user;
 
 DROP TRIGGER IF EXISTS trg_fiscal_years_updated_at ON fiscal_years;

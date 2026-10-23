@@ -443,8 +443,8 @@ export async function runPreExportChecks(
     }];
   }
 
-  // getFiscalRange REFUSES an unusable companies.financial_year_start rather
-  // than assuming March. That refusal is right, but letting it propagate turns
+  // getFiscalRange REFUSES a label no registry year carries rather than
+  // guessing a range. That refusal is right, but letting it propagate turns
   // a misconfiguration into a 500 carrying an exception message — while the
   // same class of misconfiguration four lines above returns a readable blocker.
   // A pre-export check that crashes tells the accountant nothing about what to

@@ -119,6 +119,7 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/auto-postings') ||
     pathname.startsWith('/accounting/fiscal-periods') ||
     pathname.startsWith('/accounting/financial-years') ||
+    pathname.startsWith('/accounting/financial-year-end-change') ||
     pathname.startsWith('/accounting/year-end') ||
     pathname.startsWith('/accounting/default-accounts') ||
     pathname.startsWith('/accounting/currencies') ||

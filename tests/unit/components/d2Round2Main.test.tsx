@@ -73,7 +73,8 @@ const CASES: Case[] = [
     good: { items: [{ id: 'd1', invoiceNumber: 'INV-D2-1', supplierName: 'D2 Supplier', totalAmount: 100, vatAmount: 15,
       invoiceDate: '2026-01-01' }] }, shows: /INV-D2-1/, plain: /Could not load DRC VAT data - try again/ },
   { name: 'DRC VAT (history)', page: () => <DrcVatPage />, fails: u => u.includes('tab=history'), good: { items: [] }, plain: /Could not load DRC VAT data - try again/ },
-  { name: 'financial years', page: () => <FinancialYearsPage />, fails: u => u.endsWith('/fiscal-periods'), good: [PERIOD],
+  { name: 'financial years', page: () => <FinancialYearsPage />, fails: u => u.endsWith('/fiscal-years'),
+    good: [{ id: 'y1', fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', status: 'open', kind: 'normal', stored: true, months: 12, periods: [PERIOD] }],
     shows: /D2 January 2026/, plain: /Could not load fiscal periods - try again/ },
 ];
 

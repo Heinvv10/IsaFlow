@@ -13,7 +13,7 @@
  * Posted totals (`totalDebit` / `totalCredit`) never include derived rows.
  */
 
-import { fiscalYearStartsWithin, isIncomeStatementType, runWithYearEndCloses, yearEndCloseDescription } from './fiscalYearCloseRows';
+import { isIncomeStatementType, runWithYearEndCloses, yearEndCloseDescription } from './fiscalYearCloseRows';
 import type { GeneralLedgerAccountReport, GeneralLedgerTransaction } from './generalLedgerReportService';
 
 interface AccountMeta {
@@ -25,13 +25,12 @@ export function withYearEndCloses(
   reports: GeneralLedgerAccountReport[],
   opts: {
     accounts: ReadonlyMap<string, AccountMeta>;
-    periodStart: string;
-    periodEnd: string;
-    fyStartMonth: number;
+    /** Fiscal-year start dates inside the range (fiscalYearStartsWithin): where the derived closes fall. */
+    boundaries: readonly string[];
     retainedEarnings: { accountCode: string; accountName: string; openingBalance: number };
   },
 ): GeneralLedgerAccountReport[] {
-  const boundaries = fiscalYearStartsWithin(opts.periodStart, opts.periodEnd, opts.fyStartMonth);
+  const { boundaries } = opts;
   // Net debit (debit − credit) of the close rows per fiscal-year end, across accounts.
   const closedPerYearEnd = new Map<string, number>();
 
