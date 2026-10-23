@@ -113,6 +113,14 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM fiscal_years fy WHERE fy.id = OLD.fiscal_year_id AND fy.end_date = OLD.from_end_date) THEN
     RAISE EXCEPTION 'a change of financial year end is marked reversed only after the year end is restored' USING ERRCODE = '23514';
   END IF;
+  -- Reversed by the requester, now, for a stated reason.
+  IF auth.uid() IS NOT NULL AND NEW.reversed_by::text IS DISTINCT FROM auth.uid()::text THEN
+    RAISE EXCEPTION 'a change of financial year end is recorded as undone by the requesting user' USING ERRCODE = '42501';
+  END IF;
+  IF length(btrim(COALESCE(NEW.reversal_reason, ''))) NOT BETWEEN 10 AND 2000 THEN
+    RAISE EXCEPTION 'undoing a change of financial year end needs a reason (10-2000 characters)' USING ERRCODE = '23514';
+  END IF;
+  NEW.reversed_at := now();
   RETURN NEW;
 END;
 $$;
