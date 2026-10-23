@@ -240,6 +240,12 @@ Leave `PLATFORM_ADMIN_DATABASE_URL` and `MIGRATION_ADMIN_DATABASE_URL` as they a
 The app refuses to boot if `DATABASE_URL` names isaflow_app while
 `SERVICE_DATABASE_URL` is unset (validateEnv), so set all three together.
 
+Ops scripts that need the owner read `OWNER_DATABASE_URL` and fall back to
+`DATABASE_URL`. Run them with the prod env loaded, so `OWNER_DATABASE_URL` is
+set: run as `isaflow_app` they fail with `permission denied`. For example,
+`scripts/ap-backfill-supplier-payments.ts` reads
+`ap_payment_document_backfill_candidates`, which app_user may not read (916b).
+
 `OWNER_DATABASE_URL` now sits in the app's own env file, so the app process
 holds the owner's credentials although no app code reads them. An injected SQL
 statement cannot read the process environment; code execution in the app
