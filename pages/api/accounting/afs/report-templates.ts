@@ -1,13 +1,16 @@
 // pages/api/accounting/afs/report-templates.ts
 // GET — retrieve rendered report template text for a given report type
 // Query: ?type=compilation|accounting_officer|review|audit&entity_type=pty|cc|trust&framework=ifrs_smes|full_ifrs
-//        [&period_end=...&period_months=1..15]  (period_months defaults to 12; a transition year reads "14 months ended")
+//        [&document_id=<AFS document>]  the period (end date, "14 months ended" for a transition year) is the registry's
+//        for that document's fiscal year, never taken from the caller; without it the wording keeps {periodEnd} placeholders
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
+import { isUuidParam } from '@/lib/validation';
+import { findReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import {
   getPractitionerReport,
   getDirectorResponsibilityStatement,
@@ -59,18 +62,30 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `framework must be one of: ${[...VALID_FRAMEWORKS].join(', ')}`);
   }
 
-  const periodEnd = req.query.period_end as string | undefined;
-  const monthsParam = req.query.period_months as string | undefined;
-  const periodMonths = monthsParam === undefined ? 12 : Number(monthsParam);
-  if (!Number.isInteger(periodMonths) || periodMonths < 1 || periodMonths > 15) {
-    return apiResponse.badRequest(res, 'period_months must be a whole number of months from 1 to 15');
+  let periodStart = '{periodStart}';
+  let periodEnd = '{periodEnd}';
+  let periodMonths = 12;
+  const documentId = req.query.document_id;
+  if (documentId !== undefined) {
+    if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'document_id must be an AFS document id');
+    const docs = (await sql`
+      SELECT fiscal_year FROM afs_documents
+      WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID AND document_type = 'afs'
+    `) as DbRow[];
+    if (!docs[0]) return apiResponse.notFound(res, 'AFS document', documentId);
+    if (docs[0].fiscal_year != null) {
+      const fiscalYear = Number(docs[0].fiscal_year);
+      const period = await findReportingPeriod(companyId, fiscalYear, 'afs-report-templates-api');
+      if (!period) return apiResponse.notFound(res, 'Financial year', String(fiscalYear));
+      ({ start: periodStart, end: periodEnd, months: periodMonths } = period.current);
+    }
   }
 
   const ctx: ReportTemplateContext = {
     companyName: String(company.company_name ?? ''),
     registrationNumber: company.registration_number ? String(company.registration_number) : null,
-    periodEnd: periodEnd ?? '{periodEnd}',
-    periodStart: '{periodStart}',
+    periodEnd,
+    periodStart,
     periodMonths,
     framework: framework as ReportTemplateContext['framework'],
     entityType: entityType as ReportTemplateContext['entityType'],
