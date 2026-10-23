@@ -8,7 +8,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
-import { ensureFiscalPeriodForDate } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
+import { ensureFiscalPeriodForDate, FiscalPeriodNotGeneratedError } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
 import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearGenerator';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callSetup, dropSetupUsers, newSetupUser, setupBody, type SetupUser } from './helpers/onboardingSetupFixture';
@@ -130,7 +130,13 @@ describe('on demand', () => {
     await inTx(id, () => generateFiscalYearForDate(id, '2026-05-01'));
     await pool.query(`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1 AND start_date = '2026-03-01'`, [id]);
     await pool.query(`DELETE FROM fiscal_periods WHERE company_id = $1 AND start_date = '2026-08-01'`, [id]);
-    expect(await inTx(id, () => ensureFiscalPeriodForDate(id, '2026-08-20'))).toBeNull();
+    // Refused, not null: createJournalEntry stores a null as fiscal_period_id NULL, and
+    // postJournalEntry then posts the journal past its closed-period check, outside
+    // every period-bounded report.
+    await expect(inTx(id, () => ensureFiscalPeriodForDate(id, '2026-08-20')))
+      .rejects.toBeInstanceOf(FiscalPeriodNotGeneratedError);
+    const august = await pool.query(`SELECT 1 FROM fiscal_periods WHERE company_id = $1 AND start_date = '2026-08-01'`, [id]);
+    expect(august.rowCount).toBe(0);
   });
 
   it('continues legacy January-December labels for a company whose periods carry them', async () => {
@@ -147,6 +153,17 @@ describe('on demand', () => {
     // ...while the YEAR is still the declared March one.
     expect((await yearsOf(id)).map((r) => [r.fiscal_year, r.s, r.e])).toEqual([
       [2026, '2025-03-01', '2026-02-28'], [2027, '2026-03-01', '2027-02-28']]);
+  });
+});
+
+describe('no silent March', () => {
+  it('the generator refuses a company with no usable financial_year_start; a read assumes March and says so by name', async () => {
+    const id = await bareCompany(3);
+    await pool.query('UPDATE companies SET financial_year_start = NULL WHERE id = $1', [id]);
+    await expect(inTx(id, () => generateFiscalYearForDate(id, '2026-05-01'))).rejects.toThrow(/no usable financial_year_start/);
+    expect(await yearsOf(id)).toEqual([]);
+    const read = (await pool.query(`SELECT start_date::text s, stored FROM public.fiscal_year_for_date($1, '2026-05-01')`, [id])).rows[0];
+    expect(read).toEqual({ s: '2026-03-01', stored: false });
   });
 });
 

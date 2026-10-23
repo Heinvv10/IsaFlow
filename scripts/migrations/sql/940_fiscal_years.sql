@@ -93,7 +93,10 @@ CREATE INDEX IF NOT EXISTS idx_fiscal_periods_fiscal_year_id ON fiscal_periods (
 
 -- ── The template: a year's range where no row holds the date yet ─────────────
 
-CREATE OR REPLACE FUNCTION public.fiscal_year_template(p_company uuid, p_date date)
+-- p_fallback: the start month a READ path assumes for a company with no usable
+-- financial_year_start and no stored year (gl/fiscalYearBasis: the March default
+-- is the caller's choice, never a silent one). Write paths pass NULL and refuse.
+CREATE OR REPLACE FUNCTION public.fiscal_year_template(p_company uuid, p_date date, p_fallback int DEFAULT NULL)
 RETURNS TABLE (fiscal_year int, start_date date, end_date date)
 LANGUAGE plpgsql STABLE
 SET search_path = pg_catalog, public, pg_temp
@@ -138,11 +141,19 @@ BEGIN
       IF steps > 500 THEN RAISE EXCEPTION 'fiscal_year_template: % is too far from the stored years', p_date; END IF;
     END LOOP;
   ELSE
-    -- No stored year: the declared month, NULL/0/out of range read as March
-    -- (fiscalYearCalendar.normaliseStartMonth).
-    SELECT CASE WHEN c.financial_year_start BETWEEN 1 AND 12 THEN c.financial_year_start ELSE 3 END
-      INTO m FROM companies c WHERE c.id = p_company;
-    IF m IS NULL THEN RAISE EXCEPTION 'fiscal_year_template: company % not found', p_company; END IF;
+    -- No stored year: the declared month. No silent March (gl/fiscalYearBasis):
+    -- an unusable financial_year_start is refused, not guessed.
+    IF NOT EXISTS (SELECT 1 FROM companies c WHERE c.id = p_company) THEN
+      RAISE EXCEPTION 'fiscal_year_template: company % not found', p_company;
+    END IF;
+    SELECT c.financial_year_start INTO m FROM companies c WHERE c.id = p_company;
+    IF (m IS NULL OR m NOT BETWEEN 1 AND 12) AND p_fallback BETWEEN 1 AND 12 THEN
+      m := p_fallback;
+    END IF;
+    IF m IS NULL OR m NOT BETWEEN 1 AND 12 THEN
+      RAISE EXCEPTION 'Company % has no usable financial_year_start (found %): set the month its financial year begins (1-12) before its first financial year can be built',
+        p_company, COALESCE(m::text, 'NULL') USING ERRCODE = '22023';
+    END IF;
     IF EXTRACT(MONTH FROM p_date)::int >= m THEN
       s := make_date(EXTRACT(YEAR FROM p_date)::int, m, 1);
     ELSE
@@ -172,7 +183,7 @@ BEGIN
   IF NOT FOUND THEN
     RETURN QUERY
       SELECT NULL::uuid, t.fiscal_year, t.start_date, t.end_date, 'open'::varchar, 'normal'::varchar, false
-        FROM public.fiscal_year_template(p_company, p_date) t;
+        FROM public.fiscal_year_template(p_company, p_date, 3) t;  -- a read path: March, as every reader assumed
   END IF;
 END;
 $$;
@@ -200,9 +211,9 @@ BEGIN
    WHERE fy.company_id = p_company AND fy.fiscal_year > p_label ORDER BY fy.fiscal_year LIMIT 1;
 
   IF prev_end IS NULL AND next_start IS NULL THEN
-    SELECT CASE WHEN c.financial_year_start BETWEEN 1 AND 12 THEN c.financial_year_start ELSE 3 END
-      INTO m FROM companies c WHERE c.id = p_company;
-    IF m IS NULL THEN RETURN; END IF;
+    SELECT c.financial_year_start INTO m FROM companies c WHERE c.id = p_company;
+    IF NOT FOUND THEN RETURN; END IF;
+    IF m IS NULL OR m NOT BETWEEN 1 AND 12 THEN m := 3; END IF;  -- a read path: March, as every reader assumed
     -- The year ending in calendar year p_label: its last day is the day before
     -- the start month of p_label (a January start ends 31 December p_label).
     IF m = 1 THEN probe := make_date(p_label, 12, 31);
@@ -216,7 +227,7 @@ BEGIN
 
   -- Walk year by year from the nearest stored neighbour, through the template.
   LOOP
-    SELECT * INTO t FROM public.fiscal_year_template(p_company, probe);
+    SELECT * INTO t FROM public.fiscal_year_template(p_company, probe, 3);
     EXIT WHEN t.fiscal_year = p_label;
     IF prev_end IS NOT NULL OR (prev_end IS NULL AND next_start IS NULL) THEN
       EXIT WHEN t.fiscal_year > p_label;

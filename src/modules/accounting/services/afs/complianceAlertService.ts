@@ -129,9 +129,10 @@ async function detectPisThresholdAlerts(companyId: string): Promise<void> {
 
 // ── Detector: Filing deadline approaching ────────────────────────────────────
 
-const DEADLINE_UNKNOWN_MESSAGE = 'AFS filing deadline cannot be assessed: the financial year start is not set';
+const DEADLINE_UNKNOWN_MESSAGE = 'AFS filing deadline cannot be assessed: no financial year of this company carries this label';
 const DEADLINE_UNKNOWN_DETAIL =
-  'Set the financial year start in Company Settings. Until then no filing deadline reminder can be raised.';
+  'The statements name a financial year the company does not have (a change of year end can skip a label). '
+  + 'Check the year on the statements against Accounting > Financial Years. Until then no filing deadline reminder can be raised.';
 
 const DEADLINE_UNKNOWN: AfsAlertType = 'afs_filing_deadline_unknown';
 
