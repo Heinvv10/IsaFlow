@@ -113,7 +113,9 @@ describe('S-07b: migration 917', () => {
   it('916b clears production\'s grant on the backfill view, so 917\'s guard passes', async () => {
     await rolledBack(async (q) => {
       await q('GRANT SELECT ON public.ap_payment_document_backfill_candidates TO app_user');
+      await q('SAVEPOINT before_guard');
       await expect(q(GUARD_917)).rejects.toThrow(/917: view ap_payment_document_backfill_candidates runs as an RLS-bypassing owner/);
+      await q('ROLLBACK TO SAVEPOINT before_guard');
       await q(M916B);
       await expect(q(GUARD_917)).resolves.toBeTruthy();
     });
