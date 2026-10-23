@@ -84,6 +84,7 @@ BEGIN
   END IF;
   -- The FK's ON DELETE SET NULL (fiscal_year_id) is the one other change allowed.
   IF NEW.fiscal_year_id IS NULL AND OLD.fiscal_year_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM fiscal_years fy WHERE fy.id = OLD.fiscal_year_id)
      AND (to_jsonb(NEW) - 'fiscal_year_id') IS NOT DISTINCT FROM (to_jsonb(OLD) - 'fiscal_year_id') THEN
     RETURN NEW;
   END IF;
