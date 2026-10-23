@@ -16,7 +16,10 @@
  *   taxable 3605 items, netted and floored at nil, capped at taxable_income;
  *   periodic = taxable_income less that;
  * - tablePaye: the line's PAYE less its directive PAYE (lump sums are taxed
- *   only at their directive's figures, outside the tables).
+ *   only at their directive's figures, outside the tables);
+ * - medicalCredit: the medical scheme fees tax credit the lines recorded
+ *   (medical_credit, migration 926; a line before it recorded none, so the
+ *   next line's record carries its credit: payeCumulative).
  *
  * Every query is scoped by company_id.
  */
@@ -42,7 +45,7 @@ export async function loadPayeYearToDate(
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH split AS (
-      SELECT l.employee_id, l.paye, b.directive_paye,
+      SELECT l.employee_id, l.paye, b.directive_paye, COALESCE(l.medical_credit, 0) AS medical_credit,
              COALESCE(l.annual_taxable, LEAST(b.annual_3605, l.taxable_income)) AS annual,
              COALESCE(l.periodic_taxable, l.taxable_income - LEAST(b.annual_3605, l.taxable_income)) AS periodic
       FROM payroll_run_lines l
@@ -65,7 +68,8 @@ export async function loadPayeYearToDate(
            COUNT(*) FILTER (WHERE periodic > 0)::int AS periods,
            SUM(periodic)::numeric AS periodic,
            SUM(annual)::numeric AS annual,
-           SUM(paye - directive_paye)::numeric AS table_paye
+           SUM(paye - directive_paye)::numeric AS table_paye,
+           SUM(medical_credit)::numeric AS medical_credit
     FROM split
     GROUP BY employee_id
   `) as DbRow[];
@@ -74,6 +78,7 @@ export async function loadPayeYearToDate(
     periodicTaxable: round2(Number(r.periodic)),
     annualPayments: round2(Number(r.annual)),
     tablePaye: round2(Number(r.table_paye)),
+    medicalCredit: round2(Number(r.medical_credit)),
   }]));
 }
 
