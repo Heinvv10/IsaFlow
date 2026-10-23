@@ -28,6 +28,45 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-10-23 — Security S-07c, PAYE 4a R2 Gate, AP Approved-Batch Digest
+
+**Security — S-07c**
+
+- Credential and membership writes (`users`, `company_users`, `company_invitations`, `auth.users`) moved off the app pools onto `SECURITY DEFINER` functions callable only via `migration_admin`; SQL injection on either pool can no longer forge RLS claims (migration 930, #808)
+- Invitations never auto-add; definer hash covers the whole function body and owner; GoTrue calls moved outside the transaction; owner-lock bounded to one row
+- S-07b follow-ups: `app_user` loses its grant on `ap_payment_document_backfill_candidates` (916b); `app_login_role_violations()` extended to refuse owner-run views `app_user` can reach (917b); service pool can no longer write `users.email` directly or via token path (918); AR last-viewed materialized view wrapped in a company-scoped regular view (919); pool-reach violation rules checked on every deploy (920) (#800, #798)
+
+**Payroll — PAYE 4a R2**
+
+- Stale year-to-date gate now reads the exact approval and reopen history (migration 925): gate refuses only for employees the closed approval actually taxed; a run with no lines no longer reads as rewritten after every month (#809)
+- Non-blocking advisory added when a later month is paid before its turn (limit f with warning); gate moved to its own module (#765)
+- AP batch approval digest: an approved batch is now refused if its content (payees, amounts, bank details) changed after approval — enforcement ON or OFF (migration 922, #806)
+
+**Bank — Categorisation Learning Loop**
+
+- Bank-line categorisation learning write runs in its own savepoint; the route reports whether it learned; the bank-line read and VAT resolution run inside the same savepoint (#765, #767, #759)
+- CRON_SECRET sent on stdin (not argv) in the shared-merchant-pool cron unit (#767)
+
+**SARS / Compliance**
+
+- Days-left counter now counts calendar days across a daylight-saving boundary, fixing a DST-induced miscalculation that was red on CI since 09:00 (#803)
+
+**Document Capture**
+
+- Mapper tolerates a stored JSON null; empty-extraction rule documented; capture migration renumbered 910 → 921 (#801, #804)
+
+**Portal**
+
+- Portal sign-out now redirects correctly (#799)
+
+**CI**
+
+- Merge-queue CI speedup: `ciSkipGlue` builds its child env without the runner's GitHub vars (#772)
+
+Migrations: **916b** (`revoke_app_user_backfill_view`), **917b** (`app_login_role_violations_views`), **918** (`users_email_off_service_pool`), **919** (`ar_view_summary_company_wrapper`), **920** (`app_pool_reach_violations`), **921** (`captured_document_read_attempt`), **922** (`payment_batch_approved_digest`), **925** (`payroll_run_reopened_at`), **930** (`credential_membership_writes_off_app_pools`)
+
+---
+
 ## 2026-10-22 — GL Export Bearer Auth, Payroll Directives, Security Hardening
 
 **GL Export / MCP**
