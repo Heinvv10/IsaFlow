@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily trigger for the IsaFlow management pack scheduler
+
+[Timer]
+# 06:00 SAST, as the unit installed before 2026-10 ran it.
+OnCalendar=*-*-* 06:00:00 Africa/Johannesburg
+Persistent=true
+
+[Install]
+WantedBy=timers.target

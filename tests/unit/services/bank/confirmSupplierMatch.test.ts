@@ -62,7 +62,7 @@ import {
 
 const COMPANY = 'company-1';
 const TX = 'tx-1';
-const BILL = 'bill-1';
+const BILL = '44444444-4444-4444-8444-444444444444';
 const USER = 'user-1';
 
 /**

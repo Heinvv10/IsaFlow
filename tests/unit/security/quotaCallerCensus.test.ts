@@ -42,7 +42,6 @@ const REFUNDABLE: Record<string, { kind: 'ai' | 'send'; marksIn: string }> = {
   'accounting/nl-query.ts': { kind: 'ai', marksIn: 'pages/api/accounting/nl-query.ts' },
   'accounting/ai-narrative.ts': { kind: 'ai', marksIn: 'pages/api/accounting/ai-narrative.ts' },
   'accounting/ai-forecast.ts': { kind: 'ai', marksIn: 'pages/api/accounting/ai-forecast.ts' },
-  'accounting/vlm-extract.ts': { kind: 'ai', marksIn: 'src/modules/accounting/services/bank/vlmCore.ts' },
   'onboarding/extract.ts': { kind: 'ai', marksIn: 'src/modules/accounting/services/bank/vlmCore.ts' },
   'onboarding/extract-id.ts': { kind: 'ai', marksIn: 'src/modules/accounting/services/bank/vlmCore.ts' },
   'accounting/afs/[documentId]/sections/[sectionId]/ai-narrative.ts': { kind: 'ai', marksIn: 'src/modules/accounting/services/afs/noteAiService.ts' },
@@ -61,6 +60,8 @@ const KEEPS_CHARGE: Record<string, string> = {
   'accounting/verify-payslip.ts': 'calls no AI provider; the bucket bounds requests',
   'accounting/document-validation.ts': 'calls no AI provider; the bucket bounds requests',
   'accounting/smart-categorize.ts': 'its LLM pass runs after COMMIT, outside the request, where use cannot be recorded',
+  'accounting/vlm-extract.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
+  'accounting/document-capture.ts': 'its read runs after COMMIT (runAfterCommit), outside the request, where use cannot be recorded',
 };
 
 function tracked(dir: string): string[] {

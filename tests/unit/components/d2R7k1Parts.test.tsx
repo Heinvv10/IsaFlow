@@ -157,14 +157,20 @@ describe('external migration wizard', () => {
     expect(await screen.findByText('Could not parse file - try again')).toBeTruthy();
     expect(noRawText()).toBe(true);
   });
-  it('a failed auto-map is shown, and the accounts stay', async () => {
+  it('auto-map runs in memory: no request, no error, and the accounts stay', async () => {
+    // It used to POST JSON.stringify(accounts) to the CSV parser, which found no
+    // CSV rows and the wizard replaced the whole account list with [].
     let posts = 0;
     await toMapping(() => (++posts === 1 ? parsed() : empty500()));
     fireEvent.click(screen.getByText('upload Chart of Accounts'));
     await waitFor(() => expect((screen.getByText(/Next: Map Accounts/).closest('button') as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByText(/Next: Map Accounts/));
     fireEvent.click(await screen.findByText('auto-map'));
-    expect(await screen.findByText('Could not auto-map the accounts - try again')).toBeTruthy();
+    expect(posts).toBe(1);
+    expect(screen.queryByText(/Could not/)).toBeNull();
+    fireEvent.click(screen.getByText(/Next: Review/));
+    expect(await screen.findByText('Ready to import')).toBeTruthy();
+    expect(screen.getByText('Accounts').parentElement?.textContent).toContain('1');
   });
   it('a failed import shows a plain sentence', async () => {
     let posts = 0;

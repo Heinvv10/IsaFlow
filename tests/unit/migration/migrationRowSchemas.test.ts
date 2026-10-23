@@ -51,7 +51,8 @@ describe('migration invoice request schemas', () => {
     ['a numeric string where a number is required', { ...apRow, subtotal: '100' }],
     ['a missing supplier name', { ...apRow, supplierName: undefined }],
     ['a blank supplier name', { ...apRow, supplierName: '   ' }],
-    ['a date that is not YYYY-MM-DD', { ...apRow, invoiceDate: '30/06/2026' }],
+    ['a date that is not a real calendar date', { ...apRow, invoiceDate: '31/06/2026' }],
+    ['a date that cannot be read at all', { ...apRow, invoiceDate: 'June-ish' }],
     ['a non-finite amount', { ...apRow, taxAmount: Number.POSITIVE_INFINITY }],
     ['a supplier override that is not a UUID', { ...apRow, supplierId: 'nope' }],
   ])('rejects %s', (_label, row) => {
@@ -131,7 +132,7 @@ describe('parseInvoiceRows', () => {
   it('imports the good rows and reports each bad one against its file position', () => {
     const raw = [
       apRow,
-      { ...apRow, invoiceDate: '30/06/2026' },   // the SA-locale Excel export
+      { ...apRow, invoiceDate: '31/06/2026' },   // no such day — dd/mm/yyyy itself is accepted
       { ...apRow, invoiceNumber: 'INV-3' },
     ];
     const { rows, sourceRows, errors } = parseInvoiceRows(APInvoiceRowSchema, 'ap_invoices', raw);

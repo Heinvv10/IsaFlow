@@ -16,6 +16,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'owner', activeCompany: { id: 'c1' } }) })); // BatchBankFileNotice reads the role
 vi.mock('next/router', () => ({ useRouter: () => ({ query: { paymentId: 'pay-1', batchId: 'bat-1' }, push: vi.fn() }) }));
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,

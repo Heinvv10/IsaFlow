@@ -77,7 +77,7 @@ export async function importOpeningBalances(
   effectiveDate: string,
   balances: OpeningBalanceRow[],
   userId: string,
-): Promise<{ journalEntryId: string; errors: MigrationError[] }> {
+): Promise<{ journalEntryId: string; linesImported: number; errors: MigrationError[] }> {
   const errors: MigrationError[] = [];
 
   // R-020 is a rule about DOUBLE counting, not about control accounts. A trial
@@ -190,5 +190,7 @@ export async function importOpeningBalances(
   });
 
   log.info('Opening balances imported', { companyId, journalEntryId: entry.id, lines: lines.length }, 'migration');
-  return { journalEntryId: entry.id, errors };
+  // linesImported: the page reported `balancesSet`, a field this never
+  // returned, so the operator read "set for undefined accounts".
+  return { journalEntryId: entry.id, linesImported: lines.length, errors };
 }

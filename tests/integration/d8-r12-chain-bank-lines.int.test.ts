@@ -76,7 +76,6 @@ describe.skipIf(!process.env.DATABASE_URL)('D8 round 12: every flow frees a line
   afterAll(async () => {
     if (c) {
       await sql`UPDATE bank_transactions SET matched_journal_line_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
-      await sql`UPDATE supplier_payments SET batch_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
       await sql`DELETE FROM supplier_payment_batches WHERE company_id = ${c.fx.companyId}::UUID`;
     }
     await teardown(c);

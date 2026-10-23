@@ -17,6 +17,7 @@ None — pure `process.env`.
   - `PORTAL_JWT_SECRET` (pentest L3) — AFS portal and legacy AR portal (post-H1) session token signing; separate from `JWT_SECRET`.
   - `PLATFORM_ADMIN_DATABASE_URL` (pentest L5) — admin pool connects as a BYPASSRLS role; misconfiguration must fail at boot, not lazy-throw on the first admin request.
   - `IMPERSONATION_JWT_SECRET` (pentest L1) — dedicated secret for short-lived admin→tenant impersonation tokens; MUST be separate from `JWT_SECRET` so an exfiltrated user-session key cannot forge impersonation tokens.
+- **Same-database check**: `PLATFORM_ADMIN_DATABASE_URL`, `MIGRATION_ADMIN_DATABASE_URL` and `SERVICE_DATABASE_URL` (S-07b; optional, the service pool's login) must name the database `DATABASE_URL` names. `OWNER_DATABASE_URL` is read only by `scripts/deploy.sh` and the backup scripts, never by the app, so it is not checked here.
 - **RECOMMENDED vars** (warn only): `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` — missing these means email is broken but the app still boots.
 - Uses `process.stderr.write` for the warning path to avoid tripping the `no-console` lint rule.
 - Must be invoked at the very top of the Next.js server bootstrap (typically `next.config.js` or a `_app.ts` server-side branch) — not on hot-reload paths.
@@ -24,4 +25,6 @@ None — pure `process.env`.
 - Adding a new REQUIRED var is a breaking change for every existing deploy; coordinate with the ops runbook and update `.env.example` in the same PR. Keep the array typed `as const`.
 
 ## Recent changes
+- **Pool logins (S-07b)**: refuses `DATABASE_URL` on `isaflow_app` without `SERVICE_DATABASE_URL`, `DATABASE_URL` on `isaflow_service`, `SERVICE_DATABASE_URL` on `isaflow_app`, and, once `DATABASE_URL` is `isaflow_app`, a service login other than `isaflow_service`. The role is read from the pooler's `<role>.<tenant>` user too. In production, a request pool not on `isaflow_app` is reported to stderr on every boot, and `MIGRATION_ADMIN_DATABASE_URL` is required.
+- 2026-10-22: S-07b added `SERVICE_DATABASE_URL` to the same-database check, and the pool-login rules.
 - 2026-04-24: PR-4 separated `IMPERSONATION_JWT_SECRET` from `JWT_SECRET` (pentest L1); L-tier cleanup added `PLATFORM_ADMIN_DATABASE_URL` (L5) and `PORTAL_JWT_SECRET` (L3).
