@@ -19,7 +19,7 @@ import type { Route } from './w3-01-payroll.helpers';
 import createRun from '../../pages/api/payroll/runs';
 import calculate from '../../pages/api/payroll/runs/[id]/calculate';
 import {
-  approveRun, reopenRun, cleanSeveranceFixtures, runLine, type SeveranceFixture,
+  approveRun, previewRun, reopenRun, cleanSeveranceFixtures, runLine, type SeveranceFixture,
 } from './p3-severance.helpers';
 import { PERIODS, seedEmployee, setSalary } from './p4fu-cumulative.helpers';
 
@@ -143,5 +143,36 @@ describe('R1: the exact stale year-to-date gate', () => {
     ok(await reopenRun(f, jan));
     ok(await approveRun(f, feb)); // January is not approved now, but was when February was calculated
     ok(await approveRun(f, jan));
+  });
+  it('December reopened and re-approved TWICE after January was calculated: January is approved (the first approval period still covers it)', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 two reopens after', 20_000);
+    const ids = await approvedMonths(f, 10);
+    const dec = ids[9]!;
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan);
+    for (let i = 0; i < 2; i++) { ok(await reopenRun(f, dec)); ok(await approveRun(f, dec)); }
+    ok(await approveRun(f, jan));
+  });
+
+  it('an earlier month approved before migration 718 (approved_at NULL) counts as approved all along, also once reopened', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 pre-718 approval', 20_000);
+    const ids = await approvedMonths(f, 9);
+    const nov = ids[8]!;
+    const dec = await mk(f, 2026, 12);
+    await calcOnly(f, dec);
+    await pool.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [nov]);
+    expect((await previewRun(f, dec)).body.data?.blocker?.code ?? null).not.toBe('paye_year_to_date_stale');
+    ok(await reopenRun(f, nov)); // ends an approval with no start: (-infinity, reopened_at)
+    ok(await approveRun(f, nov));
+    ok(await approveRun(f, dec));
+  });
+
+  it('a stranded approved run (no journal, before K-079) re-approved after a later month saw it: not refused as stale', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 stranded approved', 20_000);
+    const ids = await approvedMonths(f, 3);
+    const apr = ids[1]!;
+    // Stranded: status approved, journal never linked (what K-079 left behind). The gate is judged by the preview only.
+    await pool.query('UPDATE payroll_run_headers SET journal_entry_id = NULL WHERE id = $1', [apr]);
+    expect((await previewRun(f, apr)).body.data?.blocker?.code ?? null).not.toBe('paye_year_to_date_stale');
   });
 });
