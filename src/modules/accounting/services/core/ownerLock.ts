@@ -20,6 +20,9 @@ export class OwnerProtectedError extends Error {
 /** The refusal for granting the owner role; the route's and trigger RC003's wording. */
 export const OWNER_GRANT_REFUSED = 'Only an owner can grant the owner role.';
 
+/** The advisory lock key every owner demotion and owner grant takes (migs 883/886, the member role guard). */
+export const ownerLockKey = (companyId: string): string => `company_owners:${companyId}`;
+
 // Takes the per-company owner lock the member role guard takes (migs 883/886),
 // then reads the actor's role. Read only after the lock, never taken from the
 // request: every owner demotion takes that lock, so an actor demoted since
@@ -30,7 +33,7 @@ export async function lockOwnersAndRequireOwner(
   actorUserId: string,
   refusal?: string,
 ): Promise<void> {
-  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`company_owners:${companyId}`}, 0))`;
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${ownerLockKey(companyId)}, 0))`;
   const actor = (await sql`
     SELECT role FROM company_users
     WHERE company_id = ${companyId}::UUID AND lower(user_id) = lower(${actorUserId})
