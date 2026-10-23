@@ -22,6 +22,7 @@ import {
 import { Feed, ActionRow } from '@/components/ui';
 import { SEVERITY_BADGE } from '@/components/bureau/severityBadge';
 import { ClientTriageBoard } from '@/components/bureau/ClientTriageBoard';
+import { BureauCodingMetricsPanel } from '@/components/bureau/BureauCodingMetricsPanel';
 import type { Severity } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientTriage } from '@/modules/bureau/services/bureauClientTriageService';
 
@@ -152,9 +153,12 @@ export default function BureauDashboardPage() {
                 </p>
               </div>
             </div>
-            <Link href="/bureau/clients" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-surface-primary)] text-sm text-[var(--ff-text-primary)]">
-              <Building2 className="h-4 w-4" /> Manage Clients
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link href="/bureau/clients" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-surface-primary)] text-sm text-[var(--ff-text-primary)]">
+                <Building2 className="h-4 w-4" /> Manage Clients
+              </Link>
+              <Link href="/bureau/settings" className="px-4 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-surface-primary)] text-sm text-[var(--ff-text-primary)]">Settings</Link>
+            </div>
           </div>
         </div>
 
@@ -200,6 +204,12 @@ export default function BureauDashboardPage() {
 
           {/* Per-client triage board */}
           <ClientTriageBoard items={visibleTriage} showBureau={data.bureaus.length > 1} />
+
+          {/* One bureau at a time: the filtered one, else the first. */}
+          <BureauCodingMetricsPanel
+            bureauId={(data.bureaus.find((b) => b.id === bureauFilter) ?? data.bureaus[0]!).id}
+            bureauName={data.bureaus.length > 1 ? (data.bureaus.find((b) => b.id === bureauFilter) ?? data.bureaus[0]!).name : undefined}
+          />
 
           {/* Work queue */}
           <Feed

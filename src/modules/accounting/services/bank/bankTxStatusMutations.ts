@@ -1,5 +1,5 @@
 /**
- * Bank transaction status mutations — match / unmatch / exclude.
+ * Bank transaction status mutations — match / unmatch / exclude, each logging its coding decision for `userId`.
  *
  * Split out of `bankTransactionQueryService` (which re-exports all three) so
  * that file stays under the 300-line limit once the locking guard landed.
@@ -15,8 +15,7 @@
  * `reverseReconciledTransaction`'s job, which posts the contra.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
+import { sql, withSavepoint, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { BankTransaction } from '../../types/bank.types';
 import { mapTxRow } from './bankTxRowMapper';
@@ -30,6 +29,7 @@ import { assertFeedPosted } from './bankFeedStateGuard';
 import { journalReversalState } from './journalReversalState';
 import { refuseResettingProvisionalLine, type ProvisionalLineVerb } from './provisionalLineGuard';
 import { findJournalChainRoot, shareLockChainHeadOf } from '../shared/journalChainHead';
+import { postingRefOf, recordAutoPostUndone, recordExcluded, recordMatchDecision } from './codingDecisionLog';
 export { BankMatchUnavailableError } from './bankTxLock';
 
 type Row = DbRow;
@@ -185,7 +185,7 @@ function isMatchedLineUniqueViolation(err: unknown): boolean {
 }
 
 export async function matchTransaction(
-  companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string
+  companyId: string, bankTxId: string, journalLineId: string, reconciliationId: string | undefined, userId: string,
 ): Promise<BankTransaction> {
   try {
     if (reconciliationId) {
@@ -253,6 +253,7 @@ export async function matchTransaction(
       );
     }
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
+    await recordMatchDecision(companyId, bankTxId, userId, journalLineId); // learning loop (non-fatal)
     log.info('Matched bank transaction', { bankTxId, journalLineId }, 'accounting');
     return mapTxRow(rows[0]!);
   } catch (err) {
@@ -261,9 +262,9 @@ export async function matchTransaction(
   }
 }
 
-export async function unmatchTransaction(companyId: string, bankTxId: string): Promise<BankTransaction> {
+export async function unmatchTransaction(companyId: string, bankTxId: string, userId?: string): Promise<BankTransaction> {
   try {
-    await lockForStatusWrite(companyId, bankTxId, 'unmatch');
+    const before = postingRefOf(await lockForStatusWrite(companyId, bankTxId, 'unmatch'));
     const rows = (await sql`
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL,
@@ -271,6 +272,7 @@ export async function unmatchTransaction(companyId: string, bankTxId: string): P
           allocation_rule_id = NULL, allocation_rule_name = NULL
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
+    if (userId) await recordAutoPostUndone(companyId, bankTxId, userId, before); // none: a payment void's unwind
     log.info('Unmatched bank transaction', { bankTxId }, 'accounting');
     return mapTxRow(rows[0]!);
   } catch (err) {
@@ -280,7 +282,7 @@ export async function unmatchTransaction(companyId: string, bankTxId: string): P
 }
 
 export async function excludeTransaction(
-  companyId: string, bankTxId: string, reason?: string
+  companyId: string, bankTxId: string, reason: string | undefined, userId: string,
 ): Promise<BankTransaction> {
   try {
     await lockForStatusWrite(companyId, bankTxId, 'exclude');
@@ -288,6 +290,7 @@ export async function excludeTransaction(
       UPDATE bank_transactions SET status = 'excluded', excluded_reason = ${reason || null}
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
+    await recordExcluded(companyId, bankTxId, userId); // learning loop (non-fatal)
     log.info('Excluded bank transaction', { bankTxId, reason }, 'accounting');
     return mapTxRow(rows[0]!);
   } catch (err) {
