@@ -116,6 +116,8 @@ export interface ValidationResult {
   message: string;
   field?: string;
   deepLink?: string;
+  /** PAYE_LATER_PERIODS_APPROVED only: the later months it names, YYYY-MM. The approval gate matches on this, not the message. */
+  periods?: string[];
 }
 
 export interface PayrollLineInput {

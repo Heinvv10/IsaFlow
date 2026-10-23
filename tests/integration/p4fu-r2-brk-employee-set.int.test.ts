@@ -114,10 +114,10 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     const feb = await mk(f, 2027, 2);
     await calcOnly(f, feb); // December not approved: February leaves it out
     ok(await approveRun(f, feb));
-    const msg = ((await runLine(pool, dec, f.employee)).validation_results as Array<{ code: string; message: string }>)
-      .find(c => c.code === 'PAYE_LATER_PERIODS_APPROVED')?.message;
-    expect(msg).toMatch(/2027-01/);
-    expect(msg).not.toMatch(/2027-02/);
+    const warning = ((await runLine(pool, dec, f.employee)).validation_results as Array<{ code: string; message: string; periods?: string[] }>)
+      .find(c => c.code === 'PAYE_LATER_PERIODS_APPROVED');
+    expect(warning?.periods).toEqual(['2027-01']); // what the gate matches on
+    expect(warning?.message).toMatch(/\(2027-01\)/); // for people
     const refused = await approveRun(f, dec);
     expect(refused.statusCode).toBe(400);
     expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02.*Recalculate the run/);
@@ -233,13 +233,34 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     ok(await approveRun(f, jan));
   });
 
-  it('only PAYE_LATER_PERIODS_APPROVED counts: another validation naming 2027-02 does not stand in for it', async () => {
+  it('only PAYE_LATER_PERIODS_APPROVED counts: another validation carrying periods [2027-02] does not stand in for it', async () => {
     const { f, jan } = await febMissedJan('R1 other validation names month');
     await pool.query(
       `UPDATE payroll_run_lines SET validation_results = $2::jsonb WHERE run_id = $1`,
-      [jan, JSON.stringify([{ code: 'SOME_OTHER_NOTE', severity: 'warning', message: 'See the 2027-02 run.' }])]);
+      [jan, JSON.stringify([{ code: 'SOME_OTHER_NOTE', severity: 'warning', message: 'See the 2027-02 run.', periods: ['2027-02'] }])]);
     const refused = await approveRun(f, jan);
     expect(refused.statusCode).toBe(400);
+  });
+
+  it('a warning written before `periods` existed (dev/test lines from #786) reads as no warning: refused, and a recalculation clears it', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 warning without periods', 20_000);
+    for (const p of PERIODS.slice(0, 10)) { const id = await mk(f, p.year, p.month); await calcOnly(f, id); ok(await approveRun(f, id)); }
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb);
+    ok(await approveRun(f, feb));
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan);
+    // As #786 wrote it: the same code and message, no periods.
+    await pool.query(
+      `UPDATE payroll_run_lines SET validation_results = (
+         SELECT jsonb_agg(CASE WHEN v->>'code' = 'PAYE_LATER_PERIODS_APPROVED' THEN v - 'periods' ELSE v END)
+         FROM jsonb_array_elements(validation_results) v) WHERE run_id = $1`, [jan]);
+    expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02.*Recalculate the run/);
+    await calcOnly(f, jan);
+    ok(await approveRun(f, jan));
   });
 
   // Named limits, pinned so a change to them is deliberate (judgeYearToDateStale's comment, the module .claude.md).
