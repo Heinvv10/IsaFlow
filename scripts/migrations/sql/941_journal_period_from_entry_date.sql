@@ -53,6 +53,13 @@ BEGIN
     RAISE EXCEPTION 'journal entry % (%): no fiscal period covers the new entry_date %; create that period first',
       NEW.id, NEW.status, NEW.entry_date USING ERRCODE = '23514';
   END IF;
+  -- Nor into, or out of, a period that is not open (its balance cache is sealed).
+  IF TG_OP = 'UPDATE' AND COALESCE(NEW.status, 'draft') <> 'draft'
+     AND covering IS DISTINCT FROM OLD.fiscal_period_id
+     AND EXISTS (SELECT 1 FROM fiscal_periods fp WHERE fp.id IN (covering, OLD.fiscal_period_id) AND fp.status <> 'open') THEN
+    RAISE EXCEPTION 'journal entry % (%): moving it to % would move it into or out of a period that is not open',
+      NEW.id, NEW.status, NEW.entry_date USING ERRCODE = '55000';
+  END IF;
   IF NEW.fiscal_period_id IS NULL
      OR (TG_OP = 'UPDATE' AND NEW.fiscal_period_id IS NOT DISTINCT FROM OLD.fiscal_period_id) THEN
     NEW.fiscal_period_id := covering;
