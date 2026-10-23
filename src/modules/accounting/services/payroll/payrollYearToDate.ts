@@ -144,8 +144,18 @@ export async function laterPeriodsWarnings(
  *   in production, where #786 was not deployed before it) or a validation_results
  *   that is not an array reads as no warning: a conservative refusal that a
  *   recalculation clears. Matched by containment, never on the message text.
- * Recalculating clears either (a calculation reads both again). The earlier
- * arm is per run: a refusal when no employee is shared is conservative.
+ * - LATER month calculated from an EARLIER VERSION of this run (this run was
+ *   approved then — only a closed approval in approval_history can cover it —
+ *   and its lines were rewritten since) that pays someone from the tables
+ *   whom this run no longer pays from the tables: its year-to-date still
+ *   counts this run's old line for them, and no warning can sit on a line
+ *   this run does not have. The remedy is the LATER month: reopen it (no
+ *   longer judged), approve this run, recalculate and approve it. Conservative
+ *   where the old version did not pay them either (a starter in the later
+ *   month): reopening and recalculating it changes nothing (review round 2).
+ * Recalculating this run clears the first two (a calculation reads both
+ * again). The earlier arm is per run: a refusal when no employee is shared is
+ * conservative.
  *
  * "As it now stands": its lines were written (calculated) no later, and it was
  * approved then. "Approved at t": its current approval (`approved_at`, NULL =
@@ -169,12 +179,20 @@ export async function laterPeriodsWarnings(
  * holds that lock only for its own block; there an approval or a reopen
  * committed inside the window can be misjudged.
  *
- * NAMED LIMITS (tests: p4fu-r2-brk-employee-set): (b) a run calculated before
- * cumulative PAYE (lines without periodic_taxable) read no year-to-date, so
- * the earlier arm does not apply to it: approved with the ×12 PAYE it has,
- * which the next cumulative month trues up — not February. (a) A NULL
- * approved_at counts as approved all along; it is an approval from before
- * migration 718, so a run that missed it was calculated before 913 too: (b).
+ * NAMED LIMITS (tests: p4fu-r2-brk-employee-set, p4fu-r2-older-version):
+ * (b) the gate does not look at how a run's PAYE was computed. A run
+ * calculated before cumulative PAYE (lines without periodic_taxable) read no
+ * year-to-date, yet the earlier arm judges it like any other: refused if an
+ * earlier month was approved after it (conservative; a recalculation makes it
+ * cumulative), otherwise approved with its ×12 PAYE, which the next
+ * cumulative month trues up — not February. (a) A NULL approved_at counts as
+ * approved all along; it is an approval from before migration 718, so a run
+ * that missed it was calculated before 913 too: (b). (c) The warning stands
+ * for any later month it names, also one calculated from this run's EARLIER
+ * figures for an employee this run still taxes: once a recalculation (with
+ * that month approved) puts the warning on the line, the gate passes,
+ * although that month's PAYE counted the old figures. The warning says the
+ * month "did not include this month"; it included an older version of it.
  *
  * Read-only; under the gate's company approval lock. Null when current.
  */
@@ -194,12 +212,10 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
         AND make_date(h.period_year, h.period_month, 1) >= y.start
         AND make_date(h.period_year, h.period_month, 1) < (y.start + INTERVAL '1 year')
     ),
-    me AS (SELECT r.* FROM runs r WHERE r.id = ${runId}::uuid)
-    SELECT e.period_year, e.period_month, e.period > me.period AS later
-    FROM runs e, me
-    WHERE e.id <> me.id
-      AND e.status = ANY(${declarable}::text[])
-      AND CASE
+    me AS (SELECT r.* FROM runs r WHERE r.id = ${runId}::uuid),
+    judged AS (
+    SELECT e.period_year, e.period_month, e.period > me.period AS later,
+      CASE
         WHEN e.period < me.period THEN NOT (
           e.calculated_at <= me.calculated_at
           AND (COALESCE(e.approved_at <= me.calculated_at, true) OR COALESCE(e.approval_history @> me.calculated_at, false)))
@@ -215,20 +231,48 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
               AND COALESCE(el.periodic_taxable > 0 OR el.annual_taxable > 0, false)
               AND NOT ml.validation_results @> jsonb_build_array(jsonb_build_object(
                 'code', 'PAYE_LATER_PERIODS_APPROVED', 'periods', jsonb_build_array(to_char(e.period, 'YYYY-MM')))))
-      END
-    ORDER BY e.period_year, e.period_month
+      END AS recalc_here,
+      -- A later month calculated from an earlier version of this run (approved then, lines since rewritten:
+      -- only a closed approval can cover that time) that pays someone from the tables whom this run no longer does.
+      e.period > me.period
+        AND me.calculated_at > e.calculated_at
+        AND COALESCE(me.approval_history @> e.calculated_at, false)
+        AND EXISTS (
+          SELECT 1 FROM payroll_run_lines el
+          WHERE el.run_id = e.id
+            AND COALESCE(el.periodic_taxable > 0 OR el.annual_taxable > 0, false)
+            AND NOT EXISTS (
+              SELECT 1 FROM payroll_run_lines ml
+              WHERE ml.run_id = me.id AND ml.employee_id = el.employee_id
+                AND COALESCE(ml.periodic_taxable > 0 OR ml.annual_taxable > 0, ml.taxable_income > 0)))
+      AS recalc_later
+    FROM runs e, me
+    WHERE e.id <> me.id
+      AND e.status = ANY(${declarable}::text[])
+    )
+    SELECT * FROM judged WHERE recalc_here OR recalc_later
+    ORDER BY period_year, period_month
   `) as DbRow[];
   if (rows.length === 0) return null;
   const month = (r: DbRow) => `${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`;
-  const earlier = rows.filter(r => r.later !== true).map(month);
-  const later = rows.filter(r => r.later === true).map(month);
-  return {
-    code: 'paye_year_to_date_stale',
-    detail: (earlier.length > 0
-      ? `An earlier month of this tax year (${earlier.join(', ')}) was not approved, as it now stands, when this run was `
-        + 'calculated (approved since, reopened then, or recalculated since), so this run\'s cumulative PAYE left it out. '
-      : `A later month of this tax year (${later.join(', ')}) was calculated while this run was not approved as it now stands, `
-        + 'so that month\'s cumulative PAYE left this one out, and this run\'s lines do not carry the warning that says so. ')
-      + 'Recalculate the run, then approve it.',
-  };
+  const here = rows.filter(r => r.recalc_here === true);
+  const earlier = here.filter(r => r.later !== true).map(month);
+  const later = here.filter(r => r.later === true).map(month);
+  const fromOld = rows.filter(r => r.recalc_later === true).map(month);
+  const parts: string[] = [];
+  if (earlier.length > 0) {
+    parts.push(`An earlier month of this tax year (${earlier.join(', ')}) was not approved, as it now stands, when this run was `
+      + 'calculated (approved since, reopened then, or recalculated since), so this run\'s cumulative PAYE left it out. '
+      + 'Recalculate the run, then approve it.');
+  } else if (later.length > 0) {
+    parts.push(`A later month of this tax year (${later.join(', ')}) was calculated while this run was not approved as it now stands, `
+      + 'so that month\'s cumulative PAYE left this one out, and this run\'s lines do not carry the warning that says so. '
+      + 'Recalculate the run, then approve it.');
+  }
+  if (fromOld.length > 0) {
+    parts.push(`A later month of this tax year (${fromOld.join(', ')}) was calculated from this run's earlier figures and pays `
+      + 'employees from the tables whom this run no longer does, so its PAYE still counts what this run used to declare for them. '
+      + 'Reopen that month, approve this run, then recalculate and approve that month.');
+  }
+  return { code: 'paye_year_to_date_stale', detail: parts.join(' ') };
 }
