@@ -192,7 +192,7 @@ describe('G4: the year-to-date', () => {
   });
 
   it('the stale-year-to-date gate looks only at months of the same tax year', async () => {
-    const { judgeYearToDateStale } = await import('@/modules/accounting/services/payroll/payrollYearToDate');
+    const { judgeYearToDateStale } = await import('@/modules/accounting/services/payroll/payrollYearToDateGate');
     const f = await seedEmployee(pool, fixtures, 'P4fu stale gate', 20_000);
     const march = (await pool.query(
       `INSERT INTO payroll_run_headers (company_id, period_year, period_month, status) VALUES ($1, 2026, 3, 'calculated') RETURNING id`,
