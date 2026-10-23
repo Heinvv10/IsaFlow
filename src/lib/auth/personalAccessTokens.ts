@@ -11,6 +11,7 @@
 import { createHash, randomBytes } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminPool } from './migrationAdminPool';
 
 type Row = Record<string, unknown>;
 
@@ -147,20 +148,17 @@ export async function createPat(input: CreatePatInput): Promise<{ id: string; ra
   const { raw, hash, prefix } = generatePat();
   const days = Math.max(1, Math.min(365, Math.floor(input.expiresInDays)));
 
-  const rows = (await sql`
-    INSERT INTO personal_access_tokens
-      (user_id, company_id, token_hash, token_prefix, name, scopes, expires_at)
-    VALUES (
-      ${input.userId},
-      ${input.companyId}::uuid,
-      ${hash},
-      ${prefix},
-      ${input.name},
-      ${input.scopes},
-      NOW() + (${days} || ' days')::interval
-    )
-    RETURNING id
-  `) as Row[];
+  // On the migration_admin pool, keyed on the caller's verified user and
+  // company (S-07c): a row here is a live bearer credential, so no app role may
+  // write the table (migration 930), and the RLS owner policy it replaces
+  // followed request.jwt.claims, which injected SQL can forge.
+  const rows = (await migrationAdminPool().query(
+    `INSERT INTO personal_access_tokens
+       (user_id, company_id, token_hash, token_prefix, name, scopes, expires_at)
+     VALUES ($1, $2::uuid, $3, $4, $5, $6, NOW() + ($7 || ' days')::interval)
+     RETURNING id`,
+    [input.userId, input.companyId, hash, prefix, input.name, input.scopes, days],
+  )).rows as Row[];
 
   if (!rows[0]) throw new Error('createPat: insert returned no row');
 
@@ -194,16 +192,20 @@ export async function revokeAllUserPats(userId: string): Promise<number> {
   return rows.length;
 }
 
+// On the migration_admin pool, like createPat: UPDATE of revoked_at could as
+// well set it back to NULL and revive a revoked token, so no app role may
+// write it (migration 930).
 export async function revokePat(id: string, userId: string, companyId: string): Promise<boolean> {
-  const rows = (await sql`
-    UPDATE personal_access_tokens
-    SET revoked_at = NOW()
-    WHERE id = ${id}::uuid
-      AND user_id = ${userId}
-      AND company_id = ${companyId}::uuid
-      AND revoked_at IS NULL
-    RETURNING id
-  `) as Row[];
+  const rows = (await migrationAdminPool().query(
+    `UPDATE personal_access_tokens
+        SET revoked_at = NOW()
+      WHERE id = $1::uuid
+        AND user_id = $2
+        AND company_id = $3::uuid
+        AND revoked_at IS NULL
+      RETURNING id`,
+    [id, userId, companyId],
+  )).rows as Row[];
 
   const ok = rows.length > 0;
   if (ok) log.info('PAT revoked', { id, userId, companyId }, 'pat');
