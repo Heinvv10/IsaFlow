@@ -21,6 +21,7 @@ export default function PortalLoginPage() {
 
   const errorParam = router.query.error as string | undefined;
   const queryError = errorParam ? (ERROR_MESSAGES[errorParam] ?? 'This sign-in link could not be used. Please request a new one.') : null;
+  const signedOut = !queryError && router.query.signed_out === '1';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -73,6 +74,12 @@ export default function PortalLoginPage() {
           {queryError && (
             <div style={styles.alertWarning}>
               <span>{queryError}</span>
+            </div>
+          )}
+
+          {signedOut && state === 'idle' && (
+            <div role="status" style={styles.alertInfo}>
+              You have signed out.
             </div>
           )}
 
@@ -225,6 +232,15 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '0.5rem',
     padding: '0.75rem 1rem',
     color: '#92400e',
+    fontSize: '0.875rem',
+    marginBottom: '1rem',
+  },
+  alertInfo: {
+    background: '#f1f5f9',
+    border: '1px solid #cbd5e1',
+    borderRadius: '0.5rem',
+    padding: '0.75rem 1rem',
+    color: '#334155',
     fontSize: '0.875rem',
     marginBottom: '1rem',
   },
