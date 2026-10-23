@@ -175,6 +175,42 @@ describe('R1 breaker 3: the taxed employees of each closed approval', () => {
     ok(await approveRun(f, jan));
   });
 
+  it('January read December AS IT STANDS (v2); December reopened and re-approved unchanged: approved, though the set still holds Y from v1', async () => {
+    const f = await seedEmployee(pool, fixtures, 'BRK3 same version, old Y', 20_000);
+    const y = await secondEmployee(f);
+    const ids = await approveInOrder(f, 10);
+    const dec = ids[9]!;
+    ok(await reopenRun(f, dec)); // ends v1: X and Y
+    await active(y, false);
+    await reverseJournal(f, dec);
+    await calcOnly(f, dec); // v2: X only
+    ok(await approveRun(f, dec));
+    await active(y, true);
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan); // reads v2
+    ok(await approveRun(f, jan));
+    ok(await reopenRun(f, dec)); // ends v2; the set keeps Y
+    ok(await approveRun(f, dec)); // v2 unchanged: January read exactly these lines
+  });
+
+  it('January pays Y only an untaxed allowance (no year-to-date bite); December recalculated without Y: approved', async () => {
+    const f = await seedEmployee(pool, fixtures, 'BRK3 later untaxed, in set', 20_000);
+    const y = await secondEmployee(f);
+    const allowance = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Untaxed allowance', '3702', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id);
+    await pool.query(`UPDATE payroll_employee_components SET effective_to = '2026-12-31' WHERE employee_id = $1`, [y]);
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1, $2, 1500, '2027-01-01')`, [y, allowance]);
+    const ids = await approveInOrder(f, 11); // December v1 taxes Y; January pays Y untaxed only
+    const dec = ids[9]!;
+    ok(await reopenRun(f, dec)); // the set holds X and Y
+    await active(y, false);
+    await reverseJournal(f, dec);
+    await calcOnly(f, dec); // without Y; January approved, so X is warned
+    ok(await approveRun(f, dec));
+  });
+
   it('a set unknown because the run was reopened before the column existed (NULL with a history) is conservative, and a later reopen keeps it unknown', async () => {
     const f = await seedEmployee(pool, fixtures, 'BRK3 null set', 20_000);
     const z = await secondEmployee(f);
