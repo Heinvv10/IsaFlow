@@ -14,7 +14,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { BudgetInputError, getBudgets, upsertBudget, type BudgetMonthAmount } from '@/modules/accounting/services/core/budgetService';
 import { listBudgetYears, toBudgetYearInfo } from '@/modules/accounting/services/core/budgetYears';
-import { fiscalYearForDate, requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { fiscalYearForDate, getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { localISODate } from '@/lib/dateUtils';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -23,18 +23,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'GET') {
     const today = localISODate();
-    const requested = Number(req.query.fiscal_year);
-    try {
-      const fiscalYear = Number.isInteger(requested) && requested > 0
-        ? requested
-        : (await fiscalYearForDate(companyId, today)).fiscalYear;
-      const year = toBudgetYearInfo(await requireFiscalYear(companyId, fiscalYear));
-      const [items, years] = await Promise.all([getBudgets(companyId, fiscalYear), listBudgetYears(companyId, today)]);
-      return apiResponse.success(res, { items, fiscalYear, year, monthKeys: year.monthKeys, years });
-    } catch (err) {
-      log.error('Failed to load budgets', { error: err }, 'accounting-api');
-      return apiResponse.badRequestFromError(res, err, 'Could not load budgets');
+    const raw = req.query.fiscal_year;
+    const requested = raw === undefined ? null : Number(raw);
+    if (requested !== null && !(Number.isInteger(requested) && requested > 0)) {
+      return apiResponse.badRequest(res, 'fiscal_year must be a year label such as 2027');
     }
+    const fiscalYear = requested ?? (await fiscalYearForDate(companyId, today)).fiscalYear;
+    const found = await getFiscalYear(companyId, fiscalYear);
+    if (!found) return apiResponse.notFound(res, 'Financial year', String(fiscalYear));
+    // Anything else that fails is a real failure: withErrorHandler answers 500.
+    const year = toBudgetYearInfo(found);
+    const [items, years] = await Promise.all([getBudgets(companyId, fiscalYear), listBudgetYears(companyId, today)]);
+    return apiResponse.success(res, { items, fiscalYear, year, monthKeys: year.monthKeys, years });
   }
 
   if (req.method === 'POST') {
@@ -50,8 +50,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }, userId);
       return apiResponse.success(res, entry);
     } catch (err) {
+      if (err instanceof BudgetInputError) return apiResponse.badRequest(res, err.message);
+      if ((err as { code?: string }).code === '22003') {
+        return apiResponse.badRequest(res, 'A budget amount is too large (at most 13 digits before the decimal point).');
+      }
       log.error('Failed to upsert budget', { error: err }, 'accounting-api');
-      return apiResponse.badRequestFromError(res, err, err instanceof BudgetInputError ? err.message : 'Failed');
+      throw err;
     }
   }
 

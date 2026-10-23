@@ -17,6 +17,7 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 
 import { csvVal } from '@/lib/csv';
+import { localISODate } from '@/lib/dateUtils';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 import { loadWindowBudgets, resolveBudgetWindow } from '@/modules/accounting/services/reports/budgetWindowService';
 
@@ -105,7 +106,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
 
     const csv = csvLines.join('\n');
-    const filename = `budget-vs-actual-${new Date().toISOString().split('T')[0]}.csv`;
+    const filename = `budget-vs-actual-${localISODate()}.csv`;
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

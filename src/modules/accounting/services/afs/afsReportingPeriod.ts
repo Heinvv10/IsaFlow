@@ -70,8 +70,9 @@ export async function getReportingPeriod(companyId: string, fiscalYear: number):
   if (current.months !== 12) {
     const reason = await changeReason(companyId, year.id);
     parts.push(`These financial statements cover the ${current.months} months from ${current.start} to ${current.end}, `
-      + 'because the entity changed its financial year end'
-      + (reason ? ` (${reason.replace(/[.\s]+$/, '')}).` : '.'));
+      + (reason
+        ? `because the entity changed its financial year end (${reason.replace(/[.\s]+$/, '')}).`
+        : 'because this financial year is not twelve months long.'));
   }
   if (prior.months !== 12) {
     parts.push(`The comparative figures cover the ${prior.months} months from ${prior.start} to ${prior.end}.`);

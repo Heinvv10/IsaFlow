@@ -13,12 +13,11 @@
 -- longer read or written by the app (left in place, not dropped: the
 -- conversion below is verified, and dropping is irreversible).
 --
--- CONVERSION. Each stored month key of a budget row is read as the readers
--- read it: the month of that name inside the row's fiscal year, which is the
--- company's fiscal_periods row with that label and that calendar month (every
--- company today labels January-December, so FY2026 'mar' is March 2026); with
--- no such period, the month of that name inside the registry year carrying the
--- label. A row with no monthly split spreads annual_amount over the twelve
+-- CONVERSION (budget_months_from_legacy below). Each stored month key of a
+-- budget row is read as the readers read it: the company's fiscal_periods row
+-- with that label and that calendar month (every company today labels
+-- January-December, so FY2026 'mar' is March 2026); with no such period, that
+-- month of the calendar year the label names. A row with no monthly split spreads annual_amount over the twelve
 -- months, cents on the last, as the reader pro-rated it. Totals are verified
 -- per company and account; a collision (two rows claiming one month) fails
 -- the migration rather than merging silently.
@@ -68,73 +67,109 @@ CREATE TRIGGER trg_budget_month_amounts_same_company BEFORE INSERT OR UPDATE OF 
 
 -- ── Conversion ───────────────────────────────────────────────────────────────
 
-DO $$
+-- One conversion, callable per company so it is tested on old-shape rows
+-- (tests/integration/budgets-legacy-conversion.int.test.ts) and run for all of
+-- them here. A month key goes to the company's period of that label and that
+-- calendar month (every company today labels January-December); with no such
+-- period, to that month of the calendar year the label names (the variance
+-- reader's reading). A value that is not a number, or a period_amounts that is
+-- not an object, stops the migration naming the budget row.
+CREATE OR REPLACE FUNCTION public.budget_months_from_legacy(p_company uuid DEFAULT NULL)
+RETURNS int
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
 DECLARE
-  b record; k text; idx int; mon int; val numeric; month_date date; yr record;
+  b record; k text; idx int; raw text; val numeric; month_date date;
   keys text[] := ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   monthly numeric; inserted int; converted int := 0;
 BEGIN
   FOR b IN
     SELECT id, company_id, gl_account_id, fiscal_year, COALESCE(period_amounts, '{}'::jsonb) AS pa,
            COALESCE(annual_amount, 0) AS annual, created_by
-      FROM accounting_budgets WHERE gl_account_id IS NOT NULL AND company_id IS NOT NULL
+      FROM accounting_budgets
+     WHERE gl_account_id IS NOT NULL AND company_id IS NOT NULL
+       AND (p_company IS NULL OR company_id = p_company)
   LOOP
-    SELECT * INTO yr FROM public.fiscal_year_for_label(b.company_id, b.fiscal_year);
+    IF jsonb_typeof(b.pa) <> 'object' THEN
+      RAISE EXCEPTION 'budget_months_from_legacy: budget % has period_amounts that is not an object (%)', b.id, jsonb_typeof(b.pa);
+    END IF;
     FOR idx IN 1..12 LOOP
       k := keys[idx];
-      IF jsonb_typeof(b.pa) = 'object' AND (SELECT COUNT(*) FROM jsonb_object_keys(b.pa)) > 0 THEN
-        val := COALESCE((b.pa ->> k)::numeric, (b.pa ->> (idx - 1)::text)::numeric);
-        CONTINUE WHEN val IS NULL;
+      IF (SELECT COUNT(*) FROM jsonb_object_keys(b.pa)) > 0 THEN
+        raw := COALESCE(b.pa ->> k, b.pa ->> (idx - 1)::text);
+        CONTINUE WHEN raw IS NULL;
+        IF raw !~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$' THEN
+          RAISE EXCEPTION 'budget_months_from_legacy: budget % month % is not a number (%)', b.id, k, raw;
+        END IF;
+        val := raw::numeric;
       ELSE
         CONTINUE WHEN b.annual = 0;
         monthly := round(b.annual / 12, 2);
         val := CASE WHEN idx = 12 THEN b.annual - monthly * 11 ELSE monthly END;
       END IF;
-      mon := idx;
       SELECT fp.start_date INTO month_date FROM fiscal_periods fp
        WHERE fp.company_id = b.company_id AND fp.fiscal_year = b.fiscal_year
-         AND EXTRACT(MONTH FROM fp.start_date)::int = mon AND EXTRACT(DAY FROM fp.start_date) = 1
+         AND EXTRACT(MONTH FROM fp.start_date)::int = idx AND EXTRACT(DAY FROM fp.start_date) = 1
        ORDER BY fp.start_date LIMIT 1;
-      IF month_date IS NULL AND yr.start_date IS NOT NULL THEN
-        SELECT d::date INTO month_date
-          FROM generate_series(date_trunc('month', yr.start_date), yr.end_date, INTERVAL '1 month') d
-         WHERE EXTRACT(MONTH FROM d)::int = mon ORDER BY d LIMIT 1;
-      END IF;
-      IF month_date IS NULL THEN month_date := make_date(b.fiscal_year, mon, 1); END IF;
+      IF month_date IS NULL THEN month_date := make_date(b.fiscal_year, idx, 1); END IF;
       INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount, created_by)
       VALUES (b.company_id, b.gl_account_id, month_date, val, b.created_by)
       ON CONFLICT (company_id, gl_account_id, month) DO NOTHING;
       GET DIAGNOSTICS inserted = ROW_COUNT;
       IF inserted = 0 THEN
-        RAISE EXCEPTION '944: budget % (FY%) and another budget both claim % for account %', b.id, b.fiscal_year, month_date, b.gl_account_id;
+        RAISE EXCEPTION 'budget_months_from_legacy: budget % (FY%) and another budget both claim % for account %',
+          b.id, b.fiscal_year, month_date, b.gl_account_id;
       END IF;
       converted := converted + 1;
       month_date := NULL;
     END LOOP;
   END LOOP;
-  RAISE NOTICE '944: converted % budget months', converted;
+  RETURN converted;
 END;
 $$;
 
--- Verification: every account's total is unchanged.
-DO $$
-DECLARE
-  bad int;
-BEGIN
+-- Company/account totals that differ between the old rows and the months.
+CREATE OR REPLACE FUNCTION public.budget_months_legacy_mismatches(p_company uuid DEFAULT NULL)
+RETURNS int
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
   WITH src AS (
     SELECT b.company_id, b.gl_account_id,
            SUM(CASE WHEN (SELECT COUNT(*) FROM jsonb_object_keys(COALESCE(b.period_amounts, '{}'::jsonb))) > 0
-                    THEN (SELECT COALESCE(SUM(v::numeric), 0) FROM jsonb_each_text(b.period_amounts) e(k, v)
-                           WHERE e.k IN ('jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec',
-                                         '0','1','2','3','4','5','6','7','8','9','10','11'))
+                    THEN (SELECT COALESCE(SUM(COALESCE(b.period_amounts ->> m.k, b.period_amounts ->> (m.n - 1)::text)::numeric), 0)
+                            FROM unnest(ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'])
+                                 WITH ORDINALITY AS m(k, n))
                     ELSE COALESCE(b.annual_amount, 0) END) AS total
-      FROM accounting_budgets b WHERE b.gl_account_id IS NOT NULL AND b.company_id IS NOT NULL
+      FROM accounting_budgets b
+     WHERE b.gl_account_id IS NOT NULL AND b.company_id IS NOT NULL
+       AND jsonb_typeof(COALESCE(b.period_amounts, '{}'::jsonb)) = 'object'
+       AND (p_company IS NULL OR b.company_id = p_company)
      GROUP BY 1, 2
   ), dst AS (
-    SELECT company_id, gl_account_id, SUM(amount) AS total FROM budget_month_amounts GROUP BY 1, 2
+    SELECT company_id, gl_account_id, SUM(amount) AS total FROM budget_month_amounts
+     WHERE p_company IS NULL OR company_id = p_company GROUP BY 1, 2
   )
-  SELECT COUNT(*) INTO bad FROM src FULL JOIN dst USING (company_id, gl_account_id)
-   WHERE COALESCE(src.total, 0) <> COALESCE(dst.total, 0);
+  SELECT COUNT(*)::int FROM src FULL JOIN dst USING (company_id, gl_account_id)
+   WHERE COALESCE(src.total, 0) <> COALESCE(dst.total, 0)
+$$;
+
+REVOKE ALL ON FUNCTION public.budget_months_from_legacy(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_months_legacy_mismatches(uuid) FROM PUBLIC;
+
+DO $$
+DECLARE
+  orphaned int; converted int; bad int;
+BEGIN
+  -- Rows no reader ever showed (no account, or no company): reported, not converted.
+  SELECT COUNT(*) INTO orphaned FROM accounting_budgets WHERE gl_account_id IS NULL OR company_id IS NULL;
+  IF orphaned > 0 THEN
+    RAISE NOTICE '944: % accounting_budgets row(s) have no account or company; no report ever read them, so they are not converted', orphaned;
+  END IF;
+  converted := public.budget_months_from_legacy(NULL);
+  RAISE NOTICE '944: converted % budget months', converted;
+  bad := public.budget_months_legacy_mismatches(NULL);
   IF bad > 0 THEN
     RAISE EXCEPTION '944 verification failed: % company/account budget totals differ after conversion', bad;
   END IF;
