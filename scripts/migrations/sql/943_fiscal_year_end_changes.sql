@@ -1,0 +1,88 @@
+-- 943: The record of a change of financial year end (change-of-year-end
+-- programme, Features B and G).
+--
+-- One row per change: who applied it, when and why, the CIPC/SARS
+-- confirmations, the transition year it made (fiscal_years.kind =
+-- 'transition'), and a snapshot of the years and periods it re-grouped so the
+-- change can be undone exactly (gl/financialYearEndChangeUndo.ts) until a
+-- period beyond the original year end is closed.
+--
+-- Companies Act 71 of 2008 s27(4): a company may change its financial year end
+-- (a) not more than once during any financial year, (b) to a date later than
+-- the date the notice is filed, and (c) so that no financial year ends more
+-- than 15 months after the end of the preceding one. (c) is fiscal_years'
+-- 15-month CHECK (940); (a) is the service's check plus the unique index
+-- below, which also serialises two concurrent applies on one year; (b) is the
+-- service's.
+--
+-- Rows are written by the service only. A member cannot rewrite history: the
+-- only UPDATE allowed is marking an unreversed change reversed.
+
+CREATE TABLE IF NOT EXISTS fiscal_year_end_changes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  -- The transition year this change made.
+  fiscal_year_id UUID NOT NULL REFERENCES fiscal_years(id),
+  from_start_month INT NOT NULL CHECK (from_start_month BETWEEN 1 AND 12),
+  to_start_month INT NOT NULL CHECK (to_start_month BETWEEN 1 AND 12),
+  transition_start DATE NOT NULL,
+  from_end_date DATE NOT NULL,
+  to_end_date DATE NOT NULL,
+  months INT NOT NULL CHECK (months BETWEEN 1 AND 15),
+  reason TEXT NOT NULL CHECK (length(btrim(reason)) >= 10),
+  cipc_filed_confirmed BOOLEAN NOT NULL CHECK (cipc_filed_confirmed),
+  sars_notified_confirmed BOOLEAN NOT NULL CHECK (sars_notified_confirmed),
+  -- The years (from the transition year on) and their periods before the change.
+  snapshot JSONB NOT NULL,
+  applied_by UUID NOT NULL,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reversed_by UUID,
+  reversed_at TIMESTAMPTZ,
+  reversal_reason TEXT,
+  CONSTRAINT fiscal_year_end_changes_reversal_whole
+    CHECK ((reversed_by IS NULL) = (reversed_at IS NULL)),
+  CONSTRAINT fiscal_year_end_changes_dates CHECK (to_end_date <> from_end_date AND to_end_date > transition_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fiscal_year_end_changes_company ON fiscal_year_end_changes (company_id, applied_at DESC);
+-- s27(4)(a), and the serialiser for two applies racing on one year.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_fiscal_year_end_changes_live_year
+  ON fiscal_year_end_changes (fiscal_year_id) WHERE reversed_at IS NULL;
+
+ALTER TABLE fiscal_years DROP CONSTRAINT IF EXISTS fiscal_years_change_id_fkey;
+ALTER TABLE fiscal_years ADD CONSTRAINT fiscal_years_change_id_fkey
+  FOREIGN KEY (change_id) REFERENCES fiscal_year_end_changes(id) DEFERRABLE INITIALLY IMMEDIATE;
+
+ALTER TABLE fiscal_year_end_changes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fiscal_year_end_changes FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON fiscal_year_end_changes;
+CREATE POLICY tenant_isolation ON fiscal_year_end_changes TO app_user
+  USING (company_id IN (SELECT cu.company_id FROM company_users cu WHERE cu.user_id = auth.uid()))
+  WITH CHECK (company_id = app.current_company_id());
+GRANT SELECT, INSERT, UPDATE ON fiscal_year_end_changes TO app_user;
+
+CREATE OR REPLACE FUNCTION public.fiscal_year_end_changes_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF EXISTS (SELECT 1 FROM companies c WHERE c.id = OLD.company_id) THEN
+      RAISE EXCEPTION 'a change of financial year end is a permanent record and cannot be deleted' USING ERRCODE = '55000';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF OLD.reversed_at IS NOT NULL
+     OR NEW.reversed_at IS NULL
+     OR (to_jsonb(NEW) - ARRAY['reversed_by', 'reversed_at', 'reversal_reason'])
+        IS DISTINCT FROM (to_jsonb(OLD) - ARRAY['reversed_by', 'reversed_at', 'reversal_reason']) THEN
+    RAISE EXCEPTION 'a change of financial year end can only be marked reversed, once' USING ERRCODE = '55000';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_fiscal_year_end_changes_guard ON fiscal_year_end_changes;
+CREATE TRIGGER trg_fiscal_year_end_changes_guard BEFORE UPDATE OR DELETE ON fiscal_year_end_changes
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_year_end_changes_guard();
