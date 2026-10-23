@@ -218,7 +218,7 @@ describe('batch membership', () => {
     'src/lib/mcp/tools/listSupplierPayments.ts': 'maps a read row to the tool output',
     'pages/api/accounting/eft-generate.ts': READS,
     'pages/api/accounting/netcash/submit.ts': READS,
-    [`${AP}batchBankFileGate.ts`]: READS,
+    [`${AP}batchApprovedDigest.ts`]: READS,
     [`${AP}batchBeforeSupplierLock.ts`]: 'the lock helper: reads the batch set, and says why it may',
     [`${AP}batchPaymentApproval.ts`]: 'approveBatch: UPDATE filters members by batch_id (pinned below)',
     [`${AP}batchPaymentMembers.ts`]: READS,
@@ -243,9 +243,10 @@ describe('batch membership', () => {
     expect(filesWhere((t) => /supplier_payments/i.test(t) && /batch_id/i.test(t))).toEqual(Object.keys(PINNED_FILES).sort());
   });
 
-  it('no UPDATE of supplier_payments mentions batch_id, but the four that only filter members by it', () => {
+  it('no UPDATE of supplier_payments mentions batch_id, but the five that only filter members by it', () => {
     const mentioning = files.flatMap((f) => updates(f.text).filter((u) => /batch_id/i.test(u)).map((u) => `${f.rel}: ${u}`)).sort();
     expect(mentioning).toEqual([
+      `${AP}batchPaymentApproval.ts: UPDATE supplier_payments SET approved_by = \${userId}::UUID, approved_at = NOW() WHERE batch_id = \${id}::UUID AND company_id = \${companyId}::UUID AND status IS DISTINCT FROM 'cancelled'`,
       `${AP}batchPaymentApproval.ts: UPDATE supplier_payments SET status = 'approved', approved_by = \${userId}::UUID, approved_at = NOW() WHERE batch_id = \${id}::UUID AND company_id = \${companyId}::UUID AND status = 'draft'`,
       `${AP}batchPaymentReversal.ts: UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW() WHERE batch_id = \${batchId}::UUID AND company_id = \${companyId}::UUID AND status = 'processed' RETURNING id`,
       `${AP}batchPaymentService.ts: UPDATE supplier_payments SET status = 'cancelled' WHERE batch_id = \${id}::UUID AND status IN ('draft', 'approved') AND company_id = \${companyId}::UUID`,
