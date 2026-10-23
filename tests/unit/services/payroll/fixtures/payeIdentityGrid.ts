@@ -30,8 +30,21 @@ const employee = (birthYear: number, beneficiaries: number): PayrollEmployee => 
 export interface GridCase {
   name: string;
   run: () => PayrollLineResult;
-  /** 65 or older with medical scheme fees (4005): the one case whose PAYE the additional medical credit may lower. */
-  over65WithFees: boolean;
+  /**
+   * 65 or older, on medical aid, with annualised 4005 fees above three times the MTC: the one case whose
+   * PAYE the additional medical credit may lower. Worked out here independently of payeEngine: fees
+   * R1 500 a month annualised over the periods to date (this one included; earlier fees are nil), against
+   * 3 x the SARS monthly MTC (2026: R364 / R246; 2027: R376 / R254, G21 2027 p. 10) x 12.
+   */
+  amtcMayApply: boolean;
+}
+
+const MTC: Record<number, [number, number]> = { 2026: [364, 246], 2027: [376, 254] };
+function amtcMayApply(taxYear: number, age65: boolean, beneficiaries: number, ytd: PayeYearToDate | undefined): boolean {
+  if (!age65 || beneficiaries === 0) return false;
+  const [first, further] = MTC[taxYear]!;
+  const annualMtc = (Math.min(beneficiaries, 2) * first + Math.max(0, beneficiaries - 2) * further) * 12;
+  return (1_500 * 12) / ((ytd?.periods ?? 0) + 1) > 3 * annualMtc;
 }
 
 /** The PAYE figures a line stores or reports: everything the credit record must leave alone. */
@@ -75,7 +88,7 @@ export function payeIdentityGrid(): GridCase[] {
               ];
               cases.push({
                 name: `${taxYear} ${ageLabel} ben ${beneficiaries} salary ${salary} bonus ${bonus} ${ytdLabel}`,
-                over65WithFees: ageLabel !== 'age 40' && beneficiaries > 0,
+                amtcMayApply: amtcMayApply(taxYear, ageLabel !== 'age 40', beneficiaries, ytd),
                 run: () => calculatePayrollLine({
                   employee: employee(birthYear, beneficiaries), components, period: { year, month }, taxYear,
                   annualPayrollEstimate: 'defer', ytd,
@@ -88,7 +101,7 @@ export function payeIdentityGrid(): GridCase[] {
     }
     cases.push({
       name: `${taxYear} severance-only line, 2 beneficiaries`,
-      over65WithFees: false,
+      amtcMayApply: false,
       run: () => calculatePayrollLine({
         employee: employee(taxYear - 41, 2),
         components: [{ component: comp('3901', { isUifApplicable: false, isSdlApplicable: false }), amount: 50_000, directive: { id: 'd1', number: '123', paye: 9_000 } }],

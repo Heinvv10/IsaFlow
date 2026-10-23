@@ -3,8 +3,9 @@
  * Unit tests for taxDirectiveService.ts and taxCalculations.ts
  *
  * Pure calculateLumpSumTax tests require no mocks.
- * DB-dependent functions (listTaxDirectives, createTaxDirective) use a
- * mocked sql tagged template. The reports service no longer has a status
+ * listTaxDirectives uses a mocked sql tagged template. The reports service's
+ * own createTaxDirective is deleted too (round 2 review, security 4): no
+ * caller, and no employee check. The reports service no longer has a status
  * update (PAYE 4a follow-ups round 2, R6): it had no caller and wrote the
  * status without the paid-directive guard. The live one is
  * payroll/taxDirectiveService.updateTaxDirectiveStatus, through
@@ -25,13 +26,10 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import { sql } from '@/lib/neon';
 import { calculateLumpSumTax } from '@/lib/taxCalculations';
-import {
-  listTaxDirectives,
-  createTaxDirective,
-} from '@/modules/accounting/services/reports/taxDirectiveReportsService';
+import { listTaxDirectives } from '@/modules/accounting/services/reports/taxDirectiveReportsService';
 import * as reportsService from '@/modules/accounting/services/reports/taxDirectiveReportsService';
 import * as reportsIndex from '@/modules/accounting/services/reports';
-import type { TaxDirective, TaxDirectiveInput } from '@/modules/accounting/services/reports/taxDirectiveReportsService';
+import type { TaxDirective } from '@/modules/accounting/services/reports/taxDirectiveReportsService';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const EMPLOYEE_ID = 'bbbbbbbb-0000-0000-0000-000000000002';
@@ -62,16 +60,6 @@ const sampleDirective: TaxDirective = {
   updated_at: '2026-04-01T00:00:00.000Z',
 };
 
-const sampleInput: TaxDirectiveInput = {
-  employee_id: EMPLOYEE_ID,
-  employee_name: 'John Doe',
-  employee_tax_number: '1234567890',
-  directive_number: 'DIR-2026-001',
-  directive_type: 'lump_sum',
-  amount: 600_000,
-  tax_rate: 0.18,
-  effective_date: '2026-04-01',
-};
 
 // ── calculateLumpSumTax — pure function, no mocks ─────────────────────────────
 
@@ -210,56 +198,16 @@ describe('listTaxDirectives', () => {
   });
 });
 
-// ── createTaxDirective ────────────────────────────────────────────────────────
-
-describe('createTaxDirective', () => {
-  beforeEach(() => vi.mocked(sql).mockReset());
-
-  it('inserts and returns the new directive', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([sampleDirective]);
-
-    const result = await createTaxDirective(COMPANY_ID, sampleInput, USER_ID);
-
-    expect(result).toMatchObject({
-      id: DIRECTIVE_ID,
-      company_id: COMPANY_ID,
-      employee_name: 'John Doe',
-    });
-  });
-
-  it('calls sql once (single INSERT RETURNING)', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([sampleDirective]);
-
-    await createTaxDirective(COMPANY_ID, sampleInput, USER_ID);
-
-    expect(vi.mocked(sql)).toHaveBeenCalledTimes(1);
-  });
-
-  it('passes companyId and userId as interpolated arguments', async () => {
-    vi.mocked(sql).mockResolvedValueOnce([sampleDirective]);
-
-    await createTaxDirective(COMPANY_ID, sampleInput, USER_ID);
-
-    const callArgs = vi.mocked(sql).mock.calls[0];
-    const interpolated = Array.from(callArgs ?? []).slice(1);
-    expect(interpolated).toContain(COMPANY_ID);
-    expect(interpolated).toContain(USER_ID);
-  });
-
-  it('rethrows on SQL error', async () => {
-    vi.mocked(sql).mockRejectedValueOnce(new Error('constraint violation'));
-
-    await expect(
-      createTaxDirective(COMPANY_ID, sampleInput, USER_ID)
-    ).rejects.toThrow('constraint violation');
-  });
-});
-
 // ── no unguarded status update (R6) ───────────────────────────────────────────
 
 describe('reports service: no status update that bypasses the paid guard', () => {
   it('neither the reports service nor the reports index exports updateTaxDirectiveStatus', () => {
     expect(reportsService).not.toHaveProperty('updateTaxDirectiveStatus');
     expect(reportsIndex).not.toHaveProperty('updateTaxDirectiveStatus');
+  });
+  // Round 2 review (security 4): a second create, with no employee check, no caller, beside the route's.
+  it('nor a createTaxDirective (the route uses payroll/taxDirectiveService\'s)', () => {
+    expect(reportsService).not.toHaveProperty('createTaxDirective');
+    expect(reportsIndex).not.toHaveProperty('createTaxDirective');
   });
 });

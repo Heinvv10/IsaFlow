@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildEmployeeRecord, type EmployeeInput } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 import { calculatePayrollLine } from '@/modules/accounting/services/payroll/payrollCalculator';
 import type { PayrollComponent, PayrollEmployee } from '@/modules/accounting/services/payroll/payrollTypes';
 
@@ -38,6 +39,8 @@ const base: EmployeeInput = {
   taxThreshold: 99_000,
 };
 const medical = { fees: 18_000.75, credit: 9_024, additionalCredit: 0, age65OrOlder: false, recorded: true };
+/** Born 15 June 1958 (68 at 28 Feb 2027): the ID number 3060 carries the date of birth the validator reads. */
+const over65 = { idNumber: '5806155009087' };
 const codes = (lines: string[]) => validateCertificateTaxFields(lines).map(m => m.code);
 const at = (lines: string[], code: string) => lines.findIndex(l => l.startsWith(`${code},`));
 
@@ -55,10 +58,16 @@ describe('R3: 4005 / 4116 / 4120 on the certificate', () => {
   });
 
   it('65 and older: 4120 beside 4116 (0.00 when no additional credit was allowed)', () => {
-    const lines = buildEmployeeRecord({ ...base, medical: { ...medical, age65OrOlder: true } });
+    const lines = buildEmployeeRecord({ ...base, ...over65, medical: { ...medical, age65OrOlder: true } });
     expect(lines).toContain('4120,0.00');
     expect(at(lines, '4120')).toBe(at(lines, '4116') + 1);
-    expect(buildEmployeeRecord({ ...base, medical: { ...medical, age65OrOlder: true, additionalCredit: 1_234.5 } })).toContain('4120,1234.50');
+    expect(buildEmployeeRecord({ ...base, ...over65, medical: { ...medical, age65OrOlder: true, additionalCredit: 1_234.5 } })).toContain('4120,1234.50');
+  });
+
+  it('under 65 with no credit used: 4116 is still completed, 0.00 (mandatory beside 4005)', () => {
+    const lines = buildEmployeeRecord({ ...base, medical: { ...medical, credit: 0 } });
+    expect(lines).toContain('4116,0.00');
+    expect(validateCertificateTaxFields(lines)).toEqual([]);
   });
 
   it('credits with no 4005 value: none of the three fields', () => {
@@ -88,8 +97,16 @@ describe('R3: reason 08', () => {
   });
 
   it('65 and older, the additional credit alone above nil: 08', () => {
-    const lines = buildEmployeeRecord({ ...nil, taxThreshold: 153_250, grossSalary3601: 160_000, medical: { ...medical, credit: 0, additionalCredit: 500, age65OrOlder: true } });
+    const lines = buildEmployeeRecord({ ...nil, ...over65, taxThreshold: 153_250, grossSalary3601: 160_000, medical: { ...medical, credit: 0, additionalCredit: 500, age65OrOlder: true } });
     expect(lines).toContain('4150,08');
+  });
+
+  it('income exactly at the threshold is "less than the threshold" for IsaFlow: 02 (04 beside a directive), even with a credit', () => {
+    const atThreshold = { ...nil, grossSalary3601: 99_000, medical: { ...medical, credit: 1_000 } };
+    expect(buildEmployeeRecord(atThreshold)).toContain('4150,02');
+    const directive = { sourceCode: '3901', directiveNumber: '5550001112', directiveIssuedDate: '20260401', amount: 10_000, paye: 0 };
+    expect(buildEmployeeRecord({ ...atThreshold, lumpSums: [directive] })).toContain('4150,04');
+    expect(buildEmployeeRecord({ ...atThreshold, grossSalary3601: 99_001 })).toContain('4150,08');
   });
 
   it('under the threshold the reason stays 02, and the medical fields are still reported', () => {
@@ -122,6 +139,43 @@ describe('R3: validateCertificateTaxFields, the medical rules', () => {
     expect(codes(['3015,"IT3(a)"', '3601,60000', '4005,1000', '4116,0.00', '4150,08'])).toContain('REASON_08_WITHOUT_MEDICAL_CREDIT');
     expect(codes(['3015,"IT3(a)"', '3601,60000', '4150,08'])).toContain('REASON_08_WITHOUT_MEDICAL_CREDIT');
     expect(codes(['3015,"IT3(a)"', '3601,60000', '4005,1000', '4116,0.00', '4120,5.00', '4150,08'])).toEqual([]);
+  });
+});
+
+describe('R3: validateCertificateTaxFields, 4120 against the age (BRS p. 59-60, "validate to Date of Birth (code 3080)")', () => {
+  const rec = (...extra: string[]) => ['3015,"IRP5"', '3025,2027', '3601,60000', '4005,1000', '4102,10.00', '4116,0.00', ...extra];
+  it('4120 for someone under 65 on the year\'s last day is refused, by 3080 or else by the ID number 3060', () => {
+    expect(codes(rec('3060,9001015009087', '4120,0.00'))).toContain('MEDICAL_4120_UNDER_65');
+    expect(codes(rec('3080,19620301', '4120,0.00'))).toContain('MEDICAL_4120_UNDER_65');
+  });
+  it('65 or older with 4005 and no 4120 is refused', () => {
+    expect(codes(rec('3060,5806155009087'))).toContain('MEDICAL_4120_MISSING');
+    expect(codes(rec('3080,19620228'))).toContain('MEDICAL_4120_MISSING');
+    expect(codes(rec('3080,19620228', '4120,0.00'))).toEqual([]);
+  });
+  it('no date of birth and no readable ID: not judged', () => {
+    expect(codes(rec('4120,0.00'))).toEqual([]);
+  });
+});
+
+describe('R3: certificate warnings (round 2 review)', () => {
+  const record = { fees: 0, credit: 1_504, additionalCredit: 0, recorded: true };
+  it('a credit the PAYE took with no 4005 deducted: named, with the amount', () => {
+    expect(medicalCertificateWarnings('Wanda Test', record, { age: 46, dateOfBirthMissing: false }))
+      .toEqual([expect.stringMatching(/^Wanda Test: .*R1504\.00.*4005.*4116/)]);
+  });
+  it('fees with the latest month unrecorded: named', () => {
+    expect(medicalCertificateWarnings('Wanda Test', { ...record, fees: 3_000, recorded: false }, { age: 46, dateOfBirthMissing: false }))
+      .toEqual([expect.stringMatching(/before IsaFlow recorded the credits/)]);
+  });
+  it('65 or older by the ID number but no date of birth: PAYE took none of the 65+ rebates or credit', () => {
+    expect(medicalCertificateWarnings('Old Timer', undefined, { age: 68, dateOfBirthMissing: true }))
+      .toEqual([expect.stringMatching(/^Old Timer: no date of birth.*68/)]);
+    expect(medicalCertificateWarnings('Young', undefined, { age: 40, dateOfBirthMissing: true })).toEqual([]);
+  });
+  it('nothing to say: no warning', () => {
+    expect(medicalCertificateWarnings('Wanda Test', { ...record, fees: 3_000 }, { age: 46, dateOfBirthMissing: false })).toEqual([]);
+    expect(medicalCertificateWarnings('Wanda Test', undefined, { age: null, dateOfBirthMissing: false })).toEqual([]);
   });
 });
 
