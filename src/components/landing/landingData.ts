@@ -35,16 +35,6 @@ export interface PricingTier {
   popular: boolean;
 }
 
-export interface Testimonial {
-  name: string;
-  role: string;
-  company: string;
-  quote: string;
-  metric?: string;
-  stars: number;
-  featured: boolean;
-}
-
 export interface FAQItem {
   q: string;
   a: string;
@@ -74,14 +64,6 @@ export const BRAND_SAME_AS: string[] = [
   // 'https://www.capterra.co.za/software/.../isaflow',
   // 'https://www.g2.com/products/isaflow',
   // 'https://x.com/isaflow',
-];
-
-export const TRUST_COMPANIES = [
-  'TechBridge Solutions',
-  'VDM Construction',
-  'Naidoo & Associates',
-  'Bright Sphere',
-  'SA Retail Group',
 ];
 
 export const FEATURE_PILLARS: FeaturePillar[] = [
@@ -210,34 +192,6 @@ export const PRICING_TIERS: PricingTier[] = [
     ],
     cta: 'Start Free Trial',
     popular: false,
-  },
-];
-
-export const TESTIMONIALS: Testimonial[] = [
-  {
-    name: 'Thandi Molefe',
-    role: 'CFO',
-    company: 'TechBridge Solutions',
-    quote: 'ISAFlow has transformed how we handle our accounting. The bank reconciliation alone saves us 15 hours a month. The compliance features give us complete peace of mind.',
-    metric: 'Saves 15 hours/month',
-    stars: 5,
-    featured: true,
-  },
-  {
-    name: 'Johan van der Merwe',
-    role: 'Owner',
-    company: 'VDM Construction',
-    quote: 'The smart categorisation learns our patterns and now auto-allocates 90% of our bank transactions. Incredible time saver.',
-    stars: 5,
-    featured: false,
-  },
-  {
-    name: 'Priya Naidoo',
-    role: 'Practice Manager',
-    company: 'Naidoo & Associates',
-    quote: 'Managing multiple client entities is effortless. The approval workflows and audit trail give our clients confidence in our processes.',
-    stars: 5,
-    featured: false,
   },
 ];
 

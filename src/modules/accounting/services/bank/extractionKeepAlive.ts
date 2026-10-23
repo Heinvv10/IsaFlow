@@ -32,6 +32,11 @@ export function keepAliveCeilingMs(): number {
   return Math.min(maxStatementPages() * KEEPALIVE_MS_PER_PAGE, MAX_TIMER_MS);
 }
 
+/** What a keep-alive log line names: the kind of read it keeps alive, and the component it logs under. */
+export interface KeepAliveLabel { subject: string; component: string }
+
+const STATEMENT_LABEL: KeepAliveLabel = { subject: 'Statement', component: 'statement-extraction' };
+
 /**
  * Run `work`, calling `beat` every `everyMs` until it settles or `ceilingMs` have passed. A beat that fails
  * is logged, never fatal; a ceiling reached with the work still pending is logged and the work goes on.
@@ -41,6 +46,7 @@ export async function withKeepAlive<T>(
   work: () => Promise<T>,
   everyMs: number = KEEPALIVE_INTERVAL_MS,
   ceilingMs: number = keepAliveCeilingMs(),
+  label: KeepAliveLabel = STATEMENT_LABEL,
 ): Promise<T> {
   let beating = false;
   const timer = setInterval(() => {
@@ -48,17 +54,17 @@ export async function withKeepAlive<T>(
     beating = true;
     beat()
       .catch((err: unknown) => {
-        log.warn('Statement keep-alive heartbeat failed', {
+        log.warn(`${label.subject} keep-alive heartbeat failed`, {
           error: err instanceof Error ? err.message : String(err),
-        }, 'statement-extraction');
+        }, label.component);
       })
       .finally(() => { beating = false; });
   }, everyMs);
   const ceiling = setTimeout(() => {
     clearInterval(timer);
-    log.warn('Statement keep-alive reached its ceiling with the read still pending; the row will be shown as interrupted', {
+    log.warn(`${label.subject} keep-alive reached its ceiling with the read still pending; the row will be shown as interrupted`, {
       ceilingMs,
-    }, 'statement-extraction');
+    }, label.component);
   }, Math.min(ceilingMs, MAX_TIMER_MS));
   // The beat must not hold the process open at shutdown.
   timer.unref?.();

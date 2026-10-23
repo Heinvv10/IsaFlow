@@ -60,6 +60,14 @@ const USER_ID = '55555555-5555-5555-5555-555555555555';
 const CLIENT_ID = '66666666-6666-6666-6666-666666666666';
 const CREDIT_NOTE_ID = '77777777-7777-7777-7777-777777777777';
 
+function disputeRow() {
+  return {
+    id: DISPUTE_ID, company_id: COMPANY_ID, customer_invoice_id: INVOICE_ID, customer_invoice_line_id: null,
+    reason: 'ok', raised_by: `user:${USER_ID}`, raised_at: new Date('2026-04-23T10:00:00Z'), status: 'open',
+    disputed_amount: '8000.00',
+  };
+}
+
 function eligibleInvoiceRow() {
   return {
     id: INVOICE_ID,
@@ -114,6 +122,24 @@ describe('raiseDispute', () => {
         raisedBy: `user:${USER_ID}`,
       }),
     ).rejects.toThrow(/exceeds outstanding/i);
+  });
+
+  it('refuses a cent over the outstanding balance, takes the exact balance and float noise (899: no tolerance)', async () => {
+    // outstanding = 10000 - 2000 = 8000
+    for (const disputedAmount of [8000.01, 8000.02]) {
+      mockSql.mockResolvedValueOnce([eligibleInvoiceRow()]);
+      await expect(
+        raiseDispute(COMPANY_ID, { customerInvoiceId: INVOICE_ID, reason: 'cent', disputedAmount, raisedBy: `user:${USER_ID}` }),
+        String(disputedAmount),
+      ).rejects.toThrow(/exceeds outstanding/i);
+    }
+    for (const disputedAmount of [8000, 7999.99, 8000.000000001]) {
+      mockSql.mockResolvedValueOnce([eligibleInvoiceRow()]).mockResolvedValueOnce([disputeRow()]);
+      await expect(
+        raiseDispute(COMPANY_ID, { customerInvoiceId: INVOICE_ID, reason: 'ok', disputedAmount, raisedBy: `user:${USER_ID}` }),
+        String(disputedAmount),
+      ).resolves.toBeDefined();
+    }
   });
 
   it('inserts a whole-invoice dispute scoped by company', async () => {

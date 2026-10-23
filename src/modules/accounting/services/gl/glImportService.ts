@@ -7,6 +7,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { parseImportDate } from '@/lib/parseImportDate';
 import type { VatType } from '../../types/gl.types';
 import { journalDayWindowError } from '../../utils/journalDateWindow';
 import { ledgerDaysOf } from './journalDateGuard';
@@ -54,17 +55,27 @@ const VALID_VAT_CODES: VatType[] = [
   'export', 'imported', 'reverse_charge', 'bad_debt', 'no_vat',
 ];
 
+/**
+ * A row's date as ISO, day first (03/04/2026 is 3 April). `new Date(str)` read
+ * it month-first, and so does Postgres's default DateStyle on the raw string.
+ * An unreadable date is left as it came so validation names it.
+ */
+export function normaliseImportRowDate<T extends { date: string }>(row: T): T {
+  const iso = parseImportDate(String(row.date ?? ''));
+  return iso && iso !== row.date ? { ...row, date: iso } : row;
+}
+
 function parseDate(dateStr: string): Date | null {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return null;
-  return d;
+  const iso = parseImportDate(dateStr);
+  // An ISO date-only string, exactly what this compared before (UTC midnight).
+  return iso ? new Date(iso) : null;
 }
 
 export async function validateImportRows(
   companyId: string,
-  rows: ImportRow[],
+  inputRows: ImportRow[],
 ): Promise<ValidationSummary> {
+  const rows = inputRows.map(normaliseImportRowDate);
   try {
     const accountRows = (await sql`
       SELECT account_code, id
@@ -115,7 +126,7 @@ export async function validateImportRows(
       const day = days.get(String(row.date ?? '')) ?? null;
       const windowError = day === null ? null : journalDayWindowError(day);
       if (!parsedDate) {
-        errors.push(`Invalid date: "${row.date}" — expected YYYY-MM-DD`);
+        errors.push(`Invalid date: "${row.date}" — expected YYYY-MM-DD or DD/MM/YYYY`);
       } else if (windowError) {
         errors.push(windowError);
       } else {

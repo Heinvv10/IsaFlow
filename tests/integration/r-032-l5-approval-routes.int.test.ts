@@ -16,6 +16,10 @@ import type { NextApiHandler } from 'next';
 import supplierCreditNotes from '../../pages/api/accounting/supplier-credit-notes';
 import batchPaymentsAction from '../../pages/api/accounting/batch-payments-action';
 import netcashSubmit from '../../pages/api/accounting/netcash/submit';
+import netcashResolve from '../../pages/api/accounting/netcash/resolve';
+import netcashStatus from '../../pages/api/accounting/netcash/status';
+import eftFileRelease from '../../pages/api/accounting/eft-file-release';
+import eftGenerate from '../../pages/api/accounting/eft-generate';
 import closeRunDecide from '../../pages/api/accounting/close-run/decide';
 import payrollRunApprove from '../../pages/api/payroll/runs/[id]/approve';
 import payrollBatchPost from '../../pages/api/payroll/batches/[id]/post';
@@ -68,8 +72,12 @@ const CASES: Case[] = [
     lineItems: [{ description: 'R032', quantity: 1, unitPrice: 100, vatType: 'standard' }] } } },
   { name: 'batch payment approve', handler: batchPaymentsAction, call: { body: { action: 'approve', id: missing } } },
   { name: 'batch payment process', handler: batchPaymentsAction, call: { body: { action: 'process', id: missing } } },
-  { name: 'Netcash EFT submit', handler: netcashSubmit, call: { body: { payments: [
-    { accountHolder: 'R032', bankCode: '250655', accountNumber: '62000000000', amount: 100, reference: 'r032' }] } } },
+  { name: 'Netcash EFT submit', handler: netcashSubmit, call: { body: { batchPaymentId: missing } } },
+  { name: 'EFT bank file generation', handler: eftGenerate, call: { body: { batchId: missing, bank: 'fnb' } } },
+  { name: 'EFT bank file release', handler: eftFileRelease, call: { body: { batchId: missing, reason: 'r032' } } },
+  { name: 'Netcash claim resolve', handler: netcashResolve, call: { body: { submissionId: missing, outcome: 'failed', note: 'r032' } } },
+  // A poll calls Netcash and writes the row (a GET, so no write wrapper): refused like its siblings.
+  { name: 'Netcash status poll', handler: netcashStatus, call: { method: 'GET', query: { submissionId: missing } } },
   { name: 'close-run proposal approve', handler: closeRunDecide,
     call: { body: { runId: missing, proposalId: other, decision: 'approve' } } },
   { name: 'close-run proposal reject', handler: closeRunDecide,

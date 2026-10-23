@@ -3,6 +3,8 @@ Description=IsaFlow — daily supplier-expectation cron (PRD-05 Phase 6)
 After=network-online.target isaflow.service
 Wants=network-online.target
 
+# The X-Cron-Secret header reaches curl on stdin (-H @-), never its argv, which
+# /proc/<pid>/cmdline shows every local account (scripts/isaflow-management-packs.service).
 [Service]
 Type=oneshot
 User=velo
@@ -11,12 +13,12 @@ EnvironmentFile=/home/velo/isaflow/.env.local
 # CRON_SECRET must be set in /home/velo/isaflow/.env.local. Use:
 #   openssl rand -hex 32
 # to generate. Never commit.
-ExecStart=/usr/bin/curl --silent --show-error --fail \
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
   --max-time 600 \
   -X POST \
-  -H "X-Cron-Secret: ${CRON_SECRET}" \
+  -H @- \
   -H "Content-Type: application/json" \
-  http://127.0.0.1:3101/api/cron/expectations-daily
+  http://127.0.0.1:3101/api/cron/expectations-daily'
 
 StandardOutput=journal
 StandardError=journal

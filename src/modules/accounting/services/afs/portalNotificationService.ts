@@ -7,35 +7,52 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
-import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
+import { emailLayout, emailContentRow, ctaButton } from '@/lib/email-templates-shared';
 import { escapeHtml } from './afsHtmlTableRenderer';
 import type { PortalContact } from './afsTypes';
 
 const APP_URL = 'https://app.isaflow.co.za';
 
+/** One company's sign-in link in the portal sign-in email (audit S-08). */
+export interface PortalSignInLink {
+  companyId: string;
+  companyName: string;
+  url: string;
+}
+
+/**
+ * One sign-in email listing every company the contact may sign in to, each
+ * with its own single-use link labelled by company name. Sends nothing when
+ * `links` is empty.
+ */
 export async function notifyMagicLinkRequested(
-  contact: PortalContact,
-  magicLinkUrl: string,
+  recipient: { name: string; email: string },
+  links: readonly PortalSignInLink[],
 ): Promise<void> {
+  if (links.length === 0) return;
   try {
-    const html = emailLayout(`
-      <h2>ISaFlow Portal — Sign-in Link</h2>
-      <p>Hi ${escapeHtml(contact.name)},</p>
-      <p>Click the button below to access your financial documents. This link expires in 30 minutes.</p>
-      ${ctaButton('Sign In to Portal', magicLinkUrl)}
-      <p style="font-size:12px;color:#94a3b8;">If you did not request this link, you can safely ignore this email.</p>
-    `);
+    const companies = links.map((l) => `
+      <p style="margin:16px 0 0;"><strong>${escapeHtml(l.companyName)}</strong></p>
+      ${ctaButton('Sign In to Portal', l.url)}`).join('');
+    const html = emailLayout(emailContentRow(`
+        <h2>ISaFlow Portal — Sign-in Link</h2>
+        <p>Hi ${escapeHtml(recipient.name)},</p>
+        <p>${links.length > 1 ? 'Choose the company whose financial documents you want to access.' : 'Click the button below to access your financial documents.'} Each link works once and expires in 30 minutes.</p>
+        ${companies}
+        <p style="font-size:12px;color:#94a3b8;">If you did not request this link, you can safely ignore this email.</p>
+    `));
     await sendEmail({
-      to: contact.email,
+      to: recipient.email,
       subject: 'ISaFlow Portal — Your sign-in link',
       html,
-      _log: { companyId: contact.companyId, emailType: 'other', sentBy: null },
+      // email_log takes one company: the first. The info line below names them all.
+      _log: { companyId: links[0]!.companyId, emailType: 'other', sentBy: null },
     });
-    log.info('Magic link email sent', { contactId: contact.id, email: contact.email }, 'portalNotificationService');
+    log.info('Magic link email sent', { companyIds: links.map((l) => l.companyId), linkCount: links.length }, 'portalNotificationService');
   } catch (err) {
     log.error(
       'Failed to send magic link email',
-      { contactId: contact.id, error: err instanceof Error ? err.message : String(err) },
+      { companyIds: links.map((l) => l.companyId), error: err instanceof Error ? err.message : String(err) },
       'portalNotificationService',
     );
   }
@@ -47,13 +64,13 @@ export async function notifySigningRequested(
   signingUrl: string,
 ): Promise<void> {
   try {
-    const html = emailLayout(`
+    const html = emailLayout(emailContentRow(`
       <h2>Annual Financial Statements — Signature Required</h2>
       <p>Hi ${escapeHtml(contact.name)},</p>
       <p>The annual financial statements for your company are ready for your signature.</p>
       ${ctaButton('Review & Sign', signingUrl)}
       <p style="font-size:12px;color:#94a3b8;">This signing link expires in ${process.env.SIGNUM_EXPIRES_IN_DAYS ?? 14} days.</p>
-    `);
+    `));
     await sendEmail({
       to: contact.email,
       subject: 'Annual Financial Statements — Signature Required',
@@ -84,12 +101,12 @@ export async function notifyDocumentSignedOff(
     `) as Array<{ id: string; name: string; email: string }>;
 
     for (const row of contacts) {
-      const html = emailLayout(`
+      const html = emailLayout(emailContentRow(`
         <h2>Annual Financial Statements — Signed Off</h2>
         <p>Hi ${escapeHtml(row.name)},</p>
         <p>All signatures have been collected. The signed document is now available in your portal.</p>
         ${ctaButton('View in Portal', `${APP_URL}/accounting/afs/portal/dashboard`)}
-      `);
+      `));
       await sendEmail({
         to: row.email,
         subject: 'Annual Financial Statements — Signed Off',
@@ -126,12 +143,12 @@ export async function notifyAnnotationReceived(
     `) as Array<{ email: string; first_name: string | null }>;
 
     for (const row of recipients) {
-      const html = emailLayout(`
+      const html = emailLayout(emailContentRow(`
         <h2>New Client Annotation — AFS Review</h2>
         <p>Hi ${escapeHtml(row.first_name ?? 'there')},</p>
         <p><strong>${escapeHtml(authorName)}</strong> left a comment on a section of the annual financial statements.</p>
         ${ctaButton('Review Annotations', `${APP_URL}/accounting/afs`)}
-      `);
+      `));
       await sendEmail({
         to: row.email,
         subject: 'New client annotation on AFS document',

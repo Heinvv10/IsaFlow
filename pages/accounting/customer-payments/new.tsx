@@ -74,7 +74,7 @@ export default function NewCustomerPaymentPage() {
         const data = res.data || res;
         const list = Array.isArray(data) ? data : data.invoices || [];
         setInvoices(list.filter((inv: OutstandingInvoice) =>
-          Number(inv.total_amount) - Number(inv.amount_paid) > 0.01
+          Math.round(Number(inv.total_amount) * 100) - Math.round(Number(inv.amount_paid) * 100) > 0
         ));
       })
       .catch(err => { setInvoices([]); setError(apiErrorMessage(err, 'Could not load outstanding invoices - try again')); });
