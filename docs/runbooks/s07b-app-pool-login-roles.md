@@ -67,15 +67,18 @@ The follow-up PR (migrations 918 and 919, 2026-10-23) also takes effect on deplo
 S-07c (migration 930, 2026-10-23) also takes effect on deploy:
 
 - No app role may INSERT or UPDATE `personal_access_tokens`, `oauth_apps`,
-  `oauth_authorisation_codes`, `oauth_authorisations`, `company_invitations` or
-  `company_users`, except `company_users.role` (the members screen) and
-  `last_used_at` / `last_used_ip` on the two token tables (bearer validation).
+  `oauth_authorisation_codes`, `oauth_authorisations`, `capture_api_keys`,
+  `company_invitations` or `company_users`, except `company_users.role` (the
+  members screen) and the last-used stamps on the three token tables.
   `auth_password_reset_tokens` and `admin_impersonation_stash` lose every app
-  role grant. The code makes those writes on the migration_admin pool: PAT
-  create and revoke, every OAuth mint, refresh and revoke, invitation create,
-  resend and send status, password reset, and the impersonation stash. 930
-  refuses to apply unless migration_admin holds those privileges and
-  platform_admin keeps UPDATE on the token tables (admin suspension).
+  role grant. The code makes those writes on the migration_admin pool: PAT and
+  capture-key create and revoke, every OAuth mint, refresh and revoke,
+  invitation create, resend and send status, password reset, and the
+  impersonation stash. The OAuth token endpoint checks a code or refresh token
+  on the service pool first, so a bogus one never takes a migration_admin
+  connection. 930 refuses to apply unless migration_admin holds those
+  privileges and platform_admin keeps UPDATE on the token tables (admin
+  suspension) and on `waitlist_signups` (promotion).
 - An invitation never adds an existing account: every invitee gets a link and
   accepts it. The members screen says "Invitation sent" for everyone.
 - `waitlist_signups` gets row security; the public form may only INSERT.
@@ -84,11 +87,29 @@ S-07c (migration 930, 2026-10-23) also takes effect on deploy:
 - verify-email provisions a tenant only when GoTrue's address for the token's
   user equals the signup's.
 - During the deploy window (930 applied, old code still serving) the old
-  release's PAT, OAuth-token, invitation, password-reset and end-impersonation
-  writes are refused (42501) and answer an error, minting nothing. Reads,
-  bearer validation, invite acceptance and logins keep working. A code-only
-  rollback leaves the same state until the new code is back: an admin stuck
-  in a Login-as session signs out instead of "Return to my session".
+  release's writes to those tables are refused (42501) and answer an error,
+  minting nothing. That includes REVOKING: a user cannot revoke a PAT, a
+  capture key or an OAuth app, or disconnect an OAuth app, until the new code
+  is live; admin suspension (platform_admin) still revokes everything a user
+  holds. Also refused: OAuth code exchange and refresh (connected MCP clients
+  fail until the new code is live, then reconnect), invitation create,
+  password reset, "Return to my session" after Login-as (the admin signs out
+  instead), and the public waitlist form (its `RETURNING` needs SELECT: leads
+  submitted in the window are lost). Reads, bearer and capture-key
+  validation, invite acceptance and logins keep working.
+- A code-only rollback leaves that state for as long as the old code runs. If
+  it must run for more than an hour, re-grant the old writes by hand (as the
+  owner), and expect `scripts/check-app-login-roles.ts` to refuse the next
+  deploy until they are revoked again (re-run 930's REVOKE lines):
+
+  ```sql
+  -- BREAK-GLASS, old code only: undoes 930's protection. Revert before deploying.
+  GRANT INSERT, UPDATE ON public.personal_access_tokens, public.oauth_apps, public.oauth_authorisation_codes,
+    public.oauth_authorisations, public.capture_api_keys, public.company_invitations TO app_user;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON public.auth_password_reset_tokens, public.admin_impersonation_stash TO app_user;
+  GRANT SELECT ON public.waitlist_signups TO app_user;
+  SELECT public.app_service_sync_policies();
+  ```
 - 930's rules join 920's in `app_pool_reach_violations()`, so every later
   deploy refuses the code switch if one of these privileges comes back.
 
@@ -156,6 +177,8 @@ SELECT w.role, w.tbl, p.priv FROM (VALUES
     ('migration_admin', 'public.oauth_authorisations', 'SELECT, INSERT, UPDATE'),
     ('migration_admin', 'public.auth_password_reset_tokens', 'SELECT, INSERT, UPDATE, DELETE'),
     ('migration_admin', 'public.admin_impersonation_stash', 'SELECT, INSERT, DELETE'),
+    ('migration_admin', 'public.capture_api_keys', 'SELECT, INSERT, UPDATE'),
+    ('platform_admin', 'public.waitlist_signups', 'SELECT, UPDATE'),
     ('platform_admin', 'public.personal_access_tokens', 'UPDATE'),
     ('platform_admin', 'public.oauth_authorisations', 'UPDATE')) w(role, tbl, privs),
   unnest(string_to_array(w.privs, ', ')) p(priv)
@@ -165,10 +188,27 @@ SELECT w.role, w.tbl, p.priv FROM (VALUES
 -- and 930's own check would refuse the migration)
 SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
  WHERE c.oid = ANY (ARRAY['public.personal_access_tokens', 'public.oauth_apps', 'public.oauth_authorisation_codes',
-         'public.oauth_authorisations', 'public.company_invitations', 'public.company_users', 'public.auth_password_reset_tokens',
+         'public.oauth_authorisations', 'public.capture_api_keys', 'public.company_invitations', 'public.company_users',
+         'public.auth_password_reset_tokens',
          'public.admin_impersonation_stash', 'public.waitlist_signups']::regclass[])
    AND a.grantee <> 0 AND a.grantee <> 'app_user'::regrole
    AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
+-- 930: a table whose REVOKE the deploy role could not make (it must be the
+-- owner or a member of it; otherwise the REVOKE is a WARNING and 930 refuses)
+SELECT c.oid::regclass, pg_get_userbyid(c.relowner) FROM pg_class c
+ WHERE c.oid = ANY (ARRAY['public.personal_access_tokens', 'public.oauth_apps', 'public.oauth_authorisation_codes',
+         'public.oauth_authorisations', 'public.capture_api_keys', 'public.company_invitations', 'public.company_users',
+         'public.auth_password_reset_tokens', 'public.admin_impersonation_stash', 'public.waitlist_signups']::regclass[])
+   AND NOT pg_has_role(current_user, c.relowner, 'USAGE');
+-- 930: a definer app_user may call that writes one of those tables, other than
+-- the two 930 reviews by name (930's check refuses any other)
+SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+ WHERE p.prosecdef AND n.nspname IN ('public','auth','app','platform_shared')
+   AND has_function_privilege('app_user', p.oid, 'EXECUTE')
+   AND p.prosrc ~* '\m(insert\s+into|update|delete\s+from)\s+(public\.)?(personal_access_tokens|oauth_apps|oauth_authorisation_codes|oauth_authorisations|capture_api_keys|company_invitations|company_users|auth_password_reset_tokens|password_reset_tokens|admin_impersonation_stash|waitlist_signups)\M'
+   AND p.oid::regprocedure::text NOT IN ('create_company_with_owner(jsonb)', 'auth.set_default_company(uuid,uuid)');
+-- After the deploy, 930's rules run on every deploy; by hand (zero rows):
+--   SELECT * FROM public.app_pool_reach_violations();
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (
   SELECT proname, prosrc, (length(prosrc) - length(replace(prosrc, l, ''))) / length(l) AS hits

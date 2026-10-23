@@ -18,7 +18,8 @@ import { mayDecorate } from '@/lib/auth/consentAppView';
 import { isReservedClientName } from '@/lib/auth/reservedClientName';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { migrationAdminPool } from './migrationAdminPool';
+import type { PoolClient } from 'pg';
+import { migrationAdminPool, migrationAdminTx } from './migrationAdminPool';
 import { assertNotImpersonating } from './impersonationGuard';
 
 type Row = Record<string, unknown>;
@@ -309,36 +310,49 @@ export async function exchangeCode(args: {
   const codeHash = sha256Hex(args.code);
   const verifierChallenge = createHash('sha256').update(args.codeVerifier).digest('base64url');
 
+  // An unknown, used or expired code is refused on the service pool, which may
+  // read the table: this public endpoint reaches the small migration_admin
+  // pool only for a code that exists.
+  const known = (await sql`
+    SELECT 1 FROM oauth_authorisation_codes
+     WHERE code_hash = ${codeHash} AND used_at IS NULL AND expires_at > NOW()
+     LIMIT 1
+  `) as Row[];
+  if (known.length === 0) throw invalidCode();
+
   // Atomic: only mark the code used when verifier matches. Wrong verifier
-  // returns 0 rows and the code remains usable for a legitimate retry.
-  const rows = (await migrationAdminPool().query(
-    `UPDATE oauth_authorisation_codes
-        SET used_at = NOW()
-      WHERE code_hash = $1
-        AND used_at IS NULL
-        AND expires_at > NOW()
-        AND oauth_app_id = $2::uuid
-        AND redirect_uri = $3
-        AND code_challenge = $4
-      RETURNING user_id, company_id, scopes`,
-    [codeHash, args.oauthAppId, args.redirectUri, verifierChallenge],
-  )).rows as Row[];
+  // returns 0 rows and the code remains usable for a legitimate retry. One
+  // transaction with the token issue, so a failure between them burns nothing.
+  return migrationAdminTx('oauth code exchange', async (client) => {
+    const rows = (await client.query(
+      `UPDATE oauth_authorisation_codes
+          SET used_at = NOW()
+        WHERE code_hash = $1
+          AND used_at IS NULL
+          AND expires_at > NOW()
+          AND oauth_app_id = $2::uuid
+          AND redirect_uri = $3
+          AND code_challenge = $4
+        RETURNING user_id, company_id, scopes`,
+      [codeHash, args.oauthAppId, args.redirectUri, verifierChallenge],
+    )).rows as Row[];
 
-  if (rows.length === 0) {
-    throw new OauthExchangeError(
-      'invalid_grant',
-      'Authorisation code is invalid, expired, used, redirect_uri mismatched, or PKCE verifier wrong',
-    );
-  }
+    if (rows.length === 0) throw invalidCode();
 
-  const r = rows[0]!;
-  return await issueTokens({
-    oauthAppId: args.oauthAppId,
-    userId: r.user_id as string,
-    companyId: r.company_id as string,
-    scopes: (r.scopes as string[]) ?? [],
+    const r = rows[0]!;
+    return issueTokens(client, {
+      oauthAppId: args.oauthAppId,
+      userId: r.user_id as string,
+      companyId: r.company_id as string,
+      scopes: (r.scopes as string[]) ?? [],
+    });
   });
 }
+
+const invalidCode = () => new OauthExchangeError(
+  'invalid_grant',
+  'Authorisation code is invalid, expired, used, redirect_uri mismatched, or PKCE verifier wrong',
+);
 
 // ── Token issue + refresh ───────────────────────────────────────────────────
 
@@ -352,7 +366,7 @@ interface IssueTokensInput {
   previousRefreshHash?: string;
 }
 
-async function issueTokens(input: IssueTokensInput): Promise<ExchangeResult> {
+async function issueTokens(client: PoolClient, input: IssueTokensInput): Promise<ExchangeResult> {
   const access = generateToken('oat_', 32);
   const includesOffline = input.scopes.includes('offline_access');
   const refresh = includesOffline ? generateToken('ort_', 32) : null;
@@ -362,7 +376,7 @@ async function issueTokens(input: IssueTokensInput): Promise<ExchangeResult> {
   const accessExpiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_SECS * 1000);
   const refreshExpiresAt = refresh ? new Date(Date.now() + REFRESH_TOKEN_TTL_SECS * 1000) : null;
 
-  await migrationAdminPool().query(
+  await client.query(
     `INSERT INTO oauth_authorisations (
        oauth_app_id, user_id, company_id, scopes,
        access_token_hash, access_token_prefix, access_token_expires_at,
@@ -416,6 +430,18 @@ export async function refreshAccessToken(args: {
     throw new OauthExchangeError('invalid_client', 'Unknown client');
   }
   const oauthAppId = appRows[0]!.id as string;
+
+  // As in exchangeCode: a hash no grant of this app holds (current or rotated out) never reaches migration_admin.
+  const known = (await sql`
+    SELECT 1 FROM oauth_authorisations
+     WHERE oauth_app_id = ${oauthAppId}::uuid
+       AND (refresh_token_hash = ${presentedHash} OR previous_refresh_token_hash = ${presentedHash})
+     LIMIT 1
+  `) as Row[];
+  if (known.length === 0) {
+    log.info('OAuth refresh: unknown or expired token', { clientId: args.clientId }, 'oauth');
+    throw new OauthExchangeError('invalid_grant', 'Refresh token is invalid, expired, or has been replayed');
+  }
 
   // Pre-allocate the new refresh token so we can write it inside the rotation UPDATE.
   const newAccess = generateToken('oat_', 32);
@@ -497,10 +523,8 @@ export async function validateOauthAccessToken(
   if (!rawToken.startsWith('oat_')) return null;
   const hash = sha256Hex(rawToken);
 
-  // Validation runs on the privileged default pool (validateOauthAccessToken
-  // is called BEFORE the request's app_user transaction is set up). The query
-  // bypasses RLS by virtue of the role; the lookup is hash-keyed so this is
-  // intentional.
+  // On the service pool, before the request transaction: a hash-keyed read
+  // that app_service's SELECT policy admits.
   const rows = (await sql`
     SELECT id, oauth_app_id, user_id, company_id, scopes, access_token_expires_at
     FROM oauth_authorisations
@@ -513,10 +537,6 @@ export async function validateOauthAccessToken(
   if (rows.length === 0) return null;
   const r = rows[0]!;
 
-  // last_used_at update — also via the privileged default pool (HIGH-5 fix).
-  // The original implementation used the same `sql` template inside ALS scope
-  // and was rejected by RLS (FOR ALL TO app_user). Running outside ALS via a
-  // fresh query goes through getPool() default role, bypassing RLS.
   void updateLastUsed(r.id as string, ip).catch((err) =>
     log.warn(
       'OAuth: failed to update last_used_at',
@@ -535,16 +555,9 @@ export async function validateOauthAccessToken(
 }
 
 /**
- * Last-used update that explicitly bypasses ALS context — must run on the
- * default-role pool because RLS on oauth_authorisations rejects writes from
- * app_user except via the owner policy (which works only when JWT claims are
- * set, i.e. inside the request's app_user tx).
- *
- * We use a no-op `als.run` with empty store... no — simplest path is to call
- * sql() outside any transaction context. Since this function is invoked from
- * validateOauthAccessToken which itself runs BEFORE als.run() in the auth
- * wrapper, the bare `sql` template falls through to getPool() (see
- * src/lib/neon/query.ts, LazyQuery.run). That's the privileged role.
+ * Last-used stamp, on the service pool (validateOauthAccessToken runs before
+ * the request transaction): migration 930 grants app roles UPDATE of
+ * last_used_at and last_used_ip only, which cannot make a token valid.
  */
 async function updateLastUsed(authorisationId: string, ip: string | null): Promise<void> {
   await sql`

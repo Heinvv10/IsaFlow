@@ -176,6 +176,22 @@ describe('S-07c: /api/invitations, revoke and the password accept route (GoTrue 
     expect(await invitation(u.email)).toBeUndefined();
     expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: `/admin/users/${u.id}` });
   });
+
+  // Architecture review H1: GoTrue is called holding no migration_admin
+  // connection or lock, and a new invitation it could not back is taken back.
+  it('GoTrue failing: no migration_admin transaction is open during the call, and the new invitation is withdrawn', async () => {
+    const u = await newUser(true);
+    let openTx = -1;
+    stubGotrue(async ({ method, path }) => {
+      if (method !== 'POST' || path !== '/admin/users') return undefined;
+      openTx = (await fixture.query(`SELECT count(*)::int AS n FROM pg_stat_activity
+        WHERE usename = 'migration_admin' AND state LIKE 'idle in transaction%'`)).rows[0].n;
+      return json(500, { msg: 'down' });
+    });
+    expect((await create(u.email, 'viewer')).status).toBe(500);
+    expect(openTx).toBe(0);
+    expect(await invitation(u.email)).toBeUndefined();
+  });
 });
 
 describe('S-07c: password reset, end of impersonation, waitlist', () => {

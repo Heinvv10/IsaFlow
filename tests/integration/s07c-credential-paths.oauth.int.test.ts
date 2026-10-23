@@ -19,6 +19,9 @@ import registerRoute from '../../pages/api/oauth/register';
 import consentRoute from '../../pages/api/oauth/consent';
 import tokenRoute from '../../pages/api/oauth/token';
 import authorisationRoute from '../../pages/api/oauth/authorisations/[id]';
+import captureKeysRoute from '../../pages/api/accounting/capture/api-keys/index';
+import captureKeyRevokeRoute from '../../pages/api/accounting/capture/api-keys/[id]/revoke';
+import { validateCaptureApiKey } from '@/lib/auth/captureApiKeyAuth';
 import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
@@ -37,6 +40,7 @@ beforeAll(async () => {
 }, 60000);
 afterAll(async () => {
   await fixture.query('DELETE FROM oauth_apps WHERE id = ANY($1::uuid[]) OR owner_user_id = $2', [appIds, me]);
+  await fixture.query('DELETE FROM capture_api_keys WHERE company_id = $1', [company]);
   await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool()]);
 });
 beforeEach(() => clearRateLimits());
@@ -68,6 +72,31 @@ describe('S-07c: a personal access token is minted, used and revoked through its
     expect(r).toMatchObject({ status: 200, body: { data: { revoked: true } } });
     expect((await row('personal_access_tokens', pat.id)).revoked_at).toBeInstanceOf(Date);
     expect((await mcpPing(pat.token)).status).toBe(401);
+  });
+});
+
+// capture_api_keys joined 930 after breaker round 1: a key with no creator acts as manager.
+describe('S-07c: a capture API key is minted, used and revoked through its routes', () => {
+  let key = { id: '', key: '' };
+
+  it('POST /api/accounting/capture/api-keys mints a key (migration_admin INSERT) created by the caller', async () => {
+    const r = await callRoute(captureKeysRoute, { sub: me, method: 'POST', companyId: company, body: { label: 's07c key' } });
+    expect(r.status).toBe(201);
+    key = (r.body as { data: { id: string; key: string } }).data;
+    expect(await row('capture_api_keys', key.id)).toMatchObject({
+      company_id: company, created_by: me, key_hash: sha256(key.key), is_active: true, revoked_at: null });
+  });
+
+  it('the key validates as its creator\'s role, and validation stamps last_used_at (service pool, 930\'s column grant)', async () => {
+    expect(await validateCaptureApiKey(key.key)).toMatchObject({ companyId: company, keyId: key.id, role: 'admin' });
+    expect(await poll(async () => (await row('capture_api_keys', key.id)).last_used_at)).toBeInstanceOf(Date);
+  });
+
+  it('POST /api/accounting/capture/api-keys/[id]/revoke revokes it (migration_admin), and it no longer validates', async () => {
+    const r = await callRoute(captureKeyRevokeRoute, { sub: me, method: 'POST', companyId: company, query: { id: key.id } });
+    expect(r.status).toBe(200);
+    expect(await row('capture_api_keys', key.id)).toMatchObject({ is_active: false });
+    expect(await validateCaptureApiKey(key.key)).toBeNull();
   });
 });
 

@@ -140,12 +140,22 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     expiresIn: targetTokens.expires_in,
   });
 
-  const memberships = await sql<{ company_id: string }>`
-    SELECT company_id FROM company_users
-    WHERE user_id = ${target.userId}
-    ORDER BY is_default DESC, created_at ASC
-    LIMIT 1
-  `;
+  // The stash commits on its own pool (S-07c), so a 500 from here on no longer
+  // rolls it back: remove it, as the failures above do.
+  let memberships: Array<{ company_id: string }>;
+  try {
+    memberships = await sql<{ company_id: string }>`
+      SELECT company_id FROM company_users
+      WHERE user_id = ${target.userId}
+      ORDER BY is_default DESC, created_at ASC
+      LIMIT 1
+    `;
+  } catch (err) {
+    await deleteStash(stashId).catch((cleanupErr: unknown) =>
+      log.error('impersonate: stash cleanup failed', { stashId, error: String(cleanupErr) }, 'Admin'),
+    );
+    throw err;
+  }
   if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
 
   setImpersonationCookies(res, stashId, proof);

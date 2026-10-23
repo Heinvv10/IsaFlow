@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { sql } from '@/lib/neon';
 import { generateCaptureApiKey } from '@/lib/auth/captureApiKeyAuth';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -58,11 +59,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const { raw, hash, prefix } = generateCaptureApiKey();
     const createdBy = req.user?.id ?? null;
 
-    const insertRows = await sql`
-      INSERT INTO capture_api_keys (company_id, key_hash, key_prefix, label, created_by)
-      VALUES (${companyId}, ${hash}, ${prefix}, ${label}, ${createdBy})
-      RETURNING id, label, key_prefix, created_at
-    ` as Row[];
+    // On the migration_admin pool, keyed on the verified company and caller
+    // (S-07c): a row here is a live upload credential acting with its
+    // creator's role, so no app role may write the table (migration 930).
+    const insertRows = await migrationAdminTx('create capture api key', async (client) => (await client.query(
+      `INSERT INTO capture_api_keys (company_id, key_hash, key_prefix, label, created_by)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, label, key_prefix, created_at`,
+      [companyId, hash, prefix, label, createdBy],
+    )).rows as Row[]);
 
     const inserted = insertRows[0]!;
 

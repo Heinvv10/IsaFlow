@@ -19,7 +19,7 @@ import {
   markInvitationEmailSent,
   markInvitationEmailFailed,
 } from '@/modules/accounting/services/core/userAccessService';
-import { InvitationForbiddenError } from '@/modules/accounting/services/core/userInvitationService';
+import { InvitationConflictError, InvitationForbiddenError } from '@/modules/accounting/services/core/userInvitationService';
 import { sendInviteEmail } from '@/modules/accounting/services/core/emailService';
 import { checkSendRateLimit } from '@/lib/rateLimit';
 type Row = Record<string, unknown>;
@@ -114,6 +114,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { ...result, emailSent });
     } catch (err) {
       if (err instanceof InvitationForbiddenError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof InvitationConflictError) return apiResponse.conflict(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Invite failed.');
     }
   }

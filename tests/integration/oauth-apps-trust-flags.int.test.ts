@@ -14,6 +14,11 @@
 // on a privilege that exists but is unreachable, and fails on a harmless
 // catalog reformat.
 //
+// Since S-07c (migration 930) app_user may not INSERT or UPDATE oauth_apps at
+// all, so the app_user tests below are refused at the table, before 693's
+// column model is consulted; 930's every-deploy rule refuses that grant coming
+// back. The owner-path tests still exercise 693's trigger.
+//
 // COLUMN PRIVILEGES ARE NOT ENOUGH, and the app_user tests below do not on
 // their own prove the property. A table's OWNER is never checked against
 // column privileges, the pool connects as `postgres`, and `postgres` owns

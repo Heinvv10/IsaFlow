@@ -88,6 +88,11 @@ const MINTS: Mint[] = [
   ['a signup planted as promoted', 'waitlist_signups', `INSERT INTO waitlist_signups (email, promoted_company_id)
     VALUES ('planted@evil.test', $1)`, () => [company]],
   ['the matview throttle reset', 'matview_refresh_state', 'DELETE FROM matview_refresh_state', () => []],
+  // No creator: validateCaptureApiKey admits it as manager, for any company.
+  ['a capture key for another company', 'capture_api_keys', `INSERT INTO capture_api_keys (company_id, label, key_hash, key_prefix)
+    VALUES ($1, 'forged', 'forged-hash', 'isa_live_fo')`, () => [other]],
+  ['a revoked capture key revived', 'capture_api_keys', 'UPDATE capture_api_keys SET is_active = true, revoked_at = NULL WHERE company_id = $1',
+    () => [company]],
 ];
 
 const pools: Array<[string, () => Pool, Parameters<typeof attempt>[2]]> = [
@@ -101,7 +106,9 @@ describe.each(pools)('S-07c (930): %s', (_, pool, opts) => {
     expect(await attempt(pool(), [[text, params()]], opts)).toEqual(denied(table));
   });
 
-  it.each(MINTS.filter(([, t]) => t !== 'waitlist_signups').slice(0, 1))(
+  // The first mint of each table: the S-07 bypass of a current_user check.
+  const firstPerTable = MINTS.filter(([, t], i) => MINTS.findIndex(([, u]) => u === t) === i);
+  it.each(firstPerTable)(
     'cannot write %s after set_config(role, none) either', async (_what, table, text, params) => {
       const r = await attempt(pool(), [[`SELECT set_config('role', 'none', true)`], [text, params()]], opts);
       // isaflow_app inherits nothing, so it has no privilege on the table at all.
@@ -116,9 +123,12 @@ describe('S-07c (930): what an app role may still write', () => {
     expect(r).toBeNull();
   });
 
-  it.each(['personal_access_tokens', 'oauth_authorisations'])('the last-used stamp on %s, on the service pool', async (table) => {
-    expect(await attempt(getDbPool(), [[`UPDATE ${table} SET last_used_at = NOW(), last_used_ip = '127.0.0.1' WHERE user_id = $1`,
-      [ids.me]]])).toBeNull();
+  it.each([
+    ['personal_access_tokens', `UPDATE personal_access_tokens SET last_used_at = NOW(), last_used_ip = '127.0.0.1' WHERE user_id = $1`],
+    ['oauth_authorisations', `UPDATE oauth_authorisations SET last_used_at = NOW(), last_used_ip = '127.0.0.1' WHERE user_id = $1`],
+    ['capture_api_keys', 'UPDATE capture_api_keys SET last_used_at = NOW() WHERE created_by = $1'],
+  ])('the last-used stamp on %s, on the service pool', async (_, text) => {
+    expect(await attempt(getDbPool(), [[text, [ids.me]]])).toBeNull();
   });
 
   it('a waitlist signup, on the service pool, as the form writes it: no RETURNING, no conflict target', async () => {

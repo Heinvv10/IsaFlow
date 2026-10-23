@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const { adminQueryMock } = vi.hoisted(() => ({ adminQueryMock: vi.fn() }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminPool: () => ({ query: adminQueryMock }),
+  migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) => fn({ query: adminQueryMock }),
 }));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
@@ -96,6 +97,7 @@ describe('POST /api/oauth/token — public (PKCE-only) clients', () => {
 
   it('exchanges a code WITHOUT client_secret when the app is public', async () => {
     mockSqlOnce([appRow(false)]); // getOauthAppByClientId
+    mockSqlOnce([{ '?column?': 1 }]); // the service-pool pre-read finds the code (S-07c)
     mockAdminOnce([{ user_id: USER_ID, company_id: COMPANY_ID, scopes: ['read:reports'] }]); // consume
     const res = makeRes();
     await handler(makeReq(grant), res);
@@ -134,6 +136,7 @@ describe('POST /api/oauth/token — public (PKCE-only) clients', () => {
       resetSqlMock();
       adminQueryMock.mockClear();
       mockSqlOnce([appRow(false)]);
+      mockSqlOnce([{ '?column?': 1 }]);
       mockAdminOnce([{ user_id: USER_ID, company_id: COMPANY_ID, scopes: ['read:reports'] }]);
       const res = makeRes();
       await handler(makeReq({ ...grant, resource }), res);

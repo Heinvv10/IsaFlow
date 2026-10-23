@@ -120,7 +120,7 @@ describe('S-07c A: an existing account is invited, never added', () => {
     await fixture.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, u.id]);
     const before = mail.sent.length;
     const r = await invite(u.email.toUpperCase());
-    expect(r.status).toBe(400);
+    expect(r).toMatchObject({ status: 409, body: { error: { message: 'This user is already a member of the company.' } } });
     expect(mail.sent.length).toBe(before);
     expect((await fixture.query('SELECT 1 FROM company_invitations WHERE company_id = $1 AND lower(email) = $2',
       [company, u.email])).rows).toEqual([]);
@@ -140,7 +140,7 @@ describe('S-07c A: an existing account is invited, never added', () => {
     expect((await fixture.query('SELECT email FROM users WHERE id = $1', [u.id])).rows).toEqual([{ email: x }]);
     // Through the route and through the service pool: neither adds U.
     expect(await invite(x)).toMatchObject({ status: 200, body: { data: { autoAdded: false } } });
-    await createInvitation(company, x, 'admin', me).catch(() => undefined);
+    expect((await createInvitation(company, x, 'admin', me)).autoAdded).toBe(false);
     expect(await memberships(u.id)).toEqual([]);
   });
 });
@@ -172,6 +172,20 @@ describe('S-07c A: createInvitation checks the inviter (assertCanInvite)', () =>
     const email = `${crypto.randomUUID()}@test.local`;
     await expect(createInvitation(company, email, 'viewer', u.id)).rejects.toBeInstanceOf(InvitationForbiddenError);
     expect(await pending(email)).toBe(0);
+  });
+
+  // 883's RC003 judged these for app_user; the rules now sit in assertCanInvite.
+  it('an admin may re-issue a pending owner invitation only as a lesser one; it never stays owner under them', async () => {
+    const email = `${crypto.randomUUID()}@test.local`;
+    await createInvitation(company, email, 'owner', ids.owner);
+    const before = (await fixture.query('SELECT token FROM company_invitations WHERE company_id = $1 AND email = $2', [company, email])).rows[0];
+    await expect(createInvitation(company, email, 'owner', me)).rejects.toBeInstanceOf(InvitationForbiddenError);
+    expect((await fixture.query('SELECT role, token, invited_by FROM company_invitations WHERE company_id = $1 AND email = $2',
+      [company, email])).rows).toEqual([{ role: 'owner', token: before.token, invited_by: ids.owner }]);
+    // A re-invite at another role, as 883 allowed: it becomes the admin's viewer invitation.
+    await createInvitation(company, email, 'viewer', me);
+    expect((await fixture.query('SELECT role, invited_by FROM company_invitations WHERE company_id = $1 AND email = $2',
+      [company, email])).rows).toEqual([{ role: 'viewer', invited_by: me }]);
   });
 
   it('nor may someone who is not a member', async () => {

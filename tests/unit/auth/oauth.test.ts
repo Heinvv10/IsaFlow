@@ -18,6 +18,7 @@ import { createHash } from 'crypto';
 const { adminQueryMock } = vi.hoisted(() => ({ adminQueryMock: vi.fn() }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminPool: () => ({ query: adminQueryMock }),
+  migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) => fn({ query: adminQueryMock }),
 }));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
@@ -58,6 +59,7 @@ function allAdminValues(): unknown[] {
 }
 
 const APP_ID = '44444444-4444-4444-4444-444444444444';
+const KNOWN = [{ '?column?': 1 }];
 const AUTH_ID = '55555555-5555-5555-5555-555555555555';
 const USER_ID = 'user-gotrue-1';
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
@@ -88,6 +90,7 @@ describe('exchangeCode (auth-code grant)', () => {
   };
 
   it('happy path: consumes the code and mints hashed oat_/ort_ tokens', async () => {
+    mockSqlOnce(KNOWN);           // the service-pool pre-read finds the code
     mockAdminOnce([codeRow]); // atomic consume UPDATE returns the consent row
     const result = await exchangeCode({
       code: CODE,
@@ -123,6 +126,7 @@ describe('exchangeCode (auth-code grant)', () => {
   });
 
   it('PKCE, single-use, and expiry guards live in ONE atomic consume statement', async () => {
+    mockSqlOnce(KNOWN);
     mockAdminOnce([codeRow]);
     await exchangeCode({ code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID });
     const text = adminText(0);
@@ -136,6 +140,7 @@ describe('exchangeCode (auth-code grant)', () => {
 
   it('rejects a PKCE S256 verifier mismatch without minting tokens', async () => {
     // wrong verifier → challenge differs → WHERE matches 0 rows
+    mockSqlOnce(KNOWN);
     mockAdminOnce([]);
     await expect(
       exchangeCode({ code: CODE, redirectUri: REDIRECT, codeVerifier: 'wrong-verifier', oauthAppId: APP_ID }),
@@ -148,6 +153,7 @@ describe('exchangeCode (auth-code grant)', () => {
   });
 
   it('auth code is single-use: second exchange of the same code is rejected', async () => {
+    mockSqlOnce(KNOWN); mockSqlOnce(KNOWN); // both pre-reads see it unused; the second consume loses the race
     mockAdminOnce([codeRow]); // first consume wins
     const first = await exchangeCode({
       code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID,
@@ -166,6 +172,7 @@ describe('exchangeCode (auth-code grant)', () => {
   });
 
   it('scopes on the minted oat_ come from the stored consent row, never caller input', async () => {
+    mockSqlOnce(KNOWN);
     mockAdminOnce([{ ...codeRow, scopes: ['read:invoices'] }]);
     const result = await exchangeCode({
       code: CODE, redirectUri: REDIRECT, codeVerifier: VERIFIER, oauthAppId: APP_ID,
@@ -190,6 +197,7 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
 
   it('rotates atomically: new oat_/ort_ issued, old hash stashed as previous', async () => {
     mockSqlOnce([{ id: APP_ID }]); // client lookup
+    mockSqlOnce(KNOWN);            // the presented hash is a grant's
     mockAdminOnce([rotatedRow]);   // rotation UPDATE wins (admin pool)
     const result = await refreshAccessToken({ refreshToken: OLD_REFRESH, clientId: CLIENT_ID });
 
@@ -215,6 +223,7 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
 
   it('replaying a rotated-out ort_ REVOKES the entire authorisation', async () => {
     mockSqlOnce([{ id: APP_ID }]); // client lookup
+    mockSqlOnce(KNOWN);            // it is a rotated-out hash
     mockAdminOnce([]);             // rotation finds no current-hash row
     mockAdminOnce([{ id: AUTH_ID, user_id: USER_ID, company_id: COMPANY_ID }]); // previous-hash match
 
@@ -235,6 +244,7 @@ describe('refreshAccessToken (rotation + replay defence)', () => {
 
   it('rejects refresh of a revoked (or unknown/expired) authorisation', async () => {
     mockSqlOnce([{ id: APP_ID }]); // client lookup
+    mockSqlOnce(KNOWN);            // a revoked grant still holds the hash
     mockAdminOnce([]);             // rotation: revoked_at IS NULL guard fails
     mockAdminOnce([]);             // replay probe: nothing to revoke either
     await expect(
