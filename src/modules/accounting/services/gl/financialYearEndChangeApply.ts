@@ -142,6 +142,10 @@ export async function applyYearEndChange(
      WHERE id = ${yearId}::UUID AND company_id = ${companyId}::UUID
   `;
 
+  // The new start month BEFORE any later year is built: the template chains on
+  // from the transition year only when the year after it starts in the declared month.
+  await sql`UPDATE companies SET financial_year_start = ${chosen.newStartMonth} WHERE id = ${companyId}::UUID`;
+
   // Free the (label, number) keys first: a moved period may take a key an
   // unmoved one still holds until its own turn.
   const moved = (await sql`
@@ -156,7 +160,6 @@ export async function applyYearEndChange(
 
   await sql`SELECT public.fiscal_periods_generate(${yearId}::UUID, true)`;
   await generateFiscalYearForDate(companyId, chosen.nextYearStart);
-  await sql`UPDATE companies SET financial_year_start = ${chosen.newStartMonth} WHERE id = ${companyId}::UUID`;
   await sql`SET CONSTRAINTS fiscal_periods_fiscal_year_id_fkey IMMEDIATE`;
 
   const drift = (await sql`
