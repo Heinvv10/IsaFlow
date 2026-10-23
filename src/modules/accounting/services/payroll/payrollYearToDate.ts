@@ -109,6 +109,7 @@ export async function laterPeriodsWarnings(
     list.push(`${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`);
     months.set(key, list);
   }
+  // judgeYearToDateStale finds each month in this message as YYYY-MM: keep that format.
   return new Map([...months].map(([employee, list]) => [employee, {
     code: 'PAYE_LATER_PERIODS_APPROVED',
     severity: 'warning' as const,
@@ -126,10 +127,20 @@ export async function laterPeriodsWarnings(
  * - EARLIER month: this run's cumulative PAYE missed it — that month, as it
  *   now stands, was not approved when this run was calculated;
  * - LATER month: its PAYE missed this run — this run, as it now stands, was
- *   not approved when that month was calculated — and this run's lines lack
- *   PAYE_LATER_PERIODS_APPROVED, i.e. that month was not approved when THIS run
- *   was calculated (laterPeriodsWarnings adds the warning exactly then).
- * Recalculating clears either (a calculation reads both again).
+ *   not approved when that month was calculated — and, for some employee
+ *   both runs pay from the tables, this run's line lacks a
+ *   PAYE_LATER_PERIODS_APPROVED naming that month. Read off the lines, per
+ *   employee and per month, as laterPeriodsWarnings writes it: only for the
+ *   employees on the later month's lines at the time, naming the months, and
+ *   only on a line taxed from the tables (an employee it would never warn is
+ *   never required to carry it, so a recalculation always clears the
+ *   refusal; breaker round 1). "From the tables": periodic_taxable or
+ *   annual_taxable > 0; on this run's line, before migration 913 (NULLs),
+ *   taxable_income > 0 (a pre-cumulative line carries no warning: refused
+ *   until recalculated); on the later month's, NULL = calculated before
+ *   cumulative PAYE, which read no year-to-date, so missed nothing.
+ * Recalculating clears either (a calculation reads both again). The earlier
+ * arm is per run: a refusal when no employee is shared is conservative.
  *
  * "As it now stands": its lines were written (calculated) no later, and it was
  * approved then. "Approved at t": its current approval (`approved_at`, NULL =
@@ -152,6 +163,13 @@ export async function laterPeriodsWarnings(
  * and the comparison is exact. A caller with no outer transaction (a script)
  * holds that lock only for its own block; there an approval or a reopen
  * committed inside the window can be misjudged.
+ *
+ * NAMED LIMITS (tests: p4fu-r2-brk-employee-set): (b) a run calculated before
+ * cumulative PAYE (lines without periodic_taxable) read no year-to-date, so
+ * the earlier arm does not apply to it: approved with the ×12 PAYE it has,
+ * which the next cumulative month trues up — not February. (a) A NULL
+ * approved_at counts as approved all along; it is an approval from before
+ * migration 718, so a run that missed it was calculated before 913 too: (b).
  *
  * Read-only; under the gate's company approval lock. Null when current.
  */
@@ -184,7 +202,17 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
             me.calculated_at <= e.calculated_at
             AND ((me.status = ANY(${declarable}::text[]) AND COALESCE(me.approved_at <= e.calculated_at, true))
               OR COALESCE(me.approval_history @> e.calculated_at, false)))
-          AND NOT (COALESCE(e.approved_at <= me.calculated_at, true) OR COALESCE(e.approval_history @> me.calculated_at, false))
+          AND EXISTS (
+            SELECT 1 FROM payroll_run_lines ml
+            JOIN payroll_run_lines el ON el.run_id = e.id AND el.employee_id = ml.employee_id
+            WHERE ml.run_id = me.id
+              AND COALESCE(ml.periodic_taxable > 0 OR ml.annual_taxable > 0, ml.taxable_income > 0)
+              AND COALESCE(el.periodic_taxable > 0 OR el.annual_taxable > 0, false)
+              AND NOT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(ml.validation_results) = 'array'
+                                                        THEN ml.validation_results ELSE '[]'::jsonb END) w
+                WHERE w->>'code' = 'PAYE_LATER_PERIODS_APPROVED'
+                  AND strpos(w->>'message', to_char(e.period, 'YYYY-MM')) > 0))
       END
     ORDER BY e.period_year, e.period_month
   `) as DbRow[];
