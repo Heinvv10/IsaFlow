@@ -1,161 +1,129 @@
 /**
  * The AFS fiscal range is the single most consequential date calculation in
- * the product: it decides which twelve months a customer signs and files with
- * CIPC. It used to be hard-coded to January-December:
- *
- *     export function fiscalRange(year: number) {
- *       return { start: `${year}-01-01`, end: `${year}-12-31` };
- *     }
- *
- * with no reference to the company at all, so a February year-end reported a
- * whole quarter of the wrong trading.
+ * the product: it decides which months a customer signs and files with CIPC. It
+ * used to be hard-coded to January-December, then derived from the company's
+ * CURRENT start month. It is now read from the fiscal-year registry (a stored
+ * year keeps its own dates), so these tests drive the real registry reader
+ * through a fake of the two database functions (tests/helpers/fiscalYearSqlFake).
  *
  * CONVENTION, stated once and tested here: fiscal year N is the year that
  * ENDS in calendar year N. That is what an accountant means by "the 2026
- * annual financial statements", it is what afs_documents.fiscal_year holds,
- * and for a January start it collapses to calendar year N — which is what
- * every production fiscal_periods row currently is.
- *
- * Note this is the opposite labelling to gl/fiscalYearBasis.fiscalYearStart,
- * which names a fiscal year by the year it STARTS in. Both are defensible;
- * having two unlabelled conventions is not, so each states its own.
+ * annual financial statements" and what afs_documents.fiscal_year holds.
  */
-import { describe, it, expect, vi } from 'vitest';
-import { fiscalRangeFor, fiscalWindowForPeriod } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  fiscalYearSqlFake, MARCH_YEARS, TRANSITION_YEARS, type FakeYear,
+} from '../../../helpers/fiscalYearSqlFake';
 
-describe('fiscalRangeFor', () => {
-  it('collapses to the calendar year for a January year start', () => {
-    expect(fiscalRangeFor(2026, 1)).toEqual({ start: '2026-01-01', end: '2026-12-31' });
-  });
+const state = vi.hoisted(() => ({ sql: (async () => []) as (...a: unknown[]) => Promise<unknown[]> }));
+vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => state.sql(...a) }));
 
-  it('spans two calendar years for the South African March year start', () => {
+import {
+  getFiscalRange, getFiscalRangeWithPrior, getPriorFiscalRange, fiscalWindowForPeriod,
+} from '@/modules/accounting/services/afs/afsFiscalPeriod';
+
+function useYears(years: readonly FakeYear[]) {
+  const fake = fiscalYearSqlFake(years);
+  state.sql = fake as unknown as typeof state.sql;
+  return fake;
+}
+
+beforeEach(() => { useYears(MARCH_YEARS); });
+
+describe('getFiscalRange', () => {
+  it('is the stored year with that label: a March year spans two calendar years', async () => {
     // FY2026 for a 1 March company is 1 March 2025 to 28 February 2026.
-    expect(fiscalRangeFor(2026, 3)).toEqual({ start: '2025-03-01', end: '2026-02-28' });
+    expect(await getFiscalRange('c1', 2026)).toEqual({ start: '2025-03-01', end: '2026-02-28' });
   });
 
-  it('ends on 29 February in a leap year', () => {
-    expect(fiscalRangeFor(2028, 3)).toEqual({ start: '2027-03-01', end: '2028-02-29' });
+  it('returns a transition year at its real length, not twelve months', async () => {
+    useYears(TRANSITION_YEARS);
+    expect(await getFiscalRange('c1', 2027)).toEqual({ start: '2026-01-01', end: '2027-02-28' });
   });
 
-  it('handles a year start in the middle of the calendar', () => {
-    // 1 July 2025 to 30 June 2026.
-    expect(fiscalRangeFor(2026, 7)).toEqual({ start: '2025-07-01', end: '2026-06-30' });
+  it('keeps a past year on the dates it had after a change of year end', async () => {
+    useYears(TRANSITION_YEARS);
+    // Today's declared start is March, yet FY2026 stays the calendar year it was.
+    expect(await getFiscalRange('c1', 2026)).toEqual({ start: '2025-01-01', end: '2025-12-31' });
   });
 
-  it('handles a December year start, where the year ends on 30 November', () => {
-    expect(fiscalRangeFor(2026, 12)).toEqual({ start: '2025-12-01', end: '2026-11-30' });
-  });
-
-  it('produces ranges that are contiguous and non-overlapping year on year', () => {
-    for (const month of [1, 3, 7, 12]) {
-      const prior = fiscalRangeFor(2025, month);
-      const current = fiscalRangeFor(2026, month);
-
-      // The day after the prior year end is the current year start.
-      const dayAfter = new Date(`${prior.end}T00:00:00Z`);
-      dayAfter.setUTCDate(dayAfter.getUTCDate() + 1);
-      expect(dayAfter.toISOString().slice(0, 10)).toBe(current.start);
-    }
-  });
-
-  it('refuses a month outside 1-12 rather than clamping to March', () => {
-    // A silent clamp is how a misconfigured tenant gets a year end a quarter
-    // out with nothing on screen to say so.
-    expect(() => fiscalRangeFor(2026, 0)).toThrow(/1-12/);
-    expect(() => fiscalRangeFor(2026, 13)).toThrow(/1-12/);
-    expect(() => fiscalRangeFor(2026, Number.NaN)).toThrow(/1-12/);
+  it('refuses a label no year carries rather than guessing a range', async () => {
+    await expect(getFiscalRange('c1', 2099)).rejects.toThrow(/no financial year labelled 2099/);
   });
 });
 
 describe('getFiscalRangeWithPrior', () => {
-  it('resolves the year and its comparative from one lookup', async () => {
-    vi.resetModules();
-    const sql = vi.fn(async () => [{ financial_year_start: 3 }]);
-    vi.doMock('@/lib/neon', () => ({ sql }));
-
-    const { getFiscalRangeWithPrior } = await import(
-      '@/modules/accounting/services/afs/afsFiscalPeriod'
-    );
-    const { current, prior } = await getFiscalRangeWithPrior('c1', 2026, 2025);
-
-    // One query for both ranges: the financial year start cannot change
-    // between them, and calling twice ran the same single-row query twice.
-    expect(sql).toHaveBeenCalledTimes(1);
+  it('returns the year and the year immediately before it', async () => {
+    const { current, prior } = await getFiscalRangeWithPrior('c1', 2026, true);
     expect(current).toEqual({ start: '2025-03-01', end: '2026-02-28' });
     expect(prior).toEqual({ start: '2024-03-01', end: '2025-02-28' });
+  });
 
-    vi.doUnmock('@/lib/neon');
+  it('takes the REAL prior year of a transition year, not fy-1 on the current start month', async () => {
+    useYears(TRANSITION_YEARS);
+    const { current, prior } = await getFiscalRangeWithPrior('c1', 2027, true);
+    expect(current).toEqual({ start: '2026-01-01', end: '2027-02-28' });
+    // The year holding the day before 2026-01-01: the calendar year 2025.
+    expect(prior).toEqual({ start: '2025-01-01', end: '2025-12-31' });
   });
 
   it('returns a null comparative when none is asked for', async () => {
-    vi.resetModules();
-    const sql = vi.fn(async () => [{ financial_year_start: 1 }]);
-    vi.doMock('@/lib/neon', () => ({ sql }));
-
-    const { getFiscalRangeWithPrior } = await import(
-      '@/modules/accounting/services/afs/afsFiscalPeriod'
-    );
     const { current, prior } = await getFiscalRangeWithPrior('c1', 2026);
-
-    expect(current).toEqual({ start: '2026-01-01', end: '2026-12-31' });
+    expect(current).toEqual({ start: '2025-03-01', end: '2026-02-28' });
     expect(prior).toBeNull();
+  });
+});
 
-    vi.doUnmock('@/lib/neon');
+describe('getPriorFiscalRange', () => {
+  it('is the year before, whatever label it carries', async () => {
+    useYears(TRANSITION_YEARS);
+    expect(await getPriorFiscalRange('c1', 2028)).toEqual({ start: '2026-01-01', end: '2027-02-28' });
   });
 });
 
 describe('fiscalWindowForPeriod', () => {
-  it('is the calendar year for a January start', () => {
-    expect(fiscalWindowForPeriod('202612', 1)).toEqual({
+  it('is the calendar year for a January year', async () => {
+    useYears([{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' },
+      { fiscalYear: 2025, startDate: '2025-01-01', endDate: '2025-12-31' }]);
+    expect(await fiscalWindowForPeriod('c1', '202612')).toEqual({
       start: '202601', end: '202612', priorEnd: '202512',
     });
   });
 
-  it('opens in the prior calendar year for a February year end', () => {
-    // financial_year_start = 3, so FY2026 runs March 2025 to February 2026.
-    expect(fiscalWindowForPeriod('202602', 3)).toEqual({
+  it('opens in the prior calendar year for a February year end', async () => {
+    expect(await fiscalWindowForPeriod('c1', '202602')).toEqual({
       start: '202503', end: '202602', priorEnd: '202502',
     });
   });
 
-  it('keeps an interim period in the year that is still open', () => {
-    expect(fiscalWindowForPeriod('202509', 3)).toEqual({
+  it('keeps an interim period in the year that is still open', async () => {
+    expect(await fiscalWindowForPeriod('c1', '202509')).toEqual({
       start: '202503', end: '202509', priorEnd: '202502',
     });
   });
 
-  it('puts the opening month itself at the start of its own year', () => {
-    expect(fiscalWindowForPeriod('202503', 3)).toEqual({
+  it('puts the opening month itself at the start of its own year', async () => {
+    expect(await fiscalWindowForPeriod('c1', '202503')).toEqual({
       start: '202503', end: '202503', priorEnd: '202502',
     });
     // One month earlier still belongs to the year before.
-    expect(fiscalWindowForPeriod('202502', 3)).toEqual({
+    expect(await fiscalWindowForPeriod('c1', '202502')).toEqual({
       start: '202403', end: '202502', priorEnd: '202402',
     });
   });
 
-  it('wraps priorEnd across December for every start month', () => {
-    for (let m = 1; m <= 12; m++) {
-      const { start, priorEnd } = fiscalWindowForPeriod('202606', m);
-      const startNum = Number(start);
-      const priorNum = Number(priorEnd);
-      // priorEnd is exactly the month before start, so the two windows abut
-      // with no gap and no overlap — what makes opening cost and additions a
-      // partition rather than two overlapping sets.
-      expect(startNum - priorNum).toBe(m === 1 ? 89 : 1);
-      expect(priorNum).toBeLessThan(startNum);
-    }
+  it('opens a transition year at its own start, 14 months back from its end', async () => {
+    useYears(TRANSITION_YEARS);
+    expect(await fiscalWindowForPeriod('c1', '202702')).toEqual({
+      start: '202601', end: '202702', priorEnd: '202512',
+    });
   });
 
-  it('refuses a month outside 01-12 rather than doing arithmetic on it', () => {
-    expect(() => fiscalWindowForPeriod('202600', 3)).toThrow(/YYYYMM/);
-    expect(() => fiscalWindowForPeriod('202613', 3)).toThrow(/YYYYMM/);
-    expect(() => fiscalWindowForPeriod('2026', 3)).toThrow(/YYYYMM/);
-  });
-
-  it('refuses an unresolved financial year start rather than assuming March', () => {
-    expect(() => fiscalWindowForPeriod('202612', 0)).toThrow(/never assume March/);
-    expect(() => fiscalWindowForPeriod('202612', 13)).toThrow(/never assume March/);
-    expect(() => fiscalWindowForPeriod('202612', NaN)).toThrow(/never assume March/);
+  it('refuses a period that is not YYYYMM with a month 01-12 before asking the registry', async () => {
+    const fake = useYears(MARCH_YEARS);
+    await expect(fiscalWindowForPeriod('c1', '202600')).rejects.toThrow(/YYYYMM/);
+    await expect(fiscalWindowForPeriod('c1', '202613')).rejects.toThrow(/YYYYMM/);
+    await expect(fiscalWindowForPeriod('c1', '2026')).rejects.toThrow(/YYYYMM/);
+    expect(fake.calls).toEqual([]);
   });
 });

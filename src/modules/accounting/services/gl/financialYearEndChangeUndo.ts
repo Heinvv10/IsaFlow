@@ -181,7 +181,13 @@ export async function undoYearEndChange(companyId: string, userId: string, reaso
   await logAuditOrThrow({
     companyId, userId, action: 'reverse', entityType: 'fiscal_year_end_change', entityId: change.id,
     entityRef: `undo ${change.transitionStart}..${change.toEndDate} -> ${change.fromEndDate}`,
-    changes: { restoredEnd: change.fromEndDate, undoneEnd: change.toEndDate, restoredStartMonth: change.fromStartMonth, reason },
+    changes: {
+      fields: [
+        { field: 'year_end', label: 'Financial year end', old: change.toEndDate, new: change.fromEndDate },
+        { field: 'financial_year_start', label: 'Financial year start month', old: null, new: String(change.fromStartMonth) },
+      ],
+      metadata: { reason },
+    },
   });
   log.info('Financial year end change undone', { companyId, changeId: change.id }, 'accounting');
   return { changeId: change.id };

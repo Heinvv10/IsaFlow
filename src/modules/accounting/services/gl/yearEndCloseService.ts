@@ -33,7 +33,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
-import { getFiscalYearStartMonth } from './fiscalYearBasis';
+import { getFiscalYear } from './fiscalYearRegistry';
 import { roundToCents } from '../../utils/doubleEntry';
 import {
   buildPreview, loadPLBalances, reloadNetIncome, resolveRetainedEarnings, type FiscalYearRange,
@@ -42,7 +42,6 @@ import {
   alreadyClosedResult, classifyClosingJournal, findClosingJournal, isClosingNumberConflict,
   postClosingJournal,
 } from './yearEndJournalPoster';
-import { fiscalYearRange } from './fiscalYearCalendar';
 import { ClosingChainTooLong, findCurrentClosingJournal, TooManyRecloses } from './yearEndClosingNumber';
 
 export type {
@@ -112,14 +111,16 @@ export async function closeFiscalYear(
   // and nothing about the arithmetic looks wrong afterwards, because the
   // journal balances either way.
   //
-  // No fallback on the start month. This is a write path; assuming March for a
-  // company genuinely on a December year end produces a close a quarter out,
-  // silently.
-  const startMonth = await getFiscalYearStartMonth(companyId);
-  const expected = fiscalYearRange(Number(yearLabel), startMonth);
+  // The real year is the registry's (a stored fiscal_years row), not a range
+  // rebuilt from today's start month, so a 14-month transition year closes as
+  // the 14 months it is. A write path: no fallback and no template guess for a
+  // label no year carries.
+  const registryYear = await getFiscalYear(companyId, Number(yearLabel));
+  if (!registryYear) return { error: 'year_not_found' };
+  const expected = { startDate: registryYear.startDate, endDate: registryYear.endDate };
   const actual = { startDate: fmtDate(yearRange.start_date), endDate: fmtDate(yearRange.end_date) };
   if (actual.startDate !== expected.startDate || actual.endDate !== expected.endDate) {
-    return { error: 'period_range_mismatch', expected, actual, startMonth };
+    return { error: 'period_range_mismatch', expected, actual, startMonth: Number(expected.startDate.slice(5, 7)) };
   }
 
   const { revenueAccounts, expenseAccounts } = await loadPLBalances(

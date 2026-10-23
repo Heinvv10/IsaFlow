@@ -14,6 +14,9 @@ const sqlMock = vi.fn();
 const logError = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a), withTransaction: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: (...a: unknown[]) => logError(...a), warn: vi.fn(), debug: vi.fn() } }));
+// Each page's financial years are the registry's (March-based unless a test sets fakeRegistry).
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../../helpers/fiscalYearSqlFake')).registryMock());
 vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
   getLedgerPostedThrough: vi.fn().mockResolvedValue('2026-10-09T08:00:00.000Z'),
 }));
@@ -28,11 +31,13 @@ import {
   GL_LINE_EXPORT_SCHEMA_VERSION,
   csvLine,
   exportCell,
-  fiscalOf,
   journalTypeOf,
+  periodOf,
   toExportRow,
 } from '@/modules/accounting/services/reports/glLineExportRows';
 import { nextCursorOf } from '@/modules/accounting/services/reports/glLineExportService';
+import { withFiscalYears } from '@/modules/accounting/services/reports/glLineExportFiscalYears';
+import { fakeRegistry, resetFakeRegistry, TRANSITION_YEARS } from '../../../helpers/fiscalYearSqlFake';
 import { GlExportScopeRefusal, exportGlLinesTool } from '@/lib/mcp/tools/exportGlLines';
 import { REFUSAL_CODES } from '@/lib/mcp/tools/refusalCodes';
 import type { McpToolContext } from '@/lib/mcp/types';
@@ -74,7 +79,7 @@ function routeSql(rows: Array<Record<string, unknown>>, failPage = false) {
         first_date: rows[0]?.entry_date ?? null, last_date: rows.at(-1)?.entry_date ?? null,
       }]);
     }
-    if (text.includes('FROM companies')) return Promise.resolve([{ name: 'Velocity Fibre (Pty) Ltd', financial_year_start: 3 }]);
+    if (text.includes('FROM companies')) return Promise.resolve([{ name: 'Velocity Fibre (Pty) Ltd' }]);
     if (text.includes('WITH page AS')) {
       // Bound values: company x2, from x2, to x2, postedOnly, cDate x2, cEntry, cLine, limit, ...
       const [cDate, cEntry, cLine, limit] = [values[7], values[9], values[10], values[11]] as [string | null, string, string, number];
@@ -217,13 +222,14 @@ describe('the CSV route streams with backpressure and fails loudly mid-stream', 
 });
 
 describe('row shape', () => {
-  const entity = { name: 'Velocity Fibre (Pty) Ltd', fyStartMonth: 3 };
+  const entity = { name: 'Velocity Fibre (Pty) Ltd' };
 
   it('signs, VAT identity, FY, bank account on cash lines, linked documents', () => {
     const credit = toExportRow({
       line_id: uuid(1), entry_id: uuid(2), entry_date: '2025-03-17', debit: '0.00', credit: '1150.00',
       entry_number: 'JE-2025-00001', source: 'auto_supplier_payment', status: 'posted', vat_type: null,
       account_code: '1544331', account_name: 'Bank VF1', account_type: 'asset', is_cash: true, period_locked: true,
+      fy_label: 'FY26', fy_period_no: 1,
       cc2_code: null, counterparty_name: 'Glowmark', counterparty_type: 'Supplier', linked_document_count: '2',
     }, entity);
     expect(credit.Amount_Excl_VAT).toBe(-1150);
@@ -241,30 +247,66 @@ describe('row shape', () => {
     expect(credit.Linked_Document_Count).toBe(2);
     expect(credit.Schema_Version).toBe(GL_LINE_EXPORT_SCHEMA_VERSION);
     expect(credit.CC2_Code).toBeNull();
-    expect(toExportRow({ ...credit, entry_date: '2025-03-17' }, { ...entity, fyStartMonth: 7 }).FY).toBe('FY25');
+    // FY and FY_Period_No are the row's registry year, not derived from a start month here.
+    expect(toExportRow({ ...credit, fy_label: 'FY27', fy_period_no: 14 }, entity)).toMatchObject({ FY: 'FY27', FY_Period_No: 14 });
     // pgTypes parses DATE as a string; a Date (a local-midnight one, as a raw
     // driver hands back) keeps its calendar day — on this UTC+2 host the UTC
     // day would be the 31st of March.
     expect(toExportRow({ ...credit, entry_date: new Date(2025, 3, 1) }, entity).Txn_Date).toBe('2025-04-01');
   });
 
-  it('FY follows the company year start; named by the calendar year it ends in', () => {
-    // March (the SA default)
-    expect(fiscalOf('2026-02-28', 3)).toEqual({ period: '2026-02-01', fy: 'FY26', fyPeriodNo: 12 });
-    expect(fiscalOf('2026-03-01', 3)).toEqual({ period: '2026-03-01', fy: 'FY27', fyPeriodNo: 1 });
-    expect(fiscalOf('2026-10-09', 3)).toEqual({ period: '2026-10-01', fy: 'FY27', fyPeriodNo: 8 });
-    // July
-    expect(fiscalOf('2025-06-30', 7)).toEqual({ period: '2025-06-01', fy: 'FY25', fyPeriodNo: 12 });
-    expect(fiscalOf('2025-07-01', 7)).toEqual({ period: '2025-07-01', fy: 'FY26', fyPeriodNo: 1 });
-    expect(fiscalOf('2026-01-15', 7)).toEqual({ period: '2026-01-01', fy: 'FY26', fyPeriodNo: 7 });
-    // January: the FY is the calendar year
-    expect(fiscalOf('2025-12-31', 1)).toEqual({ period: '2025-12-01', fy: 'FY25', fyPeriodNo: 12 });
-    expect(fiscalOf('2026-01-01', 1)).toEqual({ period: '2026-01-01', fy: 'FY26', fyPeriodNo: 1 });
-    // December start: Dec opens the year ending next November
-    expect(fiscalOf('2025-12-01', 12)).toEqual({ period: '2025-12-01', fy: 'FY26', fyPeriodNo: 1 });
-    expect(fiscalOf('2025-11-30', 12)).toEqual({ period: '2025-11-01', fy: 'FY25', fyPeriodNo: 12 });
+  it('Period is the first of the transaction month', () => {
+    expect(periodOf('2026-02-28')).toBe('2026-02-01');
+    expect(periodOf('2025-12-31')).toBe('2025-12-01');
+  });
+});
+
+describe('FY and FY_Period_No come from the registry year holding the date', () => {
+  const rows = (...dates: string[]) => dates.map((d) => ({ entry_date: d }));
+  const fy = async (...dates: string[]) =>
+    (await withFiscalYears('c1', rows(...dates))).map((r) => [r.fy_label, r.fy_period_no]);
+
+  beforeEach(() => { resetFakeRegistry(); });
+
+  it('names the year by the calendar year it ENDS in: March year', async () => {
+    expect(await fy('2026-02-28', '2026-03-01', '2026-10-09')).toEqual([['FY26', 12], ['FY27', 1], ['FY27', 8]]);
   });
 
+  it('follows a July year', async () => {
+    fakeRegistry.years = []; fakeRegistry.templateMonth = 7;
+    expect(await fy('2025-06-30', '2025-07-01', '2026-01-15')).toEqual([['FY25', 12], ['FY26', 1], ['FY26', 7]]);
+  });
+
+  it('is the calendar year for a January year', async () => {
+    fakeRegistry.years = []; fakeRegistry.templateMonth = 1;
+    expect(await fy('2025-12-31', '2026-01-01')).toEqual([['FY25', 12], ['FY26', 1]]);
+  });
+
+  it('opens a December-start year in December', async () => {
+    fakeRegistry.years = []; fakeRegistry.templateMonth = 12;
+    expect(await fy('2025-12-01', '2025-11-30')).toEqual([['FY26', 1], ['FY25', 12]]);
+  });
+
+  it('counts a 14-month transition year 1 to 14, and keeps a past year on its stored dates', async () => {
+    fakeRegistry.years = TRANSITION_YEARS; fakeRegistry.templateMonth = undefined;
+    expect(await fy('2025-12-31', '2026-01-01', '2027-02-28', '2027-03-01'))
+      .toEqual([['FY26', 12], ['FY27', 1], ['FY27', 14], ['FY28', 1]]);
+  });
+
+  it('resolves a page spanning two years once per year, not once per line', async () => {
+    const { fiscalYearForDate } = await import('@/modules/accounting/services/gl/fiscalYearRegistry');
+    vi.mocked(fiscalYearForDate).mockClear();
+    await fy('2026-01-05', '2026-01-06', '2026-02-10', '2026-03-05', '2026-03-06');
+    expect(fiscalYearForDate).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not touch the row\'s other columns', async () => {
+    const [out] = await withFiscalYears('c1', [{ entry_date: '2026-03-01', line_id: 'L1', debit: '5' }]);
+    expect(out).toMatchObject({ line_id: 'L1', debit: '5', entry_date: '2026-03-01' });
+  });
+});
+
+describe('row shape (continued)', () => {
   it('journal types per source, credit notes by side', () => {
     expect(journalTypeOf('auto_supplier_invoice', null)).toBe('Supplier invoice');
     expect(journalTypeOf('auto_credit_note', 'supplier')).toBe('Supplier credit note');

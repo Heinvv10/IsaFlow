@@ -5,17 +5,16 @@
  * need it: `statutoryFilingsService` lists the statements already overdue as
  * at a board pack's date, and `complianceAlertService` warns as the deadline
  * approaches. Each had its own copy, and both copies were wrong the same two
- * ways — see the functions below. The year end comes from
- * `afsFiscalPeriod.fiscalRangeFor`, the one place that says which twelve
- * months a fiscal year covers.
+ * ways — see the functions below. The year end is the end date of the
+ * company's registry year with that label (`gl/fiscalYearRegistry`), so a
+ * 14-month transition year falls due six months after ITS end.
  */
-import { fiscalRangeFor } from './afsFiscalPeriod';
-import { resolveFiscalYearStartMonth } from '@/modules/accounting/services/gl/fiscalYearBasis';
+import { getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 
 /**
- * The company's financial year start is unusable, so no deadline can be
- * stated for its statements. Its own class so a caller that reports a failed
- * check can tell this refusal from a crash.
+ * No financial year carries the label, so no deadline can be stated for its
+ * statements. Its own class so a caller that reports a failed check can tell
+ * this refusal from a crash.
  */
 export class FilingDeadlineUnknownError extends Error {
   constructor(message: string) {
@@ -34,7 +33,7 @@ export class FilingDeadlineUnknownError extends Error {
  * is always a month end, so the deadline is too.
  *
  * Arithmetic on the numbers of a 'YYYY-MM-DD' string, never a local Date: see
- * `afsFiscalPeriod.ts` for what a Date round-trip does on a UTC+2 host.
+ * `gl/fiscalYearRegistry.ts` for why dates stay strings on a UTC+2 host.
  */
 function sixMonthsAfterYearEnd(yearEnd: string): string {
   const [year, month] = yearEnd.split('-').map(Number);
@@ -70,30 +69,17 @@ function utcMidnightOf(date: string): number {
 }
 
 /**
- * NO MARCH FALLBACK. It was `|| 3`, which `afsFiscalPeriod.ts` forbids for the
- * reason it gives: a tenant whose setting is missing is told a deadline a
- * quarter out with nothing flagging it. Refused instead, by name.
- */
-function fyStartMonthOf(raw: unknown, companyId: string): number {
-  try {
-    return resolveFiscalYearStartMonth(raw, companyId);
-  } catch (error) {
-    throw new FilingDeadlineUnknownError(error instanceof Error ? error.message : String(error));
-  }
-}
-
-/**
  * The date the statements for `fiscalYear` fall due, 'YYYY-MM-DD'.
  *
- * @param rawFinancialYearStart `companies.financial_year_start` as read.
- * @throws FilingDeadlineUnknownError where that value is not a month.
+ * @throws FilingDeadlineUnknownError where the company has no financial year
+ *   with that label.
  */
-export function afsFilingDeadline(
-  fiscalYear: number,
-  rawFinancialYearStart: unknown,
-  companyId: string,
-): string {
-  return sixMonthsAfterYearEnd(
-    fiscalRangeFor(fiscalYear, fyStartMonthOf(rawFinancialYearStart, companyId)).end,
-  );
+export async function afsFilingDeadline(companyId: string, fiscalYear: number): Promise<string> {
+  const year = await getFiscalYear(companyId, fiscalYear);
+  if (!year) {
+    throw new FilingDeadlineUnknownError(
+      `Company ${companyId} has no financial year labelled ${fiscalYear}, so no filing deadline can be stated for it.`,
+    );
+  }
+  return sixMonthsAfterYearEnd(year.endDate);
 }
