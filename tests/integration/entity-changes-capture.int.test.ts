@@ -6,7 +6,7 @@
  * entity-changes-routes.int.test.ts.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { as, asApp, changesOf, cleanupEntityChanges, members, newCompany } from './entity-changes.helpers';
 
@@ -20,6 +20,8 @@ beforeAll(async () => { [o, a] = await members(pool, tokens, 2); });
 afterAll(() => cleanupEntityChanges(pool, companies, [o, a]));
 
 const company = () => newCompany(pool, [[o, 'owner'], [a, 'admin']], companies);
+/** As the invitation writes run since S-07c (930): migration_admin, under the inviter's session claims. */
+const asInviter = <T>(c: string, fn: (db: PoolClient) => Promise<T>) => as(pool, o, { role: 'migration_admin', company: c }, fn);
 const newSupplier = async (c: string) => (await asApp(pool, a, c, (db) => db.query(
   "INSERT INTO suppliers(company_id, name, bank_account_number) VALUES($1, 'EC supplier', '1111222233') RETURNING id", [c]))).rows[0].id as string;
 
@@ -129,19 +131,21 @@ describe('every tracked table records', () => {
           bank_account_number) VALUES($1,'EC1','EC Bank','asset','debit','bank','5555666677') RETURNING id`, [c]),
         payroll_employee: await one(`INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, id_number,
           employment_type, start_date) VALUES($1,'E1','Ec','Emp','8001015009087','permanent','2026-01-01') RETURNING id`, [c]),
-        company_invitation: await one(`INSERT INTO company_invitations(company_id, email, role, invited_by, token, expires_at)
-          VALUES($1,'inv@x.test','manager',$2,'tok-hash',now() + interval '1 day') RETURNING id`, [c, o]),
         company_user_permission: await one(`INSERT INTO company_user_permissions(company_id, user_id, module_key, can_read)
           VALUES($1,$2,'payroll',true) RETURNING id`, [c, a]),
       };
     });
+    // Invitations are written on the migration_admin pool, under the request's claims (S-07c, 930).
+    const company_invitation = await asInviter(c, async (db) => (await db.query(`INSERT INTO company_invitations(company_id, email,
+      role, invited_by, token, expires_at) VALUES($1,'inv@x.test','manager',$2,'tok-hash',now() + interval '1 day') RETURNING id`,
+    [c, o])).rows[0].id as string);
     const rule = (await pool.query(`INSERT INTO approval_rules(company_id, name, document_type, condition_field, condition_operator,
       condition_value, approver_role, is_active) VALUES($1,'EC rule','supplier_invoice','amount','greater_than',1000,'admin',true) RETURNING id`, [c])).rows[0].id;
     const sw = (await pool.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,'supplier_invoice',$2) RETURNING id",
       [c, o])).rows[0].id;
     const member = (await pool.query('SELECT id FROM company_users WHERE company_id = $1 AND user_id = $2', [c, a])).rows[0].id;
     await asApp(pool, o, c, (db) => db.query("UPDATE company_users SET role = 'manager' WHERE id = $1", [member]));
-    const expected: Record<string, string> = { ...ids, approval_rule: rule, approval_enforcement: sw };
+    const expected: Record<string, string> = { ...ids, company_invitation, approval_rule: rule, approval_enforcement: sw };
     for (const [type, id] of Object.entries(expected)) {
       const rows = await changesOf(pool, id);
       expect(rows.length, type).toBeGreaterThan(0);
@@ -150,7 +154,8 @@ describe('every tracked table records', () => {
     const roleChange = (await changesOf(pool, member)).at(-1)!;
     expect(roleChange).toMatchObject({ entity_type: 'company_user', op: 'update', changed: ['role'], actor: o });
     expect(roleChange.before).toMatchObject({ role: 'admin', user_id: a });
-    const invitation = (await changesOf(pool, ids.company_invitation))[0]!;
+    const invitation = (await changesOf(pool, company_invitation))[0]!;
+    expect(invitation).toMatchObject({ actor: o, channel: 'session' });
     expect(invitation.after!.token).toMatch(/^sha256:[0-9a-f]{12}$/);
     expect(JSON.stringify(invitation)).not.toContain('tok-hash');
   });
@@ -177,11 +182,11 @@ describe('every tracked table records', () => {
 
   it('an invitation re-pointed to another account or re-issued is recorded; the token only as a digest (breaker #696 R6)', async () => {
     const c = await company();
-    const inv = await asApp(pool, o, c, async (db) => (await db.query(`INSERT INTO company_invitations(company_id, email, role,
+    const inv = await asInviter(c, async (db) => (await db.query(`INSERT INTO company_invitations(company_id, email, role,
       invited_by, token, expires_at) VALUES($1,'r6@x.test','manager',$2,'tok-one',now() + interval '1 day') RETURNING id`, [c, o])).rows[0].id);
     const account = crypto.randomUUID();
-    await asApp(pool, o, c, (db) => db.query("UPDATE company_invitations SET gotrue_user_id = $2, token = 'tok-two' WHERE id = $1", [inv, account]));
-    await asApp(pool, o, c, (db) => db.query("UPDATE company_invitations SET email_sent_at = now() WHERE id = $1", [inv]));
+    await asInviter(c, (db) => db.query("UPDATE company_invitations SET gotrue_user_id = $2, token = 'tok-two' WHERE id = $1", [inv, account]));
+    await asInviter(c, (db) => db.query("UPDATE company_invitations SET email_sent_at = now() WHERE id = $1", [inv]));
     const rows = await changesOf(pool, inv);
     expect(rows.map((r) => [r.op, r.changed])).toEqual([
       ['create', ['company_id', 'email', 'expires_at', 'invited_by', 'role', 'token']], ['update', ['gotrue_user_id', 'token']]]);

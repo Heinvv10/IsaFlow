@@ -45,6 +45,10 @@ vi.mock('@/modules/accounting/services/ap/supplierBatchAllocationPlan', () => ({
 
 // The R-035 approval gate is proved against real PostgreSQL in the
 // r035-pr5-* integration files; here it only has to let the ordering under test run.
+// Migration 922's content compare: real-PG in tests/integration/ap-batch-approved-digest.int.test.ts.
+vi.mock('@/modules/accounting/services/ap/batchApprovedDigest', () => ({
+  assertBatchUnchangedSinceApproval: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock('@/modules/accounting/services/gl/approvalGate', () => ({
   assertApprovalCleared: vi.fn().mockResolvedValue(undefined),
 }));

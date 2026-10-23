@@ -15,6 +15,11 @@ vi.mock('@/lib/auth/impersonationGuard', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/auth/impersonationGuard')>()),
   assertNotImpersonating: async () => undefined,
 }));
+// S-07c (migration 930): the oauth_apps INSERT runs on the migration_admin pool.
+const { adminQueryMock } = vi.hoisted(() => ({ adminQueryMock: vi.fn() }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminPool: () => ({ query: adminQueryMock }),
+}));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
   return {
@@ -33,13 +38,17 @@ import { sqlMock, resetSqlMock, mockSqlOnce, sqlCallText, sqlCallValues, allSqlV
 
 const APP_ID = '44444444-4444-4444-4444-444444444444';
 
+/** Positional params of the Nth admin-pool statement. */
+const adminValues = (i: number): unknown[] => (adminQueryMock.mock.calls[i]?.[1] ?? []) as unknown[];
+
 beforeEach(() => {
   resetSqlMock();
+  adminQueryMock.mockReset();
+  adminQueryMock.mockResolvedValue({ rows: [{ id: APP_ID }], rowCount: 1 });
 });
 
 describe('registerOauthApp — dynamic public clients', () => {
   it('mints no secret: null secret columns, clientSecret null, auth method none', async () => {
-    mockSqlOnce([{ id: APP_ID }]);
     const app = await registerOauthApp({
       ownerUserId: null,
       name: 'Claude',
@@ -51,15 +60,14 @@ describe('registerOauthApp — dynamic public clients', () => {
     expect(app.clientId).toMatch(/^client_[A-Za-z0-9]{24}$/);
     expect(app.clientSecret).toBeNull();
 
-    const values = sqlCallValues(0);
+    const values = adminValues(0);
     expect(values).toContain(true);       // is_dynamic
     expect(values).toContain('none');     // token_endpoint_auth_method
     expect(values.filter((v) => v === null).length).toBeGreaterThanOrEqual(2); // secret hash + prefix
-    expect(allSqlValues().some((v) => typeof v === 'string' && v.startsWith('cls_'))).toBe(false);
+    expect(adminValues(0).some((v) => typeof v === 'string' && v.startsWith('cls_'))).toBe(false);
   });
 
   it('non-dynamic path unchanged: cls_ secret hashed at rest, owner required', async () => {
-    mockSqlOnce([{ id: APP_ID }]);
     const app = await registerOauthApp({
       ownerUserId: 'user-1',
       name: 'My Integration',
@@ -67,7 +75,7 @@ describe('registerOauthApp — dynamic public clients', () => {
     });
 
     expect(app.clientSecret).toMatch(/^cls_[A-Za-z0-9]{32}$/);
-    const values = sqlCallValues(0);
+    const values = adminValues(0);
     const hash = createHash('sha256').update(app.clientSecret!).digest('hex');
     expect(values).toContain(hash);
     expect(values).not.toContain(app.clientSecret);
@@ -80,6 +88,7 @@ describe('registerOauthApp — dynamic public clients', () => {
       registerOauthApp({ ownerUserId: null, name: 'x', redirectUris: ['https://e.com/cb'] }),
     ).rejects.toThrow(/ownerUserId required/);
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(adminQueryMock).not.toHaveBeenCalled();
   });
 
   it('still rejects empty or malformed redirect URIs', async () => {
