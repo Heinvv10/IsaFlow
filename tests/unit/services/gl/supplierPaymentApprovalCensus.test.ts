@@ -70,6 +70,7 @@ describe('supplier-payment writers', () => {
       `${AP}batchPaymentApproval.ts`, // approveBatch: members draft -> approved, after the gate
       `${AP}batchPaymentReversal.ts`, // processed batch -> cancelled members
       `${AP}batchPaymentService.ts`, // processBatch: members -> processed, after the gate; cancelBatch
+      `${AP}payingAccountAuthors.ts`, // paying-account edit: content_authors only (923)
       `${AP}provisionalSettlementVoid.ts`, // -> cancelled
       `${AP}supplierPaymentApplicationService.ts`, // posted payment: processed -> reconciled
       `${AP}supplierPaymentApproval.ts`, // approveSupplierPayment: draft -> approved, after the gate
@@ -116,7 +117,9 @@ describe('batch writers', () => {
   it('one creator; status moves only through approve / process (gated), cancel and reverse', () => {
     expect(matching(/INSERT\s+INTO\s+supplier_payment_batches/)).toEqual([`${AP}batchPaymentService.ts`]);
     expect(matching(/UPDATE\s+supplier_payment_batches/)).toEqual([
-      `${AP}batchPaymentApproval.ts`, `${AP}batchPaymentReversal.ts`, `${AP}batchPaymentService.ts`, `${AP}supplierPaymentAuthors.ts`,
+      `${AP}batchPaymentApproval.ts`, `${AP}batchPaymentReversal.ts`, `${AP}batchPaymentService.ts`,
+      `${AP}payingAccountAuthors.ts`, // paying-account edit: content_authors only (923)
+      `${AP}supplierPaymentAuthors.ts`,
     ]);
   });
 });
@@ -180,8 +183,10 @@ describe('who changes where the money goes', () => {
     for (const rel of creators) {
       expect(text(rel), rel).toMatch(/hasBankDetails\(\w+(\[0\]!)?\)\) await recordBankDetailsSetter\(companyId, .*, 'repointed'\);/);
     }
-    // Only through the helper: no other file names the column.
-    expect(matching(/bank_details_setters/)).toEqual(['src/modules/accounting/services/ap/supplierPaymentAuthors.ts']);
+    // Only through the helpers: no other file names the column (the payee's, and since 923 the paying account's).
+    expect(matching(/bank_details_setters/)).toEqual([
+      'src/modules/accounting/services/ap/payingAccountAuthors.ts', 'src/modules/accounting/services/ap/supplierPaymentAuthors.ts',
+    ]);
   });
 
   // Round 1 LOW (b): batch before members, the order approveBatch / processBatch take.
@@ -224,6 +229,7 @@ describe('batch membership', () => {
     [`${AP}batchPaymentMembers.ts`]: READS,
     [`${AP}batchPaymentReversal.ts`]: 'reverseBatch: UPDATE filters members by batch_id (pinned below)',
     [`${AP}batchPaymentService.ts`]: 'createBatch: the ONLY INSERT of batch_id (pinned below); process / cancel filter by it',
+    [`${AP}payingAccountAuthors.ts`]: 'locks single payments (batch_id IS NULL); stamping writes content_authors only',
     [`${AP}provisionalSettlementClaim.ts`]: 'bt.import_batch_id (bank_transactions); the substring matches',
     [`${AP}supplierBatchAllocationPlan.ts`]: READS,
     [`${AP}supplierPaymentAuthors.ts`]: 'reads the batch set of a supplier (stamping authors writes content_authors only)',

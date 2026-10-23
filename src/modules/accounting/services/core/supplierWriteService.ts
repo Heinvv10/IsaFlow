@@ -211,8 +211,9 @@ export async function updateSupplier(
   // R-035 PR5: the bank details as they stand, under the row lock the UPDATE
   // below would take anyway — read here so the change is judged against the
   // row actually replaced, even when a concurrent edit committed first.
-  // A write naming a bank column may stamp the batches paying this supplier: they are locked before the row.
-  const bankMayChange = [v.bankName, v.bankAccountNumber, v.bankBranchCode, v.bankAccountType].some((x) => x !== null);
+  // A write naming a bank column, or the name (approval content since migration 923), may stamp the batches paying
+  // this supplier: they are locked before the row.
+  const bankMayChange = [name, v.bankName, v.bankAccountNumber, v.bankBranchCode, v.bankAccountType].some((x) => x !== null);
   const before = await lockSupplierBankDetails(companyId, supplierId, bankMayChange);
   const rows = (await sql`
     UPDATE suppliers SET
