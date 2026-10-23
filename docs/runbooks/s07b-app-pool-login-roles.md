@@ -122,7 +122,12 @@ S-07c (migration 930, 2026-10-23) also takes effect on deploy:
   prod has at that moment: a definer someone changed by hand on prod would be
   approved as it stands. The definer pre-check below lists any that the repo
   does not know; a later migration that adds or changes one must update its
-  row, or CI and every deploy refuse it.
+  row, or CI and every deploy refuse it. Named limit: code a reviewed definer
+  reaches indirectly (an invoker function it calls, a trigger on a table it
+  writes) runs with its owner's rights and is not hashed; review those with
+  the definer. After a PostgreSQL MAJOR upgrade the definitions can deparse
+  differently and every row is refused: re-review and re-hash them in a
+  migration (`UPDATE app_definer_reviews SET body_md5 = app_definer_hash(...)`).
 
 ## 0. Before you start
 
