@@ -41,6 +41,10 @@ describe('afs document period lookup', () => {
     stubFetch(() => { throw new TypeError('fetch failed'); });
     expect((await resolved()).props.periodError).toMatch(/Could not work out the reporting period/);
   });
+  it('a 403 states no period: empty, never a guessed calendar year', async () => {
+    stubFetch(() => new Response('', { status: 403 }));
+    expect((await resolved()).props).toMatchObject({ periodStart: '', periodEnd: '', periodError: null });
+  });
   it('explicit period overrides skip the lookup', async () => {
     const f = stubFetch(() => new Response('', { status: 500 }));
     expect((await resolved({ period_start: '2022-01-01', period_end: '2022-12-31' })).props).toMatchObject({ periodStart: '2022-01-01', periodError: null });
@@ -51,8 +55,14 @@ describe('afs document period lookup', () => {
     expect(screen.getByRole('alert').textContent).toMatch(/Could not work out the reporting period/);
     expect(screen.queryByText(/TAB Overview/)).toBeNull();
   });
+  it('with no period stated the page shows no period line and no period-bound tab', () => {
+    render(<AfsDocumentPage documentId="doc-1" periodStart="" periodEnd="" periodError={null} />);
+    expect(screen.queryByText(/Period:/)).toBeNull();
+    expect(screen.queryByText(/TAB Overview/)).toBeNull();
+  });
   it('the page shows the tabs when the period is known', () => {
     render(<AfsDocumentPage documentId="doc-1" periodStart="2023-03-01" periodEnd="2023-03-31" periodError={null} />);
     expect(screen.getByText(/TAB Overview/)).toBeTruthy(); expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText(/Period: 2023-03-01 — 2023-03-31/)).toBeTruthy();
   });
 });

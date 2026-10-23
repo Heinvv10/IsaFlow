@@ -2,8 +2,9 @@
  * How the AFS describe the period they cover, when a year need not be twelve
  * months (change-of-year-end programme, Feature D).
  *
- * A 14-month transition year is presented "for the 14 months ended 28 February
- * 2027", and its comparative column says how many months IT covers. IAS 1.36:
+ * A 14-month transition year is presented "for the 14 months ended 2027-02-28"
+ * (the registry's ISO end date), and its comparative column says how many months
+ * IT covers. IAS 1.36:
  * when the reporting period is longer or shorter than a year, disclose that
  * period, the reason for using it, and the fact that the amounts presented are
  * not entirely comparable. The note is also given for the year AFTER a
@@ -12,9 +13,12 @@
  * The reason comes from the change record (gl/financialYearEndChangeApply.ts).
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { assertDeclaredBasis, priorFiscalYear, requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { log } from '@/lib/logger';
+import {
+  assertDeclaredBasis, FiscalYearLabelUnknownError, priorFiscalYear, requireFiscalYear,
+} from '@/modules/accounting/services/gl/fiscalYearRegistry';
 
 export interface PeriodSpan {
   start: string;
@@ -35,6 +39,9 @@ export interface ReportingPeriod {
   /** The IAS 1.36 disclosure, or null when both periods are twelve months. */
   comparabilityNote: string | null;
 }
+
+/** What the other statements say in place of the IAS 1.36 disclosure, which the pack makes once, on the statement of profit or loss. */
+export const REPORTING_PERIOD_REFERENCE = 'See the statement of profit or loss: reporting period (IAS 1.36).';
 
 export function periodPhrase(months: number, end: string): string {
   return months === 12 ? `year ended ${end}` : `${months} months ended ${end}`;
@@ -86,4 +93,20 @@ export async function getReportingPeriod(companyId: string, fiscalYear: number):
   }
   parts.push('The amounts presented are therefore not entirely comparable (IAS 1.36).');
   return { fiscalYear, current, prior, comparable, comparabilityNote: parts.join(' ') };
+}
+
+/**
+ * As getReportingPeriod for a reader that can do without it (an export cover, the
+ * disclosure notes): a label no financial year carries answers null and is logged
+ * under `source`; every other failure (an assumed start month, a query error)
+ * propagates. In a savepoint, so the refusal does not poison a request transaction.
+ */
+export async function findReportingPeriod(companyId: string, fiscalYear: number, source: string): Promise<ReportingPeriod | null> {
+  try {
+    return await withSavepoint('reporting_period', () => getReportingPeriod(companyId, fiscalYear));
+  } catch (err) {
+    if (!(err instanceof FiscalYearLabelUnknownError)) throw err;
+    log.warn('No financial year carries the label; its reporting period is not stated', { companyId, fiscalYear }, source);
+    return null;
+  }
 }

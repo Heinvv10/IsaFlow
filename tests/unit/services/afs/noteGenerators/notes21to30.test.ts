@@ -202,12 +202,13 @@ describe('notes21to30 generators', () => {
       expect(result.dataSnapshot).toEqual({});
     });
 
-    it('includes paragraph mentioning the fiscal year', async () => {
+    it('names the year end the registry gives (mocked here as 2026-12-31), not "31 December <label>"', async () => {
       const result = await generateNote25ContingenciesAndCommitments(COMPANY_ID, FISCAL_YEAR);
       const para = result.content.blocks.find((b) => b.type === 'paragraph');
       expect(para).toBeDefined();
       if (para?.type === 'paragraph') {
-        expect(para.text).toContain(String(FISCAL_YEAR));
+        expect(para.text).toContain('existed at 2026-12-31.');
+        expect(para.text).not.toContain(`31 December ${FISCAL_YEAR}`);
       }
     });
   });

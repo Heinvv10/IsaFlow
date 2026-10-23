@@ -37,6 +37,12 @@ vi.mock('@/modules/accounting/services/afs/afsFiscalPeriod', () => ({
   getFiscalRange: vi.fn(async () => ({ start: '2026-01-01', end: '2026-12-31' })),
 }));
 
+// The note's period wording comes from the registry (afsReportingPeriod, tested against a database in
+// tests/integration/afs-transition-year.int.test.ts); a twelve-month year here.
+vi.mock('@/modules/accounting/services/afs/afsReportingPeriod', () => ({
+  getReportingPeriod: vi.fn(async () => ({ current: { start: '2026-01-01', end: '2026-12-31', months: 12, phrase: 'year ended 2026-12-31' } })),
+}));
+
 import { noteTaxation } from '@/modules/accounting/services/reports/disclosureNoteGenerators';
 
 const FISCAL_YEAR = 2026;

@@ -1,6 +1,7 @@
 // pages/api/accounting/afs/report-templates.ts
 // GET — retrieve rendered report template text for a given report type
 // Query: ?type=compilation|accounting_officer|review|audit&entity_type=pty|cc|trust&framework=ifrs_smes|full_ifrs
+//        [&period_end=...&period_months=1..15]  (period_months defaults to 12; a transition year reads "14 months ended")
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -59,12 +60,18 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   const periodEnd = req.query.period_end as string | undefined;
+  const monthsParam = req.query.period_months as string | undefined;
+  const periodMonths = monthsParam === undefined ? 12 : Number(monthsParam);
+  if (!Number.isInteger(periodMonths) || periodMonths < 1 || periodMonths > 15) {
+    return apiResponse.badRequest(res, 'period_months must be a whole number of months from 1 to 15');
+  }
 
   const ctx: ReportTemplateContext = {
     companyName: String(company.company_name ?? ''),
     registrationNumber: company.registration_number ? String(company.registration_number) : null,
     periodEnd: periodEnd ?? '{periodEnd}',
     periodStart: '{periodStart}',
+    periodMonths,
     framework: framework as ReportTemplateContext['framework'],
     entityType: entityType as ReportTemplateContext['entityType'],
     practitionerName: req.query.practitioner as string | undefined,
