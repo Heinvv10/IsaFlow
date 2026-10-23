@@ -24,6 +24,7 @@ import { als } from '@/lib/als';
 import { sql, getPoolForTests } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears, setPeriodsEndingBy } from './helpers/fiscalYearSeed';
 import { createAndRead } from './supplier-statement-read.helpers';
 
 const STATEMENT_BALANCE = 9999;
@@ -59,7 +60,6 @@ function shift(days: number): string {
 }
 const TODAY = fmtDate(new Date());
 const CLOSED_END = shift(-60);
-const OPEN_START = shift(-59);
 const OPEN_END = shift(400);
 const DOC_DATE = shift(-120);
 const DUE_DATE = shift(-100);
@@ -125,9 +125,7 @@ describeIfDb('K-053 the supplier statement variance measures our ledger as it st
               VALUES (${USER}, ${USER + '@test.local'}, 'admin', true)`;
     await sql`INSERT INTO company_users (company_id, user_id, role)
               VALUES (${COMPANY}::UUID, ${USER}, 'admin')`;
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'K053REC prior ' + TAG}, 1, 2026, '2020-01-01', ${CLOSED_END}::date, 'open'),
-                     (${COMPANY}::UUID, ${'K053REC current ' + TAG}, 2, 2026, ${OPEN_START}::date, ${OPEN_END}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), OPEN_END);
     await account(payable, '2100', 'Trade Creditors', 'liability', 'credit', 'payable');
     await account(expense, '5000', 'Materials', 'expense', 'debit', 'default_expense');
     await account(vatInput, '1300', 'VAT Input', 'asset', 'debit', 'vat_input');
@@ -143,8 +141,7 @@ describeIfDb('K-053 the supplier statement variance measures our ledger as it st
     for (const id of [live, deleted, legacy]) {
       await inTx(() => postSupplierInvoiceToGL(COMPANY, id, USER));
     }
-    await sql`UPDATE fiscal_periods SET status = 'closed'
-              WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
+    await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
 
     await inTx(() => softDelete(COMPANY, 'supplier_invoice', deleted, USER));
     await sql`UPDATE supplier_invoices SET deleted_at = NOW()

@@ -197,7 +197,8 @@ describe('mergeAccounts writes', async () => {
     await withFixture(async (c, f) => {
       // Move the source's postings out of the way so only the tree work remains.
       await c.query(
-        `UPDATE gl_journal_entries SET fiscal_period_id = $1
+        `UPDATE gl_journal_entries SET fiscal_period_id = $1, -- dated inside it: a journal's period holds its date (941)
+              entry_date = (SELECT GREATEST(start_date, LEAST(end_date, CURRENT_DATE)) FROM fiscal_periods WHERE id = $1)
           WHERE company_id = $2 AND id IN (
             SELECT journal_entry_id FROM gl_journal_lines WHERE gl_account_id = $3)`,
         [f.openPeriodId, f.companyId, f.sourceId],
