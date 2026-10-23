@@ -12,7 +12,11 @@
  * They also join the supplier's `bank_details_setters` (decision (b), made
  * append-only in round 1), which the authors function derives into payments
  * created AFTER the edit. Paid payments are history and are left alone.
- * Creating a payment stamps nothing (its creator is created_by).
+ * Creating a payment stamps nothing (its creator is created_by). Since
+ * migration 923 the digest also reads the payee's NAME (the EFT beneficiary,
+ * the Netcash account holder) as upper(btrim(name) COLLATE "C"), so a rename
+ * that moves that value is a bank-detail change here too ('appended').
+ * Who changed the account money is paid FROM: ./payingAccountAuthors.
  *
  * Lock order (bank/.claude.md): batches (id order), then suppliers, then member
  * payments. The bank-file gate (eft-generate, netcash/submit) holds the batch
@@ -51,7 +55,7 @@ const DESTINATION_COLUMNS = ['bank_account_number'] as const;
  */
 export async function lockSupplierBankDetails(companyId: string, supplierId: string, bankMayChange: boolean): Promise<DbRow | null> {
   const lockRow = async () => ((await sql`
-    SELECT bank_name, bank_account_number, bank_branch_code, bank_account_type, bank_account_holder
+    SELECT bank_name, bank_account_number, bank_branch_code, bank_account_type, bank_account_holder, name
     FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID
     FOR UPDATE
   `) as DbRow[])[0] ?? null;
@@ -62,6 +66,8 @@ export type BankDetailsChange = 'none' | 'appended' | 'repointed';
 
 /** An account number as a destination: its digits ("62-000 001" is 62000001), as supplier_bank_fingerprint reads it. */
 const destination = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+/** The payee name as the 923 digest reads it: upper(btrim(name) COLLATE "C") — outer spaces off, ASCII letters upper-cased. */
+const digestName = (v: unknown) => (v == null ? null : String(v).replace(/^ +| +$/g, '').replace(/[a-z]/g, (c) => c.toUpperCase()));
 
 /**
  * What an UPDATE did to the bank details: nothing; a change to the account
@@ -70,12 +76,14 @@ const destination = (v: unknown) => String(v ?? '').replace(/\D/g, '');
  * digits ('appended'). Judging the destination on its digits — the
  * normalisation migration 876's fingerprint uses — means re-entering the same
  * number with spaces cannot reset the setters and shed whoever redirected it.
- * A column the returned row does not carry counts as unchanged.
+ * A column the returned row does not carry counts as unchanged. A rename the
+ * digest sees (not a change of case or outer spaces) is 'appended' (923).
  */
 export function bankDetailsChange(before: DbRow, after: DbRow): BankDetailsChange {
   const moved = (c: string) => c in after && (before[c] ?? null) !== (after[c] ?? null);
   if (DESTINATION_COLUMNS.some((c) => c in after && destination(before[c]) !== destination(after[c]))) return 'repointed';
-  return BANK_COLUMNS.some(moved) ? 'appended' : 'none';
+  const renamed = 'name' in after && 'name' in before && digestName(before.name) !== digestName(after.name);
+  return BANK_COLUMNS.some(moved) || renamed ? 'appended' : 'none';
 }
 
 /** True when the supplier row carries any bank detail (a create that sets where money goes). */
