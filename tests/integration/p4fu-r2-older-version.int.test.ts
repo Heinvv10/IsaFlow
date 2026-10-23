@@ -183,4 +183,13 @@ describe('R1 review 2: a later month calculated from an earlier version of this 
     expect(warning?.periods).toEqual(['2027-02']);
     ok(await approveRun(f, jan)); // February's PAYE still counts January at R20 000: the warning is the only signal
   });
+
+  it('NAMED LIMIT (d): December reopened and left so; January, calculated from it, is approved (only approved months are judged)', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 limit d', 20_000);
+    const ids = await approvedThrough(f, 10);
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan); // counts December's PAYE
+    ok(await reopenRun(f, ids[9]!));
+    ok(await approveRun(f, jan)); // December is not declared now; January still counts it
+  });
 });
