@@ -134,31 +134,31 @@ async function handler(req: PlatformAdminRequest, res: NextApiResponse): Promise
     throw proofErr;
   }
 
-  setAuthCookies(res, {
-    accessToken: targetTokens.access_token,
-    refreshToken: targetTokens.refresh_token,
-    expiresIn: targetTokens.expires_in,
-  });
-
   // The stash commits on its own pool (S-07c), so a 500 from here on no longer
-  // rolls it back: remove it, as the failures above do.
-  let memberships: Array<{ company_id: string }>;
+  // rolls it back with the admin's transaction: remove it, as the failures
+  // above do. (withPlatformAdmin drops the cookies set here on a 500.)
   try {
-    memberships = await sql<{ company_id: string }>`
+    setAuthCookies(res, {
+      accessToken: targetTokens.access_token,
+      refreshToken: targetTokens.refresh_token,
+      expiresIn: targetTokens.expires_in,
+    });
+
+    const memberships = await sql<{ company_id: string }>`
       SELECT company_id FROM company_users
       WHERE user_id = ${target.userId}
       ORDER BY is_default DESC, created_at ASC
       LIMIT 1
     `;
+    if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
+
+    setImpersonationCookies(res, stashId, proof);
   } catch (err) {
     await deleteStash(stashId).catch((cleanupErr: unknown) =>
       log.error('impersonate: stash cleanup failed', { stashId, error: String(cleanupErr) }, 'Admin'),
     );
     throw err;
   }
-  if (memberships.length > 0) setActiveCompanyCookie(res, memberships[0]!.company_id);
-
-  setImpersonationCookies(res, stashId, proof);
 
   res.status(200).json({ success: true, data: { redirect: '/accounting' } });
 }
