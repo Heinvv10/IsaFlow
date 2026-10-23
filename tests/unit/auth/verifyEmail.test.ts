@@ -16,12 +16,12 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const {
   consumeMock, findConsumedMock, provisionMock,
-  updateUserMock, sendEmailMock, sqlMock, clientQueryMock, releaseMock, endMock,
+  updateUserMock, getUserMock, sendEmailMock, sqlMock, clientQueryMock, releaseMock, endMock,
 } = vi.hoisted(() => ({
   consumeMock: vi.fn(),
   findConsumedMock: vi.fn(),
   provisionMock: vi.fn(),
-  updateUserMock: vi.fn(),
+  updateUserMock: vi.fn(), getUserMock: vi.fn(),
   sendEmailMock: vi.fn(),
   sqlMock: vi.fn(),
   clientQueryMock: vi.fn(),
@@ -40,6 +40,7 @@ vi.mock('pg', () => ({
   },
 }));
 vi.mock('@/lib/auth/gotrue', () => ({ adminUpdateUser: updateUserMock }));
+vi.mock('@/lib/auth/gotrueAdminUser', () => ({ adminGetUser: getUserMock })); // its refusals: verifyEmailGotrueMatch.test.ts
 vi.mock('@/lib/auth/emailVerificationService', () => ({
   consumeEmailVerificationToken: consumeMock,
   findConsumedVerification: findConsumedMock,
@@ -95,6 +96,7 @@ beforeEach(() => {
   consumeMock.mockResolvedValue({ gotrueUserId: 'user-1', pending });
   provisionMock.mockResolvedValue({ companyId: 'company-1', paygEligible: true });
   updateUserMock.mockResolvedValue(undefined);
+  getUserMock.mockResolvedValue({ id: 'user-1', email: 'Lead@Example.co.za' });
   sendEmailMock.mockResolvedValue(undefined);
   findConsumedMock.mockResolvedValue(null);
   sqlMock.mockResolvedValue([]);

@@ -2,7 +2,7 @@
  * Pure rules for the coding decision log (migration 903). No imports, no I/O.
  */
 
-/** `categorization_decisions.suggestion_source`. `shared_pool` is reserved for pooled suggestions (PR 2). */
+/** `categorization_decisions.suggestion_source`. `shared_pool`: the shared merchant pool (sharedPool/). */
 export type SuggestionSource = 'rule' | 'pattern' | 'historical' | 'llm' | 'supplier_rule' | 'shared_pool' | 'none';
 
 export type DecisionOutcome = 'pending' | 'accepted' | 'recoded' | 'rejected' | 'undone';
@@ -50,6 +50,7 @@ export function isRuleSource(source: SuggestionSource): boolean {
  */
 export function sourceFromStrategy(strategy: string | null | undefined): SuggestionSource {
   return strategy === 'rule' || strategy === 'pattern' || strategy === 'historical' || strategy === 'llm'
+    || strategy === 'shared_pool'
     ? strategy : 'none';
 }
 

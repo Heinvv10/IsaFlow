@@ -29,10 +29,13 @@ describe('decideAllocationOutcome', () => {
 });
 
 describe('sourceFromStrategy / ruleSource', () => {
-  it('maps the four persisted strategies and nothing else', () => {
-    for (const s of ['rule', 'pattern', 'historical', 'llm'] as const) expect(sourceFromStrategy(s)).toBe(s);
+  // PR 2 persists 'shared_pool' (the shared merchant pool's cold-start suggestion), so it is now a
+  // strategy of its own rather than 'none'.
+  it('maps the five persisted strategies and nothing else', () => {
+    for (const s of ['rule', 'pattern', 'historical', 'llm', 'shared_pool'] as const) expect(sourceFromStrategy(s)).toBe(s);
     expect(sourceFromStrategy(null)).toBe('none');
-    expect(sourceFromStrategy('shared_pool')).toBe('none');
+    expect(sourceFromStrategy('supplier_rule')).toBe('none');
+    expect(sourceFromStrategy('SHARED_POOL')).toBe('none');
   });
   it('a supplier-only rule is supplier_rule', () => {
     expect(ruleSource(null, S)).toBe('supplier_rule');

@@ -78,11 +78,12 @@ async function handleErasure(req: NextApiRequest, res: NextApiResponse) {
   // Irreversible: an administrator impersonating this user must not erase them.
   await assertNotImpersonating();
 
-  const placeholder = `anonymized_${userId.slice(0, 8)}`;
+  // The whole id: users_email_key is UNIQUE, and two ids that share their
+  // first 8 characters made the second erasure fail on it (S-07c C2).
+  const placeholder = `anonymized_${userId}`;
 
   // On the migration_admin pool, outside the request's app_user transaction
-  // (migrations 902, 918). Neither app pool may write users.email:
-  // createInvitation adds an existing user to a company by email, and no
+  // (migrations 902, 918). Neither app pool may write users.email, and no
   // in-database guard holds against SQL that can switch role or forge
   // request.jwt.claims mid-statement. userId is the verified session's, not
   // auth.uid(). One statement, so it commits on its own, which is safe for an

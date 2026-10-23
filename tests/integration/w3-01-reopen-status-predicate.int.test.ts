@@ -11,15 +11,17 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // Parks a caller right after its header lock's own transaction committed — what a caller
-// with NO request transaction (a script) does between the lock and its UPDATE.
-const gate = vi.hoisted(() => ({ hold: null as null | Promise<void>, entered: null as null | (() => void) }));
+// with NO request transaction (a script) does between the lock and its UPDATE. `skip`
+// lets earlier transactions pass first (reopen takes the company approval lock before it).
+const gate = vi.hoisted(() => ({ hold: null as null | Promise<void>, entered: null as null | (() => void), skip: 0 }));
 vi.mock('@/lib/neon', async (orig) => {
   const actual = await orig<typeof import('@/lib/neon')>();
   return {
     ...actual,
     withTransaction: async <T>(fn: Parameters<typeof actual.withTransaction<T>>[0]) => {
       const out = await actual.withTransaction(fn);
-      if (gate.hold) { const hold = gate.hold; gate.hold = null; gate.entered?.(); await hold; }
+      if (gate.hold && gate.skip > 0) gate.skip -= 1;
+      else if (gate.hold) { const hold = gate.hold; gate.hold = null; gate.entered?.(); await hold; }
       return out;
     },
   };
@@ -129,6 +131,7 @@ describe('reopen — the status write is predicated (W3-01 breaker LOW)', () => 
   it('with no transaction open, the status predicate stops a reopen that read approved before the run was paid', async () => {
     const id = await approvedRun(5);
     let release!: () => void;
+    gate.skip = 1; // the company approval lock's transaction; park after the header lock's
     gate.hold = new Promise<void>((r) => { release = r; });
     const entered = new Promise<void>((r) => { gate.entered = r; });
     const p = reopenPayrollRun(reopenArgs(id)).then(() => 'reopened', (e: Error) => e.message);

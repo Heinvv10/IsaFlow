@@ -71,7 +71,7 @@ describe('S-07b: every kind of legitimate path still works on the new logins', (
   it('withAuth + service pool: the POPIA erasure anonymises names and email', async () => {
     const r = await callRoute(dsrRoute, { sub: me, method: 'POST', companyId: company, body: { action: 'erasure' } });
     expect(r.status).toBe(200);
-    expect(await userRow(me)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${me.slice(0, 8)}@deleted.invalid` });
+    expect(await userRow(me)).toMatchObject({ first_name: 'Anonymized', email: `anonymized_${me}@deleted.invalid` });
   });
 
   it('withPlatformAdmin (gate on isaflow_app): a super_admin reads admin settings', async () => {
@@ -95,7 +95,8 @@ describe('S-07b: every kind of legitimate path still works on the new logins', (
   });
 
   it('cron (service): ar-matview-refresh refreshes the view through the definer wrapper', async () => {
-    expect((await callCron(matviewRoute, CRON)).status).toBe(200);
+    await fixture.query('DELETE FROM matview_refresh_state'); // 930's 10-minute throttle
+    expect(await callCron(matviewRoute, CRON)).toMatchObject({ status: 200, body: { data: { refreshed: true } } });
   });
 
   it('rate limit (service rate-limit pool) charges a counter', async () => {
