@@ -50,7 +50,7 @@ const PERIOD = { id: 'p1', periodName: 'D2 January 2026', periodNumber: 1, fisca
 const BUDGET = budgetRow({ glAccountId: 'g1' });
 
 const CASES: Case[] = [
-  { name: 'budgets', page: () => <BudgetsPage />, fails: u => u.includes('/budgets?fiscal_year'), good: budgetsPayload([BUDGET]),
+  { name: 'budgets', page: () => <BudgetsPage />, fails: u => /\/api\/accounting\/budgets(\?|$)/.test(u), good: budgetsPayload([BUDGET]),
     shows: /D2 Sales Budget/, plain: /Could not load budgets - try again/ },
   { name: 'budgets: GL account list', page: () => <BudgetsPage />, fails: u => u.includes('chart-of-accounts'), good: [],
     plain: /Could not load GL accounts - try again/ },

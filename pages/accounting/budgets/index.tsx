@@ -33,7 +33,7 @@ export default function BudgetManagementPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch(`/api/accounting/budgets?fiscal_year=${fiscalYear ?? ''}`, { credentials: 'include' });
+      const res = await apiFetch(`/api/accounting/budgets${fiscalYear === null ? '' : `?fiscal_year=${fiscalYear}`}`, { credentials: 'include' });
       await assertOk(res, 'Could not load budgets - try again');
       const json = await res.json();
       setBudgets(json.data?.items || []);
