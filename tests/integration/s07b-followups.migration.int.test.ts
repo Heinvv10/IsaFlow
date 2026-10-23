@@ -4,7 +4,7 @@
 // view-summary matview renamed, behind a company-filtered definer and a
 // security_invoker view under its old name) and 920 (both rules as
 // app_pool_reach_violations(), refused by the migration and by every deploy's
-// check). They apply twice, after 915-917, as a NON-superuser postgres, as
+// check). They apply twice, after 915-917b, as a NON-superuser postgres, as
 // production's deploy runs. What they close: s07b-followups.int.test.ts.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { closeSql, createSql } from '../../scripts/_pg';
@@ -13,7 +13,7 @@ import { doBlock, fixture, migration, newIds, rolledBack, setup, teardown } from
 
 const ids = newIds();
 const S07B = ['915_app_pool_login_roles.sql', '915b_app_login_role_violations.sql', '916_service_role_member_guards.sql',
-  '917_app_role_hardening.sql'].map(migration);
+  '916b_revoke_app_user_backfill_view.sql', '917_app_role_hardening.sql', '917b_app_login_role_violations_views.sql'].map(migration);
 const M918 = migration('918_users_email_off_service_pool.sql');
 const M919 = migration('919_ar_view_summary_company_wrapper.sql');
 const M920 = migration('920_app_pool_reach_violations.sql');
@@ -26,7 +26,7 @@ type Q = (text: string) => Promise<unknown>;
 const one = async <T>(q: Q, text: string): Promise<T> => ((await q(text)) as { rows: T[] }).rows[0]!;
 
 describe('S-07b follow-ups: migrations 918, 919 and 920', () => {
-  it('re-apply after 915-917 as a NON-superuser postgres, twice', async () => {
+  it('re-apply after 915-917b as a NON-superuser postgres, twice', async () => {
     await rolledBack(async (q) => {
       expect((await one<{ s: boolean }>(q, 'SELECT rolsuper AS s FROM pg_roles WHERE rolname = current_user')).s).toBe(true);
       await q('ALTER ROLE postgres NOSUPERUSER');

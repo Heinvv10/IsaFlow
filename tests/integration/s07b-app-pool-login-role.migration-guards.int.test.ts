@@ -9,10 +9,12 @@ import { doBlock, fixture, migration, newIds, rolledBack, setup, teardown } from
 
 const ids = newIds();
 const M916 = migration('916_service_role_member_guards.sql');
+const M916B = migration('916b_revoke_app_user_backfill_view.sql');
 const M917 = migration('917_app_role_hardening.sql');
 const PATCH_916 = doBlock(M916, 'expected exactly once');
 const GUARD_916 = doBlock(M916, 'exempts every role but app_user');
 const GUARD_917 = doBlock(M917, 'could no longer record migrations');
+const GUARD_917B = doBlock(migration('917b_app_login_role_violations_views.sql'), "RAISE EXCEPTION '917b: %'");
 
 beforeAll(() => setup(ids), 60000);
 afterAll(() => teardown(ids, []));
@@ -106,6 +108,46 @@ describe('S-07b: migration 917', () => {
       await q(GUARD_917);
       await q(mutate);
       await expect(q(GUARD_917)).rejects.toThrow(msg);
+    });
+  });
+
+  // Production's shape (2026-10-23): app_user held SELECT on the backfill view, which 917 refuses. 916b revokes it.
+  it('916b clears production\'s grant on the backfill view, so 917\'s guard passes', async () => {
+    await rolledBack(async (q) => {
+      await q('GRANT SELECT ON public.ap_payment_document_backfill_candidates TO app_user');
+      await q('SAVEPOINT before_guard');
+      await expect(q(GUARD_917)).rejects.toThrow(/917: view ap_payment_document_backfill_candidates runs as an RLS-bypassing owner/);
+      await q('ROLLBACK TO SAVEPOINT before_guard');
+      await q(M916B);
+      await expect(q(GUARD_917)).resolves.toBeTruthy();
+    });
+  });
+
+  // REVOKE by a runner holding the view without the grant option only warns; 916b must refuse, not leave it to 917.
+  it('916b refuses when its runner could not revoke the grant', async () => {
+    await rolledBack(async (q) => {
+      await q('GRANT SELECT ON public.ap_payment_document_backfill_candidates TO app_user');
+      await q('CREATE ROLE s07b_weak_runner NOLOGIN');
+      await q('GRANT SELECT ON public.ap_payment_document_backfill_candidates TO s07b_weak_runner');
+      await q('SET LOCAL ROLE s07b_weak_runner');
+      await expect(q(M916B)).rejects.toThrow(/916b: app_user still holds a privilege on ap_payment_document_backfill_candidates; s07b_weak_runner could not revoke it/);
+    });
+  });
+
+  // 917b: the deploy's check repeats 917's view rule, so a view a later migration adds as postgres is caught.
+  it('917b: app_login_role_violations() names an owner-run view app_user may use, and 917b refuses it', async () => {
+    const VIEW_ROW = 'view s07b_later_view runs as an RLS-bypassing owner and app_user may use it; set security_invoker or revoke app_user';
+    await rolledBack(async (q) => {
+      const rows = async () => ((await q(`SELECT public.app_login_role_violations(false) AS v`)) as { rows: Array<{ v: string }> }).rows.map((r) => r.v);
+      expect(await rows()).toEqual([]);
+      await q(`CREATE VIEW public.s07b_later_view AS SELECT id FROM public.customers;
+        GRANT SELECT ON public.s07b_later_view TO app_user`);
+      expect(await rows()).toEqual([VIEW_ROW]);
+      await q('SAVEPOINT before_917b');
+      await expect(q(GUARD_917B)).rejects.toThrow(`917b: ${VIEW_ROW}`);
+      await q('ROLLBACK TO SAVEPOINT before_917b');
+      await q('ALTER VIEW public.s07b_later_view SET (security_invoker = true)');
+      expect(await rows()).toEqual([]);
     });
   });
 

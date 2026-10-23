@@ -317,8 +317,11 @@ when it started (step 4's `enable --now` does not restart a running unit):
 `journalctl -u isaflow-wal-archive --since -2min` shows it connected, with no
 `OWNER_DATABASE_URL` warning.
 
-One-off owner scripts (for example `scripts/ap-backfill-supplier-payments.ts`)
-read `OWNER_DATABASE_URL` from their own environment. Load it inside the
+One-off owner scripts read `OWNER_DATABASE_URL` and fall back to
+`DATABASE_URL`, which is now isaflow_app: run that way they fail with
+`permission denied` (for example `scripts/ap-backfill-supplier-payments.ts`
+reads `ap_payment_document_backfill_candidates`, which app_user may not read,
+916b). Load it inside the
 command, so the value never reaches an argv (`/proc/<pid>/cmdline` is
 world-readable) or your shell history, and never copy it into `.env.local`:
 `sudo bash -c 'export OWNER_DATABASE_URL="$(sed -n "s/^OWNER_DATABASE_URL=//p" /etc/isaflow/owner.env)"; exec bun <script>'`.
