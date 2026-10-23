@@ -43,13 +43,13 @@ export function HistoryPanel({ history, undo, onUndone }: Props) {
         <p className="text-sm text-[var(--ff-text-secondary)]">No changes of financial year end have been made.</p>
       ) : (
         <table className="w-full text-sm">
-          <thead><tr className="text-left text-xs uppercase text-[var(--ff-text-secondary)]"><th className="py-1">Applied</th><th>Year end</th><th>Months</th><th>Reason</th><th>Status</th></tr></thead>
+          <thead><tr className="text-left text-xs uppercase text-[var(--ff-text-secondary)]"><th className="py-1 pr-4">Applied</th><th className="pr-4">Year end</th><th className="pr-4">Months</th><th className="pr-4">Reason</th><th>Status</th></tr></thead>
           <tbody>{history.map(h => (
             <tr key={h.id} className="border-t border-[var(--ff-border-primary)] text-[var(--ff-text-primary)] align-top">
-              <td className="py-1">{fmtInstantDay(h.appliedAt)}</td>
-              <td>{fmtDay(h.fromEndDate)} to {fmtDay(h.toEndDate)}</td>
-              <td>{h.months}</td>
-              <td>{h.reason}</td>
+              <td className="py-1 pr-4">{fmtInstantDay(h.appliedAt)}</td>
+              <td className="pr-4">{fmtDay(h.fromEndDate)} to {fmtDay(h.toEndDate)}</td>
+              <td className="pr-4">{h.months}</td>
+              <td className="pr-4">{h.reason}</td>
               <td>{h.reversedAt ? `Undone: ${h.reversalReason ?? ''}` : 'In effect'}</td>
             </tr>))}</tbody>
         </table>
@@ -58,7 +58,7 @@ export function HistoryPanel({ history, undo, onUndone }: Props) {
       {undo.changeId && (
         <div className="mt-4">
           {undo.refusals.length > 0 ? (
-            <div data-testid="undo-refusals" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-400">
+            <div data-testid="undo-refusals" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">
               <p className="font-semibold mb-1">The latest change cannot be undone</p>
               <ul className="list-disc pl-5 space-y-1">{undo.refusals.map(r => <li key={r}>{r}</li>)}</ul>
             </div>
