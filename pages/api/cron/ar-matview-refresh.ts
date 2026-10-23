@@ -9,18 +9,19 @@
  *
  * NOTE: REFRESH MATERIALIZED VIEW CONCURRENTLY needs a unique index on the
  * MV (mig 427 provides idx_cust_inv_view_summary) and must be run by the
- * view's owner. The service pool is not
- * the owner (S-07b), so it calls the SECURITY DEFINER wrapper from migration
- * 915, which refreshes this one view and takes no input; since 930 it calls
+ * view's owner, so the cron calls a SECURITY DEFINER wrapper that refreshes
+ * this one view and takes no input: since 930,
  * refresh_customer_invoice_view_summary_if_due(), which skips, and says so,
- * while another refresh runs or within 10 minutes of the last.
+ * while another refresh runs or within 10 minutes of the last. Only
+ * migration_admin may call it: a caller can hold its lock to the end of its
+ * own transaction.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { timingSafeEqualStr } from '@/lib/timingSafe';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -44,8 +45,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // false: another refresh is running, or one finished under 10 minutes ago
   // (migration 930), so a loop of calls cannot keep the view refreshing.
-  const [row] = await sql<{ refreshed: boolean }>`SELECT refresh_customer_invoice_view_summary_if_due() AS refreshed`;
-  const refreshed = row?.refreshed === true;
+  // On the migration_admin pool, the only role that may call it (930).
+  const { rows } = await migrationAdminPool().query<{ refreshed: boolean }>(
+    'SELECT public.refresh_customer_invoice_view_summary_if_due() AS refreshed',
+  );
+  const refreshed = rows[0]?.refreshed === true;
   const durationMs = Date.now() - started;
 
   log.info('Cron complete: ar-matview-refresh', { refreshed, durationMs }, 'cron-ar-matview-refresh');

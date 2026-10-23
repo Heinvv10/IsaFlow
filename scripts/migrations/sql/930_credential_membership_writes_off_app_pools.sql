@@ -36,11 +36,12 @@
 -- the token hashes are what the attack needs to read).
 --
 -- Also (S-07c LOWs):
---   C1 refresh_customer_invoice_view_summary() refreshes at most once per 10
---      minutes and never concurrently, so a loop of calls is not a DoS (the
---      lock is on a table app roles cannot lock, so they cannot hold it off);
---      refresh_customer_invoice_view_summary_if_due() does the same and says
---      whether it refreshed. The state row is unreadable by app roles.
+--   C1 refresh_customer_invoice_view_summary_if_due() refreshes at most once
+--      per 10 minutes and never concurrently, and says whether it refreshed;
+--      the old name delegates to it. App roles may EXECUTE neither: the cron
+--      calls it on the migration_admin pool. A caller could otherwise hold its
+--      lock to the end of a long transaction of its own (breaker round 2), as
+--      it could loop the old one. The state row is unreadable by app roles.
 --   C3 waitlist_signups gets row security. The public form keeps INSERT of its
 --      own columns; nothing else for app roles. The admin site (platform_admin,
 --      BYPASSRLS) reads and promotes as before.
@@ -133,9 +134,11 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.refresh_customer_invoice_view_summary_if_due() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary_if_due() TO app_service;
+GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary_if_due() TO migration_admin;
 
--- The old name, which the previous release's cron calls, takes the same path.
+-- The old name takes the same path. The previous release's cron calls it on the
+-- service pool, which may no longer: until the new code is live the nightly
+-- refresh fails (the summary stays a day stale), which is the window's cost.
 CREATE OR REPLACE FUNCTION public.refresh_customer_invoice_view_summary()
 RETURNS void
 LANGUAGE plpgsql
@@ -146,8 +149,8 @@ BEGIN
   PERFORM public.refresh_customer_invoice_view_summary_if_due();
 END;
 $$;
-REVOKE ALL ON FUNCTION public.refresh_customer_invoice_view_summary() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO app_service;
+REVOKE ALL ON FUNCTION public.refresh_customer_invoice_view_summary() FROM PUBLIC, app_service;
+GRANT EXECUTE ON FUNCTION public.refresh_customer_invoice_view_summary() TO migration_admin;
 
 -- 920's rules, unchanged, plus one per table above.
 CREATE OR REPLACE FUNCTION public.app_pool_reach_violations()
@@ -182,6 +185,19 @@ AS $$
   ),
   ruled AS (
     SELECT pg_catalog.to_regclass(r.tbl) AS rel, r.* FROM rules r WHERE pg_catalog.to_regclass(r.tbl) IS NOT NULL
+  ),
+  -- Every definer in any schema but the catalog's, its source with comments
+  -- and double quotes removed, lower-cased and whitespace collapsed, less the
+  -- two reviewed by name: create_company_with_owner (a NEW company, its
+  -- caller as owner) and auth.set_default_company (is_default only).
+  definers AS (
+    SELECT p.oid,
+           pg_catalog.regexp_replace(pg_catalog.lower(pg_catalog.regexp_replace(pg_catalog.regexp_replace(p.prosrc,
+             '/\*.*?\*/|--[^\n]*', ' ', 'g'), '"', '', 'g')), '\s+', ' ', 'g') AS src
+      FROM pg_catalog.pg_proc p
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+     WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND p.oid::regprocedure::text NOT IN ('create_company_with_owner(jsonb)', 'auth.set_default_company(uuid,uuid)')
   )
   SELECT pg_catalog.format('%s (reachable from an app pool login) can %s users.email', reach.rolname, p.priv)
     FROM reach CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) p(priv)
@@ -220,20 +236,23 @@ AS $$
      AND pg_catalog.has_table_privilege(reach.oid, ruled.rel, p.priv)
   UNION ALL
   -- A definer runs as its owner, so a privilege rule cannot see what it
-  -- writes. Reviewed: create_company_with_owner (a NEW company, its caller as
-  -- owner), auth.set_default_company (is_default only) and the C1 refresh.
+  -- writes; this reads its source. A write it can read is refused, and so is
+  -- dynamic SQL (EXECUTE), which it cannot. Named limit: a definer that calls
+  -- an invoker helper to do the write is still only caught by review.
   SELECT DISTINCT pg_catalog.format('%s (reachable from an app pool login) can EXECUTE %s, a definer that writes %s',
-                                    reach.rolname, p.oid::regprocedure, m.tbl)
+                                    reach.rolname, d.oid::regprocedure, m.tbl)
     FROM reach
-   CROSS JOIN pg_catalog.pg_proc p
-    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-   CROSS JOIN LATERAL (SELECT (pg_catalog.regexp_matches(p.prosrc,
-       '\m(?:insert\s+into|update|delete\s+from)\s+(?:public\.)?(' || (SELECT pg_catalog.string_agg(pg_catalog.substr(r.tbl, 8), '|') FROM rules r) || ')\M',
-       'gi'))[1] AS tbl) m
-   WHERE p.prosecdef AND n.nspname IN ('public', 'auth', 'app', 'platform_shared')
-     AND pg_catalog.has_function_privilege(reach.oid, p.oid, 'EXECUTE')
-     AND p.oid::regprocedure::text NOT IN ('create_company_with_owner(jsonb)', 'auth.set_default_company(uuid,uuid)',
-                                           'refresh_customer_invoice_view_summary_if_due()')
+   CROSS JOIN definers d
+   CROSS JOIN LATERAL (SELECT (pg_catalog.regexp_matches(d.src,
+       '\m(?:insert into|update(?: only)?|delete from(?: only)?|merge into|truncate(?: table)?(?: only)?) ?(?:[a-z_][a-z0-9_$]* ?\. ?)?('
+         || (SELECT pg_catalog.string_agg(pg_catalog.substr(r.tbl, 8), '|') FROM rules r) || ')\M', 'g'))[1] AS tbl) m
+   WHERE pg_catalog.has_function_privilege(reach.oid, d.oid, 'EXECUTE')
+  UNION ALL
+  SELECT DISTINCT pg_catalog.format('%s (reachable from an app pool login) can EXECUTE %s, a definer that runs dynamic SQL, which this check cannot read',
+                                    reach.rolname, d.oid::regprocedure)
+    FROM reach
+   CROSS JOIN definers d
+   WHERE d.src ~ '\mexecute\M' AND pg_catalog.has_function_privilege(reach.oid, d.oid, 'EXECUTE')
   UNION ALL
   SELECT 'waitlist_signups has no row security'
    WHERE NOT COALESCE((SELECT c.relrowsecurity FROM pg_catalog.pg_class c
