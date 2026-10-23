@@ -205,24 +205,28 @@ SELECT c.oid::regclass, pg_get_userbyid(c.relowner) FROM pg_class c
          'public.oauth_authorisations', 'public.capture_api_keys', 'public.company_invitations', 'public.company_users',
          'public.auth_password_reset_tokens', 'public.admin_impersonation_stash', 'public.waitlist_signups']::regclass[])
    AND NOT pg_has_role(current_user, c.relowner, 'USAGE');
--- 930: a SECURITY DEFINER function app_user may call that 930 does not list
--- in app_definer_reviews (930 refuses until a migration reviews and lists it)
+-- 930: a SECURITY DEFINER function 930 does not list in app_definer_reviews
+-- (930 refuses until a migration reviews and lists it; trigger functions too)
 SET search_path = pg_catalog, public;
 SELECT p.oid::regprocedure FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
  WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-   AND (has_function_privilege('app_user', p.oid, 'EXECUTE')
-        OR has_function_privilege('isaflow_app', p.oid, 'EXECUTE') OR has_function_privilege('isaflow_service', p.oid, 'EXECUTE'))
    AND p.oid::regprocedure::text NOT IN (
-     'auth.set_default_company(uuid,uuid)', 'auth.user_admin_companies()', 'auth.user_admin_companies(text)', 'auth.user_companies()',
-     'approval_company_member_name(uuid,text)', 'approval_company_member_profile(uuid,text)', 'approval_company_other_members(uuid,text)',
-     'approval_enforcement_set(uuid,text,boolean,text)', 'approval_request_decide(uuid,uuid,text,text,text,text)',
-     'approval_request_lock(uuid,uuid)', 'approval_request_raise(uuid,text,uuid,uuid,text)', 'approval_request_rebind(uuid,uuid,uuid,text)',
-     'approval_rule_create(uuid,text,text,text,text,text,numeric,text)', 'approval_rule_delete(uuid,uuid,text)',
-     'approval_rule_lock(uuid,uuid,text)', 'approval_rule_update(uuid,uuid,text,text,text,text,numeric,text,boolean)',
-     'audit_check_run_record(jsonb,jsonb)', 'audit_snapshot_record(jsonb,jsonb,jsonb,jsonb)', 'company_member_directory(uuid)',
-     'create_company_with_owner(jsonb)', 'current_company_invoice_view_summary()', 'invite_token_company_name()',
-     -- reachable today; 930 takes app roles' EXECUTE away from these two
-     'refresh_customer_invoice_view_summary()', 'refresh_customer_invoice_view_summary_if_due()');
+    'auth.set_default_company(uuid,uuid)', 'auth.user_admin_companies()', 'auth.user_admin_companies(text)',
+    'auth.user_companies()', 'approval_company_member_name(uuid,text)', 'approval_company_member_profile(uuid,text)',
+    'approval_company_other_members(uuid,text)', 'approval_enforcement_set(uuid,text,boolean,text)',
+    'approval_request_decide(uuid,uuid,text,text,text,text)', 'approval_request_lock(uuid,uuid)',
+    'approval_request_raise(uuid,text,uuid,uuid,text)', 'approval_request_rebind(uuid,uuid,uuid,text)',
+    'approval_rule_create(uuid,text,text,text,text,text,numeric,text)', 'approval_rule_delete(uuid,uuid,text)',
+    'approval_rule_lock(uuid,uuid,text)', 'approval_rule_update(uuid,uuid,text,text,text,text,numeric,text,boolean)',
+    'audit_check_run_record(jsonb,jsonb)', 'audit_snapshot_record(jsonb,jsonb,jsonb,jsonb)',
+    'company_member_directory(uuid)', 'create_company_with_owner(jsonb)', 'current_company_invoice_view_summary()',
+    'invite_token_company_name()', 'payment_approval_cleared(uuid,text,uuid)',
+    'refresh_customer_invoice_view_summary()', 'refresh_customer_invoice_view_summary_if_due()',
+    'seed_company_afs_statement_lines(uuid)', 'seed_company_chart_of_accounts(uuid)',
+    'seed_company_default_taxonomy(uuid)', 'seed_company_fiscal_periods(uuid)', 'entity_change_capture()',
+    'credit_note_approval_gate()', 'customer_invoice_approval_gate()', 'fx_document_currency_gate()',
+    'fx_settlement_refusal()', 'manual_journal_approval_gate()', 'payment_batch_approval_gate()',
+    'payment_batch_member_gate()', 'supplier_invoice_approval_gate()', 'supplier_payment_approval_gate()');
 RESET search_path;
 -- 930: adding a company must not depend on app_user's INSERT (930 refuses otherwise)
 SELECT pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.oid = 'public.create_company_with_owner(jsonb)'::regprocedure
