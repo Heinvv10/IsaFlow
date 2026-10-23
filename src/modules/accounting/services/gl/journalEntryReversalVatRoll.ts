@@ -22,11 +22,12 @@
  * Its own file to keep journalEntryReversalDate inside the 300-line cap.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { isRealCalendarDate } from '@/lib/validation';
 import { isAutoCreatableYear, isOutsideWindowByCalendarYear, yearHoldsClosedPeriod } from './fiscalPeriodAutoCreate';
 import { fiscalYearForDate } from './fiscalYearRegistry';
+import { log } from '@/lib/logger';
 import { isLedgerDate } from './ledgerDateRange';
 import {
   VatPeriodLockedError,
@@ -109,10 +110,13 @@ export function makeAutoCreatable(
     if (!isLedgerDate(date)) return false;
     let year: Awaited<ReturnType<typeof fiscalYearForDate>>;
     try {
-      year = await fiscalYearForDate(companyId, date);
-    } catch {
+      // In a savepoint: the registry's SQL may raise, and a caught SQL error
+      // would otherwise leave the request transaction aborted.
+      year = await withSavepoint('vat_roll_year', () => fiscalYearForDate(companyId, date));
+    } catch (err) {
       // No fiscal year resolvable (a company row that has gone): ensureFiscalPeriodForDate
       // answers NULL for exactly this failure, so no uncovered date is postable.
+      log.warn('makeAutoCreatable: no fiscal year resolvable', { companyId, date, error: String(err) }, 'accounting');
       return false;
     }
     if (!isAutoCreatableYear(year.fiscalYear, today) || year.status === 'closed' || year.status === 'locked') return false;
@@ -142,9 +146,10 @@ export async function isOutsideAutoCreateWindow(companyId: string, date: string)
   if (isRealCalendarDate(date) && isOutsideWindowByCalendarYear(date)) return true;
   if (!isLedgerDate(date)) return false;
   try {
-    const year = await fiscalYearForDate(companyId, date);
+    const year = await withSavepoint('vat_roll_window', () => fiscalYearForDate(companyId, date));
     return !isAutoCreatableYear(year.fiscalYear);
-  } catch {
+  } catch (err) {
+    log.warn('isOutsideAutoCreateWindow: no fiscal year resolvable', { companyId, date, error: String(err) }, 'accounting');
     return false; // unknown year: not provably a typo'd year
   }
 }

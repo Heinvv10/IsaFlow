@@ -40,6 +40,27 @@ export interface FiscalYearRecord {
   stored: boolean;
   /** Whole calendar months the year spans (12 normally, 1-15 for a transition year). */
   months: number;
+  /**
+   * True only for a template year of a company with no usable
+   * financial_year_start: its range ASSUMES a March start (the read-path
+   * default). Strict readers (the AFS) refuse it — see assertDeclaredBasis.
+   */
+  assumed: boolean;
+}
+
+/** A strict reader met a year built on an assumed (March) start month. */
+export class StartMonthAssumedError extends Error {
+  constructor(readonly companyId: string, readonly fiscalYear: number) {
+    super(`Company ${companyId} has no usable financial_year_start and no stored financial year covering FY${fiscalYear}; `
+      + 'set the month its financial year begins (Settings > General) rather than have the statements assume March.');
+    this.name = 'StartMonthAssumedError';
+  }
+}
+
+/** For readers that must not guess (the AFS, filed with CIPC): refuse an assumed year. */
+export function assertDeclaredBasis(companyId: string, year: FiscalYearRecord): FiscalYearRecord {
+  if (year.assumed) throw new StartMonthAssumedError(companyId, year.fiscalYear);
+  return year;
 }
 
 /** Whole months from the first to the last day, both inclusive ('2026-01-01'..'2027-02-28' is 14). */
@@ -68,6 +89,7 @@ function mapYear(r: DbRow): FiscalYearRecord {
     kind: String(r.kind) as FiscalYearKind,
     stored: Boolean(r.stored),
     months: monthsSpanned(startDate, endDate),
+    assumed: r.assumed === true,
   };
 }
 
@@ -104,7 +126,7 @@ export async function priorFiscalYear(companyId: string, year: FiscalYearRecord)
 /** Every stored year, oldest first. */
 export async function listFiscalYears(companyId: string): Promise<FiscalYearRecord[]> {
   const rows = (await sql`
-    SELECT id, fiscal_year, start_date, end_date, status, kind, true AS stored
+    SELECT id, fiscal_year, start_date, end_date, status, kind, true AS stored, false AS assumed
       FROM fiscal_years WHERE company_id = ${companyId}::UUID
      ORDER BY start_date
   `) as DbRow[];

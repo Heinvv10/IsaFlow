@@ -83,7 +83,7 @@ const READ_BY_HAND = new Set([
   '240_group_companies.sql', '244_fixed_assets.sql', '414_provisional_je_bank_first.sql', '421_expense_claims.sql',
   '499_gl_account_balances_status_trigger.sql', '500_widen_journal_entry_number.sql',
   '501_je_fiscal_period_autoresolve.sql', '653_soft_delete_journal_reversals.sql',
-  '941_journal_period_from_entry_date.sql', // EXECUTE FUNCTION in CREATE TRIGGER only; adds no column (2026-10-23)
+  '940_fiscal_years.sql', '941_journal_period_from_entry_date.sql', // EXECUTE FUNCTION in CREATE TRIGGER only; adds no column (2026-10-23)
   '675_bank_feed_canonical_ingestion.sql', '701_vat_input_late_claim_account.sql',
   '708_approval_enforcement_infra.sql', '711_supplier_payment_settles_provisional.sql',
   '855_retire_data_archiving.sql', '862_credit_note_approval_enforcement.sql',
