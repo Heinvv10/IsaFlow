@@ -22,17 +22,26 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { sqlSpy } = vi.hoisted(() => ({ sqlSpy: vi.fn() }));
+const { sqlSpy, getFiscalYearMock } = vi.hoisted(() => ({ sqlSpy: vi.fn(), getFiscalYearMock: vi.fn() }));
 vi.mock('@/lib/neon', () => ({ sql: sqlSpy }));
+// The year end is the registry year's (a stored fiscal_years row), not a start month re-applied.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ getFiscalYear: getFiscalYearMock }));
 
 import {
   FilingDeadlineUnknownError,
   getOverdueStatutoryFilings,
 } from '@/modules/accounting/services/reports/statutoryFilingsService';
 
-/** One unsigned AFS for a company whose financial year starts in `fyStart`. */
-function afsFor(fiscalYear: number, fyStart: unknown = 3): void {
-  sqlSpy.mockResolvedValue([{ fiscal_year: fiscalYear, financial_year_start: fyStart }]);
+/** A March-start company's registry year ends on the last day of February of its label. */
+const februaryEnd = (label: number): string => `${label}-02-${label % 4 === 0 ? 29 : 28}`;
+
+/** One unsigned AFS whose registry year ends on `yearEnd` (the label's last day of February by default; null: no such year). */
+function afsFor(fiscalYear: number, yearEnd?: string | null): void {
+  sqlSpy.mockResolvedValue([{ fiscal_year: fiscalYear }]);
+  getFiscalYearMock.mockImplementation(async (_companyId: string, label: number) =>
+    yearEnd === null
+      ? null
+      : { fiscalYear: label, startDate: '2000-01-01', endDate: yearEnd ?? februaryEnd(label) });
 }
 
 /** The one query the service ran, as the template it was written as: the
@@ -54,8 +63,8 @@ function boundAfter(before: RegExp): unknown {
 /** Far enough out that every deadline under test has passed. */
 const LONG_AFTER = '2030-01-01';
 
-async function deadlineOf(fiscalYear: number, fyStart: number): Promise<string> {
-  afsFor(fiscalYear, fyStart);
+async function deadlineOf(fiscalYear: number, yearEnd: string): Promise<string> {
+  afsFor(fiscalYear, yearEnd);
   const [filing] = await getOverdueStatutoryFilings('c1', LONG_AFTER);
   return filing!.deadline;
 }
@@ -102,35 +111,40 @@ describe('getOverdueStatutoryFilings', () => {
 
   describe('the deadline is the end of the sixth month after the year end', () => {
     it('28 February gives 31 August, not 28 August', async () => {
-      expect(await deadlineOf(2026, 3)).toBe('2026-08-31');
+      expect(await deadlineOf(2026, '2026-02-28')).toBe('2026-08-31');
     });
 
     it('29 February in a leap year gives 31 August', async () => {
-      expect(await deadlineOf(2024, 3)).toBe('2024-08-31');
+      expect(await deadlineOf(2024, '2024-02-29')).toBe('2024-08-31');
     });
 
     it('31 March gives 30 September, not 1 October', async () => {
-      expect(await deadlineOf(2026, 4)).toBe('2026-09-30');
+      expect(await deadlineOf(2026, '2026-03-31')).toBe('2026-09-30');
     });
 
     it('31 August gives the last day of February, in a common year and a leap year', async () => {
       // 31 August 2025 + 6 months overflowed to 3 March 2026.
-      expect(await deadlineOf(2025, 9)).toBe('2026-02-28');
-      expect(await deadlineOf(2027, 9)).toBe('2028-02-29');
+      expect(await deadlineOf(2025, '2025-08-31')).toBe('2026-02-28');
+      expect(await deadlineOf(2027, '2027-08-31')).toBe('2028-02-29');
     });
 
     it('31 December gives 30 June of the next year, not 1 July', async () => {
       // A January-start company: fiscal year N is calendar year N.
-      expect(await deadlineOf(2025, 1)).toBe('2026-06-30');
+      expect(await deadlineOf(2025, '2025-12-31')).toBe('2026-06-30');
+    });
+
+    it('a 14-month transition year falls due six months after ITS end, not after a twelve-month cut', async () => {
+      // 1 January 2026 to 28 February 2027: the label is 2027, the end is the registry's.
+      expect(await deadlineOf(2027, '2027-02-28')).toBe('2027-08-31');
     });
 
     it('30 June gives 31 December of the same year', async () => {
-      expect(await deadlineOf(2026, 7)).toBe('2026-12-31');
+      expect(await deadlineOf(2026, '2026-06-30')).toBe('2026-12-31');
     });
   });
 
   it('counts a January-start company from its own year end', async () => {
-    afsFor(2025, 1);
+    afsFor(2025, '2025-12-31');
     // Due 30 June 2026; 7 September 2026 is 31 + 31 + 7 = 69 days later.
     const [filing] = await getOverdueStatutoryFilings('c1', '2026-09-07');
     expect(filing).toEqual({
@@ -141,13 +155,19 @@ describe('getOverdueStatutoryFilings', () => {
     });
   });
 
-  describe('a company with no usable financial year start', () => {
-    // `|| 3` assumed March. A December-year-end tenant whose setting is
-    // missing would be told its statements fell due two months late.
-    it.each([null, '', 0, 13, 'March'])('refuses %s rather than assuming March', async (raw) => {
-      afsFor(2026, raw);
+  describe('a statement whose fiscal year no registry year carries', () => {
+    // A March default would date a statement the company has no year for.
+    // Refused by name instead, so no overdue count is invented.
+    it('refuses rather than assuming a year end', async () => {
+      afsFor(2026, null);
       await expect(getOverdueStatutoryFilings('c1', LONG_AFTER))
         .rejects.toBeInstanceOf(FilingDeadlineUnknownError);
+    });
+
+    it('asks the registry for THIS company and THIS label', async () => {
+      afsFor(2026);
+      await getOverdueStatutoryFilings('company-under-test', '2026-09-07');
+      expect(getFiscalYearMock).toHaveBeenCalledWith('company-under-test', 2026);
     });
   });
 
@@ -184,10 +204,8 @@ describe('getOverdueStatutoryFilings', () => {
   });
 
   it('lists the longest overdue first', async () => {
-    sqlSpy.mockResolvedValue([
-      { fiscal_year: 2026, financial_year_start: 3 },
-      { fiscal_year: 2024, financial_year_start: 3 },
-    ]);
+    afsFor(2026);
+    sqlSpy.mockResolvedValue([{ fiscal_year: 2026 }, { fiscal_year: 2024 }]);
     const filings = await getOverdueStatutoryFilings('c1', '2026-09-07');
     expect(filings.map((f) => f.fiscalYear)).toEqual([2024, 2026]);
   });

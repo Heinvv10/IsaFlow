@@ -19,20 +19,22 @@
  * See gl/fiscalYearCloseRows for the listings that do insert a close line.
  */
 
-import { DEFAULT_FY_START_MONTH, fiscalYearStart, getFiscalYearStartMonth } from './fiscalYearBasis';
-import { isIncomeStatementType } from './fiscalYearCloseRows';
+import { dayAfter, isIncomeStatementType } from './fiscalYearCloseRows';
+import { fiscalYearForDate } from './fiscalYearRegistry';
 import { assertLedgerRange } from './ledgerDateRange';
 import { BROUGHT_FORWARD_CODE, getRetainedEarningsBroughtForward } from './trialBalanceBasis';
 
 export interface StreamFiscalBasis {
   /** First day of the fiscal year containing periodStart — the income-statement opening floor. */
   fyStart: string;
+  /** First day of the fiscal year after it (the day after the year ends). */
+  nextFyStart: string;
   /** Retained earnings b/f (credit positive), or null when the read is filtered. */
   retainedBf: number | null;
 }
 
 /**
- * Reads the fiscal-year start month, and on an unfiltered read the RE-BF balance: up to TWO extra
+ * Reads the registry year holding periodStart, and on an unfiltered read the RE-BF balance: up to TWO extra
  * statements per stream page, each a separate statement from the line/opening query.
  *
  * CONSISTENCY WINDOW: under READ COMMITTED (the request transaction's level) each statement sees
@@ -50,11 +52,10 @@ export async function streamFiscalBasis(
   periodEnd: string,
 ): Promise<StreamFiscalBasis> {
   assertLedgerRange(periodStart, periodEnd);
-  // READ PATH: March fallback taken visibly, as the trial balance does.
-  const month = await getFiscalYearStartMonth(companyId, { fallback: DEFAULT_FY_START_MONTH });
-  const fyStart = fiscalYearStart(periodStart, month);
+  const year = await fiscalYearForDate(companyId, periodStart);
+  const fyStart = year.startDate;
   const retainedBf = unfiltered ? await getRetainedEarningsBroughtForward(companyId, fyStart) : null;
-  return { fyStart, retainedBf };
+  return { fyStart, nextFyStart: dayAfter(year.endDate), retainedBf };
 }
 
 /** The opening set plus the derived RE-BF key when the read is unfiltered and it is non-zero. */
@@ -67,13 +68,12 @@ export function withRetainedBf(
 }
 
 /**
- * First fiscal-year start after `fyStart` when the range reaches it, else null. From that
+ * The next fiscal-year start (`nextFyStart`) when the range reaches it, else null. From that
  * date an income-statement account's cumulative running balance no longer equals its
  * balance (the TB restarts it), and the stream inserts no close line, so it is withheld.
  */
-export function incomeStatementBalanceNullFrom(fyStart: string, periodEnd: string): string | null {
-  const next = `${String(Number(fyStart.slice(0, 4)) + 1).padStart(4, '0')}${fyStart.slice(4)}`;
-  return periodEnd >= next ? next : null;
+export function incomeStatementBalanceNullFrom(nextFyStart: string, periodEnd: string): string | null {
+  return periodEnd >= nextFyStart ? nextFyStart : null;
 }
 
 /** False for an income-statement line on or after `nullFrom`; true otherwise. */
