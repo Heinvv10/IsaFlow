@@ -10,6 +10,10 @@ import { checkRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { log } from '@/lib/logger';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import {
+  assertCanInvite, InvitationForbiddenError, markInvitationEmailFailed, markInvitationEmailSent,
+} from '@/modules/accounting/services/core/userInvitationService';
 
 const listInvitations: NextApiHandler = async (req, res) => {
   const { companyId } = req as CompanyAuthedRequest;
@@ -49,6 +53,11 @@ const createInvitation: NextApiHandler = async (req, res) => {
   const tokenHash = hashInviteToken(token);
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
+  // 1-3 run in one transaction on the migration_admin pool (S-07c): an
+  //    invitation is honoured by the accept routes on that pool, so no app role
+  //    may write company_invitations (migration 921), and the guard trigger's
+  //    rules are checked by assertCanInvite against the verified caller.
+  //
   // 1. Insert invitation row. UNIQUE(company_id, email) means a resend — or a
   //    re-invite of someone who accepted and was later removed — collides with
   //    the row already there, which used to escape as a 500. Refresh it in
@@ -57,33 +66,48 @@ const createInvitation: NextApiHandler = async (req, res) => {
   //    already promises. The old link stops working, which is what a resend
   //    means. Tenant-scoped by the conflict target, so this can never touch
   //    another company's invitation for the same address.
-  const inv = await sql<{ id: string }>`
-    INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
-    VALUES (${companyId}::uuid, ${cleanEmail}, ${role}, ${user.id}, ${tokenHash}, ${expiresAt})
-    ON CONFLICT (company_id, email) DO UPDATE SET
-      role = EXCLUDED.role,
-      invited_by = EXCLUDED.invited_by,
-      token = EXCLUDED.token,
-      expires_at = EXCLUDED.expires_at,
-      accepted_at = NULL,
-      email_sent_at = NULL,
-      email_error = NULL
-    RETURNING id
-  `;
+  let inviteId: string;
+  try {
+    inviteId = await migrationAdminTx('create invitation', async (client) => {
+      await assertCanInvite(client, companyId, user.id, role);
+      const inv = await client.query<{ id: string }>(
+        `INSERT INTO company_invitations (company_id, email, role, invited_by, token, expires_at)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6)
+         ON CONFLICT (company_id, email) DO UPDATE SET
+           role = EXCLUDED.role,
+           invited_by = EXCLUDED.invited_by,
+           token = EXCLUDED.token,
+           expires_at = EXCLUDED.expires_at,
+           accepted_at = NULL,
+           email_sent_at = NULL,
+           email_error = NULL
+         RETURNING id`,
+        [companyId, cleanEmail, role, user.id, tokenHash, expiresAt],
+      );
+      const id = inv.rows[0]!.id;
 
-  // 2. Admin-create GoTrue user (email_confirm:true so they can sign in once password is set).
-  //    On 422 (already exists) adminCreateUser returns the existing user via lookup.
-  const gotrueUser = await adminCreateUser({
-    email: cleanEmail,
-    email_confirm: true,
-    user_metadata: { invite_id: inv[0]!.id },
-  });
+      // 2. Admin-create GoTrue user (email_confirm:true so they can sign in once password is set).
+      //    On 422 (already exists) adminCreateUser returns the existing user via lookup.
+      //    Inside the transaction, as before: a GoTrue failure leaves no invitation behind.
+      const gotrueUser = await adminCreateUser({
+        email: cleanEmail,
+        email_confirm: true,
+        user_metadata: { invite_id: id },
+      });
 
-  // 3. Stash gotrue_user_id on the invitation for later accept
-  await sql`
-    UPDATE company_invitations SET gotrue_user_id = ${gotrueUser.id}::uuid
-    WHERE id = ${inv[0]!.id}::uuid
-  `;
+      // 3. Stash gotrue_user_id on the invitation for later accept
+      await client.query(
+        'UPDATE company_invitations SET gotrue_user_id = $3::uuid WHERE id = $1::uuid AND company_id = $2::uuid',
+        [id, companyId, gotrueUser.id],
+      );
+      return id;
+    });
+  } catch (err) {
+    if (err instanceof InvitationForbiddenError) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: err.message } });
+    }
+    throw err;
+  }
 
   // 4. Company name for the email
   const [company] = await sql<{ name: string }>`SELECT name FROM companies WHERE id = ${companyId}::uuid`;
@@ -115,19 +139,19 @@ const createInvitation: NextApiHandler = async (req, res) => {
   }
 
   if (emailError !== null) {
-    log.warn('invite email send failed', { inviteId: inv[0]!.id, message: emailError }, 'Invitations');
-    await sql`UPDATE company_invitations SET email_error = ${emailError} WHERE id = ${inv[0]!.id}::uuid`;
+    log.warn('invite email send failed', { inviteId: inviteId, message: emailError }, 'Invitations');
+    await markInvitationEmailFailed(inviteId, companyId, emailError);
     // 201, not 502: withAuth ROLLBACKs the request transaction on any status
     // >= 500, so the 502 this used to return discarded the invitation row, the
     // gotrue_user_id and the email_error it had just written — and then told the
     // caller to resend an invitation that no longer existed. Reporting the
     // failure in the body keeps the row and matches what
     // pages/api/accounting/company-invitations.ts already does.
-    return res.status(201).json({ success: true, data: { id: inv[0]!.id, email: cleanEmail, role, expiresAt, emailSent: false, emailError } });
+    return res.status(201).json({ success: true, data: { id: inviteId, email: cleanEmail, role, expiresAt, emailSent: false, emailError } });
   }
 
-  await sql`UPDATE company_invitations SET email_sent_at = now() WHERE id = ${inv[0]!.id}::uuid`;
-  return res.status(201).json({ success: true, data: { id: inv[0]!.id, email: cleanEmail, role, expiresAt, emailSent: true } });
+  await markInvitationEmailSent(inviteId, companyId);
+  return res.status(201).json({ success: true, data: { id: inviteId, email: cleanEmail, role, expiresAt, emailSent: true } });
 };
 
 const handler: NextApiHandler = async (req, res) => {

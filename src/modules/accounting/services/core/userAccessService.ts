@@ -40,8 +40,9 @@ export interface InvitationWithToken extends PendingInvitation {
 }
 
 export interface InvitationResult {
-  autoAdded: boolean;
-  invitation?: InvitationWithToken;
+  /** Always false: an existing account is invited by email, never added (S-07c). */
+  autoAdded: false;
+  invitation: InvitationWithToken;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -179,7 +180,6 @@ export {
   markInvitationEmailSent,
   markInvitationEmailFailed,
   cancelInvitation,
-  acceptInvitation,
 } from './userInvitationService';
 
 // Suppress unused import warning — crypto is used only in the invitation file now

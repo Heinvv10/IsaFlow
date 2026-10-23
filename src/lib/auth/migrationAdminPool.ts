@@ -16,6 +16,7 @@ import pg from 'pg';
 // in this process. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { log } from '@/lib/logger';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 
 let _pool: pg.Pool | null = null;
 
@@ -42,4 +43,29 @@ export function migrationAdminPool(): pg.Pool {
   // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
   _pool.on('error', (err) => log.warn('migration_admin pool error', { message: err.message }, 'Auth'));
   return _pool;
+}
+
+/**
+ * Run `fn` in one transaction on a migrationAdminPool() client: BEGIN, COMMIT,
+ * a ROLLBACK on any throw, and a connection whose ROLLBACK failed destroyed
+ * rather than pooled (R-176). For the fixed, parameterised statements above,
+ * keyed on ids the TypeScript layer verified, never on claims read in SQL.
+ */
+export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  const client = await migrationAdminPool().connect();
+  let opened = false;
+  let unusable = false;
+  try {
+    opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    opened = false;
+    return result;
+  } catch (err) {
+    if (opened) unusable = await rollbackFailed(client, label);
+    throw err;
+  } finally {
+    client.release(unusable);
+  }
 }
