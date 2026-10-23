@@ -158,21 +158,24 @@ export async function laterPeriodsWarnings(
 export async function judgeYearToDateStale(companyId: string, runId: string): Promise<PayrollJournalNote | null> {
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
-    WITH runs AS (
+    WITH tax_year AS (
+      SELECT make_date(CASE WHEN h.period_month >= 3 THEN h.period_year ELSE h.period_year - 1 END, 3, 1) AS start
+      FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
+    ),
+    runs AS (
       SELECT h.id, h.period_year, h.period_month, h.status, h.approved_at, h.approval_history,
              make_date(h.period_year, h.period_month, 1) AS period,
              (SELECT MIN(l.created_at) FROM payroll_run_lines l WHERE l.run_id = h.id) AS calculated_at
-      FROM payroll_run_headers h WHERE h.company_id = ${companyId}::uuid
+      FROM payroll_run_headers h, tax_year y
+      WHERE h.company_id = ${companyId}::uuid
+        AND make_date(h.period_year, h.period_month, 1) >= y.start
+        AND make_date(h.period_year, h.period_month, 1) < (y.start + INTERVAL '1 year')
     ),
-    me AS (
-      SELECT r.*, make_date(CASE WHEN r.period_month >= 3 THEN r.period_year ELSE r.period_year - 1 END, 3, 1) AS year_start
-      FROM runs r WHERE r.id = ${runId}::uuid
-    )
+    me AS (SELECT r.* FROM runs r WHERE r.id = ${runId}::uuid)
     SELECT e.period_year, e.period_month, e.period > me.period AS later
     FROM runs e, me
     WHERE e.id <> me.id
       AND e.status = ANY(${declarable}::text[])
-      AND e.period >= me.year_start AND e.period < (me.year_start + INTERVAL '1 year')
       AND CASE
         WHEN e.period < me.period THEN NOT (
           e.calculated_at <= me.calculated_at
