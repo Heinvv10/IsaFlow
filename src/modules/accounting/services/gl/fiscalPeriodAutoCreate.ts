@@ -46,6 +46,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { isRealCalendarDate } from '@/lib/validation';
 import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
@@ -65,10 +66,17 @@ import { ClosedFiscalPeriodError } from './journalEntryPostingGuards';
  */
 export class FiscalPeriodNotGeneratedError extends ClosedFiscalPeriodError {
   readonly code = 'FISCAL_PERIOD_NOT_GENERATED';
-  constructor(entryDate: string, year: { fiscalYear: number; startDate: string; endDate: string }, holdsClosed: boolean) {
+  constructor(
+    entryDate: string,
+    year: { fiscalYear: number; startDate: string; endDate: string } | null,
+    holdsClosed: boolean,
+    unresolved?: string,
+  ) {
     super('closed');
     this.name = 'FiscalPeriodNotGeneratedError';
-    const why = holdsClosed
+    const why = unresolved !== undefined || year === null
+      ? `no financial year can be placed around it (${unresolved ?? 'unknown'})`
+      : holdsClosed
       ? `fiscal year FY${year.fiscalYear} already holds closed or locked periods, and no month is added beside them`
       : `it falls in a part month at the edge of fiscal year FY${year.fiscalYear} (${year.startDate} to ${year.endDate}), `
         + 'which is never generated';
@@ -173,15 +181,17 @@ export async function ensureFiscalPeriodForDate(
   try {
     year = await withSavepoint('ensure_fp_year', () => fiscalYearForDate(companyId, entryDate));
   } catch (err) {
-    // An unparseable date, or a company row that has gone. Null is the
-    // pre-existing behaviour for a date no period covers; a throw here would
-    // turn a journal that posts today into a 500.
     log.warn(
       'Could not resolve a fiscal year for this date',
       { companyId, entryDate, error: String(err) },
       'accounting',
     );
-    return null;
+    // An unparseable date stays null (createJournalEntry's date guard answers
+    // it). A real date the registry cannot place (a label the stored years
+    // leave no room for) is refused: a null here would post the journal with
+    // no period, past every closed-period check.
+    if (!isRealCalendarDate(entryDate)) return null;
+    throw new FiscalPeriodNotGeneratedError(entryDate, null, false, err instanceof Error ? err.message : String(err));
   }
   if (!isAutoCreatableYear(year.fiscalYear, opts?.today)) {
     log.warn(

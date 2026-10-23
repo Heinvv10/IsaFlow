@@ -94,3 +94,30 @@ CREATE TRIGGER trg_gl_je_status_balance
     OR (NEW.status = 'posted' AND OLD.fiscal_period_id IS DISTINCT FROM NEW.fiscal_period_id)
   )
   EXECUTE FUNCTION refresh_gl_account_balances_on_status_change();
+
+-- A journal does not enter or leave the posted set while its period is locked
+-- (unpost, re-date, repost would otherwise move it into a sealed period and
+-- change its balance cache). Only a superuser may (fiscal_period_override,
+-- migration 940).
+CREATE OR REPLACE FUNCTION public.gl_je_locked_period_status_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF (OLD.status = 'posted') IS DISTINCT FROM (NEW.status = 'posted')
+     AND NOT public.fiscal_period_override()
+     AND EXISTS (SELECT 1 FROM fiscal_periods fp
+                  WHERE fp.id IN (OLD.fiscal_period_id, NEW.fiscal_period_id) AND fp.status = 'locked') THEN
+    RAISE EXCEPTION 'journal entry % sits in a locked period: it cannot be posted or unposted there', NEW.id
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_gl_je_locked_period_status ON gl_journal_entries;
+CREATE TRIGGER trg_gl_je_locked_period_status
+  BEFORE UPDATE OF status ON gl_journal_entries
+  FOR EACH ROW EXECUTE FUNCTION public.gl_je_locked_period_status_guard();
+ALTER TABLE gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_locked_period_status;
