@@ -159,8 +159,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           if (!txId || !glAccountId || !category) {
             return apiResponse.badRequest(res, 'txId, glAccountId, and category required');
           }
-          await learnFromAllocation(companyId, txId, glAccountId, category, vatCode);
-          return apiResponse.success(res, { learned: true });
+          const learned = await learnFromAllocation(companyId, txId, glAccountId, category, vatCode);
+          return apiResponse.success(res, { learned });
         }
 
         default:

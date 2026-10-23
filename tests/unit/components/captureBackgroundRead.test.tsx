@@ -39,7 +39,7 @@ const doc = (over: Record<string, unknown> = {}) => ({
   id: 'd1', fileName: 'inv.pdf', fileType: 'application/pdf', fileSize: 2048, documentType: null, extractedData: null,
   vendorName: null, documentDate: null, referenceNumber: null, totalAmount: null, vatAmount: null, status: 'pending',
   matchedInvoiceId: null, matchedBankTxId: null, notes: null, uploadedBy: 'u1', createdAt: '2026-10-22T08:00:00Z',
-  readState: 'reading', readError: null, ...over,
+  readState: 'reading', readError: null, retryable: false, ...over,
 });
 const READ_DONE = doc({ readState: 'done', extractedData: EXTRACTED });
 
@@ -101,10 +101,10 @@ describe('document capture page', () => {
   });
 
   it('a failed read shows the reason and stops polling', async () => {
-    await upload(ok({ document: doc() }), [() => ok(doc({ readState: 'failed', readError: 'The read was interrupted — upload the document again.' }))]);
+    await upload(ok({ document: doc() }), [() => ok(doc({ readState: 'failed', readError: 'The read was interrupted — retry it.' }))]);
     await screen.findByText('Reading document…');
     await tick(3000);
-    expect(await screen.findByText('The read was interrupted — upload the document again.')).toBeTruthy();
+    expect(await screen.findByText('The read was interrupted — retry it.')).toBeTruthy();
     expect(screen.queryByText('Reading document…')).toBeNull();
     expect(screen.queryByText('Extraction Results')).toBeNull();
     await tick(12000);
@@ -197,9 +197,9 @@ describe('document detail page', () => {
   });
 
   it('a failed read shows its reason', async () => {
-    serveDetail([() => ok(doc({ readState: 'failed', readError: 'The read was interrupted — upload the document again.' }))]);
+    serveDetail([() => ok(doc({ readState: 'failed', readError: 'The read was interrupted — retry it.' }))]);
     render(<DocumentDetailPage />);
-    expect(await screen.findByText('The read was interrupted — upload the document again.')).toBeTruthy();
+    expect(await screen.findByText('The read was interrupted — retry it.')).toBeTruthy();
     expect(screen.queryByText('Reading document…')).toBeNull();
   });
 
@@ -212,6 +212,137 @@ describe('document detail page', () => {
     view.unmount();
     await tick(15000);
     expect(vi.mocked(apiFetch)).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('retrying a failed read', () => {
+  const FAILED = doc({ readState: 'failed', readError: 'The document could not be read — retry the read.', retryable: true });
+  const actionCalls = () => vi.mocked(apiFetch).mock.calls.filter((c) => String(c[0]).includes('document-capture-action'));
+  const retryButton = () => screen.queryByRole('button', { name: /^Retry/ }) as HTMLButtonElement | null;
+
+  /** Script the routes: GET ?id= pops from `polls`; the retry action answers `retried`. */
+  function serve(polls: Array<() => Response>, retried: () => Response) {
+    const queue = [...polls];
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (u.includes('document-capture-action')) return retried();
+      if ((init?.method ?? 'GET').toUpperCase() === 'POST') return ok({ document: doc() });
+      if (u.includes('document-capture?id=')) return (queue.length > 1 ? queue.shift()! : queue[0]!)();
+      return ok([], { pagination: { total: 0 } });
+    });
+  }
+
+  it('capture page: a retryable failed read offers Retry; clicking it posts the retry, shows Reading again, polls, and the figures land', async () => {
+    serve([() => ok(FAILED), () => ok(READ_DONE)], () => ok(doc()));
+    const view = render(<DocumentCapturePage />);
+    await screen.findByText(/Drop a document here/);
+    pick(view.container);
+    await screen.findByText('Reading document…');
+    await tick(3000);
+    expect(await screen.findByText('The document could not be read — retry the read.')).toBeTruthy();
+    fireEvent.click(retryButton()!);
+    await vi.waitFor(() => expect(actionCalls()).toHaveLength(1));
+    expect(JSON.parse(String(actionCalls()[0]![1]!.body))).toEqual({ id: 'd1', action: 'retry' });
+    expect(await screen.findByText('Reading document…')).toBeTruthy();
+    expect(retryButton()).toBeNull();
+    await tick(3000);
+    expect(await screen.findByText('Extraction Results')).toBeTruthy();
+    expect(screen.getByDisplayValue('Acme Supplies')).toBeTruthy();
+  });
+
+  it('capture page: a failed read that is not retryable offers no Retry', async () => {
+    serve([() => ok(doc({ readState: 'failed', readError: 'The file is not stored — upload it again.', retryable: false }))], () => ok(doc()));
+    const view = render(<DocumentCapturePage />);
+    await screen.findByText(/Drop a document here/);
+    pick(view.container);
+    await screen.findByText('Reading document…');
+    await tick(3000);
+    expect(await screen.findByText('The file is not stored — upload it again.')).toBeTruthy();
+    expect(retryButton()).toBeNull();
+  });
+
+  it('capture page: a refused retry shows the server message, keeps the failed panel and the button', async () => {
+    serve([() => ok(FAILED)], () => refused('Too many documents are being read — wait for one to finish.', 429));
+    const view = render(<DocumentCapturePage />);
+    await screen.findByText(/Drop a document here/);
+    pick(view.container);
+    await screen.findByText('Reading document…');
+    await tick(3000);
+    await screen.findByText('The document could not be read — retry the read.');
+    fireEvent.click(retryButton()!);
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith('Too many documents are being read — wait for one to finish.'));
+    expect(screen.queryByText('Reading document…')).toBeNull();
+    expect(retryButton()!.disabled).toBe(false);
+  });
+
+  it('a second click while the retry is in flight does nothing: the button is disabled', async () => {
+    let answer: (r: Response) => void = () => undefined;
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+      const u = String(url);
+      if (u.includes('document-capture-action')) return new Promise<Response>((resolve) => { answer = resolve; });
+      return ok(FAILED);
+    });
+    render(<DocumentDetailPage />);
+    await screen.findByText('The document could not be read — retry the read.');
+    fireEvent.click(retryButton()!);
+    await vi.waitFor(() => expect(actionCalls()).toHaveLength(1));
+    expect(retryButton()!.disabled).toBe(true);
+    fireEvent.click(retryButton()!);
+    expect(actionCalls()).toHaveLength(1);
+    await act(async () => { answer(ok(doc())); });
+  });
+
+  it('detail page: Retry re-arms, shows the banner with actions disabled, and polls until done', async () => {
+    serve([() => ok(FAILED), () => ok(doc()), () => ok(READ_DONE)], () => ok(doc()));
+    render(<DocumentDetailPage />);
+    expect(await screen.findByText('The document could not be read — retry the read.')).toBeTruthy();
+    fireEvent.click(retryButton()!);
+    await vi.waitFor(() => expect(actionCalls()).toHaveLength(1));
+    expect(JSON.parse(String(actionCalls()[0]![1]!.body))).toEqual({ id: 'd1', action: 'retry' });
+    expect(await screen.findByText('Reading document…')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Confirm & Save/ }) as HTMLButtonElement).disabled).toBe(true);
+    await tick(3000);
+    expect(await screen.findByDisplayValue('Acme Supplies')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Confirm & Save/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('detail page: the 200 the retry answered with is shown even when the follow-up GET fails, and polling starts', async () => {
+    serve([() => ok(FAILED), () => refused('Bad gateway', 502)], () => ok(doc()));
+    render(<DocumentDetailPage />);
+    await screen.findByText('The document could not be read — retry the read.');
+    fireEvent.click(retryButton()!);
+    await vi.waitFor(() => expect(actionCalls()).toHaveLength(1));
+    expect(await screen.findByText('Reading document…')).toBeTruthy();
+    expect(screen.queryByText('The document could not be read — retry the read.')).toBeNull();
+    expect(retryButton()).toBeNull();
+    await vi.waitFor(() => expect(byIdGets().length).toBeGreaterThanOrEqual(2));
+    const before = byIdGets().length;
+    await tick(10000);
+    expect(byIdGets().length).toBeGreaterThan(before);
+    expect(screen.getByText('Reading document…')).toBeTruthy();
+  });
+
+  it('detail page: no Retry for a failed read that is not retryable', async () => {
+    serve([() => ok(doc({ readState: 'failed', readError: 'x', retryable: false }))], () => ok(doc()));
+    render(<DocumentDetailPage />);
+    expect(await screen.findByText('x')).toBeTruthy();
+    expect(retryButton()).toBeNull();
+  });
+
+  it('detail page: a failed panel with no recorded reason falls back to a plain statement, without telling the user to upload again', async () => {
+    serve([() => ok(doc({ readState: 'failed', readError: null, retryable: true }))], () => ok(doc()));
+    render(<DocumentDetailPage />);
+    expect(await screen.findByText('The document could not be read.')).toBeTruthy();
+    expect(retryButton()).not.toBeNull();
+  });
+
+  it('detail page: a refused retry shows the message and leaves the page as it was', async () => {
+    serve([() => ok(FAILED)], () => refused('This document cannot be retried — upload it again.', 400));
+    render(<DocumentDetailPage />);
+    await screen.findByText('The document could not be read — retry the read.');
+    fireEvent.click(retryButton()!);
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledWith('This document cannot be retried — upload it again.'));
+    expect(screen.queryByText('Reading document…')).toBeNull();
   });
 });
 
