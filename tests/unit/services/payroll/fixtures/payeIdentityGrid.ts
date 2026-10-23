@@ -43,15 +43,18 @@ export function payeFigures(line: PayrollLineResult): Record<string, unknown> {
   };
 }
 
-/** The year-to-date fields added after the golden was written (R3): nothing recorded. */
-const NO_MEDICAL_YTD = { medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 };
+/**
+ * The year-to-date fields added after the golden was written (R3). Recorded credits are a record only:
+ * non-zero here so that any PAYE that read them would leave the golden. No fees to date.
+ */
+const RECORDED_YTD = { medicalCredit: 1_234.56, additionalMedicalCredit: 321.09, medicalSchemeFees: 0 };
 
 function ytdCases(): Array<[string, PayeYearToDate | undefined]> {
   return [
     ['first period', undefined],
-    ['3 earlier at 20 000', { periods: 3, periodicTaxable: 60_000, annualPayments: 0, tablePaye: 12_483, ...NO_MEDICAL_YTD }],
-    ['5 earlier at 9 000, a bonus', { periods: 5, periodicTaxable: 45_000, annualPayments: 9_000, tablePaye: 1_900, ...NO_MEDICAL_YTD }],
-    ['over-deducted to date', { periods: 4, periodicTaxable: 24_000, annualPayments: 0, tablePaye: 9_000, ...NO_MEDICAL_YTD }],
+    ['3 earlier at 20 000', { periods: 3, periodicTaxable: 60_000, annualPayments: 0, tablePaye: 12_483, ...RECORDED_YTD }],
+    ['5 earlier at 9 000, a bonus', { periods: 5, periodicTaxable: 45_000, annualPayments: 9_000, tablePaye: 1_900, ...RECORDED_YTD }],
+    ['over-deducted to date', { periods: 4, periodicTaxable: 24_000, annualPayments: 0, tablePaye: 9_000, ...RECORDED_YTD }],
   ];
 }
 
@@ -90,7 +93,7 @@ export function payeIdentityGrid(): GridCase[] {
         employee: employee(taxYear - 41, 2),
         components: [{ component: comp('3901', { isUifApplicable: false, isSdlApplicable: false }), amount: 50_000, directive: { id: 'd1', number: '123', paye: 9_000 } }],
         period: { year, month }, taxYear, annualPayrollEstimate: 'defer',
-        ytd: { periods: 3, periodicTaxable: 45_000, annualPayments: 0, tablePaye: 6_000, ...NO_MEDICAL_YTD }, notEmployedInPeriod: true,
+        ytd: { periods: 3, periodicTaxable: 45_000, annualPayments: 0, tablePaye: 6_000, ...RECORDED_YTD }, notEmployedInPeriod: true,
       }),
     });
   }

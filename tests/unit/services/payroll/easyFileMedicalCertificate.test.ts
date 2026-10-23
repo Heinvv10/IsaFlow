@@ -131,7 +131,7 @@ describe('R3: the calculator counts medical scheme fees from deductions coded 40
     isUifApplicable: true, isSdlApplicable: true,
   });
   const employee = { id: 'e1', dateOfBirth: new Date(1985, 0, 1), startDate: new Date(2015, 0, 1), uifExcluded: true, medicalAidMainMember: true, medicalAidDependantsCount: 0 } as unknown as PayrollEmployee;
-  it('a deduction coded 4005 (whitespace stripped) counts; an employer contribution or another deduction does not', () => {
+  it('a deduction coded 4005 (whitespace stripped) counts; an employer contribution or another code does not', () => {
     const line = calculatePayrollLine({
       employee, period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 'defer',
       components: [
@@ -140,6 +140,7 @@ describe('R3: the calculator counts medical scheme fees from deductions coded 40
         { component: { ...comp('4005', 'deduction'), id: 'c2', sarsSourceCode: ' 4005\t' }, amount: 250.5 },
         { component: comp('4005', 'employer_contribution'), amount: 900 },
         { component: comp('4001', 'deduction'), amount: 700 },
+        { component: comp('14005', 'deduction'), amount: 333 },
       ],
     });
     expect(line.medicalSchemeFees).toBe(1_750.5);
