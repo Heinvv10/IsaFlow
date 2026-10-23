@@ -16,6 +16,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { round2 } from '../core/budgetMonths';
 import { budgetMonthKeysInWindow } from './budgetPeriodWindow';
 import { loadWindowBudgets } from './budgetWindowService';
 import {
@@ -125,8 +126,4 @@ export async function getBudgetVariance(
     ),
     postedThrough: postedRows[0]?.posted_through ?? null,
   };
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }

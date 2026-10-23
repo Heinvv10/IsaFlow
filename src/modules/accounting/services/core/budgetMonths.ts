@@ -27,8 +27,20 @@ export class BudgetInputError extends Error {
   }
 }
 
+/**
+ * `n` to cents, half away from zero on the DECIMAL value, as the NUMERIC(15,2)
+ * column rounds: 1.005 is 1.01 (Math.round(1.005 * 100) is 100 because the float
+ * is 1.00499...). The decimal point is shifted in the number's text; a number
+ * whose text is exponential (1e-7 noise, or beyond a safe integer) takes the
+ * float round, which is exact enough for both.
+ */
 export function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+  if (!Number.isFinite(n) || Math.abs(n) >= Number.MAX_SAFE_INTEGER / 100) return n;
+  const abs = Math.abs(n);
+  const text = String(abs);
+  const cents = text.includes('e') ? Math.round(abs * 100) : Math.round(Number(`${text}e2`));
+  const out = (n < 0 ? -cents : cents) / 100;
+  return out === 0 ? 0 : out;
 }
 
 /** `annual` over `count` months: equal cents, the remainder on the last month. */

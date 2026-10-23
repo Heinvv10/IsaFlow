@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { spreadEvenly } from '@/modules/accounting/services/core/budgetMonths';
+import { round2, spreadEvenly } from '@/modules/accounting/services/core/budgetMonths';
 import { monthLabel, type BudgetMonth, type GLAccount } from './budgetClient';
 
 export interface BudgetSubmit {
@@ -31,7 +31,7 @@ function parseAmount(value = ''): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-const sum = (values: string[]) => Math.round(values.reduce((s, v) => s + (parseAmount(v) ?? 0), 0) * 100) / 100;
+const sum = (values: string[]) => round2(values.reduce((s, v) => s + (parseAmount(v) ?? 0), 0));
 
 export function BudgetForm({ fiscalYear, monthKeys, accounts, editing, busy, onSubmit, onCancel }: Props) {
   const stored = new Map((editing?.months ?? []).map(m => [m.month, String(m.amount)]));
