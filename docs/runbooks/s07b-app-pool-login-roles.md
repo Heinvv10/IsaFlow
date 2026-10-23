@@ -39,8 +39,11 @@ the app keeps logging in as today. These do take effect on deploy:
 
 The follow-up PR (migrations 918 and 919, 2026-10-23) also takes effect on deploy:
 
-- change-email and the POPIA erasure write `users` on the migration_admin pool,
-  and app_service loses `UPDATE (email, updated_at)` on `users` (918). That
+- change-email, the POPIA erasure and the signup verification tokens
+  (register, verify-email) run on the migration_admin pool, and app_service
+  loses `UPDATE (email, updated_at)` on `users` and every grant on
+  `auth_email_verification_tokens` (918), whose payload email verify-email
+  writes into `users`. That
   closes 915's documented residual (a service-pool injection could rewrite any
   user's email). change-email now writes the profile first and calls GoTrue
   second: a GoTrue refusal leaves both emails as they were, a missing profile
@@ -294,7 +297,7 @@ discarded and counts its warnings: 0 means it took the owner file.
 rotated yet (`docs/runbooks/cron-secret-management-packs.md`), rotate it
 first: the copy made here is the rollback point and would otherwise keep the
 leaked value. Keep a copy, as velo (a root `cp` into velo's directory would
-follow a symlink velo planted): `sudo -u velo cp -p .env.local .env.local.pre-s07b`.
+follow a symlink velo planted): `sudo -u velo cp -p /home/velo/isaflow/.env.local /home/velo/isaflow/.env.local.pre-s07b`.
 
 ```
 SERVICE_DATABASE_URL=postgresql://isaflow_service:<pw>@<same host:port>/isaflow?<same params>

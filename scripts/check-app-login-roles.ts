@@ -17,10 +17,14 @@ export async function appLoginRoleViolations(sql: TaggedSql): Promise<string[] |
   const [login] = await sql<{ live: boolean }>`
     SELECT COALESCE(bool_or(rolcanlogin), false) AS live FROM pg_roles WHERE rolname IN ('isaflow_app', 'isaflow_service')`;
   const rows = await sql<{ v: string }>`SELECT public.app_login_role_violations(${login?.live ?? false}) AS v`;
-  // 920: users.email and materialized views out of the logins' reach (S-07b follow-ups).
+  // 920: users.email, the verification tokens and materialized views out of
+  // the logins' reach (S-07b follow-ups). Shipped with this script, so after
+  // the deploy's migrations a missing function is itself a violation.
   const [reach] = await sql<{ f: string | null }>`SELECT to_regprocedure('public.app_pool_reach_violations()')::text AS f`;
-  const more = reach?.f ? await sql<{ v: string }>`SELECT v FROM public.app_pool_reach_violations() v ORDER BY 1` : [];
-  return [...rows, ...more].map((r) => r.v);
+  const more = reach?.f
+    ? (await sql<{ v: string }>`SELECT v FROM public.app_pool_reach_violations() v ORDER BY 1`).map((r) => r.v)
+    : ['public.app_pool_reach_violations() is missing (migration 920 not applied?)'];
+  return [...rows.map((r) => r.v), ...more];
 }
 
 async function main(): Promise<number> {

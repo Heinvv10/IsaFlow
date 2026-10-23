@@ -1,4 +1,5 @@
--- Migration 918: the service pool can no longer write users.email.
+-- Migration 918: the service pool can no longer write users.email, directly or
+-- through the email-verification tokens that verify-email turns into one.
 --
 -- S-07b follow-up A (2026-10-23). 915 granted app_service UPDATE (email,
 -- updated_at) on users for change-email and the POPIA erasure, and documented
@@ -27,7 +28,19 @@
 
 REVOKE UPDATE (email, updated_at) ON public.users FROM app_service;
 
+-- auth_email_verification_tokens (owner migration_admin, no RLS): 915 granted
+-- app_service every command on it for emailVerificationService. A token's
+-- payload email is what verify-email (migration_admin pool) provisions into
+-- users.email, ON CONFLICT (id) DO UPDATE SET email included, and verify-email
+-- confirms the token's GoTrue user. So a service-pool injection that inserts a
+-- token with a hash it chose and any address in the payload, then follows its
+-- own link, writes users.email by proxy (S-07b follow-ups breaker, round 2).
+-- emailVerificationService now runs every statement on the migration_admin
+-- pool; neither app pool may read the table either (the payloads carry names,
+-- phone numbers and addresses).
+REVOKE ALL ON public.auth_email_verification_tokens FROM app_service, app_user, PUBLIC;
+
 -- 920 refuses the deploy if any role either app login reaches can still
--- UPDATE users.email (a grant from another grantor, a table-level grant, or one
+-- INSERT or UPDATE users.email, or write the tokens table (a grant from another grantor, a table-level grant, or one
 -- reaching a login through a role it can SET ROLE to survives the REVOKE
 -- above), and scripts/check-app-login-roles.ts re-checks it on every deploy.

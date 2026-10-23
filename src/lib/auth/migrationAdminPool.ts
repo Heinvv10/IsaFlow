@@ -1,12 +1,15 @@
 /**
  * The memoised pool on MIGRATION_ADMIN_DATABASE_URL (BYPASSRLS, not the table
  * owner), for writes neither app pool may make, each from fixed,
- * parameterised statements keyed on the verified session's user id:
+ * parameterised statements:
  *   - the two invite-accept routes write a membership for a user who is not
  *     yet a member; no app_user or app_service policy and guard admits that
  *     write, by design (S-07b, migration 916);
- *   - change-email and the POPIA erasure write users.email, which migration
- *     918 takes away from the service pool (S-07b follow-up A).
+ *   - change-email and the POPIA erasure write users.email, keyed on the
+ *     verified session's user id, and emailVerificationService (register,
+ *     resend, verify-email) owns the verification tokens whose payload becomes
+ *     users.email: migration 918 takes both away from the service pool
+ *     (S-07b follow-ups).
  */
 import pg from 'pg';
 // Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
@@ -22,11 +25,12 @@ export function migrationAdminPool(): pg.Pool {
   if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required for invite accept, change-email and erasure');
   _pool = new pg.Pool({
     connectionString: url,
-    max: 2,
     // change-email holds a connection (and its users row) across one GoTrue
-    // call, bounded at AUTH_UPSTREAM_TIMEOUT_MS; a caller waiting longer than
-    // this for a connection gets an error instead of waiting forever. The
-    // same checkout bound rollbackFailed assumes for the other pools.
+    // call, bounded at AUTH_UPSTREAM_TIMEOUT_MS, so two slow ones no longer
+    // starve invite accept, erasure and signup. A caller waiting longer than
+    // the checkout bound for a connection gets an error instead of waiting
+    // forever: the same bound rollbackFailed assumes for the other pools.
+    max: 4,
     connectionTimeoutMillis: 15_000,
     ssl:
       process.env.DATABASE_SSL === 'strict'

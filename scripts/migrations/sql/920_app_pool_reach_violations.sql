@@ -9,7 +9,9 @@
 -- migration and scripts/check-app-login-roles.ts (deploy.sh, after every
 -- deploy's migrations, before the code switch) run:
 --   - no role either app login reaches (itself, app_user, app_service, any
---     role it can SET ROLE to; PUBLIC's grants count) may UPDATE users.email;
+--     role it can SET ROLE to; PUBLIC's grants count) may INSERT or UPDATE
+--     users.email, or touch auth_email_verification_tokens, whose payload
+--     email verify-email writes into users.email (918);
 --   - none may read any column of a materialized view in public, auth, app or
 --     platform_shared: none has RLS. A materialized view the app needs is read
 --     through a company-filtered definer, as 919 does.
@@ -27,9 +29,13 @@ AS $$
      WHERE (pg_catalog.to_regrole('isaflow_app') IS NOT NULL AND pg_catalog.pg_has_role('isaflow_app', r.oid, 'MEMBER'))
         OR (pg_catalog.to_regrole('isaflow_service') IS NOT NULL AND pg_catalog.pg_has_role('isaflow_service', r.oid, 'MEMBER'))
   )
-  SELECT pg_catalog.format('%s (reachable from an app pool login) can UPDATE users.email', reach.rolname)
-    FROM reach
-   WHERE pg_catalog.has_column_privilege(reach.oid, 'public.users', 'email', 'UPDATE')
+  SELECT pg_catalog.format('%s (reachable from an app pool login) can %s users.email', reach.rolname, p.priv)
+    FROM reach CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) p(priv)
+   WHERE pg_catalog.has_column_privilege(reach.oid, 'public.users', 'email', p.priv)
+  UNION ALL
+  SELECT pg_catalog.format('%s (reachable from an app pool login) can %s auth_email_verification_tokens', reach.rolname, p.priv)
+    FROM reach CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) p(priv)
+   WHERE pg_catalog.has_table_privilege(reach.oid, pg_catalog.to_regclass('public.auth_email_verification_tokens'), p.priv)
   UNION ALL
   SELECT pg_catalog.format('%s (reachable from an app pool login) can SELECT the materialized view %s', reach.rolname, c.oid::regclass)
     FROM reach

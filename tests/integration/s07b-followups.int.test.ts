@@ -63,6 +63,15 @@ describe('A (918): the service pool cannot write users.email', () => {
     expect(await attempt(pool(), [[text, [me]]])).toEqual({ code: '42501', message: 'permission denied for table users' });
   });
 
+  // 918, breaker round 2: a token's payload email is what verify-email writes into users.email.
+  it.each([
+    ['plant a verification token', `INSERT INTO auth_email_verification_tokens (gotrue_user_id, token_hash, payload, expires_at)
+      VALUES ($1, 'h', '{"email":"x@test.local"}', NOW() + interval '1 day')`],
+    ['read the pending signups', 'SELECT payload FROM auth_email_verification_tokens WHERE gotrue_user_id = $1'],
+  ])('isaflow_service cannot %s', async (_, text) => {
+    expect(await attempt(pool(), [[text, [me]]])).toEqual({ code: '42501', message: 'permission denied for table auth_email_verification_tokens' });
+  });
+
   it('not with an owner\'s forged claims either', async () => {
     expect(await attempt(pool(), [[`UPDATE users SET email = 'taken-over@test.local' WHERE id = $1`, [me]]],
       { claims: { sub: me, companyId: company } })).toEqual({ code: '42501', message: 'permission denied for table users' });
