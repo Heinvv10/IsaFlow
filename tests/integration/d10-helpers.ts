@@ -35,7 +35,6 @@ export async function setupWithUser(prefix: string): Promise<{ c: Ctx; token: st
 export async function clearExtras(c: Ctx | undefined): Promise<void> {
   if (!c) return;
   await sql`UPDATE bank_transactions SET matched_journal_line_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
-  await sql`UPDATE supplier_payments SET batch_id = NULL WHERE company_id = ${c.fx.companyId}::UUID`;
   await sql`DELETE FROM supplier_payment_batches WHERE company_id = ${c.fx.companyId}::UUID`;
   await sql`DELETE FROM company_users WHERE company_id = ${c.fx.companyId}::UUID`;
 }

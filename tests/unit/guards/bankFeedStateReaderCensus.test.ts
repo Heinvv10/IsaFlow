@@ -87,8 +87,8 @@ const CLASSIFICATION: Readonly<Record<string, string>> = {
   'pages/api/accounting/reports/cash-movement.ts': 'filtered',
   'pages/api/accounting/setup-guide.ts': 'exempt: onboarding checklist presence flag, not a financial total',
   'pages/api/accounting/smart-categorize.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
-  'pages/api/landing-stats.ts': 'filtered',
 
+  'src/lib/landing/landingStats.ts': "filtered (the landing-page aggregate moved here from pages/api/landing-stats.ts, 2026-10-20)",
   'src/modules/accounting/services/ap/supplierBankPaymentService.ts': 'exempt: writer (Task 3) — read-before-write plan phase',
   'src/modules/accounting/services/ap/bankLinePaymentGate.ts': "exempt: reads one line's provenance (feed connection / import batch) by id for the R-035 payment gate; no total or queue scope",
   'src/modules/accounting/services/bank/bankLineJournalGate.ts': "exempt: reads the named lines' provenance (feed connection / import batch) by id for the R-035 manual-journal gate; no total or queue scope",

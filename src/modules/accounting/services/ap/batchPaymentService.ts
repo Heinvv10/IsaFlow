@@ -13,6 +13,7 @@ import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { assertSupplierInCompany } from '../core/contactDirectoryService';
 import { assertBatchAllocatable, assertBatchMembersStillAllocatable } from './supplierBatchAllocationPlan';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
+import { assertBatchNotSentToNetcash } from './netcashBatchGuard';
 import type { SupplierPaymentBatch, BatchPaymentCreateInput } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
@@ -258,6 +259,11 @@ export async function processBatch(companyId: string, id: string, userId: string
  */
 export async function cancelBatch(companyId: string, id: string): Promise<void> {
   await withTransaction(async (tx) => {
+    // AP-01: the batch row first (waits for a netcash/submit in flight, which holds it FOR SHARE), then the guard.
+    const locked = (await tx`SELECT batch_number FROM supplier_payment_batches
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status IN ('draft', 'approved')
+      FOR NO KEY UPDATE`) as Row[];
+    if (locked[0]) await assertBatchNotSentToNetcash(companyId, id, String(locked[0].batch_number), 'cancelled');
     const done = (await tx`UPDATE supplier_payment_batches SET status = 'cancelled'
       WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status IN ('draft', 'approved')
       RETURNING id`) as Row[];

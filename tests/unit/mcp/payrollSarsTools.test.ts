@@ -54,6 +54,7 @@ const EMP201 = {
   employeeCount: 10,
   totalTaxableRemuneration: 335800,
   totalDeductions: 69968.62,
+  directivePayments: [],
   payrollRuns: [{
     id: 'r1', runDate: '2026-01-01', employeeCount: 10,
     grossPay: 335800, paye: 63360.94, eti: 4000, uif: 3249.68, sdl: 3358,
@@ -70,6 +71,7 @@ const IRP5 = {
     grossSalary: 480000, taxableIncome: 470000, paye: 96000,
     uifEmployee: 2124, uifEmployer: 2124, sdl: 4800, eti: 0, netPay: 381876,
     runsIncluded: 12,
+    lumpSums: [{ sourceCode: '3901', directiveNumber: '1234567890', directiveIssuedDate: '2025-11-03', amount: 30000, paye: 3000 }],
   }],
   rowsTotal: 1,
   universeTotal: 2,
@@ -130,6 +132,19 @@ describe('emp201_status', () => {
     expect(env.rows[0].eti).toBe(4000);
   });
 
+  it('counts directives paid outside payroll, without names, and pins to the last payment when it is later', async () => {
+    vi.mocked(generateEMP201).mockResolvedValue({
+      ...EMP201, payrollRuns: [],
+      directivePayments: [{ paymentId: 'p1', directiveNumber: '1', paymentDate: '2026-03-20', gross: 12_000, paye: 3_000 },
+        { paymentId: 'p2', directiveNumber: '2', paymentDate: '2026-03-05', gross: 1_000, paye: 250.5 }],
+    });
+    const env = json(await emp201StatusTool.handler({ period_start: '2026-03-01', period_end: '2026-03-31' }, ctx));
+    expect(env.directive_payments_count).toBe(2);
+    expect(env.directive_payments_paye).toBe(3_250.5);
+    expect(env.posted_through).toBe('2026-03-20T00:00:00.000Z');
+    expect(JSON.stringify(env)).not.toMatch(/employee_name|p1|p2/);
+  });
+
   it('does not re-derive the declaration — the service owns it', async () => {
     await emp201StatusTool.handler({ period_start: '2026-01-01', period_end: '2026-03-31' }, ctx);
     expect(generateEMP201).toHaveBeenCalledTimes(1);
@@ -163,6 +178,10 @@ describe('irp5_data', () => {
     expect(env.as_at).toBe('2026-02-28');
     expect(env.rows[0].gross_salary).toBe(480000);
     expect(env.rows[0].runs_included).toBe(12);
+    // P3: severance paid under a directive, inside gross_salary / paye, also shown on its own.
+    expect(env.rows[0].lump_sums).toEqual([
+      { source_code: '3901', directive_number: '1234567890', directive_issued_date: '2025-11-03', amount: 30000, paye: 3000 },
+    ]);
   });
 
   it('masks identity numbers by default and reveals them only on request', async () => {

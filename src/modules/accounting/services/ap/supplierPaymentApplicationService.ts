@@ -47,6 +47,7 @@ import {
   type SupplierAllocationInput,
   type SupplierApplicationLine,
 } from './supplierAllocationLines';
+import { assertAllocationShape } from './supplierAllocationShape';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 
 export type { SupplierAllocationInput, SupplierApplicationLine };
@@ -83,9 +84,9 @@ export async function planSupplierPaymentApplication(
   paymentId: string,
   allocations: readonly SupplierAllocationInput[],
 ): Promise<SupplierPaymentApplicationPlan> {
-  if (allocations.length === 0) {
-    throw new SupplierPaymentRefusal('Provide at least one allocation.');
-  }
+  // The request's own faults first (empty, non-numeric, not whole cents, duplicate bill): `round2` below is
+  // `toCents`, which throws on a non-finite figure, so a malformed body must be refused before any arithmetic.
+  assertAllocationShape(allocations);
 
   const payment = await lockSupplierPaymentForUpdate(companyId, paymentId);
   if (!payment) throw new SupplierPaymentRefusal(`Supplier payment ${paymentId} not found`);

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+const liveMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth/liveCompanies', () => ({ listLiveCompanies: liveMock }));
 
 import { sql } from '@/lib/neon';
 import { createMagicLink, verifyMagicLink } from '@/modules/accounting/services/afs/magicLinkService';
@@ -34,7 +36,10 @@ const LINK_ROW = {
 };
 
 describe('magicLinkService', () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    liveMock.mockResolvedValue([{ companyId: COMPANY_ID, companyName: 'Acme' }]);
+  });
 
   describe('createMagicLink', () => {
     it('returns a token string and expiresAt Date', async () => {
@@ -71,6 +76,15 @@ describe('magicLinkService', () => {
       expect(result).not.toBeNull();
       expect(result!.contact.id).toBe(CONTACT_ID);
       expect(result!.companyId).toBe(COMPANY_ID);
+    });
+
+    it('returns null, without consuming the token, when the company is no longer live', async () => {
+      liveMock.mockResolvedValue([]);
+      mockSql.mockResolvedValueOnce([LINK_ROW]);
+      const result = await verifyMagicLink('aabbcc');
+      expect(result).toBeNull();
+      expect(liveMock).toHaveBeenCalledWith([COMPANY_ID]);
+      expect(mockSql).toHaveBeenCalledTimes(1);
     });
 
     it('returns null for an expired or already-used token', async () => {

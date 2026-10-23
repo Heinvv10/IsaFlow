@@ -161,6 +161,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 }
 
-// Owner and admin only (the owner/admin that the mandate routes' withRole('admin') admits, without its system/super_admin):
+// Owner and admin only, the roles the mandate routes' withRole('admin') admits:
 // a viewer must not start a paid checkout.
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler, { allowedRoles: ['owner', 'admin'] }))));

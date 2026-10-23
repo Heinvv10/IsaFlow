@@ -2,6 +2,9 @@
  * Migration Templates API
  * GET /api/accounting/migration/templates?sourceSystem=xxx&step=xxx
  * Returns a downloadable CSV template for the given source system and wizard step.
+ * A missing sourceSystem gets the generic template rather than an error: five
+ * wizard pages never sent one, and a refusal there left the operator with no
+ * template at all.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -21,12 +24,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
   }
 
-  const sourceSystem = String(req.query.sourceSystem || '').trim() as MigrationSourceSystem;
+  const sourceSystem = (String(req.query.sourceSystem || '').trim() || 'other') as MigrationSourceSystem;
   const step = String(req.query.step || '').trim() as MigrationStep;
 
-  if (!sourceSystem) {
-    return apiResponse.validationError(res, { sourceSystem: 'sourceSystem query parameter is required' });
-  }
   if (!step) {
     return apiResponse.validationError(res, { step: 'step query parameter is required' });
   }
@@ -34,7 +34,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   let template: string;
   try {
     template = getTemplate(sourceSystem, step);
-  } catch {
+  } catch (err) {
+    log.warn('Migration template not found', { sourceSystem, step, error: err }, 'migration');
     return apiResponse.notFound(res, 'Template', `${sourceSystem}/${step}`);
   }
 

@@ -14,8 +14,16 @@
  * alone can't pivot the login email because the attacker doesn't have
  * the password. Belt-and-braces: rate-limited 5/15min per user.
  *
- * public.users.email is kept in sync in the same request so downstream
- * queries (invoices, audit logs, admin UI) don't drift.
+ * public.users.email is written FIRST, in a transaction on the
+ * migration_admin pool, and committed only once GoTrue has accepted the new
+ * address, so a definite GoTrue refusal leaves both emails as they were
+ * (S-07b follow-up B). Two drifts remain: GoTrue applies the change but its
+ * reply is lost (timeout, cut-off body: answered 503 and rolled back here), and
+ * the COMMIT fails after GoTrue accepted (logged as drift, 500). While GoTrue
+ * is asked, the caller's users row stays locked and one of the pool's two
+ * connections is held, for at most the GoTrue call's bound. The service pool may not write users.email at
+ * all (migration 918): injected SQL there could otherwise hand any account's
+ * address, and with it pending invitations, to someone else.
  */
 
 import type { NextApiHandler } from 'next';
@@ -25,7 +33,8 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
 import { respondIfAuthUnavailable } from '@/lib/auth/authUpstream';
 import { withRateLimit } from '@/lib/rateLimit';
-import { sql } from '@/lib/neon';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { rollbackFailed } from '@/lib/rollbackFailed';
 import { log } from '@/lib/logger';
 import { refuseImpersonatedSession } from '@/lib/auth/impersonationGuard';
 
@@ -74,38 +83,78 @@ const handler: NextApiHandler = async (req, res) => {
     });
   }
 
+  // Fixed statements on the migration_admin pool, keyed on the verified
+  // session's user id. The row stays locked and uncommitted while GoTrue is
+  // asked; GoTrue's refusal rolls it back.
+  const client = await migrationAdminPool().connect();
+  let opened = false;
+  let unusable = false;
   try {
-    await adminUpdateUser(user.id, { email: normalisedNew, email_confirm: true });
-  } catch (err) {
-    if (respondIfAuthUnavailable(res, err, 'change-email')) return;
-    const msg = err instanceof Error ? err.message : String(err);
-    log.warn('change-email: gotrue rejected', { userId: user.id, message: msg }, 'Auth');
-    if (/422|already|exists|duplicate/i.test(msg)) {
+    opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
+    await client.query('BEGIN');
+    let updated;
+    try {
+      updated = await client.query(`UPDATE users SET email = $2, updated_at = NOW() WHERE id = $1`, [user.id, normalisedNew]);
+    } catch (err) {
+      const pgErr = err as { code?: string; constraint?: string };
+      if (pgErr.code !== '23505' || pgErr.constraint !== 'users_email_key') throw err;
+      unusable = await rollbackFailed(client, 'change-email');
+      opened = false;
       return res.status(409).json({
         success: false,
         error: { code: 'EMAIL_TAKEN', message: 'That email address is already in use' },
       });
     }
-    return res.status(502).json({
-      success: false,
-      error: { code: 'GOTRUE_ERROR', message: 'Could not change email. Please try again.' },
-    });
-  }
+    // No profile row: refuse before GoTrue, which would otherwise change a
+    // login email that public.users never learns of.
+    if (updated.rowCount !== 1) {
+      unusable = await rollbackFailed(client, 'change-email');
+      opened = false;
+      log.warn('change-email: no users row', { userId: user.id, rowCount: updated.rowCount }, 'Auth');
+      return res.status(404).json({ success: false, error: { code: 'USER_NOT_FOUND', message: 'User profile not found' } });
+    }
 
-  // Mirror to public.users. GoTrue is now the source of truth for login —
-  // if this UPDATE fails, the login email has still changed, so we log and
-  // continue rather than rolling back (which we can't do cleanly anyway).
-  try {
-    await sql`
-      UPDATE users SET email = ${normalisedNew}, updated_at = NOW()
-      WHERE id = ${user.id}
-    `;
+    try {
+      await adminUpdateUser(user.id, { email: normalisedNew, email_confirm: true });
+    } catch (err) {
+      unusable = await rollbackFailed(client, 'change-email');
+      opened = false;
+      if (respondIfAuthUnavailable(res, err, 'change-email')) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn('change-email: gotrue rejected', { userId: user.id, message: msg }, 'Auth');
+      if (/422|already|exists|duplicate/i.test(msg)) {
+        return res.status(409).json({
+          success: false,
+          error: { code: 'EMAIL_TAKEN', message: 'That email address is already in use' },
+        });
+      }
+      return res.status(502).json({
+        success: false,
+        error: { code: 'GOTRUE_ERROR', message: 'Could not change email. Please try again.' },
+      });
+    }
+
+    try {
+      opened = false;
+      await client.query('COMMIT');
+    } catch (err) {
+      // The one gap left: GoTrue has the new login email, public.users does not.
+      unusable = true;
+      log.error('change-email: GoTrue changed the login email but the users COMMIT failed — drift', {
+        userId: user.id,
+        newEmail: normalisedNew,
+        message: err instanceof Error ? err.message : 'unknown',
+      }, 'Auth');
+      return res.status(500).json({
+        success: false,
+        error: { code: 'EMAIL_SYNC_FAILED', message: 'Your sign-in email changed but your profile was not updated. Please contact support.' },
+      });
+    }
   } catch (err) {
-    log.error('change-email: public.users mirror failed — drift', {
-      userId: user.id,
-      newEmail: normalisedNew,
-      message: err instanceof Error ? err.message : 'unknown',
-    }, 'Auth');
+    if (opened) unusable = await rollbackFailed(client, 'change-email');
+    throw err;
+  } finally {
+    client.release(unusable);
   }
 
   log.info('change-email: swapped', { userId: user.id, from: user.email.toLowerCase(), to: normalisedNew }, 'Auth');

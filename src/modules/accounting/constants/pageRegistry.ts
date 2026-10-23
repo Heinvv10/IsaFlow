@@ -8,6 +8,8 @@ export interface PageMeta {
   description: string;
   icon: string;
   color: string;
+  /** Extra words the top-bar search should find this page by. */
+  keywords?: string[];
 }
 
 export const PAGE_REGISTRY: Record<string, PageMeta> = {
@@ -34,7 +36,8 @@ export const PAGE_REGISTRY: Record<string, PageMeta> = {
   '/accounting/customer-statements': { path: '/accounting/customer-statements', title: 'Customer Statements', description: 'Generate customer statements', icon: 'FileText', color: 'teal' },
   '/accounting/supplier-statements': { path: '/accounting/supplier-statements', title: 'Supplier Statements', description: 'View supplier statements', icon: 'FileText', color: 'orange' },
   '/accounting/fiscal-periods': { path: '/accounting/fiscal-periods', title: 'Fiscal Periods', description: 'Manage fiscal periods', icon: 'Calendar', color: 'purple' },
-  '/accounting/migration': { path: '/accounting/migration', title: 'Data Import', description: 'Import data and migrations', icon: 'Upload', color: 'green' },
+  '/accounting/migration': { path: '/accounting/migration', title: 'Data Import', description: 'Import data and migrations', icon: 'Upload', color: 'green',
+    keywords: ['import', 'import from sage', 'migrate', 'migration', 'upload', 'csv', 'excel', 'xlsx', 'sage', 'sage one', 'sage business cloud', 'pastel', 'xero', 'quickbooks', 'opening balances', 'move', 'switch'] },
   '/accounting/audit-log': { path: '/accounting/audit-log', title: 'Audit Trail', description: 'View audit history', icon: 'FileSpreadsheet', color: 'gray' },
 };
 

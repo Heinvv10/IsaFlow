@@ -20,7 +20,7 @@ import eftGenerate from '../../pages/api/accounting/eft-generate';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser } from './r035-approval.helpers';
 import { dataOf, messageOf } from './r035-pr2.helpers';
-import { cleanupPr5, payCompany, plantBatch } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, plantApprovedBatch } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -44,7 +44,7 @@ async function fixture(
   await pool.query('UPDATE companies SET name = $2 WHERE id = $1', [c, NAME]);
   await pool.query('UPDATE gl_accounts SET bank_account_number = $2, bank_branch_code = $3 WHERE id = $1',
     [bank, bankDetails.number, bankDetails.branch]);
-  return { c, bank, batch: await plantBatch(pool, c, user, bank, amounts) };
+  return { c, bank, batch: await plantApprovedBatch(pool, c, user, bank, amounts) };
 }
 
 const generate = (c: string, batchId: string, bank = 'fnb') =>
@@ -52,7 +52,7 @@ const generate = (c: string, batchId: string, bank = 'fnb') =>
 const headerOf = (res: Parameters<typeof dataOf>[0]) => dataOf<{ content: string }>(res).content.split('\n')[0]!;
 
 describe('eft-generate header (AP-02)', () => {
-  // batch_date is 2026-09-01 (plantBatch): never today, so a today-fallback is visible.
+  // batch_date is 2026-09-01 (plantApprovedBatch): never today, so a today-fallback is visible.
   it.each(['standard_bank', 'fnb', 'absa', 'nedbank', 'capitec'])(
     '%s: the header carries the paying bank account, its branch, companies.name and batch_date',
     async (bank) => {

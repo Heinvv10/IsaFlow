@@ -26,6 +26,7 @@ import {
 import { journalIsInAPeriod } from '../shared/journalPeriodVisibility';
 import {
   DEFAULT_AUTO_APPLY,
+  invoiceFloor,
   parseAutoAllocateStrategy,
   planGreedyAllocations,
   resolveApplicationOrder,
@@ -106,7 +107,7 @@ export async function autoApplyCustomerReceipt(args: {
   const open = await fetchOpenCustomerInvoices(
     companyId, customerId, strategy === 'oldest', { forUpdate: true },
   );
-  const allocations = planGreedyAllocations(amount, open);
+  const allocations = planGreedyAllocations(amount, open, invoiceFloor('customer'));
   if (allocations.length === 0) {
     log.info('Customer receipt recorded, no open invoice to apply to', {
       customerId, paymentId, amount, strategy,

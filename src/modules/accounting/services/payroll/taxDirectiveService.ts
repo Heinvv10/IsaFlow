@@ -8,6 +8,10 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { underFlowLockBudget } from '@/modules/accounting/services/core/rowLockBudget';
+import { directivePaidBy, TaxDirectivePaidError } from './taxDirectivePaidGuard';
+
+export { TaxDirectivePaidError };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +30,8 @@ export interface TaxDirective {
   taxRate: number | null;
   taxAmount: number | null;
   effectiveDate: string;
+  /** The date SARS issued the directive (e@syFile 3231); null when not captured. */
+  issuedDate: string | null;
   expiryDate: string | null;
   status: DirectiveStatus;
   sarsReference: string | null;
@@ -45,6 +51,7 @@ export interface TaxDirectiveCreateInput {
   amount: number;
   tax_rate?: number;
   effective_date: string;
+  issued_date?: string;
   expiry_date?: string;
   sars_reference?: string;
   notes?: string;
@@ -72,6 +79,7 @@ function mapRow(row: DbRow): TaxDirective {
     taxRate: row.tax_rate != null ? parseFloat(String(row.tax_rate)) : null,
     taxAmount: row.tax_amount != null ? parseFloat(String(row.tax_amount)) : null,
     effectiveDate: toDate(row.effective_date),
+    issuedDate: row.issued_date != null ? toDate(row.issued_date) : null,
     expiryDate: row.expiry_date != null ? toDate(row.expiry_date) : null,
     status: String(row.status) as DirectiveStatus,
     sarsReference: row.sars_reference != null ? String(row.sars_reference) : null,
@@ -137,7 +145,7 @@ export async function createTaxDirective(
     INSERT INTO tax_directives (
       company_id, employee_id, employee_name, employee_tax_number,
       directive_number, directive_type, amount, tax_rate, tax_amount,
-      effective_date, expiry_date, status, sars_reference, notes, requested_by
+      effective_date, issued_date, expiry_date, status, sars_reference, notes, requested_by
     ) VALUES (
       ${companyId},
       ${input.employee_id ?? null},
@@ -149,6 +157,7 @@ export async function createTaxDirective(
       ${input.tax_rate ?? null},
       ${taxAmount},
       ${input.effective_date},
+      ${input.issued_date ?? null},
       ${input.expiry_date ?? null},
       'pending',
       ${input.sars_reference ?? null},
@@ -161,18 +170,65 @@ export async function createTaxDirective(
   return mapRow(rows[0]!);
 }
 
+export interface TaxDirectiveChange {
+  status?: DirectiveStatus;
+  /** YYYY-MM-DD, or null to clear. */
+  issued_date?: string | null;
+}
+
 export async function updateTaxDirectiveStatus(
   companyId: string,
   id: string,
   status: DirectiveStatus,
   approvedByUserId?: string,
 ): Promise<TaxDirective | null> {
-  log.info('updateTaxDirectiveStatus', { companyId, id, status });
+  return updateTaxDirective(companyId, id, { status }, approvedByUserId);
+}
 
+/**
+ * Change a directive's status and/or issued date. A PAID directive (any
+ * tax_directive_payments row: a run's claim or a stand-alone payment) keeps
+ * status 'approved': moving it anywhere else is refused with
+ * TaxDirectivePaidError, nothing written (Hein 2026-10-22, PAYE 4a follow-ups
+ * G5). Expired and pending are refused for the same reason as cancelled: the
+ * payment stands on the directive (it is declared on the EMP201 and the
+ * certificate), and a reopened run that pays it could not be approved again.
+ *
+ * LOCK ORDER. This takes the directive row FOR UPDATE (5s bound) and then
+ * reads its payment without a lock. payrollRunDirectiveClaim takes the
+ * directive rows FOR SHARE (after the company approval lock, run header and
+ * journal chain) and then the payment row; applyTaxDirective takes the
+ * directive row FOR SHARE and then the payment row. All three take the
+ * directive row first and this one takes nothing after it, so no cycle: a
+ * cancel waits for a claim or payment in flight and then sees its row, and a
+ * claim or payment waits for a cancel and then sees the new status.
+ */
+export async function updateTaxDirective(
+  companyId: string,
+  id: string,
+  change: TaxDirectiveChange,
+  approvedByUserId?: string,
+): Promise<TaxDirective | null> {
+  log.info('updateTaxDirective', { companyId, id, status: change.status, issuedDate: change.issued_date });
+
+  const locked = await underFlowLockBudget('This tax directive', async () => (await sql`
+    SELECT id, directive_number FROM tax_directives
+    WHERE company_id = ${companyId} AND id = ${id}
+    FOR UPDATE
+  `) as DbRow[]);
+  if (!locked[0]) return null;
+
+  if (change.status !== undefined && change.status !== 'approved') {
+    const paid = await directivePaidBy(companyId, id, locked[0].directive_number);
+    if (paid) throw new TaxDirectivePaidError(id, paid);
+  }
+
+  const setIssued = change.issued_date !== undefined;
   const rows = await sql`
     UPDATE tax_directives
     SET
-      status = ${status},
+      status = COALESCE(${change.status ?? null}::text, status),
+      issued_date = CASE WHEN ${setIssued}::boolean THEN ${change.issued_date ?? null}::date ELSE issued_date END,
       approved_by = CASE
         WHEN ${approvedByUserId ?? null}::uuid IS NOT NULL THEN ${approvedByUserId ?? null}::uuid
         ELSE approved_by

@@ -73,9 +73,10 @@ describe('supplier activity tab', () => {
 });
 
 describe('scan and fill', () => {
-  const run = async (extract: () => Response, onExtracted = vi.fn()) => {
-    vi.mocked(apiFetch).mockReset().mockImplementation(async (url: unknown) =>
-      String(url).includes('vlm-status') ? ok({ available: true }) : String(url).includes('vlm-extract') ? extract() : ok({}));
+  // POST vlm-extract answers 202 with a job id; the finished extraction comes from GET vlm-extract?job= (2 s later).
+  const run = async (extract: (method?: string) => Response, onExtracted = vi.fn()) => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url: unknown, init?: RequestInit) =>
+      String(url).includes('vlm-status') ? ok({ available: true }) : String(url).includes('vlm-extract') ? extract(init?.method) : ok({}));
     const { container } = render(<ScanAndFillButton onExtracted={onExtracted} />);
     await screen.findByRole('button', { name: /scan & fill/i });
     fireEvent.change(container.querySelector('input[type="file"]')!, { target: { files: [new File(['x'], 'doc.pdf', { type: 'application/pdf' })] } });
@@ -95,9 +96,11 @@ describe('scan and fill', () => {
     await run(() => new Response(JSON.stringify({ success: false, error: { code: 'X', message: 'D2 unreadable scan' } }), { status: 200 }));
     await waitFor(() => expect(notify.error).toHaveBeenCalledWith('D2 unreadable scan'));
   });
-  it('a 200 passes the extraction on and shows its confidence', async () => {
-    const cb = await run(() => ok({ extracted: { confidence: 0.91, warnings: [] } }));
-    await waitFor(() => expect(cb).toHaveBeenCalledWith({ confidence: 0.91, warnings: [] }));
+  it('a 202 job id, then a finished poll, passes the extraction on and shows its confidence', async () => {
+    const cb = await run((method) => (method === 'POST'
+      ? new Response(JSON.stringify({ success: true, data: { jobId: 'job-1' } }), { status: 202 })
+      : ok({ state: 'done', extracted: { confidence: 0.91, warnings: [] } })));
+    await waitFor(() => expect(cb).toHaveBeenCalledWith({ confidence: 0.91, warnings: [] }), { timeout: 4000 });
     expect(await screen.findByText(/91%/)).toBeTruthy();
     expectNoRawJsonError();
   });
