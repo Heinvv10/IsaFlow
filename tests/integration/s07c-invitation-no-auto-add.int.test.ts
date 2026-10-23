@@ -80,6 +80,10 @@ describe('S-07c A: an existing account is invited, never added', () => {
       [company, u.email]);
     expect(inv.rows).toEqual([{ role: 'manager', accepted_at: null }]);
     expect(tokenFor(u.email)).toMatch(/^[0-9a-f]{64}$/);
+    // Written on the migration_admin pool, still recorded as the inviter's, in their session.
+    const log = await fixture.query(`SELECT e.actor, e.channel FROM entity_changes e JOIN company_invitations i ON i.id = e.entity_id
+      WHERE i.company_id = $1 AND i.email = $2 AND e.op = 'create'`, [company, u.email]);
+    expect(log.rows).toEqual([{ actor: me, channel: 'session' }]);
   });
 
   // The route runs as app_user, which reads only its own users row, so the
