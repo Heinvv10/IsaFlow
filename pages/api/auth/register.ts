@@ -6,7 +6,7 @@ import {
   invalidateVerificationTokensForUser,
   purgeExpiredVerificationTokens,
 } from '@/lib/auth/emailVerificationService';
-import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
+import { emailLayout, emailContentRow, ctaButton } from '@/lib/email-templates-shared';
 import { withRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
@@ -205,12 +205,12 @@ const handler: NextApiHandler = async (req, res) => {
     await sendEmail({
       to: cleanEmail,
       subject: 'Confirm your email to activate ISAFlow',
-      html: emailLayout(`
+      html: emailLayout(emailContentRow(`
         <h2>Confirm your email</h2>
         <p>Thanks for signing up for ISAFlow. Confirm this address to activate your account and start your 14-day trial.</p>
         ${ctaButton('Confirm my email', verifyUrl)}
         <p style="font-size:12px;color:#94a3b8;">This link expires in 24 hours and can be used once. If you did not sign up for ISAFlow, you can safely ignore this email — no account will be created.</p>
-      `),
+      `)),
       _log: { companyId: null, emailType: 'other', sentBy: null },
     });
   } catch (err) {

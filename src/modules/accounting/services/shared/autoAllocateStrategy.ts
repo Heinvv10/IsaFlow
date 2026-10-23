@@ -25,6 +25,15 @@
 /** A cent. Money comparisons are made at this tolerance, never exactly. */
 export const EPS = 0.01;
 
+/**
+ * The amount at or below which an INVOICE has nothing to take, and a credit-note line is not written. Customer
+ * invoices are exact: a CHECK caps `amount_paid`, and a cent owing reads 'partially_paid', so a note may clear it.
+ * Supplier bills keep the cent tolerance: no CHECK, and `recomputeInvoiceStatus` still reads a cent owing as settled.
+ */
+export function invoiceFloor(side: 'customer' | 'supplier'): number {
+  return side === 'customer' ? 0 : EPS;
+}
+
 export const AUTO_ALLOCATE_STRATEGIES = ['off', 'oldest', 'newest'] as const;
 export type AutoAllocateStrategy = (typeof AUTO_ALLOCATE_STRATEGIES)[number];
 
@@ -74,27 +83,29 @@ export function round2(n: number): number {
  * outcome, not a failure: the payment stays wholly unapplied and
  * `list_unapplied_payments` reports it.
  *
- * Documents at or under a cent outstanding are skipped, as is a line the
+ * Documents at or under `floor` outstanding are skipped, as is a line the
  * remaining cash rounds to nothing on: a fractional cent is rounding rather
- * than a settlement.
+ * than a settlement. `floor` defaults to a cent (supplier bills); customer
+ * invoices pass `invoiceFloor('customer')`, 0, so cash can settle the last cent.
  */
 export function planGreedyAllocations(
   cash: number,
   documents: readonly OpenDocument[],
+  floor: number = EPS,
 ): PlannedAllocation[] {
   const out: PlannedAllocation[] = [];
   let remaining = round2(cash);
   for (const doc of documents) {
-    // An early exit only — the `amount <= EPS` test below is the gate that
+    // An early exit only — the `amount <= floor` test below is the gate that
     // actually decides, and it covers an exhausted balance too. Kept so a
     // supplier with hundreds of open bills is not walked after the money is
     // gone.
-    if (remaining <= EPS) break;
+    if (remaining <= floor) break;
     const amount = round2(Math.min(remaining, round2(doc.outstanding)));
     // Skips both a document with nothing left on it and a line that rounds to
     // nothing. `payment_allocations` carries CHECK (amount_allocated > 0), so a
     // zero line raises 23514 halfway through the write rather than refusing.
-    if (amount <= EPS) continue;
+    if (amount <= floor) continue;
     out.push({ invoiceId: doc.invoiceId, amount });
     remaining = round2(remaining - amount);
   }

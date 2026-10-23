@@ -219,3 +219,15 @@ export function buildImageContent(
     { type: 'text', text: textPrompt },
   ];
 }
+
+/** Several images (in order) and then the text: one user message about pages of one document. */
+export function buildMultiImageContent(
+  base64s: string[],
+  mimeType: string,
+  textPrompt: string,
+): Array<Record<string, unknown>> {
+  return [
+    ...base64s.map((b64) => ({ type: 'image_url', image_url: { url: `data:${mimeType};base64,${b64}` } })),
+    { type: 'text', text: textPrompt },
+  ];
+}

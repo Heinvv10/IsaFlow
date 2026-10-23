@@ -85,28 +85,28 @@ describe('calculateLumpSumTax — pure bracket calculation', () => {
     expect(result.effectiveRate).toBe(0);
   });
 
-  it('R600k: 0% on first R500k, 18% on R100k above → R18,000 tax', () => {
+  // 2027 table (src/lib/taxCalculations.ts, SARS retirement/severance lump sums).
+  it('R600k: 0% on first R550k, 18% on R50k above → R9,000 tax', () => {
     const result = calculateLumpSumTax(600_000, null);
-    expect(result.taxAmount).toBe(18_000);
-    // Effective rate: 18000 / 600000 = 0.03
-    expect(result.effectiveRate).toBeCloseTo(0.03, 5);
+    expect(result.taxAmount).toBe(9_000);
+    expect(result.effectiveRate).toBeCloseTo(0.015, 5);
     expect(result.directiveRateUsed).toBe(false);
   });
 
-  it('R800k: 0% on R500k, 18% on R200k = R36k, 27% on R100k = R27k → R63,000 total', () => {
+  it('R800k: 0% on R550k, 18% on R220k = R39,600, 27% on R30k = R8,100 → R47,700 total', () => {
     const result = calculateLumpSumTax(800_000, null);
-    expect(result.taxAmount).toBe(63_000);
-    expect(result.effectiveRate).toBeCloseTo(63_000 / 800_000, 5);
+    expect(result.taxAmount).toBe(47_700);
+    expect(result.effectiveRate).toBeCloseTo(47_700 / 800_000, 5);
   });
 
   it('R1.2M: traverses all four brackets to correct total', () => {
-    // 0% on 500k = 0
-    // 18% on 200k (500k–700k) = 36,000
-    // 27% on 350k (700k–1,050k) = 94,500
-    // 36% on 150k (1,050k–1,200k) = 54,000
-    // total = 184,500
+    // 0% on 550k = 0
+    // 18% on 220k (550k–770k) = 39,600
+    // 27% on 385k (770k–1,155k) = 103,950
+    // 36% on 45k (1,155k–1,200k) = 16,200
+    // total = 159,750
     const result = calculateLumpSumTax(1_200_000, null);
-    expect(result.taxAmount).toBe(184_500);
+    expect(result.taxAmount).toBe(159_750);
     expect(result.breakdown).toHaveLength(4);
   });
 

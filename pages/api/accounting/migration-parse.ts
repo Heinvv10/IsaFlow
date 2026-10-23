@@ -3,6 +3,9 @@
  * POST /api/accounting/migration-parse
  * Accepts multipart/form-data: file, source, fileType
  * Returns parsed accounts/customers/suppliers array.
+ * CSV / text, or .xlsx (first worksheet, converted to CSV). It used to read an
+ * .xlsx as UTF-8 text, so a workbook parsed as nothing. Legacy .xls is refused
+ * with a message rather than parsed as garbage.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,6 +16,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { looksLikeXlsx, SpreadsheetRefusedError, xlsxBufferToCsv } from '@/lib/xlsxToCsv';
 import {
   parseAccountsFile,
   parseCustomersFile,
@@ -67,10 +71,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     let fileContent: string;
     try {
-      fileContent = fs.readFileSync(uploadedFile.filepath, 'utf-8');
+      const bytes = fs.readFileSync(uploadedFile.filepath);
+      const name = (uploadedFile.originalFilename ?? '').toLowerCase();
+      if (name.endsWith('.xls') || (bytes[0] === 0xd0 && bytes[1] === 0xcf)) {
+        return apiResponse.badRequest(res, 'Old-style Excel .xls files are not supported. Save the sheet as .xlsx or CSV and upload again.');
+      }
+      fileContent = looksLikeXlsx(bytes) ? await xlsxBufferToCsv(bytes) : bytes.toString('utf-8');
     } catch (err) {
+      if (err instanceof SpreadsheetRefusedError) {
+        log.warn('Uploaded workbook refused', { reason: err.message }, 'migration');
+        return apiResponse.badRequest(res, err.message);
+      }
       log.error('Failed to read uploaded file', { error: err }, 'migration');
-      return apiResponse.badRequest(res, 'Could not read uploaded file');
+      return apiResponse.badRequest(res, 'Could not read the uploaded file - check it is a CSV or .xlsx file and try again');
     }
 
     const src = source as MigrationSource;
@@ -94,7 +107,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } finally {
     // Always clean up the temp file — including on early validation failures.
     if (tempFilePath) {
-      try { fs.unlinkSync(tempFilePath); } catch { /* ignore cleanup errors */ }
+      try { fs.unlinkSync(tempFilePath); } catch (err) {
+        log.warn('Could not remove migration upload temp file', { error: err }, 'migration');
+      }
     }
   }
 }

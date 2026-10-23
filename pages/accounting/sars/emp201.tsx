@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { Emp201DirectivePayments, type Emp201DirectivePaymentRow } from '@/components/payroll/Emp201DirectivePayments';
 
 interface EMP201PayrollRun {
   id: string;
@@ -38,6 +39,7 @@ interface EMP201Data {
   totalTaxableRemuneration: number;
   totalDeductions: number;
   payrollRuns: EMP201PayrollRun[];
+  directivePayments?: Emp201DirectivePaymentRow[];
 }
 
 const fmt = (n: number) =>
@@ -165,6 +167,7 @@ export default function EMP201Page() {
   };
 
   const hasPayrollData = data && data.payrollRuns.length > 0;
+  const directivePayments = data?.directivePayments ?? [];
 
   return (
     <AppLayout>
@@ -241,7 +244,7 @@ export default function EMP201Page() {
           {data && (
             <>
               {/* No payroll data warning */}
-              {!hasPayrollData && (
+              {!hasPayrollData && directivePayments.length === 0 && (
                 <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-4 text-sm text-[var(--ff-text-secondary)] flex items-start gap-3">
                   <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
                   <div>
@@ -341,6 +344,8 @@ export default function EMP201Page() {
                   )}
                 </div>
               )}
+
+              <Emp201DirectivePayments rows={directivePayments} />
 
               {/* Actions */}
               <div className="flex items-center gap-3">

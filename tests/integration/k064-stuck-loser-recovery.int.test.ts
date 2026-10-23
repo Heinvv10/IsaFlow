@@ -49,11 +49,11 @@ describeIfDb('K-064 review r1 MEDIUM-7 — the creation race and the stuck loser
   }
 
   /** The state the unlocked creation left: a second approved 600 on the same bill. */
-  async function seedStuckSingle(billId: string): Promise<string> {
+  async function seedStuckSingle(billId: string, batchId: string | null = null): Promise<string> {
     const id = randomUUID();
     await q(`INSERT INTO supplier_payments (id, company_id, supplier_id, payment_number, payment_date, total_amount,
-      payment_method, status, created_by) VALUES ($1, $2, $3, $4, CURRENT_DATE, 600, 'eft', 'approved', $5)`,
-    [id, ids.A, ids.SUP_A, `K064-STUCK-${id.slice(0, 8)}`, ids.USER]);
+      payment_method, status, batch_id, created_by) VALUES ($1, $2, $3, $4, CURRENT_DATE, 600, 'eft', 'approved', $5, $6)`,
+    [id, ids.A, ids.SUP_A, `K064-STUCK-${id.slice(0, 8)}`, batchId, ids.USER]);
     await q('INSERT INTO payment_allocations (payment_id, invoice_id, amount_allocated) VALUES ($1, $2, 600)', [id, billId]);
     return id;
   }
@@ -61,8 +61,7 @@ describeIfDb('K-064 review r1 MEDIUM-7 — the creation race and the stuck loser
     const batchId = randomUUID();
     await q(`INSERT INTO supplier_payment_batches (id, company_id, batch_date, payment_method, payment_count, total_amount,
       status, created_by) VALUES ($1, $2, CURRENT_DATE, 'eft', 1, 600, 'approved', $3)`, [batchId, ids.A, ids.USER]);
-    const member = await seedStuckSingle(billId);
-    await q('UPDATE supplier_payments SET batch_id = $1 WHERE id = $2', [batchId, member]);
+    await seedStuckSingle(billId, batchId); // batch_id is set at INSERT: 914 refuses a later UPDATE
     return batchId;
   }
 

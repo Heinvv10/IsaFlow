@@ -5,6 +5,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const inserts: unknown[][] = [];
+// The year-to-date for cumulative PAYE (PAYE 4a follow-ups G4) has its own tests (p4fu-cumulative-paye).
+vi.mock('@/modules/accounting/services/payroll/payrollYearToDate', () => ({
+  loadPayeYearToDate: vi.fn(async () => new Map()),
+  laterPeriodsWarnings: vi.fn(async () => new Map()),
+}));
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
@@ -16,6 +21,7 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/modules/accounting/services/payroll/payrollRunLock', () => ({
   isPayrollRunLocked: () => false,
+  lockCompanyPayrollApprovals: vi.fn(),
   lockPayrollRunHeader: vi.fn(),
   PayrollRunLockedError: class extends Error {},
   saveCalculatedRunTotals: vi.fn(async () => ({ id: 'r', company_id: 'c', status: 'calculated' })),
@@ -38,6 +44,11 @@ vi.mock('@/modules/accounting/services/payroll/payrollComponentService', () => (
 vi.mock('@/modules/accounting/services/payroll/sdlLeviabilityService', () => ({
   estimateAnnualRemuneration: vi.fn(async () => 0),
   applySdlToLines: vi.fn(() => 0),
+}));
+// No leaver awaiting a severance directive (p3-severance-directive-run covers that).
+vi.mock('@/modules/accounting/services/payroll/payrollSeveranceDirective', async (orig) => ({
+  ...(await orig<typeof import('@/modules/accounting/services/payroll/payrollSeveranceDirective')>()),
+  listSeveranceOnlyRunEmployees: vi.fn(async () => []),
 }));
 vi.mock('@/modules/accounting/services/payroll/payrollEmployeeService', () => ({
   listPayrollRunEmployees: vi.fn(async () => [{

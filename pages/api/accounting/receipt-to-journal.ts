@@ -33,6 +33,7 @@ import {
   lockCapturedDocumentForUpdate,
   refusalForPosting,
 } from '@/modules/accounting/services/capture/captureRowLock';
+import { isBeingRead, STILL_BEING_READ } from '@/modules/accounting/services/capture/captureReadState';
 import { checkReceiptDuplicate } from '@/modules/accounting/services/capture/receiptDuplicateGuard';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -74,6 +75,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (!doc) return apiResponse.notFound(res, 'Captured document', documentId);
+  // An upload still being read has no extraction yet. A read, before any write: the 4xx commits nothing.
+  if (isBeingRead(doc)) return apiResponse.conflict(res, STILL_BEING_READ);
   // Nothing on this path is idempotent, so a double-click or a client retry
   // created and auto-posted a SECOND journal against the same
   // source_document_id, doubling the expense and the bank credit. The refusal

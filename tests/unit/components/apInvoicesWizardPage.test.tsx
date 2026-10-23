@@ -161,7 +161,12 @@ describe('AP migration wizard page', () => {
     fireEvent.click(button);
 
     await waitFor(() => expect(posted).not.toBeNull(), { timeout: 5000 });
-    expect((posted!.invoices![0] as Record<string, unknown>).supplierId).toBe(SUPPLIER_ID);
+    // The preview matched (HIGH, against the list it just loaded), but an
+    // automatic match is NOT sent as an authoritative supplierId any more: the
+    // server makes the same match itself. Only an operator override travels.
+    const sent = posted!.invoices![0] as Record<string, unknown>;
+    expect(sent.supplierId).toBeUndefined();
+    expect(sent.supplierName).toBe('ACME Trading');
   }, 20000);
 
   it('says so when the supplier list cannot be loaded', async () => {

@@ -130,7 +130,7 @@ async function fetchCandidatePool(
     WHERE ci.company_id = ${companyId}::UUID
       AND ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
       AND NOT ${invoiceForeignCurrencySql()}
-      AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0.01
+      AND (ci.total_amount - COALESCE(ci.amount_paid, 0)) > 0
     ORDER BY ABS((ci.total_amount - COALESCE(ci.amount_paid, 0)) - ${absAmount}::NUMERIC) ASC
     LIMIT 50
   `) as InvoiceCandidateRow[];

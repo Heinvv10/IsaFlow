@@ -98,8 +98,12 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
  * gate's termination_already_paid check reads OTHER runs, which the header
  * lock does not cover: two runs carrying the same employee's termination
  * pay-outs, approved at once, would both pass it. Taken by approvePayrollRun
- * only, before the header lock, so it cannot form a cycle with calculate or
- * the generic reversal (neither takes it). Two limits, both bounded by the 5s
+ * and, since cumulative PAYE (PAYE 4a follow-ups G4), by calculatePayrollRun,
+ * both before the header lock, so the two cannot form a cycle; the generic
+ * reversal does not take it. Deliberately, a calculation holds it until its
+ * transaction ends: approvals AND other calculations of the company wait for
+ * it, each for at most 5s before a retryable refusal, so a month's
+ * year-to-date and later-month warnings are never read mid-approval. Two limits, both bounded by the 5s
  * wait rather than hanging: a caller that locked another run's header earlier
  * in the same transaction and then approves takes the locks in the opposite
  * order to a peer (no route or MCP tool does both in one transaction); and a

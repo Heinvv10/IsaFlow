@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 import {
   getVlmConfig,
+  type VlmConfig,
   isVlmAvailable,
   callVlmChat,
   cleanVlmJson,
@@ -20,7 +21,9 @@ import {
   parseBankDetails,
 } from './vlmCore';
 import { renderPdfFirstPage } from './vlmPdfRender';
+import { buildInvoicePagesRequest, pdfPageCount, MULTIPLE_INVOICES_WARNING } from './vlmInvoicePages';
 import { sharedSlotLimiter, envLimit } from './vlmLimiter';
+import { computeConfidence, validateAmounts, validateDocumentType } from './vlmInvoiceChecks';
 
 // ---------------------------------------------------------------------------
 // Extraction prompt
@@ -92,11 +95,19 @@ export async function extractWithVlm(
     hasRawText: !!rawText,
   }, 'vlm-invoice');
 
-  const userContent = buildImageContent(imageBase64, mimeType, textPrompt);
+  return readWithVlm(config, buildImageContent(imageBase64, mimeType, textPrompt), rawText || '');
+}
+
+/** `multiPage`: the request carried several pages and asked the model to flag a second invoice. */
+async function readWithVlm(
+  config: VlmConfig,
+  userContent: Array<Record<string, unknown>>,
+  rawText: string,
+  multiPage = false,
+): Promise<ExtractedDocument | null> {
   const content = await callVlmChat(config, EXTRACTION_PROMPT, userContent, 4096);
   if (!content) return null;
-
-  return parseVlmResponse(content, rawText || '');
+  return parseVlmResponse(content, rawText, multiPage);
 }
 
 /** A text layer shorter than this is treated as a scan with no usable text. */
@@ -118,7 +129,8 @@ const pageReads = sharedSlotLimiter('vlm-page-reads', envLimit('VLM_MAX_PAGE_REA
  *
  * A digital PDF already carries its text, so that is read first as a cheap
  * text-only call. A scan, or a text read that comes back weak, goes to the
- * model as a rendered first page (with the text layer as a cross-check); the
+ * model as rendered pages (with the text layer as a cross-check): page 1 of a
+ * one-page PDF, pages 1-3 of a longer one in one call (`vlmInvoicePages`). The
  * better-scoring read wins. The raw PDF is never sent: vLLM rejects it.
  */
 export async function extractPdfWithVlm(
@@ -133,38 +145,34 @@ export async function extractPdfWithVlm(
     if (textResult && textResult.confidence >= MIN_TEXT_ONLY_CONFIDENCE) return textResult;
   }
 
+  // One slot covers every page's render and the one call that reads them.
   const imageResult = await pageReads.run(async () => {
-    const pngBase64 = await renderPdfFirstPage(pdfBuffer);
-    return pngBase64 ? extractWithVlm(pngBase64, 'image/png', rawText) : null;
-  });
-  if (imageResult) {
     const pages = pdfPageCount(rawText);
-    if (pages > 1) imageResult.warnings.push(`Read from page 1 of ${pages} only — check later pages for totals.`);
-  }
+    if (pages <= 1) {
+      const pngBase64 = await renderPdfFirstPage(pdfBuffer);
+      return pngBase64 ? extractWithVlm(pngBase64, 'image/png', rawText) : null;
+    }
+    const config = getVlmConfig();
+    const request = config && await buildInvoicePagesRequest(pdfBuffer, rawText ?? '', pages);
+    if (!config || !request) return null;
+    log.info('Calling vLLM for multi-page document extraction', { model: config.model, pages }, 'vlm-invoice');
+    const doc = await readWithVlm(config, request.content, rawText ?? '', true);
+    doc?.warnings.push(...request.warnings);
+    return doc;
+  });
 
   if (!imageResult) return textResult;
   if (!textResult) return imageResult;
   return imageResult.confidence >= textResult.confidence ? imageResult : textResult;
 }
 
-/** Page count from pdf-parse's "-- 1 of N --" page markers; 0 when absent. */
-function pdfPageCount(rawText?: string): number {
-  const m = rawText?.match(/-- \d+ of (\d+) --/);
-  return m?.[1] ? parseInt(m[1], 10) : 0;
-}
-
 async function extractTextWithVlm(rawText: string): Promise<ExtractedDocument | null> {
   const config = getVlmConfig();
   if (!config) return null;
-
   log.info('Calling vLLM for text-layer extraction', { model: config.model }, 'vlm-invoice');
-
   const textPrompt = 'There is no image: this is the text layer of a PDF document. '
     + `Extract all accounting data from it.\n\n${rawText.substring(0, TEXT_LAYER_LIMIT)}`;
-  const content = await callVlmChat(config, EXTRACTION_PROMPT, [{ type: 'text', text: textPrompt }], 4096);
-  if (!content) return null;
-
-  const doc = parseVlmResponse(content, rawText);
+  const doc = await readWithVlm(config, [{ type: 'text', text: textPrompt }], rawText);
   if (doc && rawText.length > TEXT_LAYER_LIMIT) {
     doc.warnings.push(`Read the first ${TEXT_LAYER_LIMIT} characters of the text only — check the rest of the document.`);
   }
@@ -175,7 +183,7 @@ async function extractTextWithVlm(rawText: string): Promise<ExtractedDocument | 
 // Response parsing
 // ---------------------------------------------------------------------------
 
-function parseVlmResponse(content: string, rawText: string): ExtractedDocument | null {
+function parseVlmResponse(content: string, rawText: string, multiPage: boolean): ExtractedDocument | null {
   const jsonStr = cleanVlmJson(content);
 
   try {
@@ -221,6 +229,8 @@ function parseVlmResponse(content: string, rawText: string): ExtractedDocument |
     }
 
     doc.warnings.push(...validateAmounts(doc));
+    // Asked for only when several pages are sent (vlmInvoicePages); the first invoice is the one read.
+    if (multiPage && parsed.multipleInvoices === true) doc.warnings.push(MULTIPLE_INVOICES_WARNING);
 
     log.info('VLM extraction successful', {
       documentType: doc.documentType,
@@ -237,58 +247,4 @@ function parseVlmResponse(content: string, rawText: string): ExtractedDocument |
     }, 'vlm-invoice');
     return null;
   }
-}
-
-function validateDocumentType(val: string | undefined): ExtractedDocument['documentType'] {
-  const valid: ExtractedDocument['documentType'][] = [
-    'invoice', 'credit_note', 'receipt', 'statement',
-    'purchase_order', 'delivery_note', 'unknown',
-  ];
-  if (val && valid.includes(val as ExtractedDocument['documentType'])) {
-    return val as ExtractedDocument['documentType'];
-  }
-  return 'unknown';
-}
-
-function computeConfidence(parsed: Record<string, unknown>): number {
-  const weights = {
-    vendorName: 0.15, date: 0.15, referenceNumber: 0.10, totalAmount: 0.20,
-    vatAmount: 0.10, lineItems: 0.10, documentType: 0.05, dueDate: 0.05,
-    vendorVatNumber: 0.05, customerName: 0.05,
-  };
-  let score = 0;
-  if (parsed.vendorName) score += weights.vendorName;
-  if (parsed.date) score += weights.date;
-  if (parsed.referenceNumber) score += weights.referenceNumber;
-  if (asNumber(parsed.totalAmount) !== null && asNumber(parsed.totalAmount)! > 0) score += weights.totalAmount;
-  if (asNumber(parsed.vatAmount) !== null) score += weights.vatAmount;
-  if (Array.isArray(parsed.lineItems) && parsed.lineItems.length > 0) score += weights.lineItems;
-  if (parsed.documentType && parsed.documentType !== 'unknown') score += weights.documentType;
-  if (parsed.dueDate) score += weights.dueDate;
-  if (parsed.vendorVatNumber) score += weights.vendorVatNumber;
-  if (parsed.customerName) score += weights.customerName;
-  return Math.round(score * 100) / 100;
-}
-
-function validateAmounts(doc: ExtractedDocument): string[] {
-  const warnings: string[] = [];
-  if (doc.subtotal !== null && doc.vatAmount !== null && doc.totalAmount !== null) {
-    const expected = Math.round((doc.subtotal + doc.vatAmount) * 100) / 100;
-    if (Math.abs(expected - doc.totalAmount) > 0.02) {
-      warnings.push(`Amount mismatch: subtotal (${doc.subtotal}) + VAT (${doc.vatAmount}) = ${expected}, but total is ${doc.totalAmount}`);
-    }
-  }
-  if (doc.subtotal !== null && doc.vatRate !== null && doc.vatAmount !== null) {
-    const expectedVat = Math.round(doc.subtotal * (doc.vatRate / 100) * 100) / 100;
-    if (Math.abs(expectedVat - doc.vatAmount) > 1) {
-      warnings.push(`VAT calculation may be incorrect: ${doc.vatRate}% of ${doc.subtotal} = ${expectedVat}, but extracted VAT is ${doc.vatAmount}`);
-    }
-  }
-  if (doc.lineItems.length > 0 && doc.subtotal !== null) {
-    const lineSum = Math.round(doc.lineItems.reduce((sum, li) => sum + (li.total ?? 0), 0) * 100) / 100;
-    if (lineSum > 0 && Math.abs(lineSum - doc.subtotal) > 1) {
-      warnings.push(`Line items sum (${lineSum}) differs from subtotal (${doc.subtotal})`);
-    }
-  }
-  return warnings;
 }
