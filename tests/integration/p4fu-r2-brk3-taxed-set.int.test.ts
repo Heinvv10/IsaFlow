@@ -249,4 +249,46 @@ describe('R1 breaker 3: the taxed employees of each closed approval', () => {
     expect(advisory?.detail).toMatch(/2027-02.*paid.*cannot be reopened/);
     ok(await approveRun(f, jan)); // February keeps counting Y's old January PAYE: the limit, said out loud
   });
+
+  // Breaker round 4 (confirmation), ported.
+  it('January recalculated to NO lines after February read it: refused by this gate (a missing calculated_at reads as after every month)', async () => {
+    const f = await seedEmployee(pool, fixtures, 'BRK4 empty run', 20_000);
+    await setSalary(pool, f, 2027, 1, 60_000);
+    await setSalary(pool, f, 2027, 2, 20_000);
+    const ids = await approveInOrder(f, 12);
+    const jan = ids[10]!;
+    ok(await reopenRun(f, jan));
+    await reverseJournal(f, jan);
+    await active(f.employee, false);
+    await calcOnly(f, jan);
+    expect((await pool.query('SELECT count(*)::int AS n FROM payroll_run_lines WHERE run_id = $1', [jan])).rows[0]!.n).toBe(0);
+    const r = await approveRun(f, jan);
+    expect(r.statusCode).toBe(400);
+    expect(JSON.stringify(r.body)).toMatch(REMEDY); // not only "no amounts to post"
+  });
+
+  it('NAMED LIMIT (union cost): Y dropped from January before February read it, January later recalculated unchanged: refused; reopening February clears it', async () => {
+    const f = await seedEmployee(pool, fixtures, 'BRK4 union cost', 20_000);
+    const y = await secondEmployee(f);
+    const ids = await approveInOrder(f, 11); // Mar–Jan, X and Y
+    const jan = ids[10]!;
+    ok(await reopenRun(f, jan)); // set {X, Y}
+    await reverseJournal(f, jan);
+    await pool.query("UPDATE payroll_employees SET start_date = '2027-02-01' WHERE id = $1", [y]);
+    await calcOnly(f, jan); // X only
+    ok(await approveRun(f, jan));
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb); // reads January without Y; Y paid in February
+    ok(await approveRun(f, feb));
+    ok(await reopenRun(f, jan)); // the set keeps Y from the first version
+    await reverseJournal(f, jan);
+    await calcOnly(f, jan); // unchanged: X only, warned of February
+    const refused = await approveRun(f, jan); // February never read Y's January: a false refusal, the union's cost
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(REMEDY);
+    ok(await reopenRun(f, feb));
+    ok(await approveRun(f, jan));
+    await calcOnly(f, feb); // unchanged figures: approved onto its own journal
+    ok(await approveRun(f, feb));
+  });
 });

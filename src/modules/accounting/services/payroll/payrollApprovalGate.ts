@@ -205,6 +205,9 @@ export async function judgePayrollApproval(companyId: string, runId: string): Pr
   const posted = out ? null : linked;
   const dated = out && chain ? await datedForReplacement(companyId, built, chain) : built;
   // Cumulative PAYE read a year-to-date that is no longer what the other months declare (G4, round 2 R1).
+  // Judged here, before the blocker below, because its advisories belong in the plan: one more read-only
+  // query on every judgement, run before the status and directive checks under the same locks. Its
+  // blocker is still returned only after theirs, so blocker precedence is unchanged.
   const yearToDate = await judgeYearToDate(companyId, runId);
   // Leavers whose approved severance directive this run does not pay, and why (P3), and a paid later month
   // this run's change leaves stale (R1 limit (f)); neither is in the hash.
