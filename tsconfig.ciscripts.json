@@ -8,6 +8,7 @@
     "scripts/ci/integration/*.ts",
     "scripts/ci/skippedIntegrationSuites.ts",
     "scripts/ci/report-skipped-integration.ts",
+    "scripts/ci/mq-merge-already-tested.ts",
     "tests/helpers/liveGoTrue.ts",
     "tests/helpers/integrationGate.ts",
     "scripts/sandbox/*.ts",

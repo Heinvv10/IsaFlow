@@ -49,7 +49,7 @@ describe('journal-entries POST: sourceDocumentId and a document whose read has n
       sql.mockResolvedValue([row]);
       const out = await post();
       expect(out.status).toBe(409);
-      expect(JSON.stringify(out.body)).toContain('This document could not be read — upload it again.');
+      expect(JSON.stringify(out.body)).toContain("This document's read did not finish — retry the read or upload the document again.");
     }
     expect(createJournalEntry).not.toHaveBeenCalled();
   });

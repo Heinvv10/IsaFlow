@@ -19,6 +19,7 @@ import { recordBankFileGenerated } from '@/modules/accounting/services/ap/batchB
 import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { liveNetcashSubmission } from '@/modules/accounting/services/ap/netcashBatchGuard';
 import { assertBatchMayBeSent, BatchNotSendableError } from '@/modules/accounting/services/ap/batchBankFileGate';
+import { BatchChangedSinceApprovalError } from '@/modules/accounting/services/ap/batchApprovedDigest';
 import { respondIfApprovalRequired } from '@/modules/accounting/services/gl/approvalGateResponse';
 import {
   assertSuppliersBankVerified, respondIfBankDetailsUnverified,
@@ -77,6 +78,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   } catch (err) {
     if (respondIfApprovalRequired(res, err)) return;
     if (err instanceof BatchNotSendableError) return apiResponse.conflict(res, err.message, { reason: err.code, batchStatus: err.batchStatus });
+    // Migration 922: its content changed since it was approved — re-approve it first. Enforcement on or off.
+    if (err instanceof BatchChangedSinceApprovalError) return apiResponse.conflict(res, err.message, { reason: err.code, batchId: err.batchId });
     throw err;
   }
 

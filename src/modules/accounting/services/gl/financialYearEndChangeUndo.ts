@@ -6,7 +6,8 @@
  * the transition year has no year-end closing journal. Only the company's
  * latest live change can be undone.
  *
- * It restores the change's snapshot exactly: the transition year's end, kind
+ * It restores the change's snapshot exactly (updated_at aside, which records
+ * the undo itself): the transition year's end, kind
  * and change link; the later years with their original ids, labels, dates and
  * created_at; every period's year, label, number and name. Periods generated
  * by or after the change that nothing references are deleted again; one that
@@ -24,7 +25,7 @@ import { log } from '@/lib/logger';
 import { logAuditOrThrow } from '../core/auditTrailService';
 import { repointPeriodToItsYear, YearEndChangeRefusedError } from './financialYearEndChangeApply';
 
-interface SnapYear { id: string; fiscal_year: number; start_date: string; end_date: string; kind: string; change_id: string | null; created_at: string; updated_at: string }
+interface SnapYear { id: string; fiscal_year: number; start_date: string; end_date: string; kind: string; change_id: string | null; created_at: string }
 interface SnapPeriod { id: string; fiscal_year_id: string; fiscal_year: number; period_number: number; period_name: string }
 
 export interface LiveChange {
@@ -144,9 +145,9 @@ export async function undoYearEndChange(companyId: string, userId: string, reaso
     if (y.id === change.fiscalYearId) continue;
     // The one place outside the generator that writes a year: the snapshot's own row, back with its own id.
     await sql`
-      INSERT INTO fiscal_years (id, company_id, fiscal_year, start_date, end_date, kind, change_id, created_at, updated_at)
+      INSERT INTO fiscal_years (id, company_id, fiscal_year, start_date, end_date, kind, change_id, created_at)
       VALUES (${y.id}::UUID, ${companyId}::UUID, ${y.fiscal_year}, ${y.start_date}::DATE, ${y.end_date}::DATE,
-              ${y.kind}, ${y.change_id}::UUID, ${y.created_at}::TIMESTAMPTZ, ${y.updated_at}::TIMESTAMPTZ)
+              ${y.kind}, ${y.change_id}::UUID, ${y.created_at}::TIMESTAMPTZ)
     `;
   }
 
