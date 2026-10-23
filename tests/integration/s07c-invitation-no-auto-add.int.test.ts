@@ -20,6 +20,7 @@ import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { createInvitation, InvitationForbiddenError } from '@/modules/accounting/services/core/userInvitationService';
+import { OwnerProtectedError } from '@/modules/accounting/services/core/ownerLock';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -154,7 +155,7 @@ describe('S-07c A: createInvitation checks the inviter (assertCanInvite)', () =>
 
   it('an admin may not invite an owner', async () => {
     const email = `${crypto.randomUUID()}@test.local`;
-    await expect(createInvitation(company, email, 'owner', me)).rejects.toBeInstanceOf(InvitationForbiddenError);
+    await expect(createInvitation(company, email, 'owner', me)).rejects.toBeInstanceOf(OwnerProtectedError);
     expect(await pending(email)).toBe(0);
   });
 
@@ -179,7 +180,7 @@ describe('S-07c A: createInvitation checks the inviter (assertCanInvite)', () =>
     const email = `${crypto.randomUUID()}@test.local`;
     await createInvitation(company, email, 'owner', ids.owner);
     const before = (await fixture.query('SELECT token FROM company_invitations WHERE company_id = $1 AND email = $2', [company, email])).rows[0];
-    await expect(createInvitation(company, email, 'owner', me)).rejects.toBeInstanceOf(InvitationForbiddenError);
+    await expect(createInvitation(company, email, 'owner', me)).rejects.toBeInstanceOf(OwnerProtectedError);
     expect((await fixture.query('SELECT role, token, invited_by FROM company_invitations WHERE company_id = $1 AND email = $2',
       [company, email])).rows).toEqual([{ role: 'owner', token: before.token, invited_by: ids.owner }]);
     // A re-invite at another role, as 883 allowed: it becomes the admin's viewer invitation.
