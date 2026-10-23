@@ -25,6 +25,25 @@ run_step() {
 # workflow-runs-ci check included. Checked in bash for that reason; the repo
 # has no bunfig.toml, and adding one means changing this line in review (R-052).
 run_step "no-bunfig"         test ! -e bunfig.toml
+
+# A push to master that is a merge-queue merge of a PR head whose tree already
+# passed both required checks as a pull_request run is not tested twice
+# (scripts/ci/mq-merge-already-tested.ts: exit 10 skips, anything else, a crash
+# included, runs every gate; it prints why). Only on GitHub, only on push, and
+# only after no-bunfig passed (a preload could fake the exit code).
+if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${GITHUB_EVENT_NAME:-}" = "push" ] && [ "${#FAILED[@]}" -eq 0 ]; then
+  echo ""
+  mq_rc=0
+  bun scripts/ci/mq-merge-already-tested.ts || mq_rc=$?
+  if [ "$mq_rc" -eq 10 ]; then
+    echo "[ci] all checks skipped: this exact tree already passed them as a pull_request run (see [mq-merge] above)"
+    exit 0
+  fi
+fi
+# Only the merge check needs the API token: drop it from the environment of
+# every gate below (PR-authored tests included). ci.yml's checkouts set
+# persist-credentials: false, so it is not in .git/config either.
+unset CI_READ_TOKEN
 run_step "type-check"        bun run type-check
 # `tsconfig.json` excludes `tests/**`, so a FIXTURE may omit a required field
 # of the model it claims to be and neither `tsc --noEmit` nor vitest notices.
@@ -89,10 +108,23 @@ run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 # that skipped and why, and fails on one that skipped without saying why.
 # See the header of scripts/ci/integration/run.sh.
 # It runs on GitHub (GITHUB_ACTIONS=true) and, locally, only when asked for
-# with CI_INTEGRATION=1: it adds 8-25 minutes, so the pre-push hook skips it.
+# with CI_INTEGRATION=1: it adds 6-15 minutes, so the pre-push hook skips it.
+# On GitHub, a change that touches nothing but Markdown skips it
+# (scripts/ci/integration/scope.ts: exit 10 skips, anything else, a crash
+# included, runs; it prints why and the files that made it run).
 INTEGRATION_NOTE=""
 if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI_INTEGRATION:-}" = "1" ]; then
-  run_step "integration"     bash scripts/ci/integration/run.sh
+  scope_rc=0
+  if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "${CI_INTEGRATION:-}" != "1" ]; then
+    echo ""
+    bun scripts/ci/integration/scope.ts || scope_rc=$?
+  fi
+  if [ "$scope_rc" -eq 10 ]; then
+    INTEGRATION_NOTE=" (integration SKIPPED: Markdown-only change)"
+    echo "[skip] integration: SKIPPED — every changed file is Markdown (see [integration-scope] above)"
+  else
+    run_step "integration"   bash scripts/ci/integration/run.sh
+  fi
 else
   INTEGRATION_NOTE=" (integration NOT RUN)"
   echo ""
