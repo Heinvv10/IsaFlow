@@ -131,8 +131,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await lockSystemRoleWrites(companyId);
       // Migration 923: the number and branch code are the EFT originator, approval content of every batch and payment
       // paying from this account. What is in flight is locked here, before any gl_accounts row (batch -> payment -> account).
-      const originatorMayChange = s(b.bankAccountNumber) !== null || s(b.bankBranchCode) !== null;
-      const inFlight = originatorMayChange ? await boundedRowWait(() => lockPaymentsFromAccount(companyId, id)) : null;
+      const next = { number: s(b.bankAccountNumber), branch: s(b.bankBranchCode) };
+      const inFlight = next.number !== null || next.branch !== null
+        ? await boundedRowWait(() => lockPaymentsFromAccount(companyId, id, next)) : null;
       const roles = typeof b.isActive === 'boolean' || changesParent ? await snapshotRoles(companyId) : null;
       if (typeof b.isActive === 'boolean') {
         const [acct] = await sql`SELECT is_system_account FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;

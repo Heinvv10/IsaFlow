@@ -18,7 +18,7 @@ import bankAccounts from '../../pages/api/accounting/bank-accounts';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { callRoute, createUser, plantRule, reasonOf } from './r035-approval.helpers';
 import { dataOf } from './r035-pr2.helpers';
-import { authorsOf, cleanupPr5, enforcePay, inRequest, payCompany, plantPayment } from './r035-pr5.helpers';
+import { authorsOf, cleanupPr5, enforcePay, inRequest, payCompany, plantBill, plantPayment, plantSupplier } from './r035-pr5.helpers';
 import { digestKit } from './ap-batch-approved-digest.helpers';
 
 assertDisposable();
@@ -114,5 +114,57 @@ describe('a paying-account edit makes the editor an author of what pays from it'
     await pool.query("UPDATE supplier_payment_batches SET status = 'processed' WHERE id = $1", [b.id])
     expect((await putAccount(c, { id: account, bankAccountNumber: '40000009999' })).state.statusCode).toBe(200);
     expect(await authorsOf(pool, c, 'payment_batch', b.id)).not.toContain(u.b);
+  });
+});
+
+describe('lock order between a payee edit and a paying-account edit', () => {
+  it('a payee edit stamps its single payments in id order, as the account edit locks them (no 40P01 crossing)', async () => {
+    const { company: c, bank } = await payCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
+    const supplierId = await plantSupplier(pool, c);
+    const tail = crypto.randomUUID().slice(-12);
+    const [high, low] = [`ffffffff-ffff-4fff-bfff-${tail}`, `00000000-0000-4000-8000-${tail}`];
+    for (const id of [high, low]) { // inserted high first: a scan meets it first
+      const bill = await plantBill(pool, c, supplierId, u.a);
+      await pool.query(
+        `INSERT INTO supplier_payments(id,company_id,supplier_id,payment_date,total_amount,payment_method,bank_account_id,status,created_by)
+         VALUES($1,$2,$3,DATE '2026-09-01',10,'eft',$4,'draft',$5)`, [id, c, supplierId, bank, u.a]);
+      await pool.query('INSERT INTO payment_allocations(payment_id,invoice_id,amount_allocated) VALUES($1,$2,10)', [id, bill]);
+    }
+    const held = await pool.connect();
+    try {
+      await held.query('BEGIN');
+      await held.query('SELECT id FROM supplier_payments WHERE id = $1 FOR UPDATE', [low]);
+      const holder = (await held.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      const edit = inRequest(pool, u.b, c, () => updateSupplier(c, supplierId, { bankAccountNumber: '62000007777' }, u.b));
+      let blocked = false;
+      for (let i = 0; i < 500 && !blocked; i += 1) {
+        blocked = !!(await pool.query('SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [holder])).rowCount;
+        if (!blocked) await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(blocked).toBe(true);
+      // Waiting on the LOW row, the edit holds no lock on the high one.
+      const highFree = await pool.query('SELECT id FROM supplier_payments WHERE id = $1 FOR UPDATE NOWAIT', [high])
+        .then(() => true, (e: { code?: string }) => { if (e.code === '55P03') return false; throw e; });
+      await held.query('COMMIT');
+      await edit;
+      expect(highFree).toBe(true);
+    } finally {
+      held.release(true);
+    }
+  });
+
+  it('a Bank Accounts save that re-sends the same number and branch waits for no batch', async () => {
+    const { c, b } = await fixture();
+    const account = await payingAccountOf(b.id);
+    const held = await pool.connect();
+    try {
+      await held.query('BEGIN');
+      await held.query('SELECT id FROM supplier_payment_batches WHERE id = $1 FOR UPDATE', [b.id]);
+      const put = await putAccount(c, { id: account, bankAccountNumber: '40000000001', bankBranchCode: '250655', description: 'x' });
+      expect(put.state.statusCode, JSON.stringify(put.state.body)).toBe(200); // not a 503 lock timeout
+    } finally {
+      await held.query('ROLLBACK');
+      held.release();
+    }
   });
 });

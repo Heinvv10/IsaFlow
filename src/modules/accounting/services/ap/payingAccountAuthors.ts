@@ -10,9 +10,10 @@
  * processSupplierPayment takes (payment, then its journal's key share on the account). The caller holds the
  * company's role-write lock (bank-accounts PUT), which serialises every writer of these two columns.
  *
- * Named limit: only what pays from the account when the edit starts is stamped. A batch or payment pointed at the
+ * Named limits: only what pays from the account when the edit starts is stamped. A batch or payment pointed at the
  * account later is approved against the new number, as shown to its approver (expectedDigest); its editor is not
- * an author of it.
+ * an author of it. A processed batch is history and is not stamped (as for payee bank edits): one re-approved after
+ * the edit can be re-approved by its editor.
  */
 
 import { sql } from '@/lib/neon';
@@ -30,8 +31,17 @@ const originatorOf = async (companyId: string, accountId: string) => ((await sql
   WHERE id = ${accountId}::UUID AND company_id = ${companyId}::UUID
 `) as DbRow[])[0] ?? null;
 
-/** Lock the draft / approved batches and single payments paying from `accountId`, BEFORE the account row is written. */
-export async function lockPaymentsFromAccount(companyId: string, accountId: string): Promise<PaymentsFromAccount> {
+/**
+ * Lock the draft / approved batches and single payments paying from `accountId`, BEFORE the account row is written —
+ * only when the write would move the number or branch code (`next`: the value written, null = left as it is). Null
+ * when it would not: the form re-sends both on every save. The read before the locks is safe because the caller holds
+ * the role-write lock that every writer of the two columns takes.
+ */
+export async function lockPaymentsFromAccount(companyId: string, accountId: string,
+  next: { number: string | null; branch: string | null }): Promise<PaymentsFromAccount | null> {
+  const now = await originatorOf(companyId, accountId);
+  const moves = (value: string | null, column: string) => value !== null && value !== (now?.[column] ?? null);
+  if (!now || (!moves(next.number, 'bank_account_number') && !moves(next.branch, 'bank_branch_code'))) return null;
   const batches = (await sql`
     SELECT id FROM supplier_payment_batches
     WHERE company_id = ${companyId}::UUID AND bank_account_id = ${accountId}::UUID
@@ -47,7 +57,7 @@ export async function lockPaymentsFromAccount(companyId: string, accountId: stri
   return {
     batchIds: batches.map((r) => String(r.id)),
     paymentIds: payments.map((r) => String(r.id)),
-    before: await originatorOf(companyId, accountId),
+    before: now,
   };
 }
 

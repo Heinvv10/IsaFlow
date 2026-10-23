@@ -97,6 +97,8 @@ describe('a payee renamed after approval (enforcement off)', () => {
   });
 
   it('a letter that only upper-cases to the same one (dotless i, long s) is a rename: refused', async () => {
+    // Only live where the database collation folds them (CI's clusters are en_US.UTF-8, as isaflow_dev is).
+    expect((await pool.query("SELECT upper('\u0131') || upper('\u017F') AS u")).rows[0].u).toBe('IS');
     for (const forged of ['MALLORY \u0131NC', 'MALLORY INC \u017FA']) {
       const { c, b, supplierId } = await fixture();
       await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [supplierId, forged.includes('\u017F') ? 'MALLORY INC SA' : 'MALLORY INC']);
