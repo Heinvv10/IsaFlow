@@ -6,7 +6,7 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { assertDeclaredBasis, requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { computePisScoreForDocument } from './pisCalculatorService';
 import type { CipcFilingGuide } from './afsTypes';
 
@@ -110,7 +110,7 @@ export async function generateCipcFilingGuide(
   const doc = docRows[0] as unknown as DocumentRow;
   const sections = sectionRows as unknown as SectionRow[];
 
-  const yearEndIso = (await requireFiscalYear(companyId, doc.fiscal_year)).endDate;
+  const yearEndIso = assertDeclaredBasis(companyId, await requireFiscalYear(companyId, doc.fiscal_year)).endDate;
   const filingDeadline = computeFilingDeadline(yearEndIso);
 
   const requiredFilings = buildRequiredFilings(pisScore.requiredAudit, pisScore.requiredCipcFiling);

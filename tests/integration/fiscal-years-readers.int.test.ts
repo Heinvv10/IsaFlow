@@ -12,8 +12,9 @@ import { als } from '@/lib/als';
 import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import {
-  getFiscalRange, getFiscalRangeWithPrior, getPriorFiscalRange,
+  fiscalWindowForPeriod, getFiscalRange, getFiscalRangeWithPrior, getPriorFiscalRange,
 } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { afsFilingDeadline } from '@/modules/accounting/services/afs/afsFilingDeadline';
 import { fiscalYearForDate, getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
@@ -117,6 +118,14 @@ describe('AFS ranges', () => {
   });
 });
 
+describe('the year before the first stored year (a post-change company\'s history)', () => {
+  it('is walked back twelve months from FY2025 (January-December 2024), not cut on the new March month', async () => {
+    expect(await inTx(() => getFiscalRangeWithPrior(co, 2025, true))).toEqual({
+      current: { start: '2025-01-01', end: '2025-12-31' }, prior: { start: '2024-01-01', end: '2024-12-31' } });
+    expect(await inTx(() => fiscalYearForDate(co, '2024-12-31'))).toMatchObject({ fiscalYear: 2024, startDate: '2024-01-01', stored: false });
+  });
+});
+
 describe('general ledger year boundary', () => {
   it('an income account opens at zero on the first day of the year after the transition', async () => {
     const rows = await inTx(() => getGeneralLedgerReport(co, '2027-03-01', '2027-04-30'));
@@ -137,6 +146,8 @@ describe('no silent March for the AFS', () => {
     try {
       await expect(inTx(() => getFiscalRange(bare, 2026))).rejects.toThrow(/no usable financial_year_start/);
       await expect(inTx(() => getFiscalRangeWithPrior(bare, 2026, true))).rejects.toThrow(/no usable financial_year_start/);
+      await expect(inTx(() => fiscalWindowForPeriod(bare, '202605'))).rejects.toThrow(/no usable financial_year_start/);
+      await expect(inTx(() => afsFilingDeadline(bare, 2026))).rejects.toThrow(/no usable financial_year_start/);
       expect(await inTx(() => fiscalYearForDate(bare, '2026-05-01'))).toMatchObject({ startDate: '2026-03-01', assumed: true, stored: false });
     } finally {
       await pool.query('DELETE FROM companies WHERE id = $1', [bare]);

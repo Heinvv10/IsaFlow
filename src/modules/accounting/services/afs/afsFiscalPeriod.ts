@@ -66,7 +66,7 @@ export async function fiscalWindowForPeriod(
   if (!/^\d{4}(0[1-9]|1[0-2])$/.test(period)) {
     throw new Error(`fiscalWindowForPeriod: period must be YYYYMM with a month 01-12, got '${period}'.`);
   }
-  const year = await fiscalYearForDate(companyId, `${period.slice(0, 4)}-${period.slice(4, 6)}-01`);
+  const year = assertDeclaredBasis(companyId, await fiscalYearForDate(companyId, `${period.slice(0, 4)}-${period.slice(4, 6)}-01`));
   return {
     start: yyyymmOf(year.startDate),
     end: period,
