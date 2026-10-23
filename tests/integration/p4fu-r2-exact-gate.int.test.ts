@@ -189,4 +189,30 @@ describe('R1: the exact stale year-to-date gate', () => {
     ok(await approveRun(f, feb));
     ok(await approveRun(f, jan));
   });
+  it('February calculated while January was approved, January reopened and RECALCULATED, February approved: January is refused (February read its earlier lines)', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 later read older lines', 20_000);
+    const ids = await approvedMonths(f, 11);
+    const jan = ids[10]!;
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb);
+    ok(await reopenRun(f, jan));
+    await calcOnly(f, jan); // February is not approved: no warning
+    ok(await approveRun(f, feb));
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02.*Recalculate the run/);
+  });
+
+  it('a later month approved before migration 718 (approved_at NULL) warns this run all along: approved', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 pre-718 later month', 20_000);
+    await approvedMonths(f, 10);
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb);
+    ok(await approveRun(f, feb));
+    await pool.query('UPDATE payroll_run_headers SET approved_at = NULL WHERE id = $1', [feb]);
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan);
+    expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');
+    ok(await approveRun(f, jan));
+  });
 });
