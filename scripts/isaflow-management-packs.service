@@ -1,0 +1,30 @@
+[Unit]
+Description=IsaFlow — daily management pack scheduler (AFS)
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+# CRON_SECRET comes from the app's env file, as for every sibling cron unit.
+# It must never be written into this file: unit files under /etc/systemd/system
+# are world-readable (the installed copy carried it inline until 2026-10;
+# docs/runbooks/cron-secret-management-packs.md). The header goes to curl on
+# stdin (-H @-), so the secret is not in curl's argv either (/proc/<pid>/cmdline
+# is readable by every local account); $$ passes $CRON_SECRET to sh unexpanded,
+# and printf is a shell builtin.
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
+  --max-time 600 \
+  -X POST \
+  -H @- \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/accounting/afs/cron/management-packs'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-management-packs
+
+NoNewPrivileges=true
+ProtectSystem=strict
