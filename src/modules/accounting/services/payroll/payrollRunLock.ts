@@ -8,6 +8,22 @@
  *   • only allows approved → calculated
  *   • paid runs cannot be reopened (money has moved — needs a reversing run)
  *   • cancelled runs cannot be reopened (create a new run instead)
+ *
+ * LOCK ORDER, every payroll-run writer (all waits bounded at 5s, then a
+ * retryable refusal):
+ *   1. the company approval lock (lockCompanyPayrollApprovals): approve,
+ *      calculate and reopen;
+ *   2. the run's header row (lockPayrollRunHeader): the same three;
+ *   3. approval only: the linked journal and its reversal chain
+ *      (lockRunJournalForApproval, payrollJournalChain), then the severance
+ *      directive rows (FOR SHARE) and their payment row (payrollRunDirectiveClaim).
+ * The generic journal reversal takes 2 then 3 and never 1, so no cycle.
+ * One company-wide lock rather than one per tax year (PAYE 4a follow-ups
+ * round 2, R2): approvals need the company-wide one anyway
+ * (termination_already_paid reads runs of any year), and a calculation holds
+ * it briefly — 200 employees, real PG, 5 runs: p50 147–184 ms, max 233 ms,
+ * on this box at load 37–40 (2026-10-23), well under the ~1 s that would
+ * justify a second, per-year lock.
  */
 
 import { sql, withTransaction } from '@/lib/neon';
@@ -97,10 +113,13 @@ export async function lockPayrollRunHeader(runId: string, companyId: string): Pr
  * ends (a transaction-scoped advisory lock, bounded like the row locks). The
  * gate's termination_already_paid check reads OTHER runs, which the header
  * lock does not cover: two runs carrying the same employee's termination
- * pay-outs, approved at once, would both pass it. Taken by approvePayrollRun
- * and, since cumulative PAYE (PAYE 4a follow-ups G4), by calculatePayrollRun,
- * both before the header lock, so the two cannot form a cycle; the generic
- * reversal does not take it. Deliberately, a calculation holds it until its
+ * pay-outs, approved at once, would both pass it. Taken by approvePayrollRun,
+ * since cumulative PAYE (PAYE 4a follow-ups G4) by calculatePayrollRun, and
+ * since round 2 (R1) by reopenPayrollRun, all before the header lock, so they
+ * cannot form a cycle; the generic reversal does not take it. A reopen waits
+ * for an in-flight calculation, so its reopened_at is either before the
+ * calculation read the year-to-date or after its lines were written — the
+ * stale year-to-date gate compares the two. Deliberately, a calculation holds it until its
  * transaction ends: approvals AND other calculations of the company wait for
  * it, each for at most 5s before a retryable refusal, so a month's
  * year-to-date and later-month warnings are never read mid-approval. Two limits, both bounded by the 5s
@@ -189,6 +208,8 @@ export async function reopenPayrollRun(opts: {
 
   // Locked with the 5s wait approve and calculate use (round 5): the bare read
   // and UPDATE here waited on a peer's hold of the row for as long as it lasted.
+  // The company approval lock first, in their order (see the top of this file).
+  await lockCompanyPayrollApprovals(opts.runId, opts.companyId);
   const run = await lockPayrollRunHeader(opts.runId, opts.companyId);
   if (!run) throw new PayrollRunReopenRefusedError('Payroll run not found');
 
@@ -205,15 +226,22 @@ export async function reopenPayrollRun(opts: {
 
   // Predicated on the status just judged: a run that left 'approved' between
   // the read above and this write (paid, say) must not be reopened by it.
+  // The approval it ends is kept as [approved_at, reopened_at) in
+  // approval_history (migration 925), one clock reading for both, for the stale
+  // year-to-date gate (payrollYearToDate#judgeYearToDateStale).
   const reopened = (await sql`
-    UPDATE payroll_run_headers
+    UPDATE payroll_run_headers h
        SET status = 'calculated',
            approved_by = NULL,          -- no longer approved; lines_confirmed_at stays (migration 718)
            approved_at = NULL,
+           reopened_at = c.now,
+           approval_history = COALESCE(h.approval_history, '{}'::tstzmultirange)
+             + tstzmultirange(tstzrange(h.approved_at, c.now, '[)')),
            updated_at = NOW()
-     WHERE id = ${opts.runId}::uuid AND company_id = ${opts.companyId}::uuid
-       AND status = 'approved'
-     RETURNING id
+      FROM (SELECT clock_timestamp() AS now) c
+     WHERE h.id = ${opts.runId}::uuid AND h.company_id = ${opts.companyId}::uuid
+       AND h.status = 'approved'
+     RETURNING h.id
   `) as DbRow[];
   if (!reopened[0]) throw new PayrollRunReopenRefusedError('Payroll run changed while it was being reopened — it is no longer approved.');
 
