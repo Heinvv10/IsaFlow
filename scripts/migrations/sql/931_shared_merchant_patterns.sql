@@ -1,4 +1,4 @@
--- 906: shared_merchant_patterns — the cross-company merchant -> category pool, its only writer and its only
+-- 931: shared_merchant_patterns — the cross-company merchant -> category pool, its only writer and its only
 -- reader (learning loop PR 2; Hein's decisions 2026-10-21, decisions 4, 6 and 7). SECURITY REVIEW ITEM:
 -- docs/security/shared-merchant-patterns.md is the threat model.
 --
@@ -36,6 +36,11 @@
 --    linked bureau has share_merchant_patterns). Confidence = min(0.80, agreement x (0.5 + 0.5 x
 --    min(1, companies / 10))): 5 companies at 80% -> 0.60, the floor a cold-start suggestion needs; it
 --    never reaches the HIGH band (0.85) and the auto-post gate refuses shared_pool outright anyway.
+--
+-- 5. Numbered 931, after 930 (was 906, never applied anywhere). 930 refuses any SECURITY DEFINER function
+--    missing from public.app_definer_reviews, so the migration that creates a definer must review and list
+--    it; 906 ran before 930 created that registry and every deploy would have stopped at 930. The two
+--    rows are inserted at the end, with 930's app_definer_hash(), and 930's whole rule set is re-checked.
 --
 -- Both functions: search_path pinned with pg_temp last; owner must bypass RLS (it reads a FORCE RLS
 -- table); grants enumerated and asserted below (885 / 888's recipe).
@@ -185,7 +190,7 @@ BEGIN
   IF NOT (SELECT c.relrowsecurity AND c.relforcerowsecurity FROM pg_catalog.pg_class c
           WHERE c.oid = 'public.shared_merchant_patterns'::pg_catalog.regclass)
      OR EXISTS (SELECT 1 FROM pg_catalog.pg_policies p WHERE p.schemaname = 'public' AND p.tablename = 'shared_merchant_patterns') THEN
-    RAISE EXCEPTION 'migration 906: shared_merchant_patterns must be under FORCE RLS with no policy';
+    RAISE EXCEPTION 'migration 931: shared_merchant_patterns must be under FORCE RLS with no policy';
   END IF;
   FOR v_role IN
     SELECT rr.rolname FROM pg_catalog.pg_roles rr
@@ -195,7 +200,7 @@ BEGIN
   LOOP
     FOREACH v_priv IN ARRAY ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] LOOP
       IF pg_catalog.has_table_privilege(v_role, 'public.shared_merchant_patterns', v_priv) THEN
-        RAISE EXCEPTION 'migration 906: % still holds % on shared_merchant_patterns', v_role, v_priv;
+        RAISE EXCEPTION 'migration 931: % still holds % on shared_merchant_patterns', v_role, v_priv;
       END IF;
     END LOOP;
   END LOOP;
@@ -204,21 +209,21 @@ BEGIN
       SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_roles o ON o.oid = p.proowner
       WHERE p.oid = v_fn::pg_catalog.regprocedure AND p.prosecdef AND (o.rolbypassrls OR o.rolsuper)
     ) THEN
-      RAISE EXCEPTION 'migration 906: % must be SECURITY DEFINER with an owner that bypasses RLS', v_fn;
+      RAISE EXCEPTION 'migration 931: % must be SECURITY DEFINER with an owner that bypasses RLS', v_fn;
     END IF;
     IF NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_proc p
       WHERE p.oid = v_fn::pg_catalog.regprocedure
         AND p.proconfig[pg_catalog.array_upper(p.proconfig, 1)] ~ '^search_path=.*pg_temp$'
     ) THEN
-      RAISE EXCEPTION 'migration 906: % must pin search_path with pg_temp last', v_fn;
+      RAISE EXCEPTION 'migration 931: % must pin search_path with pg_temp last', v_fn;
     END IF;
     IF pg_catalog.has_function_privilege('public', v_fn, 'EXECUTE') THEN
-      RAISE EXCEPTION 'migration 906: PUBLIC may execute %', v_fn;
+      RAISE EXCEPTION 'migration 931: PUBLIC may execute %', v_fn;
     END IF;
   END LOOP;
   IF NOT pg_catalog.has_function_privilege('app_user', v_lookup, 'EXECUTE') THEN
-    RAISE EXCEPTION 'migration 906: app_user must be able to execute %', v_lookup;
+    RAISE EXCEPTION 'migration 931: app_user must be able to execute %', v_lookup;
   END IF;
   -- Only the owner and migration_admin (and the role running this, when it inherits either) may publish.
   FOR v_role IN
@@ -229,13 +234,37 @@ BEGIN
       AND NOT pg_catalog.pg_has_role(rr.oid, p.proowner, 'USAGE')
   LOOP
     IF pg_catalog.has_function_privilege(v_role, v_publish, 'EXECUTE') THEN
-      RAISE EXCEPTION 'migration 906: % may still execute %', v_role, v_publish;
+      RAISE EXCEPTION 'migration 931: % may still execute %', v_role, v_publish;
     END IF;
   END LOOP;
   IF pg_catalog.has_function_privilege('app_user', v_publish, 'EXECUTE')
      OR pg_catalog.has_function_privilege('platform_admin', v_publish, 'EXECUTE') THEN
-    RAISE EXCEPTION 'migration 906: app_user / platform_admin may execute %', v_publish;
+    RAISE EXCEPTION 'migration 931: app_user / platform_admin may execute %', v_publish;
   END IF;
+END $$;
+
+-- 930's definer registry: what each definer writes, hashed over its full definition and owner.
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+SELECT v.signature, v.writes, public.app_definer_hash(p.oid)
+  FROM (VALUES
+    ('shared_pool_publish(jsonb,integer)',
+     'shared_merchant_patterns only (full replace); migration_admin only; refuses any field but the five it stores'),
+    ('shared_pool_lookup(uuid,text[])',
+     'nothing (read): exact merchant keys, at most 500, for the caller''s active, pool-eligible company')) v(signature, writes)
+  JOIN pg_catalog.pg_proc p ON p.oid = pg_catalog.to_regprocedure(v.signature)
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
+
+DO $$
+DECLARE
+  v pg_catalog.text;
+BEGIN
+  IF (SELECT pg_catalog.count(*) FROM public.app_definer_reviews
+       WHERE signature IN ('shared_pool_publish(jsonb,integer)', 'shared_pool_lookup(uuid,text[])')) <> 2 THEN
+    RAISE EXCEPTION 'migration 931: both shared-pool definers must be listed in app_definer_reviews';
+  END IF;
+  FOR v IN SELECT * FROM public.app_pool_reach_violations() ORDER BY 1 LOOP
+    RAISE EXCEPTION '931: %', v;
+  END LOOP;
 END $$;
 
 COMMENT ON TABLE shared_merchant_patterns IS

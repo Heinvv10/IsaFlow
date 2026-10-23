@@ -1,5 +1,5 @@
 /**
- * Migrations 905 / 906 against a real database: the shared merchant pool is deny-all to app_user and
+ * Migrations 905 / 931 against a real database: the shared merchant pool is deny-all to app_user and
  * platform_admin; shared_pool_publish is its only writer (migration_admin only) and refuses extra fields,
  * sub-threshold rows and non-poolable categories; shared_pool_lookup answers only an eligible caller's
  * active company; the job publishes at k = 5 eligible companies, ignores no-bureau and partially opted-out

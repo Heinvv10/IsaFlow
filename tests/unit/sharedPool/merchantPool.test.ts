@@ -43,8 +43,8 @@ describe('aggregatePool — thresholds', () => {
     expect(MIN_AGREEMENT).toBe(0.8);
   });
 
-  it('the constants are the CHECK constraints on shared_merchant_patterns (migration 906)', () => {
-    const sql = readFileSync(join(process.cwd(), 'scripts/migrations/sql/906_shared_merchant_patterns.sql'), 'utf8');
+  it('the constants are the CHECK constraints on shared_merchant_patterns (migration 931)', () => {
+    const sql = readFileSync(join(process.cwd(), 'scripts/migrations/sql/931_shared_merchant_patterns.sql'), 'utf8');
     expect(sql).toContain(`CHECK (distinct_company_count >= ${MIN_DISTINCT_COMPANIES})`);
     expect(sql).toContain(`CHECK (agreement_pct >= ${MIN_AGREEMENT} AND agreement_pct <= 1)`);
   });
