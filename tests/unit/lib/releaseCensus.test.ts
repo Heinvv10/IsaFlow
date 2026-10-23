@@ -33,6 +33,7 @@ const BARE: Record<string, { calls: string[]; reason: string }> = {
   'scripts/ap-backfill-supplier-payments.ts': { calls: ['client.release()'], reason: RUNS_ON_IMPORT },
   'scripts/apply-migrations.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
   'scripts/migrations/resolve-checksum-conflicts.ts': { calls: ['client.release()'], reason: PER_RUN_POOL },
+  'src/modules/accounting/services/ap/netcashSendCapacity.ts': { calls: ['late.release()'], reason: 'a connection whose checkout outlived its bound, handed straight back: it never ran a statement, so it holds no transaction and no lock (AP-01 round 11)' },
   'src/modules/accounting/services/ar/sentMirrorService.ts': { calls: ['lock.release()'], reason: IMAP_LOCK },
   'src/modules/accounting/services/capture/imapMirrorService.ts': { calls: ['lock.release()'], reason: IMAP_LOCK },
 };

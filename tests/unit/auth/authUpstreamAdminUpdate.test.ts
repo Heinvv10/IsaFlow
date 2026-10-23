@@ -30,6 +30,11 @@ vi.mock('@/lib/auth/withUserAuth', () => ({
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(async (strings: TemplateStringsArray) => (strings.join('?').includes('FROM users') ? [{ email: 'user@example.test' }] : [])),
 }));
+// change-email writes users first, on the migration_admin pool (S-07b follow-up B): one row matches.
+vi.mock('@/lib/auth/migrationAdminPool', () => {
+  const client = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })), release: vi.fn() };
+  return { migrationAdminPool: () => ({ connect: async () => client }) };
+});
 const { tokens } = vi.hoisted(() => ({ tokens: new Map<string, { userId: string; consumed: boolean }>() }));
 vi.mock('@/lib/auth/passwordResetService', () => ({
   consumePasswordResetToken: vi.fn(async (raw: string) => {

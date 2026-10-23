@@ -133,9 +133,9 @@ describe('coupled payments', () => {
     expect(sent.state.statusCode, JSON.stringify(sent.state.body)).toBe(200);
   });
 
-  it.each(['none', 'payment_batch'] as const)('%s: "a raw Netcash payment list is refused"', async (ruleOn) => {
+  it.each(['none', 'payment_batch'] as const)('%s: "a raw Netcash payment list is refused" (400 since AP-01: every raw list)', async (ruleOn) => {
     const { c } = await payFixture(ruleOn);
-    expect((await netcash(c, RAW)).state.statusCode).toBe(403);
+    expect((await netcash(c, RAW)).state.statusCode).toBe(400);
     expect(submitEftBatch).not.toHaveBeenCalled();
   });
 

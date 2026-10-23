@@ -123,17 +123,13 @@ export default function ExternalMigrationPage() {
             </div>
           )}
 
-          {/* Link to Sage-specific tools */}
+          {/* Sage moves go through the file-upload Migration Wizard */}
           <div className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)]">
-            Looking for the Sage Business Cloud migration? Use the{' '}
-            <Link href="/accounting/sage-migration" className="text-orange-400 hover:underline">
-              Sage Migration tool
+            Moving from Sage? Export your data from Sage as CSV or Excel files and use{' '}
+            <Link href="/accounting/migration#sage" className="text-orange-400 hover:underline">
+              Import from Sage
             </Link>
-            {' '}or{' '}
-            <Link href="/accounting/migration" className="text-blue-400 hover:underline">
-              Full Migration Wizard
-            </Link>
-            {' '}for a guided step-by-step process.
+            {' '}in the Migration Wizard for a guided step-by-step upload.
           </div>
         </div>
       </div>

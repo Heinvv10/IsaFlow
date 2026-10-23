@@ -26,6 +26,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import type { LumpSumFiling } from './payrollLumpSumFiling';
+import { listCertificateLumpSums } from './directivePaymentFiling';
 
 type Row = DbRow;
 
@@ -47,6 +49,13 @@ export interface Irp5EmployeeTotals {
   eti: number;
   netPay: number;
   runsIncluded: number;
+  /**
+   * Lump sums paid under a SARS directive, in a run (3901 severance, audit
+   * 2026-10-18 P3) or outside payroll (PAYE 4a follow-ups G1). Already inside
+   * grossSalary and paye; the certificate shows them under their own code, the
+   * PAYE under `payeCode`.
+   */
+  lumpSums: LumpSumFiling[];
 }
 
 export interface Irp5Exclusion {
@@ -82,6 +91,8 @@ export function saTaxYearBounds(taxYear: number): { start: string; end: string }
     end: `${taxYear}-02-${isLeap ? '29' : '28'}`,
   };
 }
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 function maskTail(value: unknown, reveal: boolean): string | null {
   if (value == null) return null;
@@ -167,27 +178,48 @@ export async function getIrp5EmployeeTotals(
     ORDER BY e.last_name, e.first_name, e.id
   `) as Row[];
 
-  const mapped: Irp5EmployeeTotals[] = rows.map((r) => ({
-    employeeId: String(r.id),
-    employeeNumber: String(r.employee_number ?? ''),
-    firstName: String(r.first_name ?? ''),
-    lastName: String(r.last_name ?? ''),
-    idNumber: maskTail(r.id_number, reveal),
-    taxNumber: maskTail(r.tax_number, reveal),
-    identityNumbersMasked: !reveal,
-    grossSalary: Number(r.gross_pay) || 0,
-    taxableIncome: Number(r.taxable_income) || 0,
-    paye: Number(r.paye) || 0,
-    uifEmployee: Number(r.uif_employee) || 0,
-    uifEmployer: Number(r.uif_employer) || 0,
-    sdl: Number(r.sdl) || 0,
-    eti: Number(r.eti) || 0,
-    netPay: Number(r.net_pay) || 0,
-    runsIncluded: Number(r.runs_included) || 0,
-  }));
+  // Directives paid outside payroll are in no run line: their gross and PAYE are
+  // added here, and an employee paid ONLY that way gets a row of their own.
+  const { byEmployee: lumpSums, standaloneTotals } = await listCertificateLumpSums(companyId, { start, end }, employeeId);
+  const standaloneIds = [...standaloneTotals.keys()];
+  const withRuns = new Set(rows.map(r => String(r.id)));
+  const onlyStandalone = standaloneIds.filter(id => !withRuns.has(id));
+  if (onlyStandalone.length > 0) {
+    rows.push(...(await sql`
+      SELECT id, employee_number, first_name, last_name, id_number, tax_number
+      FROM payroll_employees
+      WHERE company_id = ${companyId}::UUID AND id = ANY(${onlyStandalone}::UUID[])
+    `) as Row[]);
+    rows.sort((a, b) => String(a.last_name ?? '').localeCompare(String(b.last_name ?? ''))
+      || String(a.first_name ?? '').localeCompare(String(b.first_name ?? '')) || String(a.id).localeCompare(String(b.id)));
+  }
+  const mapped: Irp5EmployeeTotals[] = rows.map((r) => {
+    const t = standaloneTotals.get(String(r.id)) ?? { gross: 0, paye: 0 };
+    return {
+      employeeId: String(r.id),
+      employeeNumber: String(r.employee_number ?? ''),
+      firstName: String(r.first_name ?? ''),
+      lastName: String(r.last_name ?? ''),
+      idNumber: maskTail(r.id_number, reveal),
+      taxNumber: maskTail(r.tax_number, reveal),
+      identityNumbersMasked: !reveal,
+      grossSalary: round2((Number(r.gross_pay) || 0) + t.gross),
+      taxableIncome: round2((Number(r.taxable_income) || 0) + t.gross),
+      paye: round2((Number(r.paye) || 0) + t.paye),
+      uifEmployee: Number(r.uif_employee) || 0,
+      uifEmployer: Number(r.uif_employer) || 0,
+      sdl: Number(r.sdl) || 0,
+      eti: Number(r.eti) || 0,
+      netPay: round2((Number(r.net_pay) || 0) + t.gross - t.paye),
+      runsIncluded: Number(r.runs_included) || 0,
+      lumpSums: lumpSums.get(String(r.id)) ?? [],
+    };
+  });
 
-  const excludedTotal = excludedRowsRaw.length;
-  const excluded: Irp5Exclusion[] = excludedRowsRaw
+  // An employee with a stand-alone payment is a certificate row, not an exclusion.
+  const excludedRows = excludedRowsRaw.filter(r => !standaloneTotals.has(String(r.id)));
+  const excludedTotal = excludedRows.length;
+  const excluded: Irp5Exclusion[] = excludedRows
     .slice(0, EXCLUDED_SAMPLE_CAP)
     .map((r) => ({
       id: String(r.id),
@@ -204,16 +236,21 @@ export async function getIrp5EmployeeTotals(
   // certificate query and the exclusion query. Counting everyone with any pay
   // in the tax year, from one query that cares about neither status nor
   // declarability, is a claim the envelope can actually falsify.
+  // Plus anyone paid a directive outside payroll in the year (no run line).
   const [universe] = (await sql`
-    SELECT COUNT(DISTINCT prl.employee_id)::INT AS employees
-    FROM payroll_run_lines prl
-    JOIN payroll_run_headers prh ON prh.id = prl.run_id
-    JOIN payroll_employees e ON e.id = prl.employee_id
-    WHERE prh.company_id = ${companyId}::UUID
-      AND e.company_id = ${companyId}::UUID
-      AND make_date(prh.period_year, prh.period_month, 1)
-          BETWEEN ${start}::DATE AND ${end}::DATE
-      AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
+    SELECT COUNT(*)::INT AS employees FROM (
+      SELECT prl.employee_id
+      FROM payroll_run_lines prl
+      JOIN payroll_run_headers prh ON prh.id = prl.run_id
+      JOIN payroll_employees e ON e.id = prl.employee_id
+      WHERE prh.company_id = ${companyId}::UUID
+        AND e.company_id = ${companyId}::UUID
+        AND make_date(prh.period_year, prh.period_month, 1)
+            BETWEEN ${start}::DATE AND ${end}::DATE
+        AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
+      UNION
+      SELECT unnest(${standaloneIds}::UUID[])
+    ) u
   `) as Row[];
 
   const postedThrough = rows

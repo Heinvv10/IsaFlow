@@ -1,22 +1,28 @@
 /**
  * Document Capture API
- * POST /api/accounting/document-capture  — Upload PDF or image, extract data, save
+ * POST /api/accounting/document-capture  — Upload PDF or image; the row is saved as 'reading' and read in the background
  * GET  /api/accounting/document-capture  — List captured documents (`?id=<uuid>` returns one, company-scoped)
+ *
+ * A long digital PDF takes the VLM 70-104 s and Cloudflare cuts a request at 100 s, so the upload answers at once
+ * (201 `{ document }`, readState 'reading') and `runCaptureRead` fills the row after COMMIT. Clients poll `?id=`.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { Writable } from 'stream';
-import formidable from 'formidable';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
-import { extractFromPdf, extractFromImage } from '@/modules/accounting/services/core/ocrService';
+import { checkAiRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
-import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
+import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
+import { runCaptureRead } from '@/modules/accounting/services/capture/captureReadJob';
+import { STALE_AFTER_MINUTES } from '@/modules/accounting/services/capture/captureReadState';
+import {
+  ALLOWED_MIME_TYPES, MAX_FILE_SIZE, parseUploadForm, uploadedBuffer,
+} from '@/modules/accounting/services/capture/captureUploadForm';
 
 export const config = {
   api: { bodyParser: false },
@@ -24,73 +30,11 @@ export const config = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-
-const ALLOWED_MIME_TYPES: Record<string, string> = {
-  'application/pdf': 'pdf',
-  'image/jpeg': 'jpeg',
-  'image/jpg': 'jpeg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/tiff': 'tiff',
-};
-
-/** In-memory file buffer attached to formidable file objects */
-const fileBuffers = new WeakMap<formidable.File, Buffer>();
-
-function parseForm(req: NextApiRequest): Promise<{ fields: formidable.Fields; files: formidable.Files }> {
-  return new Promise((resolve, reject) => {
-    const form = formidable({
-      maxFileSize: MAX_FILE_SIZE,
-      keepExtensions: true,
-      filter: (part) => {
-        // Reject parts with no MIME or an unrecognised MIME — H13 skip-when-absent guard.
-        const mime = part.mimetype || '';
-        return !!mime && mime in ALLOWED_MIME_TYPES;
-      },
-      fileWriteStreamHandler: (file) => {
-        const chunks: Buffer[] = [];
-        const writable = new Writable({
-          write(chunk, _encoding, callback) {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-            callback();
-          },
-          final(callback) {
-            fileBuffers.set(file as unknown as formidable.File, Buffer.concat(chunks));
-            callback();
-          },
-        });
-        return writable;
-      },
-    });
-    form.parse(req, (err, fields, files) => {
-      if (err) reject(err);
-      else resolve({ fields, files });
-    });
-  });
-}
-
-function mapRow(row: Record<string, unknown>): CapturedDocument {
-  return {
-    id: row.id as string,
-    fileName: row.file_name as string,
-    fileType: row.file_type as string,
-    fileSize: row.file_size as number | null,
-    documentType: row.document_type as string | null,
-    extractedData: row.extracted_data ? (typeof row.extracted_data === 'string' ? JSON.parse(row.extracted_data as string) : row.extracted_data) : null,
-    vendorName: row.vendor_name as string | null,
-    documentDate: row.document_date ? fmtDate(row.document_date) : null,
-    referenceNumber: row.reference_number as string | null,
-    totalAmount: row.total_amount !== null && row.total_amount !== undefined ? parseFloat(String(row.total_amount)) : null,
-    vatAmount: row.vat_amount !== null && row.vat_amount !== undefined ? parseFloat(String(row.vat_amount)) : null,
-    status: (row.status as CapturedDocument['status']) || 'pending',
-    matchedInvoiceId: row.matched_invoice_id as string | null,
-    matchedBankTxId: row.matched_bank_tx_id as string | null,
-    notes: row.notes as string | null,
-    uploadedBy: row.uploaded_by as string | null,
-    createdAt: new Date(row.created_at as string).toISOString(),
-  };
-}
+/**
+ * Reads in flight per company. SOFT: the count and the insert are not serialised, so uploads racing the count can
+ * exceed it (a handful at most; the rate limit bounds a burst).
+ */
+const MAX_READS_IN_FLIGHT = 5;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') return handleGet(req, res);
@@ -150,12 +94,19 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   return apiResponse.paginated(res, documents, { page, pageSize, total });
 }
 
-/** POST — Upload a PDF or image, extract data, save to captured_documents */
+/** POST — Upload a PDF or image, save it as a 'reading' row and read it after COMMIT */
 async function handlePost(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const user = (req as NextApiRequest & { user: { id: string } }).user;
+
+  // Bounds EVERY upload request, including one that ends in a 400 below: buffering a 10 MB body costs memory whether or
+  // not it is valid, and the AI limiter further down is charged only for a request that gets as far as a read.
+  if (!(await checkRateLimit(`upload:document-capture:co:${companyId}`, { max: 60, windowSecs: 900 }))) {
+    return apiResponse.tooManyRequests(res, 'Too many uploads — wait a few minutes and try again.');
+  }
+
   try {
-    const { files } = await parseForm(req);
+    const { files } = await parseUploadForm(req);
 
     const fileField = files.file;
     const file = Array.isArray(fileField) ? fileField[0] : fileField;
@@ -176,7 +127,7 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, `File too large. Maximum size: ${MAX_FILE_SIZE / (1024 * 1024)}MB`);
     }
 
-    const buffer = fileBuffers.get(file);
+    const buffer = uploadedBuffer(file);
     if (!buffer || buffer.length === 0) {
       return apiResponse.badRequest(res, 'Failed to read uploaded file');
     }
@@ -187,8 +138,20 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'File content does not match declared type');
     }
 
-    // isPdf is still needed to branch between PDF and image extraction paths.
-    const isPdf = buffer.subarray(0, 4).toString('hex').toUpperCase().startsWith('25504446');
+    const [inFlight] = await sql`
+      SELECT COUNT(*)::int AS n FROM captured_documents
+      WHERE company_id = ${companyId} AND read_state = 'reading'
+        AND COALESCE(read_heartbeat_at, created_at) > NOW() - make_interval(mins => ${STALE_AFTER_MINUTES})
+    ` as Record<string, unknown>[];
+    if (Number(inFlight?.n ?? 0) >= MAX_READS_IN_FLIGHT) {
+      return apiResponse.tooManyRequests(res, 'Too many documents are being read — wait for one to finish.');
+    }
+
+    // Charged last, only for a request that is valid AND has room, so no refusal above burns a unit. No refund of the
+    // unused unit: the read runs after COMMIT, where use cannot be recorded (quotaCallerCensus).
+    if (!(await checkAiRateLimit(req, companyId, 'document-capture', { companyMax: 30, dailyMax: 300 }))) {
+      return apiResponse.tooManyRequests(res, 'AI request limit reached. Please slow down and try again later.');
+    }
 
     log.info('Starting document capture extraction', {
       fileName: file.originalFilename,
@@ -197,51 +160,32 @@ async function handlePost(req: NextApiRequest, res: NextApiResponse) {
       fileType: fileTypeKey,
     }, 'document-capture');
 
-    // Extract data based on file type
-    let extracted;
-    if (isPdf) {
-      extracted = await extractFromPdf(buffer);
-    } else {
-      extracted = await extractFromImage(buffer, mimeType);
-    }
-
-    // Save to database
     const fileName = file.originalFilename || `capture_${Date.now()}.${fileTypeKey}`;
 
     const [row] = await sql`
       INSERT INTO captured_documents (
         company_id, file_name, file_type, file_size, document_type,
-        extracted_data, vendor_name, document_date, reference_number,
-        total_amount, vat_amount, status, uploaded_by
+        extracted_data, status, uploaded_by, read_state
       ) VALUES (
         ${companyId},
         ${fileName},
         ${fileTypeKey},
         ${file.size},
-        ${extracted.documentType},
-        ${JSON.stringify(extracted)}::jsonb,
-        ${extracted.vendorName},
-        ${extracted.date ? extracted.date : null}::date,
-        ${extracted.referenceNumber},
-        ${extracted.totalAmount},
-        ${extracted.vatAmount},
+        NULL,
+        '{}'::jsonb,
         'pending',
-        ${user?.id || null}
+        ${user?.id || null},
+        'reading'
       )
       RETURNING *
     ` as Record<string, unknown>[];
+    const documentId = String(row?.id);
 
-    log.info('Document captured successfully', {
-      id: row?.id,
-      confidence: extracted.confidence,
-      documentType: extracted.documentType,
-      extractionMethod: extracted.extractionMethod,
-    }, 'document-capture');
+    runAfterCommit('capture-read', () => runCaptureRead(companyId, documentId, buffer, mimeType));
 
-    return apiResponse.created(res, {
-      document: mapRow(row as Record<string, unknown>),
-      extracted,
-    });
+    log.info('Document captured, read queued', { id: documentId }, 'document-capture');
+
+    return apiResponse.created(res, { document: mapRow(row as Record<string, unknown>) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error('Document capture failed', { error: msg }, 'document-capture');
