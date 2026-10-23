@@ -17,9 +17,9 @@ cold-start suggestion, labelled "Common at other ISAFlow clients", for a line no
 | Per-company category -> own GL account | `company_category_mappings` (905, RLS), `categoryMappingService.ts`, page `/accounting/merchant-categories` |
 | PII filter (pure) | `sharedPool/merchantPiiFilter.ts` |
 | Aggregation (pure) | `sharedPool/merchantPool.ts` |
-| Job, the only writer | `sharedPool/sharedPoolJob.ts` -> `shared_pool_publish` (906) |
-| Pool | `shared_merchant_patterns` (906) |
-| Scoped reader | `sharedPool/sharedSuggestionService.ts` -> `shared_pool_lookup` (906) |
+| Job, the only writer | `sharedPool/sharedPoolJob.ts` -> `shared_pool_publish` (931) |
+| Pool | `shared_merchant_patterns` (931) |
+| Scoped reader | `sharedPool/sharedSuggestionService.ts` -> `shared_pool_lookup` (931) |
 | Triggers | `POST /api/cron/shared-merchant-pool` (CRON_SECRET), `POST /api/admin/shared-merchant-pool` (platform admin) |
 
 What the pool stores, per merchant: the normalised merchant key (one or two A-Z words), the winning
@@ -70,7 +70,7 @@ check it.
   composite FK to its own `gl_accounts`. So a suggestion cannot name another company's account. A unit
   test and an integration test both assert this.
 - **Deny-all table.** It is FORCE RLS with no policy, and app_user, platform_admin, migration_admin and
-  PUBLIC hold no privilege on it. 906's assertions refuse to ship it otherwise, and the integration suite
+  PUBLIC hold no privilege on it. 931's assertions refuse to ship it otherwise, and the integration suite
   checks it again.
 - **One narrow read door.** `shared_pool_lookup(company, merchants[])` answers only when all three hold:
   - the company is the caller's active company (`app.current_company_id()`);
@@ -200,4 +200,4 @@ The rule is "when unsure, reject". About 100 unit cases cover it. On top of that
   service env and restart. The job and the reader then do nothing; the rows stay. To remove the rows too,
   publish an empty pool (`SELECT public.shared_pool_publish('[]', 1)` as migration_admin) and stop the
   timer.
-- Schema rollback: the blocks in the headers of 906, then 905.
+- Schema rollback: the blocks in the headers of 931, then 905.
