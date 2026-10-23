@@ -86,10 +86,11 @@ describe('S-07b: migration 917', () => {
   it.each([
     ['an owner-run view app_user may read', `CREATE VIEW public.s07b_mutant_view AS SELECT id FROM public.customers;
       GRANT SELECT ON public.s07b_mutant_view TO app_user`, /917: view s07b_mutant_view runs as an RLS-bypassing owner/],
+    // 917 names the first holder its unordered pg_roles scan meets: the grantee or a login inheriting it.
     ['app_user given DELETE on schema_migrations back', 'GRANT DELETE ON public.schema_migrations TO app_user',
-      /917: app_user .* can still write schema_migrations/],
+      /917: (app_user|app_service|isaflow_service) .* can still write schema_migrations/],
     ['app_service given only TRUNCATE on schema_migrations', 'GRANT TRUNCATE ON public.schema_migrations TO app_service',
-      /917: app_service .* can still write schema_migrations/],
+      /917: (app_service|isaflow_service) .* can still write schema_migrations/],
     ['a definer app_user can run without pg_temp last', `CREATE FUNCTION public.s07b_mutant_definer() RETURNS int LANGUAGE sql
       SECURITY DEFINER SET search_path = public AS $f$ SELECT 1 $f$; GRANT EXECUTE ON FUNCTION public.s07b_mutant_definer() TO app_user`,
     /917: definer function s07b_mutant_definer\(\) runs for app_user without pg_temp last/],
