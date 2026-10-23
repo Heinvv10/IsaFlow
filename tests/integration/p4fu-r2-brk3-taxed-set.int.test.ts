@@ -88,6 +88,25 @@ describe('R1 breaker 3: the taxed employees of each closed approval', () => {
     ok(await approveRun(f, dec));
   });
 
+  it('only TAXED lines enter the set: Z paid only an untaxed allowance by December, taxed from January; December recalculated unchanged is approved', async () => {
+    const f = await seedEmployee(pool, fixtures, 'BRK3 untaxed in set', 20_000);
+    const z = await secondEmployee(f);
+    const allowance = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Untaxed allowance', '3702', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id);
+    await pool.query(`UPDATE payroll_employee_components SET effective_from = '2027-01-01' WHERE employee_id = $1`, [z]);
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
+       VALUES ($1, $2, 1500, '2020-01-01', '2026-12-31')`, [z, allowance]);
+    const ids = await approveInOrder(f, 12);
+    const dec = ids[9]!;
+    expect(Number((await pool.query('SELECT periodic_taxable FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [dec, z])).rows[0]!.periodic_taxable)).toBe(0);
+    ok(await reopenRun(f, dec));
+    expect(await taxedSet(dec)).toEqual([f.employee]);
+    await calcOnly(f, dec);
+    ok(await approveRun(f, dec));
+  });
+
   it('a start date "corrected" to take Y off January after February read Y\'s January: January is still refused', async () => {
     const f = await seedEmployee(pool, fixtures, 'BRK3 start-date correction', 20_000);
     const y = await secondEmployee(f);
