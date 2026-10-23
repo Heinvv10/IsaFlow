@@ -92,14 +92,14 @@ describe('supplier_payment', () => {
       c.query('DELETE FROM payment_allocations WHERE payment_id = $1', [p.id]))).toBe(true);
   });
 
-  it('bookkeeping does not move it: status, description, approval and journal stamps, number, authors, payee name and email', async () => {
+  it('bookkeeping does not move it: status, description, approval and journal stamps, number, authors, payee email, and a change of case or outer spaces to the payee name (923)', async () => {
     const p = await plantPayment(pool, fx.company, a, fx.bank);
     expect(await moved('supplier_payment', p.id, async (c) => {
       await c.query(
         `UPDATE supplier_payments SET status = 'approved', description = 'x', approved_by = created_by, approved_at = now(),
            processed_at = now(), payment_number = payment_number || 'x', updated_at = now() - interval '1 day',
            content_authors = ARRAY[created_by] WHERE id = $1`, [p.id]);
-      await c.query("UPDATE suppliers SET name = name || 'x', email = 'x@y.z' WHERE id = $1", [p.supplierId]);
+      await c.query("UPDATE suppliers SET name = ' ' || upper(name) || ' ', email = 'x@y.z' WHERE id = $1", [p.supplierId]);
     })).toBe(false);
   });
 
