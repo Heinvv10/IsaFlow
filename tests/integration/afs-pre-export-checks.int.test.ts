@@ -129,6 +129,9 @@ describeIfDb('AFS pre-export blockers actually block', () => {
       [COMPANY],
     );
     await admin.query('UPDATE afs_documents SET fiscal_year = 2031 WHERE id = $1', [DOCUMENT]);
+    // As the change of year end leaves it: the new start month is March.
+    const startBefore = (await admin.query('SELECT financial_year_start FROM companies WHERE id = $1', [COMPANY])).rows[0].financial_year_start;
+    await admin.query('UPDATE companies SET financial_year_start = 3 WHERE id = $1', [COMPANY]);
     try {
       const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
       const period = check(checks, 'Reporting period known');
@@ -138,6 +141,7 @@ describeIfDb('AFS pre-export blockers actually block', () => {
       expect(period?.detail).toMatch(/Settings/);
     } finally {
       await admin.query('UPDATE afs_documents SET fiscal_year = $2 WHERE id = $1', [DOCUMENT, FISCAL_YEAR]);
+      await admin.query('UPDATE companies SET financial_year_start = $2 WHERE id = $1', [COMPANY, startBefore]);
       await admin.query('DELETE FROM fiscal_years WHERE company_id = $1', [COMPANY]);
     }
   });
