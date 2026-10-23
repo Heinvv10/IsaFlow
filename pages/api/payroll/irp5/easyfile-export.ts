@@ -29,6 +29,7 @@ import {
 } from '@/modules/accounting/services/payroll/easyFileExportService';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataService';
+import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { getTaxYearConfig, unloadedTaxYearMessage } from '@/modules/accounting/services/payroll/taxTables';
@@ -100,7 +101,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
-  const startMonth = 3, startYear = taxYear - 1, endMonth = 2, endYear = taxYear;
+  const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
   // Only approved/paid runs exist in the general ledger; a calculated or
   // cancelled run declared here would over-state remuneration to SARS.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
@@ -181,7 +182,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   aggRows.forEach((r) => aggMap.set(String(r.employee_id), r));
 
   const yoaStart = `${startYear}0301`;
-  const yoaEndInclusive = `${endYear}0228`; // Feb 28 — good enough for periods heuristic
+  const yoaEndInclusive = bounds.end.replaceAll('-', ''); // last day of February, 29th in a leap year
 
   const employees: EmployeeInput[] = [];
   const warnings: string[] = [];

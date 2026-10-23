@@ -1,6 +1,7 @@
 /**
  * Budget Action API
- * POST — delete budget or copy budgets between years
+ * POST — delete an account's budget for a year ({glAccountId, fiscalYear}) or
+ *        copy a year's budgets onto another by month position ({fromYear, toYear})
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -9,20 +10,20 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { deleteBudget, copyBudgets } from '@/modules/accounting/services/core/budgetService';
+import { BudgetInputError, deleteBudget, copyBudgets } from '@/modules/accounting/services/core/budgetService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  const { action, id, fromYear, toYear } = req.body;
+  const { action, glAccountId, fiscalYear, fromYear, toYear } = req.body;
 
   try {
     switch (action) {
       case 'delete':
-        if (!id) return apiResponse.badRequest(res, 'id required');
-        await deleteBudget(companyId, id);
+        if (!glAccountId || !fiscalYear) return apiResponse.badRequest(res, 'glAccountId and fiscalYear required');
+        await deleteBudget(companyId, glAccountId, Number(fiscalYear));
         return apiResponse.success(res, { deleted: true });
       case 'copy': {
         if (!fromYear || !toYear) return apiResponse.badRequest(res, 'fromYear and toYear required');
@@ -34,7 +35,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Budget action failed', { action, error: err }, 'accounting-api');
-    return apiResponse.badRequestFromError(res, err, 'Action failed');
+    return apiResponse.badRequestFromError(res, err, err instanceof BudgetInputError ? err.message : 'Action failed');
   }
 }
 

@@ -2,8 +2,8 @@
  * Budget vs Actual Export API
  * GET — export budget vs actual report as CSV
  *
- * Replicates the date-range and budget-loading logic from reports-budget-vs-actual.ts
- * so the CSV matches exactly what the UI report shows.
+ * Uses the same window and budget loaders as reports-budget-vs-actual.ts
+ * (budgetWindowService) so the CSV matches exactly what the UI report shows.
  *
  * Query params:
  *   period   current | ytd | full_year   (default: ytd)
@@ -11,7 +11,6 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
@@ -19,6 +18,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 
 import { csvVal } from '@/lib/csv';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+import { loadWindowBudgets, resolveBudgetWindow } from '@/modules/accounting/services/reports/budgetWindowService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
@@ -27,68 +27,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const period = (req.query.period as string) || 'ytd';
 
   try {
-    // Resolve date range — identical logic to reports-budget-vs-actual.ts
-    let startDate: string;
-    let endDate: string;
-    const now = new Date();
-
-    if (period === 'current') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]!;
-      endDate = now.toISOString().split('T')[0]!;
-    } else {
-      const fyRows = await sql`
-        SELECT MIN(start_date) AS start_date, MAX(end_date) AS end_date
-        FROM fiscal_periods
-        WHERE company_id = ${companyId} AND fiscal_year = (
-          SELECT fiscal_year FROM fiscal_periods
-          WHERE company_id = ${companyId} AND status = 'open'
-          ORDER BY start_date DESC
-          LIMIT 1
-        )
-      `;
-      const fy = fyRows[0];
-      const fyStart = fy?.start_date ? fmtDate(fy.start_date) : null;
-      const fyEnd = fy?.end_date ? fmtDate(fy.end_date) : null;
-      startDate = fyStart || `${now.getFullYear()}-03-01`;
-      endDate = period === 'full_year'
-        ? (fyEnd || `${now.getFullYear() + 1}-02-28`)
-        : now.toISOString().split('T')[0]!;
-    }
-
-    // Load budget amounts — from accounting_budgets table, falling back to app_settings
-    let budgets: Record<string, number> = {};
-    try {
-      const fiscalYear = new Date(startDate).getFullYear();
-      const startMonth = new Date(startDate).getMonth(); // 0-based
-      const endMonth = new Date(endDate).getMonth();
-      const monthCols = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-
-      const budgetRows = await sql`
-        SELECT ab.gl_account_id, ga.account_code,
-          ab.jan, ab.feb, ab.mar, ab.apr, ab.may, ab.jun,
-          ab.jul, ab.aug, ab.sep, ab.oct, ab.nov, ab.dec
-        FROM accounting_budgets ab
-        JOIN gl_accounts ga ON ga.id = ab.gl_account_id
-        WHERE ab.company_id = ${companyId} AND ab.fiscal_year = ${fiscalYear}
-      `;
-      for (const row of budgetRows) {
-        let total = 0;
-        for (let m = startMonth; m <= endMonth; m++) {
-          const col = monthCols[m] as string;
-          total += Number(row[col] || 0);
-        }
-        budgets[String(row.account_code)] = total;
-        budgets[String(row.gl_account_id)] = total;
-      }
-    } catch {
-      // No accounting_budgets table — try app_settings fallback
-      try {
-        const [row] = await sql`SELECT value FROM app_settings WHERE key = 'accounting_budgets'`;
-        if (row?.value) {
-          budgets = typeof row.value === 'string' ? JSON.parse(String(row.value)) : (row.value as Record<string, number>);
-        }
-      } catch { /* no budgets configured */ }
-    }
+    // The same window and budgets as the report (reports-budget-vs-actual.ts):
+    // registry year for ytd / full_year, calendar months summed from
+    // budget_month_amounts.
+    const { startDate, endDate } = await resolveBudgetWindow(companyId, period);
+    const budgets = await loadWindowBudgets(companyId, startDate, endDate);
 
     // Fetch actual GL amounts for expense and revenue accounts in the period
     // The period filter MUST live inside this subquery. It used to sit in the
