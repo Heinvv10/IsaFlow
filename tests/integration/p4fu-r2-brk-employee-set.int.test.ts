@@ -205,6 +205,43 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
     expect(JSON.stringify(refused.body)).toMatch(/later month.*2027-02/);
   });
 
+  it('an employee untaxed in January (no warning written) but taxed in February: January\'s untaxed line added nothing February missed, so January is approved', async () => {
+    const f = await seedEmployee(pool, fixtures, 'R1 untaxed this month only', 20_000);
+    const z = String((await pool.query(
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)
+       VALUES ($1, 'R1-Z2', 'Zane', 'Starter', '2027-01-01', '1980-01-01', '0123456786') RETURNING id`, [f.company])).rows[0]!.id);
+    const allowance = String((await pool.query(
+      `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
+       VALUES ($1, 'Untaxed allowance', '3702', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id);
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
+       VALUES ($1, $2, 1500, '2027-01-01', '2027-01-31')`, [z, allowance]);
+    await pool.query(
+      `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from)
+       SELECT $1, c.id, 20000, '2027-02-01' FROM payroll_components c WHERE c.company_id = $2 AND c.sars_source_code = '3601'`,
+      [z, f.company]);
+    for (const p of PERIODS.slice(0, 10)) { const id = await mk(f, p.year, p.month); await calcOnly(f, id); ok(await approveRun(f, id)); }
+    const feb = await mk(f, 2027, 2);
+    await calcOnly(f, feb);
+    ok(await approveRun(f, feb));
+    const jan = await mk(f, 2027, 1);
+    await calcOnly(f, jan); // February approved: the taxed employee is warned; the untaxed line is not
+    expect(await warningCodes(jan, f.employee)).toContain('PAYE_LATER_PERIODS_APPROVED');
+    expect(await warningCodes(jan, z)).not.toContain('PAYE_LATER_PERIODS_APPROVED');
+    expect(Number((await pool.query(
+      'SELECT periodic_taxable FROM payroll_run_lines WHERE run_id = $1 AND employee_id = $2', [feb, z])).rows[0]!.periodic_taxable)).toBeGreaterThan(0);
+    ok(await approveRun(f, jan));
+  });
+
+  it('only PAYE_LATER_PERIODS_APPROVED counts: another validation naming 2027-02 does not stand in for it', async () => {
+    const { f, jan } = await febMissedJan('R1 other validation names month');
+    await pool.query(
+      `UPDATE payroll_run_lines SET validation_results = $2::jsonb WHERE run_id = $1`,
+      [jan, JSON.stringify([{ code: 'SOME_OTHER_NOTE', severity: 'warning', message: 'See the 2027-02 run.' }])]);
+    const refused = await approveRun(f, jan);
+    expect(refused.statusCode).toBe(400);
+  });
+
   // Named limits, pinned so a change to them is deliberate (judgeYearToDateStale's comment, the module .claude.md).
   const asPreCumulative = (runId: string) => pool.query(
     `UPDATE payroll_run_lines SET periodic_taxable = NULL, annual_taxable = NULL, validation_results = '[]'::jsonb WHERE run_id = $1`, [runId]);
