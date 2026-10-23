@@ -3,7 +3,7 @@
  * that is not exactly the year's months.
  */
 import { describe, it, expect } from 'vitest';
-import { BudgetInputError, resolveMonthAmounts, spreadEvenly } from '@/modules/accounting/services/core/budgetMonths';
+import { BudgetInputError, resolveMonthAmounts, round2, spreadEvenly } from '@/modules/accounting/services/core/budgetMonths';
 
 const KEYS_14 = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07',
   '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02'];
@@ -100,12 +100,11 @@ describe('resolveMonthAmounts', () => {
     }
   });
 
-  it('rounds to cents once, in JS: 1.234 -> 1.23; 1.005 is 1.00 because its float is 1.00499...', () => {
-    const [a, b] = resolveMonthAmounts(['2026-01', '2026-02'], {
-      months: [{ month: '2026-01', amount: 1.234 }, { month: '2026-02', amount: 1.005 }],
+  it('rounds to cents half away from zero on the decimal value, as the NUMERIC(15,2) column does', () => {
+    const [a, b, c] = resolveMonthAmounts(['2026-01', '2026-02', '2026-03'], {
+      months: [{ month: '2026-01', amount: 1.234 }, { month: '2026-02', amount: 1.005 }, { month: '2026-03', amount: -1.005 }],
     });
-    expect(a!.amount).toBe(1.23);
-    expect(b!.amount).toBe(1);
+    expect([a!.amount, b!.amount, c!.amount]).toEqual([1.23, 1.01, -1.01]);
   });
 
   it('a split of 15 months is accepted', () => {
@@ -117,5 +116,19 @@ describe('resolveMonthAmounts', () => {
 
   it('refuses neither months nor an annual amount', () => {
     expect(() => resolveMonthAmounts(['2026-01'], {})).toThrow(BudgetInputError);
+  });
+});
+
+describe('round2', () => {
+  it.each([
+    [1.005, 1.01], [-1.005, -1.01], [2.675, 2.68], [1.235, 1.24], [0.5, 0.5], [1.004, 1],
+    [8333.335, 8333.34], [0.1 + 0.2, 0.3], [1e-7, 0], [-1e-7, 0], [1e21, 1e21], [0, 0],
+  ])('%s -> %s', (input, expected) => {
+    expect(Object.is(round2(input), expected)).toBe(true);
+  });
+
+  it('passes a non-finite number through', () => {
+    expect(round2(Number.NaN)).toBeNaN();
+    expect(round2(Infinity)).toBe(Infinity);
   });
 });
