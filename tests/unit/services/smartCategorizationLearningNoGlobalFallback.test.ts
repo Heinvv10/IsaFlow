@@ -4,14 +4,22 @@
  * so the retry could never succeed; on any schema where it could, it would
  * mint a NULL-company pattern carrying one tenant's gl_account_id. The fix
  * removes the retry: one INSERT, always tenant-scoped, and the real error is
- * logged.
+ * logged. The write runs in its own savepoint so a failed statement does not
+ * abort the caller's request transaction, and the function reports whether it
+ * learned, so the route does not claim success it did not have.
  */
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => {
   const sqlMock = Object.assign(vi.fn(), { transaction: vi.fn(), unsafe: vi.fn() });
-  return { sql: sqlMock, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d) };
+  // Records which statements ran inside the savepoint.
+  const inSavepoint: string[] = [];
+  const withSavepoint = vi.fn(async (name: string, fn: () => Promise<unknown>) => {
+    inSavepoint.push(`begin:${name}`);
+    try { return await fn(); } finally { inSavepoint.push(`end:${name}`); }
+  });
+  return { sql: sqlMock, withTransaction: vi.fn(), withSavepoint, inSavepoint, fmtDate: (d: unknown) => String(d) };
 });
 
 vi.mock('@/lib/logger', () => ({
@@ -22,7 +30,7 @@ vi.mock('@/modules/accounting/services/gl/inputVatDenial', () => ({
   resolveVatCodeForAccount: vi.fn().mockResolvedValue({ vatCode: 'none' }),
 }));
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { learnFromAllocation } from '@/modules/accounting/services/core/smartCategorizationLearningService';
 
@@ -45,6 +53,7 @@ describe('learnFromAllocation — no global-pattern fallback (K-244)', () => {
   beforeEach(() => {
     mockSql.mockReset();
     vi.mocked(log.error).mockClear();
+    vi.mocked(withSavepoint).mockClear();
   });
 
   it('never retries the INSERT without company_id when the first INSERT fails', async () => {
@@ -57,7 +66,7 @@ describe('learnFromAllocation — no global-pattern fallback (K-244)', () => {
       return [];
     });
 
-    await expect(learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Electricity')).resolves.toBeUndefined();
+    await expect(learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Electricity')).resolves.toBe(false);
 
     const inserts = insertCalls();
     expect(inserts).toHaveLength(1);
@@ -76,10 +85,38 @@ describe('learnFromAllocation — no global-pattern fallback (K-244)', () => {
       return [];
     });
 
-    await learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Telephone');
+    await expect(learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Telephone')).resolves.toBe(true);
 
     const call = mockSql.mock.calls.find(c => /INSERT INTO categorization_patterns/.test(sqlText(c)));
     expect(call).toBeDefined();
-    expect(call!.slice(1)).toContain(COMPANY_ID);
+    // company_id is the last column, and its placeholder binds the caller's company
+    const strings = Array.from(call![0] as TemplateStringsArray);
+    expect(strings[0]).toMatch(/source, company_id\)\s*VALUES/);
+    expect(call!.at(-1)).toBe(COMPANY_ID);
+  });
+
+  it('writes the pattern inside its own savepoint, so a failure cannot abort the request transaction', async () => {
+    let insertRanInSavepoint = false;
+    mockSql.mockImplementation(async (...args: unknown[]) => {
+      const text = sqlText(args);
+      if (/FROM bank_transactions/.test(text)) return [{ description: 'VODACOM DEBIT ORDER' }];
+      if (/INSERT INTO categorization_patterns/.test(text)) {
+        const open = vi.mocked(withSavepoint).mock.calls.length > 0;
+        const marks = (await import('@/lib/neon') as unknown as { inSavepoint: string[] }).inSavepoint;
+        insertRanInSavepoint = open && marks.at(-1)?.startsWith('begin:') === true;
+        throw new Error('boom');
+      }
+      return [];
+    });
+
+    await expect(learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Telephone')).resolves.toBe(false);
+    expect(withSavepoint).toHaveBeenCalledTimes(1);
+    expect(insertRanInSavepoint).toBe(true);
+  });
+
+  it('reports false, without writing, when there is nothing to learn', async () => {
+    mockSql.mockImplementation(async () => []);
+    await expect(learnFromAllocation(COMPANY_ID, TX_ID, GL_ID, 'Telephone')).resolves.toBe(false);
+    expect(insertCalls()).toHaveLength(0);
   });
 });
