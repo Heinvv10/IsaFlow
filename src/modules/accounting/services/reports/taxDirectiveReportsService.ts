@@ -138,39 +138,3 @@ export async function createTaxDirective(
     throw err;
   }
 }
-
-export async function updateTaxDirectiveStatus(
-  companyId: string,
-  id: string,
-  status: string,
-  userId: string
-): Promise<TaxDirective> {
-  const validStatuses: DirectiveStatus[] = ['pending', 'approved', 'expired', 'cancelled'];
-  if (!validStatuses.includes(status as DirectiveStatus)) {
-    throw new Error(`Invalid status: ${status}`);
-  }
-
-  try {
-    const approvedBy = status === 'approved' ? userId : null;
-
-    const rows = await sql`
-      UPDATE tax_directives
-      SET
-        status = ${status},
-        approved_by = CASE WHEN ${status} = 'approved' THEN ${approvedBy}::UUID ELSE approved_by END,
-        updated_at = NOW()
-      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID
-      RETURNING *
-    ` as TaxDirective[];
-
-    if (rows.length === 0) {
-      throw new Error('Tax directive not found or access denied');
-    }
-
-    log.info('Tax directive status updated', { companyId, id, status }, 'tax-directive-service');
-    return rows[0]!;
-  } catch (err) {
-    log.error('updateTaxDirectiveStatus failed', { companyId, id, error: err }, 'tax-directive-service');
-    throw err;
-  }
-}
