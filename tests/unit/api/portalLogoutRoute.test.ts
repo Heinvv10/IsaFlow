@@ -2,7 +2,7 @@
  * AFS portal Sign out is a plain HTML form POST. The route must send the
  * browser to the portal login page (303, so it follows with a GET), never
  * leave the director on a raw JSON page. A foreign Origin clears nothing and
- * lands on the login page without the signed-out notice. The target is a
+ * lands on the login page told that sign out did not complete. The target is a
  * constant: nothing in the request can re-point it.
  */
 
@@ -66,17 +66,21 @@ describe('POST /api/accounting/portal/auth/logout', () => {
   });
 
   it.each([['foreign site', 'https://evil.example'], ['opaque origin', 'null']])(
-    'refuses a %s Origin: clears nothing, lands on the login page without the notice', async (_, origin) => {
+    'refuses a %s Origin: clears nothing, lands on the login page told sign out did not complete', async (_, origin) => {
       const out = await call('POST', { origin });
       expect(out.status).toBe(303);
-      expect(out.location).toBe('/accounting/afs/portal/login');
+      expect(out.location).toBe('/accounting/afs/portal/login?error=signout_failed');
       expect(out.cookies).toEqual([]);
     });
 
   it('takes no redirect target from the request', async () => {
-    const out = await call('POST', { origin: APP, referer: 'https://evil.example/x' },
-      { returnTo: 'https://evil.example', next: '//evil.example', redirect: 'https://evil.example' });
-    expect(out.location).toBe('/accounting/afs/portal/login?signed_out=1');
+    const hostile = { referer: 'https://evil.example/x', host: 'evil.example', 'x-forwarded-host': 'evil.example' };
+    const query = { returnTo: 'https://evil.example', next: '//evil.example', redirect: 'https://evil.example' };
+    for (const origin of [APP, 'https://evil.example']) {
+      const out = await call('POST', { origin, ...hostile }, query);
+      expect(out.location).toMatch(/^\/accounting\/afs\/portal\/login\?/);
+      expect(out.location).not.toContain('evil');
+    }
   });
 
   it('GET is 405 and clears nothing', async () => {

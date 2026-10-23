@@ -11,6 +11,7 @@ type FormState = 'idle' | 'loading' | 'sent' | 'error';
 const ERROR_MESSAGES: Record<string, string> = {
   expired: 'Your sign-in link has expired. Please request a new one.',
   missing_token: 'Invalid sign-in link. Please request a new one.',
+  signout_failed: 'Sign out did not complete. Go back to your portal and try again.',
 };
 
 export default function PortalLoginPage() {
