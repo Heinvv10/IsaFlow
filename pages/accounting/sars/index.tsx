@@ -68,12 +68,13 @@ const statusBadge = (status: string) => {
 };
 
 const daysUntil = (d: string) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  // 'YYYY-MM-DD' as a local calendar day: new Date(d) parses it as UTC midnight,
-  // which is the previous local day west of UTC.
-  const due = new Date(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
-  return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const now = new Date();
+  // Calendar days, not elapsed time: both days go to UTC midnight, so a daylight-saving
+  // change in between (a 23- or 25-hour day) cannot add or drop a day. 'YYYY-MM-DD' is a
+  // local calendar day: new Date(d) would parse it as UTC midnight.
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const due = Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10)));
+  return Math.round((due - today) / (1000 * 60 * 60 * 24));
 };
 
 export default function SARSDashboard() {

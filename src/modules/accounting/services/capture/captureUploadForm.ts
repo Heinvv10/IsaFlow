@@ -22,6 +22,15 @@ export const ALLOWED_MIME_TYPES: Record<string, string> = {
   'image/tiff': 'tiff',
 };
 
+/** The MIME type a stored file is read as, by the `file_type` key the upload saved (the inverse of ALLOWED_MIME_TYPES). */
+export const MIME_BY_FILE_TYPE: Record<string, string> = {
+  pdf: 'application/pdf',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  tiff: 'image/tiff',
+};
+
 /** In-memory file buffer attached to formidable file objects */
 const fileBuffers = new WeakMap<formidable.File, Buffer>();
 
