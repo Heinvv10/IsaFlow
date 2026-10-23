@@ -99,6 +99,14 @@ describe('on demand', () => {
       [marchYear[0], marchYear[1], 12], [Number(marchYear[0]) + 1, `${marchYear[0]}-03-01`, 12]]);
   });
 
+  it('continues from the last stored year, not from the declared month', async () => {
+    const id = await bareCompany(3);
+    await pool.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1, 2026, '2026-01-01', '2026-12-31')`, [id]);
+    await inTx(id, () => generateFiscalYearForDate(id, '2027-05-10'));
+    expect((await yearsOf(id)).map((r) => [r.fiscal_year, r.s, r.e])).toEqual([
+      [2026, '2026-01-01', '2026-12-31'], [2027, '2027-01-01', '2027-12-31']]);
+  });
+
   it('a June year end generates July-June years numbered 1-12 from July', async () => {
     const id = await bareCompany(7);
     await inTx(id, () => generateFiscalYearForDate(id, '2026-09-10'));
