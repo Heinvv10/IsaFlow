@@ -11,6 +11,7 @@ import { log } from '@/lib/logger';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { logTransactionRollback } from '@/lib/transactionRefusal';
 // See ./query.ts for why als is imported statically.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { als, assertTxUsable, markTxUnusable } from '@/lib/als';
 import { getPool } from './pool';
 import { buildQuery } from './query';
@@ -88,6 +89,35 @@ export async function withTransaction<T>(
 }
 
 /**
+ * Savepoints on one connection must nest LIFO: two siblings that interleave
+ * (`Promise.all` of two reads that each use a savepoint) release each other and
+ * abort the request. So siblings on the same connection QUEUE: each nesting
+ * level has its own queue per connection, held in `savepointLevel`, and a
+ * savepoint opened inside another queues only behind its own siblings (never
+ * behind its parent, which would deadlock).
+ */
+type SavepointQueues = Map<object, { tail: Promise<void> }>;
+const rootQueues = new WeakMap<object, { tail: Promise<void> }>();
+const savepointLevel = new AsyncLocalStorage<SavepointQueues>();
+
+async function queuedOn<T>(client: object, run: () => Promise<T>): Promise<T> {
+  const level = savepointLevel.getStore();
+  let queue = level?.get(client) ?? rootQueues.get(client);
+  if (!queue) { queue = { tail: Promise.resolve() }; rootQueues.set(client, queue); }
+  const before = queue.tail;
+  let done!: () => void;
+  queue.tail = new Promise<void>((resolve) => { done = resolve; });
+  await before;
+  try {
+    const inner: SavepointQueues = new Map(level ?? []);
+    inner.set(client, { tail: Promise.resolve() });
+    return await savepointLevel.run(inner, run);
+  } finally {
+    done();
+  }
+}
+
+/**
  * Run `fn` inside a SAVEPOINT on the current request-scoped transaction.
  *
  * Why this exists: `withAuth` wraps every request in a single BEGIN/COMMIT
@@ -119,6 +149,14 @@ export async function withSavepoint<T>(
     // No outer tx — just run; errors propagate as usual.
     return fn();
   }
+  return queuedOn(ctxClient, () => runInSavepoint(ctxClient, name, fn));
+}
+
+async function runInSavepoint<T>(
+  ctxClient: { query: (text: string) => Promise<unknown> },
+  name: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   assertTxUsable();
   await ctxClient.query(`SAVEPOINT ${name}`);
   try {
