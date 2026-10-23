@@ -3,7 +3,8 @@
  * GET  — list directives (?status=, ?search=)
  * POST — create a new directive. employee_id is required and must be one of
  *        the company's payroll employees (400): a run pays a directive only to
- *        its employee and the stand-alone payment refuses one without.
+ *        its employee and the stand-alone payment refuses one without. Name and
+ *        tax number default from that employee; a different tax number is 400.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -20,9 +21,13 @@ import {
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
 import { isIsoDate } from '@/modules/accounting/services/payroll/taxDirectiveDates';
 import { getPayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
+import { log } from '@/lib/logger';
 
 const VALID_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
 const VALID_STATUSES = ['pending', 'approved', 'expired', 'cancelled'] as const;
+const TEXT_FIELDS = [
+  'employee_name', 'employee_tax_number', 'directive_number', 'effective_date', 'issued_date', 'expiry_date', 'sars_reference', 'notes',
+] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -42,15 +47,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     const body = req.body as Partial<TaxDirectiveCreateInput>;
 
+    // A non-string here reached .trim() or a DATE cast: a 500. Every text field is text or absent.
+    for (const k of TEXT_FIELDS) {
+      if (body[k] != null && typeof body[k] !== 'string') return apiResponse.badRequest(res, `${k} must be text`);
+    }
     // Checked before any query: a malformed id would be a 22P02 (a 500) in the lookup.
     if (typeof body.employee_id !== 'string' || !UUID_RE.test(body.employee_id)) {
       return apiResponse.badRequest(res, 'employee_id is required: choose the payroll employee the directive is paid to');
     }
-    if (!(await getPayrollEmployee(body.employee_id, companyId))) {
+    const employee = await getPayrollEmployee(body.employee_id, companyId);
+    if (!employee) {
       return apiResponse.badRequest(res, 'employee_id is not an employee of this company');
     }
-    if (!body.employee_name?.trim()) {
-      return apiResponse.badRequest(res, 'employee_name is required');
+    // Name and tax number default from the employee. The name may differ (it is as SARS printed it on the
+    // directive; logged, not refused); a tax number that is not the employee's would file the payment
+    // against someone else.
+    const recordName = `${employee.firstName} ${employee.lastName}`.trim();
+    const employeeName = body.employee_name?.trim() || recordName;
+    const suppliedTaxNumber = body.employee_tax_number?.trim() || '';
+    if (suppliedTaxNumber && employee.taxNumber && suppliedTaxNumber !== employee.taxNumber.trim()) {
+      return apiResponse.badRequest(res, 'employee_tax_number is not the tax number on this employee\'s payroll record');
+    }
+    if (employeeName.toLowerCase() !== recordName.toLowerCase()) {
+      log.info('Tax directive name differs from the payroll record', { companyId, employeeId: employee.id });
     }
     if (!body.directive_type || !VALID_TYPES.includes(body.directive_type)) {
       return apiResponse.badRequest(
@@ -74,8 +93,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const input: TaxDirectiveCreateInput = {
       employee_id: body.employee_id,
-      employee_name: body.employee_name.trim(),
-      employee_tax_number: body.employee_tax_number,
+      employee_name: employeeName,
+      employee_tax_number: suppliedTaxNumber || employee.taxNumber || undefined,
       directive_number: body.directive_number,
       directive_type: body.directive_type,
       amount: Number(body.amount),
