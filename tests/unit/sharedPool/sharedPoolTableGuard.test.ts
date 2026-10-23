@@ -70,8 +70,11 @@ describe('shared_merchant_patterns — access in the migrations', () => {
   });
 
   it('no other migration mentions the table or its functions', () => {
+    // 930 lists every SECURITY DEFINER function as a quoted app_definer_reviews row (signature, what it
+    // writes); such a row grants and redefines nothing, so it is the one mention allowed outside 906.
+    const reviewRow = /^\s*\('shared_pool_(?:lookup|publish)\([a-z[\],]*\)', '(?:[^']|'')*'\),$/gm;
     const others = files('scripts/migrations/sql').filter((f) => f !== MIGRATION && f.endsWith('.sql'))
-      .filter((f) => /shared_merchant_patterns|shared_pool_publish|shared_pool_lookup/.test(read(f)));
+      .filter((f) => /shared_merchant_patterns|shared_pool_publish|shared_pool_lookup/.test(read(f).replace(reviewRow, '')));
     expect(others).toEqual([]);
   });
 });
