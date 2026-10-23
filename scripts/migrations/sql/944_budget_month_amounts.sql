@@ -38,9 +38,11 @@ CREATE TABLE IF NOT EXISTS budget_month_amounts (
 ALTER TABLE budget_month_amounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_month_amounts FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON budget_month_amounts;
-CREATE POLICY tenant_isolation ON budget_month_amounts TO app_user
-  USING (company_id IN (SELECT cu.company_id FROM company_users cu WHERE cu.user_id = auth.uid()))
-  WITH CHECK (company_id = app.current_company_id());
+-- The active company AND membership (migration 897's form): a member of two
+-- companies working in A cannot read or write B's rows through app_user.
+CREATE POLICY tenant_isolation ON budget_month_amounts FOR ALL TO app_user
+  USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 GRANT SELECT, INSERT, UPDATE, DELETE ON budget_month_amounts TO app_user;
 
 DROP TRIGGER IF EXISTS trg_budget_month_amounts_updated_at ON budget_month_amounts;
