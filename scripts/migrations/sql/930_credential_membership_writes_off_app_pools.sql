@@ -212,7 +212,7 @@ SELECT v.signature, v.writes, public.app_definer_hash(p.oid)
     ('refresh_customer_invoice_view_summary()', 'via the _if_due one; migration_admin only (930)'),
     ('refresh_customer_invoice_view_summary_if_due()', 'matview_refresh_state; migration_admin only (930)'),
     ('shared_pool_lookup(uuid,text[])', 'nothing (read, 906): exact merchant keys, caller''s active pool-eligible company only'),
-    ('shared_pool_publish(jsonb,integer)', 'shared_merchant_patterns only: replaces the whole anonymised pool (906); migration_admin only'),
+    ('shared_pool_publish(jsonb,integer)', 'shared_merchant_patterns only: replaces the whole anonymised pool under an EXCLUSIVE lock, reading merchant_categories (906); migration_admin only'),
     ('seed_company_afs_statement_lines(uuid)', 'afs_statement_lines of the given company (called by create_company_with_owner)'),
     ('seed_company_chart_of_accounts(uuid)', 'gl_accounts of the given company (same)'),
     ('seed_company_default_taxonomy(uuid)', 'company taxonomy rows (same)'),
