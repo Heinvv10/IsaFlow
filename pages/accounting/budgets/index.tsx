@@ -46,6 +46,7 @@ export default function BudgetManagementPage() {
     } catch (err) {
       setBudgets([]);
       setYear(null);
+      setYears([]);
       setError(apiErrorMessage(err, 'Could not load budgets - try again'));
     } finally { setLoading(false); }
   }, [fiscalYear]);

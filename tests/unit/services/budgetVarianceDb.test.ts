@@ -150,7 +150,9 @@ async function inRequestTx(run: (f: Fixture) => Promise<void>): Promise<void> {
   }
 }
 
-const FY = 2031;
+// Labelled by the year it ends in (FY2033 = Mar 2032 - Feb 2033 for the March demo company): clear of
+// isaflow_dev's posted journals, which run to 2031-01 (a later posting would move postedThrough).
+const FY = 2033;
 
 /** The registry year's window, and a date `day` days into its month number `i` (0-based). */
 async function yearWindow(f: Fixture): Promise<{ start: string; end: string; at: (i: number, day: number) => string }> {
