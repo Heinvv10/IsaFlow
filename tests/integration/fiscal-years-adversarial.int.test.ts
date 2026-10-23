@@ -222,3 +222,20 @@ describe('REPRO 7 — 940 link on a whole-year period re-cuts every later year o
     });
   });
 });
+
+describe('guards added in review round 2', () => {
+  it('a fixture-shaped period never silently widens a year that already holds journals', async () => {
+    await inRolledBackTx(async (c) => {
+      const A = await company(c);
+      await c.query(`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
+                     VALUES ($1, 'Whole 2025', 1, 2025, '2025-01-01', '2025-12-31')`, [A]);
+      const u = crypto.randomUUID();
+      await c.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)`, [u, `${u}@test.local`]);
+      await c.query(`INSERT INTO gl_journal_entries (company_id, entry_date, created_by, description, status) VALUES ($1, '2025-06-01', $2, 'x', 'draft')`, [A, u]);
+      // Another label-2025 "period" outside the year would widen it: refused, because FY2025 holds a journal.
+      const e = await attempt(c, () => c.query(`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
+                     VALUES ($1, 'Spill', 2, 2025, '2026-01-15', '2026-03-15')`, [A]));
+      expect(e?.message).toMatch(/is not widened/);
+    });
+  });
+});

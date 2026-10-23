@@ -129,6 +129,7 @@ export async function registryMock() {
     kind: y.kind ?? ('normal' as const),
     stored,
     months: actual.monthsSpanned(y.startDate, y.endDate),
+    assumed: false,
   });
   const calendarOf = (companyId: string): FakeCalendar => fakeRegistry.companies[companyId] ?? fakeRegistry;
   const forDate = async (companyId: string, date: string) => {

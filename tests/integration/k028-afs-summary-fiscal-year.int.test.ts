@@ -171,13 +171,26 @@ it('leaves the neighbouring tenant untouched', async () => {
   expect(group!.closingCost).toBeCloseTo(OTHER_COST, 2);
 });
 
-// Migration 940 replaced this case. It was 'refuses a company with no financial
-// year basis rather than assuming one': with financial_year_start NULL the
-// window came from nowhere, so the route answered 500. The window is now the
-// company's stored financial year (gl/fiscalYearRegistry), and with no stored
-// year the template reads NULL as March. What has to hold instead is that a
-// stored year is never re-derived from the start month: clearing it or moving
-// it changes nothing.
+it('refuses a company with no financial year basis rather than assuming one', async () => {
+  // No stored year covers 2026 for this company and financial_year_start is
+  // NULL: the AFS window would rest on an assumed March, so it refuses (500).
+  await pool.query('UPDATE companies SET financial_year_start = NULL WHERE id = $1', [febCompany]);
+  try {
+    const req = request({ 'sb-access-token': token, active_company_id: febCompany }, 'GET') as never as {
+      url: string; query: Record<string, string>;
+    };
+    req.url = '/api/accounting/assets/afs-summary';
+    req.query = { period: '202602' };
+    const result = response();
+    await afsSummary(req as never, result.res);
+    expect(result.state.statusCode).toBe(500);
+  } finally {
+    await pool.query('UPDATE companies SET financial_year_start = 3 WHERE id = $1', [febCompany]);
+  }
+});
+
+// And a STORED year is never re-derived from the start month: clearing it or
+// moving it changes nothing.
 it('reads the stored financial year, whatever financial_year_start now says', async () => {
   await seedFiscalYears(febCompany, '2025-03-01', '2026-02-28');
   try {

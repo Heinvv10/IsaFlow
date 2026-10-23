@@ -81,5 +81,10 @@ export async function afsFilingDeadline(companyId: string, fiscalYear: number): 
       `Company ${companyId} has no financial year labelled ${fiscalYear}, so no filing deadline can be stated for it.`,
     );
   }
+  if (year.assumed) {
+    throw new FilingDeadlineUnknownError(
+      `Company ${companyId} has no usable financial_year_start and no stored FY${fiscalYear}, so no filing deadline can be stated for it.`,
+    );
+  }
   return sixMonthsAfterYearEnd(year.endDate);
 }
