@@ -11,6 +11,7 @@ const PORTAL_COOKIE_NAME = 'portal_session';
 // Constant targets — nothing in the request can re-point them (no open redirect).
 const LOGIN_PATH = '/accounting/afs/portal/login';
 const SIGNED_OUT_PATH = `${LOGIN_PATH}?signed_out=1`;
+const REFUSED_PATH = `${LOGIN_PATH}?error=signout_failed`;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -18,12 +19,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // CSRF defence-in-depth — a post from an unexpected origin clears nothing and
-  // lands on the login page without the signed-out notice.
+  // lands on the login page told that sign out did not complete.
   const origin = req.headers.origin;
   const expectedOrigin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
   if (origin && origin !== expectedOrigin) {
     log.warn('Portal logout refused: unexpected origin', { origin }, 'portal-logout-api');
-    return res.redirect(303, LOGIN_PATH);
+    return res.redirect(303, REFUSED_PATH);
   }
 
   const isProduction = process.env.NODE_ENV !== 'development';
