@@ -31,14 +31,20 @@ function computeAnnualMedicalCredits(
  * the medical scheme fees tax credits, never below zero. Shared by the
  * periodic calculation (calculatePAYE) and the annual-payment method
  * (payeAnnualPayment.ts), which takes the difference of two of these.
+ * `medicalCredits` is the full annual credit; `medicalCreditUsed` the part of
+ * it this tax took off (the credit is not refundable: at most the tax after
+ * rebates), which is what the e@syFile 4116 records (payeCumulative).
  */
-export function annualTaxAfterCredits(input: PayeInput): { annualTax: number; rebates: number; medicalCredits: number } {
+export function annualTaxAfterCredits(input: PayeInput): {
+  annualTax: number; rebates: number; medicalCredits: number; medicalCreditUsed: number;
+} {
   const config = getTaxYearConfig(input.taxYear);
   const rebates = computeRebates(input.ageAtPeriodEnd, config);
   const medicalCredits = computeAnnualMedicalCredits(input.monthlyMedicalBeneficiaries, config);
   const grossAnnualTax = computeAnnualTax(input.annualTaxableIncome, config.brackets);
   const taxAfterRebates = Math.max(0, grossAnnualTax - rebates);
-  return { annualTax: Math.max(0, taxAfterRebates - medicalCredits), rebates, medicalCredits };
+  const annualTax = Math.max(0, taxAfterRebates - medicalCredits);
+  return { annualTax, rebates, medicalCredits, medicalCreditUsed: taxAfterRebates - annualTax };
 }
 
 export function calculatePAYE(input: PayeInput): PayeResult {

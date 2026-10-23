@@ -45,6 +45,25 @@
  * (G21 p. 8: R16 156 printed for 188 571, the band 188 507–189 007; the
  * statutory table gives R16 122.86).
  *
+ * The medical scheme fees tax credit a line records (`medicalCredit`, stored
+ * in payroll_run_lines.medical_credit, migration 926, for the e@syFile 4116;
+ * PAYE 4a follow-ups round 2, R3) is the credit INSIDE the liability to date
+ * less the credits the employee's earlier lines of the tax year recorded
+ * (ytd.medicalCredit). Inside the liability the credit is what "tax" took off,
+ * used(x) = min(annual credit, tax after rebates on x), weighted as the
+ * liability is: used(AE) × n ÷ 12 + [used(AE + A) − used(AE)]. So the lines of
+ * a year add up to the credit inside the year's liability, a line never
+ * records a credit its PAYE did not use, and a constant year records the
+ * monthly credit each month. The record follows the liability, so it moves as
+ * the liability does: a line after earlier lines with no record (written
+ * before 926) carries their credit too, and a credit the liability no longer
+ * holds (dependants removed mid-year, or pay falling where the credit is
+ * capped) is a negative record. A line with neither periodic pay nor an
+ * annual payment takes nothing from the tables and records nil. Recording it
+ * changes no PAYE figure (tests/unit/services/payroll/
+ * payeMedicalCreditIdentity.test.ts). The additional medical expenses tax
+ * credit for 65 and older (4120) is not computed by IsaFlow.
+ *
  * A month's PAYE depends on which earlier months are approved when it is
  * calculated (the year-to-date reads approved/paid runs only): a month
  * calculated while the previous one is still a draft, or before an earlier
@@ -76,6 +95,8 @@ export interface CumulativePayeResult {
   /** Periods with periodic pay to date, this one included (the n of the formula). */
   periods: number;
   annualEquivalent: number;
+  /** The medical scheme fees tax credit this line records (see the header). */
+  medicalCredit: number;
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
@@ -85,6 +106,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const { ytd } = input;
   const base = { ageAtPeriodEnd: input.rebateAge, monthlyMedicalBeneficiaries: input.monthlyMedicalBeneficiaries, taxYear: input.taxYear };
   const tax = (income: number) => annualTaxAfterCredits({ ...base, annualTaxableIncome: income }).annualTax;
+  const used = (income: number) => annualTaxAfterCredits({ ...base, annualTaxableIncome: income }).medicalCreditUsed;
 
   const hasPeriodic = input.regularTaxable > 0;
   const periods = ytd.periods + (hasPeriodic ? 1 : 0);
@@ -97,7 +119,7 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   // A period with neither periodic pay nor an annual payment (a severance-only
   // line) deducts nothing from the tables: there is nothing to deduct it from.
   if (!hasPeriodic && annualNow <= 0) {
-    return { regular: { ...regularInfo, monthlyPaye: 0 }, annualPaymentPaye: 0, periods, annualEquivalent };
+    return { regular: { ...regularInfo, monthlyPaye: 0 }, annualPaymentPaye: 0, periods, annualEquivalent, medicalCredit: 0 };
   }
   const taxAE = tax(annualEquivalent);
   const taxAll = tax(annualEquivalent + annualBefore + annualNow);
@@ -105,10 +127,13 @@ export function calculateCumulativePaye(input: CumulativePayeInput): CumulativeP
   const due = Math.max(0, round2(liability - ytd.tablePaye));
   const annualDue = Math.max(0, taxAll - tax(annualEquivalent + annualBefore));
   const annualPaymentPaye = round2(Math.min(due, annualDue));
+  const usedAE = used(annualEquivalent);
+  const creditToDate = (usedAE * periods) / PERIODS_IN_YEAR + (used(annualEquivalent + annualBefore + annualNow) - usedAE);
   return {
     regular: { ...regularInfo, monthlyPaye: round2(due - annualPaymentPaye) },
     annualPaymentPaye,
     periods,
     annualEquivalent: round2(annualEquivalent),
+    medicalCredit: round2(creditToDate - ytd.medicalCredit),
   };
 }

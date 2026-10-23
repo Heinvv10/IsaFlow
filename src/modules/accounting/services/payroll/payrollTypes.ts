@@ -166,6 +166,8 @@ export interface PayeYearToDate {
   annualPayments: number;
   /** PAYE deducted by the tables (regular + annual payments), directive PAYE excluded. */
   tablePaye: number;
+  /** Medical scheme fees tax credit recorded on those lines (payroll_run_lines.medical_credit; a line before migration 926 recorded none). */
+  medicalCredit: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */
@@ -189,6 +191,8 @@ export interface PayrollLineResult {
   /** The regular calculation's figures, except `monthlyPaye`, which is the line's whole PAYE (payeSplit summed). */
   paye: PayeResult;
   payeSplit: PayeSplit;
+  /** The medical scheme fees tax credit this line's PAYE took into account (payeCumulative; e@syFile 4116). */
+  medicalCredit: number;
   uif: UifResult;
   sdl: number;
   /** Remuneration this line contributes to the SDL leviable amount. */

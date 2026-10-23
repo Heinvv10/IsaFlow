@@ -95,10 +95,10 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? 1 + employee.medicalAidDependantsCount
     : employee.medicalAidDependantsCount;
 
-  const { regular, annualPaymentPaye } = calculateCumulativePaye({
+  const { regular, annualPaymentPaye, medicalCredit } = calculateCumulativePaye({
     regularTaxable,
     annualPayments: annualTaxable,
-    ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0 },
+    ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0 },
     taxYear,
     rebateAge,
     monthlyMedicalBeneficiaries: medicalBeneficiaries,
@@ -154,6 +154,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     annualTaxable: round2(annualTaxable),
     paye,
     payeSplit,
+    medicalCredit,
     uif,
     sdl: Math.round(sdl * 100) / 100,
     sdlLeviable: Math.round(sdlLeviable * 100) / 100,
