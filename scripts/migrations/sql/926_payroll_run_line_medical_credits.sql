@@ -10,13 +10,17 @@
 -- next line. A line written before this migration is NULL (recorded none);
 -- the next line's record carries its credit.
 --
--- One column only: IsaFlow does not compute the additional medical expenses
--- tax credit for 65 and older (4120), so there is nothing to store for it.
+-- medical_scheme_fees: the medical scheme fees the employee paid through
+-- payroll on the line (deductions coded 4005), for the certificate's 4005
+-- (BRS V25.3.0 p. 52-53, 101), which 4116 needs (p. 59: 4116 "must not be
+-- completed if there is no value for ... 4005"). Writer: the same.
 --
--- Additive only: one nullable column. Existing rows stay NULL.
+-- Additive only: nullable columns. Existing rows stay NULL.
 --
 -- Rollback:
+--   ALTER TABLE payroll_run_lines DROP COLUMN IF EXISTS medical_scheme_fees;
 --   ALTER TABLE payroll_run_lines DROP COLUMN IF EXISTS medical_credit;
 SET LOCAL lock_timeout = '5s';
 
 ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS medical_credit NUMERIC(14,2);
+ALTER TABLE payroll_run_lines ADD COLUMN IF NOT EXISTS medical_scheme_fees NUMERIC(14,2);

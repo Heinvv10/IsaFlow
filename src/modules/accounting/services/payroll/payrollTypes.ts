@@ -193,6 +193,8 @@ export interface PayrollLineResult {
   payeSplit: PayeSplit;
   /** The medical scheme fees tax credit this line's PAYE took into account (payeCumulative; e@syFile 4116). */
   medicalCredit: number;
+  /** Medical scheme fees deducted on this line: deductions coded 4005 (e@syFile 4005). */
+  medicalSchemeFees: number;
   uif: UifResult;
   sdl: number;
   /** Remuneration this line contributes to the SDL leviable amount. */
