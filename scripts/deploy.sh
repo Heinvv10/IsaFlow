@@ -103,18 +103,20 @@ $BUN install
 # checksums, or those tests fail for reasons unrelated to the code. Prod is
 # opened read-only; --apply-dev applies missing pending migrations to DEV only.
 # Fails closed: if prod's URL cannot be read, parity cannot be verified.
-# Both sides use the schema owner's URL (OWNER_DATABASE_URL, falling back to
-# DATABASE_URL with a warning): --apply-dev applies migrations to dev, and the
-# app's own login role cannot (S-07b).
+# Both sides use the schema owner's URL: --apply-dev applies migrations to
+# dev, and the app's own login role cannot (S-07b). Prod's comes from
+# $OWNER_ENV_FILE (root-only, outside the deploy dir), then .env.local's
+# OWNER_DATABASE_URL, then its DATABASE_URL, each fallback with a warning;
+# dev's from the workspace .env.local.
 # shellcheck source=ops/ownerDatabaseUrl.sh
 . "$REPO_DIR/scripts/ops/ownerDatabaseUrl.sh"
 PARITY_PROD_ENV="$DEPLOY_DIR/.env.local"
 PARITY_PROD_DB=""
 if sudo test -f "$PARITY_PROD_ENV"; then
-  PARITY_PROD_DB=$(sudo cat "$PARITY_PROD_ENV" | owner_database_url "$PARITY_PROD_ENV" || true)
+  PARITY_PROD_DB=$(owner_database_url_for "$PARITY_PROD_ENV" sudo || true)
 fi
 if [ -z "$PARITY_PROD_DB" ]; then
-  echo "ERROR: cannot read OWNER_DATABASE_URL or DATABASE_URL from $PARITY_PROD_ENV - migration parity cannot be verified"
+  echo "ERROR: cannot read OWNER_DATABASE_URL or DATABASE_URL from $OWNER_ENV_FILE or $PARITY_PROD_ENV - migration parity cannot be verified"
   exit 1
 fi
 PARITY_DEV_DB=$(owner_database_url "$ENV_LOCAL" < "$ENV_LOCAL" || true)
@@ -172,7 +174,7 @@ echo "Running database migrations..."
 PROD_ENV="$DEPLOY_DIR/.env.local"
 if sudo test -f "$PROD_ENV"; then
   # The schema owner's URL: the app's DATABASE_URL cannot migrate (S-07b).
-  PROD_DB=$(sudo cat "$PROD_ENV" | owner_database_url "$PROD_ENV" || true)
+  PROD_DB=$(owner_database_url_for "$PROD_ENV" sudo || true)
   if [ -n "$PROD_DB" ]; then
     DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/apply-migrations.ts"
 
@@ -185,7 +187,7 @@ if sudo test -f "$PROD_ENV"; then
     # rollback would not fix (docs/runbooks/s07b-app-pool-login-roles.md).
     DATABASE_URL="$PROD_DB" $BUN "$REPO_DIR/scripts/check-app-login-roles.ts"
   else
-    echo "WARNING: neither OWNER_DATABASE_URL nor DATABASE_URL found in $PROD_ENV — skipping migrations"
+    echo "WARNING: neither OWNER_DATABASE_URL nor DATABASE_URL found in $OWNER_ENV_FILE or $PROD_ENV — skipping migrations"
   fi
 else
   echo "WARNING: $PROD_ENV not found — skipping migrations"

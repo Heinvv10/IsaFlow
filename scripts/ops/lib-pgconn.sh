@@ -36,11 +36,12 @@ load_pg_conn() {
 
   # The schema owner's URL: pg_dump and the restore drill must read every
   # table, and the app's DATABASE_URL logs in as isaflow_app, which owns
-  # nothing (S-07b). ownerDatabaseUrl.sh falls back to DATABASE_URL, with a
-  # warning, until the env names OWNER_DATABASE_URL.
-  raw=$(owner_database_url "$env_file" < "$env_file" || true)
+  # nothing (S-07b). ownerDatabaseUrl.sh reads $OWNER_ENV_FILE first, then the
+  # env file's OWNER_DATABASE_URL, then its DATABASE_URL, warning on each
+  # fallback. These scripts run as root, so no reader prefix.
+  raw=$(owner_database_url_for "$env_file" || true)
   if [[ -z "$raw" ]]; then
-    echo "load_pg_conn: neither OWNER_DATABASE_URL nor DATABASE_URL found in $env_file" >&2
+    echo "load_pg_conn: neither OWNER_DATABASE_URL nor DATABASE_URL found in $OWNER_ENV_FILE or $env_file" >&2
     return 2
   fi
 
