@@ -109,10 +109,11 @@ export async function laterPeriodsWarnings(
     list.push(`${String(r.period_year)}-${String(r.period_month).padStart(2, '0')}`);
     months.set(key, list);
   }
-  // judgeYearToDateStale finds each month in this message as YYYY-MM: keep that format.
+  // `periods` is what judgeYearToDateStale matches on; the message is for people.
   return new Map([...months].map(([employee, list]) => [employee, {
     code: 'PAYE_LATER_PERIODS_APPROVED',
     severity: 'warning' as const,
+    periods: list,
     message: `Later runs of this tax year that pay this employee are already approved (${list.join(', ')}). PAYE is cumulative over `
       + 'the year, so their PAYE did not include this month: the next run calculated after them corrects it. If February is '
       + 'among them, nothing follows and IsaFlow has no PAYE adjustment: the difference stays until the employee\'s assessment, '
@@ -129,16 +130,20 @@ export async function laterPeriodsWarnings(
  * - LATER month: its PAYE missed this run — this run, as it now stands, was
  *   not approved when that month was calculated — and, for some employee
  *   both runs pay from the tables, this run's line lacks a
- *   PAYE_LATER_PERIODS_APPROVED naming that month. Read off the lines, per
- *   employee and per month, as laterPeriodsWarnings writes it: only for the
- *   employees on the later month's lines at the time, naming the months, and
- *   only on a line taxed from the tables (an employee it would never warn is
+ *   PAYE_LATER_PERIODS_APPROVED whose `periods` holds that month. Read off the
+ *   lines, per employee and per month, as laterPeriodsWarnings writes it: only
+ *   for the employees on the later month's lines at the time, listing the
+ *   months, and only on a line taxed from the tables (an employee it would never warn is
  *   never required to carry it, so a recalculation always clears the
  *   refusal; breaker round 1). "From the tables": periodic_taxable or
  *   annual_taxable > 0; on this run's line, before migration 913 (NULLs),
  *   taxable_income > 0 (a pre-cumulative line carries no warning: refused
  *   until recalculated); on the later month's, NULL = calculated before
- *   cumulative PAYE, which read no year-to-date, so missed nothing.
+ *   cumulative PAYE, which read no year-to-date, so missed nothing. A warning
+ *   without `periods` (dev/test lines written by #786 before the field; none
+ *   in production, where #786 was not deployed before it) or a validation_results
+ *   that is not an array reads as no warning: a conservative refusal that a
+ *   recalculation clears. Matched by containment, never on the message text.
  * Recalculating clears either (a calculation reads both again). The earlier
  * arm is per run: a refusal when no employee is shared is conservative.
  *
@@ -208,11 +213,8 @@ export async function judgeYearToDateStale(companyId: string, runId: string): Pr
             WHERE ml.run_id = me.id
               AND COALESCE(ml.periodic_taxable > 0 OR ml.annual_taxable > 0, ml.taxable_income > 0)
               AND COALESCE(el.periodic_taxable > 0 OR el.annual_taxable > 0, false)
-              AND NOT EXISTS (
-                SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(ml.validation_results) = 'array'
-                                                        THEN ml.validation_results ELSE '[]'::jsonb END) w
-                WHERE w->>'code' = 'PAYE_LATER_PERIODS_APPROVED'
-                  AND strpos(w->>'message', to_char(e.period, 'YYYY-MM')) > 0))
+              AND NOT ml.validation_results @> jsonb_build_array(jsonb_build_object(
+                'code', 'PAYE_LATER_PERIODS_APPROVED', 'periods', jsonb_build_array(to_char(e.period, 'YYYY-MM')))))
       END
     ORDER BY e.period_year, e.period_month
   `) as DbRow[];
