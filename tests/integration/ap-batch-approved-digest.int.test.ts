@@ -18,7 +18,8 @@ vi.mock('@/modules/accounting/services/ap/netcashService', () => ({ submitEftBat
 
 import { log } from '@/lib/logger';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
+import batchPaymentsAction from '../../pages/api/accounting/batch-payments-action';
 import { dataOf } from './r035-pr2.helpers';
 import { batchState, cleanupPr5, digestOf } from './r035-pr5.helpers';
 import { CHANGED, NEW_ACCOUNT, OLD_ACCOUNT, digestKit } from './ap-batch-approved-digest.helpers';
@@ -29,7 +30,7 @@ const companies: string[] = [];
 const tokens: Record<string, string> = {};
 const u = { a: '', b: '' };
 const {
-  r, eft, netcash, fixture, approve, changeBank, submissions, exportRecords, storedDigest, approvers, contentOf,
+  r, eft, netcash, fixture, approve, approveWith, changeBank, submissions, exportRecords, storedDigest, approvers, contentOf,
 } = digestKit(pool, u, tokens, companies);
 
 beforeAll(async () => {
@@ -123,6 +124,39 @@ describe('re-approve: the way out', () => {
     expect(submitEftBatch).toHaveBeenCalledTimes(1);
   });
 
+  it('re-approve is bound to what the page showed: content that moved again, or no digest at all, is refused', async () => {
+    const { c, b, supplierId } = await fixture();
+    await approve(c, b.id, u.a);
+    const approved = await storedDigest(b.id);
+    await changeBank(c, supplierId, '62000005555');
+    const shown = dataOf<{ contentDigest: string }>(await r.getBatch(u.b, c, b.id)).contentDigest; // what the page read
+    expect(shown).toBe(await digestOf(pool, c, 'payment_batch', b.id));
+    await changeBank(c, supplierId, NEW_ACCOUNT); // changes again before the click
+    for (const expected of [shown, undefined]) {
+      const res = await approveWith(c, b.id, u.b, expected);
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+      expect(reasonOf(res)).toBe('BATCH_CONTENT_NOT_AS_SHOWN');
+    }
+    expect(await storedDigest(b.id)).toBe(approved);
+    expect(await approvers(b.id)).toEqual([u.a]);
+    expect(reasonOf(await eft(c, b.id))).toBe(CHANGED);
+  });
+
+  it('a first approve that names a digest is checked too; a malformed id or digest is refused 400', async () => {
+    const { c, b, supplierId } = await fixture();
+    const shown = (await digestOf(pool, c, 'payment_batch', b.id))!;
+    await changeBank(c, supplierId);
+    const stale = await approveWith(c, b.id, u.a, shown);
+    expect(stale.state.statusCode).toBe(409);
+    expect(reasonOf(stale)).toBe('BATCH_CONTENT_NOT_AS_SHOWN');
+    expect((await batchState(pool, b.id)).status).toBe('draft');
+    expect((await r.batch(u.a, c, 'approve', 'not-a-batch')).state.statusCode).toBe(400);
+    const badDigest = await callRoute(batchPaymentsAction, tokens[u.a]!, c, 'POST',
+      { action: 'approve', id: b.id, expectedDigest: 42 }, '/api/accounting/batch-payments-action');
+    expect(badDigest.state.statusCode).toBe(400);
+    expect((await batchState(pool, b.id)).status).toBe('draft');
+  });
+
   it('an unchanged approved batch cannot be re-approved (BATCH_NOT_APPROVABLE), and nothing changes', async () => {
     const { c, b } = await fixture();
     await approve(c, b.id, u.a);
@@ -142,7 +176,7 @@ describe('re-approve: the way out', () => {
     const refused = await eft(c, b.id);
     expect(refused.state.statusCode, JSON.stringify(refused.state.body)).toBe(409);
     expect(reasonOf(refused)).toBe(CHANGED);
-    const reapproved = await r.batch(u.b, c, 'approve', b.id);
+    const reapproved = await approveWith(c, b.id, u.b, (await digestOf(pool, c, 'payment_batch', b.id))!);
     expect(reapproved.state.statusCode, JSON.stringify(reapproved.state.body)).toBe(200);
     expect(dataOf<{ status: string }>(reapproved).status).toBe('processed'); // the answer says what it is
     expect((await batchState(pool, b.id)).status).toBe('processed');
@@ -206,7 +240,7 @@ describe('what stays as it was', () => {
     }
     // Re-approving under enforcement needs an approval of the new content: refused stale, nothing stored.
     const digest = await storedDigest(b.id);
-    const reapprove = await r.batch(u.a, c, 'approve', b.id);
+    const reapprove = await approveWith(c, b.id, u.a, (await digestOf(pool, c, 'payment_batch', b.id))!);
     expect(reapprove.state.statusCode).toBe(409);
     expect(reasonOf(reapprove)).toBe('APPROVAL_STALE');
     expect(await storedDigest(b.id)).toBe(digest);

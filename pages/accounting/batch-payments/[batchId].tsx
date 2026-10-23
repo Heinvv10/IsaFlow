@@ -48,6 +48,7 @@ interface BatchDetail {
   billCount?: number;
   approval?: DocumentApprovalState | null; // R-035 PR5: while approve / process is ahead
   changedSinceApproval?: boolean; // its content is no longer what was approved: re-approve before file / send / process
+  contentDigest?: string | null; // read with the payments shown; an approve sends it back as what was seen
 }
 
 export default function BatchPaymentDetailPage() {
@@ -88,7 +89,8 @@ export default function BatchPaymentDetailPage() {
       const res = await apiFetch('/api/accounting/batch-payments-action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, id: batch.id }),
+        body: JSON.stringify({ action, id: batch.id,
+          ...(action === 'approve' && batch.contentDigest ? { expectedDigest: batch.contentDigest } : {}) }),
       });
       // R-035: 409 is the approval gate — reload so the panel offers Submit for approval.
       if (res.status === 409) await load();

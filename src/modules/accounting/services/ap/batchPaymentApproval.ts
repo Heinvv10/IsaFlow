@@ -20,7 +20,7 @@ import { assertNotImpersonating } from '@/lib/auth/impersonationGuard';
 import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { assertApprovalCleared } from '../gl/approvalGate';
 import { logAuditOrThrow } from '../core/auditTrailService';
-import { currentBatchDigest, lockBatchPayees } from './batchApprovedDigest';
+import { BatchContentNotAsShownError, currentBatchDigest, lockBatchPayees } from './batchApprovedDigest';
 
 /**
  * The batch is not a draft when the approve runs — it never was, or a
@@ -46,9 +46,12 @@ const APPROVABLE: ReadonlySet<string> = new Set(['draft', 'approved', 'processed
  * without this it could never be sent. A re-approval leaves the status as it is. Either
  * way the digest approved is stored in the same UPDATE, and the members carry the
  * approver. An approved or processed batch that has not changed — or that has no stored
- * digest — is refused BatchNotApprovableError, as before. Returns the batch's status afterwards.
+ * digest — is refused BatchNotApprovableError, as before. `expectedDigest` (the content the approver was shown) is
+ * required for a re-approval and checked whenever given: BatchContentNotAsShownError. Returns the batch's status afterwards.
  */
-export async function approveBatch(companyId: string, id: string, userId: string): Promise<string> {
+export async function approveBatch(
+  companyId: string, id: string, userId: string, expectedDigest?: string,
+): Promise<string> {
   await assertNotImpersonating(); // R-032 L5: first, before any read or write
   // The batch row first, 5s-bounded like processBatch's lock. This used to
   // UPDATE unlocked and ignore the row count, so approving a processed or
@@ -68,6 +71,9 @@ export async function approveBatch(companyId: string, id: string, userId: string
   const digest = await currentBatchDigest(companyId, id);
   const reapproval = status !== 'draft';
   if (reapproval && (previous === null || previous === digest)) throw new BatchNotApprovableError(status);
+  // What the approver saw: the digest the page read with the payments it showed. Required to re-approve — the
+  // content changed once already, so a click must not vouch for whatever it changed to next — and checked when given.
+  if ((reapproval || expectedDigest !== undefined) && expectedDigest !== digest) throw new BatchContentNotAsShownError(id);
   // R-035 PR5: the gate, under the locks and before the first write.
   await assertApprovalCleared(companyId, 'payment_batch', id);
 
