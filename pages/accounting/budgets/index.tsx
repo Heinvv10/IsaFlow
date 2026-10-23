@@ -4,7 +4,7 @@
  * per calendar month, so a 14-month transition year shows 14 month columns.
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Wallet, Plus, Trash2, Loader2, Copy, Pencil } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
@@ -17,8 +17,10 @@ import {
 export default function BudgetManagementPage() {
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
   const [accounts, setAccounts] = useState<GLAccount[]>([]);
-  // null until the first load: the API answers with the financial year holding today.
-  const [fiscalYear, setFiscalYear] = useState<number | null>(null);
+  // The year the user picked; null until they pick one: the API then answers with the year holding today.
+  const [chosenYear, setChosenYear] = useState<number | null>(null);
+  // Bumped to reload the year after a save, delete or failed load.
+  const [reloads, setReloads] = useState(0);
   const [year, setYear] = useState<BudgetYear | null>(null);
   const [years, setYears] = useState<BudgetYear[]>([]);
   const [editing, setEditing] = useState<BudgetRow | null>(null);
@@ -27,34 +29,32 @@ export default function BudgetManagementPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  // The year the first load resolved to: selecting it must not fetch a second time.
-  const loadedYear = useRef<number | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await apiFetch(`/api/accounting/budgets${fiscalYear === null ? '' : `?fiscal_year=${fiscalYear}`}`, { credentials: 'include' });
-      await assertOk(res, 'Could not load budgets - try again');
-      const json = await res.json();
-      setBudgets(json.data?.items || []);
-      setYear(json.data?.year ?? null);
-      setYears(json.data?.years ?? []);
-      if (fiscalYear === null && json.data?.fiscalYear) {
-        loadedYear.current = Number(json.data.fiscalYear);
-        setFiscalYear(loadedYear.current);
-      }
-    } catch (err) {
-      setBudgets([]);
-      setYear(null);
-      setYears([]);
-      setError(apiErrorMessage(err, 'Could not load budgets - try again'));
-    } finally { setLoading(false); }
-  }, [fiscalYear]);
+  // The year the data on screen belongs to (what saves, deletes and copies act on).
+  const fiscalYear = year?.fiscalYear ?? null;
 
   useEffect(() => {
-    if (fiscalYear !== null && fiscalYear === loadedYear.current) { loadedYear.current = null; return; }
-    void load();
-  }, [load, fiscalYear]);
+    // A response for a year the user has since left must not overwrite the one on screen.
+    let stale = false;
+    setLoading(true);
+    void (async () => {
+      try {
+        const res = await apiFetch(`/api/accounting/budgets?fiscal_year=${chosenYear ?? ''}`, { credentials: 'include' });
+        await assertOk(res, 'Could not load budgets - try again');
+        const json = await res.json();
+        if (stale) return;
+        setBudgets(json.data?.items || []);
+        setYear(json.data?.year ?? null);
+        setYears(json.data?.years ?? []);
+      } catch (err) {
+        if (stale) return;
+        setBudgets([]);
+        setYear(null);
+        setYears([]);
+        setError(apiErrorMessage(err, 'Could not load budgets - try again'));
+      } finally { if (!stale) setLoading(false); }
+    })();
+    return () => { stale = true; };
+  }, [chosenYear, reloads]);
 
   useEffect(() => {
     apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
@@ -88,7 +88,7 @@ export default function BudgetManagementPage() {
       await assertOk(res, 'Could not save the budget - try again');
       setShowForm(false); setEditing(null);
       setSuccess('Budget saved');
-      await load();
+      setReloads(n => n + 1);
     } catch (err) { setError(apiErrorMessage(err, 'Could not save the budget - try again')); }
     finally { setBusy(''); }
   };
@@ -102,7 +102,7 @@ export default function BudgetManagementPage() {
       });
       await assertOk(res, 'Could not delete the budget - try again');
       setSuccess('Budget deleted');
-      await load();
+      setReloads(n => n + 1);
     } catch (err) { setError(apiErrorMessage(err, 'Could not delete the budget - try again')); }
     finally { setBusy(''); }
   };
@@ -131,11 +131,12 @@ export default function BudgetManagementPage() {
   const usedAccountIds = new Set(budgets.map(b => b.glAccountId));
   const availableAccounts = accounts.filter(a => !usedAccountIds.has(a.id));
   const formAccounts = editing ? accounts.filter(a => a.id === editing.glAccountId) : availableAccounts;
-  const yearOptions = years.length > 0 ? years : fiscalYear !== null
-    ? [{ fiscalYear, startDate: '', endDate: '', kind: 'normal', monthKeys: [] }] : [];
+  const selectedYear = chosenYear ?? fiscalYear;
+  const yearOptions = years.length > 0 ? years : selectedYear !== null
+    ? [{ fiscalYear: selectedYear, startDate: '', endDate: '', kind: 'normal', monthKeys: [] }] : [];
 
   const closeForm = () => { setShowForm(false); setEditing(null); };
-  const changeYear = (value: number) => { closeForm(); setFiscalYear(value); };
+  const changeYear = (value: number) => { closeForm(); setChosenYear(value); };
 
   return (
     <AppLayout>
@@ -153,7 +154,7 @@ export default function BudgetManagementPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <select value={fiscalYear ?? ''} onChange={e => changeYear(Number(e.target.value))} data-testid="budget-year"
+              <select value={selectedYear ?? ''} onChange={e => changeYear(Number(e.target.value))} data-testid="budget-year"
                 className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm">
                 {yearOptions.map(y => <option key={y.fiscalYear} value={y.fiscalYear}>{yearOptionLabel(y)}</option>)}
               </select>
@@ -204,7 +205,7 @@ export default function BudgetManagementPage() {
                 {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
                 {!loading && budgets.length === 0 && (
                   <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
-                    No budgets for {fiscalYear}. Add one or copy from another year.
+                    No budgets for {selectedYear}. Add one or copy from another year.
                   </td></tr>
                 )}
                 {budgets.map(b => (

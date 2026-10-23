@@ -7,7 +7,8 @@
  */
 
 import { fiscalYearForDate, listFiscalYears, type FiscalYearKind, type FiscalYearRecord } from '../gl/fiscalYearRegistry';
-import { addMonthsToKey, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
+import { addMonthsToKey, budgetMonthBounds, budgetMonthKeysInWindow, monthKeyToDate } from '../reports/budgetPeriodWindow';
+import { BudgetInputError } from './budgetMonths';
 
 export interface BudgetYearInfo {
   /** The label. */
@@ -37,8 +38,9 @@ export async function listBudgetYears(companyId: string, today: string): Promise
   if (!byLabel.has(current.fiscalYear)) byLabel.set(current.fiscalYear, current);
 
   const last = [...byLabel.values()].reduce((a, b) => (b.endDate > a.endDate ? b : a));
-  const lastMonth = budgetMonthKeysInWindow(last.startDate, last.endDate).pop()!;
-  const next = await fiscalYearForDate(companyId, monthKeyToDate(addMonthsToKey(lastMonth, 1)));
+  const bounds = budgetMonthBounds(last.startDate, last.endDate);
+  if (!bounds) throw new BudgetInputError(`Financial year ${last.fiscalYear} has no months`);
+  const next = await fiscalYearForDate(companyId, monthKeyToDate(addMonthsToKey(bounds.last.slice(0, 7), 1)));
   if (!byLabel.has(next.fiscalYear)) byLabel.set(next.fiscalYear, next);
 
   return [...byLabel.values()].sort((a, b) => (a.startDate < b.startDate ? -1 : 1)).map(toBudgetYearInfo);

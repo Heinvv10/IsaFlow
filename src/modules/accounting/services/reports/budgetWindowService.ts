@@ -16,6 +16,7 @@
 import { sql } from '@/lib/neon';
 import { localISODate } from '@/lib/dateUtils';
 import { fiscalYearForDate, type FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { round2 } from '../core/budgetMonths';
 import { budgetMonthBounds, currentMonthWindow, type BudgetWindow } from './budgetPeriodWindow';
 
 export interface ResolvedBudgetWindow extends BudgetWindow {
@@ -65,7 +66,7 @@ export async function loadWindowBudgets(
 
   const budgets: Record<string, number> = {};
   for (const row of rows) {
-    const total = Math.round(Number(row.total) * 100) / 100;
+    const total = round2(Number(row.total));
     budgets[row.account_code] = total;
     budgets[row.gl_account_id] = total;
   }

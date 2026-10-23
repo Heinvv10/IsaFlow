@@ -11,6 +11,9 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { BudgetInputError, deleteBudget, copyBudgets } from '@/modules/accounting/services/core/budgetService';
+import { isUuidParam } from '@/lib/validation';
+
+const isYearLabel = (v: unknown): boolean => Number.isInteger(Number(v)) && Number(v) > 0;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
@@ -23,10 +26,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     switch (action) {
       case 'delete':
         if (!glAccountId || !fiscalYear) return apiResponse.badRequest(res, 'glAccountId and fiscalYear required');
+        if (!isUuidParam(glAccountId)) return apiResponse.badRequest(res, 'glAccountId must be an account id');
+        if (!isYearLabel(fiscalYear)) return apiResponse.badRequest(res, 'fiscalYear must be a year label such as 2027');
         await deleteBudget(companyId, glAccountId, Number(fiscalYear));
         return apiResponse.success(res, { deleted: true });
       case 'copy': {
         if (!fromYear || !toYear) return apiResponse.badRequest(res, 'fromYear and toYear required');
+        if (!isYearLabel(fromYear) || !isYearLabel(toYear)) return apiResponse.badRequest(res, 'fromYear and toYear must be year labels such as 2027');
         const count = await copyBudgets(companyId, Number(fromYear), Number(toYear), userId);
         return apiResponse.success(res, { copied: count });
       }
@@ -35,7 +41,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   } catch (err) {
     log.error('Budget action failed', { action, error: err }, 'accounting-api');
-    return apiResponse.badRequestFromError(res, err, err instanceof BudgetInputError ? err.message : 'Action failed');
+    // Only a refusal written for the caller is a 400; any other failure is a server error (withErrorHandler's 500).
+    if (err instanceof BudgetInputError) return apiResponse.badRequest(res, err.message);
+    throw err;
   }
 }
 

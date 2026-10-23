@@ -13,20 +13,36 @@
 -- longer read or written by the app (left in place, not dropped: the
 -- conversion below is verified, and dropping is irreversible).
 --
--- CONVERSION (budget_months_from_legacy below). Each stored month key of a
--- budget row is read as the readers read it: the company's fiscal_periods row
--- with that label and that calendar month (every company today labels
--- January-December, so FY2026 'mar' is March 2026). With no such period: a
--- company that has periods labels them by calendar year, so that month of the
--- label's year; a company with no periods at all was read as the declared-month
--- window opening in the label's year (FY2026 of a March company is March 2026 -
--- February 2027, so its 'jan' is January 2027). A row with no monthly split
--- spreads annual_amount over the twelve months, cents on the last, as the
--- reader pro-rated it. An empty string is 0 (the reader's Number('')). A row
--- naming another company's account was never shown by any reader (they joined
--- the account on the company) and is reported, not converted. Totals are verified
--- per company and account; a collision (two rows claiming one month) fails
--- the migration rather than merging silently.
+-- CONVERSION (budget_months_from_legacy below). The conversion files each
+-- stored amount in the calendar month the OLD readers placed it in; it does not
+-- re-label anything by the registry. Each stored month key of a budget row is
+-- read as the readers read it: the company's fiscal_periods row with that label
+-- and that calendar month (every production company labels its periods
+-- January-December, so FY2026 'mar' is March 2026). With no such period:
+--   - a company with no periods at all was read as the March window opening in
+--     the label's year (March hardcoded, as the old reader hardcoded
+--     `${year}-03-01`, whatever companies.financial_year_start says): FY2026 is
+--     March 2026 - February 2027, so its 'jan' is January 2027;
+--   - a company whose periods are all calendar-labelled gets that month of the
+--     label's year;
+--   - any other company (periods made by the generator after 940, labelled by
+--     registry year) gets the month inside the registry year of that label
+--     (public.fiscal_year_for_label), so two labels never fall on one month.
+-- Because the registry's FY2027 is March 2026 - February 2027, converted months
+-- regroup under registry labels: January 2026 now counts in FY2026 and March
+-- 2026 in FY2027. The notes header (accounting_budgets) therefore is copied to
+-- every registry label that holds converted months of the account, so the notes
+-- show wherever the months show. A row with no monthly split spreads
+-- annual_amount over the twelve months, cents on the last, as the reader
+-- pro-rated it. An empty string is 0 (the reader's Number('')). A monthly amount
+-- in the JSON may have more than two decimals (annual_amount cannot: it is
+-- NUMERIC(15,2)); it is rounded to cents, the column's precision, on both sides
+-- of the verification.
+-- A row naming another company's account was never shown by any reader (they
+-- joined the account on the company) and is reported, not converted. Totals are
+-- verified per company and account; a collision (two rows claiming one month)
+-- fails the migration rather than merging silently, so the DO block is not
+-- re-runnable on a table that already holds the converted months, on purpose.
 
 CREATE TABLE IF NOT EXISTS budget_month_amounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -85,15 +101,16 @@ AS $$
 DECLARE
   b record; k text; idx int; raw text; val numeric; month_date date;
   keys text[] := ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-  monthly numeric; inserted int; converted int := 0;
+  monthly numeric; inserted int; converted int := 0; win_start date; reg_label int;
 BEGIN
   FOR b IN
     SELECT id, company_id, gl_account_id, fiscal_year, COALESCE(period_amounts, '{}'::jsonb) AS pa,
-           COALESCE(annual_amount, 0) AS annual, created_by
+           COALESCE(annual_amount, 0) AS annual, created_by, notes
       FROM accounting_budgets ab
      WHERE gl_account_id IS NOT NULL AND company_id IS NOT NULL
        AND EXISTS (SELECT 1 FROM gl_accounts ga WHERE ga.id = ab.gl_account_id AND ga.company_id = ab.company_id)
        AND (p_company IS NULL OR company_id = p_company)
+     ORDER BY company_id, gl_account_id, fiscal_year
   LOOP
     IF jsonb_typeof(b.pa) <> 'object' THEN
       RAISE EXCEPTION 'budget_months_from_legacy: budget % has period_amounts that is not an object (%)', b.id, jsonb_typeof(b.pa);
@@ -107,7 +124,7 @@ BEGIN
         IF raw !~ '^\s*-?[0-9]+(\.[0-9]+)?\s*$' THEN
           RAISE EXCEPTION 'budget_months_from_legacy: budget % month % is not a number (%)', b.id, k, raw;
         END IF;
-        val := raw::numeric;
+        val := round(raw::numeric, 2);
       ELSE
         CONTINUE WHEN b.annual = 0;
         monthly := round(b.annual / 12, 2);
@@ -118,9 +135,22 @@ BEGIN
          AND EXTRACT(MONTH FROM fp.start_date)::int = idx AND EXTRACT(DAY FROM fp.start_date) = 1
        ORDER BY fp.start_date LIMIT 1;
       IF month_date IS NULL THEN
-        month_date := CASE WHEN EXISTS (SELECT 1 FROM fiscal_periods fp2 WHERE fp2.company_id = b.company_id)
-                             OR idx >= COALESCE((SELECT c.financial_year_start FROM companies c WHERE c.id = b.company_id), 3)
-                           THEN make_date(b.fiscal_year, idx, 1) ELSE make_date(b.fiscal_year + 1, idx, 1) END;
+        IF NOT EXISTS (SELECT 1 FROM fiscal_periods fp2 WHERE fp2.company_id = b.company_id) THEN
+          month_date := make_date(CASE WHEN idx >= 3 THEN b.fiscal_year ELSE b.fiscal_year + 1 END, idx, 1);
+        ELSIF NOT EXISTS (SELECT 1 FROM fiscal_periods fp3 WHERE fp3.company_id = b.company_id
+                             AND fp3.fiscal_year <> EXTRACT(YEAR FROM fp3.start_date)::int) THEN
+          month_date := make_date(b.fiscal_year, idx, 1);
+        ELSE
+          SELECT fy.start_date INTO win_start
+            FROM public.fiscal_year_for_label(b.company_id, b.fiscal_year) fy;
+          IF win_start IS NULL THEN
+            month_date := make_date(b.fiscal_year, idx, 1);  -- a label no year carries: calendar placement
+          ELSE
+            -- The first such month on or after the window's start: inside the window when it holds one,
+            -- else (a short year) the next such month, so the amount is kept, never dropped.
+            month_date := make_date(EXTRACT(YEAR FROM win_start)::int + CASE WHEN idx < EXTRACT(MONTH FROM win_start)::int THEN 1 ELSE 0 END, idx, 1);
+          END IF;
+        END IF;
       END IF;
       INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount, created_by)
       VALUES (b.company_id, b.gl_account_id, month_date, val, b.created_by)
@@ -131,7 +161,14 @@ BEGIN
           b.id, b.fiscal_year, month_date, b.gl_account_id;
       END IF;
       converted := converted + 1;
-      month_date := NULL;
+      -- The notes header follows the months into the registry year that now holds them.
+      SELECT fy.fiscal_year INTO reg_label FROM public.fiscal_year_for_date(b.company_id, month_date) fy;
+      IF reg_label IS NOT NULL AND reg_label <> b.fiscal_year THEN
+        INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes, created_by)
+        VALUES (b.company_id, 'FY' || reg_label || ' Budget', reg_label, b.gl_account_id, b.notes, b.created_by)
+        ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL DO NOTHING;
+      END IF;
+      month_date := NULL; win_start := NULL; reg_label := NULL;
     END LOOP;
   END LOOP;
   RETURN converted;
@@ -147,7 +184,7 @@ AS $$
   WITH src AS (
     SELECT b.company_id, b.gl_account_id,
            SUM(CASE WHEN (SELECT COUNT(*) FROM jsonb_object_keys(COALESCE(b.period_amounts, '{}'::jsonb))) > 0
-                    THEN (SELECT COALESCE(SUM(COALESCE(NULLIF(btrim(COALESCE(b.period_amounts ->> m.k, b.period_amounts ->> (m.n - 1)::text)), ''), '0')::numeric), 0)
+                    THEN (SELECT COALESCE(SUM(round(COALESCE(NULLIF(btrim(COALESCE(b.period_amounts ->> m.k, b.period_amounts ->> (m.n - 1)::text)), ''), '0')::numeric, 2)), 0)
                             FROM unnest(ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'])
                                  WITH ORDINALITY AS m(k, n))
                     ELSE COALESCE(b.annual_amount, 0) END) AS total
@@ -191,4 +228,8 @@ END;
 $$;
 
 COMMENT ON COLUMN accounting_budgets.period_amounts IS
+  'Superseded by budget_month_amounts (migration 944); no longer read or written by the app.';
+COMMENT ON COLUMN accounting_budgets.annual_amount IS
+  'Superseded by budget_month_amounts (migration 944); no longer read or written by the app.';
+COMMENT ON COLUMN accounting_budgets.total_amount IS
   'Superseded by budget_month_amounts (migration 944); no longer read or written by the app.';

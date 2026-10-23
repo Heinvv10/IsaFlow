@@ -12,11 +12,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import {
-  PAYE_TAX_YEAR_END_MONTH,
-  PAYE_TAX_YEAR_START_MONTH,
-  payeTaxYearBounds,
-} from '@/modules/accounting/utils/payeTaxYear';
+import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import {
@@ -48,10 +44,6 @@ export interface Irp5EmployeeRow {
   messages: ValidationMessage[];
 }
 
-function taxYearRange(taxYear: number): { startMonth: number; startYear: number; endMonth: number; endYear: number } {
-  return { startMonth: PAYE_TAX_YEAR_START_MONTH, startYear: taxYear - 1, endMonth: PAYE_TAX_YEAR_END_MONTH, endYear: taxYear };
-}
-
 function deriveStatus(
   messages: ValidationMessage[],
   totalGross: number,
@@ -74,7 +66,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   }
   const taxYear = taxYearRaw;
 
-  const { startMonth, startYear, endMonth, endYear } = taxYearRange(taxYear);
   const bounds = payeTaxYearBounds(taxYear);
   // The screen previews the e@syFile export, so it must aggregate exactly the
   // runs that export declares.
@@ -102,11 +93,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       WHERE prh.company_id = ${companyId}::uuid
         AND prh.status = ANY(${declarableStatuses}::text[])
-        AND (
-          (prh.period_year = ${startYear} AND prh.period_month >= ${startMonth})
-          OR
-          (prh.period_year = ${endYear}   AND prh.period_month <= ${endMonth})
-        )
+        AND make_date(prh.period_year, prh.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
       GROUP BY prl.employee_id
     ` as Promise<Row[]>,
 

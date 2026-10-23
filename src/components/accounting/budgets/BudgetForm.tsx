@@ -25,7 +25,13 @@ interface Props {
   onCancel: () => void;
 }
 
-const sum = (values: string[]) => Math.round(values.reduce((s, v) => s + (Number(v) || 0), 0) * 100) / 100;
+/** An empty or blank field is 0 (Number('') is 0); anything else must be a finite number (null when it is not). */
+function parseAmount(value = ''): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+const sum = (values: string[]) => Math.round(values.reduce((s, v) => s + (parseAmount(v) ?? 0), 0) * 100) / 100;
 
 export function BudgetForm({ fiscalYear, monthKeys, accounts, editing, busy, onSubmit, onCancel }: Props) {
   const stored = new Map((editing?.months ?? []).map(m => [m.month, String(m.amount)]));
@@ -34,9 +40,11 @@ export function BudgetForm({ fiscalYear, monthKeys, accounts, editing, busy, onS
   const [months, setMonths] = useState<Record<string, string>>(
     Object.fromEntries(monthKeys.map(k => [k, stored.get(k) ?? ''])));
   const [annual, setAnnual] = useState(editing ? String(sum([...stored.values()])) : '');
+  const [error, setError] = useState('');
 
   const spread = (value: string) => {
     setAnnual(value);
+    setError('');
     if (monthKeys.length === 0 || value === '' || !Number.isFinite(Number(value))) return;
     const parts = spreadEvenly(Number(value), monthKeys.length);
     setMonths(Object.fromEntries(monthKeys.map((k, i) => [k, String(parts[i])])));
@@ -44,14 +52,20 @@ export function BudgetForm({ fiscalYear, monthKeys, accounts, editing, busy, onS
   const setMonth = (key: string, value: string) => {
     const next = { ...months, [key]: value };
     setMonths(next);
+    setError('');
     setAnnual(String(sum(monthKeys.map(k => next[k] ?? ''))));
   };
 
   const submit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const parsed = monthKeys.map(k => ({ month: k, amount: parseAmount(months[k]) }));
+    const bad = parsed.find(m => m.amount === null);
+    if (bad) { setError(`The amount for ${monthLabel(bad.month)} must be a number`); return; }
+    const annualAmount = parseAmount(annual);
+    if (annualAmount === null) { setError('The annual amount must be a number'); return; }
     onSubmit({
-      glAccountId, annualAmount: Number(annual), notes: notes || undefined,
-      months: monthKeys.length > 0 ? monthKeys.map(k => ({ month: k, amount: Number(months[k]) || 0 })) : undefined,
+      glAccountId, annualAmount, notes: notes || undefined,
+      months: monthKeys.length > 0 ? parsed.map(m => ({ month: m.month, amount: m.amount ?? 0 })) : undefined,
     });
   };
 
@@ -83,7 +97,9 @@ export function BudgetForm({ fiscalYear, monthKeys, accounts, editing, busy, onS
       )}
       <p className="text-xs text-[var(--ff-text-tertiary)]">
         The annual amount is spread evenly across the {monthKeys.length || 12} months; edit a month to adjust it.
+        A month left empty is saved as 0.
       </p>
+      {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
       <div className="flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Cancel</button>
         <button type="submit" disabled={busy} data-testid="budget-save"

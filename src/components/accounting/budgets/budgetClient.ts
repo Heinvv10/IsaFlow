@@ -34,3 +34,17 @@ export function yearRangeLabel(year: BudgetYear): string {
 export function yearOptionLabel(year: BudgetYear): string {
   return year.monthKeys.length > 0 ? `${year.fiscalYear}: ${yearRangeLabel(year)}` : String(year.fiscalYear);
 }
+
+const LONG_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+  'August', 'September', 'October', 'November', 'December'];
+
+/** The range a report names in its `period` ('2026-03-01 to 2027-02-28'); null when it names none. */
+export function parseReportPeriod(period: string | undefined): { start: string; end: string } | null {
+  const m = /^(\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})$/.exec(period ?? '');
+  return m ? { start: m[1]!, end: m[2]! } : null;
+}
+
+/** '1 March 2026' for '2026-03-01'. */
+export function longDate(iso: string): string {
+  return `${Number(iso.slice(8, 10))} ${LONG_MONTHS[Number(iso.slice(5, 7)) - 1] ?? iso.slice(5, 7)} ${iso.slice(0, 4)}`;
+}
