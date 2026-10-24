@@ -61,9 +61,9 @@ describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('908b — races and l
     }
   });
 
-  it(`a platform_admin removal against a members-screen removal of the other owner leaves one owner (${ROUNDS} rounds)`, async () => {
+  it(`a platform_admin removal against a migration_admin removal of the other owner (the guard on the members screen's pool) leaves one owner (${ROUNDS} rounds)`, async () => {
     for (let i = 0; i < ROUNDS; i++) {
-      // The members screen (migration_admin) removes o2 while the admin site removes o1 first.
+      // Raw SQL on the members screen's pool (migration_admin): the guard's RC011, not memberWrites.ts.
       const { r2, owners } = await race(['platform_admin', undefined], ['migration_admin', undefined]);
       expect(r2).toBe('RC011');
       expect(owners).toHaveLength(1);
