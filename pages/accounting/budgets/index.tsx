@@ -28,6 +28,8 @@ export default function BudgetManagementPage() {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  // The last failed load: cleared as soon as a load succeeds (the other messages are about actions).
+  const [loadError, setLoadError] = useState('');
   const [success, setSuccess] = useState('');
   // The year the data on screen belongs to (what saves, deletes and copies act on).
   const fiscalYear = year?.fiscalYear ?? null;
@@ -45,12 +47,13 @@ export default function BudgetManagementPage() {
         setBudgets(json.data?.items || []);
         setYear(json.data?.year ?? null);
         setYears(json.data?.years ?? []);
+        setLoadError('');
       } catch (err) {
         if (stale) return;
         setBudgets([]);
         setYear(null);
         setYears([]);
-        setError(apiErrorMessage(err, 'Could not load budgets - try again'));
+        setLoadError(apiErrorMessage(err, 'Could not load budgets - try again'));
       } finally { if (!stale) setLoading(false); }
     })();
     return () => { stale = true; };
@@ -141,9 +144,10 @@ export default function BudgetManagementPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-4 sm:px-6 py-4">
+          {/* Stacks on a phone: the year, Copy and Add wrap onto their own rows instead of widening the page. */}
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between" data-testid="budgets-header">
+            <div className="flex items-center gap-3 min-w-0">
               <div className="p-2 rounded-lg bg-amber-500/10"><Wallet className="h-6 w-6 text-amber-500" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Budget Management</h1>
@@ -153,16 +157,16 @@ export default function BudgetManagementPage() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2" data-testid="budgets-actions">
               <select value={selectedYear ?? ''} onChange={e => changeYear(Number(e.target.value))} data-testid="budget-year"
-                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm">
+                className="min-w-0 max-w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm">
                 {yearOptions.map(y => <option key={y.fiscalYear} value={y.fiscalYear}>{yearOptionLabel(y)}</option>)}
               </select>
-              <button onClick={handleCopy} disabled={budgets.length === 0 || !nextYear || !!busy}
+              <button onClick={handleCopy} disabled={loading || budgets.length === 0 || !nextYear || !!busy}
                 className="inline-flex items-center gap-2 px-3 py-2 bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] rounded-lg text-sm hover:bg-[var(--ff-border-light)] disabled:opacity-50">
                 <Copy className="h-4 w-4" /> Copy to {nextYear?.fiscalYear ?? 'next year'}
               </button>
-              <button onClick={() => { setEditing(null); setShowForm(!showForm); }}
+              <button onClick={() => { setEditing(null); setShowForm(!showForm); }} disabled={loading || fiscalYear === null}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium">
                 <Plus className="h-4 w-4" /> Add Budget
               </button>
@@ -171,6 +175,13 @@ export default function BudgetManagementPage() {
         </div>
 
         <div className="p-6 space-y-4">
+          {loadError && (
+            <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm flex flex-wrap items-center justify-between gap-2">
+              <span>{loadError}</span>
+              {/* A failed load clears the year list, so the select cannot move off it: retry is the way out. */}
+              <button onClick={() => setReloads(n => n + 1)} disabled={loading} className="px-3 py-1 rounded border border-red-400/50 hover:bg-red-500/10 disabled:opacity-50">Retry</button>
+            </div>
+          )}
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
@@ -191,7 +202,7 @@ export default function BudgetManagementPage() {
               busy={busy === 'save'} onSubmit={handleSubmit} onCancel={closeForm} />
           )}
 
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">
                 <th className="px-4 py-3">Account</th><th className="px-4 py-3">Name</th>
@@ -217,10 +228,10 @@ export default function BudgetManagementPage() {
                     <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt(b.annualAmount / (monthKeys.length || 12))}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs truncate max-w-[150px]">{b.notes || '—'}</td>
                     <td className="px-4 py-3">
-                      <button onClick={() => { setShowForm(false); setEditing(b); }} className="p-1 text-[var(--ff-text-secondary)]" title="Edit">
+                      <button onClick={() => { setShowForm(false); setEditing(b); }} disabled={loading} className="p-1 text-[var(--ff-text-secondary)] disabled:opacity-50" title="Edit">
                         <Pencil className="h-4 w-4" />
                       </button>
-                      <button onClick={() => handleDelete(b.glAccountId)} disabled={busy === b.glAccountId} className="p-1 text-red-400 hover:text-red-300" title="Delete">
+                      <button onClick={() => handleDelete(b.glAccountId)} disabled={loading || busy === b.glAccountId} className="p-1 text-red-400 hover:text-red-300 disabled:opacity-50" title="Delete">
                         {busy === b.glAccountId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                       </button>
                     </td>

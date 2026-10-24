@@ -19,8 +19,8 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 type Deferred = { url: string; resolve: (r: Response) => void };
 
-/** The page loaded on FY2026, then the user picked 2027 and straight back to 2026: two requests in flight. */
-async function switchTwice() {
+/** The page loaded on FY2026; every later request waits for `answer`. */
+async function start() {
   const pending: Deferred[] = [];
   vi.mocked(apiFetch).mockReset().mockImplementation((url) => {
     const u = String(url);
@@ -28,15 +28,23 @@ async function switchTwice() {
     if (/\/budgets(\?|$)/.test(u)) return new Promise<Response>((resolve) => { pending.push({ url: u, resolve }); });
     return Promise.resolve(ok({}));
   });
-  const answer = (year: string, payload: unknown) =>
+  /** Answers the first request for `year` ('' = the first load); 'YYYY#2' answers the second request for that year. */
+  const answer = (which: string, payload: unknown) =>
     act(async () => {
-      pending.find((p) => p.url.endsWith(year === '' ? '/api/accounting/budgets' : `?fiscal_year=${year}`))!.resolve(payload instanceof Response ? payload : ok(payload));
+      const [year, nth = '1'] = which.split('#');
+      const hits = pending.filter((p) => p.url.endsWith(year === '' ? '/api/accounting/budgets' : `?fiscal_year=${year}`));
+      hits[Number(nth) - 1]!.resolve(payload instanceof Response ? payload : ok(payload));
     });
 
   render(<BudgetsPage />);
   await answer('', budgetsPayload([budgetRow({ accountName: 'Sales for 2026' })]));
   await screen.findByText('Sales for 2026');
-  const select = screen.getByTestId('budget-year') as HTMLSelectElement;
+  return { answer, select: screen.getByTestId('budget-year') as HTMLSelectElement };
+}
+
+/** Loaded on FY2026, then the user picked 2027 and straight back to 2026: two requests in flight. */
+async function switchTwice() {
+  const { answer, select } = await start();
   fireEvent.change(select, { target: { value: '2027' } });
   fireEvent.change(select, { target: { value: '2026' } });
   const latest = budgetsPayload([budgetRow({ accountName: 'Sales again 2026' })]);
@@ -83,5 +91,56 @@ describe('budgets page first load', () => {
     await screen.findByText('D2 Sales Budget');
     const urls = vi.mocked(apiFetch).mock.calls.map(([u]) => String(u)).filter((u) => /\/budgets(\?|$)/.test(u));
     expect(urls).toEqual(['/api/accounting/budgets']);
+  });
+});
+
+describe('budgets page while a year loads', () => {
+  const addButton = () => screen.getByRole('button', { name: /add budget/i }) as HTMLButtonElement;
+  const copyButton = () => screen.getByRole('button', { name: /copy to/i }) as HTMLButtonElement;
+
+  it('Add, Copy, Edit and Delete are disabled until the year has loaded, so none acts on the old year', async () => {
+    const { answer, latest } = await switchTwice();
+    expect(addButton().disabled).toBe(true);
+    expect(copyButton().disabled).toBe(true);
+    expect((screen.getByTitle('Edit') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTitle('Delete') as HTMLButtonElement).disabled).toBe(true);
+    await answer('2026', latest);
+    await screen.findByText('Sales again 2026');
+    expect(addButton().disabled).toBe(false);
+    expect(copyButton().disabled).toBe(false);
+    expect((screen.getByTitle('Edit') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('a failed load offers Retry, and its message goes away once the retry succeeds', async () => {
+    const { answer, select } = await start();
+    fireEvent.change(select, { target: { value: '2027' } });
+    await answer('2027', empty500());
+    expect(await screen.findByText('Could not load budgets - try again')).toBeTruthy();
+    // The failed load cleared the year list, so Retry is the way out.
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await answer('2027#2', budgetsPayload([budgetRow({ accountName: 'Sales for 2027', fiscalYear: 2027 })], YEAR_2027));
+    await screen.findByText('Sales for 2027');
+    expect(screen.queryByText('Could not load budgets - try again')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+});
+
+describe('budgets page header on a narrow screen', () => {
+  // jsdom has no layout, so this pins the classes that make the header wrap (the browser check is the proof):
+  // the header stacks below md, its actions wrap, and the tables scroll inside their own box, never the page.
+  it('stacks, wraps its actions, and keeps table overflow inside the tables', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
+      ok(String(url).includes('chart-of-accounts') ? [] : budgetsPayload([budgetRow()])));
+    render(<BudgetsPage />);
+    await screen.findByText('D2 Sales Budget');
+    const header = screen.getByTestId('budgets-header').className.split(/\s+/);
+    expect(header).toEqual(expect.arrayContaining(['flex-col', 'md:flex-row']));
+    const actions = screen.getByTestId('budgets-actions');
+    expect(actions.className.split(/\s+/)).toContain('flex-wrap');
+    expect(actions.contains(screen.getByRole('button', { name: /add budget/i }))).toBe(true);
+    expect(actions.contains(screen.getByTestId('budget-year'))).toBe(true);
+    for (const table of screen.getAllByRole('table')) {
+      expect(table.parentElement!.className).toMatch(/overflow-x-auto/);
+    }
   });
 });
