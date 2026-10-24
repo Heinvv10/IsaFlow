@@ -27,13 +27,17 @@ const sharing = crypto.randomUUID(); // owned by admin; sharing on
 const keeper = crypto.randomUUID(); // owned by owner; not sharing; `company` is linked to it and to `sharing`
 const outside = crypto.randomUUID(); // owned by accountant, who is not in `company`; `company` is linked to it
 const accountant = crypto.randomUUID();
+const companyViewer = crypto.randomUUID(); // a viewer of `company`
+const third = crypto.randomUUID(); // a company linked to `sharing`, which its bureau owner (admin) is not in
 // The pool's key shape: one or two A-Z words.
 const merchant = `BUREAU ${crypto.randomUUID().replace(/[^a-f]/g, '').toUpperCase().padEnd(12, 'Q').slice(0, 12)}`;
 
 beforeAll(async () => {
   await setup(ids);
-  await fixture.query(`INSERT INTO users (id, email, role, is_active, status) VALUES ($1, $2, 'viewer', true, 'active')`,
-    [accountant, `${accountant}@test.local`]);
+  await fixture.query(`INSERT INTO users (id, email, role, is_active, status) VALUES ($1, $2, 'viewer', true, 'active'),
+    ($3, $4, 'viewer', true, 'active')`, [accountant, `${accountant}@test.local`, companyViewer, `${companyViewer}@test.local`]);
+  await fixture.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, companyViewer]);
+  await fixture.query(`INSERT INTO companies (id, name, is_active) VALUES ($1, '932 third', true)`, [third]);
   await fixture.query(`INSERT INTO bureaus (id, name, owner_user_id, share_merchant_patterns) VALUES
     ($1, '932 mine', $2, false), ($3, '932 sharing', $4, true), ($5, '932 keeper', $6, false), ($7, '932 outside', $8, false)`,
   [mine, me, sharing, admin, keeper, owner, outside, accountant]);
@@ -42,6 +46,7 @@ beforeAll(async () => {
   [mine, me, sharing, admin, keeper, owner, accountant]);
   await fixture.query('INSERT INTO bureau_companies (bureau_id, company_id) VALUES ($1, $2), ($3, $2), ($4, $2)',
     [sharing, company, keeper, outside]);
+  await fixture.query('INSERT INTO bureau_companies (bureau_id, company_id) VALUES ($1, $2)', [sharing, third]);
   await fixture.query(`INSERT INTO shared_merchant_patterns (normalized_merchant, category_code, distinct_company_count,
     agreement_pct, total_observations, filter_version) SELECT $1, code, 5, 0.9, 20, 1 FROM merchant_categories WHERE poolable LIMIT 1`, [merchant]);
 }, 60000);
@@ -49,7 +54,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await fixture.query('DELETE FROM shared_merchant_patterns WHERE normalized_merchant = $1', [merchant]);
   await fixture.query('DELETE FROM bureaus WHERE id = ANY($1::uuid[])', [[mine, sharing, keeper, outside]]);
-  await fixture.query('DELETE FROM users WHERE id = $1', [accountant]);
+  await fixture.query('DELETE FROM companies WHERE id = $1', [third]);
+  await fixture.query('DELETE FROM company_users WHERE user_id = $1', [companyViewer]);
+  await fixture.query('DELETE FROM users WHERE id = ANY($1::text[])', [[accountant, companyViewer]]);
   vi.unstubAllEnvs();
   await teardown(ids, [getAuthPool(), getDbPool()]);
 });
@@ -215,19 +222,28 @@ describe('932: the legitimate paths, through the real routes on the production l
     expect(await linked(mine, company)).toBe(false);
   });
 
+  it('the bureau owner unlinks a company they are not a member of', async () => {
+    const r = await callRoute(clientsRoute, { sub: admin, method: 'DELETE', body: { bureauId: sharing, companyId: third } });
+    expect(r).toMatchObject({ status: 200, body: { data: { unlinked: true } } });
+    expect(await linked(sharing, third)).toBe(false);
+  });
+
   it('a bureau owner who does not manage the company cannot link it', async () => {
     const r = await callRoute(clientsRoute, { sub: admin, method: 'POST', body: { bureauId: sharing, companyId: other } });
     expect(r.status).toBe(403);
     expect(await linked(sharing, other)).toBe(false);
   });
 
-  it('the company\'s admin unlinks it from a bureau they are not in; a stranger cannot', async () => {
+  it('the company\'s admin unlinks it from a bureau they are not in; a stranger or a company viewer cannot', async () => {
     const stranger = await callRoute(clientsRoute, { sub: invitee, method: 'DELETE', body: { bureauId: sharing, companyId: company } });
     expect(stranger.status).toBe(403);
     expect(await linked(sharing, company)).toBe(true);
     const accountantOfOther = await callRoute(clientsRoute, { sub: accountant, method: 'DELETE',
       body: { bureauId: sharing, companyId: company } });
     expect(accountantOfOther.status).toBe(403);
+    const viewer = await callRoute(clientsRoute, { sub: companyViewer, method: 'DELETE', body: { bureauId: sharing, companyId: company } });
+    expect(viewer.status).toBe(403);
+    expect(await linked(sharing, company)).toBe(true);
     const r = await callRoute(clientsRoute, { sub: me, method: 'DELETE', body: { bureauId: sharing, companyId: company } });
     expect(r).toMatchObject({ status: 200, body: { data: { unlinked: true } } });
     expect(await linked(sharing, company)).toBe(false);
