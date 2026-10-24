@@ -132,3 +132,44 @@ describe('REPRO 2/3: directive create', () => {
     expect(row.employee_name).toBe(row.real);
   });
 });
+
+describe('ROUND 2: the create fix (ported from the breaker, 4192b08d7)', () => {
+  const BODY = { directive_type: 'severance', amount: 10_000, tax_rate: 0.1, effective_date: '2026-05-01' };
+  const post = (f: SeveranceFixture, body: Record<string, unknown>) =>
+    f.call(directives as Route, 'POST', '/api/accounting/tax-directives', undefined, { body });
+  const stored = async (id: unknown) =>
+    (await pool.query('SELECT employee_tax_number FROM tax_directives WHERE id = $1', [id])).rows[0]!.employee_tax_number;
+
+  it('R2-A: a record with no tax number does not take one from the body: 201, stored NULL', async () => {
+    const f = fx[0]!;
+    await pool.query('UPDATE payroll_employees SET tax_number = NULL WHERE id = $1', [f.employee]);
+    const r = await post(f, { ...BODY, employee_id: f.employee, employee_tax_number: '9999999999' });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+    expect(await stored(r.body.data!.id)).toBeNull();
+  });
+
+  it('R2-B: the record\'s own number written with spaces: 201, stored as the record has it', async () => {
+    const f = fx[0]!;
+    await pool.query("UPDATE payroll_employees SET tax_number = '0123456789' WHERE id = $1", [f.employee]);
+    const r = await post(f, { ...BODY, employee_id: f.employee, employee_tax_number: '0123 456 789' });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+    expect(await stored(r.body.data!.id)).toBe('0123456789');
+  });
+
+  it('R2-C (guard): non-string employee_name / text / amount types cannot 500', async () => {
+    const f = fx[0]!;
+    for (const extra of [{ employee_name: { x: 1 } }, { notes: ['a'] }, { amount: 'abc' }, { amount: { n: 1 } }, { tax_rate: '0.1; drop' }]) {
+      const r = await post(f, { ...BODY, employee_id: f.employee, ...extra });
+      expect(r.statusCode, `${JSON.stringify(extra)} -> ${JSON.stringify(r.body)}`).toBeLessThan(500);
+    }
+  });
+
+  it('R2-D (guard): the stored name is the record\'s', async () => {
+    const f = fx[0]!;
+    const made = await post(f, { ...BODY, employee_id: f.employee });
+    expect(made.statusCode, JSON.stringify(made.body)).toBe(201);
+    expect(made.body.data!.employeeName).toBe((await pool.query(
+      "SELECT first_name || ' ' || last_name AS n FROM payroll_employees WHERE id = $1", [f.employee])).rows[0]!.n);
+  });
+});
+

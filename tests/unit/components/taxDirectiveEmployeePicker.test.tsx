@@ -80,7 +80,10 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     fireEvent.change(select, { target: { value: 'e-1' } });
     fireEvent.change(select, { target: { value: 'e-2' } });
     expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).value).toBe('Sam Other');
-    expect((screen.getByLabelText('Tax Number') as HTMLInputElement).value).toBe('');
+    const taxNumber = screen.getByLabelText('Tax Number') as HTMLInputElement;
+    expect(taxNumber.value).toBe('');
+    // The number is the employee record's (the server stores that one whatever is sent): shown, not typed.
+    expect(taxNumber.readOnly).toBe(true);
   });
 
   it('a failed employee load says so in a plain sentence and blocks nothing else', async () => {
