@@ -178,16 +178,13 @@ describe('round 2 review: the create route\'s body and the employee record', () 
     expect(ok.body.data!.amount).toBe(10_000);
   });
 
-  it('an employee with no tax number on the record: a supplied one is refused, nothing to check it against (confirmation 4)', async () => {
+  it('an employee with no tax number on the record: a supplied one is ignored, NULL stored (decided: the record\'s, as the name)', async () => {
     const bare = (await pool.query<{ id: string }>(
       `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
        VALUES ($1, 'R4-NT', 'No', 'Number', '2021-01-01') RETURNING id`, [f.company])).rows[0]!.id;
     const r = await post({ ...BODY, employee_id: bare, employee_tax_number: '0123456789' });
-    expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
-    expect(r.body.error?.message).toMatch(/payroll record has no tax number/);
-    const none = await post({ ...BODY, employee_id: bare });
-    expect(none.statusCode).toBe(201);
-    expect((await pool.query('SELECT employee_tax_number FROM tax_directives WHERE id = $1', [none.body.data!.id])).rows[0]!.employee_tax_number).toBeNull();
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+    expect((await pool.query('SELECT employee_tax_number FROM tax_directives WHERE id = $1', [r.body.data!.id])).rows[0]!.employee_tax_number).toBeNull();
   });
 
   it('an inactive employee is refused by name (confirmation 6)', async () => {
@@ -206,11 +203,12 @@ describe('round 2 review: the create route\'s body and the employee record', () 
     expect(row).toEqual({ employee_name: 'Wanda Test', employee_tax_number: '0123456789' });
   });
 
-  it('a tax number that is not the employee\'s is refused; the same number is accepted (security 3)', async () => {
-    const wrong = await post({ ...BODY, employee_id: f.employee, employee_tax_number: '0987654321' });
-    expect(wrong.statusCode).toBe(400);
-    expect(wrong.body.error?.message).toMatch(/tax number/);
-    expect((await post({ ...BODY, employee_id: f.employee, employee_tax_number: ' 0123456789 ' })).statusCode).toBe(201);
+  it('the body\'s tax number is ignored: the stored number is the employee record\'s (decided round 2)', async () => {
+    for (const supplied of ['0987654321', ' 0123456789 ', '']) {
+      const r = await post({ ...BODY, employee_id: f.employee, employee_tax_number: supplied });
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+      expect((await pool.query('SELECT employee_tax_number FROM tax_directives WHERE id = $1', [r.body.data!.id])).rows[0]!.employee_tax_number).toBe('0123456789');
+    }
   });
 
   it('the body\'s name is ignored: the stored name is the employee record\'s (breaker REPRO 3)', async () => {
