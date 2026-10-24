@@ -1,7 +1,16 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterAll } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DateField, type DateFieldProps } from '@/components/ui/DateField';
+
+// SAST is UTC+2: pin it so a UTC-based "today" at 23:59 local is caught on any machine.
+// Set at import, before any Date below is built.
+const ORIGINAL_TZ = process.env.TZ;
+process.env.TZ = 'Africa/Johannesburg';
+afterAll(() => {
+  if (ORIGINAL_TZ === undefined) delete process.env.TZ;
+  else process.env.TZ = ORIGINAL_TZ;
+});
 
 // Thursday 15 Oct 2026, 23:59 local: a UTC-based "today" would already be tomorrow east of UTC.
 const TODAY = (): Date => new Date(2026, 9, 15, 23, 59, 30);

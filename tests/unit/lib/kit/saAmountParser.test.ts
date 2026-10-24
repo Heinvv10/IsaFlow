@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseSaAmount, formatCentsEcho, formatCentsPlain } from '@/lib/money/saAmountParser';
 
-const NB = ' ';
+const NB = '\u00A0';
 
 describe('parseSaAmount accepts', () => {
   const accepted: Array<[string, number]> = [
@@ -9,8 +9,8 @@ describe('parseSaAmount accepts', () => {
     ['25,000.00', 2_500_000],
     ['25 000,00', 2_500_000],
     [`25${NB}000,00`, 2_500_000],
-    ['25 000,00', 2_500_000],
-    ['25 000.00', 2_500_000],
+    ['25\u202F000,00', 2_500_000],
+    ['25\u2009000.00', 2_500_000],
     ['R 1 234.56', 123_456],
     ['R1234.56', 123_456],
     ['r 1234,56', 123_456],
@@ -47,7 +47,7 @@ describe('parseSaAmount accepts', () => {
     ['(123.45)', -12_345],
     ['(R 1 234,56)', -123_456],
     ['-123.45', -12_345],
-    ['−123.45', -12_345],
+    ['\u2212123.45', -12_345],
     ['-R 123.45', -12_345],
     ['R -123.45', -12_345],
     ['R(123.45)', -12_345],
