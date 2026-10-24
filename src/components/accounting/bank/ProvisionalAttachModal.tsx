@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatDate, formatRandAbs } from '@/utils/formatters';
 import { AlertCircle, Loader2, X } from 'lucide-react';
 
 interface CapturedDoc {
@@ -18,9 +19,6 @@ interface CapturedDoc {
 
 const PAGE_SIZE = 50;
 const LOAD_ERROR = 'Could not load documents - try again';
-
-const fmtZAR = (n: number) => 'R ' + Math.abs(n).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtDate = (s: string | null) => { if (!s) return '—'; try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return s; } };
 
 export function ProvisionalAttachModal({ submitting, onSelect, onClose }: {
   submitting: boolean; onSelect: (capturedDocumentId: string) => void; onClose: () => void;
@@ -91,9 +89,9 @@ export function ProvisionalAttachModal({ submitting, onSelect, onClose }: {
                   className="w-full text-left flex items-center justify-between p-3 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-[var(--ff-border-light)] mb-1 disabled:opacity-50">
                   <div>
                     <p className="text-sm font-medium text-[var(--ff-text-primary)]">{d.vendorName ?? d.fileName}</p>
-                    <p className="text-xs text-[var(--ff-text-tertiary)]">{d.documentType ?? 'Unknown type'} · {fmtDate(d.documentDate)}</p>
+                    <p className="text-xs text-[var(--ff-text-tertiary)]">{d.documentType ?? 'Unknown type'} · {formatDate(d.documentDate)}</p>
                   </div>
-                  <span className="text-xs font-mono text-[var(--ff-text-secondary)] shrink-0 ml-2">{d.totalAmount != null ? fmtZAR(d.totalAmount) : '—'}</span>
+                  <span className="text-xs font-mono text-[var(--ff-text-secondary)] shrink-0 ml-2">{d.totalAmount != null ? formatRandAbs(d.totalAmount) : '—'}</span>
                 </button>
               ))}
               {moreError && <p className="flex items-center justify-center gap-2 text-sm text-red-400 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{moreError}</p>}

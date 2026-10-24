@@ -275,6 +275,21 @@ describe('document-capture ?attachable=1', () => {
     }
   });
 
+  it('nextAfter is null on a page shorter than pageSize, and a page past the end still carries the full total', async () => {
+    const all = await page({ pageSize: '50' });
+    expect(all.data.length).toBe(EXPECTED.length);
+    expect(all.meta.nextAfter).toBeNull();
+    const full = await page({ pageSize: '2' });
+    expect(full.meta.nextAfter).not.toBeNull();
+    const short = await page({ pageSize: '3', page: String(Math.ceil(EXPECTED.length / 3)) });
+    expect(short.data.length).toBe(EXPECTED.length % 3 || 3);
+    if (EXPECTED.length % 3) expect(short.meta.nextAfter).toBeNull();
+    const past = await page({ pageSize: '3', page: '99' });
+    expect(past.data).toEqual([]);
+    expect(past.pagination.total).toBe(EXPECTED.length);
+    expect(past.meta.nextAfter).toBeNull();
+  });
+
   it.each([
     ['not a cursor', 'garbage'],
     ['no comma', '2026-09-01T10:00:00.123456Z'],
