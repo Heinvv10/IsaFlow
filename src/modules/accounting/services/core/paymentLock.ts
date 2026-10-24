@@ -146,6 +146,19 @@ export async function lockSupplierPaymentForUpdate(
   await client.query("SET LOCAL lock_timeout = '5s'");
   let failure: unknown = null;
   try {
+    // The payee's supplier row FIRST, FOR KEY SHARE: the lock the payment's own supplier FK check takes anyway once
+    // this transaction writes the row a second time (processSupplierPayment's claim, then its gl_journal_entry_id).
+    // Taken there, after the payment, it crossed updateSupplier (supplier FOR UPDATE, then the supplier's payments in
+    // recordBankDetailsSetter) and Postgres aborted one of them (40P01). Supplier before payment, as batch ->
+    // supplier -> payments everywhere else (ap/.claude.md). A payment re-pointed to another supplier between the two
+    // statements (a merge, which has committed by the time the payment lock is granted) key-shares the new one later.
+    await sql`
+      SELECT 1 FROM suppliers s
+      WHERE s.company_id = ${companyId}::UUID
+        AND s.id = (SELECT sp.supplier_id FROM supplier_payments sp
+                    WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID)
+      FOR KEY SHARE OF s
+    `;
     const rows = (await sql`
       SELECT sp.*,
              COALESCE((
