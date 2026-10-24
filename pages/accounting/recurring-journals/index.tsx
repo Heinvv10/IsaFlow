@@ -9,6 +9,7 @@ import { RotateCcw, Plus, Pause, Play, XCircle, Zap, Loader2, Trash2, Pencil, Sa
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { postingWarningsIn } from '@/components/accounting/postingWarningsNotice';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface RecurringJournal {
   id: string; templateName: string; description?: string; frequency: string;
@@ -18,7 +19,7 @@ interface RecurringJournal {
 interface Line { glAccountId: string; debit: number; credit: number; description?: string }
 interface Account { id: string; accountCode: string; accountName: string }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
   active: 'bg-teal-500/10 text-teal-400',

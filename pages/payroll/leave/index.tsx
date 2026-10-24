@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface LeaveRequestRow {
   id: string;
@@ -164,8 +165,8 @@ export default function LeaveIndexPage() {
                         <span className="ml-2 text-xs text-[var(--ff-text-tertiary)] font-mono">{r.employeeNumber}</span>
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.leaveTypeName}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.startDate}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{r.endDate}</td>
+                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatSaDateValue(r.startDate)}</td>
+                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatSaDateValue(r.endDate)}</td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-primary)] font-medium">{r.days}</td>
                       <td className="py-3 px-4"><StatusBadge status={r.status} /></td>
                       <td className="py-3 px-4 text-right">

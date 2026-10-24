@@ -184,24 +184,24 @@ describe('calculateFXGainLoss', () => {
 // formatCurrencyAmount
 // ---------------------------------------------------------------------------
 describe('formatCurrencyAmount', () => {
-  it('formats ZAR as "R 1,234.56"', () => {
-    expect(formatCurrencyAmount(1234.56, 'ZAR')).toBe('R 1,234.56');
+  it('formats ZAR as "R 1 234.56"', () => {
+    expect(formatCurrencyAmount(1234.56, 'ZAR')).toBe('R 1\u00A0234.56');
   });
 
-  it('formats USD as "$ 1,234.56"', () => {
-    expect(formatCurrencyAmount(1234.56, 'USD')).toBe('$ 1,234.56');
+  it('formats USD as "$ 1 234.56"', () => {
+    expect(formatCurrencyAmount(1234.56, 'USD')).toBe('$ 1\u00A0234.56');
   });
 
-  it('formats EUR as "€ 1,234.56"', () => {
-    expect(formatCurrencyAmount(1234.56, 'EUR')).toBe('€ 1,234.56');
+  it('formats EUR as "€ 1 234.56"', () => {
+    expect(formatCurrencyAmount(1234.56, 'EUR')).toBe('€ 1\u00A0234.56');
   });
 
-  it('formats GBP as "£ 1,234.56"', () => {
-    expect(formatCurrencyAmount(1234.56, 'GBP')).toBe('£ 1,234.56');
+  it('formats GBP as "£ 1 234.56"', () => {
+    expect(formatCurrencyAmount(1234.56, 'GBP')).toBe('£ 1\u00A0234.56');
   });
 
-  it('falls back to "XXX 1,234.56" for unknown currency code', () => {
-    expect(formatCurrencyAmount(1234.56, 'XXX')).toBe('XXX 1,234.56');
+  it('falls back to "XXX 1\u00A0234.56" for unknown currency code', () => {
+    expect(formatCurrencyAmount(1234.56, 'XXX')).toBe('XXX 1\u00A0234.56');
   });
 
   it('formats zero correctly', () => {
@@ -209,6 +209,6 @@ describe('formatCurrencyAmount', () => {
   });
 
   it('formats large amounts with correct thousands separators', () => {
-    expect(formatCurrencyAmount(1000000.0, 'ZAR')).toBe('R 1,000,000.00');
+    expect(formatCurrencyAmount(1000000.0, 'ZAR')).toBe('R 1\u00A0000\u00A0000.00');
   });
 });

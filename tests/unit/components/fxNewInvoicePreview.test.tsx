@@ -35,8 +35,8 @@ async function preview(unitPrice: string, taxRate: string, rate: string): Promis
 }
 
 describe('new invoice: the ZAR equivalent', () => {
-  it('USD 1 000 + 15% at 18.333 shows R 21,082.95', async () => {
-    expect(await preview('1000', '15', '18.333')).toBe('R 21,082.95');
+  it('USD 1 000 + 15% at 18.333 shows R 21 082.95', async () => {
+    expect(await preview('1000', '15', '18.333')).toBe('R 21\xa0082.95');
   });
 
   it('rounds a half cent away from zero, where float showed R 1.00', async () => {

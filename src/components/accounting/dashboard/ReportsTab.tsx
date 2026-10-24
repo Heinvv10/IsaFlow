@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import type { FiscalPeriod, TrialBalanceRow } from '@/modules/accounting/types/gl.types';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const REPORT_LINKS = [
   { href: '/accounting/reports/income-statement', label: 'Income Statement', sub: 'Profit & Loss', hoverColor: 'hover:border-teal-500/50' },
@@ -20,7 +21,7 @@ const REPORT_LINKS = [
 
 function fmtCurrency(amount: number): string {
   if (amount === 0) return '-';
-  return 'R ' + Number(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMoney(Number(amount));
 }
 
 export function ReportsTab() {
@@ -138,7 +139,7 @@ export function ReportsTab() {
               <thead>
                 <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
                   {['Code', 'Account', 'Type', 'Debit', 'Credit'].map((h, i) => (
-                    <th key={h} className={`px-6 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)] ${i >= 3 ? 'text-right' : 'text-left'}`}>{h}</th>
+                    <th key={h} className={`px-6 py-3 text-xs tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)] ${i >= 3 ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>

@@ -9,6 +9,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   AlertCircle, Check, Copy, Loader2, Plus, Settings, Trash2, X,
 } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface OauthApp {
   id: string;
@@ -35,7 +36,7 @@ interface NewApp {
 function fmt(val: string | null): string {
   if (!val) return '—';
   try {
-    return new Date(val).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
+    return formatSaDateValue(val);
   } catch { return val; }
 }
 

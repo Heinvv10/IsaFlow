@@ -82,16 +82,16 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
                 </p>
               </div>
               <div className="ml-3 text-right">
-                <p className={`text-sm font-bold font-mono ${b.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                <p className={`text-sm font-bold tabular-nums ${b.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                   {fmtCurrency(b.balance)}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] text-teal-500/80 font-mono" title="Allocated to GL entries">
+                  <span className="text-xs text-teal-500/80 tabular-nums" title="Allocated to GL entries">
                     ✓ {fmtCurrency(b.reconciledBalance)}
                   </span>
                   {hasGap && (
                     <span
-                      className="text-[10px] text-amber-400 font-mono"
+                      className="text-xs text-amber-400 font-mono"
                       title={`${b.unreconciledCount} unallocated transaction${b.unreconciledCount !== 1 ? 's' : ''}`}
                     >
                       Δ {fmtCurrency(Math.abs(gap))}

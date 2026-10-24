@@ -1,4 +1,6 @@
 import { Clock, Trash2, Loader2 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface TimeEntry {
   id: string;
@@ -17,8 +19,7 @@ interface TimeEntry {
   status: string;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const fmtHours = (n: number) => n.toFixed(2);
 
@@ -55,15 +56,15 @@ export function TimeEntriesTable({
                   onChange={onToggleSelectAll}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
               </th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase">Date</th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase">Project</th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase">Task</th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase">Customer</th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-right">Hours</th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-right">Rate</th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-right">Amount</th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-center">Billable</th>
-              <th className="px-4 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-center">Status</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase">Date</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase">Project</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase">Task</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase">Customer</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase text-right">Hours</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase text-right">Rate</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase text-right">Amount</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase text-center">Billable</th>
+              <th className="px-4 py-3 text-xs tracking-[0.12em] font-semibold uppercase text-center">Status</th>
               <th className="px-4 py-3 w-20"></th>
             </tr>
           </thead>
@@ -82,16 +83,16 @@ export function TimeEntriesTable({
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                 </td>
                 <td className="px-4 py-3 text-gray-900 dark:text-white whitespace-nowrap">
-                  {new Date(entry.entryDate).toLocaleDateString('en-ZA')}
+                  {formatSaDateValue(entry.entryDate)}
                 </td>
                 <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{entry.projectName || '-'}</td>
                 <td className="px-4 py-3 text-gray-900 dark:text-white max-w-xs truncate">{entry.taskDescription}</td>
                 <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{entry.customerName || '-'}</td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white font-mono tabular-nums">{fmtHours(entry.hours)}</td>
-                <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-400 font-mono tabular-nums">
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-white tabular-nums">{fmtHours(entry.hours)}</td>
+                <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-400 tabular-nums">
                   {entry.rate != null ? fmt(entry.rate) : '-'}
                 </td>
-                <td className="px-4 py-3 text-right text-gray-900 dark:text-white font-mono tabular-nums font-medium">
+                <td className="px-4 py-3 text-right text-gray-900 dark:text-white tabular-nums font-medium">
                   {entry.amount != null ? fmt(entry.amount) : '-'}
                 </td>
                 <td className="px-4 py-3 text-center">

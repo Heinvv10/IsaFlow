@@ -11,6 +11,7 @@ import { notify } from '@/utils/toast';
 import { AddRateForm, ConverterWidget } from '@/components/accounting/exchangeRates/ExchangeRateForms';
 import type { Currency } from '@/components/accounting/exchangeRates/ExchangeRateForms';
 import { TrendingUp, Loader2, AlertCircle, Trash2, RefreshCw } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface ExchangeRate {
   id: string;
@@ -137,8 +138,8 @@ export default function ExchangeRatesSettingsPage() {
                         <tr key={r.id} className="bg-[var(--ff-bg-secondary)] hover:bg-[var(--ff-bg-primary)] transition-colors">
                           <td className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">{r.fromCurrency}</td>
                           <td className="px-4 py-3 font-mono font-semibold text-[var(--ff-text-primary)]">{r.toCurrency}</td>
-                          <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{r.rate.toFixed(6)}</td>
-                          <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.effectiveDate}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.rate.toFixed(6)}</td>
+                          <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatSaDateValue(r.effectiveDate)}</td>
                           <td className="px-4 py-3 text-right">
                             <button
                               onClick={() => handleDelete(r.id)}

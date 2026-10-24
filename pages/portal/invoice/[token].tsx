@@ -8,6 +8,7 @@ import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import { useMemo, useState } from 'react';
 import { FileText, Download, CreditCard, CheckCircle2, AlertTriangle, Clock, XCircle, MessageSquareWarning, Loader2 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ interface PortalInvoiceProps {
 
 function fmt(amount: number, currency = 'ZAR'): string {
   if (currency === 'ZAR') {
-    return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatMoney(Math.abs(amount));
   }
   return new Intl.NumberFormat('en-ZA', { style: 'currency', currency }).format(amount);
 }

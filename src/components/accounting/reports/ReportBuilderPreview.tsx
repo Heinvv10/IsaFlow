@@ -5,6 +5,7 @@
 
 import { X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface Column {
   field: string;
@@ -35,7 +36,7 @@ function formatCell(value: unknown, type: string): string {
   if (type === 'date') {
     const d = value instanceof Date ? value : new Date(String(value));
     if (isNaN(d.getTime())) return String(value);
-    return d.toLocaleDateString('en-ZA');
+    return formatSaDateValue(d);
   }
   return String(value);
 }

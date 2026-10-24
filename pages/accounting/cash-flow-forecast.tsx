@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, AlertTriangle, AlertCircle, Loader2, RefreshCw, Info } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const ResponsiveContainer = dynamic(
   () => import('recharts').then(m => m.ResponsiveContainer),
@@ -51,10 +52,7 @@ const Legend = dynamic(
   { ssr: false }
 );
 
-function formatCurrency(amount: number): string {
-  const prefix = amount < 0 ? '-R ' : 'R ';
-  return prefix + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+const formatCurrency = (amount: number): string => formatMoney(amount);
 
 interface ForecastPoint {
   date: string;

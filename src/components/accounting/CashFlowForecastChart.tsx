@@ -178,11 +178,11 @@ export function CashFlowForecastChart({ data }: CashFlowChartProps) {
             <CartesianGrid strokeDasharray="3 3" stroke="var(--ff-border-primary)" />
             <XAxis
               dataKey="label"
-              tick={{ fill: 'var(--ff-text-secondary)', fontSize: 11 }}
+              tick={{ fill: 'var(--ff-text-secondary)', fontSize: 12 }}
               interval="preserveStartEnd"
             />
             <YAxis
-              tick={{ fill: 'var(--ff-text-secondary)', fontSize: 11 }}
+              tick={{ fill: 'var(--ff-text-secondary)', fontSize: 12 }}
               tickFormatter={(v: number) => `R${Math.round(v / 1000)}k`}
               width={60}
             />

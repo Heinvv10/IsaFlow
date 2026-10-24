@@ -1,36 +1,88 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatAmount, formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
+
+const NB = '\xa0';
 
 describe('formatMoney', () => {
-  it('formats a positive amount with the R symbol and thousands separators', () => {
-    expect(formatMoney(318400)).toBe('R 318,400.00');
+  it('groups thousands with a non-breaking space and uses a dot decimal: "R 25 000.00"', () => {
+    expect(formatMoney(25000)).toBe(`R 25${NB}000.00`);
+    expect(formatMoney(318400)).toBe(`R 318${NB}400.00`);
+  });
+
+  it('never prints a comma, so a figure cannot be read as a decimal comma', () => {
+    expect(formatMoney(1234567.89)).toBe(`R 1${NB}234${NB}567.89`);
+    expect(formatMoney(1234567.89)).not.toContain(',');
+  });
+
+  it('does not group below 1 000', () => {
+    expect(formatMoney(999.5)).toBe('R 999.50');
+    expect(formatMoney(1000)).toBe(`R 1${NB}000.00`);
   });
 
   it('formats negatives with a leading minus before the symbol', () => {
-    expect(formatMoney(-2300)).toBe('-R 2,300.00');
+    expect(formatMoney(-2300)).toBe(`-R 2${NB}300.00`);
+    expect(formatMoney(-0.01)).toBe('-R 0.01');
   });
 
-  it('rounds to two decimals', () => {
-    expect(formatMoney(42100.5)).toBe('R 42,100.50');
+  it('renders zero cleanly, and never prints a negative zero', () => {
+    expect(formatMoney(0)).toBe('R 0.00');
+    expect(formatMoney(-0)).toBe('R 0.00');
+    expect(formatMoney(-0.004)).toBe('R 0.00');
+  });
+
+  it('rounds to cents half away from zero, including values a binary double stores just below the half', () => {
+    expect(formatMoney(42100.5)).toBe(`R 42${NB}100.50`);
+    expect(formatMoney(1.005)).toBe('R 1.01');
+    expect(formatMoney(2.675)).toBe('R 2.68');
+    expect(formatMoney(-1.005)).toBe('-R 1.01');
+    expect(formatMoney(0.994)).toBe('R 0.99');
+    expect(formatMoney(999.995)).toBe(`R 1${NB}000.00`);
+  });
+
+  it('formats large amounts', () => {
+    expect(formatMoney(1_410_785)).toBe(`R 1${NB}410${NB}785.00`);
+    expect(formatMoney(9_007_199_254_740)).toBe(`R 9${NB}007${NB}199${NB}254${NB}740.00`);
   });
 
   it('can omit decimals when asked', () => {
-    expect(formatMoney(1200000, { decimals: 0 })).toBe('R 1,200,000');
+    expect(formatMoney(1200000, { decimals: 0 })).toBe(`R 1${NB}200${NB}000`);
+    expect(formatMoney(1234.5, { decimals: 0 })).toBe(`R 1${NB}235`);
   });
 
-  it('renders zero cleanly', () => {
-    expect(formatMoney(0)).toBe('R 0.00');
+  it('survives a value whose String() is exponent notation', () => {
+    expect(formatMoney(1e-7)).toBe('R 0.00');
   });
 
-  // Non-finite inputs are pinned, not fixed: toFixed() yields "NaN"/"Infinity"
-  // (no decimal point), so the fracPart guard skips the dot and keeps these clean.
-  // We document this real output rather than mask an upstream bug — callers
-  // pass typed finite numbers; this is the cost of feeding garbage in.
+  // Non-finite inputs are pinned, not fixed: callers pass typed finite numbers.
   it('passes NaN through verbatim (caller responsibility)', () => {
     expect(formatMoney(NaN)).toBe('R NaN');
   });
 
   it('passes Infinity through verbatim (caller responsibility)', () => {
     expect(formatMoney(Infinity)).toBe('R Infinity');
+  });
+});
+
+describe('formatAmount', () => {
+  it('is the same figure without the R symbol', () => {
+    expect(formatAmount(25000)).toBe(`25${NB}000.00`);
+    expect(formatAmount(-2300.5)).toBe(`-2${NB}300.50`);
+    expect(formatAmount(-0.004)).toBe('0.00');
+    expect(formatAmount(1234.5, { decimals: 0 })).toBe(`1${NB}235`);
+  });
+});
+
+describe('formatMoneyCompact', () => {
+  it('abbreviates millions and thousands, one decimal, sign before the symbol', () => {
+    expect(formatMoneyCompact(5_500_000)).toBe('R 5.5M');
+    expect(formatMoneyCompact(-5_532_100)).toBe('-R 5.5M');
+    expect(formatMoneyCompact(-895_040)).toBe('-R 895.0K');
+    expect(formatMoneyCompact(1000)).toBe('R 1.0K');
+  });
+
+  it('prints the full figure below R 1 000, with the requested decimals', () => {
+    expect(formatMoneyCompact(172.5)).toBe('R 172.50');
+    expect(formatMoneyCompact(-172.5, { decimals: 0 })).toBe('-R 173');
+    expect(formatMoneyCompact(0)).toBe('R 0.00');
   });
 });

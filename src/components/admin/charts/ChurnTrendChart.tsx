@@ -40,13 +40,13 @@ export function ChurnTrendChart({ data }: Props) {
         <XAxis
           dataKey="month"
           tickFormatter={(v: unknown) => fmtMonth(v)}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
           tickFormatter={(v: number) => `${v}%`}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={40}

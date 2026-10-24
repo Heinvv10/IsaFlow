@@ -4,6 +4,7 @@
 
 import { formatCurrency } from '@/utils/formatters';
 import type { SupplierInvoiceItem } from '@/modules/accounting/types/ap.types';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface EditForm {
   invoiceNumber: string;
@@ -39,7 +40,7 @@ export function SupplierInvoiceSummary({
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
           <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Invoice Date</p>
-          <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{invoiceDate}</p>
+          <p className="text-lg font-semibold mt-1 text-[var(--ff-text-primary)]">{formatSaDateValue(invoiceDate)}</p>
         </div>
         <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
           <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Due Date</p>
@@ -88,10 +89,10 @@ export function SupplierInvoiceSummary({
             {(items || []).map(item => (
               <tr key={item.id} className="hover:bg-[var(--ff-bg-tertiary)]">
                 <td className="px-4 py-3 text-sm text-[var(--ff-text-primary)]">{item.description}</td>
-                <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-secondary)]">{item.quantity}</td>
-                <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(item.unitPrice)}</td>
-                <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(item.taxAmount)}</td>
-                <td className="px-4 py-3 text-sm text-right font-mono font-medium text-[var(--ff-text-primary)]">{formatCurrency(item.lineTotal)}</td>
+                <td className="px-4 py-3 text-sm text-right tabular-nums text-[var(--ff-text-secondary)]">{item.quantity}</td>
+                <td className="px-4 py-3 text-sm text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(item.unitPrice)}</td>
+                <td className="px-4 py-3 text-sm text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(item.taxAmount)}</td>
+                <td className="px-4 py-3 text-sm text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{formatCurrency(item.lineTotal)}</td>
               </tr>
             ))}
           </tbody>
@@ -99,7 +100,7 @@ export function SupplierInvoiceSummary({
             <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
               <td colSpan={3}></td>
               <td className="px-4 py-3 text-sm font-medium text-right text-[var(--ff-text-secondary)]">Total:</td>
-              <td className="px-4 py-3 text-sm text-right font-mono font-bold text-teal-500">{formatCurrency(totalAmount)}</td>
+              <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-teal-500">{formatCurrency(totalAmount)}</td>
             </tr>
           </tfoot>
         </table>

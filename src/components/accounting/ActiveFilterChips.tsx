@@ -4,6 +4,7 @@
  */
 
 import { X } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 export interface ActiveFilterChip {
   key: string;
@@ -55,7 +56,7 @@ export function periodChipLabel(from: string, to: string, month: string | null):
   }
   const fmt = (d: string) => {
     const [y, m, day] = d.split('-').map(Number);
-    return new Date(y!, m! - 1, day!).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatSaDateValue(new Date(y!, m! - 1, day!));
   };
   if (from && to) return `${fmt(from)} – ${fmt(to)}`;
   return from ? `From ${fmt(from)}` : `Until ${fmt(to)}`;

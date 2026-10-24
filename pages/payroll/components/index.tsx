@@ -119,7 +119,7 @@ export default function PayComponentsPage() {
                 <div>
                   <label className={label}>SARS code</label>
                   <input className={field} value={sarsCode} onChange={e => setSarsCode(e.target.value)} />
-                  <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">{SARS_HINTS.join(' · ')}</p>
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">{SARS_HINTS.join(' · ')}</p>
                 </div>
                 <div>
                   <label className={label}>Type</label>

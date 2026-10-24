@@ -8,6 +8,7 @@
  */
 
 import { Loader2, ScrollText } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface PortalStatementData {
   asOfDate: string;
@@ -26,7 +27,7 @@ export interface PortalStatementData {
 
 /** 'R 1 234.56'; a negative balance is money the customer holds in credit. */
 export function formatBalance(amount: number): string {
-  const text = 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const text = formatMoney(Math.abs(amount));
   return amount < 0 ? `${text} CR` : text;
 }
 

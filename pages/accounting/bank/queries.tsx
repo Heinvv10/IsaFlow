@@ -15,6 +15,8 @@ import { MessageSquare, AlertCircle, Loader2, CheckCircle2, X } from 'lucide-rea
 import { BankTxAttachmentsModal } from '@/components/accounting/BankTxAttachmentsModal';
 import { StatusBadge, ExpandableText, QueryRowActions } from '@/components/accounting/bank/QueryRow';
 import type { BankTxQueryRow } from '@/components/accounting/bank/QueryRow';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,12 +25,11 @@ type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fmtZAR = (n: number) =>
-  'R ' + Math.abs(n).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtZAR = (n: number) => formatMoney(Math.abs(n));
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  try { return formatSaDateValue(s); } catch { return String(s); }
 };
 
 const fmtDateTime = (s: string | Date | null) => {
@@ -190,19 +191,19 @@ export default function ClientQueriesPage() {
                 <tbody>
                   {rows.map(r => (
                     <tr key={r.id} className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 transition-colors align-top">
-                      <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-secondary)] whitespace-nowrap">{fmtDate(r.transaction_date)}</td>
+                      <td className="px-4 py-3 tabular-nums text-xs text-[var(--ff-text-secondary)] whitespace-nowrap">{fmtDate(r.transaction_date)}</td>
                       <td className="px-4 py-3 max-w-[180px]">
                         <p className="text-xs font-medium text-[var(--ff-text-primary)] line-clamp-2">{r.tx_description || '—'}</p>
-                        <p className="text-[10px] text-[var(--ff-text-tertiary)]">{r.bank_account_name ?? '—'}</p>
+                        <p className="text-xs text-[var(--ff-text-tertiary)]">{r.bank_account_name ?? '—'}</p>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-[var(--ff-text-secondary)] whitespace-nowrap">{fmtZAR(r.amount)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs text-[var(--ff-text-secondary)] whitespace-nowrap">{fmtZAR(r.amount)}</td>
                       <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)] whitespace-nowrap">{r.to_number}</td>
                       <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                      <td className="px-4 py-3 text-[10px] text-[var(--ff-text-tertiary)] whitespace-nowrap">{fmtDateTime(r.sent_at)}</td>
+                      <td className="px-4 py-3 text-xs text-[var(--ff-text-tertiary)] whitespace-nowrap">{fmtDateTime(r.sent_at)}</td>
                       <td className="px-4 py-3 max-w-[280px] space-y-1">
                         {r.reply_text && (
                           <div>
-                            <span className="text-[10px] uppercase text-teal-400 font-medium mr-1">Reply:</span>
+                            <span className="text-xs uppercase text-teal-400 font-medium mr-1">Reply:</span>
                             <ExpandableText text={r.reply_text} limit={150} label="Read more" />
                           </div>
                         )}

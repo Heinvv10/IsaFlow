@@ -117,8 +117,8 @@ export default function TrendAnalysisPage() {
                 <ResponsiveContainer width="100%" height={350}>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#888' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#888' }} tickFormatter={fmt} />
+                    <XAxis dataKey="period" tick={{ fontSize: 12, fill: '#888' }} />
+                    <YAxis tick={{ fontSize: 12, fill: '#888' }} tickFormatter={fmt} />
                     <Tooltip
                       contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }}
                       formatter={(val) => [fmt(Number(val || 0)), '']}

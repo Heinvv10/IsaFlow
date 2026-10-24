@@ -10,12 +10,14 @@ import { Loader2, AlertCircle, ChevronDown, ChevronRight, FileText } from 'lucid
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { WipClientRow, GenerateWipInvoiceInput } from '@/modules/accounting/services/practice/practiceWipService';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 function todayIso() { return localISODate(); }
-function fmtMoney(n: number) { return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n); }
-function fmtDate(iso: string) { return iso ? new Date(iso).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'; }
+function fmtMoney(n: number) { return formatMoney(n); }
+function fmtDate(iso: string) { return iso ? formatSaDateValue(iso) : '—'; }
 
-const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
+const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
 const RING = 'focus:outline-none focus:ring-2 focus:ring-teal-500/40';
 const INPUT_CLS = `w-full rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] ${RING}`;

@@ -14,6 +14,7 @@ import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { EmptyState } from '@/components/ui';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -97,15 +98,15 @@ export default function BankReconciliationListPage() {
     <tr key={r.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] transition-colors">
       <td className={`px-4 py-3 text-[var(--ff-text-primary)] ${indent ? 'pl-8' : ''}`}>{r.bankAccountName || '—'}</td>
       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-        {new Date(r.statementDate).toLocaleDateString('en-ZA')}
+        {formatSaDateValue(r.statementDate)}
       </td>
-      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
         {formatCurrency(r.statementBalance)}
       </td>
-      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
         {formatCurrency(r.reconciledBalance)}
       </td>
-      <td className={`px-4 py-3 text-right font-mono font-bold ${Math.abs(r.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
+      <td className={`px-4 py-3 text-right tabular-nums font-bold ${Math.abs(r.difference) < 0.01 ? 'text-teal-400' : 'text-red-400'}`}>
         {formatCurrency(r.difference)}
       </td>
       <td className="px-4 py-3 text-center">
@@ -228,7 +229,7 @@ export default function BankReconciliationListPage() {
         message={
           <>
             {pendingCancel?.bankAccountName || 'This bank account'} —{' '}
-            {pendingCancel ? new Date(pendingCancel.statementDate).toLocaleDateString('en-ZA') : ''}
+            {pendingCancel ? formatSaDateValue(pendingCancel.statementDate) : ''}
             {'\n\n'}The session is deleted and its transactions are released back to the bank
             account. Matches made here are undone; allocated and excluded transactions keep
             their status and their journal entries.

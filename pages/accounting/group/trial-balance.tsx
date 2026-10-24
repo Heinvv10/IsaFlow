@@ -10,6 +10,7 @@ import { csvCell } from '@/lib/csv';
 import { TBSummaryCards, TBBalanceFooter } from '@/components/accounting/group/TBSummaryCards';
 import { TBConsolidationWarnings } from '@/components/accounting/group/TBConsolidationWarnings';
 import type { UnmappedEntity } from '@/components/accounting/group/TBConsolidationWarnings';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface EntityBalance { debit: number; credit: number }
 
@@ -53,8 +54,7 @@ interface ConsolidatedTBResponse {
 
 interface EntityGroup { id: string; name: string }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 /**
  * Local calendar date as YYYY-MM-DD. Never `.toISOString()`: this host runs in

@@ -56,13 +56,13 @@ export function TrafficTimeseriesChart({ data, range, metric = 'pageviews' }: Pr
         <XAxis
           dataKey="bucket"
           tickFormatter={(v: unknown) => fmtLabel(String(v ?? ''), range)}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           minTickGap={30}
         />
         <YAxis
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={40}

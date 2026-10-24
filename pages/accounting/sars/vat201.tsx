@@ -22,6 +22,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface VAT201Invoice {
   id: string; invoiceNumber: string; counterpartyName: string;
@@ -37,8 +38,7 @@ interface VAT201Data {
   outputInvoices: VAT201Invoice[]; inputInvoices: VAT201Invoice[];
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
 

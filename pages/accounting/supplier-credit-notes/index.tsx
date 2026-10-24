@@ -10,6 +10,7 @@ import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
@@ -65,7 +66,7 @@ export default function SupplierCreditNotesPage() {
     const rows = creditNotes.map(cn => [
       cn.creditNoteNumber, cn.supplierName ?? '',
       cn.invoiceNumber ?? '',
-      new Date(cn.creditDate).toLocaleDateString('en-ZA'),
+      formatSaDateValue(cn.creditDate),
       cn.totalAmount, cn.status,
     ]);
     const csv = [headers, ...rows]
@@ -154,9 +155,9 @@ export default function SupplierCreditNotesPage() {
                       <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.supplierName ?? '—'}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 font-mono text-xs">{cn.invoiceNumber ?? '—'}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">
-                        {new Date(cn.creditDate).toLocaleDateString('en-ZA')}
+                        {formatSaDateValue(cn.creditDate)}
                       </td>
-                      <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">
+                      <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">
                         {formatCurrency(cn.totalAmount)}
                       </td>
                       <td className="px-5 py-3.5"><StatusBadge status={cn.status} /></td>

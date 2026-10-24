@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Key, Copy, Check, Loader2, AlertCircle, X, ShieldOff, Plus } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface ApiKey {
   id: string;
@@ -30,11 +31,7 @@ interface Props {
 function formatDate(val: string | null): string {
   if (!val) return 'Never';
   try {
-    return new Date(val).toLocaleDateString('en-ZA', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
+    return formatSaDateValue(val);
   } catch {
     return val;
   }

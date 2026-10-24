@@ -178,7 +178,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
                   Drag &amp; drop or{' '}
                   <span className="text-blue-400 font-medium">click to browse</span>
                 </p>
-                <p className="text-[10px] text-[var(--ff-text-tertiary)]">
+                <p className="text-xs text-[var(--ff-text-tertiary)]">
                   JPG, PNG, PDF — max 2 MB
                 </p>
               </>
@@ -231,7 +231,7 @@ export function BankTxAttachmentsModal({ bankTransactionId, transactionDescripti
                     <p className="text-xs font-medium text-[var(--ff-text-primary)] truncate">
                       {att.file_name}
                     </p>
-                    <p className="text-[10px] text-[var(--ff-text-tertiary)]">
+                    <p className="text-xs text-[var(--ff-text-tertiary)]">
                       {formatBytes(att.file_size)}{att.file_size ? ' · ' : ''}{formatDisplayDate(att.created_at)}
                     </p>
                   </div>

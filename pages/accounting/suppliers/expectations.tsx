@@ -7,6 +7,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { RefreshCw, AlertCircle, Loader2, X, CheckCircle2, Clock, Search } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface SupplierExpectation {
   id: string; companyId: string; supplierId: string;
@@ -28,11 +30,11 @@ type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
 const CADENCE_GAP: Record<string, number> = { monthly: 30, quarterly: 91, annual: 365 };
 
 const fmtZAR = (n: number | null) =>
-  n == null ? '—' : 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n == null ? '—' : formatMoney(n);
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  try { return formatSaDateValue(s); } catch { return String(s); }
 };
 
 function nextExpected(exp: SupplierExpectation): string {
@@ -42,7 +44,7 @@ function nextExpected(exp: SupplierExpectation): string {
   try {
     const base = new Date(exp.lastInvoiceDate);
     base.setDate(base.getDate() + gap);
-    return base.toLocaleDateString('en-ZA');
+    return formatSaDateValue(base);
   } catch { return '—'; }
 }
 
@@ -230,11 +232,11 @@ export default function SupplierExpectationsPage() {
                       </td>
                       <td className="px-4 py-3"><CadenceBadge cadence={r.cadence} /></td>
                       <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{nextExpected(r)}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtZAR(r.expectedAmount)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtZAR(r.expectedAmount)}</td>
                       <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">
                         <span className="block">{fmtDate(r.lastInvoiceDate)}</span>
                         {r.lastInvoiceAmount != null && (
-                          <span className="text-[var(--ff-text-tertiary)] font-mono">{fmtZAR(r.lastInvoiceAmount)}</span>
+                          <span className="text-[var(--ff-text-tertiary)] tabular-nums">{fmtZAR(r.lastInvoiceAmount)}</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-center text-[var(--ff-text-secondary)]">{r.sampleSize}</td>

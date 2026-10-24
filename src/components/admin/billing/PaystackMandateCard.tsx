@@ -9,6 +9,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { CreditCard, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface Mandate {
   id: string;
@@ -193,7 +194,7 @@ export function PaystackMandateCard() {
             {data.mandate.authorised_at && (
               <Row
                 label="Authorised"
-                value={new Date(data.mandate.authorised_at).toLocaleDateString('en-ZA')}
+                value={formatSaDateValue(data.mandate.authorised_at)}
               />
             )}
           </dl>

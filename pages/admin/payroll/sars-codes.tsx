@@ -14,6 +14,7 @@ import {
   AlertCircle, Loader2, Upload, CheckCircle2, FileSpreadsheet, X,
   Search, RotateCcw, BadgeCheck, Ban, ExternalLink,
 } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface ReleaseRow {
   effective_year: number;
@@ -197,7 +198,7 @@ export default function AdminSarsCodesPage() {
                     Set as current
                   </button>
                 )}
-                <span className="ml-auto text-xs text-[var(--ff-text-tertiary)]">Imported {new Date(r.released_at).toLocaleDateString()}</span>
+                <span className="ml-auto text-xs text-[var(--ff-text-tertiary)]">Imported {formatSaDateValue(r.released_at)}</span>
               </div>
             ))}
           </div>
@@ -520,7 +521,7 @@ function DiffCell({ label, value, color }: { label: string; value: number; color
   return (
     <div className="rounded-lg bg-[var(--ff-bg-tertiary)] p-3">
       <div className="text-xs text-[var(--ff-text-tertiary)]">{label}</div>
-      <div className={`text-2xl font-mono ${color}`}>{value}</div>
+      <div className={`text-2xl tabular-nums ${color}`}>{value}</div>
     </div>
   );
 }

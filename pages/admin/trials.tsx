@@ -6,6 +6,7 @@ import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Clock, CheckCircle, TrendingUp, XCircle } from 'lucide-react';
 import Link from 'next/link';
 import { ConvertTrialModal } from '@/components/admin/ConvertTrialModal';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 /* ------------------------------------------------------------------ types */
 interface TrialCompany {
@@ -33,9 +34,7 @@ type FilterTab = 'all' | 'expiring' | 'expired' | 'converted';
 
 /* --------------------------------------------------------------- helpers */
 function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
+  return formatSaDateValue(iso);
 }
 
 function daysLeftBadge(days: number) {

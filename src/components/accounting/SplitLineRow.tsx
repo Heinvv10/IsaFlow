@@ -109,7 +109,7 @@ export function SplitLineRow({
 
         <input type="number" min="0.01" step="0.01" placeholder="0.00" aria-label={`Line ${index + 1} amount`}
           value={line.amount} onChange={e => onChange({ amount: e.target.value })}
-          className={`${FIELD} text-right font-mono`} />
+          className={`${FIELD} text-right tabular-nums`} />
 
         {isAccount && (
           <select value={line.vatCode} aria-label={`Line ${index + 1} VAT`}

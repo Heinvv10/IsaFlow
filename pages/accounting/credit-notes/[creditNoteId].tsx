@@ -241,7 +241,7 @@ export default function CreditNoteDetailPage() {
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-[var(--ff-text-secondary)]">
-                Applying <span className="text-orange-400 font-semibold">{formatCurrency(Number(note.totalAmount))}</span> credit note <span className="font-mono text-[var(--ff-text-primary)]">{note.creditNoteNumber}</span> to an outstanding invoice.
+                Applying <span className="text-orange-400 font-semibold">{formatCurrency(Number(note.totalAmount))}</span> credit note <span className="tabular-nums text-[var(--ff-text-primary)]">{note.creditNoteNumber}</span> to an outstanding invoice.
               </p>
               {invoicesLoading ? (
                 <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-blue-400" /></div>

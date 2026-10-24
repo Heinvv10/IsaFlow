@@ -82,7 +82,7 @@ function BoxRow({ box, section }: { box: VAT201Box; section: 'output' | 'input' 
             </span>
           )}
         </div>
-        <span className={`font-mono font-medium ${Math.abs(box.amount) < 0.01 ? 'text-[var(--ff-text-tertiary)]' : colorClass}`}>
+        <span className={`tabular-nums font-medium ${Math.abs(box.amount) < 0.01 ? 'text-[var(--ff-text-tertiary)]' : colorClass}`}>
           {formatCurrency(box.amount)}
         </span>
       </button>
@@ -103,7 +103,7 @@ function BoxRow({ box, section }: { box: VAT201Box; section: 'output' | 'input' 
               <span className="w-24 text-[var(--ff-text-tertiary)]">{formatDate(tx.entryDate)}</span>
               <span className="w-28 font-mono text-[var(--ff-text-secondary)]">{tx.entryNumber}</span>
               <span className="flex-1 text-[var(--ff-text-secondary)] truncate">{tx.description}</span>
-              <span className={`w-28 text-right font-mono ${tx.amount >= 0 ? colorClass : 'text-[var(--ff-text-tertiary)]'}`}>
+              <span className={`w-28 text-right tabular-nums ${tx.amount >= 0 ? colorClass : 'text-[var(--ff-text-tertiary)]'}`}>
                 {formatCurrency(tx.amount)}
               </span>
             </div>
@@ -226,11 +226,11 @@ export default function VATReturnPage() {
               <div className="grid grid-cols-3 gap-4">
                 <div className="p-4 rounded-xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]">
                   <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total Output Tax (Box 13)</p>
-                  <p className="text-2xl font-bold text-red-400 font-mono">{formatCurrency(report.totalOutputTax)}</p>
+                  <p className="text-2xl font-bold text-red-400 tabular-nums">{formatCurrency(report.totalOutputTax)}</p>
                 </div>
                 <div className="p-4 rounded-xl bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]">
                   <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Total Input Tax (Box 19)</p>
-                  <p className="text-2xl font-bold text-teal-400 font-mono">{formatCurrency(report.totalInputTax)}</p>
+                  <p className="text-2xl font-bold text-teal-400 tabular-nums">{formatCurrency(report.totalInputTax)}</p>
                 </div>
                 <div className={`p-4 rounded-xl border ${
                   report.netVAT > 0
@@ -240,7 +240,7 @@ export default function VATReturnPage() {
                   <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">
                     Net VAT — Box 20 {report.netVAT > 0 ? '(Payable to SARS)' : '(Refundable)'}
                   </p>
-                  <p className={`text-2xl font-bold font-mono ${report.netVAT > 0 ? 'text-red-400' : 'text-teal-400'}`}>
+                  <p className={`text-2xl font-bold tabular-nums ${report.netVAT > 0 ? 'text-red-400' : 'text-teal-400'}`}>
                     {formatCurrency(Math.abs(report.netVAT))}
                   </p>
                 </div>
@@ -261,7 +261,7 @@ export default function VATReturnPage() {
                     <span className="font-mono text-xs text-[var(--ff-text-tertiary)] w-12">13</span>
                     <span className="font-semibold text-[var(--ff-text-primary)]">TOTAL OUTPUT TAX</span>
                   </div>
-                  <span className="font-mono font-bold text-red-400 text-lg">{formatCurrency(report.totalOutputTax)}</span>
+                  <span className="tabular-nums font-bold text-red-400 text-lg">{formatCurrency(report.totalOutputTax)}</span>
                 </div>
               </div>
 
@@ -280,7 +280,7 @@ export default function VATReturnPage() {
                     <span className="font-mono text-xs text-[var(--ff-text-tertiary)] w-12">19</span>
                     <span className="font-semibold text-[var(--ff-text-primary)]">TOTAL INPUT TAX</span>
                   </div>
-                  <span className="font-mono font-bold text-teal-400 text-lg">{formatCurrency(report.totalInputTax)}</span>
+                  <span className="tabular-nums font-bold text-teal-400 text-lg">{formatCurrency(report.totalInputTax)}</span>
                 </div>
               </div>
 
@@ -302,7 +302,7 @@ export default function VATReturnPage() {
                       Box 13 ({formatCurrency(report.totalOutputTax)}) minus Box 19 ({formatCurrency(report.totalInputTax)})
                     </p>
                   </div>
-                  <span className={`text-3xl font-bold font-mono ${
+                  <span className={`text-2xl font-bold tabular-nums ${
                     report.netVAT > 0 ? 'text-red-400' : 'text-teal-400'
                   }`}>
                     {formatCurrency(Math.abs(report.netVAT))}

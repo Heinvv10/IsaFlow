@@ -18,6 +18,8 @@ import { BankTxLinkAction } from './bank-transactions/BankTxLinkAction';
 import type { BankTxLink } from '@/modules/accounting/types/bank.types';
 import { DimensionValue } from './bank-transactions/BankTxDimensionValue';
 import { SharedPoolHint } from './bank-transactions/SharedPoolHint';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -155,7 +157,7 @@ interface Props {
 }
 
 function fmtCurrency(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+  return formatMoney(n);
 }
 
 /**
@@ -378,20 +380,20 @@ export function BankTxTable(props: Props) {
                       onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
                   </td>
                   <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
-                    {tx.transactionDate}
+                    {formatSaDateValue(tx.transactionDate)}
                   </td>
                   <td className="py-2 px-2 text-[var(--ff-text-primary)]">
                     <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>
                     {isPendingFeedRow(tx) && <PendingFeedBadge />}
                     {tx.status === 'provisional' && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-900/40 text-amber-300 ml-1"
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/40 text-amber-300 ml-1"
                         title="Posted by AI — needs evidence">
                         <Clock className="h-2.5 w-2.5" /> Provisional
                       </span>
                     )}
                     {tx.needsEvidence && tx.provisionalJeId && (
                       <Link href={`/accounting/bank/provisional#${tx.id}`}
-                        className="ml-1 text-[10px] text-teal-400 hover:underline">
+                        className="ml-1 text-xs text-teal-400 hover:underline">
                         Attach slip
                       </Link>
                     )}
@@ -501,7 +503,7 @@ export function BankTxTable(props: Props) {
                                 if (!suggested || search) return null;
                                 return (
                                   <>
-                                    <div className="px-3 py-1 text-[10px] font-semibold text-teal-400 uppercase tracking-wider bg-teal-500/5">
+                                    <div className="px-3 py-1 text-xs font-semibold text-teal-400 uppercase tracking-wider bg-teal-500/5">
                                       <SearchCheck className="inline h-3 w-3 mr-1 -mt-0.5" />
                                       Suggested{tx.suggestedCategory ? ` — ${tx.suggestedCategory}` : ''}
                                     </div>
@@ -580,7 +582,7 @@ export function BankTxTable(props: Props) {
                         </select>
                         {vatWarn && (
                           <span
-                            className="mt-0.5 block text-[10px] leading-tight text-amber-500"
+                            className="mt-0.5 block text-xs leading-tight text-amber-500"
                             title="VAT Act s17(2)(a). Claim it only if this business continuously supplies entertainment for a charge."
                           >
                             ⚠ Entertainment — input tax normally denied
@@ -588,7 +590,7 @@ export function BankTxTable(props: Props) {
                         )}
                         {!vatWarn && nonSupply && (
                           <span
-                            className="mt-0.5 block text-[10px] leading-tight text-amber-500"
+                            className="mt-0.5 block text-xs leading-tight text-amber-500"
                             title={NON_SUPPLY_ADVICE[nonSupply]}
                           >
                             ⚠ {NON_SUPPLY_LABEL[nonSupply]} — no supply, so no VAT
@@ -651,10 +653,10 @@ export function BankTxTable(props: Props) {
                     )}
                   </td>
                   )}
-                  <td className="py-2 px-2 text-right font-mono text-xs text-red-400">
+                  <td className="py-2 px-2 text-right tabular-nums text-xs text-red-400">
                     {spent !== null ? fmtCurrency(spent) : ''}
                   </td>
-                  <td className="py-2 px-2 text-right font-mono text-xs text-teal-400">
+                  <td className="py-2 px-2 text-right tabular-nums text-xs text-teal-400">
                     {received !== null ? fmtCurrency(received) : ''}
                   </td>
                   <td className="py-2 px-2 text-center">

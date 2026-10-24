@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface Customer {
   id: string;
@@ -33,8 +35,7 @@ interface LedgerData {
   transactions: LedgerRow[];
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 function getDefaultDates() {
   const now = new Date();
@@ -268,7 +269,7 @@ export default function CustomerLedgerPage() {
                         className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50"
                       >
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">
-                          {row.transaction_date}
+                          {formatSaDateValue(row.transaction_date)}
                         </td>
                         <td className="px-4 py-2">
                           <span
@@ -284,14 +285,14 @@ export default function CustomerLedgerPage() {
                         <td className="px-4 py-2 text-[var(--ff-text-primary)]">
                           {row.reference ?? '—'}
                         </td>
-                        <td className="px-4 py-2 text-right font-mono">
+                        <td className="px-4 py-2 text-right tabular-nums">
                           {row.debit > 0 ? (
                             <span className="text-red-400">{fmt(row.debit)}</span>
                           ) : (
                             <span className="text-[var(--ff-text-tertiary)]">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-2 text-right font-mono">
+                        <td className="px-4 py-2 text-right tabular-nums">
                           {row.credit > 0 ? (
                             <span className="text-teal-400">{fmt(row.credit)}</span>
                           ) : (
@@ -299,7 +300,7 @@ export default function CustomerLedgerPage() {
                           )}
                         </td>
                         <td
-                          className="px-4 py-2 text-right font-mono font-medium"
+                          className="px-4 py-2 text-right tabular-nums font-medium"
                           style={{
                             color:
                               row.running_balance > 0.005
@@ -318,13 +319,13 @@ export default function CustomerLedgerPage() {
                         <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs uppercase tracking-wide">
                           Totals
                         </td>
-                        <td className="px-4 py-3 text-right font-mono text-red-400">
+                        <td className="px-4 py-3 text-right tabular-nums text-red-400">
                           {fmt(totalDebits)}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono text-teal-400">
+                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">
                           {fmt(totalCredits)}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                           {fmt(ledger.closing_balance)}
                         </td>
                       </tr>
@@ -347,7 +348,7 @@ export default function CustomerLedgerPage() {
                       className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] px-4 py-3"
                     >
                       <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">{label}</p>
-                      <p className={`font-mono font-semibold text-base ${color}`}>{fmt(value)}</p>
+                      <p className={`tabular-nums font-semibold text-base ${color}`}>{fmt(value)}</p>
                     </div>
                   ))}
                 </div>

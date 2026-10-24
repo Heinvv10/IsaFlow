@@ -39,13 +39,13 @@ export function EngagementTrendChart({ data }: Props) {
         <XAxis
           dataKey="date"
           tickFormatter={(v: unknown) => fmtShortDate(String(v ?? ''))}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           interval={4}
         />
         <YAxis
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={36}

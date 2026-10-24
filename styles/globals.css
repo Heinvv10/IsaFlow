@@ -82,8 +82,6 @@
     --ff-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
 
     /* ── Theme axis: practitioner (Dense) defaults ──────────────────── */
-    /* Numeral font — monospace tabular figures for fast column scanning. */
-    --ff-num-font: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
     /* Display/heading font. */
     --ff-display-font: var(--ff-font-sans);
     /* Card corner radius. */
@@ -174,7 +172,6 @@
 
   /* ── Theme axis: client (Warm) overrides ──────────────────────────── */
   [data-theme='client'] {
-    --ff-num-font: var(--ff-font-sans);
     --ff-display-font: Georgia, 'Times New Roman', serif;
     --ff-card-radius: var(--ff-radius-xl);
     --ff-density-y: 0.75rem;
@@ -231,6 +228,16 @@
     outline: var(--ff-focus-ring-width) solid var(--ff-focus-ring);
     outline-offset: 2px;
     box-shadow: none;
+  }
+}
+
+/*
+ * Figures line up everywhere: tabular numerals in the app face (DM Sans), never a monospace face
+ * (master plan 3b). A cell that wants proportional digits opts out with `proportional-nums`.
+ */
+@layer base {
+  html {
+    font-variant-numeric: tabular-nums;
   }
 }
 

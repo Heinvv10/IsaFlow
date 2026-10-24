@@ -9,6 +9,7 @@ import { StatusPill } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface RecurringInvoice {
   id: string; templateName: string; clientId: string; clientName?: string;
@@ -18,7 +19,7 @@ interface RecurringInvoice {
 /** held_for_approval (R-035 PR4): generated invoices left as drafts awaiting approval. */
 interface RunResult { generated: number; invoice_ids: string[]; held_for_approval?: string[]; errors: string[]; remaining?: boolean }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const isOverdue = (d: string | undefined): boolean => {
   if (!d) return false;
@@ -204,7 +205,7 @@ export default function RecurringInvoicesPage() {
                           </span>
                         </td>
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{item.lastRunDate ? item.lastRunDate.split('T')[0] : '—'}</td>
-                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{fmt(item.totalAmount)}</td>
+                        <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(item.totalAmount)}</td>
                         <td className="px-5 py-3.5">
                           <StatusPill status={item.status} />
                         </td>

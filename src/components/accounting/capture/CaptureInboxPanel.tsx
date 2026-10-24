@@ -10,6 +10,7 @@ import {
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { GateBadge, RULE_FAILED, type GateInfo } from './CaptureGateBadge';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 // ─── Shared types (re-exported for page use) ──────────────────────────────────
 
@@ -58,7 +59,7 @@ export function fmtDate(val: string | Date | null | undefined): string {
 
 export function fmtZAR(val: number | null | undefined): string {
   if (val == null) return '—';
-  return `R ${val.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(val);
 }
 
 export const CHANNEL_ICONS: Record<CaptureEventRow['channel'], React.ReactNode> = {

@@ -8,6 +8,7 @@ import dynamic from 'next/dynamic';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { RevenueIntelligence } from '@/modules/admin/types/admin.types';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const PlanBreakdownChart  = dynamic(
   () => import('./charts/PlanBreakdownChart').then((m) => m.PlanBreakdownChart),
@@ -23,7 +24,7 @@ const CohortRetentionTable = dynamic(
 );
 
 function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 0 });
+  return formatMoney(cents / 100, { decimals: 0 });
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {

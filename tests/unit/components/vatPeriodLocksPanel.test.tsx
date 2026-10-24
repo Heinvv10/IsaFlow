@@ -54,7 +54,7 @@ it('renders the active lock and the unlocked history row, with names not raw ids
   render(<VatPeriodLocksPanel />);
 
   const activeRow = (await screen.findByText('Active')).closest('tr')!;
-  expect(within(activeRow).getByText(/R\s?15\s?000,00/)).toBeTruthy();
+  expect(within(activeRow).getByText(/R\s?15\s?000\.00/)).toBeTruthy();
   expect(within(activeRow).getByText(/Jane Doe/)).toBeTruthy();
 
   const unlockedBadge = await screen.findByText(/Unlocked on/);

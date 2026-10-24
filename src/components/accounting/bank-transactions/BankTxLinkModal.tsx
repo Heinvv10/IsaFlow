@@ -9,6 +9,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import type { BankTxLink } from '@/modules/accounting/types/bank.types';
 import { loadFuelRecords, loadServiceRecords, type FuelRecord, type ServiceRecord } from '@/components/assets/fleetRecordsApi';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface LinkableTx { id: string; description?: string; amount: number; transactionDate: string; link?: BankTxLink }
 interface Props { tx: LinkableTx; onClose: () => void; onDone: () => void }
@@ -16,7 +17,7 @@ interface AssetOption { id: string; name: string; assetNumber: string }
 /** `asset` = the asset itself; otherwise a fuel / service record of it. */
 type Target = { kind: 'asset' } | { kind: 'fuel' | 'service'; id: string };
 
-const fmtR = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmtR = (n: number) => formatMoney(n);
 
 function toAssets(data: unknown): AssetOption[] {
   if (!Array.isArray(data)) return [];

@@ -75,7 +75,7 @@ export function AccountMappingTable({ accounts, onChange, onAutoMap, autoMapping
                     ))}
                   </select>
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-xs text-[var(--ff-text-primary)]">
+                <td className="px-3 py-2 text-right tabular-nums text-xs text-[var(--ff-text-primary)]">
                   {acct.openingBalance !== 0
                     ? acct.openingBalance.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                     : '—'

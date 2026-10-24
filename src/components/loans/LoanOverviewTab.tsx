@@ -97,7 +97,7 @@ export function LoanOverviewTab({ loan, onRefresh }: Props) {
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {terms.map(({ label, value }) => (
           <div key={label} className="bg-[var(--ff-bg-primary)] rounded-lg border border-[var(--ff-border-light)] p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--ff-text-tertiary)] mb-1">
+            <p className="text-xs font-semibold uppercase tracking-widest text-[var(--ff-text-tertiary)] mb-1">
               {label}
             </p>
             <p className="text-sm font-medium text-[var(--ff-text-primary)]">{value}</p>

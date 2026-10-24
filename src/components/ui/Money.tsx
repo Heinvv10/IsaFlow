@@ -1,5 +1,5 @@
 /**
- * Money — renders a ZAR amount in the active theme's numeral font.
+ * Money — renders a ZAR amount in the app face (DM Sans) with tabular figures.
  * Formatting logic lives in @/lib/money/formatMoney (unit-tested).
  */
 import * as React from 'react';
@@ -14,11 +14,7 @@ export interface MoneyProps extends React.HTMLAttributes<HTMLSpanElement> {
 
 export function Money({ amount, decimals, className, style, ...props }: MoneyProps) {
   return (
-    <span
-      className={cn('tabular-nums', className)}
-      style={{ fontFamily: 'var(--ff-num-font)', ...style }}
-      {...props}
-    >
+    <span className={cn('tabular-nums', className)} style={style} {...props}>
       {formatMoney(amount, { decimals })}
     </span>
   );

@@ -17,7 +17,7 @@ import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import { downloadCsv, asOfFilename } from '@/lib/csvExport';
 import type { CsvColumn } from '@/lib/csvExport';
 
-const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
+const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
 const TF = 'py-2 px-3 text-sm font-semibold text-[var(--ff-text-primary)]';
 

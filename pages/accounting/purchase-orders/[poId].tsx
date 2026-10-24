@@ -24,9 +24,9 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { chartAccountOptions } from '@/lib/chartAccountOptions';
 import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
