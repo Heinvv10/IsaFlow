@@ -89,16 +89,11 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const offered = (await fetchJournalLineCandidates(c.fx.companyId, 150, '2029-11-03', 'REM2 B IN', bankB))
       .map((x) => x.id);
     expect(offered).toContain(await lineOf(transfer, bankB));
-    // sec-nrfa round 16: a journal dated 'infinity' (forged: every writer refuses it) sorts last, not a failed query.
-    // (The numbering trigger refuses it on INSERT; a forged row gets there by an UPDATE of a posted journal.)
+    // sec-nrfa round 16 forged a journal dated 'infinity' by an UPDATE of a posted journal, to prove it sorts
+    // last. Migration 941 now refuses that UPDATE (no fiscal period covers the date), so the row cannot exist.
     const inf = await post('2029-11-03', prepaid, c.expense, 'PAIR forged infinity');
-    try {
-      await sql`UPDATE gl_journal_entries SET entry_date = 'infinity' WHERE id = ${inf}::UUID`;
-      const again = (await fetchJournalLineCandidates(c.fx.companyId, 150, '2029-11-03', 'REM2 B IN', bankB)).map((x) => x.id);
-      expect(again).toContain(await lineOf(transfer, bankB));
-    } finally {
-      await sql`UPDATE gl_journal_entries SET entry_date = '2029-11-03' WHERE id = ${inf}::UUID`;
-    }
+    const forged = await sql`UPDATE gl_journal_entries SET entry_date = 'infinity' WHERE id = ${inf}::UUID`.catch((e: Error) => e);
+    expect(String(forged)).toMatch(/no fiscal period covers the new entry_date infinity/);
   }, 300000);
 
   // brk-nrfa round 18 L1: the "existing bank transfer" bonus is for the same movement only (the guard's ten days). An
