@@ -139,6 +139,41 @@ Migration 932 (bureau consent and client links, 2026-10-24) also takes effect on
   To revert, re-run 932 (it is idempotent). Until then every deploy's
   `app_pool_reach_violations()` check refuses the code switch.
 
+Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes effect on deploy:
+
+- No app role may UPDATE or DELETE `company_users` (930 had kept `UPDATE (role)`):
+  member role changes and removals run on the migration_admin pool, which
+  re-checks the member guard's rules in TypeScript (`memberWrites.ts`).
+- No app role may INSERT or UPDATE `portal_contacts`, `share_links`,
+  `audit_portal_sessions`, `capture_whatsapp_claims`, `capture_inboxes` or
+  `bank_feed_connections`, nor touch `portal_magic_links` at all, nor read
+  `portal_access.password_hash` or write `portal_access` (DELETE stays).
+  Granted back: `share_links (view_count, last_viewed_at)`,
+  `audit_portal_sessions (last_used_at, use_count)`, and
+  `bank_feed_connections`' sync stamps. 935 refuses to apply unless
+  migration_admin holds the moved writes and bypasses row security.
+- During the deploy window, and after a code-only rollback, the old release
+  answers an error (42501), writing nothing, for: member role change and
+  removal; AFS portal sign-in (no link is sent; an emailed link does not
+  verify) and portal contact edits; AR portal login and customer merge (the
+  merge rolls back); share link create and revoke; auditor session issue and
+  revoke; capture email inbox mint and rotate, WhatsApp claim and
+  verification, the IMAP mirror's inbox upsert; bank feed create and
+  disconnect. Viewing a share link, an auditor's download, extension ingest
+  and sync keep working.
+- If old code must run for more than an hour and needs these:
+
+  ```sql
+  -- BREAK-GLASS, old code only: undoes 935's protection (reopens the forgeries). Revert before deploying.
+  GRANT UPDATE (role), DELETE ON public.company_users TO app_user;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON public.portal_magic_links, public.portal_contacts, public.portal_access,
+    public.share_links, public.audit_portal_sessions, public.capture_whatsapp_claims, public.capture_inboxes,
+    public.bank_feed_connections TO app_user;
+  SELECT public.app_service_sync_policies();
+  ```
+  To revert, re-run 935 (it is idempotent). Until then every deploy's
+  `app_pool_reach_violations()` check refuses the code switch.
+
 - 930's rules join 920's in `app_pool_reach_violations()`, so every later
   deploy refuses the code switch if one of these privileges comes back.
 - Every SECURITY DEFINER function is listed in `app_definer_reviews` with a
@@ -286,7 +321,41 @@ SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, ac
          'public.bureau_audit_log']::regclass[])
    AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
    AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
--- After the deploy, 930's and 932's rules run on every deploy; by hand (zero rows):
+-- 935: the writes it moves onto migration_admin (935 refuses to apply without them; zero rows)
+SELECT w.tbl, p.priv FROM (VALUES
+    ('public.company_users', 'SELECT, UPDATE, DELETE'),
+    ('public.portal_magic_links', 'SELECT, INSERT, UPDATE, DELETE'),
+    ('public.portal_contacts', 'INSERT, UPDATE'),
+    ('public.portal_access', 'SELECT, UPDATE'),
+    ('public.customers', 'SELECT'),
+    ('public.share_links', 'SELECT, INSERT, UPDATE'),
+    ('public.audit_portal_sessions', 'INSERT, UPDATE'),
+    ('public.audit_trail_exports', 'SELECT'),
+    ('public.capture_whatsapp_claims', 'SELECT, INSERT, UPDATE, DELETE'),
+    ('public.capture_inboxes', 'SELECT, INSERT, UPDATE'),
+    ('public.companies', 'SELECT'),
+    ('public.users', 'SELECT'),
+    ('public.bank_feed_connections', 'INSERT, UPDATE')) w(tbl, privs),
+  unnest(string_to_array(w.privs, ', ')) p(priv)
+ WHERE NOT has_table_privilege('migration_admin', w.tbl, p.priv);
+SELECT rolname FROM pg_roles WHERE rolname = 'migration_admin' AND NOT rolbypassrls;  -- zero rows
+-- 935: a grant on its tables to a role either login reaches, other than
+-- app_user and app_service (935 revokes from those and PUBLIC only; zero rows)
+SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
+ WHERE c.oid = ANY (ARRAY['public.company_users', 'public.portal_magic_links', 'public.portal_contacts',
+         'public.portal_access', 'public.share_links', 'public.audit_portal_sessions',
+         'public.capture_whatsapp_claims', 'public.capture_inboxes', 'public.bank_feed_connections']::regclass[])
+   AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
+-- 935: how much each moved table holds (counts only), to judge the deploy window
+SELECT 'portal_magic_links' AS t, count(*) FROM portal_magic_links WHERE used_at IS NULL AND expires_at > now()
+UNION ALL SELECT 'portal_contacts', count(*) FROM portal_contacts WHERE active
+UNION ALL SELECT 'portal_access', count(*) FROM portal_access WHERE is_active
+UNION ALL SELECT 'share_links', count(*) FROM share_links WHERE revoked_at IS NULL AND expires_at > now()
+UNION ALL SELECT 'audit_portal_sessions', count(*) FROM audit_portal_sessions WHERE revoked_at IS NULL AND expires_at > now()
+UNION ALL SELECT 'capture_inboxes', count(*) FROM capture_inboxes WHERE is_active
+UNION ALL SELECT 'bank_feed_connections', count(*) FROM bank_feed_connections WHERE is_active;
+-- After the deploy, 930's, 932's and 935's rules run on every deploy; by hand (zero rows):
 --   SELECT * FROM public.app_pool_reach_violations();
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (
