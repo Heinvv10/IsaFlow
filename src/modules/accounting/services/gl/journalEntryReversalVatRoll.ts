@@ -13,22 +13,22 @@
  *
  * "Open" is the same test getPeriodStatusForDate makes — a covering
  * fiscal_periods row whose status is 'open' — PLUS the case createJournalEntry
- * itself treats as open: a date NO row covers, in a fiscal year
- * ensureFiscalPeriodForDate would create on demand (isAutoCreatableYear on the
- * year fiscalYearOfDate gives under the company's resolveCompanyPeriodAlignment
- * start month) AND that createFiscalYear would then succeed — see
- * makeAutoCreatable. A date covered by a
- * closed/locked row is not postable; neither is an uncovered date outside the
- * auto-create window.
+ * itself treats as open: a date NO row covers whose fiscal-year-registry year
+ * ensureFiscalPeriodForDate would generate a period in on demand (the year's
+ * label inside the auto-create window, the year not closed or locked) — see
+ * makeAutoCreatable. A date covered by a closed/locked row is not postable;
+ * neither is an uncovered date outside the auto-create window.
  *
  * Its own file to keep journalEntryReversalDate inside the 300-line cap.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { isAutoCreatableYear } from './fiscalPeriodAutoCreate';
-import { resolveCompanyPeriodAlignment } from './fiscalPeriodService';
-import { fiscalYearOfDate, fiscalYearRange } from './fiscalYearCalendar';
+import { isRealCalendarDate } from '@/lib/validation';
+import { isAutoCreatableYear, isOutsideWindowByCalendarYear, yearHoldsClosedPeriod } from './fiscalPeriodAutoCreate';
+import { fiscalYearForDate } from './fiscalYearRegistry';
+import { log } from '@/lib/logger';
+import { isLedgerDate } from './ledgerDateRange';
 import {
   VatPeriodLockedError,
   findActiveVatLock,
@@ -64,13 +64,13 @@ export interface PeriodRange extends DateRange {
 /**
  * The earliest date in [from, ceiling] outside every lock and postable, or
  * null. Postable: inside an OPEN period, or inside no period at all when
- * `autoCreatable(date)` says createJournalEntry would create that year. Pure:
- * every range is inclusive at both ends, and ISO dates compare as strings.
+ * `autoCreatable(date)` says createJournalEntry would create that date's period.
+ * Every range is inclusive at both ends, and ISO dates compare as strings.
  */
-export function earliestPostableDate(
+export async function earliestPostableDate(
   from: string, ceiling: string, locks: readonly DateRange[], periods: readonly PeriodRange[],
-  autoCreatable: (date: string) => boolean = () => false,
-): string | null {
+  autoCreatable: (date: string) => boolean | Promise<boolean> = () => false,
+): Promise<string | null> {
   let d = from;
   // Each pass either returns or moves `d` strictly forward — past a lock, past
   // a non-open period, or to the next period's start — so it terminates.
@@ -84,7 +84,7 @@ export function earliestPostableDate(
       d = nextDay(covering.end);
       continue;
     }
-    if (autoCreatable(d)) return d;
+    if (await autoCreatable(d)) return d;
     const next = periods.filter((p) => p.start > d).map((p) => p.start).sort()[0];
     if (!next) return null;
     d = next;
@@ -92,88 +92,66 @@ export function earliestPostableDate(
   return null;
 }
 
-export interface ExistingPeriod extends DateRange {
-  fiscalYear: number;
-}
-
 /**
- * Would ensureFiscalPeriodForDate CREATE the year for this uncovered date?
- * Exactly its conditions, then createFiscalYear's: the fiscal year (under the
- * company's start month) is inside the auto-create window; no period of that
- * fiscal_year exists yet ("already exists"); and no existing period overlaps
- * that year's range (FiscalPeriodOverlapError). A date in a GAP of an existing
- * year fails the second test — createFiscalYear would throw and the post with
- * it — so it is not postable. Pure; `today` is injectable for tests.
+ * Would ensureFiscalPeriodForDate create a period for this uncovered date?
+ * Exactly its conditions: the registry year holding the date (a stored year,
+ * else the template year) has its label inside the auto-create window and is
+ * not closed or locked. A date in a GAP of an existing open year is postable:
+ * the generator now fills the missing month, and there is no overlap refusal —
+ * unless the year already holds a closed or locked period, beside which the
+ * generator adds no month (and the post is refused).
+ * An unparseable date answers false, as ensureFiscalPeriodForDate answers NULL.
+ * `today` is injectable for tests.
  */
 export function makeAutoCreatable(
-  startMonth: number, existing: readonly ExistingPeriod[], today: Date = new Date(),
-): (date: string) => boolean {
-  return (date: string) => {
-    let year: number;
-    let range: { startDate: string; endDate: string };
+  companyId: string, today: Date = new Date(),
+): (date: string) => Promise<boolean> {
+  return async (date: string) => {
+    if (!isLedgerDate(date)) return false;
+    let year: Awaited<ReturnType<typeof fiscalYearForDate>>;
     try {
-      year = fiscalYearOfDate(date, startMonth);
-      range = fiscalYearRange(year, startMonth);
-    } catch {
-      return false; // ensureFiscalPeriodForDate answers NULL for an unparseable date.
+      // In a savepoint: the registry's SQL may raise, and a caught SQL error
+      // would otherwise leave the request transaction aborted.
+      year = await withSavepoint('vat_roll_year', () => fiscalYearForDate(companyId, date));
+    } catch (err) {
+      // No fiscal year resolvable (a company row that has gone): ensureFiscalPeriodForDate
+      // answers NULL for exactly this failure, so no uncovered date is postable.
+      log.warn('makeAutoCreatable: no fiscal year resolvable', { companyId, date, error: String(err) }, 'accounting');
+      return false;
     }
-    if (!Number.isInteger(year) || !isAutoCreatableYear(year, today)) return false;
-    if (existing.some((p) => p.fiscalYear === year)) return false;
-    return !existing.some((p) => p.start <= range.endDate && p.end >= range.startDate);
+    if (!isAutoCreatableYear(year.fiscalYear, today) || year.status === 'closed' || year.status === 'locked') return false;
+    return !(year.id && await yearHoldsClosedPeriod(companyId, year.id));
   };
 }
 
-async function autoCreatablePredicate(
-  companyId: string, existing: readonly ExistingPeriod[],
-): Promise<(date: string) => boolean> {
-  let startMonth: number;
-  try {
-    ({ startMonth } = await resolveCompanyPeriodAlignment(companyId));
-  } catch {
-    // ensureFiscalPeriodForDate answers NULL (no period created) for exactly
-    // this failure, so no uncovered date is postable.
-    return () => false;
-  }
-  return makeAutoCreatable(startMonth, existing);
-}
-
 /**
- * Would posting on `date` create its fiscal year on demand (R-012)? The same
- * predicate the roll uses, over the company's current periods.
+ * Would posting on `date` create its period on demand (R-012)? The same
+ * predicate the roll uses.
  */
 export async function isDateAutoCreatable(companyId: string, date: string): Promise<boolean> {
-  const rows = (await sql`
-    SELECT fiscal_year, start_date, end_date FROM fiscal_periods
-    WHERE company_id = ${companyId}::UUID`) as Row[];
-  const existing = rows.map((r) => ({
-    start: fmtDate(r.start_date as string), end: fmtDate(r.end_date as string), fiscalYear: Number(r.fiscal_year),
-  }));
-  return (await autoCreatablePredicate(companyId, existing))(date);
+  return makeAutoCreatable(companyId)(date);
 }
 
 /**
  * Is `date`'s fiscal year outside the auto-create window (R-012)? A typo'd
  * year such as 9999: posting never creates it. Distinct from "not
- * auto-creatable", which also covers an IN-window gap or overlap. When the
- * company's alignment cannot be resolved the answer is unknown: false — which
- * makes the resolver REFUSE even a typo'd-year entry. Deliberate: failing
- * closed, and createFiscalYear needs the same alignment, so the remedy (fix the
- * company's period alignment) is the same either way.
+ * auto-creatable", which also covers a closed or locked year. A date whose
+ * calendar year alone proves it is answered without the registry, which
+ * cannot place it (isOutsideWindowByCalendarYear). When the year cannot be
+ * resolved the answer is unknown: false — which makes the resolver REFUSE.
+ * Deliberate: failing closed.
  */
 export async function isOutsideAutoCreateWindow(companyId: string, date: string): Promise<boolean> {
-  let startMonth: number;
+  // Before the ledger-range check: 9999 is outside that range too, and is exactly the typo'd year meant here.
+  if (isRealCalendarDate(date) && isOutsideWindowByCalendarYear(date)) return true;
+  if (!isLedgerDate(date)) return false;
   try {
-    ({ startMonth } = await resolveCompanyPeriodAlignment(companyId));
-  } catch {
-    return false; // unknown alignment: not provably a typo'd year
+    const year = await withSavepoint('vat_roll_window', () => fiscalYearForDate(companyId, date));
+    return !isAutoCreatableYear(year.fiscalYear);
+  } catch (err) {
+    log.warn('isOutsideAutoCreateWindow: no fiscal year resolvable', { companyId, date, error: String(err) }, 'accounting');
+    return false; // unknown year: not provably a typo'd year
   }
-  let year: number;
-  try {
-    year = fiscalYearOfDate(date, startMonth);
-  } catch {
-    return false;
-  }
-  return Number.isInteger(year) && !isAutoCreatableYear(year);
 }
 
 /**
@@ -193,21 +171,18 @@ export async function rollDefaultReversalDate(
     SELECT period_start, period_end FROM vat_period_locks
     WHERE company_id = ${companyId}::UUID AND unlocked_at IS NULL
       AND period_end >= ${defaultDate}::DATE AND period_start <= ${ceiling}::DATE`) as Row[];
-  // Every period the company has, not only the window: whether a missing year
-  // can be created depends on periods OUTSIDE it (the year's own rows, and any
-  // overlapping its range). A company holds twelve rows a year.
   const periodRows = (await sql`
-    SELECT fiscal_year, start_date, end_date, status FROM fiscal_periods
+    SELECT start_date, end_date, status FROM fiscal_periods
     WHERE company_id = ${companyId}::UUID`) as Row[];
   const range = (a: unknown, b: unknown): DateRange => ({ start: fmtDate(a as string), end: fmtDate(b as string) });
   const periods = periodRows.map((r) => ({
-    ...range(r.start_date, r.end_date), open: String(r.status) === 'open', fiscalYear: Number(r.fiscal_year),
+    ...range(r.start_date, r.end_date), open: String(r.status) === 'open',
   }));
-  const date = earliestPostableDate(
+  const date = await earliestPostableDate(
     defaultDate, ceiling,
     lockRows.map((r) => range(r.period_start, r.period_end)),
     periods.filter((p) => p.end >= defaultDate && p.start <= ceiling),
-    await autoCreatablePredicate(companyId, periods),
+    makeAutoCreatable(companyId),
   );
   if (!date) {
     throw new VatPeriodLockedError(defaultDate, lock, undefined,
