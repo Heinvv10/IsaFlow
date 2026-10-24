@@ -140,7 +140,7 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearReco
     -- assumed as fiscal_year_for_date reads it: the stored flag counts only while
     -- the company still declares no usable start month.
     SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true AS stored,
-           fy.assumed_start AND NOT COALESCE(c.financial_year_start BETWEEN 1 AND 12, false) AS assumed
+           fy.assumed_start AND (c.financial_year_start BETWEEN 1 AND 12) IS NOT TRUE AS assumed
       FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
      WHERE fy.company_id = ${companyId}::UUID
      ORDER BY fy.start_date
