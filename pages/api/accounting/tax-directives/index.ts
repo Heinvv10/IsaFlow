@@ -70,6 +70,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (suppliedTaxNumber && employee.taxNumber && suppliedTaxNumber !== employee.taxNumber) {
       return apiResponse.badRequest(res, 'employee_tax_number is not the tax number on this employee\'s payroll record');
     }
+    // The record decides: with no tax number on it there is nothing to check a supplied one against, and the
+    // certificate (3150) reads the record's, not the directive's. Put it on the employee first.
+    if (suppliedTaxNumber && !employee.taxNumber) {
+      return apiResponse.badRequest(res, 'employee_tax_number cannot be checked: this employee\'s payroll record has no tax number. Add it to the employee first');
+    }
     if (!body.directive_type || !VALID_TYPES.includes(body.directive_type)) {
       return apiResponse.badRequest(
         res,
