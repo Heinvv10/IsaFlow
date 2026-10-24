@@ -18,12 +18,17 @@ const queries: string[] = [];
 let responder: (text: string) => unknown[] = () => [];
 
 vi.mock('@/lib/neon', () => ({
+  withSavepoint: vi.fn(async (_name: string, fn: () => Promise<unknown>) => fn()),
   sql: vi.fn((strings: readonly string[]) => {
     const text = strings.join('?');
     queries.push(text);
     return Promise.resolve(responder(text));
   }),
 }));
+
+// An uncovered date's fiscal year is the registry's (March-based unless a test sets fakeRegistry).
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../helpers/fiscalYearSqlFake')).registryMock());
 
 import {
   VatPeriodLockedError,
@@ -32,6 +37,8 @@ import {
 } from '@/modules/accounting/services/gl/journalVatLockGuard';
 import { earliestPostableDate, makeAutoCreatable } from '@/modules/accounting/services/gl/journalEntryReversalVatRoll';
 
+import { fakeRegistry, resetFakeRegistry } from '../../helpers/fiscalYearSqlFake';
+
 const CO = '11111111-1111-4111-8111-111111111111';
 const ACC = '22222222-2222-4222-8222-222222222222';
 const LOCK = { id: 'lock-1', period_start: '2026-05-01', period_end: '2026-06-30' };
@@ -39,6 +46,7 @@ const LOCK = { id: 'lock-1', period_start: '2026-05-01', period_end: '2026-06-30
 beforeEach(() => {
   queries.length = 0;
   responder = () => [];
+  resetFakeRegistry();
 });
 
 describe('lineMovesVatFigure', () => {
@@ -119,72 +127,94 @@ describe('earliestPostableDate (the reversal roll)', () => {
   const open = [{ start: '2026-01-01', end: '2026-12-31', open: true }];
   const lock = [{ start: '2026-05-01', end: '2026-06-30' }];
 
-  it('returns the date itself when no lock covers it', () => {
-    expect(earliestPostableDate('2026-07-05', '2026-09-24', lock, open)).toBe('2026-07-05');
+  it('returns the date itself when no lock covers it', async () => {
+    expect(await earliestPostableDate('2026-07-05', '2026-09-24', lock, open)).toBe('2026-07-05');
   });
 
-  it('rolls to the day after the covering lock', () => {
-    expect(earliestPostableDate('2026-06-10', '2026-09-24', lock, open)).toBe('2026-07-01');
+  it('rolls to the day after the covering lock', async () => {
+    expect(await earliestPostableDate('2026-06-10', '2026-09-24', lock, open)).toBe('2026-07-01');
   });
 
-  it('rolls through back-to-back locks', () => {
+  it('rolls through back-to-back locks', async () => {
     const locks = [{ start: '2026-07-01', end: '2026-08-31' }, ...lock];
-    expect(earliestPostableDate('2026-06-10', '2026-09-24', locks, open)).toBe('2026-09-01');
+    expect(await earliestPostableDate('2026-06-10', '2026-09-24', locks, open)).toBe('2026-09-01');
   });
 
-  it('skips a CLOSED period to the next open one', () => {
+  it('skips a CLOSED period to the next open one', async () => {
     const periods = [
       { start: '2026-01-01', end: '2026-06-30', open: true },
       { start: '2026-07-01', end: '2026-07-31', open: false },
       { start: '2026-08-01', end: '2026-08-31', open: true },
     ];
-    expect(earliestPostableDate('2026-06-10', '2026-09-24', lock, periods)).toBe('2026-08-01');
+    expect(await earliestPostableDate('2026-06-10', '2026-09-24', lock, periods)).toBe('2026-08-01');
   });
 
-  it('treats an UNCOVERED date as postable when its year would be auto-created, and not otherwise', () => {
+  it('treats an UNCOVERED date as postable when its period would be auto-created, and not otherwise', async () => {
     const periods = [{ start: '2026-01-01', end: '2026-06-30', open: true }];
-    expect(earliestPostableDate('2026-06-10', '2026-09-24', lock, periods, () => true)).toBe('2026-07-01');
-    expect(earliestPostableDate('2026-06-10', '2026-09-24', lock, periods, () => false)).toBeNull();
+    expect(await earliestPostableDate('2026-06-10', '2026-09-24', lock, periods, () => true)).toBe('2026-07-01');
+    expect(await earliestPostableDate('2026-06-10', '2026-09-24', lock, periods, () => false)).toBeNull();
+    // An async predicate (the registry lookup) is awaited.
+    expect(await earliestPostableDate('2026-06-10', '2026-09-24', lock, periods, async () => true)).toBe('2026-07-01');
   });
 
-  it('returns null when nothing up to the ceiling is postable', () => {
-    expect(earliestPostableDate('2026-06-10', '2026-06-20', lock, open)).toBeNull();
+  it('returns null when nothing up to the ceiling is postable', async () => {
+    expect(await earliestPostableDate('2026-06-10', '2026-06-20', lock, open)).toBeNull();
   });
 });
 
-describe('makeAutoCreatable — exactly when createFiscalYear would succeed', () => {
+describe('makeAutoCreatable — exactly when ensureFiscalPeriodForDate would generate a period', () => {
   const TODAY = new Date(2026, 8, 24);
-  const fy2026 = [
-    { fiscalYear: 2026, start: '2026-01-01', end: '2026-06-30' },
-    { fiscalYear: 2026, start: '2026-09-01', end: '2026-12-31' },
-  ];
 
-  it('an uncovered date in a year with no periods, inside the window, is creatable', () => {
-    expect(makeAutoCreatable(1, fy2026, TODAY)('2027-01-15')).toBe(true);
+  it('an uncovered date whose registry year is inside the window and open is creatable', async () => {
+    fakeRegistry.templateMonth = 1;
+    expect(await makeAutoCreatable(CO, TODAY)('2027-01-15')).toBe(true);
   });
 
-  it('a GAP inside an existing fiscal year is NOT (createFiscalYear: "already exists")', () => {
-    expect(makeAutoCreatable(1, fy2026, TODAY)('2026-07-15')).toBe(false);
+  it('a GAP inside an existing OPEN year IS creatable (the generator fills the missing month)', async () => {
+    fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }];
+    expect(await makeAutoCreatable(CO, TODAY)('2026-07-15')).toBe(true);
   });
 
-  it('a year that already has ANY row under its label is NOT, even with no overlap ("already exists")', () => {
-    // Mislabelled data: a 2026 row dated 2020. createFiscalYear checks the label first.
-    expect(makeAutoCreatable(1, [{ fiscalYear: 2026, start: '2020-01-01', end: '2020-01-31' }], TODAY)('2026-07-15'))
-      .toBe(false);
+  it('a GAP in an open year that holds a CLOSED or LOCKED period is NOT (the generator adds no month beside it)', async () => {
+    fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }];
+    responder = (text) => (text.includes("status IN ('closed', 'locked')") ? [{ '?column?': 1 }] : []);
+    expect(await makeAutoCreatable(CO, TODAY)('2026-07-15')).toBe(false);
   });
 
-  it('a year whose range overlaps an existing period of another year label is NOT (overlap refusal)', () => {
-    // March start: FY2027 = 2026-03-01..2027-02-28, overlapping the calendar-2026 rows.
-    expect(makeAutoCreatable(3, fy2026, TODAY)('2027-01-15')).toBe(false);
+  it('a date in a CLOSED or LOCKED year is NOT', async () => {
+    fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', status: 'closed' }];
+    expect(await makeAutoCreatable(CO, TODAY)('2026-07-15')).toBe(false);
+    fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', status: 'locked' }];
+    expect(await makeAutoCreatable(CO, TODAY)('2026-07-15')).toBe(false);
   });
 
-  it('a year outside the auto-create window is NOT', () => {
-    expect(makeAutoCreatable(1, [], TODAY)('2035-01-15')).toBe(false);
+  it('the window is tested on the registry label, not the calendar year', async () => {
+    fakeRegistry.templateMonth = 3;
+    // TODAY is 2026-09-24, so the window ends with label 2028. 2028-01-15 is FY2028; 2028-06-15 is FY2029.
+    expect(await makeAutoCreatable(CO, TODAY)('2028-01-15')).toBe(true);
+    expect(await makeAutoCreatable(CO, TODAY)('2028-06-15')).toBe(false);
   });
 
-  it('the roll skips the gap to the next open period', () => {
-    const periods = fy2026.map((p) => ({ ...p, open: true }));
-    expect(earliestPostableDate('2026-06-10', '2026-09-24', [{ start: '2026-05-01', end: '2026-06-30' }], periods,
-      makeAutoCreatable(1, fy2026, TODAY))).toBe('2026-09-01');
+  it('a year outside the auto-create window is NOT', async () => {
+    fakeRegistry.templateMonth = 1;
+    expect(await makeAutoCreatable(CO, TODAY)('2035-01-15')).toBe(false);
+  });
+
+  it('an unparseable date is NOT, and is never sent to the registry', async () => {
+    const { fiscalYearForDate } = await import('@/modules/accounting/services/gl/fiscalYearRegistry');
+    vi.mocked(fiscalYearForDate).mockClear();
+    expect(await makeAutoCreatable(CO, TODAY)('not-a-date')).toBe(false);
+    expect(await makeAutoCreatable(CO, TODAY)('2026-02-30')).toBe(false);
+    expect(fiscalYearForDate).not.toHaveBeenCalled();
+  });
+
+  it('the roll lands on the first date in an open gap: the gap is postable now', async () => {
+    fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }];
+    const periods = [
+      { start: '2026-01-01', end: '2026-06-30', open: true },
+      { start: '2026-09-01', end: '2026-12-31', open: true },
+    ];
+    expect(await earliestPostableDate('2026-06-10', '2026-09-24', [{ start: '2026-05-01', end: '2026-06-30' }], periods,
+      makeAutoCreatable(CO, TODAY))).toBe('2026-07-01');
   });
 });

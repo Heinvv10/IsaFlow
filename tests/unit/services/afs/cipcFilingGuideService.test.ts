@@ -19,6 +19,13 @@ vi.mock('@/lib/neon', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+// The year end is the registry year's, whatever the company's declared start month.
+const requireFiscalYear = vi.fn();
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({
+  requireFiscalYear: (...a: unknown[]) => requireFiscalYear(...a),
+  assertDeclaredBasis: (_c: string, y: unknown) => y,
+}));
+
 const computePisScoreForDocument = vi.fn();
 vi.mock('@/modules/accounting/services/afs/pisCalculatorService', () => ({
   computePisScoreForDocument: (...a: unknown[]) => computePisScoreForDocument(...a),
@@ -42,13 +49,14 @@ const BASE_DOC_ROW = {
   reporting_framework: 'ifrs_smes',
   name: 'Acme (Pty) Ltd',
   registration_number: '2020/123456/07',
-  financial_year_start: 3,
 };
 
 describe('generateCipcFilingGuide — CIPC annual return checklist item', () => {
   beforeEach(() => {
     sqlMock.mockReset();
     computePisScoreForDocument.mockReset();
+    requireFiscalYear.mockReset();
+    requireFiscalYear.mockResolvedValue({ fiscalYear: 2025, startDate: '2024-03-01', endDate: '2025-02-28' });
     computePisScoreForDocument.mockResolvedValue({
       total: 10,
       requiredAudit: 'voluntary',
@@ -90,5 +98,19 @@ describe('generateCipcFilingGuide — CIPC annual return checklist item', () => 
     expect(item).toBeDefined();
     expect(item!.ready).toBe(true);
     expect(item!.detail).toContain('2026-05-01');
+  });
+
+  it('takes the year end from the registry year, not from the declared start month', async () => {
+    // A 14-month transition year ending 28 February 2027, not a twelve-month cut.
+    requireFiscalYear.mockResolvedValue({ fiscalYear: 2027, startDate: '2026-01-01', endDate: '2027-02-28' });
+    routeSql([
+      { match: /FROM afs_documents/, rows: [{ ...BASE_DOC_ROW, fiscal_year: 2027, cipc_annual_return_submitted: false, cipc_annual_return_submitted_at: null }] },
+      { match: /FROM afs_sections/, rows: [] },
+    ]);
+
+    const guide = await generateCipcFilingGuide('co-1', 'doc-1');
+
+    expect(requireFiscalYear).toHaveBeenCalledWith('co-1', 2027);
+    expect(guide.yearEnd).toBe('2027-02-28');
   });
 });
