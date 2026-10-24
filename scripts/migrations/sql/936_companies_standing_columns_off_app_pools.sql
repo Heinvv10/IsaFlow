@@ -34,11 +34,10 @@
 --
 -- The grant-back is computed (every column but the 13, id and created_at),
 -- and the rule in app_pool_reach_violations() lists the allowed columns by
--- name, so the two
--- are checked against each other below. A column added to companies later
--- gets no app privilege (UPDATE is column-level now); granting it one is a
--- violation until a migration adds it to the rule. That is intended: someone
--- decides whether a tenant may write it.
+-- name, so the two are checked against each other below. A column added to
+-- companies later gets no app privilege (UPDATE is column-level now);
+-- granting it one is a violation until a migration adds it to the rule. That
+-- is intended: someone decides whether a tenant may write it.
 -- No new SECURITY DEFINER function, so no new app_definer_reviews row.
 -- The fx_documents_enabled triggers (871) and the change-history trigger
 -- (888) are unchanged: they guard what is written, not who may write. 871's
