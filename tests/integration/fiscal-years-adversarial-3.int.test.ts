@@ -174,3 +174,33 @@ describe('R5-A — confirmation is stored: a later change of year end does not u
     });
   });
 });
+
+describe('R6-A — confirmation reaches the company being updated, and re-runs when the month is saved again', () => {
+  it('an owner of A and B, working in A, declares March for B: B\'s assumed year is confirmed', async () => {
+    await inRolledBackTx(async (c) => {
+      const a = await company(c, 3);
+      const b = await company(c, null);
+      const user = crypto.randomUUID();
+      await c.query(`INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)`, [user, `${user}@t.local`]);
+      await c.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $3, 'owner'), ($2, $3, 'owner')`, [a, b, user]);
+      await c.query(`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
+                     VALUES ($1, 'Mar 2025', 1, 2026, '2025-03-01', '2025-03-31')`, [b]);
+      await c.query('SAVEPOINT as_app');
+      await asAppUser(c, user, a);
+      const upd = await c.query('UPDATE companies SET financial_year_start = COALESCE(3, financial_year_start) WHERE id = $1', [b]);
+      await c.query('RESET ROLE');
+      expect(upd.rowCount).toBe(1);
+      expect((await c.query('SELECT assumed_start FROM fiscal_years WHERE company_id = $1', [b])).rows).toEqual([{ assumed_start: false }]);
+    });
+  });
+
+  it('saving the same month again confirms a year a missed confirmation left assumed', async () => {
+    await inRolledBackTx(async (c) => {
+      const b = await company(c, 3);
+      await c.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, assumed_start)
+                     VALUES ($1, 2026, '2025-03-01', '2026-02-28', true)`, [b]);
+      await c.query('UPDATE companies SET financial_year_start = 3 WHERE id = $1', [b]);
+      expect((await c.query('SELECT assumed_start FROM fiscal_years WHERE company_id = $1', [b])).rows).toEqual([{ assumed_start: false }]);
+    });
+  });
+});

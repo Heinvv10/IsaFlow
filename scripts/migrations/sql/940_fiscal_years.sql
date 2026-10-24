@@ -680,9 +680,15 @@ CREATE CONSTRAINT TRIGGER trg_fiscal_years_holds_periods
 -- Stored, not re-derived on every read: a later change of month (a change of
 -- year end) must not turn a confirmed year back into an assumed one. Declaring
 -- another month confirms nothing.
+-- SECURITY DEFINER: the caller may update this company's row (it administers
+-- it) while working in another company, where fiscal_years' RLS would hide this
+-- company's years and confirm nothing. It touches only NEW.id's assumed flags.
+-- Fires on every write of the column (no "changed" condition): saving the same
+-- month again re-runs the confirmation, so a missed one is never stuck.
 CREATE OR REPLACE FUNCTION public.fiscal_years_confirm_declared_month()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $$
 BEGIN
@@ -693,10 +699,16 @@ BEGIN
 END;
 $$;
 DROP TRIGGER IF EXISTS trg_companies_confirm_fiscal_years ON companies;
+REVOKE ALL ON FUNCTION public.fiscal_years_confirm_declared_month() FROM PUBLIC;
 CREATE TRIGGER trg_companies_confirm_fiscal_years AFTER UPDATE OF financial_year_start ON companies
-  FOR EACH ROW WHEN (NEW.financial_year_start IS DISTINCT FROM OLD.financial_year_start)
-  EXECUTE FUNCTION public.fiscal_years_confirm_declared_month();
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_confirm_declared_month();
 ALTER TABLE companies ENABLE ALWAYS TRIGGER trg_companies_confirm_fiscal_years;
+-- 930's definer registry: reviewed here, where it is created.
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+VALUES ('fiscal_years_confirm_declared_month()',
+        'trigger: fiscal_years.assumed_start of the updated company only (clears it on years starting in the declared month)',
+        public.app_definer_hash('public.fiscal_years_confirm_declared_month()'::regprocedure))
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
 -- Years already confirmed by the month their company declares today.
 UPDATE fiscal_years fy SET assumed_start = false
   FROM companies c
