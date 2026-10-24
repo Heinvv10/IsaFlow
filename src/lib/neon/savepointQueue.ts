@@ -4,7 +4,7 @@
  * abort the request. So siblings on the same connection QUEUE. Each nesting
  * level has its own queue per connection (held in `level`), and a savepoint
  * opened inside another queues only behind its own siblings, never behind its
- * parent.
+ * parent. withSavepoint, withTransaction and sql.transaction all go through it.
  *
  * A plain query on the connection waits while a sibling savepoint at its level
  * is open, so it cannot land inside that savepoint's window and be undone by
@@ -26,10 +26,12 @@
  * `savepointQueueWait.ms`, so a slow sibling that keeps issuing statements
  * never trips it. One statement running longer than the bound is invisible
  * here, hence the generous default. Waiters queued behind a real deadlock are
- * refused with it (they are stuck too, and the request is failing anyway). A savepoint (or a query) whose own
- * sibling awaits it cannot ever start: a callback awaiting a promise started outside it that
- * later opens a savepoint, or a "start the read early" promise awaited inside
- * a savepoint. Unbounded, that hangs with the transaction and its row locks
+ * refused with it (they are stuck too, and the request is failing anyway).
+ *
+ * Why bounded: a savepoint (or a query) whose own sibling awaits it can never
+ * start. Examples: a callback awaiting a promise started outside it that later
+ * opens a savepoint, or a "start the read early" promise awaited inside a
+ * savepoint. Unbounded, that hangs with the transaction and its row locks
  * held and no statement running, so no statement_timeout fires. Bounded, it
  * fails loudly and the request rolls back.
  *

@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS fiscal_years (
   change_id UUID,
   -- True when the year was cut on an ASSUMED March start (a period linked for a
   -- company with no usable financial_year_start). Strict readers refuse it while
-  -- the company still has no usable start month; declaring one confirms it.
+  -- the company declares no start month or another one; declaring the month it
+  -- really starts in confirms it.
   assumed_start BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -220,7 +221,8 @@ AS $$
 BEGIN
   RETURN QUERY
     SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true,
-           fy.assumed_start AND NOT COALESCE(c.financial_year_start BETWEEN 1 AND 12, false)
+           -- Confirmed only by declaring the month the year really starts in, not any month.
+           fy.assumed_start AND c.financial_year_start IS DISTINCT FROM EXTRACT(MONTH FROM fy.start_date)::int
       FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
      WHERE fy.company_id = p_company AND p_date BETWEEN fy.start_date AND fy.end_date;
   IF NOT FOUND THEN
@@ -245,7 +247,8 @@ DECLARE
 BEGIN
   RETURN QUERY
     SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true,
-           fy.assumed_start AND NOT COALESCE(c.financial_year_start BETWEEN 1 AND 12, false)
+           -- Confirmed only by declaring the month the year really starts in, not any month.
+           fy.assumed_start AND c.financial_year_start IS DISTINCT FROM EXTRACT(MONTH FROM fy.start_date)::int
       FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
      WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
   IF FOUND THEN RETURN; END IF;
@@ -325,6 +328,7 @@ BEGIN
   --    the year is its label group, as the periods describe it.
   --    Widening a year re-cuts the range its reports cover, so it is refused
   --    once any journal sits in the year (only fixture-shaped data reaches here).
+  --    Never assumed_start: its dates are the periods' own, not a guessed start month.
   SELECT fy.id, LEAST(fy.start_date, p_start), GREATEST(fy.end_date, p_end) INTO y, lo, hi
     FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
   IF y IS NOT NULL THEN
