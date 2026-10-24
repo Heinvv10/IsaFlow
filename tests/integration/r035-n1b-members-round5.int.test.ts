@@ -20,7 +20,7 @@
  *
  * The portal-vs-app races are r035-n1b-members-takeover's, unchanged.
  *
- * Since S-07d (migration 935) app_user holds no UPDATE or DELETE on
+ * Since S-07d (migration 937) app_user holds no UPDATE or DELETE on
  * company_users either: every app_user write to it is refused by privilege
  * (42501) at any level, before the guard or its isolation check runs. Role
  * changes and removals run on the migration_admin pool, which re-checks these
@@ -76,7 +76,7 @@ const seedInvite = (c: string, by: string, role: string) => pool.query(INVITE, i
 const inviteAs = (c: string, by: string, role: string) => [c, emailOf(p.x), role, by, tokenHash(crypto.randomUUID())];
 
 describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the snapshot is not re-read after the lock', (level) => {
-  it('every app_user write to a membership is refused by privilege (42501, since 935), the guard never reached', async () => {
+  it('every app_user write to a membership is refused by privilege (42501, since 937), the guard never reached', async () => {
     const c = await company(pool, p, companies);
     for (const [sub, statement] of [[p.o, DEMOTE], [p.o, REMOVE], [p.a, GRANT],
       [p.a, "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2"],
@@ -120,7 +120,7 @@ describe.each(['REPEATABLE READ', 'SERIALIZABLE'])('%s: refused (40001) — the 
 });
 
 describe.each(['READ COMMITTED', 'READ UNCOMMITTED'])('%s: judged after the lock, not refused', (level) => {
-  it('as app_user, an owner can neither grant owner nor remove an owner (42501 since 935); writing or re-shaping an owner invitation is 42501 since 930', async () => {
+  it('as app_user, an owner can neither grant owner nor remove an owner (42501 since 937); writing or re-shaping an owner invitation is 42501 since 930', async () => {
     const c = await company(pool, p, companies);
     expect(await finish(await session(c, p.o, level), GRANT, [c, p.m])).toBe('42501');
     expect(await finish(await session(c, p.o, level), INVITE, inviteAs(c, p.o, 'owner'))).toBe('42501');
@@ -160,14 +160,14 @@ describe.each(OWNERISH)('a legacy owner-ish role %j is an owner\'s', (legacy) =>
 
   // It is an owner's row for 908b's rules too: an admin is refused (RC010), and
   // so is the admin portal (RC011, the exact-'owner' count finds no other).
-  it('the only owner-ish membership is not demoted (42501 as app_user since 935, RC011 as the portal)', async () => {
+  it('the only owner-ish membership is not demoted (42501 as app_user since 937, RC011 as the portal)', async () => {
     const c = await company(pool, p, companies, [[p.o, legacy], [p.a, 'admin']]);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(DEMOTE, [c, p.o])))).toBe('42501');
     expect(await outcome(asRole(pool, 'platform_admin', c, { sub: p.a }, (cl) => cl.query(DEMOTE, [c, p.o]), true))).toBe('RC011');
     expect(await roleOf(pool, c, p.o)).toBe(legacy);
   });
   // A no-op write and the last-owner count over owner-ish rows run on the
-  // migration_admin pool since 935: s07d-member-writes.int.test.ts.
+  // migration_admin pool since 937: s07d-member-writes.int.test.ts.
 });
 
 it.each(['owners', 'co-owner', 'own', 'owner_'])('%j is not owner-ish', async (role) => {

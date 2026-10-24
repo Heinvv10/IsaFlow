@@ -26,7 +26,7 @@ const onServicePool: Query = async <T>(text: string, params: unknown[]) => (awai
 /**
  * Called only after provider signature verification for the exact token-bearing URL.
  *
- * Activation runs on the migration_admin pool (S-07d, migration 935): the claim
+ * Activation runs on the migration_admin pool (S-07d, migration 937): the claim
  * and the inbox it activates decide which company a WhatsApp number's documents
  * go to, so no app role may INSERT or UPDATE capture_whatsapp_claims or
  * capture_inboxes. Every statement is keyed on the token's hash and the

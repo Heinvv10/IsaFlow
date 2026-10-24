@@ -117,8 +117,8 @@ describe.each(pools)('S-07c (930): %s', (_, pool, opts) => {
 });
 
 describe('S-07c (930): what an app role may still write', () => {
-  // 930 kept a member's role here (the residual); 935 closed it: s07d-credential-tables.int.test.ts.
-  it('no longer a member\'s role (935)', async () => {
+  // 930 kept a member's role here (the residual); 937 closed it: s07d-credential-tables.int.test.ts.
+  it('no longer a member\'s role (937)', async () => {
     const r = await attempt(getAuthPool(), [[`UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2`,
       [company, ids.me]]], { asRequest: { sub: owner, companyId: company } });
     expect(r).toEqual(denied('company_users'));

@@ -1,6 +1,6 @@
 // tests/integration/s07d-member-writes.int.test.ts
 //
-// S-07d (migration 935): role changes and removals run on the migration_admin
+// S-07d (migration 937): role changes and removals run on the migration_admin
 // pool (memberWrites.ts), which company_users_role_guard judges only for the
 // last owner (RC011). The rules the guard enforced for app_user, and the races
 // its suites proved (r035-n1b-members-takeover, s0408-owner-rules-908b-races,

@@ -144,7 +144,7 @@ describe('every tracked table records', () => {
     const sw = (await pool.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,'supplier_invoice',$2) RETURNING id",
       [c, o])).rows[0].id;
     const member = (await pool.query('SELECT id FROM company_users WHERE company_id = $1 AND user_id = $2', [c, a])).rows[0].id;
-    // Member roles are written on the migration_admin pool, under the request's claims (S-07d, 935).
+    // Member roles are written on the migration_admin pool, under the request's claims (S-07d, 937).
     await asInviter(c, (db) => db.query("UPDATE company_users SET role = 'manager' WHERE id = $1", [member]));
     const expected: Record<string, string> = { ...ids, company_invitation, approval_rule: rule, approval_enforcement: sw };
     for (const [type, id] of Object.entries(expected)) {
@@ -168,12 +168,14 @@ describe('every tracked table records', () => {
     await asApp(pool, o, c, (db) => db.query("UPDATE companies SET netcash_payouts_key = 'super-secret-key-1' WHERE id = $1", [c]));
     // Breaker #696 R1: where customers are told to pay, and the mail that carries it.
     await asApp(pool, o, c, (db) => db.query(`UPDATE companies SET portal_payment_instructions = 'Pay FNB 62999999999',
-      email = 'a@x.test', billing_email = 'b@x.test', invoice_email_body = 'new banking details', chase_auto_send_enabled = true,
+      email = 'a@x.test', invoice_email_body = 'new banking details', chase_auto_send_enabled = true,
       phone = '+27 82 000 6666', address_line1 = '1 Elsewhere Rd', portal_allow_payments = false WHERE id = $1`, [c]));
+    // billing_email is the admin site's since 936 (platform_admin).
+    await as(pool, o, { role: 'platform_admin' }, (db) => db.query("UPDATE companies SET billing_email = 'b@x.test' WHERE id = $1", [c]));
     const rows = (await changesOf(pool, c)).filter((r) => r.op === 'update');
     expect(rows.map((r) => r.changed)).toEqual([['bank_account_number', 'vat_number'], ['netcash_payouts_key'],
-      ['address_line1', 'billing_email', 'chase_auto_send_enabled', 'email', 'invoice_email_body', 'phone', 'portal_allow_payments',
-        'portal_payment_instructions']]);
+      ['address_line1', 'chase_auto_send_enabled', 'email', 'invoice_email_body', 'phone', 'portal_allow_payments',
+        'portal_payment_instructions'], ['billing_email']]);
     const keyChange = rows[1]!;
     expect(JSON.stringify(keyChange)).not.toContain('super-secret-key-1');
     expect(keyChange.after!.netcash_payouts_key).toMatch(/^sha256:[0-9a-f]{12}$/);

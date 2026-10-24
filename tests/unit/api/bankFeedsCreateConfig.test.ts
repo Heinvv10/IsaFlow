@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiResponse } from 'next';
 
 const { sqlMock, adminMock } = vi.hoisted(() => ({ sqlMock: vi.fn(), adminMock: vi.fn() }));
-// S-07d (migration 935): the connection INSERT runs on the migration_admin pool.
+// S-07d (migration 937): the connection INSERT runs on the migration_admin pool.
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>
     fn({ query: async (t: string, p?: unknown[]) => ({ rows: await adminMock(t, p) }) }),

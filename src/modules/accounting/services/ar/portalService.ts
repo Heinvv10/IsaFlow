@@ -68,10 +68,10 @@ export async function authenticatePortalUser(email: string, password: string): P
   // the record is hidden everywhere else (customer-statement.ts,
   // customerLedgerService) — so login must not mint a session for one.
   //
-  // On the migration_admin pool (S-07d, migration 935): no app role may read
+  // On the migration_admin pool (S-07d, migration 937): no app role may read
   // password_hash, or write portal_access at all, so a password hash cannot be
   // planted or lifted from an app pool. The company is the login's own
-  // (pa.company_id, 935), never only its customer's, which app roles can
+  // (pa.company_id, 937), never only its customer's, which app roles can
   // move. bcrypt runs between the two transactions, holding none of that
   // pool's few connections.
   const rows = await migrationAdminTx('portal login lookup', async (client) => (await client.query(

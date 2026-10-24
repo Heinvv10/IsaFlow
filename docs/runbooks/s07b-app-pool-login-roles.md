@@ -139,7 +139,7 @@ Migration 932 (bureau consent and client links, 2026-10-24) also takes effect on
   To revert, re-run 932 (it is idempotent). Until then every deploy's
   `app_pool_reach_violations()` check refuses the code switch.
 
-Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes effect on deploy:
+Migration 937 (S-07d: the remaining credential tables, 2026-10-24) also takes effect on deploy:
 
 - No app role may UPDATE or DELETE `company_users` (930 had kept `UPDATE (role)`):
   member role changes and removals run on the migration_admin pool, which
@@ -153,7 +153,7 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   `bank_feed_connections`' sync stamps. `portal_access` gains `company_id`
   (backfilled from each login's customer): an AR portal login signs in only
   to that company, so a login created by hand from now on must set it, or it
-  signs in nowhere (nothing in the app creates logins). 935 refuses to apply unless
+  signs in nowhere (nothing in the app creates logins). 937 refuses to apply unless
   migration_admin holds the moved writes and bypasses row security.
 - During the deploy window, and after a code-only rollback, the old release
   answers an error (42501), writing nothing, for: member role change and
@@ -168,7 +168,7 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   owner, keyed on what the user asked to revoke:
 
   ```sql
-  -- Emergency revocations while old code runs after 935 (each touches one row; check the count is 1).
+  -- Emergency revocations while old code runs after 937 (each touches one row; check the count is 1).
   DELETE FROM public.company_users WHERE company_id = '<company>' AND user_id = '<user>' AND role <> 'owner';
   UPDATE public.share_links SET revoked_at = now(), revoked_by = '<operator>' WHERE id = '<link>' AND company_id = '<company>' AND revoked_at IS NULL;
   UPDATE public.audit_portal_sessions SET revoked_at = now() WHERE id = '<session>' AND company_id = '<company>' AND revoked_at IS NULL;
@@ -177,7 +177,7 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   ```
 - The old IMAP mirror cron fails on the inbox upsert for every scanned
   invoice and moves its cursor past the message, so mail scanned while old
-  code ran after 935 is not captured (its document row is left `pending`).
+  code ran after 937 is not captured (its document row is left `pending`).
   Recover it as soon as the new code is live, before many new scans: moving a
   cursor back re-scans EVERY message after that uid, and re-captures any of
   them the new code has captured since. Read-only first:
@@ -197,7 +197,7 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   ```
   If it is not empty, do not move the cursor: ask the company to forward the
   refused emails to its capture address instead.
-- After 935 the new code retries a message only when none of it was
+- After 937 the new code retries a message only when none of it was
   ingested. A message passed part-ingested (a database failure on its second
   or later attachment) keeps its first attachments and loses the rest; it is
   logged as an error. Find them with
@@ -212,14 +212,41 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
 - If old code must run for more than an hour and needs these:
 
   ```sql
-  -- BREAK-GLASS, old code only: undoes 935's protection (reopens the forgeries). Revert before deploying.
+  -- BREAK-GLASS, old code only: undoes 937's protection (reopens the forgeries). Revert before deploying.
   GRANT UPDATE (role), DELETE ON public.company_users TO app_user;
   GRANT SELECT, INSERT, UPDATE, DELETE ON public.portal_magic_links, public.portal_contacts, public.portal_access,
     public.share_links, public.audit_portal_sessions, public.capture_whatsapp_claims, public.capture_inboxes,
     public.bank_feed_connections TO app_user;
   SELECT public.app_service_sync_policies();
   ```
-  To revert, re-run 935 (it is idempotent). Until then every deploy's
+  To revert, re-run 937 (it is idempotent). Until then every deploy's
+  `app_pool_reach_violations()` check refuses the code switch.
+
+Migration 936 (company standing and billing columns, 2026-10-24) also takes effect on deploy:
+
+- No app role may INSERT, DELETE or TRUNCATE `companies`, or UPDATE its 13
+  standing and billing columns: `status`, `suspended_at`, `suspended_reason`,
+  `is_active`, `plan_id`, `trial_ends_at`, `stripe_customer_id`,
+  `payg_eligible`, `is_demo`, `fx_documents_enabled`, `metadata`,
+  `billing_email`, `billing_contact`. UPDATE comes back on every other column
+  except `id` and `created_at` (company settings, onboarding, chase, CIPC,
+  logo, PIS, client-query WhatsApp). The admin site (platform_admin) and signup provisioning
+  (migration_admin) write the 13; onboarding inserts through
+  `create_company_with_owner(jsonb)`. 936 refuses to apply unless they still can.
+- A column added to `companies` later gets no app privilege. Granting one
+  UPDATE is a violation until a migration adds it to the companies rule in
+  `app_pool_reach_violations()`.
+- The deploy window changes nothing: no release writes the 13, or inserts or
+  deletes a company, on an app pool.
+- On production `companies` is owned by migration_admin, not postgres. The
+  deploy role is a member of it, so 936's REVOKE runs as the owner.
+- Break-glass, only if something on an app pool must write one of the 13 before a fix ships:
+
+  ```sql
+  -- BREAK-GLASS: undoes 936's protection (a tenant can un-suspend its company). Revert before deploying.
+  GRANT INSERT, UPDATE, DELETE ON public.companies TO app_user;
+  ```
+  To revert, re-run 936 (it is idempotent). Until then every deploy's
   `app_pool_reach_violations()` check refuses the code switch.
 
 - 930's rules join 920's in `app_pool_reach_violations()`, so every later
@@ -369,7 +396,7 @@ SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, ac
          'public.bureau_audit_log']::regclass[])
    AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
    AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
--- 935: the writes it moves onto migration_admin (935 refuses to apply without them; zero rows)
+-- 937: the writes it moves onto migration_admin (937 refuses to apply without them; zero rows)
 SELECT w.tbl, p.priv FROM (VALUES
     ('public.company_users', 'SELECT, UPDATE, DELETE'),
     ('public.portal_magic_links', 'SELECT, INSERT, UPDATE, DELETE'),
@@ -387,15 +414,15 @@ SELECT w.tbl, p.priv FROM (VALUES
   unnest(string_to_array(w.privs, ', ')) p(priv)
  WHERE NOT has_table_privilege('migration_admin', w.tbl, p.priv);
 SELECT rolname FROM pg_roles WHERE rolname = 'migration_admin' AND NOT rolbypassrls;  -- zero rows
--- 935: a grant on its tables to a role either login reaches, other than
--- app_user and app_service (935 revokes from those and PUBLIC only; zero rows)
+-- 937: a grant on its tables to a role either login reaches, other than
+-- app_user and app_service (937 revokes from those and PUBLIC only; zero rows)
 SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
  WHERE c.oid = ANY (ARRAY['public.company_users', 'public.portal_magic_links', 'public.portal_contacts',
          'public.portal_access', 'public.share_links', 'public.audit_portal_sessions',
          'public.capture_whatsapp_claims', 'public.capture_inboxes', 'public.bank_feed_connections']::regclass[])
    AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
    AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
--- 935: how much each moved table holds (counts only), to judge the deploy window
+-- 937: how much each moved table holds (counts only), to judge the deploy window
 SELECT 'portal_magic_links' AS t, count(*) FROM portal_magic_links WHERE used_at IS NULL AND expires_at > now()
 UNION ALL SELECT 'portal_contacts', count(*) FROM portal_contacts WHERE active
 UNION ALL SELECT 'portal_access', count(*) FROM portal_access WHERE is_active
@@ -403,7 +430,28 @@ UNION ALL SELECT 'share_links', count(*) FROM share_links WHERE revoked_at IS NU
 UNION ALL SELECT 'audit_portal_sessions', count(*) FROM audit_portal_sessions WHERE revoked_at IS NULL AND expires_at > now()
 UNION ALL SELECT 'capture_inboxes', count(*) FROM capture_inboxes WHERE is_active
 UNION ALL SELECT 'bank_feed_connections', count(*) FROM bank_feed_connections WHERE is_active;
--- After the deploy, 930's, 932's and 935's rules run on every deploy; by hand (zero rows):
+-- 936: a table or column grant on companies to a role either login reaches,
+-- other than app_user (936 revokes from app_user, app_service and PUBLIC only;
+-- zero rows). Also check the owner: 936 runs its REVOKE as the owner, so the
+-- deploy role must be a member of it (one row: t).
+SELECT 'companies' AS t, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
+ WHERE c.oid = 'public.companies'::regclass
+   AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'))
+UNION ALL
+SELECT 'companies.' || att.attname, a.grantee::regrole, a.privilege_type FROM pg_attribute att, aclexplode(att.attacl) a
+ WHERE att.attrelid = 'public.companies'::regclass AND att.attacl IS NOT NULL
+   AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
+SELECT pg_has_role('postgres', relowner, 'USAGE') FROM pg_class WHERE oid = 'public.companies'::regclass;
+-- 936: the writers of the 13 (936 refuses to apply without them; zero rows)
+SELECT w.role, w.priv, c.col FROM (VALUES
+    ('platform_admin', 'UPDATE', 'status,suspended_at,suspended_reason,is_active,plan_id,trial_ends_at,stripe_customer_id,payg_eligible,is_demo,fx_documents_enabled,metadata,billing_email,billing_contact'),
+    ('platform_admin', 'INSERT', 'name,registered_name,trading_name,email,phone,country,default_currency,status,annual_turnover_cents,payg_eligible'),
+    ('migration_admin', 'INSERT', 'name,email,phone,is_active,annual_turnover_cents,payg_eligible,trial_ends_at')) w(role, priv, cols),
+  unnest(string_to_array(w.cols, ',')) c(col)
+ WHERE NOT has_column_privilege(w.role, 'public.companies', c.col, w.priv);
+-- After the deploy, 930's, 932's, 936's and 937's rules run on every deploy; by hand (zero rows):
 --   SELECT * FROM public.app_pool_reach_violations();
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (

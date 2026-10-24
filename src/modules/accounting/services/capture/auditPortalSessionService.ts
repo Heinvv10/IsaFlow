@@ -4,7 +4,7 @@
  * auditor to /api/audit-portal/download. Split from auditTrailExportService.ts
  * (which re-exports it) in S-07d.
  *
- * Issue and revoke run on the migration_admin pool (migration 935): a session
+ * Issue and revoke run on the migration_admin pool (migration 937): a session
  * row is an outsider's download of the pack, so no app role may INSERT or
  * UPDATE audit_portal_sessions (forged claims planted the hash of a known
  * token against any company's export). App roles keep only the auditor's use
@@ -60,7 +60,7 @@ export async function createPortalSession(
   const tokenHash = await bcrypt.hash(token, 10);
   const ttlHours = opts.ttlHours ?? 7 * 24;
 
-  // On migration_admin (S-07d, 935): a session row is an outsider's download
+  // On migration_admin (S-07d, 937): a session row is an outsider's download
   // of the pack, so no app role may write audit_portal_sessions. The export
   // must be this company's and ready, read in the same statement.
   const row = await migrationAdminTx('issue audit portal session', async (client) => (await client.query(

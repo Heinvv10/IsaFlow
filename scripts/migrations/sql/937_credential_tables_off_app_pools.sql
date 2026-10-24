@@ -1,4 +1,4 @@
--- Migration 935 (S-07d): the credential tables S-07c's class sweep left on
+-- Migration 937 (S-07d): the credential tables S-07c's class sweep left on
 -- the app pools.
 --
 -- SQL injected on either app pool can forge request.jwt.claims and
@@ -41,7 +41,7 @@
 -- not stay on app_user once UPDATE (role) went.)
 -- No new SECURITY DEFINER function, so no new app_definer_reviews row.
 --
--- Every rule is added to app_pool_reach_violations() (920, 930, 932), which
+-- Every rule is added to app_pool_reach_violations() (920, 930, 932, 936), which
 -- this migration and every deploy (scripts/check-app-login-roles.ts) run.
 --
 -- Deploy window: migrations apply before the code switch. Until the new code
@@ -112,8 +112,8 @@ GRANT UPDATE (last_sync_at, last_success_at, last_sync_status, last_sync_error, 
 -- app_service's mirrors follow app_user's privileges (915).
 SELECT public.app_service_sync_policies();
 
--- 930's and 932's rules, with company_users' role no longer writable, plus
--- 935's. A migration that changes this function again keeps them.
+-- 930's, 932's and 936's rules, with company_users' role no longer writable,
+-- plus 937's. A migration that changes this function again keeps them.
 CREATE OR REPLACE FUNCTION public.app_pool_reach_violations()
 RETURNS SETOF text
 LANGUAGE sql
@@ -125,7 +125,7 @@ AS $$
      WHERE (pg_catalog.to_regrole('isaflow_app') IS NOT NULL AND pg_catalog.pg_has_role('isaflow_app', r.oid, 'MEMBER'))
         OR (pg_catalog.to_regrole('isaflow_service') IS NOT NULL AND pg_catalog.pg_has_role('isaflow_service', r.oid, 'MEMBER'))
   ),
-  -- 930 (and 932, 935): per table, the columns an app role may still INSERT or UPDATE, and
+  -- 930 (and 932, 936, 937): per table, the columns an app role may still INSERT or UPDATE, and
   -- whether it may read and DELETE. Every other column privilege, DELETE where
   -- not allowed, and TRUNCATE anywhere, is a violation.
   rules (tbl, may_insert, may_update, may_read, may_delete) AS (VALUES
@@ -149,7 +149,46 @@ AS $$
     ('public.bureau_users',               '{}',         '{}',                            true,  false),
     ('public.bureau_companies',           '{}',         '{}',                            true,  false),
     ('public.bureau_audit_log',           '{}',         '{}',                            false, false),
-    -- 935: portal, share-link, audit-portal, capture-routing and bank-feed
+    -- 936: a company's standing and billing columns are not among them (the header).
+    ('public.companies',                  '{}',
+     '{
+      name,trading_name,registration_number,vat_number,tax_number,address_line1,address_line2,city,
+      province,postal_code,country,phone,email,website,logo_url,bank_name,bank_account_number,
+      bank_branch_code,bank_account_type,financial_year_start,vat_period,default_currency,
+      updated_at,logo_data,lockdown_enabled,lockdown_date,vat_system_type,entity_type,registered_name,
+      tax_office,contact_name,fax,mobile,physical_address_line1,physical_address_line2,physical_city,
+      physical_province,physical_postal_code,tax_practitioner_reg_number,tax_practitioner_name,
+      sars_contact_first_name,sars_contact_last_name,sars_contact_capacity,sars_contact_number,
+      sars_contact_telephone,logo_position,logo_on_emails,logo_on_portal,rounding_type,round_to_nearest,
+      qty_decimal_places,value_decimal_places,hours_decimal_places,cost_price_decimal_places,
+      selling_price_decimal_places,currency_symbol,date_format,email_use_for_communication,email_always_cc,
+      email_use_service_from,warn_duplicate_customer_ref,warn_duplicate_supplier_inv,
+      display_inactive_customers_processing,display_inactive_suppliers_processing,
+      display_inactive_customers_reports,display_inactive_suppliers_reports,use_inclusive_processing,
+      use_account_default_line_type,warn_item_qty_below_zero,block_item_qty_below_zero,warn_item_cost_zero,
+      warn_item_selling_below_cost,display_inactive_items_processing,display_inactive_items_reports,
+      sales_orders_reserve_qty,display_inactive_bundles,ageing_monthly,ageing_based_on,
+      vat_period_alignment,industry,business_structure,social_facebook,social_linkedin,social_x,
+      functional_currency,aging_basis,aging_period_type,aging_bucket1_days,aging_bucket2_days,
+      aging_bucket3_days,invoice_email_subject,invoice_email_body,quote_email_subject,quote_email_body,
+      statement_email_subject,statement_email_body,decimal_separator,thousands_separator,decimal_places,
+      invoice_logo_position,rounding_method,invoice_email_signature,quote_email_signature,
+      statement_email_signature,credit_note_email_signature,sales_order_email_signature,
+      recurring_invoice_email_signature,credit_note_email_subject,credit_note_email_body,
+      sales_order_email_subject,sales_order_email_body,recurring_invoice_email_subject,
+      recurring_invoice_email_body,portal_display_name,portal_tagline,portal_mode,
+      portal_show_account_balance,portal_show_transaction_history,portal_allow_payments,
+      portal_payment_instructions,portal_welcome_message,portal_primary_color,invoice_layout,quote_layout,
+      statement_layout,netcash_service_key,netcash_payouts_key,netcash_enabled,paye_reference_number,
+      sdl_reference_number,uif_reference_number,sic7_code,employee_count_beginning,employee_count_end,
+      shareholder_count,all_shareholders_are_directors,nature_of_business,registered_address,
+      chase_auto_send_enabled,chase_grace_days,whatsapp_chase_enabled,sars_km_rate,
+      share_anonymised_signals,annual_turnover_cents,primary_color,idle_timeout_minutes,
+      client_query_whatsapp,cipc_annual_return_submitted,cipc_annual_return_submitted_at,
+      require_project_on_cos,onboarding_request_key
+     }',
+                                                                                     true,  false),
+    -- 937: portal, share-link, audit-portal, capture-routing and bank-feed
     -- credentials are written on migration_admin only; the stamps a bearer's
     -- use writes stay.
     ('public.portal_magic_links',         '{}',         '{}',                            false, false),
@@ -163,7 +202,7 @@ AS $$
      '{last_sync_at,last_success_at,last_sync_status,last_sync_error,updated_at,last_scraper_version,scraper_version}',
                                                                                          true,  true)
   ),
-  -- 935: columns no app role may read on a table it otherwise reads.
+  -- 937: columns no app role may read on a table it otherwise reads.
   unreadable (tbl, col) AS (VALUES
     ('public.portal_access', 'password_hash')
   ),
@@ -248,7 +287,7 @@ DECLARE
   v text;
 BEGIN
   FOR v IN SELECT * FROM public.app_pool_reach_violations() ORDER BY 1 LOOP
-    RAISE EXCEPTION '935: %', v;
+    RAISE EXCEPTION '937: %', v;
   END LOOP;
 END $$;
 
@@ -276,15 +315,15 @@ BEGIN
   LOOP
     -- One privilege at a time: has_table_privilege with a list is true if ANY is held.
     IF pg_catalog.to_regrole('migration_admin') IS NOT NULL AND NOT pg_catalog.has_table_privilege('migration_admin', r.tbl, r.priv) THEN
-      RAISE EXCEPTION '935: migration_admin cannot % %, which the S-07d code writes on it', r.priv, r.tbl;
+      RAISE EXCEPTION '937: migration_admin cannot % %, which the S-07d code writes on it', r.priv, r.tbl;
     END IF;
   END LOOP;
   IF pg_catalog.to_regrole('migration_admin') IS NOT NULL
      AND NOT pg_catalog.has_function_privilege('migration_admin', 'public.company_member_role_is_owner(text)', 'EXECUTE') THEN
-    RAISE EXCEPTION '935: migration_admin cannot EXECUTE company_member_role_is_owner(text), which memberWrites.ts calls';
+    RAISE EXCEPTION '937: migration_admin cannot EXECUTE company_member_role_is_owner(text), which memberWrites.ts calls';
   END IF;
   -- Several of these tables force row security, with no policy for it.
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'migration_admin' AND NOT rolbypassrls) THEN
-    RAISE EXCEPTION '935: migration_admin must bypass row security, which the S-07d code relies on';
+    RAISE EXCEPTION '937: migration_admin must bypass row security, which the S-07d code relies on';
   END IF;
 END $$;

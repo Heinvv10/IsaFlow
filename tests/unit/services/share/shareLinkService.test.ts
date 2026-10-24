@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
 const adminMock = vi.fn();
-// S-07d (migration 935): create and revoke run on the migration_admin pool.
+// S-07d (migration 937): create and revoke run on the migration_admin pool.
 // migrationAdminTx hands the callback a client whose query(text, params) feeds
 // adminMock, so the assertions see the statements in the order the service
 // issued them: the advisory lock, then the insert. Found by content, not by

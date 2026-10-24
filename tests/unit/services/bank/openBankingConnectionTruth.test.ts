@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
-// S-07d (migration 935): disconnect runs on the migration_admin pool via client.query(text, params).
+// S-07d (migration 937): disconnect runs on the migration_admin pool via client.query(text, params).
 const adminMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>

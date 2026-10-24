@@ -2,7 +2,7 @@
  * Capture Inbox Service
  * Manages capture_inboxes — mint, rotate, list per company.
  *
- * Mint and rotate run on the migration_admin pool (S-07d, migration 935): an
+ * Mint and rotate run on the migration_admin pool (S-07d, migration 937): an
  * inbox row decides which company the documents mailed to its address go to,
  * so no app role may INSERT or UPDATE capture_inboxes (forged claims moved a
  * company's address to another company). `companyId` is the verified request's.

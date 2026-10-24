@@ -7,7 +7,7 @@
 //
 // The service runs here as the route runs it: inside a withAuth-shaped
 // transaction (app_user, JWT sub, active company). Since S-07d (migration
-// 935) the service writes on the migration_admin pool in its own transaction,
+// 937) the service writes on the migration_admin pool in its own transaction,
 // which re-checks these rules in TypeScript, so the races that held its write
 // open inside the request transaction are s07d-member-writes.int.test.ts's,
 // on the production migration_admin login.

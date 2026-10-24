@@ -7,7 +7,7 @@
 // - B re-reads the actor's role after the advisory lock: an owner demoted by a
 //   concurrent owner write that commits first is refused (RC010).
 // Waits are observed in pg_stat_activity, never slept for.
-// Since S-07d (migration 935) app_user may neither UPDATE nor DELETE a
+// Since S-07d (migration 937) app_user may neither UPDATE nor DELETE a
 // membership: the members screen writes on the migration_admin pool, where
 // the guard keeps only the last-owner rule (RC011, under the same owner lock)
 // and memberWrites.ts re-checks the rest (its races, B's re-read included:

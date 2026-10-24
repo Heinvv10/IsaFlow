@@ -9,7 +9,7 @@
  * an ACTIVE portal account still exists for the token's customer AND email,
  * and that the customer still belongs to the token's company, which is the
  * login's own (portal_access.company_id, written only on migration_admin,
- * 935: app roles can move a customer, not a login). A token that
+ * 937: app roles can move a customer, not a login). A token that
  * fails any of these is refused exactly like a forged one: `null`, and the
  * caller answers 401.
  *

@@ -2,7 +2,7 @@
  * Open Banking — connection CRUD and sync log queries.
  *
  * Create and disconnect run on the migration_admin pool (S-07d, migration
- * 935): a connection's is_active is the revocation switch for the extension's
+ * 937): a connection's is_active is the revocation switch for the extension's
  * 90-day pairing JWT (withExtensionToken), so no app role may INSERT a
  * connection or UPDATE more than its sync stamps (forged claims revived a
  * revoked pairing). `companyId` and `userId` are the verified request's.

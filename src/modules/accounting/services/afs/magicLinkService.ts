@@ -4,7 +4,7 @@
  * Tokens expire after 30 minutes and are single-use (atomically consumed).
  *
  * Every read and write of portal_magic_links runs on the migration_admin pool
- * (S-07d, migration 935): a row holds the raw token that signs a contact in,
+ * (S-07d, migration 937): a row holds the raw token that signs a contact in,
  * so a row planted or read from an app pool (forged claims) was a portal
  * session for any company. No app role holds any privilege on the table.
  */

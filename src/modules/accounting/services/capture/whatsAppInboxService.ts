@@ -15,7 +15,7 @@ export async function configureWhatsAppInbox(companyId: string, address: string,
   const origin = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
   if (!origin || !process.env.TWILIO_AUTH_TOKEN) throw new Error('WhatsApp verification is not configured');
   const token = randomBytes(32).toString('base64url');
-  // On the migration_admin pool (S-07d, migration 935): a claim decides which
+  // On the migration_admin pool (S-07d, migration 937): a claim decides which
   // company a provider-verified WhatsApp number's documents go to, so no app
   // role may INSERT or UPDATE capture_whatsapp_claims. Keyed on the verified
   // request (checked above).

@@ -117,9 +117,9 @@ describe('RLS on the WS3 tables', () => {
     }
   });
 
-  // Since S-07d (935) no app role may INSERT a share link at all (they are
+  // Since S-07d (937) no app role may INSERT a share link at all (they are
   // minted on the migration_admin pool): refused by privilege, ahead of RLS.
-  it('tenant A cannot INSERT a share link for tenant B (42501 since 935)', async () => {
+  it('tenant A cannot INSERT a share link for tenant B (42501 since 937)', async () => {
     const client = await admin.connect();
     let inTx = false;
     try {
