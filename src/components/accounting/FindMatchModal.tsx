@@ -11,7 +11,7 @@ import { notify } from '@/utils/toast';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { MatchCandidate, CandidateType } from '@/modules/accounting/types/bank-match.types';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Transaction {
   id: string;
@@ -227,7 +227,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
 
                         {/* Date + match reason + score */}
                         <div className="flex items-center gap-3 mt-1.5">
-                          <span className="text-xs text-[var(--ff-text-tertiary)]">{formatSaDateValue(c.date)}</span>
+                          <span className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(c.date, '')}</span>
                           {c.matchReason && (
                             <span className="text-xs text-teal-400 truncate">{c.matchReason}</span>
                           )}

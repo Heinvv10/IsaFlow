@@ -16,7 +16,7 @@ import { log } from '@/lib/logger';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 /** R-035: the detail GET adds the derived approval state while the note is a draft. */
 type NoteWithApproval = CreditNote & { approval?: DocumentApprovalState | null };
@@ -38,7 +38,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function toDateStr(val: Date | string | null | undefined): string {
   if (!val) return '—';
-  if (val instanceof Date) return formatSaDateValue(val);
+  if (val instanceof Date) return formatDisplayDate(val, '');
   const s = String(val);
   return s.split('T')[0] ?? s;
 }

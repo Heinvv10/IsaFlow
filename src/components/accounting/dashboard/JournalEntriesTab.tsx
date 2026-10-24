@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 import { DisplayModeToggle } from '@/components/accounting/DisplayModeToggle';
 import { useDisplayMode } from '@/hooks/useDisplayMode';
 import type { JournalEntry } from '@/modules/accounting/types/gl.types';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -117,7 +117,7 @@ export function JournalEntriesTab() {
                       </Link>
                     </td>
                     <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)]">
-                      {formatSaDateValue(entry.entryDate)}
+                      {formatDisplayDate(entry.entryDate, '')}
                     </td>
                     <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)] max-w-xs truncate">
                       {entry.description || '-'}

@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import { useModalDialog } from '@/components/useModalDialog';
 import type { Annotation } from '@/modules/accounting/services/annotations/annotationService';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
@@ -22,7 +22,7 @@ const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs 
  *  display name yet — so the id is the fallback rather than an empty byline. */
 function byline(a: Annotation): string {
   const who = a.authorName ?? a.author;
-  return `${who} · ${formatSaDateValue(a.createdAt)}`;
+  return `${who} · ${formatDisplayDate(a.createdAt, '')}`;
 }
 
 export function AnnotationThread({ rowId, rowLabel, annotations, onCreate, onResolve, onClose }: {

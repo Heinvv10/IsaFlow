@@ -13,7 +13,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Briefcase, AlertCircle, Loader2, Building2, Plus, Trash2, ArrowLeft,
 } from 'lucide-react';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface BureauRef {
   id: string;
@@ -205,7 +205,7 @@ export default function BureauClientsPage() {
                           {c.companyName}
                         </Link>
                       </td>
-                      <td className="py-2 px-4 text-[var(--ff-text-secondary)] text-xs">{formatSaDateValue(c.addedAt)}</td>
+                      <td className="py-2 px-4 text-[var(--ff-text-secondary)] text-xs">{formatDisplayDate(c.addedAt, '')}</td>
                       <td className="py-2 px-4 text-right">
                         {isOwner && (
                           <button

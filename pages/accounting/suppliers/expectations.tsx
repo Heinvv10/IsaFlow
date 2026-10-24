@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { RefreshCw, AlertCircle, Loader2, X, CheckCircle2, Clock, Search } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface SupplierExpectation {
   id: string; companyId: string; supplierId: string;
@@ -34,7 +34,7 @@ const fmtZAR = (n: number | null) =>
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatSaDateValue(s); } catch { return String(s); }
+  try { return formatDisplayDate(s, ''); } catch { return String(s); }
 };
 
 function nextExpected(exp: SupplierExpectation): string {
@@ -44,7 +44,7 @@ function nextExpected(exp: SupplierExpectation): string {
   try {
     const base = new Date(exp.lastInvoiceDate);
     base.setDate(base.getDate() + gap);
-    return formatSaDateValue(base);
+    return formatDisplayDate(base, '');
   } catch { return '—'; }
 }
 

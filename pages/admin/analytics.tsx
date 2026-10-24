@@ -14,7 +14,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { AnalyticsTrends } from '@/modules/admin/types/admin.types';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface UsageAnalytics {
   dau: number;
@@ -33,7 +33,7 @@ function fmtZAR(cents: number) {
 
 function fmtDate(dateStr: string | null) {
   if (!dateStr) return 'Never';
-  return formatSaDateValue(dateStr);
+  return formatDisplayDate(dateStr, '');
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {

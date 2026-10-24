@@ -13,7 +13,7 @@ import { MatchStatusCell } from '@/components/accounting/ap/SupplierStatementMat
 import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
 import { useStatementReadActions } from '@/hooks/useStatementReadActions';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 type MismatchReason = 'missing_in_isaflow' | 'missing_in_statement' | 'amount_diff' | 'date_diff' | null;
@@ -51,7 +51,7 @@ function fmtZAR(n: number | null) {
 
 function fmtDate(s: string | null) {
   if (!s) return '—';
-  try { return formatSaDateValue(s); } catch { return String(s); }
+  try { return formatDisplayDate(s, ''); } catch { return String(s); }
 }
 
 function varianceCls(variance: number | null) {

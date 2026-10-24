@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle2, CalendarDays, Hash } from 'lucide-react';
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // 🟢 WORKING: ZAR currency formatter (2 decimal places for reconciliation context)
 const fmt = (amount: number): string => formatMoney(amount);
@@ -108,7 +108,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
   const isReconciled = difference !== null && Math.abs(difference) < 0.01;
 
   // Format the import date for display
-  const importedOn = formatSaDateValue(batch.createdAt);
+  const importedOn = formatDisplayDate(batch.createdAt, '');
 
   return (
     <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
@@ -176,7 +176,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
       <div className="flex items-center gap-4 border-t border-[var(--ff-border-light)] px-4 py-2 text-xs text-[var(--ff-text-tertiary)]">
         <span className="flex items-center gap-1">
           <CalendarDays className="h-3 w-3" />
-          {formatSaDateValue(batch.statementDate)}
+          {formatDisplayDate(batch.statementDate, '')}
         </span>
         <span className="flex items-center gap-1">
           <Hash className="h-3 w-3" />

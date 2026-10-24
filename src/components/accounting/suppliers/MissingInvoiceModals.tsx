@@ -6,7 +6,7 @@ import { useState, useCallback } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { X, Mail, MessageSquare } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export interface ExpectedAlert {
   id: string; companyId: string; supplierId: string;
@@ -28,7 +28,7 @@ type ChaseMethod = 'email' | 'whatsapp';
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatSaDateValue(s); } catch { return String(s); }
+  try { return formatDisplayDate(s, ''); } catch { return String(s); }
 };
 const fmtZAR = (n: number | null) =>
   n == null ? '—' : formatMoney(n);

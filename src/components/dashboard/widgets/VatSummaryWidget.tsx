@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { ApiRequestError, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface VatData {
   outputVat: number;
@@ -26,7 +26,7 @@ function fmtCurrency(n: number): string {
 }
 
 function fmtDate(s: string): string {
-  return formatSaDateValue(s);
+  return formatDisplayDate(s, '');
 }
 
 function currentPeriod(): { start: string; end: string } {

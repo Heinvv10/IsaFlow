@@ -11,7 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/api
 import { CreateTaxDirectiveModal } from '@/components/payroll/TaxDirectiveComponents';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
 type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
@@ -247,7 +247,7 @@ export default function TaxDirectivesPage() {
                         {TYPE_LABELS[d.directiveType]}
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
-                        {formatSaDateValue(d.effectiveDate)}
+                        {formatDisplayDate(d.effectiveDate, '')}
                       </td>
                       <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
                         {fmtCurrency(d.amount)}

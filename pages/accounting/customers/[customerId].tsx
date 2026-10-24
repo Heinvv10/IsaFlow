@@ -16,7 +16,7 @@ import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Customer {
   id: string;
@@ -72,7 +72,7 @@ const TYPE_PATHS: Record<ActivityRow['type'], string> = {
 
 function toDateStr(val: Date | string | null | undefined): string {
   if (!val) return '—';
-  if (val instanceof Date) return formatSaDateValue(val);
+  if (val instanceof Date) return formatDisplayDate(val, '');
   const s = String(val);
   return s.split('T')[0] ?? s;
 }

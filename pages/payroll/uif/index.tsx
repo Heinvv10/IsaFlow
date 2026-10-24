@@ -9,7 +9,7 @@ import { FileText, Loader2, AlertCircle, Plus, CheckCircle2, Clock } from 'lucid
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -257,7 +257,7 @@ export default function UifDeclarationPage() {
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)]">
                             <Clock className="h-3 w-3" />
-                            {d.submittedAt ? formatSaDateValue(d.submittedAt) : '—'}
+                            {d.submittedAt ? formatDisplayDate(d.submittedAt, '') : '—'}
                           </span>
                         )}
                       </td>

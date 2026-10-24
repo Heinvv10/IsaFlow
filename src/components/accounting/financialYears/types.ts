@@ -2,7 +2,7 @@
  * Financial Years Management — shared types
  */
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export interface FiscalYearGroup {
   year: number;
@@ -46,5 +46,5 @@ export function groupPeriodsIntoYears(periods: FiscalPeriod[]): FiscalYearGroup[
 
 export function formatDate(d: string | Date): string {
   const date = d instanceof Date ? d : new Date(d);
-  return formatSaDateValue(date);
+  return formatDisplayDate(date, '');
 }

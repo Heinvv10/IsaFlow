@@ -27,7 +27,7 @@ import type { Severity } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientTriage } from '@/modules/bureau/services/bureauClientTriageService';
 
 import { notify } from '@/utils/toast';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 interface WorkItem {
   bureauId: string;
   bureauName: string;
@@ -245,7 +245,7 @@ export default function BureauDashboardPage() {
                       : it.detail
                   }
                   amount={it.amount ?? null}
-                  meta={it.dueAt ? formatSaDateValue(it.dueAt) : '—'}
+                  meta={it.dueAt ? formatDisplayDate(it.dueAt, '') : '—'}
                 />
               );
             })}

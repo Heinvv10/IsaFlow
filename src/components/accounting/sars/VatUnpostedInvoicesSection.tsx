@@ -16,7 +16,7 @@ import { log } from '@/lib/logger';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
 import type { UnpostedInvoiceVatLine, VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
 const REASON_LABEL: Record<UnpostedInvoiceVatLine['reason'], string> = {
@@ -137,7 +137,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
               <td className={td}>{u.invoiceNumber}</td>
               <td className={td}>{u.invoiceKind}</td>
               <td className={td}>{u.counterpartyName}</td>
-              <td className={td}>{formatSaDateValue(u.invoiceDate)}</td>
+              <td className={td}>{formatDisplayDate(u.invoiceDate, '')}</td>
               <td className={td}>{REASON_LABEL[u.reason]}</td>
               <td className={tdNum}>{fmt(u.vat)}</td>
             </tr>

@@ -10,7 +10,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import type { StaffRate } from '@/modules/accounting/services/practice/practiceStaffRateService';
 import { localISODate } from '@/lib/dateUtils';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
 const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
@@ -118,7 +118,7 @@ export default function StaffRatesPage() {
     }
   };
 
-  const fmtDate = (d: string) => d ? formatSaDateValue(d) : '—';
+  const fmtDate = (d: string) => d ? formatDisplayDate(d, '') : '—';
   const fmtRate = (r: number, currency: string) =>
     `${currency} ${r.toLocaleString('en-ZA', { minimumFractionDigits: 2 })} /hr`;
 

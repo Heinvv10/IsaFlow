@@ -9,8 +9,8 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canResolveSubmission, NetcashResolveForm, type LastPoll } from '@/components/accounting/NetcashResolveControl';
 import { netcashReferenceOf } from '@/modules/accounting/services/ap/netcashAnswerSafety';
-import { formatSaDateValue } from '@/lib/saDateParser';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Submission {
   id: string;
@@ -63,7 +63,7 @@ function formatRands(cents: number): string {
 
 function formatDate(val: string | null): string {
   if (!val) return '—';
-  try { return formatSaDateValue(val); }
+  try { return formatDisplayDate(val, ''); }
   catch { return val; }
 }
 

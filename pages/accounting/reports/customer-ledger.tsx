@@ -10,7 +10,7 @@ import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download } from 'lucide-reac
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Customer {
   id: string;
@@ -269,7 +269,7 @@ export default function CustomerLedgerPage() {
                         className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50"
                       >
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">
-                          {formatSaDateValue(row.transaction_date)}
+                          {formatDisplayDate(row.transaction_date, '')}
                         </td>
                         <td className="px-4 py-2">
                           <span

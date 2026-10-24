@@ -3,7 +3,7 @@
  * Extracted to keep features.tsx within 300 lines.
  */
 import { Globe, Lock, Loader2, Check, X, Pencil } from 'lucide-react';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export interface FeatureFlag {
   id: string;
@@ -35,7 +35,7 @@ interface Props {
 }
 
 function fmtDate(d: string) {
-  return formatSaDateValue(d);
+  return formatDisplayDate(d, '');
 }
 
 export function FeatureFlagRow({

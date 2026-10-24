@@ -9,7 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Search, ChevronRight, Settings2 } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface SupplierRule {
   id: string;
@@ -27,7 +27,7 @@ interface SupplierRule {
 
 function fmtDate(val: string | Date | null): string {
   if (!val) return '—';
-  try { return formatSaDateValue(val); } catch { return String(val); }
+  try { return formatDisplayDate(val, ''); } catch { return String(val); }
 }
 
 function fmtZAR(val: number | null): string {

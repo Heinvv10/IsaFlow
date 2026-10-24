@@ -10,8 +10,8 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, UserPlus, ExternalLink, X, Check } from 'lucide-react';
-import { formatSaDateValue } from '@/lib/saDateParser';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type StatusFilter = 'pending' | 'promoted' | 'all';
 
@@ -42,7 +42,7 @@ const TURNOVER_THRESHOLD_CENTS = 100_000_000;
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : formatSaDateValue(d);
+  return Number.isNaN(d.getTime()) ? '—' : formatDisplayDate(d, '');
 }
 
 function fmtTurnover(cents: number | null): string {

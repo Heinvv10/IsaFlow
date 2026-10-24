@@ -19,7 +19,7 @@ import { buildInvoiceHref } from '@/components/accounting/invoiceReturnContext';
 import { useAgingReturn } from '@/components/accounting/useAgingReturn';
 import { INVOICE_LINK } from '@/components/accounting/agingPanelFormat';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ function fmt(amount: number): string {
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
-  return formatSaDateValue(iso);
+  return formatDisplayDate(iso, '');
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────

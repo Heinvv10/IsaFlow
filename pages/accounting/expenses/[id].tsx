@@ -22,7 +22,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { leafAccountOptions } from '@/lib/chartAccountOptions';
 import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Line {
   id: string;
@@ -356,7 +356,7 @@ export default function ExpenseClaimDetail() {
                 <tbody className="divide-y divide-[rgba(255,255,255,0.04)]">
                   {claim.lines.map(l => (
                     <tr key={l.id} className="hover:bg-white/5">
-                      <td className="px-6 py-3 text-slate-400">{formatSaDateValue(l.lineDate)}</td>
+                      <td className="px-6 py-3 text-slate-400">{formatDisplayDate(l.lineDate, '')}</td>
                       <td className="px-6 py-3">
                         {l.kmTravelled ? (
                           <span className="inline-flex items-center gap-1 text-xs text-teal-400"><MapPin className="h-3 w-3" /> Mileage</span>

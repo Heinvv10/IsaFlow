@@ -16,7 +16,7 @@ import { ApprovalRulesTab } from '@/components/accounting/approvals/ApprovalRule
 import {
   DOC_TYPE_LABELS, formatCurrency, type ApprovalRuleRow as ApprovalRule,
 } from '@/components/accounting/approvals/approvalRuleDisplay';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface ApprovalRequest {
   id: string;
@@ -229,7 +229,7 @@ export default function ApprovalsPage() {
                     {req.amount != null && <span className="ml-2 text-teal-500">{formatCurrency(req.amount)}</span>}
                   </p>
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
-                    Requested by {req.requestedByName || 'Unknown'} • {formatSaDateValue(req.requestedAt)}
+                    Requested by {req.requestedByName || 'Unknown'} • {formatDisplayDate(req.requestedAt, '')}
                     {req.decidedByName && ` • Decided by ${req.decidedByName}`}
                   </p>
                 </div>

@@ -8,7 +8,7 @@ import { PageHeader } from '@/components/ui';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import type { AfsDocument, DocumentStatus } from '@/modules/accounting/services/afs/afsTypes';
 import { AfsCreateModal, type AfsCreateValues } from '@/components/accounting/afs/AfsCreateModal';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const STATUS_CONFIG: Record<DocumentStatus, { label: string; colour: string; icon: React.ReactNode }> = {
   draft:          { label: 'Draft',           colour: 'bg-zinc-100 text-zinc-700',     icon: <Clock className="w-3 h-3" /> },
@@ -176,7 +176,7 @@ export default function AfsIndexPage() {
                 <div className="flex items-center gap-3">
                   <StatusBadge status={doc.status} />
                   <span className="text-xs text-zinc-400 dark:text-slate-500">
-                    {formatSaDateValue(doc.updatedAt)}
+                    {formatDisplayDate(doc.updatedAt, '')}
                   </span>
                 </div>
               </Link>

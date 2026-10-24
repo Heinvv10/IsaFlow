@@ -27,7 +27,7 @@ import { AccountLedgerTable } from '@/components/reports/AccountLedgerTable';
 import type { AccountLedgerResult } from '@/modules/accounting/services/reports/accountLedgerService';
 
 import { accountReportBackHref } from '@/components/reports/reportReturnState';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const PAGE_SIZE = 200;
 
@@ -36,7 +36,7 @@ function fmtDate(d: string): string {
   const iso = d.length === 10 ? `${d}T00:00:00` : d;
   const date = new Date(iso);
   if (isNaN(date.getTime())) return d;
-  return formatSaDateValue(date);
+  return formatDisplayDate(date, '');
 }
 
 export default function AccountDetailPage() {

@@ -10,7 +10,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity, Clock } from 'lucide-react';
 import Link from 'next/link';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface TrialRow {
   id: string;
@@ -67,7 +67,7 @@ function trialDaysBadge(days: number) {
 }
 
 function fmtTrialDate(iso: string): string {
-  return formatSaDateValue(iso);
+  return formatDisplayDate(iso, '');
 }
 
 export default function AdminDashboard() {

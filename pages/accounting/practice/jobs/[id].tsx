@@ -16,7 +16,7 @@ import type { PracticeTask } from '@/modules/accounting/services/practice/practi
 import type { PracticeTimeEntry } from '@/modules/accounting/services/practice/practiceTimeEntryService';
 import type { CompanyUserSummary } from '@/modules/accounting/services/practice/practiceUsersService';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type Tab = 'details' | 'tasks' | 'time';
 
@@ -286,7 +286,7 @@ export default function JobDetailPage() {
                   {entries.length === 0 ? <div className="text-center py-12 text-[var(--ff-text-secondary)]">No time entries for this job</div>
                     : <div className="rounded-lg border border-[var(--ff-border-primary)] overflow-hidden bg-[var(--ff-bg-secondary)]">
                         <table className="w-full text-sm"><thead><tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)]">{['Date', 'User', 'Description', 'Hours', 'Rate', 'Total', 'Status'].map(h => <TH key={h} h={h} />)}</tr></thead>
-                        <tbody>{entries.map(e => <tr key={e.id} className="border-b border-[var(--ff-border-primary)] last:border-0"><td className="py-2 px-3 text-[var(--ff-text-secondary)]"><Link href="/accounting/practice/time-entry" className="hover:text-teal-400 transition-colors">{formatSaDateValue(e.entryDate)}</Link></td><td className="py-2 px-3 text-[var(--ff-text-secondary)] font-mono text-xs">{trunc(e.userId)}</td><td className="py-2 px-3 text-[var(--ff-text-primary)] max-w-xs truncate">{e.taskDescription}</td><td className="py-2 px-3 text-[var(--ff-text-secondary)]">{e.hours}</td><td className="py-2 px-3 text-[var(--ff-text-secondary)]">{e.appliedRate != null ? formatMoney(e.appliedRate) : '—'}</td><td className="py-2 px-3 text-[var(--ff-text-secondary)]">{e.lineTotal != null ? formatMoney(e.lineTotal) : '—'}</td><td className="py-2 px-3"><span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-700 capitalize">{e.status}</span></td></tr>)}</tbody>
+                        <tbody>{entries.map(e => <tr key={e.id} className="border-b border-[var(--ff-border-primary)] last:border-0"><td className="py-2 px-3 text-[var(--ff-text-secondary)]"><Link href="/accounting/practice/time-entry" className="hover:text-teal-400 transition-colors">{formatDisplayDate(e.entryDate, '')}</Link></td><td className="py-2 px-3 text-[var(--ff-text-secondary)] font-mono text-xs">{trunc(e.userId)}</td><td className="py-2 px-3 text-[var(--ff-text-primary)] max-w-xs truncate">{e.taskDescription}</td><td className="py-2 px-3 text-[var(--ff-text-secondary)]">{e.hours}</td><td className="py-2 px-3 text-[var(--ff-text-secondary)]">{e.appliedRate != null ? formatMoney(e.appliedRate) : '—'}</td><td className="py-2 px-3 text-[var(--ff-text-secondary)]">{e.lineTotal != null ? formatMoney(e.lineTotal) : '—'}</td><td className="py-2 px-3"><span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-700 capitalize">{e.status}</span></td></tr>)}</tbody>
                         </table>
                       </div>
                   }

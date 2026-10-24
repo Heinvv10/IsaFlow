@@ -16,7 +16,7 @@ import { BankTxAttachmentsModal } from '@/components/accounting/BankTxAttachment
 import { StatusBadge, ExpandableText, QueryRowActions } from '@/components/accounting/bank/QueryRow';
 import type { BankTxQueryRow } from '@/components/accounting/bank/QueryRow';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ const fmtZAR = (n: number) => formatMoney(Math.abs(n));
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatSaDateValue(s); } catch { return String(s); }
+  try { return formatDisplayDate(s, ''); } catch { return String(s); }
 };
 
 const fmtDateTime = (s: string | Date | null) => {

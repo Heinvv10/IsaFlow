@@ -8,7 +8,7 @@ import {
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ManagementPackConfigTab } from '@/components/accounting/management-packs/ManagementPackConfigTab';
 import type { ManagementPackConfig } from '@/modules/accounting/services/afs/afsTypes';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type PackDoc = {
   id: string;
@@ -163,8 +163,8 @@ export default function ManagementPacksPage() {
                     <StatusBadge status={pack.status} />
                   </div>
                   <p className="text-xs text-zinc-500 dark:text-slate-400">
-                    Created {formatSaDateValue(pack.created_at)}
-                    {' · '}Updated {formatSaDateValue(pack.updated_at)}
+                    Created {formatDisplayDate(pack.created_at, '')}
+                    {' · '}Updated {formatDisplayDate(pack.updated_at, '')}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">

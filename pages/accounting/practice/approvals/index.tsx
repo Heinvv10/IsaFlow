@@ -14,12 +14,12 @@ import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
 import { localISODate, monthStartISO } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ---------- helpers ----------
 
 function fmtDate(iso: string) {
-  return iso ? formatSaDateValue(iso) : '—';
+  return iso ? formatDisplayDate(iso, '') : '—';
 }
 function fmtMoney(n: number | null) {
   if (n == null) return '—';

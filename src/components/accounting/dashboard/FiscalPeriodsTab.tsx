@@ -12,7 +12,7 @@ import { CreateYearModal } from '@/components/accounting/fiscal-periods/CreateYe
 import { BulkConfirmModal, type BulkAction } from '@/components/accounting/fiscal-periods/BulkConfirmModal';
 import { statusIcon, statusBadge } from '@/components/accounting/fiscal-periods/statusVisuals';
 import { localISODate } from '@/lib/dateUtils';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
@@ -236,8 +236,8 @@ export function FiscalPeriodsTab() {
                     </div>
                   </td>
                   <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{period.fiscalYear}</td>
-                  <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatSaDateValue(period.startDate)}</td>
-                  <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatSaDateValue(period.endDate)}</td>
+                  <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(period.startDate, '')}</td>
+                  <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(period.endDate, '')}</td>
                   <td className="px-5 py-3.5">
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${statusBadge(period.status)}`}>
                       {statusIcon(period.status)}{period.status}
