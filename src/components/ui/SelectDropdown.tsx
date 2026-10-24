@@ -24,7 +24,15 @@ interface SelectDropdownProps {
   onSearchChange: (value: string) => void;
   onSelect: (option: SelectOption) => void;
   onActiveChange: (index: number) => void;
-  onKeyDown: (e: KeyboardEvent<HTMLUListElement>) => void;
+  onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
+  /** Accessible name of the search box (default "Search options"). */
+  searchLabel?: string;
+  /** Text shown when `options` is empty and nothing is loading or failed (default "No options"). */
+  emptyText?: string;
+  /** A request is in flight: shown as a status line, existing options stay visible. */
+  loading?: boolean;
+  /** The options could not be loaded: replaces the list with an alert (an empty list would read as "no results"). */
+  loadError?: string | null;
 }
 
 export function SelectDropdown({
@@ -44,7 +52,14 @@ export function SelectDropdown({
   onSelect,
   onActiveChange,
   onKeyDown,
+  searchLabel = 'Search options',
+  emptyText = 'No options',
+  loading = false,
+  loadError = null,
 }: SelectDropdownProps) {
+  const showList = !loadError && options.length > 0;
+  const activeOption = options[activeIndex];
+  const activeDescendant = showList && activeOption ? `${inputId}-option-${activeOption.value}` : undefined;
   return (
     <div
       style={{ top: pos.top, left: pos.left, width: pos.width }}
@@ -63,28 +78,39 @@ export function SelectDropdown({
               type="text"
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
+              onKeyDown={onKeyDown}
               placeholder="Search…"
-              aria-label="Search options"
+              aria-label={searchLabel}
+              aria-controls={showList ? listboxId : undefined}
+              aria-activedescendant={activeDescendant}
               className="flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100"
             />
           </div>
         </div>
       )}
 
-      <ul
-        ref={listRef}
-        id={listboxId}
-        role="listbox"
-        aria-multiselectable={isMulti}
-        aria-labelledby={labelId}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        className="max-h-60 overflow-y-auto py-1 focus:outline-none"
-      >
-        {options.length === 0 ? (
-          <li className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">No options</li>
-        ) : (
-          options.map((option, i) => {
+      {loadError ? (
+        <p role="alert" className="px-3 py-2 text-sm text-red-600 dark:text-red-400">{loadError}</p>
+      ) : loading ? (
+        <p role="status" className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">Loading…</p>
+      ) : options.length === 0 ? (
+        <p role="status" className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">{emptyText}</p>
+      ) : null}
+
+      {showList && (
+        <ul
+          ref={listRef}
+          id={listboxId}
+          role="listbox"
+          aria-multiselectable={isMulti}
+          aria-labelledby={labelId}
+          aria-busy={loading}
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          aria-activedescendant={activeDescendant}
+          className="max-h-60 overflow-y-auto py-1 focus:outline-none"
+        >
+          {options.map((option, i) => {
             const isSelected = selectedValues.includes(option.value);
             const isActive = activeIndex === i;
             return (
@@ -115,9 +141,9 @@ export function SelectDropdown({
                 )}
               </li>
             );
-          })
-        )}
-      </ul>
+          })}
+        </ul>
+      )}
     </div>
   );
 }
