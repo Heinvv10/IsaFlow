@@ -27,7 +27,10 @@
 --     label's year;
 --   - any other company (periods made by the generator after 940, labelled by
 --     registry year) gets the month inside the registry year of that label
---     (public.fiscal_year_for_label), so two labels never fall on one month.
+--     (public.fiscal_year_for_label), so two labels never fall on one month. A key
+--     for a month that year does not have (a short year) was never read by any
+--     old reader, so it is SKIPPED (counted and reported, left out of the
+--     verification), not pushed into the next year's months.
 -- Because the registry's FY2027 is March 2026 - February 2027, converted months
 -- regroup under registry labels: January 2026 now counts in FY2026 and March
 -- 2026 in FY2027. The notes header (accounting_budgets) therefore follows the
@@ -93,6 +96,68 @@ CREATE TRIGGER trg_budget_month_amounts_same_company BEFORE INSERT OR UPDATE OF 
 
 -- ── Conversion ───────────────────────────────────────────────────────────────
 
+-- The calendar month the OLD readers filed month key `p_idx` (1 = jan) of a budget row labelled
+-- `p_label` under (the rules are in the header above), or NULL when no reader ever read that key:
+-- the company's periods carry the label but have no period for that month (a short year). The
+-- converter, the verification and the skipped count all use this one function.
+CREATE OR REPLACE FUNCTION public.budget_legacy_month(p_company uuid, p_label int, p_idx int)
+RETURNS date
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  d date; win_start date; win_end date;
+BEGIN
+  SELECT fp.start_date INTO d FROM fiscal_periods fp
+   WHERE fp.company_id = p_company AND fp.fiscal_year = p_label
+     AND EXTRACT(MONTH FROM fp.start_date)::int = p_idx AND EXTRACT(DAY FROM fp.start_date) = 1
+   ORDER BY fp.start_date LIMIT 1;
+  IF d IS NOT NULL THEN RETURN d; END IF;
+  IF NOT EXISTS (SELECT 1 FROM fiscal_periods fp2 WHERE fp2.company_id = p_company) THEN
+    RETURN make_date(CASE WHEN p_idx >= 3 THEN p_label ELSE p_label + 1 END, p_idx, 1);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM fiscal_periods fp3 WHERE fp3.company_id = p_company
+                    AND fp3.fiscal_year <> EXTRACT(YEAR FROM fp3.start_date)::int) THEN
+    RETURN make_date(p_label, p_idx, 1);
+  END IF;
+  -- Registry-labelled periods. The registry refuses some shapes (no free label in a hole between
+  -- stored years): placed as no year carries it.
+  BEGIN
+    SELECT fy.start_date, fy.end_date INTO win_start, win_end FROM public.fiscal_year_for_label(p_company, p_label) fy;
+  EXCEPTION WHEN raise_exception OR invalid_parameter_value THEN
+    win_start := NULL;
+  END;
+  IF win_start IS NULL THEN RETURN make_date(p_label, p_idx, 1); END IF;  -- a label no year carries: calendar placement
+  -- The month inside the label's window; a key for a month the year does not have (a short year) was never read.
+  d := make_date(EXTRACT(YEAR FROM win_start)::int + CASE WHEN p_idx < EXTRACT(MONTH FROM win_start)::int THEN 1 ELSE 0 END, p_idx, 1);
+  RETURN CASE WHEN d <= win_end THEN d END;
+END;
+$$;
+
+-- Every stored month of every legacy budget row (an annual-only row spread over twelve), with the
+-- month it is filed under (NULL: skipped, see budget_legacy_month). Cents-rounded.
+CREATE OR REPLACE FUNCTION public.budget_legacy_month_values(p_company uuid DEFAULT NULL)
+RETURNS TABLE (company_id uuid, gl_account_id uuid, idx int, val numeric, month date)
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT b.company_id, b.gl_account_id, m.n::int, v.val,
+         public.budget_legacy_month(b.company_id, b.fiscal_year, m.n::int)
+    FROM accounting_budgets b
+    JOIN gl_accounts ga ON ga.id = b.gl_account_id AND ga.company_id = b.company_id
+    CROSS JOIN unnest(ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec']) WITH ORDINALITY AS m(k, n)
+    CROSS JOIN LATERAL (SELECT CASE
+        WHEN jsonb_typeof(COALESCE(b.period_amounts, '{}'::jsonb)) <> 'object' THEN NULL
+        WHEN COALESCE(b.period_amounts, '{}'::jsonb) <> '{}'::jsonb THEN
+          CASE WHEN COALESCE(b.period_amounts ->> m.k, b.period_amounts ->> (m.n - 1)::text) IS NULL THEN NULL
+               ELSE round(COALESCE(NULLIF(btrim(COALESCE(b.period_amounts ->> m.k, b.period_amounts ->> (m.n - 1)::text)), ''), '0')::numeric, 2) END
+        WHEN COALESCE(b.annual_amount, 0) = 0 THEN NULL
+        WHEN m.n = 12 THEN b.annual_amount - round(b.annual_amount / 12, 2) * 11
+        ELSE round(b.annual_amount / 12, 2)
+      END AS val) v
+   WHERE v.val IS NOT NULL AND (p_company IS NULL OR b.company_id = p_company)
+$$;
+
 -- One conversion, callable per company so it is tested on old-shape rows
 -- (tests/integration/budgets-legacy-conversion.int.test.ts) and run for all of
 -- them here; the month rules are in the header above. A value that is not a number, or a period_amounts that is
@@ -105,7 +170,7 @@ AS $$
 DECLARE
   b record; k text; idx int; raw text; val numeric; month_date date;
   keys text[] := ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-  monthly numeric; inserted int; converted int := 0; win_start date; reg_label int;
+  monthly numeric; inserted int; converted int := 0; reg_label int;
   lab int[]; target int; lbl int;
 BEGIN
   FOR b IN
@@ -136,33 +201,8 @@ BEGIN
         monthly := round(b.annual / 12, 2);
         val := CASE WHEN idx = 12 THEN b.annual - monthly * 11 ELSE monthly END;
       END IF;
-      SELECT fp.start_date INTO month_date FROM fiscal_periods fp
-       WHERE fp.company_id = b.company_id AND fp.fiscal_year = b.fiscal_year
-         AND EXTRACT(MONTH FROM fp.start_date)::int = idx AND EXTRACT(DAY FROM fp.start_date) = 1
-       ORDER BY fp.start_date LIMIT 1;
-      IF month_date IS NULL THEN
-        IF NOT EXISTS (SELECT 1 FROM fiscal_periods fp2 WHERE fp2.company_id = b.company_id) THEN
-          month_date := make_date(CASE WHEN idx >= 3 THEN b.fiscal_year ELSE b.fiscal_year + 1 END, idx, 1);
-        ELSIF NOT EXISTS (SELECT 1 FROM fiscal_periods fp3 WHERE fp3.company_id = b.company_id
-                             AND fp3.fiscal_year <> EXTRACT(YEAR FROM fp3.start_date)::int) THEN
-          month_date := make_date(b.fiscal_year, idx, 1);
-        ELSE
-          -- The registry refuses some shapes (no free label in a hole between stored years): placed as no year carries it.
-          BEGIN
-            SELECT fy.start_date INTO win_start
-              FROM public.fiscal_year_for_label(b.company_id, b.fiscal_year) fy;
-          EXCEPTION WHEN raise_exception OR invalid_parameter_value THEN
-            win_start := NULL;
-          END;
-          IF win_start IS NULL THEN
-            month_date := make_date(b.fiscal_year, idx, 1);  -- a label no year carries: calendar placement
-          ELSE
-            -- The first such month on or after the window's start: inside the window when it holds one,
-            -- else (a short year) the next such month, so the amount is kept, never dropped.
-            month_date := make_date(EXTRACT(YEAR FROM win_start)::int + CASE WHEN idx < EXTRACT(MONTH FROM win_start)::int THEN 1 ELSE 0 END, idx, 1);
-          END IF;
-        END IF;
-      END IF;
+      month_date := public.budget_legacy_month(b.company_id, b.fiscal_year, idx);
+      CONTINUE WHEN month_date IS NULL;  -- a key no reader ever read (see budget_legacy_month)
       INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount, created_by)
       VALUES (b.company_id, b.gl_account_id, month_date, val, b.created_by)
       ON CONFLICT (company_id, gl_account_id, month) DO NOTHING;
@@ -181,7 +221,7 @@ BEGIN
       IF reg_label IS NOT NULL THEN
         IF NOT (reg_label = ANY(lab)) THEN lab := lab || reg_label; END IF;
       END IF;
-      month_date := NULL; win_start := NULL; reg_label := NULL;
+      month_date := NULL; reg_label := NULL;
     END LOOP;
     -- The notes header follows the months into the registry years that now hold them. When none of
     -- its months is under its own label it MOVES to a label that holds them (no empty year carrying
@@ -206,23 +246,15 @@ BEGIN
 END;
 $$;
 
--- Company/account totals that differ between the old rows and the months.
+-- Company/account totals that differ between the old rows and the months (keys no reader read are not in the source).
 CREATE OR REPLACE FUNCTION public.budget_months_legacy_mismatches(p_company uuid DEFAULT NULL)
 RETURNS int
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
   WITH src AS (
-    SELECT b.company_id, b.gl_account_id,
-           SUM(CASE WHEN (SELECT COUNT(*) FROM jsonb_object_keys(COALESCE(b.period_amounts, '{}'::jsonb))) > 0
-                    THEN (SELECT COALESCE(SUM(round(COALESCE(NULLIF(btrim(COALESCE(b.period_amounts ->> m.k, b.period_amounts ->> (m.n - 1)::text)), ''), '0')::numeric, 2)), 0)
-                            FROM unnest(ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'])
-                                 WITH ORDINALITY AS m(k, n))
-                    ELSE COALESCE(b.annual_amount, 0) END) AS total
-      FROM accounting_budgets b JOIN gl_accounts ga ON ga.id = b.gl_account_id AND ga.company_id = b.company_id
-     WHERE jsonb_typeof(COALESCE(b.period_amounts, '{}'::jsonb)) = 'object'
-       AND (p_company IS NULL OR b.company_id = p_company)
-     GROUP BY 1, 2
+    SELECT company_id, gl_account_id, SUM(val) AS total
+      FROM public.budget_legacy_month_values(p_company) WHERE month IS NOT NULL GROUP BY 1, 2
   ), dst AS (
     SELECT company_id, gl_account_id, SUM(amount) AS total FROM budget_month_amounts
      WHERE p_company IS NULL OR company_id = p_company GROUP BY 1, 2
@@ -231,12 +263,24 @@ AS $$
    WHERE COALESCE(src.total, 0) <> COALESCE(dst.total, 0)
 $$;
 
+-- Stored legacy months no reader ever read (a short year's keys for months it does not have): not converted.
+CREATE OR REPLACE FUNCTION public.budget_months_legacy_skipped(p_company uuid DEFAULT NULL)
+RETURNS int
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT COUNT(*)::int FROM public.budget_legacy_month_values(p_company) WHERE month IS NULL
+$$;
+
 REVOKE ALL ON FUNCTION public.budget_months_from_legacy(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_months_legacy_mismatches(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_months_legacy_skipped(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_legacy_month(uuid, int, int) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_legacy_month_values(uuid) FROM PUBLIC;
 
 DO $$
 DECLARE
-  orphaned int; foreign_acct int; converted int; bad int;
+  orphaned int; foreign_acct int; converted int; bad int; skipped int;
 BEGIN
   -- Rows no reader ever showed (no account, or no company): reported, not converted.
   SELECT COUNT(*) INTO orphaned FROM accounting_budgets WHERE gl_account_id IS NULL OR company_id IS NULL;
@@ -251,6 +295,10 @@ BEGIN
   END IF;
   converted := public.budget_months_from_legacy(NULL);
   RAISE NOTICE '944: converted % budget months', converted;
+  skipped := public.budget_months_legacy_skipped(NULL);
+  IF skipped > 0 THEN
+    RAISE NOTICE '944: % stored month(s) are for months their financial year does not have (a short year); no reader ever read them, so they are not converted', skipped;
+  END IF;
   bad := public.budget_months_legacy_mismatches(NULL);
   IF bad > 0 THEN
     RAISE EXCEPTION '944 verification failed: % company/account budget totals differ after conversion', bad;
