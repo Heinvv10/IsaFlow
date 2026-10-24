@@ -23,9 +23,11 @@ const inventory = crypto.randomUUID();
 
 async function entry(n: string, date: string, status: 'posted' | 'draft', left: string, right: string, amount: number) {
   const id = crypto.randomUUID();
+  // The period holding the date (migration 941): FY2025's, or FY2026's for an entry after the year end.
+  const period = date.startsWith('2026-') ? t.period.p26 : t.period.p25;
   await pool.query(
     `INSERT INTO gl_journal_entries(id,company_id,entry_number,entry_date,fiscal_period_id,description,source,status,created_by)
-     VALUES($1,$2,$3,$4,$5,'seed','manual',$6,$7)`, [id, t.company, n, date, t.period.p25, status, user]);
+     VALUES($1,$2,$3,$4,$5,'seed','manual',$6,$7)`, [id, t.company, n, date, period, status, user]);
   await pool.query(
     `INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,description,company_id)
      VALUES($1,$2,$4,0,'seed',$5),($1,$3,0,$4,'seed',$5)`, [id, left, right, amount, t.company]);

@@ -33,6 +33,7 @@ import { softDelete } from '@/modules/accounting/services/core/softDeleteService
 import { arSubLedgerCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/arSubLedgerCheck';
 import { apSubLedgerCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/apSubLedgerCheck';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears, setPeriodsEndingBy } from './helpers/fiscalYearSeed';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -50,7 +51,6 @@ function shift(days: number): string {
 const TODAY = fmtDate(new Date());
 const YESTERDAY = shift(-1);
 const CLOSED_END = shift(-60);
-const OPEN_START = shift(-59);
 const OPEN_END = shift(400);
 const DOC_DATE = shift(-120);
 const DUE_DATE = shift(-100);
@@ -124,9 +124,7 @@ describeIfDb('K-053 the soft-delete exclusion is dated to the reversal', () => {
     // Two periods. The document's own period is closed by the time it is
     // deleted, which is what forces the reversal onto today's date; today's
     // period is open, or the delete would simply be refused.
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'K053ASAT prior ' + TAG}, 1, 2026, '2020-01-01', ${CLOSED_END}::date, 'open'),
-                     (${COMPANY}::UUID, ${'K053ASAT current ' + TAG}, 2, 2026, ${OPEN_START}::date, ${OPEN_END}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), OPEN_END);
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
     await account(payable, '2100', 'Trade Creditors', 'liability', 'credit', 'payable');
     await account(revenue, '4000', 'Sales', 'revenue', 'credit', 'default_revenue');
@@ -158,8 +156,7 @@ describeIfDb('K-053 the soft-delete exclusion is dated to the reversal', () => {
     // production shape — an approved document in a month that has since closed.
     await inTx(() => postCustomerInvoiceToGL(COMPANY, arInvoice, USER));
     await inTx(() => postSupplierInvoiceToGL(COMPANY, apInvoice, USER));
-    await sql`UPDATE fiscal_periods SET status = 'closed'
-              WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
+    await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
   }, 120000);
 
   afterAll(async () => {

@@ -105,21 +105,24 @@ async function insertEntry(
   creditAccount: string,
   amount: number,
 ): Promise<string> {
+  // A journal's period is the one holding its date (migration 941), so each
+  // entry is dated inside its period: today in the open one, the first day of
+  // the closed one. "Posted into no period at all" is a date no period covers
+  // (three months back; the periods are this month and last), which the
+  // trigger leaves NULL — the state a production row in it has.
   const { rows } = await client.query<{ id: string }>(
     `INSERT INTO gl_journal_entries
        (company_id, entry_number, entry_date, fiscal_period_id, description, status, created_by)
-     VALUES ($1, $2, CURRENT_DATE, $3, 'merge fixture', $4, $5)
+     VALUES ($1, $2,
+       COALESCE(
+         (SELECT CASE WHEN CURRENT_DATE BETWEEN start_date AND end_date THEN CURRENT_DATE ELSE start_date END
+            FROM fiscal_periods WHERE id = $3 AND company_id = $1),
+         (date_trunc('month', CURRENT_DATE) - INTERVAL '3 months')::DATE),
+       $3, 'merge fixture', $4, $5)
      RETURNING id`,
     [companyId, `MF-${Math.random().toString(36).slice(2, 10)}`, periodId, status, CREATED_BY],
   );
   const entryId = rows[0]!.id;
-  // `trg_gl_je_fiscal_period` fills a NULL period in on INSERT, so the only way
-  // to build the "posted into no period at all" state is to clear it after the
-  // fact — and before the lines go in, so the balance-cache trigger sees the
-  // same NULL a production row in that state would.
-  if (periodId === null) {
-    await client.query('UPDATE gl_journal_entries SET fiscal_period_id = NULL WHERE id = $1', [entryId]);
-  }
   await client.query(
     `INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
      VALUES ($1, $2, $3, $4, 0), ($1, $2, $5, 0, $4)`,
