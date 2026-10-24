@@ -2,13 +2,15 @@
  * The captured documents the provisional evidence attach would accept, for its picker
  * (GET /api/accounting/document-capture?attachable=1).
  *
- * "Attachable" mirrors what the attach itself checks, so the list offers nothing it then refuses:
+ * The list is what the attach accepts, NARROWED ON PURPOSE to supplier evidence. It mirrors what the attach itself
+ * checks, so it offers nothing the attach then refuses:
  *  - claimCapturedDocumentForPosting: not posted, not rejected, read finished, and (spend 'evidence' ->
  *    findPostedContent) the same FILE (raw_bytes_sha256) not already posted from another document;
  *  - assertDocumentNotAlreadyPosted: not the source_document_id of a posted journal that still stands, and not
  *    the target of an active gl_journal_document_links row.
- * Plus only supplier evidence: not our own sent invoices, sent emails or dunning letters, and not a bank or supplier
- * statement (a supplier statement has no document_type; its reconciliation points at it).
+ * The narrowing hides what the attach would itself accept but is not evidence for a supplier spend: our own sent
+ * invoices, sent emails and dunning letters, and bank or supplier statements (a statement may have no document_type;
+ * the bank import or supplier reconciliation that points at it identifies it).
  *
  * The rows query and the count query repeat one predicate; the paging test pins that they agree. It is written out
  * twice rather than shared as a fragment, because a nested `sql` fragment breaks the unit suites that mock `sql`

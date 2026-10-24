@@ -3,7 +3,7 @@
 // offer as evidence. That page asked for `?status=extracted`, a status captured
 // documents never have, so its picker was always empty. "Attachable" is what
 // the attach itself accepts (claimCapturedDocumentForPosting): not posted, not
-// rejected, read finished — and the caller's company only. It also leaves out what is
+// rejected, read finished — and the caller's company only; then NARROWED ON PURPOSE: it leaves out what is
 // not supplier evidence: our own sent invoices, sent emails and dunning letters, and
 // bank or supplier STATEMENTS (a supplier statement carries no document_type; it is
 // known by the reconciliation that points at it).
@@ -33,6 +33,8 @@ const ids = {
   dunning: crypto.randomUUID(),
   bankStatement: crypto.randomUUID(),
   supplierStatement: crypto.randomUUID(),
+  // No document_type, but a bank statement import points at it.
+  bankImportUntyped: crypto.randomUUID(),
   // The same file as `posted` (sha 'dup'): the attach refuses it as content_posted, so it is not offered.
   sameFileAsPosted: crypto.randomUUID(),
   uniqueHash: crypto.randomUUID(),
@@ -45,6 +47,7 @@ const ids = {
 };
 const attachable = (...keys: Array<keyof typeof ids>) => keys.map((k) => ids[k]);
 const supplier = crypto.randomUUID();
+const bankAccount = crypto.randomUUID();
 let token = '';
 
 async function list(query: Record<string, string>) {
@@ -60,6 +63,8 @@ async function purge(): Promise<void> {
   await pool.query('DELETE FROM gl_journal_document_links WHERE captured_document_id = ANY($1::uuid[])', [Object.values(ids)]);
   await pool.query('UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = $1', [company]);
   await pool.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [company]);
+  await pool.query('DELETE FROM bank_statement_imports WHERE company_id = $1', [company]);
+  await pool.query('DELETE FROM gl_accounts WHERE id = $1', [bankAccount]);
   await pool.query('DELETE FROM supplier_statement_reconciliations WHERE source_document_id = $1', [ids.supplierStatement]);
   await pool.query('DELETE FROM captured_documents WHERE id = ANY($1::uuid[])', [Object.values(ids)]);
   await pool.query('DELETE FROM suppliers WHERE id = $1', [supplier]);
@@ -91,6 +96,7 @@ beforeAll(async () => {
     [ids.dunning, company, 'matched', 'done', false, 'dunning'],
     [ids.bankStatement, company, 'pending', 'done', false, 'statement'],
     [ids.supplierStatement, company, 'pending', 'done', false, null],
+    [ids.bankImportUntyped, company, 'pending', 'done', false, null],
     [ids.sameFileAsPosted, company, 'pending', 'done', false, 'receipt', 'dup'],
     [ids.uniqueHash, company, 'pending', 'done', false, 'receipt', 'unique'],
     [ids.journalStands, company, 'pending', 'done', false, 'receipt'],
@@ -127,6 +133,12 @@ beforeAll(async () => {
   await pool.query(
     `INSERT INTO gl_journal_document_links(company_id, journal_entry_id, captured_document_id, linked_by, reason, unlinked_at, unlinked_by, unlink_reason)
      VALUES($1, $2, $3, 'test', 'attachable fixture', NOW(), 'test', 'moved')`, [company, linkTarget, ids.linkUnlinked]);
+  await pool.query(
+    `INSERT INTO gl_accounts(id, company_id, account_code, account_name, account_type, normal_balance, account_subtype)
+     VALUES($1, $2, '1110', 'Attachable Bank', 'asset', 'debit', 'bank')`, [bankAccount, company]);
+  await pool.query(
+    `INSERT INTO bank_statement_imports(company_id, bank_account_id, source_document_id, period_start, period_end, row_count, created_by)
+     VALUES($1, $2, $3, DATE '2026-09-01', DATE '2026-09-30', 0, $4)`, [company, bankAccount, ids.bankImportUntyped, user]);
   await pool.query('INSERT INTO suppliers(id, company_id, name) VALUES($1, $2, $3)', [supplier, company, 'Attachable Supplier']);
   await pool.query(
     `INSERT INTO supplier_statement_reconciliations
@@ -150,7 +162,7 @@ async function listIds() {
 }
 
 describe('document-capture ?attachable=1', () => {
-  it('lists exactly the documents the attach accepts, for the active company only', async () => {
+  it('lists the documents the attach accepts, narrowed to supplier evidence, for the active company only', async () => {
     const r = await list({ attachable: '1', pageSize: '50' });
     expect(r.statusCode).toBe(200);
     const body = r.body as { data: Array<{ id: string }>; pagination: { total: number } };
@@ -162,6 +174,13 @@ describe('document-capture ?attachable=1', () => {
     const got = (await listIds()).ids;
     expect(got).not.toContain(ids.sameFileAsPosted);
     expect(got).toContain(ids.uniqueHash);
+  });
+
+  it('leaves out bank and supplier statements by what points at them, even with no document_type', async () => {
+    const got = (await listIds()).ids;
+    expect(got).not.toContain(ids.bankImportUntyped);
+    expect(got).not.toContain(ids.supplierStatement);
+    expect(got).not.toContain(ids.bankStatement);
   });
 
   it('leaves out a document a standing posted journal rests on; a reversed or draft journal frees it', async () => {

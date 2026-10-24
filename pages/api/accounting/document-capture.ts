@@ -2,7 +2,7 @@
  * Document Capture API
  * POST /api/accounting/document-capture  — Upload PDF or image; the row is saved as 'reading' and read in the background
  * GET  /api/accounting/document-capture  — List captured documents (`?id=<uuid>` returns one, company-scoped;
- *      `?attachable=1` lists only those the provisional evidence attach accepts)
+ *      `?attachable=1` lists those the provisional evidence attach accepts, narrowed to supplier evidence)
  *
  * A long digital PDF takes the VLM 70-104 s and Cloudflare cuts a request at 100 s, so the upload answers at once
  * (201 `{ document }`, readState 'reading') and `runCaptureRead` fills the row after COMMIT. Clients poll `?id=`.
@@ -75,7 +75,8 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   let countResult: Record<string, unknown>[];
 
   if (req.query.attachable === '1') {
-    // What the provisional evidence attach accepts, minus what is not supplier evidence.
+    // What the provisional evidence attach accepts, narrowed on purpose to supplier evidence (it would also accept
+    // sent invoices, sent emails, dunning letters and statements; the picker hides them).
     const attachable = await listAttachableDocuments(companyId, page, pageSize);
     rows = attachable.rows;
     countResult = [{ total: attachable.total }];
