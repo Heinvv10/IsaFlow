@@ -1,7 +1,8 @@
 /**
  * Document Capture API
  * POST /api/accounting/document-capture  — Upload PDF or image; the row is saved as 'reading' and read in the background
- * GET  /api/accounting/document-capture  — List captured documents (`?id=<uuid>` returns one, company-scoped)
+ * GET  /api/accounting/document-capture  — List captured documents (`?id=<uuid>` returns one, company-scoped;
+ *      `?attachable=1` lists only those the provisional evidence attach accepts)
  *
  * A long digital PDF takes the VLM 70-104 s and Cloudflare cuts a request at 100 s, so the upload answers at once
  * (201 `{ document }`, readState 'reading') and `runCaptureRead` fills the row after COMMIT. Clients poll `?id=`.
@@ -72,7 +73,21 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   let rows: Record<string, unknown>[];
   let countResult: Record<string, unknown>[];
 
-  if (status) {
+  if (req.query.attachable === '1') {
+    // What the provisional evidence attach accepts (claimCapturedDocumentForPosting):
+    // not posted, not rejected, read finished.
+    rows = await sql`
+      SELECT * FROM captured_documents
+      WHERE company_id = ${companyId} AND posted_at IS NULL AND status <> 'rejected' AND read_state = 'done'
+      ORDER BY created_at DESC
+      LIMIT ${pageSize} OFFSET ${offset}
+    ` as Record<string, unknown>[];
+
+    countResult = await sql`
+      SELECT COUNT(*)::int AS total FROM captured_documents
+      WHERE company_id = ${companyId} AND posted_at IS NULL AND status <> 'rejected' AND read_state = 'done'
+    ` as Record<string, unknown>[];
+  } else if (status) {
     rows = await sql`
       SELECT * FROM captured_documents
       WHERE status = ${status} AND company_id = ${companyId}
