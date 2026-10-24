@@ -118,9 +118,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (err instanceof BudgetReportYearError) {
       return err.unknown ? apiResponse.notFound(res, 'Financial year', String(err.label)) : apiResponse.badRequest(res, err.message);
     }
-    const msg = err instanceof Error ? err.message : String(err);
-    log.error('Failed to export budget vs actual report', { error: msg });
-    return apiResponse.badRequest(res, 'Failed to export budget vs actual report');
+    // Anything else is a real failure: rethrown, withErrorHandler answers 500 and the request rolls back.
+    log.error('Failed to export budget vs actual report', { error: err instanceof Error ? err.message : String(err) }, 'accounting-api');
+    throw err;
   }
 }
 
