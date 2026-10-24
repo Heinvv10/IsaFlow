@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle, CircleDollarSign } from 'lucide-react';
+import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { KpiStrip } from '@/components/ui';
 import Link from 'next/link';
@@ -23,6 +23,7 @@ import { ARFilterBar } from '@/components/accounting/customer-invoices/ARFilterB
 import { CustomerInvoiceTable, type CustomerInvoiceRow } from '@/components/accounting/customer-invoices/CustomerInvoiceTable';
 import { useCustomerInvoiceListState } from '@/components/accounting/customer-invoices/useCustomerInvoiceListState';
 import { arFiltersToApiParams } from '@/components/accounting/customer-invoices/listQuery';
+import type { AROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
 
 const LIMIT = 25;
 
@@ -33,6 +34,7 @@ export default function CustomerInvoicesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [total, setTotal] = useState(0);
+  const [arSummary, setArSummary] = useState<AROutstandingSummary | null>(null);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -44,11 +46,12 @@ export default function CustomerInvoicesPage() {
       try {
         const res = await apiFetch(`/api/accounting/customer-invoices-list?${params}`);
         await assertOk(res, 'Could not load the customer invoices - try again');
-        const json = await res.json() as { data?: { invoices?: CustomerInvoiceRow[]; total?: number } };
+        const json = await res.json() as { data?: { invoices?: CustomerInvoiceRow[]; total?: number; arSummary?: AROutstandingSummary } };
         if (!live) return;
         const rows = json.data?.invoices ?? [];
         setInvoices(rows);
         setTotal(json.data?.total ?? 0);
+        setArSummary(json.data?.arSummary ?? null);
         // A deep link carries only the customer id; the rows carry its name.
         if (filters.customerId && rows[0]?.client_name) nameCustomer(filters.customerId, rows[0].client_name);
       } catch (err) {
@@ -56,6 +59,7 @@ export default function CustomerInvoicesPage() {
         log.warn('Customer invoice list failed to load', { error: err }, 'customer-invoices');
         setInvoices([]);
         setTotal(0);
+        setArSummary(null);
         setError(apiErrorMessage(err, 'Could not load the customer invoices - try again'));
       } finally {
         if (live) setIsLoading(false);
@@ -90,18 +94,15 @@ export default function CustomerInvoicesPage() {
         </div>
 
         <div className="p-6">
-          {/* KPI strip */}
-          {!isLoading && invoices.length > 0 && (() => {
-            const visTotal = invoices.reduce((s, i) => s + Number(i.total_amount || 0), 0);
-            const visOutstanding = invoices.reduce((s, i) => s + (Number(i.total_amount || 0) - Number(i.amount_paid || 0)), 0);
-            const visOverdue = invoices.filter(i => i.status === 'overdue').length;
+          {/* KPI strip: Outstanding and Overdue are company-wide (all invoices, not this page or filter) */}
+          {!isLoading && arSummary && (() => {
             const fmt = (n: number) => 'R ' + new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 }).format(n);
+            const { outstanding, overdueCount, overdueAmount } = arSummary;
             return (
               <KpiStrip items={[
                 { label: 'Total Invoices', value: total, icon: FileText, tone: 'info' },
-                { label: 'Visible Value', value: fmt(visTotal), sub: `${invoices.length} on this page`, icon: CircleDollarSign, tone: 'neutral' },
-                { label: 'Outstanding', value: fmt(visOutstanding), icon: CheckCircle, tone: 'warning' },
-                { label: 'Overdue', value: visOverdue, sub: visOverdue === 0 ? 'All on time' : 'Need follow-up', icon: AlertTriangle, tone: visOverdue > 0 ? 'danger' : 'success' },
+                { label: 'Outstanding (all invoices)', value: fmt(outstanding), sub: 'Open balance, company-wide', icon: CheckCircle, tone: 'warning' },
+                { label: 'Overdue (all invoices)', value: overdueCount, sub: overdueCount === 0 ? 'All on time' : `${fmt(overdueAmount)} past due date`, icon: AlertTriangle, tone: overdueCount > 0 ? 'danger' : 'success' },
               ]} />
             );
           })()}
