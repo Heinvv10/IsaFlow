@@ -154,3 +154,23 @@ describe('R4-A — year-end close (a write path) refuses a year cut on an assume
     });
   });
 });
+
+describe('R5-A — confirmation is stored: a later change of year end does not un-confirm a year', () => {
+  it('FY2026 (assumed March, confirmed by declaring March) stays confirmed after the year end moves to June', async () => {
+    await inRolledBackTx(async (c) => {
+      const co = await company(c, null);
+      await c.query(`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
+                     VALUES ($1, 'Mar 2025', 1, 2026, '2025-03-01', '2025-03-31')`, [co]);
+      await c.query('UPDATE companies SET financial_year_start = 3 WHERE id = $1', [co]);
+      const confirmed = await inAls(c, co, () => getFiscalRange(co, 2026)).catch((e: Error) => e.name);
+      await c.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, kind)
+                     VALUES ($1, 2027, '2026-03-01', '2027-05-31', 'transition')`, [co]);
+      await c.query('UPDATE companies SET financial_year_start = 6 WHERE id = $1', [co]);
+      const after = await inAls(c, co, () => getFiscalRange(co, 2026)).catch((e: Error) => e.name);
+      expect({ confirmed, after }).toEqual({
+        confirmed: { start: '2025-03-01', end: '2026-02-28' },
+        after: { start: '2025-03-01', end: '2026-02-28' },
+      });
+    });
+  });
+});
