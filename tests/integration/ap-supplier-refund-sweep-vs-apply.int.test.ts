@@ -1,13 +1,12 @@
 /**
- * A bank-rule sweep against applying a supplier payment (40P01, found by the adversarial review of the
- * supplier-update deadlock fix).
+ * Guard for the supplier lock order (2026-10-24 review): a bank-rule sweep against applying a supplier payment.
  *
  * Sweep, one request transaction: line A is a supplier rule paying money out (recordSupplierBankPayment: its plan
  * locks supplier S's oldest bill B FOR UPDATE); line B is a supplier rule taking money in (planSupplierRefund ->
- * lockContactForRefund: S's row). Application of another processed payment of S to bill B
- * (planSupplierPaymentApplication: S FOR KEY SHARE first, then the payment, then bill B).
- * The sweep holds B and wants S; the application holds S and wants B. lockContactForRefund now takes S
- * FOR NO KEY UPDATE, which a KEY SHARE does not block.
+ * lockContactForRefund: S FOR UPDATE). Application of another processed payment of S to bill B
+ * (planSupplierPaymentApplication: payment, then bill B). An application that took S BEFORE its payment and bills
+ * in a mode the refund lock conflicts with closed a cycle here (sweep holds B, wants S; application holds S, wants
+ * B): any future supplier-first lock on the apply path must keep this green.
  *
  * Interleaved deterministically (the sweep parked at line B's refund plan, the application's wait found by pid),
  * judged by outcome. Disposable fixture DB only.

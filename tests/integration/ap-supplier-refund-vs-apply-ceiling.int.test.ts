@@ -1,12 +1,11 @@
 /**
- * A supplier refund plan against an application of the same supplier's cash in flight (found by the adversarial
- * review of the supplier-update deadlock fix: a weaker refund lock let the refund through).
+ * Guard for the supplier refund ceiling (2026-10-24 review): a refund plan against an application of the same
+ * supplier's cash in flight.
  *
  * On-account credit (getSupplierOnAccountCredit) = processed payments' total - allocated. Applying a payment INSERTs
- * payment_allocations and LOWERS it. Application (supplierFirst) takes the supplier FOR NO KEY UPDATE before the
- * payment; the refund plan (lockContactForRefund) takes it FOR UPDATE: the refund waits for the application to
- * commit, reads credit 0 and refuses. Were either lock weaker (KEY SHARE), the refund would read the R500 the
- * application is spending and pass: R500 refunded from cash already paid to a bill.
+ * payment_allocations and LOWERS it. The refund plan (lockContactForRefund, supplier FOR UPDATE) must wait for an
+ * application in flight (which reaches the supplier through its bills' FK check), read credit 0 and refuse.
+ * A refund lock that let the application through would read the R500 being spent and refund it.
  *
  * Deterministic: the application is held open after its writes; the refund's wait is found by pid (or it finishes,
  * which is the defect). Disposable fixture DB only.

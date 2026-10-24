@@ -9,10 +9,9 @@
  * gl_accounts, batchApprovedDigest.lockBatchPayees). No writer of gl_accounts reaches a batch or supplier row
  * (2026-10-23 census of `UPDATE gl_accounts`): one that does must lock in that order.
  * Payments come after their supplier too: updateSupplier takes the supplier and then its payments
- * (`recordBankDetailsSetter`); a payment writer that would key-share the supplier after the payment (a second write
- * of a supplier-referencing row re-runs its FK check) either writes once (processSupplierPayment) or key-shares the
- * supplier first (`lockSupplierPaymentForUpdate`'s `supplierFirst`, 2026-10-24). Full order: batch -> supplier ->
- * payments -> bills -> gl_accounts.
+ * (`recordBankDetailsSetter`). A payment writer must not reach the supplier after the payment: a second write of a
+ * supplier-referencing row re-runs its FK check (KEY SHARE on the supplier), so processSupplierPayment writes the
+ * payment once (2026-10-24). Full order: batch -> supplier -> payments -> bills -> gl_accounts.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';

@@ -140,28 +140,12 @@ export async function lockCustomerPaymentForUpdate(
 export async function lockSupplierPaymentForUpdate(
   companyId: string,
   paymentId: string,
-  opts: { supplierFirst?: boolean } = {},
 ): Promise<DbRow | null> {
   const client = requireRequestTransaction('lockSupplierPaymentForUpdate');
   const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
   let failure: unknown = null;
   try {
-    // `supplierFirst`: the payee supplier FOR NO KEY UPDATE before the payment, for a caller that moves the
-    // supplier's applied cash and writes its bills twice (apply / unapply: amount_paid, then recomputeInvoiceStatus,
-    // and the second write re-runs the bill's supplier FK check). That FK lock, taken after the payment, crossed a
-    // supplier merge (suppliers FOR UPDATE, then their payments): 40P01. NO KEY UPDATE, not KEY SHARE: a refund
-    // plan (lockContactForRefund, FOR UPDATE) must not read the on-account credit beside an application in flight,
-    // and two of these on one supplier (a bank-rule sweep's payment, another application) queue at the supplier
-    // instead of crossing on a bill; an INSERT's FK KEY SHARE is not blocked. Opt-in: approve, cancel and process
-    // write no such row twice and must not wait on a supplier holder.
-    const keyShared = opts.supplierFirst ? ((await sql`
-      SELECT s.id FROM suppliers s
-      WHERE s.company_id = ${companyId}::UUID
-        AND s.id = (SELECT sp.supplier_id FROM supplier_payments sp
-                    WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID)
-      FOR NO KEY UPDATE OF s
-    `) as DbRow[])[0]?.id : undefined;
     const rows = (await sql`
       SELECT sp.*,
              COALESCE((
@@ -173,12 +157,6 @@ export async function lockSupplierPaymentForUpdate(
       WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID
       FOR UPDATE OF sp
     `) as DbRow[];
-    // Re-pointed by a merge between the two statements: the new supplier NOWAIT, so a holder of it is the typed
-    // retryable refusal (55P03) with nothing written, never a wait after the payment lock.
-    const supplierId = rows[0]?.supplier_id;
-    if (opts.supplierFirst && supplierId != null && String(supplierId) !== String(keyShared)) {
-      await sql`SELECT 1 FROM suppliers WHERE id = ${String(supplierId)}::UUID AND company_id = ${companyId}::UUID FOR NO KEY UPDATE NOWAIT`;
-    }
     return rows[0] ?? null;
   } catch (err) {
     failure = err;
