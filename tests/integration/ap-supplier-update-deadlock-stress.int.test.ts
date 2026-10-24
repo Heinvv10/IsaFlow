@@ -2,8 +2,9 @@
  * Smoke test for the supplier <-> payment lock order (ap-supplier-update-deadlock.int.test.ts is the deterministic
  * proof): payee renames and bank edits through updateSupplier, bank-accounts PUTs, processBatch, eft-generate and
  * single-payment processing, all at once on one company and one paying account. Before the fix every run had one
- * 40P01 on a supplier update. No request may fail with a 5xx or a raw Postgres error, and the database may record no
- * deadlock. Disposable fixture DB only.
+ * 40P01 on a supplier update. No request may fail with a 5xx or a raw Postgres error (a 40P01 is one). Not asserted
+ * here: pg_stat_database.deadlocks, which is database-wide and flushed lazily, so it reads other suites' deadlocks and
+ * can miss this one. Disposable fixture DB only.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
@@ -30,9 +31,6 @@ afterAll(() => cleanupPr5(pool, companies, Object.values(u)));
 
 describe('STRESS: payee renames and bank edits vs paying-account edits vs processing', () => {
   it('no 500, no deadlock', async () => {
-    const deadlocks = async () => Number((await pool.query(
-      'SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()')).rows[0].deadlocks);
-    const before = await deadlocks();
     const { c, b, supplierId } = await fixture(false);
     const bank = (await pool.query('SELECT bank_account_id FROM supplier_payment_batches WHERE id = $1', [b.id])).rows[0].bank_account_id as string;
     const b2 = await plantBatch(pool, c, u.a, bank);
@@ -53,6 +51,5 @@ describe('STRESS: payee renames and bank edits vs paying-account edits vs proces
       ...singles.map((s) => rec(r.payment(u.a, c, 'process', s.id))),
     ]);
     expect(codes.filter((x) => typeof x === 'string' || x >= 500), JSON.stringify(codes)).toEqual([]);
-    expect((await deadlocks()) - before).toBe(0);
   });
 });

@@ -150,15 +150,14 @@ export async function lockSupplierPaymentForUpdate(
     // this transaction writes the row a second time (processSupplierPayment's claim, then its gl_journal_entry_id).
     // Taken there, after the payment, it crossed updateSupplier (supplier FOR UPDATE, then the supplier's payments in
     // recordBankDetailsSetter) and Postgres aborted one of them (40P01). Supplier before payment, as batch ->
-    // supplier -> payments everywhere else (ap/.claude.md). A payment re-pointed to another supplier between the two
-    // statements (a merge, which has committed by the time the payment lock is granted) key-shares the new one later.
-    await sql`
-      SELECT 1 FROM suppliers s
+    // supplier -> payments everywhere else (ap/.claude.md).
+    const keyShared = ((await sql`
+      SELECT s.id FROM suppliers s
       WHERE s.company_id = ${companyId}::UUID
         AND s.id = (SELECT sp.supplier_id FROM supplier_payments sp
                     WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID)
       FOR KEY SHARE OF s
-    `;
+    `) as DbRow[])[0]?.id;
     const rows = (await sql`
       SELECT sp.*,
              COALESCE((
@@ -170,6 +169,13 @@ export async function lockSupplierPaymentForUpdate(
       WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID
       FOR UPDATE OF sp
     `) as DbRow[];
+    // Re-pointed to another supplier between the two statements (a merge, committed by the time the payment lock was
+    // granted): key-share the new one now, under this budget, so a holder of it is a typed retryable refusal here
+    // rather than a later FK wait that can still cross updateSupplier.
+    const supplierId = rows[0]?.supplier_id;
+    if (supplierId != null && String(supplierId) !== String(keyShared)) {
+      await sql`SELECT 1 FROM suppliers WHERE id = ${String(supplierId)}::UUID AND company_id = ${companyId}::UUID FOR KEY SHARE`;
+    }
     return rows[0] ?? null;
   } catch (err) {
     failure = err;
