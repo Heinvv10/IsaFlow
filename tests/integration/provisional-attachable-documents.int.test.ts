@@ -33,7 +33,17 @@ const ids = {
   dunning: crypto.randomUUID(),
   bankStatement: crypto.randomUUID(),
   supplierStatement: crypto.randomUUID(),
+  // The same file as `posted` (sha 'dup'): the attach refuses it as content_posted, so it is not offered.
+  sameFileAsPosted: crypto.randomUUID(),
+  uniqueHash: crypto.randomUUID(),
+  // A posted journal still stands on it / it was reversed / a draft journal only.
+  journalStands: crypto.randomUUID(),
+  journalReversed: crypto.randomUUID(),
+  journalDraft: crypto.randomUUID(),
+  linkActive: crypto.randomUUID(),
+  linkUnlinked: crypto.randomUUID(),
 };
+const attachable = (...keys: Array<keyof typeof ids>) => keys.map((k) => ids[k]);
 const supplier = crypto.randomUUID();
 let token = '';
 
@@ -47,6 +57,9 @@ async function list(query: Record<string, string>) {
 }
 
 async function purge(): Promise<void> {
+  await pool.query('DELETE FROM gl_journal_document_links WHERE captured_document_id = ANY($1::uuid[])', [Object.values(ids)]);
+  await pool.query('UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = $1', [company]);
+  await pool.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [company]);
   await pool.query('DELETE FROM supplier_statement_reconciliations WHERE source_document_id = $1', [ids.supplierStatement]);
   await pool.query('DELETE FROM captured_documents WHERE id = ANY($1::uuid[])', [Object.values(ids)]);
   await pool.query('DELETE FROM suppliers WHERE id = $1', [supplier]);
@@ -63,12 +76,12 @@ beforeAll(async () => {
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
-  const rows: Array<[string, string, string, string, boolean, string | null]> = [
+  const rows: Array<[string, string, string, string, boolean, string | null, string?]> = [
     // id, company, status, read_state, posted, document_type
     [ids.pending, company, 'pending', 'done', false, null],
     [ids.reviewed, company, 'reviewed', 'done', false, 'receipt'],
     [ids.matchedUnposted, company, 'matched', 'done', false, 'invoice'],
-    [ids.posted, company, 'matched', 'done', true, 'receipt'],
+    [ids.posted, company, 'matched', 'done', true, 'receipt', 'dup'],
     [ids.rejected, company, 'rejected', 'done', false, 'receipt'],
     [ids.reading, company, 'pending', 'reading', false, null],
     [ids.failed, company, 'pending', 'failed', false, null],
@@ -78,14 +91,42 @@ beforeAll(async () => {
     [ids.dunning, company, 'matched', 'done', false, 'dunning'],
     [ids.bankStatement, company, 'pending', 'done', false, 'statement'],
     [ids.supplierStatement, company, 'pending', 'done', false, null],
+    [ids.sameFileAsPosted, company, 'pending', 'done', false, 'receipt', 'dup'],
+    [ids.uniqueHash, company, 'pending', 'done', false, 'receipt', 'unique'],
+    [ids.journalStands, company, 'pending', 'done', false, 'receipt'],
+    [ids.journalReversed, company, 'pending', 'done', false, 'receipt'],
+    [ids.journalDraft, company, 'pending', 'done', false, 'receipt'],
+    [ids.linkActive, company, 'pending', 'done', false, 'receipt'],
+    [ids.linkUnlinked, company, 'pending', 'done', false, 'receipt'],
   ];
-  for (const [id, co, status, readState, posted, type] of rows) {
+  for (const [id, co, status, readState, posted, type, sha] of rows) {
     await pool.query(
-      `INSERT INTO captured_documents(id, company_id, file_name, file_type, status, read_state, posted_at, document_type)
-       VALUES($1, $2, $3, 'pdf', $4, $5, CASE WHEN $6 THEN NOW() END, $7)`,
-      [id, co, `${id}.pdf`, status, readState, posted, type],
+      `INSERT INTO captured_documents(id, company_id, file_name, file_type, status, read_state, posted_at, document_type, raw_bytes_sha256)
+       VALUES($1, $2, $3, 'pdf', $4, $5, CASE WHEN $6 THEN NOW() END, $7, $8)`,
+      [id, co, `${id}.pdf`, status, readState, posted, type, sha ?? null],
     );
   }
+  // reverseJournalEntry leaves the original 'posted', stamps reversed_at, and posts a contra pointing back at it.
+  const journal = async (n: number, status: string, doc: string | null, reversalOf: string | null = null): Promise<string> => {
+    const r = await pool.query(
+      `INSERT INTO gl_journal_entries(company_id, entry_number, entry_date, description, status, created_by, source_document_id, reversal_of_id)
+       VALUES($1, $2, '2026-10-01', 'attachable fixture', $3, $4, $5, $6) RETURNING id`,
+      [company, `ATT-${company.slice(0, 8)}-${n}`, status, user, doc, reversalOf],
+    );
+    return r.rows[0].id as string;
+  };
+  await journal(1, 'posted', ids.journalStands);
+  await journal(2, 'draft', ids.journalDraft);
+  const original = await journal(3, 'posted', ids.journalReversed);
+  await journal(4, 'posted', null, original);
+  await pool.query('UPDATE gl_journal_entries SET reversed_at = NOW(), reversed_by = $2 WHERE id = $1', [original, user]);
+  const linkTarget = await journal(5, 'posted', null);
+  await pool.query(
+    `INSERT INTO gl_journal_document_links(company_id, journal_entry_id, captured_document_id, linked_by, reason)
+     VALUES($1, $2, $3, 'test', 'attachable fixture')`, [company, linkTarget, ids.linkActive]);
+  await pool.query(
+    `INSERT INTO gl_journal_document_links(company_id, journal_entry_id, captured_document_id, linked_by, reason, unlinked_at, unlinked_by, unlink_reason)
+     VALUES($1, $2, $3, 'test', 'attachable fixture', NOW(), 'test', 'moved')`, [company, linkTarget, ids.linkUnlinked]);
   await pool.query('INSERT INTO suppliers(id, company_id, name) VALUES($1, $2, $3)', [supplier, company, 'Attachable Supplier']);
   await pool.query(
     `INSERT INTO supplier_statement_reconciliations
@@ -99,13 +140,56 @@ afterAll(async () => {
   try { await purge(); } finally { await pool.end(); }
 }, 60_000);
 
+const EXPECTED = [
+  ...attachable('pending', 'reviewed', 'matchedUnposted', 'uniqueHash', 'journalReversed', 'journalDraft', 'linkUnlinked'),
+].sort();
+
+async function listIds() {
+  const r = await list({ attachable: '1', pageSize: '50' });
+  return { ids: (r.body as { data: Array<{ id: string }> }).data.map((d) => d.id) };
+}
+
 describe('document-capture ?attachable=1', () => {
   it('lists exactly the documents the attach accepts, for the active company only', async () => {
     const r = await list({ attachable: '1', pageSize: '50' });
     expect(r.statusCode).toBe(200);
     const body = r.body as { data: Array<{ id: string }>; pagination: { total: number } };
-    expect(body.data.map((d) => d.id).sort()).toEqual([ids.pending, ids.reviewed, ids.matchedUnposted].sort());
-    expect(body.pagination.total).toBe(3);
+    expect(body.data.map((d) => d.id).sort()).toEqual(EXPECTED);
+    expect(body.pagination.total).toBe(EXPECTED.length);
+  });
+
+  it('leaves out a document whose file is already posted from another document, keeps a unique file', async () => {
+    const got = (await listIds()).ids;
+    expect(got).not.toContain(ids.sameFileAsPosted);
+    expect(got).toContain(ids.uniqueHash);
+  });
+
+  it('leaves out a document a standing posted journal rests on; a reversed or draft journal frees it', async () => {
+    const got = (await listIds()).ids;
+    expect(got).not.toContain(ids.journalStands);
+    expect(got).toContain(ids.journalReversed);
+    expect(got).toContain(ids.journalDraft);
+  });
+
+  it('leaves out a document with an active journal link; an unlinked one is offered again', async () => {
+    const got = (await listIds()).ids;
+    expect(got).not.toContain(ids.linkActive);
+    expect(got).toContain(ids.linkUnlinked);
+  });
+
+  it('pages: pageSize 2 gives 2 rows and the full total, and the pages continue without repeats, newest first', async () => {
+    const seen: string[] = [];
+    for (let page = 1; page <= Math.ceil(EXPECTED.length / 2); page++) {
+      const r = await list({ attachable: '1', pageSize: '2', page: String(page) });
+      const body = r.body as { data: Array<{ id: string }>; pagination: { total: number } };
+      expect(body.pagination.total).toBe(EXPECTED.length);
+      expect(body.data.length).toBe(Math.min(2, EXPECTED.length - seen.length));
+      seen.push(...body.data.map((d) => d.id));
+    }
+    expect(new Set(seen).size).toBe(EXPECTED.length);
+    expect([...seen].sort()).toEqual(EXPECTED);
+    const all = (await list({ attachable: '1', pageSize: '50' })).body as { data: Array<{ id: string }> };
+    expect(seen).toEqual(all.data.map((d) => d.id));
   });
 
   it('leaves the unfiltered list alone', async () => {
