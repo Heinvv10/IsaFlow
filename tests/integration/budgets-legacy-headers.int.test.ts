@@ -88,12 +88,14 @@ describe('944 conversion: notes headers', () => {
     expect((await headers(acct)).map((h) => h.fiscal_year)).toEqual([2027]);
   });
 
-  it('any registry error other than "no free label" stops the headers step instead of being swallowed', async () => {
-    // Stored years in 2026-2028 and a budget label in the year 3000: 500+ steps from any stored year.
+  it('a label the registry refuses (a typo far from every stored year) leaves its notes in place and the headers step completes', async () => {
+    // Stored years in 2026-2028 and a budget label in the year 3000: 500+ steps from any stored year. Only notes
+    // depend on the headers step (the months are filed and verified), so a registry refusal must not stop it.
     await setupYears(gap, gapAcct, [[2027, '2026-03-01', '2027-02-28'], [2028, '2027-03-01', '2028-02-29']], false);
     await budget(gapAcct, 3000, { mar: 1 }, 0, gap, 'far');
     expect(await convert(gap)).toBe(1);
-    await expect(follow(gap)).rejects.toThrow(/too far from the stored years/);
+    await follow(gap);
+    expect((await headers(gapAcct, gap)).map((h) => h.fiscal_year)).toEqual([3000]);
   });
 
   it('the migration itself verifies first and moves the headers after: its DO block, run on legacy rows, succeeds and files the headers', async () => {
