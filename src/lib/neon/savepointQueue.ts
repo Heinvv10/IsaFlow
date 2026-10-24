@@ -15,8 +15,11 @@
  * queued behind the savepoint that is waiting for it.
  *
  * The wait is BOUNDED by lack of progress, not by total time: it fails only
- * when nothing on the queue has finished for `savepointQueueWait.ms`, so a slow
- * sibling that is moving never trips it. A savepoint (or a query) whose own
+ * when the connection has completed nothing (no statement, no savepoint) for
+ * `savepointQueueWait.ms`, so a slow sibling that keeps issuing statements
+ * never trips it. One statement running longer than the bound is invisible
+ * here, hence the generous default. Waiters queued behind a real deadlock are
+ * refused with it (they are stuck too, and the request is failing anyway). A savepoint (or a query) whose own
  * sibling awaits it cannot ever start: a callback awaiting a promise started outside it that
  * later opens a savepoint, or a "start the read early" promise awaited inside
  * a savepoint. Unbounded, that hangs with the transaction and its row locks
@@ -32,6 +35,12 @@ interface Queue { tail: Promise<void>; open: number; progressAt: number }
 
 const rootQueues = new WeakMap<object, Queue>();
 const level = new AsyncLocalStorage<Map<object, Queue>>();
+const lastActivity = new WeakMap<object, number>();
+
+/** Record that a statement on `client` completed (resolved or failed): the connection is moving. */
+export function noteActivity(client: object): void {
+  lastActivity.set(client, Date.now());
+}
 
 /** How long a queue may go without anything finishing before a waiter is refused. Tests shorten it. */
 // 120 s: progress (a sibling starting or finishing) re-arms it, but one long
@@ -55,13 +64,13 @@ function queueOf(client: object): Queue {
   return root;
 }
 
-async function bounded(queue: Queue, wait: Promise<void>, what: string): Promise<void> {
+async function bounded(client: object, queue: Queue, wait: Promise<void>, what: string): Promise<void> {
   const ms = savepointQueueWait.ms;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     // Re-arm while the queue keeps finishing work; refuse only after `ms` with no progress.
     const check = () => {
-      const idle = Date.now() - queue.progressAt;
+      const idle = Date.now() - Math.max(queue.progressAt, lastActivity.get(client) ?? 0);
       if (idle >= ms) reject(new SavepointQueueTimeoutError(what, ms));
       else timer = setTimeout(check, ms - idle);
     };
@@ -83,7 +92,7 @@ export async function queuedSavepoint<T>(client: object, name: string, run: () =
   queue.open += 1;
   const finish = () => { queue.open -= 1; queue.progressAt = Date.now(); done(); };
   try {
-    await bounded(queue, before, `savepoint ${name}`);
+    await bounded(client, queue, before, `savepoint ${name}`);
   } catch (err) {
     // Hand the slot on only when the sibling ahead really finishes, never early.
     void before.then(finish);
@@ -101,5 +110,5 @@ export async function queuedSavepoint<T>(client: object, name: string, run: () =
 /** For a plain query: a wait while a sibling savepoint at this level is open on `client`, else null (run now). */
 export function openSiblingSavepoint(client: object): Promise<void> | null {
   const queue = queueOf(client);
-  return queue.open === 0 ? null : bounded(queue, queue.tail, 'query');
+  return queue.open === 0 ? null : bounded(client, queue, queue.tail, 'query');
 }
