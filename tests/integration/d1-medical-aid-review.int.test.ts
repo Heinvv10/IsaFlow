@@ -25,6 +25,7 @@ assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
 const companyA = crypto.randomUUID();
 const companyB = crypto.randomUUID();
+const companyC = crypto.randomUUID();
 const ownerA = crypto.randomUUID();
 const viewerA = crypto.randomUUID();
 const ownerB = crypto.randomUUID();
@@ -33,6 +34,10 @@ const callA = routeCaller(tokens, { user: ownerA, company: companyA });
 const callB = routeCaller(tokens, { user: ownerB, company: companyB });
 const sign = (sub: string) => new SignJWT({ sub, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
   .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
+
+const AS_AT = '2026-06-15';
+const PREV_DAY = '2026-06-14';
+const NEXT_DAY = '2026-06-16';
 
 const day = (offset: number) => {
   const d = new Date();
@@ -65,7 +70,7 @@ const numbers = (r: Awaited<ReturnType<typeof flagged>>) =>
   ((r.body.data as unknown as { employees: Array<{ employeeNumber: string }> }).employees).map((e) => e.employeeNumber).sort();
 
 beforeAll(async () => {
-  for (const [id, name] of [[companyA, 'D1 company A'], [companyB, 'D1 company B']] as const) {
+  for (const [id, name] of [[companyA, 'D1 company A'], [companyB, 'D1 company B'], [companyC, 'D1 boundary company']] as const) {
     await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [id, name]);
   }
   for (const [u, company, role] of [[ownerA, companyA, 'owner'], [viewerA, companyA, 'viewer'], [ownerB, companyB, 'owner']] as const) {
@@ -95,11 +100,18 @@ beforeAll(async () => {
   // Company B: one main member with nothing, and one carrying COMPANY A's medical component.
   await employee(companyB, 'B01');
   await assign(await employee(companyB, 'B02'), medA, '2020-01-01');
+
+  // Company C: the day an assignment starts or ends, with a fixed asAt (no clock involved).
+  const medC = await component(companyC, 'Medical Aid', '4005', 'deduction');
+  await assign(await employee(companyC, 'C01'), medC, AS_AT);                  // starts ON asAt: in force
+  await assign(await employee(companyC, 'C02'), medC, '2026-01-01', AS_AT);    // ends ON asAt: in force
+  await assign(await employee(companyC, 'C03'), medC, NEXT_DAY);               // starts the day after: not yet
+  await assign(await employee(companyC, 'C04'), medC, '2026-01-01', PREV_DAY); // ended the day before
 });
 
 afterAll(async () => {
   try {
-    await cleanPayrollCompanies(pool, [companyA, companyB]);
+    await cleanPayrollCompanies(pool, [companyA, companyB, companyC]);
     await pool.query('DELETE FROM users WHERE id = ANY($1)', [[ownerA, viewerA, ownerB]]);
   } finally { await pool.end(); }
 });
@@ -138,6 +150,13 @@ describe('the service on its own (outside a request: no row-level security to le
     const b = (await listMainMembersWithoutMedicalDeduction(companyB)).map((e) => e.employeeNumber).sort();
     expect(a).toEqual(['A01', 'A03', 'A05', 'A07', 'A08', 'A09', 'A10']);
     expect(b).toEqual(['B01', 'B02']);
+  });
+});
+
+describe('the day an assignment starts or ends (asAt pinned, so no clock)', () => {
+  it('in force ON its first and its last day; not the day before it starts or the day after it ends', async () => {
+    const flaggedC = (await listMainMembersWithoutMedicalDeduction(companyC, AS_AT)).map((e) => e.employeeNumber).sort();
+    expect(flaggedC).toEqual(['C03', 'C04']);
   });
 });
 
