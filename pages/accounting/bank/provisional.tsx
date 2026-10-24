@@ -24,7 +24,6 @@ type SortKey = 'transactionDate' | 'amount' | 'daysOutstanding' | 'predictedSupp
 type SortDir = 'asc' | 'desc';
 type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
 
-
 function ConfBadge({ v }: { v: number }) {
   const cls = v >= 0.9 ? 'bg-teal-900/40 text-teal-300' : v >= 0.7 ? 'bg-amber-900/40 text-amber-300' : 'bg-red-900/40 text-red-300';
   return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{Math.round(v * 100)}%</span>;
