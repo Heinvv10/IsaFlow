@@ -17,7 +17,7 @@ const { sqlMock } = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
-// S-07d (migration 935): mint/retire run on the migration_admin pool. The fake
+// S-07d (migration 937): mint/retire run on the migration_admin pool. The fake
 // client feeds the same recorder as sql, so call order and counts stay asserted.
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>

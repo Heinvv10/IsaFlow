@@ -135,14 +135,14 @@ describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('908b — owner rules
     });
   });
 
-  // Since S-07d (migration 935) app_user may neither UPDATE nor DELETE a
+  // Since S-07d (migration 937) app_user may neither UPDATE nor DELETE a
   // membership, so B is enforced where the members screen now writes: on the
   // migration_admin pool, in TypeScript (memberWrites.ts), against the
   // memberships as they stand. Its races: s07d-member-writes.int.test.ts.
   describe('B — only an owner changes or removes an owner', () => {
     const OWNER_ONLY = 'Only an owner can change or remove another owner.';
 
-    it('as app_user, no demotion or removal reaches the guard (42501 since 935), a multi-row one included', async () => {
+    it('as app_user, no demotion or removal reaches the guard (42501 since 937), a multi-row one included', async () => {
       const [o1, o2, a, v] = [id(), id(), id(), id()];
       const c = await seedCompany(pool, companies, [[o1, 'owner'], [o2, 'owner'], [a, 'admin'], [v, 'viewer']]);
       expect(await outcome(asRole(pool, 'app_user', c, DEMOTE, [c, o1], a))).toBe('42501');

@@ -92,7 +92,7 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
       company_invitations: 'dr',      // 930: written on the migration_admin pool; a cancel deletes
       approval_requests: 'r',         // 872: writes only through the definer functions
       // 930: no app role inserts a credential or a membership. UPDATE stays only
-      // where a column grant came back: the bearer last-used stamp. 935: nor
+      // where a column grant came back: the bearer last-used stamp. 937: nor
       // updates or removes a membership.
       company_users: 'r',
       personal_access_tokens: 'drw',
@@ -100,7 +100,7 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
       oauth_authorisation_codes: 'dr',
       oauth_authorisations: 'drw',
       waitlist_signups: 'a',          // 930: the public form inserts; nothing reads it
-      // 935: written on the migration_admin pool; UPDATE stays only for a
+      // 937: written on the migration_admin pool; UPDATE stays only for a
       // bearer's use stamps, DELETE where it only removes access.
       portal_magic_links: '',         // no privilege at all
       portal_contacts: 'dr',

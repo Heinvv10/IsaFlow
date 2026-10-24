@@ -15,7 +15,7 @@
  *     stamp, invitation create, refresh and send status, password-reset
  *     tokens and the impersonation stash. Their rows are honoured as an
  *     identity, so no app role may write them;
- *   - the rest of that class (S-07d, migration 935): member role changes and
+ *   - the rest of that class (S-07d, migration 937): member role changes and
  *     removals, AFS portal magic links and contacts, the AR portal login,
  *     share links, auditor sessions, capture inboxes and WhatsApp claims, and
  *     bank feed connections.

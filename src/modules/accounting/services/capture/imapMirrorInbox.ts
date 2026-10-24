@@ -7,7 +7,7 @@ import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 /**
  * Find or synthesise a connection's mirror inbox row, so capture_events can
  * join. On the migration_admin pool: no app role may write capture_inboxes
- * (migration 935). Keyed on the connection the sync loaded.
+ * (migration 937). Keyed on the connection the sync loaded.
  */
 export async function ensureMirrorInbox(companyId: string, accountEmail: string): Promise<string> {
   const rows = await migrationAdminTx('imap mirror inbox', async (client) => (await client.query<{ id: string }>(

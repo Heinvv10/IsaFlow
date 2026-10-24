@@ -6,7 +6,7 @@
  * The raw token is returned by createShareLink and NEVER again — not by
  * listShareLinks, not by any route. A lost link is re-created, not recovered.
  *
- * Create and revoke run on the migration_admin pool (S-07d, migration 935): a
+ * Create and revoke run on the migration_admin pool (S-07d, migration 937): a
  * row is a read credential for its company's reports, so no app role may
  * INSERT or UPDATE share_links (forged claims planted a hash of a known token,
  * or revived a revoked link). `companyId` and `userId` are the verified

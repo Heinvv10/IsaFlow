@@ -1,6 +1,6 @@
 // tests/integration/s07d-credential-paths.int.test.ts
 //
-// S-07d (migration 935): no app role may write a member's role, the AFS portal
+// S-07d (migration 937): no app role may write a member's role, the AFS portal
 // tables, the AR portal logins or share links any more; the code makes those
 // writes on the migration_admin pool. This proves each legitimate path still
 // works end to end through its real route, on the production logins (s07b

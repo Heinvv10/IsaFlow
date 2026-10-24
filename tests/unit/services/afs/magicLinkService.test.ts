@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
-// S-07d (migration 935): portal_magic_links reads/writes run on the migration_admin
+// S-07d (migration 937): portal_magic_links reads/writes run on the migration_admin
 // pool; the fake client feeds adminMock. The contact lookup stays on sql.
 const adminMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/migrationAdminPool', () => ({

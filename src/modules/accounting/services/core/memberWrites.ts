@@ -1,6 +1,6 @@
 /**
  * Member role changes and removals, on the migration_admin pool (S-07d,
- * migration 935): no app role may UPDATE or DELETE company_users, because SQL
+ * migration 937): no app role may UPDATE or DELETE company_users, because SQL
  * injected on an app pool can forge the claims the member guard judges (a
  * member made itself owner; an owner's forged claims removed the others).
  *

@@ -1,6 +1,6 @@
 // tests/integration/s07d-credential-tables.int.test.ts
 //
-// S-07d (migration 935): the tables S-07c's class sweep left on the app pools.
+// S-07d (migration 937): the tables S-07c's class sweep left on the app pools.
 // SQL injected on either pool can forge request.jwt.claims and
 // app.current_company_id, and every policy below admitted the row the forged
 // claims named (app_service's mirrors admit every row). Each statement here
@@ -95,7 +95,7 @@ const pools: Array<[string, () => Pool, Parameters<typeof attempt>[2]]> = [
   ['isaflow_service under forged claims', getDbPool, { claims: { sub: owner, companyId: other } }],
 ];
 
-describe.each(pools)('S-07d (935): %s', (_, pool, opts) => {
+describe.each(pools)('S-07d (937): %s', (_, pool, opts) => {
   it.each(MINTS)('cannot write %s', async (_what, table, text, params) => {
     expect(await attempt(pool(), [[text, params()]], opts)).toEqual(denied(table));
   });
@@ -106,7 +106,7 @@ describe.each(pools)('S-07d (935): %s', (_, pool, opts) => {
   });
 });
 
-describe('S-07d (935): what an app role may still do', () => {
+describe('S-07d (937): what an app role may still do', () => {
   it.each([
     ['a share link view counted', 'UPDATE share_links SET view_count = view_count + 1, last_viewed_at = NOW() WHERE company_id = $1'],
     ['an auditor session use stamped', 'UPDATE audit_portal_sessions SET last_used_at = NOW(), use_count = use_count + 1 WHERE company_id = $1'],

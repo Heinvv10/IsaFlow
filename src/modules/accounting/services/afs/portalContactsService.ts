@@ -2,7 +2,7 @@
  * Portal Contacts Service
  * CRUD for portal contacts. All queries tenant-scoped by company_id.
  *
- * The writes run on the migration_admin pool (S-07d, migration 935): an
+ * The writes run on the migration_admin pool (S-07d, migration 937): an
  * active contact is who may ask for a portal sign-in link, with the role the
  * portal grants, so a contact planted or re-addressed from an app pool
  * (forged claims) was portal access to any company. `companyId` is the

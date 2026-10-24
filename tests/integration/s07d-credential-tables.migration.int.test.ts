@@ -1,11 +1,11 @@
 // tests/integration/s07d-credential-tables.migration.int.test.ts
 //
-// S-07d: migration 935 takes the remaining credential, role and routing writes
+// S-07d: migration 937 takes the remaining credential, role and routing writes
 // away from the app pools and adds a rule per table to
 // app_pool_reach_violations() (920, 930, 932), which the migration and every
 // deploy (scripts/check-app-login-roles.ts) run. It applies twice, after
-// 915-932, as a NON-superuser postgres, as production's deploy runs; and every
-// rule refuses the re-grant it exists for. What 935 closes:
+// 915-936, as a NON-superuser postgres, as production's deploy runs; and every
+// rule refuses the re-grant it exists for. What 937 closes:
 // s07d-credential-tables.int.test.ts.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { closeSql, createSql } from '../../scripts/_pg';
@@ -16,24 +16,25 @@ const ids = newIds();
 const BEFORE = ['915_app_pool_login_roles.sql', '915b_app_login_role_violations.sql', '916_service_role_member_guards.sql',
   '916b_revoke_app_user_backfill_view.sql', '917_app_role_hardening.sql', '917b_app_login_role_violations_views.sql',
   '918_users_email_off_service_pool.sql', '919_ar_view_summary_company_wrapper.sql', '920_app_pool_reach_violations.sql',
-  '930_credential_membership_writes_off_app_pools.sql', '932_bureau_consent_links_off_app_pools.sql'].map(migration);
-const M935 = migration('935_credential_tables_off_app_pools.sql');
-const GUARD_935 = doBlock(M935, "RAISE EXCEPTION '935: %'");
-const PREFLIGHT_935 = doBlock(M935, 'which the S-07d code writes on it');
+  '930_credential_membership_writes_off_app_pools.sql', '932_bureau_consent_links_off_app_pools.sql',
+  '936_companies_standing_columns_off_app_pools.sql'].map(migration);
+const M937 = migration('937_credential_tables_off_app_pools.sql');
+const GUARD_937 = doBlock(M937, "RAISE EXCEPTION '937: %'");
+const PREFLIGHT_937 = doBlock(M937, 'which the S-07d code writes on it');
 
 beforeAll(() => setup(ids), 60000);
 afterAll(async () => { await closeSql(); await teardown(ids, []); });
 
 type Q = (text: string) => Promise<unknown>;
 const rows = async (q: Q, text: string) => ((await q(text)) as { rows: Array<Record<string, unknown>> }).rows;
-const R = (who: string, what: string) => new RegExp(`935: ${who} \\(reachable from an app pool login\\) can ${what}`);
+const R = (who: string, what: string) => new RegExp(`937: ${who} \\(reachable from an app pool login\\) can ${what}`);
 const APP = 'app_(service|user)';
 
-describe('S-07d: migration 935', () => {
-  it('applies twice after 915-932 as a NON-superuser postgres, and 932 re-applies after it', async () => {
+describe('S-07d: migration 937', () => {
+  it('applies twice after 915-936 as a NON-superuser postgres', async () => {
     await rolledBack(async (q) => {
       await q('ALTER ROLE postgres NOSUPERUSER');
-      for (let i = 0; i < 2; i++) for (const m of [...BEFORE, M935]) await q(m);
+      for (let i = 0; i < 2; i++) for (const m of [...BEFORE, M937]) await q(m);
       expect((await rows(q, 'SELECT rolsuper AS s FROM pg_roles WHERE rolname = current_user'))[0]!.s).toBe(false);
       expect(await rows(q, 'SELECT * FROM public.app_pool_reach_violations()')).toEqual([]);
     });
@@ -75,13 +76,15 @@ describe('S-07d: migration 935', () => {
     ['magic links re-openable', 'GRANT UPDATE (used_at) ON public.portal_magic_links TO app_user', R(APP, 'UPDATE portal_magic_links\\.used_at')],
     ['a WhatsApp claim re-keyable', 'GRANT UPDATE (token_hash) ON public.capture_whatsapp_claims TO app_user',
       R(APP, 'UPDATE capture_whatsapp_claims\\.token_hash')],
+    ['936\'s rule kept: a company\'s standing writable', 'GRANT UPDATE (status) ON public.companies TO app_user',
+      R(APP, 'UPDATE companies\\.status')],
     ['932\'s rule kept: bureau links insertable', 'GRANT INSERT ON public.bureau_companies TO app_user', R(APP, 'INSERT bureau_companies\\.')],
     ['930\'s rule kept: PATs insertable', 'GRANT INSERT ON public.personal_access_tokens TO app_user', R(APP, 'INSERT personal_access_tokens\\.')],
   ])('refuses the mutant: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
-      await q(GUARD_935);
+      await q(GUARD_937);
       await q(mutate);
-      await expect(q(GUARD_935)).rejects.toThrow(msg);
+      await expect(q(GUARD_937)).rejects.toThrow(msg);
     });
   });
 
@@ -91,36 +94,36 @@ describe('S-07d: migration 935', () => {
     ['the bank feed sync stamps', 'GRANT UPDATE (last_sync_status, scraper_version) ON public.bank_feed_connections TO app_user'],
     ['AR portal columns but the hash', 'GRANT SELECT (email, is_active) ON public.portal_access TO app_user'],
     ['removing a share link', 'GRANT DELETE ON public.share_links TO app_user'],
-  ])('allows what 935 grants back: %s', async (_, grant) => {
+  ])('allows what 937 grants back: %s', async (_, grant) => {
     await rolledBack(async (q) => {
       await q(grant);
-      await q(GUARD_935);
+      await q(GUARD_937);
     });
   });
 
   it.each([
-    ['the role change', 'REVOKE UPDATE ON public.company_users FROM migration_admin', /935: migration_admin cannot UPDATE public\.company_users/],
+    ['the role change', 'REVOKE UPDATE ON public.company_users FROM migration_admin', /937: migration_admin cannot UPDATE public\.company_users/],
     ['the magic link read', 'REVOKE SELECT ON public.portal_magic_links FROM migration_admin',
-      /935: migration_admin cannot SELECT public\.portal_magic_links/],
-    ['the share link mint', 'REVOKE INSERT ON public.share_links FROM migration_admin', /935: migration_admin cannot INSERT public\.share_links/],
+      /937: migration_admin cannot SELECT public\.portal_magic_links/],
+    ['the share link mint', 'REVOKE INSERT ON public.share_links FROM migration_admin', /937: migration_admin cannot INSERT public\.share_links/],
     ['the WhatsApp claim clean-up', 'REVOKE DELETE ON public.capture_whatsapp_claims FROM migration_admin',
-      /935: migration_admin cannot DELETE public\.capture_whatsapp_claims/],
+      /937: migration_admin cannot DELETE public\.capture_whatsapp_claims/],
     ['the bank feed disconnect', 'REVOKE UPDATE ON public.bank_feed_connections FROM migration_admin',
-      /935: migration_admin cannot UPDATE public\.bank_feed_connections/],
-    ['row security bypass', 'ALTER ROLE migration_admin NOBYPASSRLS', /935: migration_admin must bypass row security/],
+      /937: migration_admin cannot UPDATE public\.bank_feed_connections/],
+    ['row security bypass', 'ALTER ROLE migration_admin NOBYPASSRLS', /937: migration_admin must bypass row security/],
     ['the contact edit\'s RETURNING', 'REVOKE SELECT ON public.portal_contacts FROM migration_admin',
-      /935: migration_admin cannot SELECT public\.portal_contacts/],
+      /937: migration_admin cannot SELECT public\.portal_contacts/],
     ['the members guard predicate', 'REVOKE EXECUTE ON FUNCTION public.company_member_role_is_owner(text) FROM migration_admin, PUBLIC',
-      /935: migration_admin cannot EXECUTE company_member_role_is_owner/],
+      /937: migration_admin cannot EXECUTE company_member_role_is_owner/],
   ])('refuses a database where the moved writes could not run: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
-      await q(PREFLIGHT_935);
+      await q(PREFLIGHT_937);
       await q(mutate);
-      await expect(q(PREFLIGHT_935)).rejects.toThrow(msg);
+      await expect(q(PREFLIGHT_937)).rejects.toThrow(msg);
     });
   });
 
-  it('the deploy\'s check runs 935\'s rules', async () => {
+  it('the deploy\'s check runs 937\'s rules', async () => {
     const url = new URL(String(fixture.options.connectionString));
     url.searchParams.set('sslmode', 'disable');
     const sql = createSql(url.toString());

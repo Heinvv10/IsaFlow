@@ -1,6 +1,6 @@
 // tests/integration/s07d-credential-paths.capture.int.test.ts
 //
-// S-07d (migration 935), the rest of s07d-credential-paths.int.test.ts: auditor
+// S-07d (migration 937), the rest of s07d-credential-paths.int.test.ts: auditor
 // sessions, capture inboxes (email and WhatsApp) and bank feed connections are
 // written on the migration_admin pool now. Each legitimate path works end to
 // end through its real route on the production logins, and the auditor's

@@ -31,7 +31,7 @@ const invitation = (c: string, by: string, role: string, email: string, raw = cr
    VALUES($1,$2,$3,$4,$5, now() + interval '7 days')`, [c, email, role, by, tokenHash(raw)]] as const;
 
 describe('as app_user, an admin cannot by raw SQL', () => {
-  it('promote themselves to owner (42501 since 935; the guard\'s RC003 is behind it)', async () => {
+  it('promote themselves to owner (42501 since 937; the guard\'s RC003 is behind it)', async () => {
     const c = await company(pool, p, companies);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
       "UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2", [c, p.a])))).toBe('42501');
@@ -54,14 +54,14 @@ describe('as app_user, an admin cannot by raw SQL', () => {
     expect(await roleOf(pool, c, p.x)).toBeNull();
   });
 
-  it('remove themselves (42501 since 935; the guard\'s RC006 is behind it)', async () => {
+  it('remove themselves (42501 since 937; the guard\'s RC006 is behind it)', async () => {
     const c = await company(pool, p, companies);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
       'DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [c, p.a])))).toBe('42501');
     expect(await roleOf(pool, c, p.a)).toBe('admin');
   });
 
-  it('demote or remove an owner, the last one included (42501 since 935; the guard\'s RC010 is behind it)', async () => {
+  it('demote or remove an owner, the last one included (42501 since 937; the guard\'s RC010 is behind it)', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.a, 'admin']]);
     expect(await outcome(asApp(c, p.a, (cl) => cl.query(
       "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.o])))).toBe('42501');

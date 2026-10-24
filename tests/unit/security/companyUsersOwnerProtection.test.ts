@@ -15,7 +15,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const h = vi.hoisted(() => ({ statements: [] as string[], onSql: [] as string[], targetRole: 'owner', actorRole: 'owner', ownerCount: 2 }));
 
 // The role change and the removal run on the migration_admin client (S-07d,
-// mig 935); `sql`, the app pool, must see no member read or write (afterEach).
+// mig 937); `sql`, the app pool, must see no member read or write (afterEach).
 function answer(raw: string): Promise<unknown[]> {
   const text = raw.replace(/\s+/g, ' ').trim();
   h.statements.push(text);

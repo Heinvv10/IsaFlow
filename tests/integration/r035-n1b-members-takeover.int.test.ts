@@ -91,12 +91,12 @@ describe("an admin cannot take over an owner's invitation", () => {
 });
 
 describe('the last owner', () => {
-  // Since S-07d (migration 935) app_user may neither UPDATE nor DELETE a
+  // Since S-07d (migration 937) app_user may neither UPDATE nor DELETE a
   // membership: role changes and removals run on the migration_admin pool,
   // which re-checks these rules in TypeScript. Their races (two owners demoting
   // each other, a portal demotion or removal against the members screen, a
   // case-variant duplicate row) are s07d-member-writes.int.test.ts's.
-  it('no app_user demotion or removal reaches the guard (42501 since 935)', async () => {
+  it('no app_user demotion or removal reaches the guard (42501 since 937)', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner']]);
     expect(await outcome(asApp(c, p.o, (cl) => cl.query(
       "UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o2])))).toBe('42501');

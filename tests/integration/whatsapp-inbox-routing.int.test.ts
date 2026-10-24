@@ -21,12 +21,12 @@ const authToken='disposable-whatsapp-signature-fixture';
 const origin='http://localhost:3200';
 const url='/api/accounting/capture/inbound/whatsapp';
 const migration=readFileSync('scripts/migrations/sql/617_capture_whatsapp_destination_identity.sql','utf8');
-// 618 grants app_user every privilege on the claims (and is re-run here): put back what 935 took (S-07d).
-const restore935=()=>pool.query(readFileSync('scripts/migrations/sql/935_credential_tables_off_app_pools.sql','utf8'));
+// 618 grants app_user every privilege on the claims (and is re-run here): put back what 937 took (S-07d).
+const restore937=()=>pool.query(readFileSync('scripts/migrations/sql/937_credential_tables_off_app_pools.sql','utf8'));
 beforeAll(async()=>{
   // Run alone on the explicit disposable fixture; restore the index after cleanup.
   await pool.query('DROP INDEX IF EXISTS ux_capture_inboxes_whatsapp_address');
-  await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore935();
+  await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore937();
   vi.stubEnv('TWILIO_AUTH_TOKEN',authToken);
   vi.stubEnv('APP_URL',origin);
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)',[first,'WA first fixture',second,'WA second fixture']);

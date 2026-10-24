@@ -41,7 +41,7 @@ it('moves every census reference off the duplicate and counts the documents it r
     `SELECT (SELECT status FROM recurring_invoices WHERE template_name='R-d' AND company_id=$1) AS recurring,
             (SELECT count(*)::int FROM portal_access WHERE client_id=$2) AS portal,
             (SELECT deleted_at IS NOT NULL FROM customers WHERE id=$2) AS gone`, [h.companyA, duplicate]);
-  // The duplicate's portal login is removed (S-07d, 935: no app role may UPDATE portal_access).
+  // The duplicate's portal login is removed (S-07d, 937: no app role may UPDATE portal_access).
   expect(rows[0]).toEqual({ recurring: 'paused', portal: 0, gone: true });
 });
 
