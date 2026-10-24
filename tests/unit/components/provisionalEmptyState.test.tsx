@@ -18,7 +18,7 @@ const entry = { jeId: 'je-1', bankTxId: 'bt-1', bankAccountName: 'FNB', descript
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 const empty500 = () => new Response('', { status: 500 });
 const NO_ENTRIES = /No provisional entries awaiting evidence/;
-const NO_DOCS = /No extracted documents found/;
+const NO_DOCS = /No documents to attach/;
 
 afterEach(() => vi.mocked(apiFetch).mockReset());
 
@@ -43,13 +43,13 @@ async function openAttachWith(docs: () => Response) {
   fireEvent.click(await screen.findByRole('button', { name: 'Attach evidence' }));
 }
 
-it('the attach modal\'s document list fails to load: the failure in the modal, not "no extracted documents"', async () => {
+it('the attach modal\'s document list fails to load: the failure in the modal, not "no documents to attach"', async () => {
   await openAttachWith(empty500);
   expect(await screen.findByText('Could not load documents - try again')).toBeTruthy();
   expect(screen.queryByText(NO_DOCS)).toBeNull();
 });
 
-it('the attach modal\'s document list loads empty: "no extracted documents", and no error', async () => {
+it('the attach modal\'s document list loads empty: "no documents to attach", and no error', async () => {
   await openAttachWith(() => json({ success: true, data: [] }));
   expect(await screen.findByText(NO_DOCS)).toBeTruthy();
   expect(screen.queryByText(/Could not load/)).toBeNull();

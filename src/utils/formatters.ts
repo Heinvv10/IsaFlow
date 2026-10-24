@@ -14,3 +14,8 @@ export function formatDate(dateStr: string | Date | null | undefined): string {
   if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('en-ZA');
 }
+
+/** Format an amount as Rand without its sign (R 1,234.56), for a figure whose direction is shown elsewhere */
+export function formatRandAbs(amount: number): string {
+  return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
