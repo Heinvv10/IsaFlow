@@ -59,7 +59,9 @@ async function handler(
       idNumber: idNumber ? String(idNumber) : undefined,
       dateOfBirth: dateOfBirth ? new Date(String(dateOfBirth)) : undefined,
       uifExcluded: Boolean(uifExcluded),
-      medicalAidMainMember: medicalAidMainMember !== false,
+      // Only an explicit true makes a main member: the flag buys a monthly medical tax credit,
+      // so a default of true under-deducts PAYE for everyone captured without medical aid.
+      medicalAidMainMember: medicalAidMainMember === true,
       medicalAidDependantsCount: Number(medicalAidDependantsCount) || 0,
     };
 
