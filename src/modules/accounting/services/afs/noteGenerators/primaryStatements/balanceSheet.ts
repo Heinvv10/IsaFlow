@@ -32,7 +32,7 @@ export async function generateStatementOfFinancialPosition(
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateStatementOfFinancialPosition', { companyId, fiscalYear }, 'AfsPrimary');
   const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
-  const lines = rollUpTotals(await fetchSectionLines(companyId, 'balance_sheet', fiscalYear, fiscalYear - 1));
+  const lines = rollUpTotals(await fetchSectionLines(companyId, 'balance_sheet', fiscalYear, true));
   const adjusted = lines.map((l) => (isAssetLine(l) ? l : flipSign(l)));
   const blocks = renderHierarchicalTable(adjusted, true);
 

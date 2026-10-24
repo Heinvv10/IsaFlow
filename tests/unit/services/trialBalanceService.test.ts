@@ -8,7 +8,7 @@
  * CS-01: a trial balance reports BALANCES, not one period's movement.
  * Balance-sheet accounts are cumulative from inception to the end of the
  * selected period; income-statement accounts are year-to-date within the
- * company's fiscal year (companies.financial_year_start, 3 = March in prod —
+ * company's fiscal year (the registry's stored year, March-based in prod —
  * never a calendar year). Accounts that carry a balance appear even when they
  * did not move in the period, and the profit earned before the fiscal year is
  * folded into retained earnings so the statement still balances.
@@ -25,6 +25,10 @@ vi.mock('@/lib/neon', () => {
     fmtDate: (d: unknown) => (d instanceof Date ? d.toISOString().split('T')[0] : String(d)),
   };
 });
+
+// A financial year is a stored record: the trial balance reads its years from the registry.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../helpers/fiscalYearSqlFake')).registryMock());
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -43,6 +47,7 @@ import {
   round2,
 } from '@/modules/accounting/services/gl/trialBalanceBasis';
 import type { TrialBalanceRow } from '@/modules/accounting/types/gl.types';
+import { fakeRegistry, resetFakeRegistry, TRANSITION_YEARS } from '../../helpers/fiscalYearSqlFake';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
 const PERIOD_ID  = 'bbbbbbbb-0000-0000-0000-000000000002';
@@ -51,7 +56,6 @@ const PERIOD_ID  = 'bbbbbbbb-0000-0000-0000-000000000002';
 const PERIOD_META = {
   start_date: '2026-02-01',
   end_date: '2026-02-28',
-  fy_start_month: 3,
 };
 
 function makeDbRow(overrides: Record<string, unknown> = {}) {
@@ -107,11 +111,10 @@ function paramsOf(mockSql: SqlMock, callIndex: number): unknown[] {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetFakeRegistry();
 });
 
-// fiscalYearStart's own tests live in tests/unit/services/gl/fiscalYearBasis.test.ts —
-// it is general-purpose, not trial-balance-specific. What is asserted here is
-// how THIS service feeds it: see "fiscal year basis (read path)" below.
+// What is asserted here is how THIS service reads its years: see "fiscal year basis" below.
 
 describe('splitNet / round2', () => {
   it('reports a positive net in the debit column only', () => {
@@ -186,7 +189,7 @@ describe('getTrialBalance (CS-01 — balances, not period movement)', () => {
     await getTrialBalance(COMPANY_ID, PERIOD_ID);
 
     const params = paramsOf(mockSql, 1);
-    // Fiscal-year start for Feb 2026 with financial_year_start = 3.
+    // Fiscal-year start for Feb 2026: the registry year holding it (March-based).
     expect(params).toContain('2025-03-01');
     expect(params).toContain('2026-02-01');
     expect(params).toContain('2026-02-28');
@@ -652,40 +655,50 @@ describe('zero balances vs no movement (the old HAVING conflated them)', () => {
   });
 });
 
-describe('fiscal year basis (read path defaults explicitly)', () => {
+describe('fiscal year basis (the registry)', () => {
   /**
-   * The trial balance is a READ path: it must still render for a tenant whose
-   * financial_year_start was never set, so it passes an explicit March
-   * fallback. The CLOSE path does not — see tbBalancedCheck, which refuses.
+   * The year boundaries are the registry's stored years, so the trial balance
+   * no longer reads companies.financial_year_start and has no March fallback to
+   * apply: a company whose years were never stored gets the database's template.
    */
-  it('still renders on a March basis when the company has no year start configured', async () => {
-    const mockSql = sql as SqlMock;
-    mockSql
-      .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: null }])
-      .mockResolvedValueOnce([makeDbRow()])
-      .mockResolvedValueOnce([{ retained: '0' }]);
-
+  it('cuts the income statement at the start of the registry year holding the period END', async () => {
+    primeSql([makeDbRow()]);
     const report = await getTrialBalanceReport(COMPANY_ID, PERIOD_ID);
     expect(report.fiscalYearStart).toBe('2025-03-01');
-    expect(report.rows).toHaveLength(1);
   });
 
-  it('honours a configured non-March year start', async () => {
-    const mockSql = sql as SqlMock;
-    mockSql
-      .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 12 }])
+  it('uses a 14-month transition year at its own start, not a twelve-month cut', async () => {
+    fakeRegistry.years = TRANSITION_YEARS;
+    (sql as SqlMock)
+      .mockResolvedValueOnce([{ start_date: '2027-02-01', end_date: '2027-02-28' }])
       .mockResolvedValueOnce([makeDbRow()])
       .mockResolvedValueOnce([{ retained: '0' }]);
 
     const report = await getTrialBalanceReport(COMPANY_ID, PERIOD_ID);
-    // February 2026 falls in the December-2025 fiscal year.
-    expect(report.fiscalYearStart).toBe('2025-12-01');
+    // The year holding February 2027 began 1 January 2026, fourteen months earlier.
+    expect(report.fiscalYearStart).toBe('2026-01-01');
   });
 
-  it('reads the raw column — a COALESCE in the query would hide the misconfiguration', async () => {
+  it('opens at the year holding the period START when the period spans a year start (D4)', async () => {
+    const mockSql = sql as SqlMock;
+    mockSql
+      .mockResolvedValueOnce([{ start_date: '2025-01-01', end_date: '2025-12-31' }])
+      .mockResolvedValueOnce([makeDbRow()])
+      .mockResolvedValueOnce([{ retained: '0' }])
+      .mockResolvedValueOnce([{ retained: '0' }]);
+
+    await getTrialBalance(COMPANY_ID, PERIOD_ID);
+    const params = paramsOf(mockSql, 1);
+    // Closing floor: the year holding 2025-12-31 (starts 2025-03-01); opening floor:
+    // the year holding 2025-01-01 (starts 2024-03-01).
+    expect(params).toContain('2025-03-01');
+    expect(params).toContain('2024-03-01');
+  });
+
+  it('does not read the declared month from the companies row', async () => {
     const mockSql = primeSql([makeDbRow()]);
     await getTrialBalance(COMPANY_ID, PERIOD_ID);
-    expect(sqlTextOf(mockSql, 0)).toContain('financial_year_start');
-    expect(sqlTextOf(mockSql, 0)).not.toContain('COALESCE');
+    expect(sqlTextOf(mockSql, 0)).not.toContain('financial_year_start');
+    expect(sqlTextOf(mockSql, 0)).not.toContain('companies');
   });
 });
