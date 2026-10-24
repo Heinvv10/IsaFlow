@@ -66,12 +66,15 @@ it('processing a payment while the supplier-merge route merges its supplier away
   const m = parked('m');
   const merging = callRoute(supplierMerge as never, tokens[u.a]!, c, 'POST', { source_id: pay.supplierId, target_id: target },
     '/api/accounting/supplier-merge');
-  await m.inGate; // the merge holds both suppliers and the re-parented bill, before the payments
+  await m.inGate; // the route is parked at lockBatchesPayingSupplier (before the fix: with the bills already moved)
   const processing = r.payment(u.a, c, 'process', pay.id);
   // Process holds the payment and either waits on its bill (the route moved it first) or simply finishes.
   const waitsOnBill = (async () => {
     for (let i = 0; i < 500; i += 1) {
-      const w = await pool.query(`SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query ILIKE '%supplier_invoices%'`);
+      // Any lock wait on a bill statement in this database (suites run one file at a time per database; a stray
+      // match could only end the wait early, weakening the red-before-the-fix check, never failing a green run).
+      const w = await pool.query(`SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock'
+        AND datname = current_database() AND query ILIKE '%supplier_invoices%'`);
       if (w.rowCount) return;
       await new Promise((res) => setTimeout(res, 20));
     }
