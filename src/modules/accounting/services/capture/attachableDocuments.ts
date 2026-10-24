@@ -56,7 +56,8 @@ export async function listAttachableDocuments(
 
   const result = await sql`
     WITH attachable AS (
-      SELECT cd.*, to_char(cd.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+      -- Keys only: the CTE is read twice (page and count), so Postgres materialises it; the page joins back for the row.
+      SELECT cd.id, cd.created_at
       FROM captured_documents cd
       WHERE cd.company_id = ${companyId} AND cd.created_at IS NOT NULL AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
         AND cd.document_type IS DISTINCT FROM 'sent_invoice' AND cd.document_type IS DISTINCT FROM 'outbound_email'
@@ -73,11 +74,15 @@ export async function listAttachableDocuments(
         AND NOT EXISTS (SELECT 1 FROM gl_journal_document_links l
                         WHERE l.company_id = cd.company_id AND l.captured_document_id = cd.id AND l.unlinked_at IS NULL)
     ),
-    page_rows AS (
-      SELECT * FROM attachable a
+    page_keys AS (
+      SELECT a.id FROM attachable a
       WHERE (${afterTs}::timestamptz IS NULL OR (a.created_at, a.id) < (${afterTs}::timestamptz, ${afterId}::uuid))
       ORDER BY a.created_at DESC, a.id DESC
       LIMIT ${pageSize} OFFSET ${offset}
+    ),
+    page_rows AS (
+      SELECT cd.*, to_char(cd.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+      FROM page_keys k JOIN captured_documents cd ON cd.id = k.id AND cd.company_id = ${companyId}
     )
     SELECT pr.*, t.total
     FROM (SELECT COUNT(*)::int AS total FROM attachable) t
