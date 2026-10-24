@@ -5,7 +5,9 @@
  * On-account credit (getSupplierOnAccountCredit) = processed payments' total - allocated. Applying a payment INSERTs
  * payment_allocations and LOWERS it. The refund plan (lockContactForRefund, supplier FOR UPDATE) must wait for an
  * application in flight (which reaches the supplier through its bills' FK check), read credit 0 and refuse.
- * A refund lock that let the application through would read the R500 being spent and refund it.
+ * A refund lock that let the application through would read the R500 being spent and refund it. This parks the
+ * application AFTER its bill writes; an application caught between its allocation INSERT and the bill's status write
+ * is not yet covered (OPEN HIGH, ap/.claude.md 2026-10-24).
  *
  * Deterministic: the application is held open after its writes; the refund's wait is found by pid (or it finishes,
  * which is the defect). Disposable fixture DB only.
