@@ -8,6 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// The years are the registry's (stored, March-based): the periods below are cut by THEM.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../../helpers/fiscalYearSqlFake')).registryMock());
 
 import { sql } from '@/lib/neon';
 import { getTrialBalance, getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
@@ -28,7 +31,7 @@ beforeEach(() => { mockSql.mockReset(); });
 describe('trial balance across a fiscal-year start (Jan–Dec period, March FY)', () => {
   it('cuts income-statement closings at the FY of the period end, openings at the FY of the period start', async () => {
     mockSql
-      .mockResolvedValueOnce([{ start_date: '2026-01-01', end_date: '2026-12-31', fy_start_month: 3 }])
+      .mockResolvedValueOnce([{ start_date: '2026-01-01', end_date: '2026-12-31' }])
       .mockResolvedValueOnce([row({ closing_debit: '250', opening_net: '1000', period_debit: '550' })])
       .mockResolvedValueOnce([{ retained: '-1207' }])
       .mockResolvedValueOnce([{ retained: '-7' }]);
@@ -52,7 +55,7 @@ describe('trial balance across a fiscal-year start (Jan–Dec period, March FY)'
 
   it('asks for the brought-forward profit once when the period sits inside one fiscal year', async () => {
     mockSql
-      .mockResolvedValueOnce([{ start_date: '2026-04-01', end_date: '2026-04-30', fy_start_month: 3 }])
+      .mockResolvedValueOnce([{ start_date: '2026-04-01', end_date: '2026-04-30' }])
       .mockResolvedValueOnce([row({ closing_debit: '200', period_debit: '200' })])
       .mockResolvedValueOnce([{ retained: '-1207' }]);
 
@@ -68,7 +71,7 @@ describe('trial balance across a fiscal-year start (Jan–Dec period, March FY)'
 
   it('keeps an account that only opens with a balance, so the opening column foots', async () => {
     mockSql
-      .mockResolvedValueOnce([{ start_date: '2026-01-01', end_date: '2026-03-31', fy_start_month: 3 }])
+      .mockResolvedValueOnce([{ start_date: '2026-01-01', end_date: '2026-03-31' }])
       .mockResolvedValueOnce([row({ opening_net: '1300' })])
       .mockResolvedValueOnce([{ retained: '0' }])
       .mockResolvedValueOnce([{ retained: '0' }]);

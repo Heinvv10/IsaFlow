@@ -20,7 +20,7 @@ import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { TrialBalanceRow, TrialBalanceReport } from '../../types/gl.types';
-import { DEFAULT_FY_START_MONTH, fiscalYearStart, resolveFiscalYearStartMonth } from './fiscalYearBasis';
+import { fiscalYearForDate } from './fiscalYearRegistry';
 import { fiscalYearEndBefore, fiscalYearStartsWithin } from './fiscalYearCloseRows';
 import {
   broughtForwardLine,
@@ -72,10 +72,8 @@ interface PeriodBasis {
 
 async function loadPeriodBasis(companyId: string, fiscalPeriodId: string): Promise<PeriodBasis | null> {
   const rows = (await sql`
-    SELECT fp.start_date, fp.end_date,
-           c.financial_year_start AS fy_start_month
+    SELECT fp.start_date, fp.end_date
     FROM fiscal_periods fp
-    JOIN companies c ON c.id = fp.company_id
     WHERE fp.company_id = ${companyId}::UUID
       AND fp.id = ${fiscalPeriodId}::UUID
     LIMIT 1
@@ -84,21 +82,18 @@ async function loadPeriodBasis(companyId: string, fiscalPeriodId: string): Promi
   if (!row) return null;
   const periodStart = fmtDate(row.start_date);
   const periodEnd = fmtDate(row.end_date);
-  // READ PATH: the trial balance must still render for a tenant whose
-  // financial_year_start was never set, so the March assumption is made HERE,
-  // explicitly and visibly, rather than by a COALESCE buried in the query.
-  // The close path does NOT get this — see closeReadinessChecks/tbBalancedCheck.ts.
-  const fyStartMonth = resolveFiscalYearStartMonth(
-    row.fy_start_month,
-    companyId,
-    { fallback: DEFAULT_FY_START_MONTH },
-  );
+  // The years are the registry's: the year holding the period END cuts the
+  // income statement, the year holding the START cuts the opening, and a
+  // transition year is one year however long it is.
+  const endYear = await fiscalYearForDate(companyId, periodEnd);
+  const startYear = await fiscalYearForDate(companyId, periodStart);
+  const starts = await fiscalYearStartsWithin(companyId, periodStart, periodEnd);
   return {
     periodStart,
     periodEnd,
-    fyStart: fiscalYearStart(periodEnd, fyStartMonth),
-    openingFyStart: fiscalYearStart(periodStart, fyStartMonth),
-    fiscalYearEndsClosed: fiscalYearStartsWithin(periodStart, periodEnd, fyStartMonth).map(fiscalYearEndBefore),
+    fyStart: endYear.startDate,
+    openingFyStart: startYear.startDate,
+    fiscalYearEndsClosed: starts.map(fiscalYearEndBefore),
   };
 }
 

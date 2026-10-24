@@ -11,6 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { computePisBreakdown } from '@/modules/accounting/services/afs/pisCalculatorService';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 import { ENTITY_TYPE_CODES } from '@/lib/entityTypes';
 import { EntityTypeChangeRefused, assertEntityTypeChangeAllowed } from '@/modules/onboarding/services/entityTypeChange';
 
@@ -33,29 +34,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     const fiscalYear = Number(req.query.fiscal_year) || new Date().getFullYear();
 
-    // Fetch company's financial year start month
-    const companyRows = (await sql`
-      SELECT COALESCE(financial_year_start, 3) AS fy_start
-      FROM companies WHERE id = ${companyId}
-    `) as DbRow[];
-
-    const fyStartMonth = Number(companyRows[0]?.fy_start ?? 3);
-
-    // Calculate fiscal year start/end dates
-    const startYear = fyStartMonth > 1 ? fiscalYear - 1 : fiscalYear;
-    const fiscalYearStart = `${startYear}-${String(fyStartMonth).padStart(2, '0')}-01`;
-
-    let endMonth: number;
-    let endYear: number;
-    if (fyStartMonth === 1) {
-      endMonth = 12;
-      endYear = fiscalYear;
-    } else {
-      endMonth = fyStartMonth - 1;
-      endYear = fiscalYear;
-    }
-    const lastDay = new Date(endYear, endMonth, 0).getDate();
-    const fiscalYearEnd = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    // The year's own dates from the registry (a transition year is not twelve months).
+    const { start: fiscalYearStart, end: fiscalYearEnd } = await getFiscalRange(companyId, fiscalYear);
 
     const breakdown = await computePisBreakdown(companyId, fiscalYearStart, fiscalYearEnd);
 
