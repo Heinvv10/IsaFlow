@@ -96,7 +96,9 @@
     --ff-unfav: #b23a3a;
     --ff-prior: #c9d0cc;
     --ff-plan: #8a94a0;
-    --ff-fig-font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* --ff-fig-font (statement figures, KPI tiles, chart text) is deliberately not defined on screen:
+       figures inherit the app face (DM Sans, digits from 'IsaFlow Figures'), and charts fall back
+       to FALLBACK.figFont. The board-pack print page defines it (styles/packPrintPage.css). */
 
     /* Keyboard focus ring (kit inputs and buttons): teal-600, 3.7:1 on white, 3 px. */
     --ff-focus-ring: #0d9488;

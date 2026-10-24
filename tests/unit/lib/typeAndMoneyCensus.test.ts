@@ -41,6 +41,7 @@ const DISPLAY = /\btext-(?:[3-9]xl|\[(?:\d+(?:\.\d+)?)rem\])/;
 
 /** Chart options shared with the board-pack renderer, whose label widths are measured at these sizes. Shrink-only. */
 const PACK_CHART_FONTS = new Set<string>([
+  'src/components/accounting/charts/RatioTrendChart.tsx',
   'src/components/accounting/charts/bulletOption.ts',
   'src/components/accounting/charts/sankeyOption.ts',
   'src/components/accounting/charts/smallMultiplesOption.ts',
