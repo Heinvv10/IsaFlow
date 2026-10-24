@@ -29,10 +29,20 @@ DROP FUNCTION IF EXISTS public.seed_company_fiscal_periods(uuid);
 
 -- 930's definer registry: this migration changes one reviewed definer and drops
 -- another, so it records both (app_pool_reach_violations refuses otherwise).
-UPDATE public.app_definer_reviews
-   SET writes = 'gl_accounts and afs_statement_lines of the given company, through its two seeders (no fiscal periods since 942); called by create_company_with_owner',
-       body_md5 = public.app_definer_hash('public.seed_company_default_taxonomy(uuid)'::regprocedure)
- WHERE signature = 'seed_company_default_taxonomy(uuid)';
+DO $$
+DECLARE
+  n int;
+BEGIN
+  UPDATE public.app_definer_reviews
+     SET writes = 'gl_accounts and afs_statement_lines of the given company, through its two seeders (no fiscal periods since 942); called by create_company_with_owner',
+         body_md5 = public.app_definer_hash('public.seed_company_default_taxonomy(uuid)'::regprocedure)
+   WHERE signature = 'seed_company_default_taxonomy(uuid)';
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN
+    RAISE EXCEPTION '942: seed_company_default_taxonomy(uuid) has no row in app_definer_reviews to update (930 registers it)';
+  END IF;
+END
+$$;
 DELETE FROM public.app_definer_reviews WHERE signature = 'seed_company_fiscal_periods(uuid)';
 
 -- ── The generator ────────────────────────────────────────────────────────────
