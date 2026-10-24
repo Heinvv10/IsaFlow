@@ -7,7 +7,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextApiResponse } from 'next';
 
-const { sqlMock } = vi.hoisted(() => ({ sqlMock: vi.fn() }));
+const { sqlMock, adminMock } = vi.hoisted(() => ({ sqlMock: vi.fn(), adminMock: vi.fn() }));
+// S-07d (migration 935): the connection INSERT runs on the migration_admin pool.
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>
+    fn({ query: async (t: string, p?: unknown[]) => ({ rows: await adminMock(t, p) }) }),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
 vi.mock('@/lib/auth', () => ({ withAuth: (fn: unknown) => fn, withWriteAccess: (fn: unknown) => fn }));
@@ -27,7 +32,7 @@ import { createBankFeedConnection } from '@/modules/accounting/services/bank/ope
 const GL = '00000000-0000-4000-8000-000000000001';
 const req = (body: unknown) => ({ method: 'POST', companyId: 'co', user: { id: 'u1' }, body }) as never;
 
-beforeEach(() => sqlMock.mockReset());
+beforeEach(() => { sqlMock.mockReset(); adminMock.mockReset(); });
 
 describe('POST /bank-feeds config', () => {
   it('rejects credentials in config with a 400 and stores nothing', async () => {
@@ -36,6 +41,7 @@ describe('POST /bank-feeds config', () => {
     }), {} as NextApiResponse) as { kind: string };
     expect(out.kind).toBe('validation');
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(adminMock).not.toHaveBeenCalled();
   });
 
   it('rejects an unknown bankId and extra keys beside a valid one', async () => {
@@ -44,15 +50,19 @@ describe('POST /bank-feeds config', () => {
       expect(out.kind).toBe('validation');
     }
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(adminMock).not.toHaveBeenCalled();
   });
 
   it('accepts { bankId: "absa" }', async () => {
-    sqlMock.mockResolvedValueOnce([{ id: GL }]).mockResolvedValueOnce([{
+    sqlMock.mockResolvedValueOnce([{ id: GL }]);
+    adminMock.mockResolvedValueOnce([{
       id: 'conn', company_id: 'co', provider: 'extension', status: 'active', config: { bankId: 'absa' },
       created_at: 'x', updated_at: 'x',
     }]);
     const out = await handler(req({ provider: 'extension', accountId: GL, config: { bankId: 'absa' } }), {} as NextApiResponse) as { kind: string };
     expect(out.kind).toBe('success');
+    expect(adminMock.mock.calls[0]![0]).toContain('INSERT INTO bank_feed_connections');
+    expect(adminMock.mock.calls[0]![1]).toContain(JSON.stringify({ bankId: 'absa' }));
   });
 });
 
@@ -62,5 +72,6 @@ describe('createBankFeedConnection config (defence in depth)', () => {
     await expect(createBankFeedConnection('co', { provider: 'extension', accountId: GL, config }, 'u1'))
       .rejects.toThrow(/config/i);
     expect(sqlMock).not.toHaveBeenCalled();
+    expect(adminMock).not.toHaveBeenCalled();
   });
 });

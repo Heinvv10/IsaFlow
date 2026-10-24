@@ -1,13 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// S-07d (migration 935): disconnect runs on the migration_admin pool via client.query(text, params).
+const adminMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>
+    fn({ query: async (t: string, p?: unknown[]) => ({ rows: await adminMock(t, p) }) }),
+}));
 import { sql } from '@/lib/neon';
 import { deleteBankFeedConnection, listBankFeedConnections } from '@/modules/accounting/services/bank/openBankingConnectionService';
 import { isSupportedProvider } from '@/modules/accounting/services/bank/openBankingTypes';
 
 const mockSql = sql as unknown as ReturnType<typeof vi.fn>;
 const text = (i: number) => (mockSql.mock.calls[i]![0] as unknown as string[]).join('?');
-beforeEach(() => mockSql.mockReset());
+beforeEach(() => { mockSql.mockReset(); adminMock.mockReset(); });
 
 describe('bank feed connection truthfulness', () => {
   it('supports only manual_csv and extension', () => {
@@ -16,11 +22,15 @@ describe('bank feed connection truthfulness', () => {
   });
 
   it('disconnect is a soft state change that preserves history', async () => {
-    mockSql.mockResolvedValue([]);
+    adminMock.mockResolvedValue([]);
     await deleteBankFeedConnection('co', 'conn');
-    expect(text(0)).toMatch(/status = 'disconnected'/);
-    expect(text(0)).toMatch(/is_active = false/);
-    expect(text(0)).not.toMatch(/DELETE/i);
+    const stmt = adminMock.mock.calls[0]![0] as string;
+    expect(stmt).toMatch(/status = 'disconnected'/);
+    expect(stmt).toMatch(/is_active = false/);
+    expect(stmt).not.toMatch(/DELETE/i);
+    // Scoped by id and company (params $1, $2), and nothing ran on the app pool.
+    expect(adminMock.mock.calls[0]![1]).toEqual(['conn', 'co']);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('lists masked account, last success and the latest sync counts', async () => {
