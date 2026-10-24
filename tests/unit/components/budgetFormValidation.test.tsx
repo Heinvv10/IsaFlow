@@ -18,6 +18,11 @@ function open() {
 const submit = () => fireEvent.submit(screen.getByTestId('budget-save').closest('form')!);
 
 describe('BudgetForm amounts', () => {
+  it('its hint text is not in the tertiary colour (about 2.4:1 on the light theme)', () => {
+    open();
+    expect(screen.getByText(/A month left empty is saved as 0/).className).not.toContain('ff-text-tertiary');
+  });
+
   it('a month that is not a finite number blocks the save and names the month', () => {
     const onSubmit = open();
     fireEvent.change(screen.getByTestId('budget-month-2026-04'), { target: { value: '1e999' } });

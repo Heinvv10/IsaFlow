@@ -41,6 +41,8 @@ describe('budget vs actual page range', () => {
     render(<BudgetVsActualPage />);
     await screen.findByText('Sales');
     expect(screen.getByTestId('report-period').textContent).toMatch(/1 March 2026.*28 February 2027/);
+    // The tertiary text colour is ~2.4:1 on the light theme; the range line is secondary.
+    expect(screen.getByTestId('report-period').className).not.toContain('ff-text-tertiary');
     fireEvent.click(screen.getByText('Sales'));
     expect(screen.getByTestId('drill').textContent).toBe('4000|2026-03-01|2027-02-28');
   });
@@ -90,6 +92,7 @@ describe('budget vs actual page range', () => {
     }));
     render(<BudgetVsActualPage />);
     expect((await screen.findByTestId('year-not-started')).textContent).toBe('This financial year starts on 1 March 2027');
+    expect(screen.getByText(/nothing to show for year to date yet/).className).not.toContain('ff-text-tertiary');
     expect(screen.queryByTestId('report-period')).toBeNull();
     expect(screen.queryByText('No budget data available')).toBeNull();
   });
