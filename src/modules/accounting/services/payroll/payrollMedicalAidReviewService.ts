@@ -8,6 +8,15 @@
  * This lists the rows worth a human look; it changes nothing (no backfill, no
  * auto-fix: an employee may genuinely be a member paying through another route).
  *
+ * The column's DEFAULT TRUE (migration 380) is left as it is here: migration 933
+ * (D1b, its own PR, needs Hein's approval) changes it to FALSE. Until that is
+ * deployed, an insert that leaves the column out still makes a main member, and
+ * this report is how such a row is found.
+ *
+ * "Today" is the server's local calendar date (fmtDate uses local getters, and
+ * the host runs on SAST), which is the date payroll cares about; callers can
+ * pass `asAt` to pin it.
+ *
  * "HAS A MEDICAL-AID DEDUCTION" means a payroll_employee_components assignment
  * in force on `asAt` whose component is an active deduction coded 4005 (the SARS
  * code the components page offers for medical aid). The schema has no medical

@@ -11,14 +11,14 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { ok, serve } from '../helpers/d2R3a6';
 
 const router = vi.hoisted(() => ({ query: {} as Record<string, string>, push: vi.fn(), back: vi.fn() }));
-const company = vi.hoisted(() => ({ role: 'owner' as string | null }));
+const company = vi.hoisted(() => ({ role: 'owner' as string | null, id: 'co-1' }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/router', () => { const r = { ...router, isReady: true, replace: vi.fn(), pathname: '/' }; return { useRouter: () => r }; });
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CompanyContext', () => ({
-  useCompany: () => ({ companyRole: company.role, activeCompany: { id: 'co-1' } }),
+  useCompany: () => ({ companyRole: company.role, activeCompany: { id: company.id } }),
 }));
 
 import { apiFetch } from '@/lib/apiFetch';
@@ -31,7 +31,7 @@ const REVIEW_URL = '/api/payroll/employees/medical-aid-review';
 const E1 = { id: 'e1', employeeNumber: 'E1', firstName: 'Ann', lastName: 'Lee', medicalAidDependantsCount: 0 };
 const E2 = { id: 'e2', employeeNumber: 'E2', firstName: 'Bob', lastName: 'Ng', medicalAidDependantsCount: 1 };
 
-beforeEach(() => { vi.mocked(apiFetch).mockReset(); router.push.mockReset(); window.localStorage.clear(); company.role = 'owner'; });
+beforeEach(() => { vi.mocked(apiFetch).mockReset(); router.push.mockReset(); window.localStorage.clear(); company.role = 'owner'; company.id = 'co-1'; });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const reviewCalls = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes(REVIEW_URL)).length;
@@ -101,6 +101,24 @@ describe('employees list — medical-aid review banner', () => {
     render(<EmployeesListPage />);
     await waitFor(() => expect(reviewCalls()).toBe(1));
     expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull();
+  });
+
+  it("a company switch never shows the previous company's list while the new one loads", async () => {
+    serveReview([E1]);
+    const view = render(<EmployeesListPage />);
+    await screen.findByTestId('medical-aid-review-banner');
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
+      (String(url).includes(REVIEW_URL) ? new Promise<Response>(() => undefined) : ok([])));
+    company.id = 'co-2';
+    view.rerender(<EmployeesListPage />);
+    await waitFor(() => expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull());
+  });
+
+  it('the banner is a status region, not an alert', async () => {
+    serveReview([E1]);
+    render(<EmployeesListPage />);
+    expect((await screen.findByRole('status')).getAttribute('data-testid')).toBe('medical-aid-review-banner');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('a viewer gets no banner and no review request', async () => {
