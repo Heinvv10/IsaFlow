@@ -73,6 +73,25 @@ describe('stripVatNav', () => {
     expect(stripVatNav([tab], false)).toEqual([]);
   });
 
+  it('drops a links-only tab whose every link was a VAT surface', () => {
+    const tab: Tab = {
+      id: 'x', label: 'X',
+      links: [{ label: 'VAT201', href: '/accounting/sars/vat201' }],
+    };
+    expect(stripVatNav([tab], false)).toEqual([]);
+  });
+
+  it('strips only the VAT links from a tab that keeps others', () => {
+    const tab: Tab = {
+      id: 'x', label: 'X',
+      links: [
+        { label: 'VAT201', href: '/accounting/sars/vat201' },
+        { label: 'EMP201', href: '/accounting/sars/emp201' },
+      ],
+    };
+    expect(stripVatNav([tab], false)[0]?.links?.map((i) => i.href)).toEqual(['/accounting/sars/emp201']);
+  });
+
   it('keeps a topItems-only tab that still has a non-VAT link', () => {
     const tab: Tab = {
       id: 'x', label: 'X',

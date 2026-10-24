@@ -35,8 +35,7 @@ describe('Banking top-nav dropdown', () => {
 describe('Banking sidebar flyout', () => {
   it('renders the daily links as plain links, not "+ " quick actions', () => {
     render(<SidebarNav />);
-    const tab = screen.getByText('Banking');
-    fireEvent.mouseEnter(tab.closest('div') as HTMLElement);
+    fireEvent.mouseEnter(screen.getByTestId('sidebar-tab-banking'));
 
     for (const [name, href] of DAILY) {
       const link = screen.getByRole('link', { name });
