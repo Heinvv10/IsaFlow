@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MoneyField, type MoneyFieldProps } from '@/components/ui/MoneyField';
 
-const plain = (s: string | null | undefined): string => (s ?? '').replace(/ /g, ' ');
+const plain = (s: string | null | undefined): string => (s ?? '').replace(/\u00A0/g, ' ');
 
 function Harness(props: Partial<MoneyFieldProps> & { initial?: number | null; spy?: (v: number | null) => void }) {
   const { initial = null, spy, ...rest } = props;

@@ -20,9 +20,9 @@ export type AmountParseResult =
 
 const fail = (code: AmountParseCode, reason: string): AmountParseResult => ({ ok: false, code, reason });
 
-const UNICODE_SPACES = /[     ]/g;
+const UNICODE_SPACES = /[\u00A0\u202F\u2009\u2007\u2008]/g;
 const CURRENCY = /^(?:ZAR|R)\s*/i;
-const LEADING_MINUS = /^[-−]\s*/;
+const LEADING_MINUS = /^[-\u2212]\s*/;
 const DECIMALS_MSG = 'Amounts have at most two decimal places.';
 
 /** Sign, brackets and the R / ZAR marker stripped off; what is left is the number. */
