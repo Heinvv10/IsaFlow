@@ -33,6 +33,8 @@ interface SelectDropdownProps {
   loading?: boolean;
   /** The options could not be loaded: replaces the list with an alert (an empty list would read as "no results"). */
   loadError?: string | null;
+  /** A note under the list. */
+  hint?: string;
 }
 
 export function SelectDropdown({
@@ -56,6 +58,7 @@ export function SelectDropdown({
   emptyText = 'No options',
   loading = false,
   loadError = null,
+  hint,
 }: SelectDropdownProps) {
   const showList = !loadError && options.length > 0;
   const activeOption = options[activeIndex];
@@ -83,7 +86,7 @@ export function SelectDropdown({
               aria-label={searchLabel}
               aria-controls={listboxId}
               aria-activedescendant={activeDescendant}
-              className="flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100"
+              className="flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-500 dark:text-gray-100 dark:placeholder:text-gray-400"
             />
           </div>
         </div>
@@ -142,6 +145,10 @@ export function SelectDropdown({
           );
         })}
       </ul>
+
+      {hint && !loadError && !loading && (
+        <p role="status" className="border-t border-gray-200 px-3 py-2 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-400">{hint}</p>
+      )}
     </div>
   );
 }

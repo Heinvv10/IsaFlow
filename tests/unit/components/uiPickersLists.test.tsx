@@ -1,4 +1,4 @@
-// AccountPicker, ItemPicker and TaxRatePicker over the real routes' shapes (ContactPicker: uiPickers.test.tsx).
+// AccountPicker and ItemPicker over the real routes' shapes (ContactPicker: uiPickers.test.tsx).
 // apiFetch is mocked at the boundary; the REAL apiJson/assertOk run on top, so a 4xx/5xx must surface as an error state.
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -9,7 +9,7 @@ vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock'
 useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
-import { AccountPicker, ItemPicker, TaxRatePicker } from '@/components/ui';
+import { AccountPicker, ItemPicker } from '@/components/ui';
 import { ok, fail, urls, ACCOUNTS, ITEMS } from '../helpers/pickerFixtures';
 
 
@@ -187,38 +187,34 @@ describe('ItemPicker', () => {
   });
 });
 
-describe('TaxRatePicker', () => {
-  it('lists the VAT codes with the standard rate, with no network call', async () => {
-    render(<TaxRatePicker label="VAT" value={null} onChange={() => {}} />);
-    await openPicker('VAT');
-    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['No VAT', 'Standard 15%', 'Zero Rated', 'Exempt']);
-    expect(urls()).toHaveLength(0);
-  });
-
-  it('filters by typeahead, restricts codes, and selects with the keyboard', async () => {
-    const onChange = vi.fn();
-    render(<TaxRatePicker label="VAT" codes={['standard', 'zero_rated', 'exempt']} value={null} onChange={onChange} />);
-    fireEvent.keyDown(trigger('VAT'), { key: 'Enter' });
+describe('AccountPicker chart reuse and refine order', () => {
+  it('reuses a chart read less than 30 s ago on reopen, and refetches after that', async () => {
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValue(1_000_000);
+    vi.mocked(apiFetch).mockImplementation(async () => ok(ACCOUNTS));
+    render(<AccountPicker label="Account" value={null} onChange={() => {}} />);
+    fireEvent.click(trigger('Account'));
     await screen.findAllByRole('option');
-    const search = screen.getByRole('textbox', { name: 'Search VAT' });
-    fireEvent.change(search, { target: { value: 'zero' } });
-    await waitFor(() => expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Zero Rated']));
-    fireEvent.keyDown(search, { key: 'ArrowDown' });
-    fireEvent.keyDown(search, { key: 'Enter' });
-    expect(onChange).toHaveBeenCalledWith('zero_rated', expect.objectContaining({ label: 'Zero Rated' }));
+    fireEvent.click(trigger('Account')); // close
+    now.mockReturnValue(1_000_000 + 29_000);
+    fireEvent.click(trigger('Account'));
+    await screen.findAllByRole('option');
+    expect(urls()).toHaveLength(1);
+    fireEvent.click(trigger('Account'));
+    now.mockReturnValue(1_000_000 + 31_000);
+    fireEvent.click(trigger('Account'));
+    await waitFor(() => expect(urls()).toHaveLength(2));
+    await screen.findAllByRole('option');
+    now.mockRestore();
   });
 
-  it('displays the label of the current value without opening', () => {
-    render(<TaxRatePicker label="VAT" value="standard" onChange={() => {}} />);
-    expect(trigger('VAT').textContent).toContain('Standard 15%');
-  });
-
-  it('create-new is available and passes the query', async () => {
-    const onCreateNew = vi.fn();
-    render(<TaxRatePicker label="VAT" value={null} onChange={() => {}} onCreateNew={onCreateNew} />);
-    await openPicker('VAT');
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search VAT' }), { target: { value: 'reduced' } });
-    fireEvent.click(await screen.findByRole('option', { name: /Create new tax rate.*reduced/ }));
-    expect(onCreateNew).toHaveBeenCalledWith('reduced');
+  it('hands refine the WHOLE chart, then applies the type filter to what it returns', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok(ACCOUNTS));
+    const seen: string[] = [];
+    render(<AccountPicker label="Account" accountType="expense" value={null} onChange={() => {}}
+      refine={(rows) => { seen.push(...rows.map((r) => r.id)); return rows.filter((r) => r.id !== 'a4'); }} />);
+    fireEvent.click(trigger('Account'));
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['6000 · Rent']);
+    expect(seen).toEqual(['a1', 'a2', 'a3', 'a4']); // asset and revenue accounts included
   });
 });

@@ -1,10 +1,13 @@
 /**
- * useRemoteOptions - the load / debounce / cancel / error plumbing behind every picker.
+ * useRemoteOptions - the load / debounce / cancel / error plumbing behind every remote picker.
  *
  * Loads lazily: nothing is requested until the dropdown opens, and every open refetches (so a record created
  * since the last open appears, and a failed load is retried). Typing is debounced; a newer request cancels the
  * older one, and a response for a superseded request is dropped. A failure sets `error`, which the dropdown shows
- * INSTEAD of the list (an empty list would read as "no results").
+ * INSTEAD of the list (an empty list would read as "no results"); the next request clears it.
+ *
+ * `loading` is true from the start and again whenever the dropdown is closed: the render in which it opens must
+ * already say "Loading", not flash "No matches" until the open effect has started the request.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -17,21 +20,28 @@ export interface FetchContext {
   initial: boolean;
 }
 
-export type FetchOptions = (query: string, signal: AbortSignal, ctx: FetchContext) => Promise<SelectOption[]>;
+export interface FetchResult {
+  options: SelectOption[];
+  /** Shown under the list, e.g. when the server returned a truncated page. */
+  hint?: string;
+}
+
+export type FetchOptions = (query: string, signal: AbortSignal, ctx: FetchContext) => Promise<FetchResult>;
 
 export interface RemoteOptions {
   options: SelectOption[];
+  hint: string | undefined;
   loading: boolean;
   error: string | null;
   onSearch: (query: string) => void;
   onOpenChange: (open: boolean) => void;
 }
 
-export const DEFAULT_DEBOUNCE_MS = 250;
+const DEFAULT_DEBOUNCE_MS = 250;
 
 export function useRemoteOptions(fetchOptions: FetchOptions, failureMessage: string, debounceMs = DEFAULT_DEBOUNCE_MS): RemoteOptions {
-  const [options, setOptions] = useState<SelectOption[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<FetchResult>({ options: [] });
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchRef = useRef(fetchOptions);
@@ -55,11 +65,11 @@ export function useRemoteOptions(fetchOptions: FetchOptions, failureMessage: str
     const ctl = new AbortController();
     controller.current = ctl;
     setLoading(true);
+    setError(null);
     try {
       const next = await fetchRef.current(query, ctl.signal, { initial });
       if (seq.current !== mine) return;
-      setOptions(next);
-      setError(null);
+      setResult(next);
     } catch (err) {
       if (seq.current !== mine) return;
       log.warn('Picker options failed to load', { error: err instanceof Error ? err.message : String(err) }, 'ui-picker');
@@ -72,15 +82,16 @@ export function useRemoteOptions(fetchOptions: FetchOptions, failureMessage: str
   const onSearch = useCallback((query: string) => {
     cancel();
     setLoading(true);
+    setError(null);
     timer.current = setTimeout(() => { void run(query, false); }, debounceMs);
   }, [cancel, run, debounceMs]);
 
   const onOpenChange = useCallback((open: boolean) => {
     if (open) void run('', true);
-    else { cancel(); setLoading(false); }
+    else { cancel(); setLoading(true); }
   }, [run, cancel]);
 
   useEffect(() => cancel, [cancel]);
 
-  return { options, loading, error, onSearch, onOpenChange };
+  return { options: result.options, hint: result.hint, loading, error, onSearch, onOpenChange };
 }
