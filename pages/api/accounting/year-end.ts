@@ -80,6 +80,12 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
           );
         case 'year_not_found':
           return apiResponse.notFound(res, 'Fiscal year');
+        case 'start_month_assumed':
+          return apiResponse.badRequest(
+            res,
+            'This company has no financial year start month set, so this year was cut on an assumed ' +
+              'March start. Set the start month in Settings, then run the year-end close again.'
+          );
         case 'no_retained_earnings':
           return apiResponse.badRequest(
             res,

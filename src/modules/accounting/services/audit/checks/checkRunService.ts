@@ -18,7 +18,7 @@ import { CHECK_RUN_SEAL_DOMAIN, sign, signingKey, type SigningKey } from '../sea
 import { DOCUMENT_VERSION, checkRunHash, type CheckRunHeader } from '../documents';
 import { runAuditTx, transactionNow, type AuditPrincipal } from '../auditTx';
 import { withSnapshotSlot } from '../snapshotSlots';
-import { bulkPlan, fiscalYearStart } from '../snapshotRows';
+import { bulkPlan, registryYearStart } from '../snapshotRows';
 
 const ANOMALY_IDS = ['anomaly.benford', 'anomaly.statistical_outliers', 'anomaly.duplicate_payments', 'anomaly.unusual_posting_patterns'];
 const JOURNAL_RISK_IDS = ['journal_risk.backdated_entry', 'journal_risk.posted_after_period_close',
@@ -91,7 +91,7 @@ export async function recordCheckRun(client: PoolClient, p: AuditPrincipal, inpu
 export async function takeCheckRun(p: AuditPrincipal, asAt: string): Promise<RecordedRun> {
   const key = signingKey();
   return withSnapshotSlot(p.companyId, false, () => runAuditTx(p, 'REPEATABLE READ', async (client) => {
-    const from = await fiscalYearStart(p.companyId, asAt);
+    const from = await registryYearStart(p.companyId, asAt);
     const results = await runAllChecks({ companyId: p.companyId, from, to: asAt });
     return recordCheckRun(client, p, { asAt, periodStart: from, purpose: 'standalone', results, key });
   }), p.userId);
