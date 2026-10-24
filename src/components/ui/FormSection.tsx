@@ -4,12 +4,15 @@
  */
 import * as React from 'react';
 import { cn } from '@/utils/cn';
+import { FieldHelp, type FieldHelpContent } from './FieldHelp';
 
 export interface FormSectionProps {
   /** Step number shown in the badge ("1"). Omit for an unnumbered section. */
   number?: number;
   title: string;
   description?: string;
+  /** (i) tooltip next to the heading, with an optional "Learn more" link. */
+  help?: FieldHelpContent;
   /** Sticky column beside the fields, e.g. totals. Stacks below the fields on small screens. */
   summary?: React.ReactNode;
   /** Accessible name of the summary column. */
@@ -21,11 +24,12 @@ export interface FormSectionProps {
 }
 
 export function FormSection({
-  number, title, description, summary, summaryLabel = 'Summary', status, className, children,
+  number, title, description, help, summary, summaryLabel = 'Summary', status, className, children,
 }: FormSectionProps) {
   const headingId = React.useId();
+  const helpId = `${headingId}-help`;
   return (
-    <section aria-labelledby={headingId} className={cn('py-4', className)}>
+    <section aria-labelledby={headingId} aria-describedby={help ? helpId : undefined} className={cn('py-4', className)}>
       <header className="mb-4 flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           {number !== undefined && (
@@ -37,10 +41,13 @@ export function FormSection({
             </span>
           )}
           <div>
-            <h2 id={headingId} className="text-base font-semibold text-gray-900 dark:text-gray-100">
-              {number !== undefined && <span className="sr-only">Step {number}: </span>}
-              {title}
-            </h2>
+            <div className="flex items-center gap-1.5">
+              <h2 id={headingId} className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                {number !== undefined && <span className="sr-only">Step {number}: </span>}
+                {title}
+              </h2>
+              {help && <FieldHelp help={help} textId={helpId} subject={title} />}
+            </div>
             {description && <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-400">{description}</p>}
           </div>
         </div>
