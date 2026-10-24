@@ -98,6 +98,27 @@ function medicalGap(m: MedicalCertificateInput | undefined): string {
   return 'No medical credit took tax off this year. ';
 }
 
+const isoDay = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/**
+ * BRS V25.3.0 p. 26: the date of birth (3080) "Must correlate with the identity
+ * number". The record carries the ID number (3060) and IsaFlow's age for 4120
+ * comes from the payroll date of birth, so when the two put the employee on
+ * different sides of 65 on the year's last day, the certificate would pass one
+ * rule and break the other: refused, naming both dates (and no age the user
+ * never entered). A disagreement that does not cross 65 decides nothing here.
+ */
+export function assertBirthCorrelates(emp: EmployeeInput): void {
+  const fromId = birthFromIdNumber(emp.idNumber);
+  if (!emp.dateOfBirth || !fromId) return;
+  const yearEnd = new Date(emp.yearOfAssessment, 2, 0);
+  if ((getAge(emp.dateOfBirth, yearEnd) >= 65) === (getAge(fromId, yearEnd) >= 65)) return;
+  throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): the date of birth on the payroll record (${isoDay(emp.dateOfBirth)}) `
+    + `does not match the ID number (${isoDay(fromId)}), and SARS requires them to correlate (BRS V25.3.0 p. 26, code 3080). They disagree on `
+    + 'whether the employee is 65 or older at the end of the year, which decides 4120. Correct the date of birth or the ID number.');
+}
+
 /** The date of birth a record states: 3080 (CCYYMMDD), else the RSA ID number 3060; null when neither reads. */
 function recordBirth(field: Map<string, string>): Date | null {
   const dob = /^(\d{4})(\d{2})(\d{2})$/.exec(field.get('3080') ?? '');
