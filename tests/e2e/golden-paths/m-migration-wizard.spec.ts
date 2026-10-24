@@ -25,7 +25,8 @@
 import { test, expect } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { Api, gpRef } from './_api';
-import { expectNoSeriousA11yViolations, waitForScreenReady } from './helpers/axe';
+import { expectNoSeriousA11yViolations, openScreen } from './helpers/axe';
+import { A11Y_INLINE_SCREENS } from './helpers/a11yScreens';
 import {
   activeCompanyId, findLedgerRow, findOrCreateMigrationSandbox, switchApiCompany, switchBrowserCompany,
 } from './_migrationSandbox';
@@ -129,8 +130,7 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
 
     await switchBrowserCompany(page.context(), sandboxId);
     browserSwitched = true;
-    await page.goto('/accounting/migration/opening-balances');
-    await waitForScreenReady(page);
+    await openScreen(page, A11Y_INLINE_SCREENS.migrationOpeningBalances);
     await expectNoSeriousA11yViolations(page);
     const fileInput = page.locator('input[type="file"]');
     const upload = (body: string) =>
@@ -254,8 +254,7 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
     const search = await api.get<any>('/api/accounting/global-search?q=import%20from%20sage');
     expect(search.results.find((r: any) => r.type === 'page')?.url).toBe('/accounting/migration');
     expect((await api.getRaw('/accounting/migration')).status).toBe(200);
-    await page.goto('/accounting/migration');
-    await waitForScreenReady(page);
+    await openScreen(page, A11Y_INLINE_SCREENS.migrationLanding);
     await expectNoSeriousA11yViolations(page);
     const opener = page.locator('a#sage');
     await expect(opener).toContainText('Moving from Sage');
