@@ -206,6 +206,23 @@ describe('S-07d: the AR portal, on migration_admin', () => {
     expect((await callPublic(arPortalAuthRoute, { body: { email: arEmail, password: 's07d-ar-password' } })).status).toBe(200);
   });
 
+  it('a valid session is refused once its login\'s pin and its customer\'s company disagree, or the pin is unset', async () => {
+    const { signArPortalToken } = await import('@/lib/auth/arPortalJwt');
+    const { resolvePortalSession } = await import('@/modules/accounting/services/ar/portalSession');
+    const token = await signArPortalToken({ clientId: customers[0]!, companyId: company, email: arEmail });
+    const req = { headers: { cookie: `portal_session=${token}` } } as never;
+    expect(await resolvePortalSession(req)).not.toBeNull();
+    try {
+      for (const pin of [other, null]) {
+        await fixture.query('UPDATE portal_access SET company_id = $2 WHERE email = $1', [arEmail, pin]);
+        expect(await resolvePortalSession(req)).toBeNull();
+      }
+    } finally {
+      await fixture.query('UPDATE portal_access SET company_id = $2 WHERE email = $1', [arEmail, company]);
+    }
+    expect(await resolvePortalSession(req)).not.toBeNull();
+  });
+
   it('merging the customer away removes its portal login', async () => {
     const r = await callRoute(mergeRoute, { sub: me, method: 'POST', companyId: company,
       body: { source_id: customers[0], target_id: customers[1] } });

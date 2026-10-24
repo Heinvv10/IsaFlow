@@ -209,8 +209,7 @@ async function markScanError(conn: MirrorConnection, error: string): Promise<voi
 }
 
 async function ingestAttachment(
-  conn: MirrorConnection,
-  inboxId: string,
+  conn: MirrorConnection, inboxId: string,
   parsed: ParsedMail,
   att: Attachment,
 ): Promise<string> {
@@ -293,6 +292,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
       }
 
       let maxUidSeen = cursorUid;
+      let stoppedOn: string | null = null;
 
       for (const meta of msgs) {
         result.scanned += 1;
@@ -336,7 +336,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
 
         const eventIds: string[] = [];
         try {
-          // Once per message, before any attachment: a failure here leaves nothing half-ingested to retry.
+          // Once per message, before any attachment: a failure here leaves nothing half-ingested.
           const inboxId = await ensureMirrorInbox(conn.companyId, conn.accountEmail);
           for (const att of attachments) {
             const eventId = await ingestAttachment(conn, inboxId, parsed, att);
@@ -353,14 +353,16 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: attachments.length,
             outcome: 'error', error: msg });
-          // Not the message's fault, and none of it ingested yet: stop, cursor
-          // before it, so the next scan retries it (never twice-captured).
-          if (isTransientIngestError(ingestErr) && eventIds.length === 0) { maxUidSeen = uid - 1; break; }
+          // Database-side, nothing of it ingested: stop, cursor before it, so the next scan retries it.
+          if (isTransientIngestError(ingestErr) && eventIds.length === 0) { stoppedOn = msg; maxUidSeen = uid - 1; break; }
         }
       }
 
       if (maxUidSeen > cursorUid) {
         await updateCursor(conn, conn.folder, maxUidSeen);
+      } else if (stoppedOn) {
+        // No success stamp; status stays active so the next scan retries (unlike markScanError).
+        await sql`UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = ${stoppedOn} WHERE id = ${conn.id}::uuid`;
       } else {
         // Still bump last_scan_at so the poll interval kicks in correctly
         await sql`
