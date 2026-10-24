@@ -50,8 +50,8 @@ const REMEDY = /later month.*earlier figures.*Reopen that month, approve this ru
 /** A second employee of f's company, same salary component and amount as f's. */
 async function secondEmployee(f: SeveranceFixture): Promise<string> {
   const y = String((await pool.query(
-    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)
-     SELECT company_id, 'BRK-Y', 'Yusuf', 'Second', start_date, date_of_birth, '0123456788'
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, medical_aid_main_member)
+     SELECT company_id, 'BRK-Y', 'Yusuf', 'Second', start_date, date_of_birth, '0123456788', medical_aid_main_member
        FROM payroll_employees WHERE id = $1 RETURNING id`, [f.employee])).rows[0]!.id);
   await pool.query(
     `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
