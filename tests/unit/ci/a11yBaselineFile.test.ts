@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ALL_A11Y_SCREENS, A11Y_SCREENS } from '../../e2e/golden-paths/helpers/a11yScreens';
+import { ALL_A11Y_SCREENS, A11Y_SCREENS, A11Y_SHELL_KEYS } from '../../e2e/golden-paths/helpers/a11yScreens';
 import { pageKeyOf, type BaselineFile } from '../../e2e/golden-paths/helpers/a11yBaseline';
 
 const baseline = JSON.parse(readFileSync(path.join(__dirname, '../../e2e/golden-paths/a11y-baseline.json'), 'utf8')) as BaselineFile;
@@ -14,7 +14,8 @@ const DOCUMENT_RULES = new Set(['document-title', 'html-has-lang', 'html-lang-va
 describe('a11y-baseline.json', () => {
   it('has an entry per page that is a scanned screen: no page is baselined that nothing scans', () => {
     const scanned = new Set(ALL_A11Y_SCREENS.map((s) => pageKeyOf(`http://x${s.path}`)));
-    expect(Object.keys(baseline.pages).filter((p) => !scanned.has(p))).toEqual([]);
+    const shell = new Set<string>(Object.values(A11Y_SHELL_KEYS));
+    expect(Object.keys(baseline.pages).filter((p) => !scanned.has(p) && !shell.has(p))).toEqual([]);
   });
 
   it('every scanned screen path is distinct, with a heading', () => {
@@ -43,9 +44,10 @@ describe('a11y-baseline.json', () => {
     }
   });
 
-  it('marks perRow only on selectors inside a table row or list item', () => {
-    for (const e of entries.filter((x) => x.perRow)) {
-      expect(/tbody > |li > /.test(e.selector), `${e.page}: ${e.selector}`).toBe(true);
+  it('says why an entry is dataDriven, and the Setup-guide button is not in any page (it has its own test)', () => {
+    for (const e of entries.filter((x) => x.dataDriven !== undefined)) {
+      expect(typeof e.dataDriven === 'string' && e.dataDriven.length >= 20, `${e.page}: ${e.selector} needs a reason`).toBe(true);
     }
+    expect(entries.filter((e) => e.selector.includes('Setup guide') && !e.page.startsWith('shell:'))).toEqual([]);
   });
 });

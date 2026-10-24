@@ -86,15 +86,15 @@ describe('diffAgainstBaseline', () => {
   });
 });
 
-describe('perRow entries (violations inside table rows / list items)', () => {
-  const baseline: BaselineFile = { pages: { '/p': [{ rule: 'select-name', selector: 'table > tbody > tr > td > select', max: 46, perRow: true }] } };
+describe('dataDriven entries (presence and count follow the data, not the markup)', () => {
+  const baseline: BaselineFile = { pages: { '/p': [{ rule: 'select-name', selector: 'table > tbody > tr > td > select', max: 46, dataDriven: 'one per table row' }] } };
   const row = (count: number) => found('select-name', 'table > tbody > tr > td > select', count);
 
-  it('allow any number of rows, however many the data has', () => {
+  it('allow any number of matches, however many the data has', () => {
     expect(diffAgainstBaseline('/p', [row(3)], baseline).added).toEqual([]);
     expect(diffAgainstBaseline('/p', [row(500)], baseline).added).toEqual([]);
   });
-  it('are never stale or shrunk: an empty table has no rows', () => {
+  it('are never stale or shrunk: with no data there is nothing to match', () => {
     const d = diffAgainstBaseline('/p', [], baseline);
     expect(d.stale).toEqual([]);
     expect(diffAgainstBaseline('/p', [row(1)], baseline).shrunk).toEqual([]);

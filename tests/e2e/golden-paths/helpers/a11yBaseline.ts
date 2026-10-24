@@ -30,10 +30,12 @@ export interface BaselineEntry {
   /** The most nodes allowed to match this rule + selector on this page. */
   max: number;
   /**
-   * The selector sits inside a table row or list item, so how many nodes match is however many rows the data has:
-   * any number is allowed, and the entry is never stale (an empty table has no rows). Only for such selectors.
+   * Why how many nodes match (including none) is decided by the company's data or the page's async state, not by
+   * the markup: a table row, a status badge that renders only for some records, a filter that exists only when a
+   * dimension is configured. Any number is allowed and the entry is never stale. Say what drives it; every entry
+   * is a place a NEW violation of the same rule + selector would go unnoticed, so use it sparingly.
    */
-  perRow?: boolean;
+  dataDriven?: string;
 }
 
 export interface BaselineFile {
@@ -111,14 +113,14 @@ export function diffAgainstBaseline(key: string, found: Violation[], baseline: B
   const foundById = new Map(found.map((f) => [id(f), f]));
   const added = found.flatMap((f) => {
     const entry = knownById.get(id(f));
-    if (entry?.perRow) return [];
+    if (entry?.dataDriven) return [];
     const max = entry?.max ?? 0;
     return f.count > max ? [{ ...f, max }] : [];
   });
-  const stale = known.filter((k) => !k.perRow && !foundById.has(id(k)));
+  const stale = known.filter((k) => !k.dataDriven && !foundById.has(id(k)));
   const shrunk = known.flatMap((k) => {
     const f = foundById.get(id(k));
-    return f && !k.perRow && f.count < k.max ? [{ ...k, count: f.count }] : [];
+    return f && !k.dataDriven && f.count < k.max ? [{ ...k, count: f.count }] : [];
   });
   return { added, stale, shrunk };
 }

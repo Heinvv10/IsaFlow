@@ -35,3 +35,6 @@ export const A11Y_INLINE_SCREENS = {
 } satisfies Record<string, A11yScreen>;
 
 export const ALL_A11Y_SCREENS: ReadonlyArray<A11yScreen> = [...A11Y_SCREENS, ...Object.values(A11Y_INLINE_SCREENS)];
+
+/** Baseline keys that are not a page: a piece of the app shell scanned on its own. */
+export const A11Y_SHELL_KEYS = { setupGuideBadge: 'shell:setup-guide-badge' } as const;

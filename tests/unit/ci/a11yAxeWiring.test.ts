@@ -14,9 +14,17 @@ vi.mock('@axe-core/playwright', () => ({
     async analyze() { return { violations: h.violations }; }
   },
 }));
-vi.mock('@playwright/test', () => ({ expect: vi.fn(), test: { info: () => ({ annotations: h.annotations }) } }));
+// A minimal `expect` with the three matchers openScreen uses; a failing one throws like Playwright's does.
+vi.mock('@playwright/test', () => ({
+  expect: (value: unknown, message?: string) => ({
+    toBeNull: () => { if (value !== null) throw new Error(`${message ?? ''} expected null, got ${String(value)}`); },
+    toBeVisible: async () => { if (!(await (value as { isVisible(): Promise<boolean> }).isVisible())) throw new Error(`${message ?? ''} not visible`); },
+    toHaveCount: async (n: number) => { if ((await (value as { count(): Promise<number> }).count()) !== n) throw new Error(`${message ?? ''} count != ${n}`); },
+  }),
+  test: { info: () => ({ annotations: h.annotations }) },
+}));
 
-import { expectNoSeriousA11yViolations } from '../../e2e/golden-paths/helpers/axe';
+import { expectNoSeriousA11yViolations, openScreen, SETUP_GUIDE_BUTTON } from '../../e2e/golden-paths/helpers/axe';
 import type { Page } from '@playwright/test';
 
 /** A page whose `evaluate(describeTargets, targets)` answers `ctx(<first hop>)` for each target. */
@@ -32,10 +40,19 @@ beforeEach(() => { h.includes = []; h.excludes = []; h.violations = []; h.annota
 afterEach(() => { delete process.env.A11Y_GATE; });
 
 describe('expectNoSeriousA11yViolations wiring', () => {
-  it('passes include and exclude selectors to axe', async () => {
+  it('passes include and exclude selectors to axe, after the shell excludes', async () => {
     await expectNoSeriousA11yViolations(fakePage('http://x/p'), { include: ['#a', '#b'], exclude: ['#chart'], baseline: { pages: {} } });
     expect(h.includes).toEqual(['#a', '#b']);
-    expect(h.excludes).toEqual(['#chart']);
+    expect(h.excludes).toEqual([SETUP_GUIDE_BUTTON, '#chart']);
+  });
+
+  it('leaves the app shell\'s data-dependent Setup-guide button out of the scan unless asked for', async () => {
+    await expectNoSeriousA11yViolations(fakePage('http://x/p'), { baseline: { pages: {} } });
+    expect(h.excludes).toContain(SETUP_GUIDE_BUTTON);
+    h.excludes = [];
+    await expectNoSeriousA11yViolations(fakePage('http://x/p'), { baseline: { pages: {} }, includeShell: true, include: [SETUP_GUIDE_BUTTON] });
+    expect(h.excludes).toEqual([]);
+    expect(h.includes).toEqual([SETUP_GUIDE_BUTTON]);
   });
 
   it('keys the baseline by the page path with ids collapsed, unless a key is given', async () => {
@@ -77,5 +94,66 @@ describe('expectNoSeriousA11yViolations wiring', () => {
   it('refuses an unknown A11Y_GATE value', async () => {
     process.env.A11Y_GATE = 'off';
     await expect(expectNoSeriousA11yViolations(fakePage('http://x/p'), { baseline: { pages: {} } })).rejects.toThrow(/A11Y_GATE must be/);
+  });
+});
+
+/** A page that can be driven through openScreen: where the browser ends up, and whether the heading shows. */
+function screenPage(opts: { landsOn: string; headingVisible?: boolean; readyFails?: boolean }): Page {
+  return {
+    goto: async () => null,
+    waitForLoadState: async () => {},
+    url: () => opts.landsOn,
+    locator: (sel: string) => ({
+      first: () => ({ waitFor: async () => { if (opts.readyFails) throw new Error('Timeout 30000ms exceeded waiting for h1'); } }),
+      count: async () => (sel.includes('animate') ? 0 : 1),
+    }),
+    getByRole: () => ({ isVisible: async () => opts.headingVisible !== false }),
+  } as unknown as Page;
+}
+const SCREEN = { name: 'assets', path: '/accounting/assets', heading: 'Fixed Assets' };
+
+describe('openScreen: enforce throws, report annotates (a report-mode a11y spec can never fail a deploy)', () => {
+  const failures: Array<[string, Page, RegExp]> = [
+    ['a redirect', screenPage({ landsOn: 'http://x/login?reason=session-expired' }), /expected \/accounting\/assets but the browser is on \/login/],
+    ['a missing heading', screenPage({ landsOn: 'http://x/accounting/assets', headingVisible: false }), /not visible/],
+    ['a page that never settles', screenPage({ landsOn: 'http://x/accounting/assets', readyFails: true }), /Timeout 30000ms/],
+  ];
+
+  it('returns true on the right screen in both modes', async () => {
+    expect(await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), SCREEN)).toBe(true);
+    process.env.A11Y_GATE = 'report';
+    expect(await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), SCREEN)).toBe(true);
+    expect(h.annotations).toEqual([]);
+  });
+
+  it.each(failures)('enforce: %s throws', async (_name, page, message) => {
+    await expect(openScreen(page, SCREEN)).rejects.toThrow(message);
+    expect(h.annotations).toEqual([]);
+  });
+
+  it.each(failures)('report: %s is an annotation, and openScreen answers false', async (_name, page, message) => {
+    process.env.A11Y_GATE = 'report';
+    await expect(openScreen(page, SCREEN)).resolves.toBe(false);
+    expect(h.annotations).toHaveLength(1);
+    expect(h.annotations[0]!.type).toBe('a11y-gate-report');
+    expect(h.annotations[0]!.description).toMatch(message);
+    expect(h.annotations[0]!.description).toContain('assets');
+  });
+});
+
+describe('an axe run that itself errors', () => {
+  const brokenPage = { url: () => 'http://x/p', evaluate: async () => { throw new Error('Execution context was destroyed'); } } as unknown as Page;
+  const withViolation = () => { h.violations = [axeViolation('label', 'critical', 'input')]; };
+
+  it('enforce: throws', async () => {
+    withViolation();
+    await expect(expectNoSeriousA11yViolations(brokenPage, { baseline: { pages: {} } })).rejects.toThrow(/Execution context was destroyed/);
+  });
+
+  it('report: is an annotation, not a failure', async () => {
+    withViolation();
+    process.env.A11Y_GATE = 'report';
+    await expect(expectNoSeriousA11yViolations(brokenPage, { baseline: { pages: {} } })).resolves.toBeUndefined();
+    expect(h.annotations[0]!.description).toMatch(/\/p: axe could not run: Execution context was destroyed/);
   });
 });
