@@ -20,6 +20,10 @@ vi.mock('@/lib/neon', () => {
   return { sql: sqlMock, withTransaction: vi.fn() };
 });
 
+// The fiscal years are the registry's (March-based here); it must not take entries from the sql queue.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../../helpers/fiscalYearSqlFake')).registryMock());
+
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

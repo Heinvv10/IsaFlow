@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import bcrypt from 'bcryptjs';
@@ -59,22 +60,6 @@ export interface PortalStatement {
 
 // ── Portal Auth ──────────────────────────────────────────────────────────────
 
-export async function createPortalUser(input: {
-  clientId: string;
-  email: string;
-  password: string;
-  name: string;
-}): Promise<PortalUser> {
-  const hash = await bcrypt.hash(input.password, 12);
-  const rows = (await sql`
-    INSERT INTO portal_access (client_id, email, password_hash, name)
-    VALUES (${input.clientId}::UUID, ${input.email}, ${hash}, ${input.name})
-    RETURNING *
-  `) as DbRow[];
-  log.info('Portal user created', { email: input.email }, 'portal');
-  return mapPortalUser(rows[0]!);
-}
-
 export async function authenticatePortalUser(email: string, password: string): Promise<PortalUser | null> {
   // Join customers to bind the portal session to a specific company — pentest H2
   // fixed the missing company_id scope in downstream queries; the token now
@@ -82,37 +67,29 @@ export async function authenticatePortalUser(email: string, password: string): P
   // R-095 L4: a soft-deleted customer has no portal account left to reach —
   // the record is hidden everywhere else (customer-statement.ts,
   // customerLedgerService) — so login must not mint a session for one.
-  const rows = (await sql`
-    SELECT pa.*, c.company_id AS customer_company_id
-    FROM portal_access pa
-    JOIN customers c ON c.id = pa.client_id
-    WHERE pa.email = ${email} AND pa.is_active = true AND c.deleted_at IS NULL
-  `) as DbRow[];
+  //
+  // On the migration_admin pool (S-07d, migration 937): no app role may read
+  // password_hash, or write portal_access at all, so a password hash cannot be
+  // planted or lifted from an app pool. The company is the login's own
+  // (pa.company_id, 937), never only its customer's, which app roles can
+  // move. bcrypt runs between the two transactions, holding none of that
+  // pool's few connections.
+  const rows = await migrationAdminTx('portal login lookup', async (client) => (await client.query(
+    `SELECT pa.*, pa.company_id AS customer_company_id
+       FROM portal_access pa
+       JOIN customers c ON c.id = pa.client_id AND c.company_id = pa.company_id
+      WHERE pa.email = $1 AND pa.is_active = true AND c.deleted_at IS NULL`,
+    [email],
+  )).rows as DbRow[]);
   if (!rows[0]) return null;
 
   const valid = await bcrypt.compare(password, String(rows[0].password_hash));
   if (!valid) return null;
 
-  await sql`UPDATE portal_access SET last_login_at = NOW() WHERE id = ${String(rows[0].id)}::UUID`;
+  await migrationAdminTx('portal login stamp', (client) => client.query(
+    'UPDATE portal_access SET last_login_at = NOW() WHERE id = $1::UUID', [String(rows[0]!.id)],
+  ));
   return mapPortalUser(rows[0]);
-}
-
-export async function listPortalUsers(clientId?: string): Promise<PortalUser[]> {
-  const rows = clientId
-    ? (await sql`
-        SELECT pa.*, c.company_id AS customer_company_id
-        FROM portal_access pa
-        JOIN customers c ON c.id = pa.client_id
-        WHERE pa.client_id = ${clientId}::UUID
-        ORDER BY pa.name
-      `) as DbRow[]
-    : (await sql`
-        SELECT pa.*, c.company_id AS customer_company_id
-        FROM portal_access pa
-        JOIN customers c ON c.id = pa.client_id
-        ORDER BY pa.name
-      `) as DbRow[];
-  return rows.map(mapPortalUser);
 }
 
 // ── Portal Data ──────────────────────────────────────────────────────────────
