@@ -122,6 +122,7 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/financial-year-end-change') ||
     pathname.startsWith('/accounting/year-end') ||
     pathname.startsWith('/accounting/default-accounts') ||
+    pathname.startsWith('/accounting/merchant-categories') ||
     pathname.startsWith('/accounting/currencies') ||
     pathname.startsWith('/accounting/exchange-rates') ||
     pathname.startsWith('/accounting/settings/currencies') ||

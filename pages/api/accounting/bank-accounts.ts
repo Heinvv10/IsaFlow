@@ -21,6 +21,7 @@ import { holderAsParentRefusal, roleBarringChildren } from '@/modules/accounting
 import { isSubjectToLeafRule } from '@/modules/accounting/services/gl/isReportVisibleLeaf';
 import { lockGlAccountsForUpdate } from '@/modules/accounting/services/gl/glAccountLock';
 import { clearSystemAccountCacheAfterCommit } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { lockPaymentsFromAccount, recordPayingAccountEdit } from '@/modules/accounting/services/ap/payingAccountAuthors';
 
 // Fields are nullable as well as optional. The UI clears a field by sending
 // `null` (e.g. `description: editForm.description.trim() || null`), and the
@@ -102,7 +103,7 @@ async function assignParent(companyId: string, id: string, parentId: string | nu
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'PUT') {
     try {
@@ -128,6 +129,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // be the bank holder a Default Accounts save is waiting for); the role
       // snapshot only when a holder can change: an active-state change or a grouping.
       await lockSystemRoleWrites(companyId);
+      // Migration 923: the number and branch code are the EFT originator, approval content of every batch and payment
+      // paying from this account. What is in flight is locked here, before any gl_accounts row (batch -> payment -> account).
+      const next = { number: s(b.bankAccountNumber), branch: s(b.bankBranchCode) };
+      const inFlight = next.number !== null || next.branch !== null
+        ? await boundedRowWait(() => lockPaymentsFromAccount(companyId, id, next)) : null;
       const roles = typeof b.isActive === 'boolean' || changesParent ? await snapshotRoles(companyId) : null;
       if (typeof b.isActive === 'boolean') {
         const [acct] = await sql`SELECT is_system_account FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}`;
@@ -160,6 +166,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           updated_at = NOW()
         WHERE id = ${id} AND account_subtype = ANY(${BANK_SUBTYPES as string[]}) AND company_id = ${companyId}
       `);
+      if (inFlight) await recordPayingAccountEdit(companyId, id, user.id, inFlight);
       if (roles) await assertRolesKept(companyId, roles);
       clearSystemAccountCacheAfterCommit(companyId);   // the resolver caches the holder's name and active state
       return apiResponse.success(res, { updated: true });

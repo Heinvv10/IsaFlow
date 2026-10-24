@@ -5,6 +5,9 @@
  * netcash/submit) holds the batch and then share-locks its payee suppliers. A writer that took a supplier and then
  * a batch (updateSupplier's bank-detail stamp, the take-on overwrite, both supplier merges) closed a 40P01 cycle
  * with it. Those writers go through `lockBatchesBeforeSuppliers` (bank/.claude.md, ap/.claude.md).
+ * Since migration 923 the gate then share-locks the batch's paying gl_accounts row too (batch -> supplier ->
+ * gl_accounts, batchApprovedDigest.lockBatchPayees). No writer of gl_accounts reaches a batch or supplier row
+ * (2026-10-23 census of `UPDATE gl_accounts`): one that does must lock in that order.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
