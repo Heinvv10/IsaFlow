@@ -8,6 +8,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { X, Loader2, Calculator, Plus } from 'lucide-react';
 import { calculateLumpSumTax, type LumpSumCalculation } from '@/lib/taxCalculations';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { DirectiveEmployeeSelect, useDirectiveEmployees } from './TaxDirectiveEmployeeSelect';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,7 +30,9 @@ interface CreateModalProps {
 export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const { employees, loading: employeesLoading, error: employeesError, reload: reloadEmployees } = useDirectiveEmployees();
   const [form, setForm] = useState({
+    employee_id: '',
     employee_name: '',
     employee_tax_number: '',
     directive_number: '',
@@ -47,8 +50,25 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(f => ({ ...f, [k]: e.target.value }));
 
+  // The directive is paid to this employee (a run, or /apply): its name and tax number are the employee's,
+  // shown read-only (the server stores the record's whatever is sent).
+  const pickEmployee = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const picked = employees.find(emp => emp.id === e.target.value);
+    setForm(f => ({
+      ...f,
+      employee_id: e.target.value,
+      employee_name: picked ? `${picked.firstName} ${picked.lastName}` : f.employee_name,
+      employee_tax_number: picked ? picked.taxNumber ?? '' : f.employee_tax_number,
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // The select is required, but a submit can get past the browser's check: never POST without the employee.
+    if (!form.employee_id) {
+      setError('Choose the employee the directive is paid to');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -88,13 +108,15 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
             <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{error}</p>
           )}
           <div className="grid grid-cols-2 gap-4">
+            <DirectiveEmployeeSelect value={form.employee_id} onChange={pickEmployee} employees={employees}
+              loading={employeesLoading} error={employeesError} inputCls={inputCls} labelCls={labelCls} onRetry={reloadEmployees} />
             <div className="col-span-2">
-              <label className={labelCls}>Employee Name *</label>
-              <input className={inputCls} value={form.employee_name} onChange={set('employee_name')} required placeholder="Full name" />
+              <label htmlFor="td-employee-name" className={labelCls}>Employee Name *</label>
+              <input id="td-employee-name" className={inputCls} value={form.employee_name} readOnly required placeholder="From the employee picked" />
             </div>
             <div>
-              <label className={labelCls}>Tax Number</label>
-              <input className={inputCls} value={form.employee_tax_number} onChange={set('employee_tax_number')} placeholder="SARS tax number" />
+              <label htmlFor="td-tax-number" className={labelCls}>Tax Number</label>
+              <input id="td-tax-number" className={inputCls} value={form.employee_tax_number} readOnly placeholder="From the employee picked" />
             </div>
             <div>
               <label className={labelCls}>Directive Type *</label>
@@ -105,16 +127,16 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
               </select>
             </div>
             <div>
-              <label className={labelCls}>Gross Amount (ZAR) *</label>
-              <input className={inputCls} type="number" min="0" step="0.01" value={form.amount} onChange={set('amount')} required placeholder="0.00" />
+              <label htmlFor="td-amount" className={labelCls}>Gross Amount (ZAR) *</label>
+              <input id="td-amount" className={inputCls} type="number" min="0" step="0.01" value={form.amount} onChange={set('amount')} required placeholder="0.00" />
             </div>
             <div>
               <label className={labelCls}>Directive Rate (%) — leave blank for SARS table</label>
               <input className={inputCls} type="number" min="0" max="100" step="0.01" value={form.tax_rate} onChange={set('tax_rate')} placeholder="e.g. 18.00" />
             </div>
             <div>
-              <label className={labelCls}>Effective Date *</label>
-              <input className={inputCls} type="date" value={form.effective_date} onChange={set('effective_date')} required />
+              <label htmlFor="td-effective" className={labelCls}>Effective Date *</label>
+              <input id="td-effective" className={inputCls} type="date" value={form.effective_date} onChange={set('effective_date')} required />
             </div>
             <div>
               <label className={labelCls}>Issued Date (by SARS)</label>
@@ -141,7 +163,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:text-white border border-gray-600 rounded-lg">
               Cancel
             </button>
-            <button type="submit" disabled={saving} className="px-4 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-2">
+            <button type="submit" disabled={saving || employees.length === 0} className="px-4 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-500 text-white rounded-lg disabled:opacity-50 flex items-center gap-2">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               <Plus className="h-4 w-4" />
               Create Directive

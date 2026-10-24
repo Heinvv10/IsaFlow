@@ -129,9 +129,10 @@ async function detectPisThresholdAlerts(companyId: string): Promise<void> {
 
 // ── Detector: Filing deadline approaching ────────────────────────────────────
 
-const DEADLINE_UNKNOWN_MESSAGE = 'AFS filing deadline cannot be assessed: the financial year start is not set';
+const DEADLINE_UNKNOWN_MESSAGE = 'AFS filing deadline cannot be assessed: no financial year of this company carries this label';
 const DEADLINE_UNKNOWN_DETAIL =
-  'Set the financial year start in Company Settings. Until then no filing deadline reminder can be raised.';
+  'The statements name a financial year the company does not have (a change of year end can skip a label). '
+  + 'Check the year on the statements against Accounting > Financial Years. Until then no filing deadline reminder can be raised.';
 
 const DEADLINE_UNKNOWN: AfsAlertType = 'afs_filing_deadline_unknown';
 
@@ -173,9 +174,8 @@ async function withdrawDeadlineUnknown(companyId: string): Promise<void> {
 
 async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
   const rows = (await sql`
-    SELECT d.id, d.fiscal_year, c.financial_year_start
+    SELECT d.id, d.fiscal_year
     FROM afs_documents d
-    JOIN companies c ON c.id = d.company_id
     WHERE d.company_id = ${companyId}::UUID
       AND d.status NOT IN ('signed_off', 'filed')
       AND d.document_type = 'afs'
@@ -187,7 +187,7 @@ async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
   // count moved with the hour the detector happened to run at.
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Johannesburg' }).format(new Date());
 
-  // The year start is the company's, so one alert covers every open statement.
+  // One alert covers every open statement whose year cannot be found.
   let unknownRaised = false;
 
   for (const row of rows) {
@@ -196,18 +196,18 @@ async function detectFilingDeadlineAlerts(companyId: string): Promise<void> {
     // (`afsFilingDeadline.ts`). This detector had its own: `setMonth(+6)` on
     // a month-end, which overflows (31 March gave 1 October), and `|| 3`,
     // which dated a company with no financial year start as a February year
-    // end. A company whose year start is unusable gets no alert about a
-    // date nobody can stand behind — it gets one saying the deadline cannot
-    // be assessed, because an empty alert list reads as "nothing is due".
+    // end. A statement whose financial year cannot be found gets no alert
+    // about a date nobody can stand behind — it gets one saying the deadline
+    // cannot be assessed, because an empty alert list reads as "nothing is due".
     let deadline: string;
     try {
-      deadline = afsFilingDeadline(fiscalYear, row.financial_year_start, companyId);
+      deadline = await afsFilingDeadline(companyId, fiscalYear);
     } catch (err) {
       if (!(err instanceof FilingDeadlineUnknownError)) throw err;
       if (!unknownRaised) {
         unknownRaised = true;
         log.warn(
-          'complianceAlertService: AFS filing deadline cannot be assessed — the company has no usable financial_year_start',
+          'complianceAlertService: AFS filing deadline cannot be assessed — the company has no financial year with this label',
           { companyId, fiscalYear },
         );
         await fireDeadlineUnknown(companyId);

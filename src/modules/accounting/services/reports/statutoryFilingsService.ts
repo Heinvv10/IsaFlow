@@ -42,9 +42,8 @@ export async function getOverdueStatutoryFilings(
   // historical pack must go on saying so. A signed-off row with no stamp
   // cannot be dated and stays out, as it did before.
   const rows = (await sql`
-    SELECT d.fiscal_year, c.financial_year_start
+    SELECT d.fiscal_year
     FROM afs_documents d
-    JOIN companies c ON c.id = d.company_id
     WHERE d.company_id = ${companyId}::UUID
       AND d.document_type = 'afs'
       AND d.fiscal_year IS NOT NULL
@@ -57,7 +56,7 @@ export async function getOverdueStatutoryFilings(
   const overdue: OverdueFiling[] = [];
   for (const row of rows) {
     const fiscalYear = Number(row.fiscal_year);
-    const deadline = afsFilingDeadline(fiscalYear, row.financial_year_start, companyId);
+    const deadline = await afsFilingDeadline(companyId, fiscalYear);
     const daysOverdue = wholeDaysBetween(deadline, asAt);
 
     if (daysOverdue > 0) {

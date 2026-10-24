@@ -29,6 +29,7 @@ import emp201Route from '../../pages/api/accounting/sars/sars-emp201';
 import { generateEMP201 } from '@/modules/accounting/services/reports/emp201Service';
 import { getIrp5EmployeeTotals } from '@/modules/accounting/services/payroll/irp5DataService';
 import { validateCertificateTaxFields } from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+import { createTaxDirective } from '@/modules/accounting/services/payroll/taxDirectiveService';
 import {
   applyStandalone, approveRun, calculateRun, cleanSeveranceFixtures, createRunFor, seedRetrenchedEmployee,
   SALARY_PAYE, type SeveranceFixture,
@@ -203,10 +204,11 @@ describe('G1: directive PAYE paid outside payroll reaches EMP201, the IRP5 data 
 
 describe('G1: a directive linked to no employee is refused at apply', () => {
   it('400, naming why, and nothing is written', async () => {
-    const made = await f.call(directives as Route, 'POST', '/api/accounting/tax-directives', undefined, {
-      body: { employee_name: 'Nobody Linked', directive_number: '1112223334', directive_type: 'death', amount: 5_000, tax_rate: 0.1, effective_date: '2026-06-01' },
-    });
-    const id = String(made.body.data!.id);
+    // The create route now refuses a directive with no employee (round 2, R4); one made by the old form
+    // (no employee field) is still in the table, so it is written here the way that form wrote it.
+    const body = { employee_name: 'Nobody Linked', directive_number: '1112223334', directive_type: 'death' as const, amount: 5_000, tax_rate: 0.1, effective_date: '2026-06-01' };
+    expect((await f.call(directives as Route, 'POST', '/api/accounting/tax-directives', undefined, { body })).statusCode).toBe(400);
+    const id = (await createTaxDirective(f.company, body, f.admin)).id;
     expect((await f.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, { body: { status: 'approved' } })).statusCode).toBe(200);
     const r = await applyStandalone(f, id, '2026-06-05');
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
