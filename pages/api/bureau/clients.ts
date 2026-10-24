@@ -20,6 +20,7 @@ import { apiResponse } from '@/lib/apiResponse';
 // refuses the seeded demo company id, and companyId here names a company.
 import { UUID } from '@/lib/schemas/common';
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import {
   listBureauCompanies,
   linkCompanyToBureau,
@@ -75,6 +76,8 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     if (!authorized) {
       return apiResponse.forbidden(res, 'Company management authority is required to link clients');
     }
+    // bureau_companies has no change capture; a link changes pool eligibility, so record who made it.
+    log.info('Bureau client linked', { bureauId: parsed.data.bureauId, companyId: parsed.data.companyId, userId }, 'bureau');
     return apiResponse.success(res, { linked: true });
   }
 
@@ -91,6 +94,7 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     if (!authorized) {
       return apiResponse.forbidden(res, "Only the bureau owner or the company's owner or admin can unlink a client");
     }
+    log.info('Bureau client unlinked', { bureauId: parsed.data.bureauId, companyId: parsed.data.companyId, userId }, 'bureau');
     return apiResponse.success(res, { unlinked: true });
   }
 

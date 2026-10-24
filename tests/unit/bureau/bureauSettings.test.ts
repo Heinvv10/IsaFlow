@@ -54,6 +54,7 @@ function bureauOf(ownerUserId: string | null, members: Record<string, Role>, cur
       const role = user === ownerUserId ? 'owner' : members[user] === 'owner' ? 'accountant' : members[user];
       return role ? [{ role }] : [];
     }
+    if (/SELECT share_merchant_patterns FROM bureaus/.test(text)) return [{ share_merchant_patterns: current }];
     return [];
   });
 }
