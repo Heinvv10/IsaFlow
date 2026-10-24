@@ -137,10 +137,10 @@ export async function priorFiscalYear(companyId: string, year: FiscalYearRecord)
 /** Every stored year, oldest first. */
 export async function listFiscalYears(companyId: string): Promise<FiscalYearRecord[]> {
   const rows = (await sql`
-    -- assumed as fiscal_year_for_date reads it: the stored flag counts only while
-    -- the company still declares no usable start month.
+    -- assumed as fiscal_year_for_date reads it: the stored flag counts until the
+    -- company declares the month the year really starts in.
     SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true AS stored,
-           fy.assumed_start AND (c.financial_year_start BETWEEN 1 AND 12) IS NOT TRUE AS assumed
+           fy.assumed_start AND c.financial_year_start IS DISTINCT FROM EXTRACT(MONTH FROM fy.start_date)::int AS assumed
       FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
      WHERE fy.company_id = ${companyId}::UUID
      ORDER BY fy.start_date

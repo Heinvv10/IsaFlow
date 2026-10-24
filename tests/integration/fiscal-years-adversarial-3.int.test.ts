@@ -92,6 +92,19 @@ describe('R3-A — assumed_start does not propagate: a year chained from an assu
   });
 });
 
+describe('assumed start carried backwards', () => {
+  it('a year generated BEFORE an assumed year (walking back from it) is assumed too, while no month is declared', async () => {
+    await inRolledBackTx(async (c) => {
+      const co = await company(c, null);
+      await c.query(`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
+                     VALUES ($1, 'Mar 2026', 1, 2027, '2026-03-01', '2026-03-31')`, [co]);
+      const earlier = (await c.query('SELECT public.fiscal_year_ensure($1, $2::date) AS id', [co, '2025-05-01'])).rows[0].id;
+      const row = (await c.query('SELECT start_date::text s, end_date::text e, assumed_start a FROM fiscal_years WHERE id = $1', [earlier])).rows[0];
+      expect(row).toEqual({ s: '2025-03-01', e: '2026-02-28', a: true });
+    });
+  });
+});
+
 describe('R3-B — assumed_start is never cleared: declaring the month the years already use leaves the AFS blocked', () => {
   it('after the company declares March (what its assumed years use), the AFS renders', async () => {
     await inRolledBackTx(async (c) => {
@@ -102,6 +115,23 @@ describe('R3-B — assumed_start is never cleared: declaring the month the years
       await c.query(`UPDATE companies SET financial_year_start = COALESCE(3, financial_year_start) WHERE id = $1`, [co]);
       const r = await inAls(c, co, () => getFiscalRange(co, 2026)).catch((e: Error) => e.name);
       expect(r).toEqual({ start: '2025-03-01', end: '2026-02-28' });
+    });
+  });
+  it('declaring ANOTHER month (July) does not confirm a March-cut year: the AFS and the year-end close still refuse it', async () => {
+    const { closeFiscalYear } = await import('@/modules/accounting/services/gl/yearEndCloseService');
+    await inRolledBackTx(async (c) => {
+      const co = await company(c, null);
+      await c.query(`INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active,is_system_account)
+                     VALUES(gen_random_uuid(),$1,'3200','Retained Earnings','equity','retained_earnings','credit',true,true)`, [co]);
+      await c.query(`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
+                     VALUES ($1, 'Mar 2025', 1, 2026, '2025-03-01', '2025-03-31')`, [co]);
+      const y = (await c.query('SELECT fiscal_year_id FROM fiscal_periods WHERE company_id = $1', [co])).rows[0].fiscal_year_id;
+      await c.query('SELECT public.fiscal_periods_generate($1)', [y]);
+      await c.query(`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = $1`, [co]);
+      await c.query('UPDATE companies SET financial_year_start = 7 WHERE id = $1', [co]);
+      const afs = await inAls(c, co, () => getFiscalRange(co, 2026)).catch((e: Error) => e.name);
+      expect(afs).toBe('StartMonthAssumedError');
+      expect(await inAls(c, co, () => closeFiscalYear(co, '2026', crypto.randomUUID(), { dryRun: true }))).toEqual({ error: 'start_month_assumed' });
     });
   });
 });
