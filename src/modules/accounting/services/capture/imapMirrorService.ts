@@ -15,6 +15,7 @@ import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import { isTransientIngestError } from './transientIngestError';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
@@ -218,6 +219,18 @@ async function ingestAttachment(
   const mime = (att.contentType ?? 'application/octet-stream').toLowerCase();
   const filename = att.filename ?? `mirror-${sha.slice(0, 8)}`;
 
+  // Find or synthesise the mirror inbox row, so capture_events can join: on
+  // migration_admin, as no app role may write capture_inboxes (S-07d, 935), and
+  // first, so a refusal there leaves no document behind.
+  const [inboxRow] = await migrationAdminTx('imap mirror inbox', async (client) => (await client.query(
+    `INSERT INTO capture_inboxes (company_id, channel, address, is_active)
+     VALUES ($1::uuid, 'imap_mirror', $2, true)
+     ON CONFLICT (company_id, channel, address)
+     DO UPDATE SET is_active = true
+     RETURNING id`,
+    [conn.companyId, conn.accountEmail],
+  )).rows as Row[]);
+
   // Create captured_documents row first — storeCapturedBytes needs the id
   // so it can scope the storage key.
   const [doc] = (await sql`
@@ -240,18 +253,6 @@ async function ingestAttachment(
     SET storage_bucket = ${stored.bucket}, storage_path = ${stored.path}
     WHERE id = ${documentId}::uuid
   `;
-
-  // Find or synthesise the mirror inbox row, so capture_events can join. On
-  // the migration_admin pool: no app role may write capture_inboxes (S-07d,
-  // migration 935); keyed on the connection the sync loaded.
-  const [inboxRow] = await migrationAdminTx('imap mirror inbox', async (client) => (await client.query(
-    `INSERT INTO capture_inboxes (company_id, channel, address, is_active)
-     VALUES ($1::uuid, 'imap_mirror', $2, true)
-     ON CONFLICT (company_id, channel, address)
-     DO UPDATE SET is_active = true
-     RETURNING id`,
-    [conn.companyId, conn.accountEmail],
-  )).rows as Row[]);
 
   const [event] = (await sql`
     INSERT INTO capture_events (
@@ -362,6 +363,8 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: attachments.length,
             outcome: 'error', error: msg });
+          // Not the message's fault: stop, cursor before it, so the next scan retries it.
+          if (isTransientIngestError(ingestErr)) { maxUidSeen = uid - 1; break; }
         }
       }
 

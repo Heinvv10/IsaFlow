@@ -70,12 +70,14 @@ export async function authenticatePortalUser(email: string, password: string): P
   //
   // On the migration_admin pool (S-07d, migration 935): no app role may read
   // password_hash, or write portal_access at all, so a password hash cannot be
-  // planted or lifted from an app pool. bcrypt runs between the two
-  // transactions, holding none of that pool's few connections.
+  // planted or lifted from an app pool. The company is the login's own
+  // (pa.company_id, 935), never only its customer's, which app roles can
+  // move. bcrypt runs between the two transactions, holding none of that
+  // pool's few connections.
   const rows = await migrationAdminTx('portal login lookup', async (client) => (await client.query(
-    `SELECT pa.*, c.company_id AS customer_company_id
+    `SELECT pa.*, pa.company_id AS customer_company_id
        FROM portal_access pa
-       JOIN customers c ON c.id = pa.client_id
+       JOIN customers c ON c.id = pa.client_id AND c.company_id = pa.company_id
       WHERE pa.email = $1 AND pa.is_active = true AND c.deleted_at IS NULL`,
     [email],
   )).rows as DbRow[]);

@@ -117,7 +117,9 @@ describe('RLS on the WS3 tables', () => {
     }
   });
 
-  it('tenant A cannot INSERT a share link for tenant B', async () => {
+  // Since S-07d (935) no app role may INSERT a share link at all (they are
+  // minted on the migration_admin pool): refused by privilege, ahead of RLS.
+  it('tenant A cannot INSERT a share link for tenant B (42501 since 935)', async () => {
     const client = await admin.connect();
     let inTx = false;
     try {
@@ -128,7 +130,7 @@ describe('RLS on the WS3 tables', () => {
       await client.query(`SELECT set_config('app.current_company_id',$1,true)`, [CA]);
       await expect(client.query(
         `INSERT INTO share_links (company_id, report_kind, params, token_hash, created_by)
-         VALUES ($1,'pack','{}'::jsonb,'deadbeef',$2)`, [CB, UA])).rejects.toThrow();
+         VALUES ($1,'pack','{}'::jsonb,'deadbeef',$2)`, [CB, UA])).rejects.toMatchObject({ code: '42501' });
     } finally {
       if (inTx) await client.query('ROLLBACK').catch(() => {});
       client.release();

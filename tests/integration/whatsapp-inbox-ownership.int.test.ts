@@ -19,8 +19,10 @@ const tokens=new Map<string,string>();
 const authToken='disposable-whatsapp-signature-fixture';
 const origin='http://localhost:3200';
 const url='/api/accounting/capture/inbound/whatsapp';
+// 618 grants app_user every privilege on the claims (and is re-run here): put back what 935 took (S-07d).
+const restore935=()=>pool.query(readFileSync('scripts/migrations/sql/935_credential_tables_off_app_pools.sql','utf8'));
 beforeAll(async()=>{
-  await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));
+  await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore935();
   vi.stubEnv('TWILIO_AUTH_TOKEN',authToken);
   vi.stubEnv('APP_URL',origin);
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)',[first,'WA first fixture',second,'WA second fixture']);
@@ -167,7 +169,7 @@ it('a callback waiting on a company lock rechecks a replaced challenge after acq
 });
 it('migration repeats without inventing proof for legacy rows',async()=>{
   await pool.query("INSERT INTO capture_inboxes(company_id,channel,address,is_active) VALUES($1,'whatsapp','+27820002008',false)",[second]);
-  await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));
+  await pool.query(readFileSync('scripts/migrations/sql/618_capture_whatsapp_provider_proof.sql','utf8'));await restore935();
   expect((await pool.query("SELECT webhook_token_hash,provider_verified_at FROM capture_inboxes WHERE company_id=$1 AND address='+27820002008'",[second])).rows).toEqual([{webhook_token_hash:null,provider_verified_at:null}]);
 });
 it('removed creator membership prevents activation',async()=>{
@@ -183,7 +185,8 @@ it('claim RLS restricts an authenticated member to the selected company',async()
     await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
     await client.query("SELECT set_config('request.jwt.claims',$1,true),set_config('app.current_company_id',$2,true)",[JSON.stringify({sub:userA}),first]);
     expect((await client.query('SELECT company_id FROM capture_whatsapp_claims')).rows).toEqual([{company_id:first}]);
-    expect((await client.query('UPDATE capture_whatsapp_claims SET expires_at=NOW() WHERE company_id=$1 RETURNING company_id',[second])).rows).toEqual([]);
+    // No app role writes a claim since 935 (S-07d): refused by privilege before RLS.
+    await expect(client.query('UPDATE capture_whatsapp_claims SET expires_at=NOW() WHERE company_id=$1 RETURNING company_id',[second])).rejects.toMatchObject({code:'42501'});
   }finally{await client.query('ROLLBACK');client.release();await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[second,userA]);}
 });
 it('historical inventory is read-only and limited to the supplied company',async()=>{

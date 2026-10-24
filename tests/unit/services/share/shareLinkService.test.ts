@@ -15,7 +15,8 @@ const adminMock = vi.fn();
 // S-07d (migration 935): create and revoke run on the migration_admin pool.
 // migrationAdminTx hands the callback a client whose query(text, params) feeds
 // adminMock, so the assertions see the statements in the order the service
-// issued them: SET LOCAL lock_timeout, the advisory lock, then the insert.
+// issued them: the advisory lock, then the insert. Found by content, not by
+// position (migrationAdminTx's own statements are not the service's).
 vi.mock('@/lib/neon', () => ({
   sql: (...a: unknown[]) => sqlMock(...a),
 }));
@@ -66,9 +67,10 @@ const text = (call = 0): string => (sqlMock.mock.calls[call]![0] as string[]).jo
 /** The Nth `client.query` on the migration_admin client: text and bound params. */
 const aText = (call: number): string => adminMock.mock.calls[call]![0] as string;
 const aValues = (call: number): unknown[] => (adminMock.mock.calls[call]![1] ?? []) as unknown[];
-// create: 0 = SET LOCAL lock_timeout, 1 = advisory lock, 2 = guarded insert.
-const LOCK = 1;
-const INSERT = 2;
+// create: the advisory lock, then the guarded insert.
+const indexOf = (re: RegExp): number => adminMock.mock.calls.findIndex((c) => re.test(c[0] as string));
+const LOCK_RE = /pg_advisory_xact_lock/;
+const INSERT_RE = /^\s*INSERT INTO share_links/;
 
 beforeEach(() => { sqlMock.mockReset(); adminMock.mockReset(); });
 
@@ -104,7 +106,7 @@ describe('createShareLink', () => {
     });
 
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    const params = aValues(INSERT);
+    const params = aValues(indexOf(INSERT_RE));
     expect(params).toContain(hashShareToken(token));
     expect(params).not.toContain(token);
     expect(JSON.stringify(params)).not.toContain(token);
@@ -116,16 +118,16 @@ describe('createShareLink', () => {
       companyId: COMPANY, userId: 'user-1', params: PARAMS, ttlDays: 4000,
     });
 
-    expect(aValues(INSERT)[0]).toBe(COMPANY);
-    expect(aValues(INSERT)).toContain(90);
-    expect(aText(INSERT)).toContain('INSERT INTO share_links');
-    expect(aText(INSERT)).toContain('company_id');
+    expect(aValues(indexOf(INSERT_RE))[0]).toBe(COMPANY);
+    expect(aValues(indexOf(INSERT_RE))).toContain(90);
+    expect(aText(indexOf(INSERT_RE))).toContain('INSERT INTO share_links');
+    expect(aText(indexOf(INSERT_RE))).toContain('company_id');
   });
 
   it('serialises params as JSON so a caller cannot smuggle extra keys into a column', async () => {
     adminMock.mockResolvedValue([dbRow()]);
     await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
-    expect(aValues(INSERT)).toContain(JSON.stringify(PARAMS));
+    expect(aValues(indexOf(INSERT_RE))).toContain(JSON.stringify(PARAMS));
   });
 
   it('never returns the token hash to the caller', async () => {
@@ -147,20 +149,20 @@ describe('createShareLink', () => {
     adminMock.mockResolvedValue([dbRow()]);
     await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
 
-    expect(adminMock).toHaveBeenCalledTimes(3);
-    expect(aText(0)).toContain('lock_timeout');
-    expect(aText(LOCK)).toContain('pg_advisory_xact_lock');
-    expect(aValues(LOCK)).toEqual([`share:link-create:${COMPANY}`]);
-    expect(aText(INSERT)).toContain('INSERT INTO share_links');
+    expect(adminMock).toHaveBeenCalledTimes(2);
+    expect(indexOf(LOCK_RE)).toBeLessThan(indexOf(INSERT_RE));
+    expect(aText(indexOf(LOCK_RE))).toContain('pg_advisory_xact_lock');
+    expect(aValues(indexOf(LOCK_RE))).toEqual([`share:link-create:${COMPANY}`]);
+    expect(aText(indexOf(INSERT_RE))).toContain('INSERT INTO share_links');
   });
 
   it('scopes the lock to the company, so two companies do not block each other', async () => {
     adminMock.mockResolvedValue([dbRow()]);
     await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
-    const first = aValues(LOCK)[0];
+    const first = aValues(indexOf(LOCK_RE))[0];
     adminMock.mockClear();
     await createShareLink({ companyId: OTHER_COMPANY, userId: 'user-1', params: PARAMS });
-    expect(aValues(LOCK)[0]).not.toBe(first);
+    expect(aValues(indexOf(LOCK_RE))[0]).not.toBe(first);
   });
 
   it('refuses to mint past the live-link cap, and says so distinguishably', async () => {
@@ -171,27 +173,27 @@ describe('createShareLink', () => {
       createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS }),
     ).rejects.toBeInstanceOf(ShareLinkLimitError);
 
-    expect(aText(INSERT)).toContain('revoked_at IS NULL');
-    expect(aText(INSERT)).toContain('expires_at > NOW()');
-    expect(aValues(INSERT)).toContain(MAX_LIVE_LINKS);
+    expect(aText(indexOf(INSERT_RE))).toContain('revoked_at IS NULL');
+    expect(aText(indexOf(INSERT_RE))).toContain('expires_at > NOW()');
+    expect(aValues(indexOf(INSERT_RE))).toContain(MAX_LIVE_LINKS);
   });
 
   it('counts only this company towards the cap', async () => {
     adminMock.mockResolvedValue([dbRow()]);
     await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
-    expect(aValues(INSERT)).not.toContain(OTHER_COMPANY);
+    expect(aValues(indexOf(INSERT_RE))).not.toContain(OTHER_COMPANY);
     // The guard subquery and the inserted row are scoped to the same company:
     // one bound param ($1), referenced by both the SELECT list and the count's WHERE.
-    expect(aValues(INSERT).filter(v => v === COMPANY)).toHaveLength(1);
-    expect(aText(INSERT)).toMatch(/SELECT\s+\$1::uuid/);
-    expect(aText(INSERT)).toMatch(/WHERE company_id = \$1::uuid/);
+    expect(aValues(indexOf(INSERT_RE)).filter(v => v === COMPANY)).toHaveLength(1);
+    expect(aText(indexOf(INSERT_RE))).toMatch(/SELECT\s+\$1::uuid/);
+    expect(aText(indexOf(INSERT_RE))).toMatch(/WHERE company_id = \$1::uuid/);
   });
 
   it('carries a null label through rather than the string "null"', async () => {
     adminMock.mockResolvedValue([dbRow()]);
     const { link } = await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
     expect(link.label).toBeNull();
-    expect(aValues(INSERT)).toContain(null);
+    expect(aValues(indexOf(INSERT_RE))).toContain(null);
   });
 });
 
