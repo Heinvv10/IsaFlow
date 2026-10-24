@@ -1,5 +1,5 @@
 /**
- * Guard for shared_merchant_patterns (migration 906) — the one table that holds data from MANY companies.
+ * Guard for shared_merchant_patterns (migration 931) — the one table that holds data from MANY companies.
  *
  * rls-policy-coverage and the migration-rls gate check only tables with a company_id column, so they
  * cannot see this one. This source-text census pins what they would miss:
@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = resolve(__dirname, '../../..');
-const MIGRATION = 'scripts/migrations/sql/906_shared_merchant_patterns.sql';
+const MIGRATION = 'scripts/migrations/sql/931_shared_merchant_patterns.sql';
 const read = (f: string) => readFileSync(resolve(ROOT, f), 'utf8');
 /** The text without comments (SQL `--`, TS `//` and block comments), so prose about a function is not a call. */
 const code = (f: string) => read(f)
@@ -34,7 +34,7 @@ function files(...dirs: string[]): string[] {
 
 function tableColumns(sql: string): string[] {
   const m = /CREATE TABLE IF NOT EXISTS shared_merchant_patterns \(([\s\S]*?)\n\);/.exec(sql);
-  if (!m) throw new Error('CREATE TABLE shared_merchant_patterns not found in 906');
+  if (!m) throw new Error('CREATE TABLE shared_merchant_patterns not found in 931');
   return m[1]!.split('\n').map((l) => l.trim()).filter((l) => /^[a-z_]+\s/.test(l)).map((l) => l.split(/\s+/)[0]!);
 }
 
@@ -57,21 +57,24 @@ describe('shared_merchant_patterns — columns', () => {
 describe('shared_merchant_patterns — access in the migrations', () => {
   const sql = code(MIGRATION);
 
-  it('906 forces RLS and creates no policy and no grant on the table', () => {
+  it('931 forces RLS and creates no policy and no grant on the table', () => {
     expect(sql).toContain('ALTER TABLE public.shared_merchant_patterns ENABLE ROW LEVEL SECURITY;');
     expect(sql).toContain('ALTER TABLE public.shared_merchant_patterns FORCE ROW LEVEL SECURITY;');
     expect(sql).not.toMatch(/CREATE POLICY[^;]*shared_merchant_patterns/);
     expect(sql).not.toMatch(/\bGRANT\b[^;]*\bON\s+(TABLE\s+)?(public\.)?shared_merchant_patterns/);
   });
 
-  it('906 grants publish to migration_admin only and lookup to app_user only', () => {
+  it('931 grants publish to migration_admin only and lookup to app_user only', () => {
     const grants = [...sql.matchAll(/^GRANT EXECUTE ON FUNCTION public\.(shared_pool_\w+)\([^)]*\) TO (\w+);$/gm)].map((m) => `${m[1]} -> ${m[2]}`);
     expect(grants).toEqual(['shared_pool_publish -> migration_admin', 'shared_pool_lookup -> app_user']);
   });
 
   it('no other migration mentions the table or its functions', () => {
+    // 930 lists every SECURITY DEFINER function as a quoted app_definer_reviews row (signature, what it
+    // writes); such a row grants and redefines nothing, so it is the one mention allowed outside 906.
+    const reviewRow = /^\s*\('shared_pool_(?:lookup|publish)\([a-z[\],]*\)', '(?:[^']|'')*'\),$/gm;
     const others = files('scripts/migrations/sql').filter((f) => f !== MIGRATION && f.endsWith('.sql'))
-      .filter((f) => /shared_merchant_patterns|shared_pool_publish|shared_pool_lookup/.test(read(f)));
+      .filter((f) => /shared_merchant_patterns|shared_pool_publish|shared_pool_lookup/.test(read(f).replace(reviewRow, '')));
     expect(others).toEqual([]);
   });
 });

@@ -54,6 +54,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/qa-create-velofibre-bank.ts', 'scripts/qa-seed-bank-account.ts', 'scripts/qa-seed-blitz-coa.ts',
     'scripts/qa-seed/coa.ts', 'scripts/qa-seed/reset.ts', 'scripts/qa-test-bank-delete-balance.ts',
     'scripts/qa-verify-bank-sprint.ts', 'scripts/seed-demo-data.ts', 'scripts/seed-phase5-wipe.ts', 'scripts/stress-test.ts',
+    `${S}ap/payingAccountAuthors.ts`, // bank-accounts PUT: bank_details_setters (migration 923)
     `${S}bank/bankOpeningBalanceService.ts`, `${S}core/migrationCoaService.ts`, `${S}core/migrationExecuteService.ts`,
     `${S}core/migrationRollbackService.ts`, `${S}gl/accountMergeService.ts`, `${S}gl/accountReclassifyService.ts`,
     `${S}gl/chartOfAccountsImportService.ts`, `${S}gl/chartOfAccountsService.ts`, `${S}gl/defaultAccountsService.ts`,
