@@ -30,9 +30,9 @@ function shift(days: number): string {
   return fmtDate(d);
 }
 
-interface Seed { key?: string; status: string; total: number; paid: number; due: number | null; deleted?: boolean; credited?: number }
+interface Seed { key?: string; status: string; total: number; paid: number; due: number | null; invoiceDate?: number; deleted?: boolean; credited?: number }
 const rep = (n: number, seed: Seed): Seed[] => Array.from({ length: n }, () => seed);
-/** 34 rows (33 not soft-deleted). Overdue: 5 part-paid, 5 sent, 3 approved yesterday, 2 literal 'overdue', 1 part-credited. */
+/** 35 rows (34 not soft-deleted). Overdue: 5 part-paid, 5 sent, 3 approved yesterday, 2 literal 'overdue', 1 part-credited. */
 const SEEDS: Seed[] = [
   ...rep(6, { status: 'paid', total: 1000, paid: 1000, due: -40 }),
   ...rep(5, { status: 'partially_paid', total: 2000, paid: 500, due: -10 }),
@@ -46,16 +46,17 @@ const SEEDS: Seed[] = [
   { status: 'draft', total: 9000, paid: 0, due: -50 },
   // Settled but still 'approved' with a past due date: balance 0, must not count as overdue.
   { key: 'settled', status: 'approved', total: 1234, paid: 1234, due: -20 },
-  // Open but no due date: outstanding, never overdue.
+  // No due date: ages from the invoice date, as aged debtors does. Old one is overdue, a fresh one is not.
   { key: 'nodue', status: 'sent', total: 900, paid: 0, due: null },
+  { key: 'nodue-fresh', status: 'sent', total: 450, paid: 0, due: null, invoiceDate: 0 },
   // Soft-deleted, no journal: in neither figure.
   { key: 'deleted', status: 'sent', total: 1300, paid: 0, due: -30, deleted: true },
   // Credit notes applied: amount_paid already carries them.
   { key: 'part-credited', status: 'approved', total: 1000, paid: 600, due: -15, credited: 600 },
   { key: 'full-credited', status: 'approved', total: 750, paid: 750, due: -15, credited: 750 },
 ];
-// outstanding: 5*1500 + 5*1000 + 3*800 + 2*700 + 3*600 + 2*500 + 900 + 400
-const EXPECTED = { outstanding: 20400, overdueCount: 16, overdueAmount: 7500 + 5000 + 2400 + 1000 + 400 };
+// outstanding: 5*1500 + 5*1000 + 3*800 + 2*700 + 3*600 + 2*500 + 900 + 450 + 400
+const EXPECTED = { outstanding: 20750, overdueCount: 17, overdueAmount: 7500 + 5000 + 2400 + 1000 + 400 + 900 };
 const keyNumber = (key: string): string => `${TAG}-${SEEDS.findIndex((s) => s.key === key)}`;
 
 let token = '';
@@ -65,7 +66,7 @@ async function insert(company: string, customer: string, s: Seed, i: number) {
   const rows = (await sql`
     INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
       due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by, deleted_at)
-    VALUES (${company}::UUID, ${customer}::UUID, ${customer}::UUID, ${`${TAG}-${i}`}, ${shift(-60)}::date,
+    VALUES (${company}::UUID, ${customer}::UUID, ${customer}::UUID, ${`${TAG}-${i}`}, ${shift(s.invoiceDate ?? -60)}::date,
       ${due}::date, ${s.status}, ${s.total}, 0, 0, ${s.total}, ${s.paid}, ${USER}::UUID,
       ${s.deleted ? new Date() : null})
     RETURNING id`) as { id: string }[];
@@ -118,14 +119,14 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
   }, 60000);
 
   it('the service equals the hand-computed totals and excludes company B', async () => {
-    expect(SEEDS).toHaveLength(34);
+    expect(SEEDS).toHaveLength(35);
     expect(await getAROutstandingSummary(COMPANY)).toEqual(EXPECTED);
   });
 
-  it('the list endpoint returns the same company-wide figures although it pages 25 of 33', async () => {
+  it('the list endpoint returns the same company-wide figures although it pages 25 of 34', async () => {
     const data = await call<{ invoices: unknown[]; total: number; arSummary: unknown }>(listRoute, { page: '1', limit: '25' });
     expect(data.invoices).toHaveLength(25);
-    expect(data.total).toBe(33);
+    expect(data.total).toBe(34);
     expect(data.arSummary).toEqual(EXPECTED);
   });
 
@@ -144,7 +145,7 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
     const todos = await call<{ overdueInvoices: { id: string; invoiceNumber: string; amount: number; daysOverdue: number }[] }>(todosRoute);
     const ids = todos.overdueInvoices.map((r) => r.id);
     const rows = (await sql`
-      SELECT id::text, COALESCE(total_amount,0) - COALESCE(amount_paid,0) AS balance, due_date < ${shift(0)}::date AS past
+      SELECT id::text, COALESCE(total_amount,0) - COALESCE(amount_paid,0) AS balance, COALESCE(due_date, invoice_date) < ${shift(0)}::date AS past
       FROM customer_invoices WHERE company_id = ${COMPANY}::UUID AND id = ANY(${ids}::uuid[])
     `) as { id: string; balance: string; past: boolean }[];
     expect(rows).toHaveLength(10);
@@ -154,16 +155,20 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
     }
     for (const r of todos.overdueInvoices) expect(r.daysOverdue).toBeGreaterThan(0);
     const numbers = todos.overdueInvoices.map((r) => r.invoiceNumber);
-    for (const key of ['today', 'settled', 'nodue', 'deleted', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
+    for (const key of ['today', 'settled', 'nodue-fresh', 'deleted', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
   });
 
-  it('the overdue figures exclude due-today, settled, null-due, deleted and fully credited, and net a part-credited balance', async () => {
+  it('the overdue figures exclude due-today, settled, fresh no-due-date, deleted and fully credited, and net a part-credited balance', async () => {
     const asked = await call<{ invoices: { invoice_number: string; total_amount: string; amount_paid: string }[]; total: number }>(
       listRoute, { status: 'overdue', limit: '100' });
     const numbers = asked.invoices.map((r) => r.invoice_number);
     expect(asked.total).toBe(EXPECTED.overdueCount);
-    for (const key of ['today', 'settled', 'nodue', 'deleted', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
+    for (const key of ['today', 'settled', 'nodue-fresh', 'deleted', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
     expect(numbers).toContain(keyNumber('part-credited'));
+    // a no-due-date invoice ages from its invoice date
+    expect(numbers).toContain(keyNumber('nodue'));
+    // uncapped: the count is the number of rows the same predicate matches
+    expect(asked.invoices).toHaveLength(EXPECTED.overdueCount);
   });
 
   it('the Overdue status filter returns exactly the tile count, whatever the stored status', async () => {

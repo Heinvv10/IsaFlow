@@ -1,15 +1,20 @@
 /**
  * Company-wide receivables position: the ONE source for the "outstanding" and
- * "overdue" figures on the accounting dashboard, its overdue action list and
- * the customer invoice list (tiles and the Overdue status filter), so the
- * screens cannot drift.
+ * "overdue" figures on the accounting dashboard (stat, action count and rows)
+ * and the customer invoice list (tiles and the Overdue status filter), so
+ * those screens cannot drift from each other.
  *
  * Population: AR_OPEN_STATUSES, still in the ledger as at today
  * (documentInLedgerAsAtFragment). Balance is total_amount - amount_paid (a
  * credit note applied to an invoice is already in amount_paid).
- * Overdue is a DATE fact (due_date before today, SA date) on a positive
- * balance, whatever the status string says: nothing flips 'sent'/'approved' to
- * 'overdue' when the due date passes. A null due_date is never overdue.
+ * Overdue is a DATE fact on a positive balance, whatever the status string
+ * says: nothing flips 'sent'/'approved' to 'overdue' when the due date passes.
+ * An invoice with no due date ages from its invoice date (then created_at), as
+ * the aged debtors report does. Due today is not overdue.
+ *
+ * What it equals: the dashboard AR figure and the list tiles. It equals the
+ * aged-debtors gross total only while there are no future-dated, negative,
+ * disputed or customer-less invoices; it does not claim more than that.
  */
 
 import { sql } from '@/lib/neon';
@@ -40,7 +45,7 @@ export function arOverdueFragment(asAtStr: string, companyId: string) {
   return sql`(
     ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
     AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
-    AND ci.due_date < ${asAtStr}::date
+    AND COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) < ${asAtStr}::date
     AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0
   )`;
 }
@@ -76,12 +81,12 @@ export async function listOverdueInvoices(companyId: string, limit: number): Pro
       COALESCE(ci.invoice_number, '') AS invoice_number,
       COALESCE(c.name, '') AS client_name,
       COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) AS amount,
-      (${asAtStr}::date - ci.due_date::date) AS days_overdue
+      (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)::date) AS days_overdue
     FROM customer_invoices ci
     LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
     WHERE ci.company_id = ${companyId}
       AND ${arOverdueFragment(asAtStr, companyId)}
-    ORDER BY ci.due_date ASC, ci.id ASC
+    ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) ASC, ci.id ASC
     LIMIT ${limit}
   `) as { id: string; invoice_number: string; client_name: string; amount: string; days_overdue: number }[];
   return rows.map((r) => ({
