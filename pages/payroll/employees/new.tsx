@@ -35,7 +35,7 @@ export default function NewEmployeePage() {
     firstName: '', lastName: '', employeeNumber: '',
     employmentType: 'permanent', startDate: todayISO(),
     idNumber: '', taxNumber: '', dateOfBirth: '',
-    uifExcluded: false, medicalAidMainMember: true,
+    uifExcluded: false, medicalAidMainMember: false,
     medicalAidDependantsCount: '0',
   });
   const [submitting, setSubmitting] = useState(false);
