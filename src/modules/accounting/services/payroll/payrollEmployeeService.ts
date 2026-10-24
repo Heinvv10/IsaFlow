@@ -85,6 +85,23 @@ export async function getPayrollEmployee(
   return rows.length > 0 && rows[0] ? mapPayrollEmployeeRow(rows[0]) : null;
 }
 
+/** The record a tax directive is filed under: name, tax number and status, or null when not this company's employee. */
+export async function getDirectivePayee(
+  companyId: string,
+  id: string,
+): Promise<{ id: string; name: string; taxNumber: string | null; status: string } | null> {
+  const rows = (await sql`
+    SELECT id, first_name, last_name, tax_number, status FROM payroll_employees
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+  `) as Row[];
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: String(r.id), name: `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(),
+    taxNumber: r.tax_number ? String(r.tax_number).trim() : null, status: String(r.status),
+  };
+}
+
 export async function createPayrollEmployee(
   companyId: string,
   data: Omit<PayrollEmployee, 'id' | 'companyId'>,
