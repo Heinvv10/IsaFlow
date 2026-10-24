@@ -50,7 +50,8 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(f => ({ ...f, [k]: e.target.value }));
 
-  // The directive is paid to this employee (a run, or /apply): name and tax number follow the pick, still editable.
+  // The directive is paid to this employee (a run, or /apply): the name is the employee's (read-only; the
+  // server stores the record's), the tax number follows the pick and stays editable.
   const pickEmployee = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const picked = employees.find(emp => emp.id === e.target.value);
     setForm(f => ({
@@ -111,7 +112,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
               loading={employeesLoading} error={employeesError} inputCls={inputCls} labelCls={labelCls} />
             <div className="col-span-2">
               <label htmlFor="td-employee-name" className={labelCls}>Employee Name *</label>
-              <input id="td-employee-name" className={inputCls} value={form.employee_name} onChange={set('employee_name')} required placeholder="Full name, as on the directive" />
+              <input id="td-employee-name" className={inputCls} value={form.employee_name} readOnly required placeholder="From the employee picked" />
             </div>
             <div>
               <label htmlFor="td-tax-number" className={labelCls}>Tax Number</label>
