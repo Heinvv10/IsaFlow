@@ -14,7 +14,6 @@ import { BudgetInputError, deleteBudget, copyBudgets } from '@/modules/accountin
 import { parseYearLabel } from '@/modules/accounting/services/core/budgetMonths';
 import { isUuidParam } from '@/lib/validation';
 
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
 
