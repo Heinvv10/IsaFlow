@@ -190,6 +190,9 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   -- then, per connection, with <uid> = first_errored_uid - 1 (the scan resumes after it):
   -- UPDATE public.imap_mirror_connections SET scan_cursor = jsonb_set(scan_cursor, '{<folder>}', '<uid>') WHERE id = '<connection>';
   ```
+  The same procedure recovers, after 935 too, the remaining attachments of a
+  message the new code passed part-ingested (its scan-log row is `error`; the
+  new code retries a message only when none of it was ingested).
   The orphaned `pending` documents those failures left are listed by
   `SELECT id FROM captured_documents d WHERE d.status = 'pending' AND NOT EXISTS
   (SELECT 1 FROM capture_events e WHERE e.captured_document_id = d.id)`.

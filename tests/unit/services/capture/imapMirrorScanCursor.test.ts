@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
   failWith: null as unknown,
   docInsertFails: 0,
   docInserts: 0,
+  stampFails: 0,
+  stamps: 0,
 }));
 
 vi.mock('imapflow', () => ({
@@ -47,6 +49,9 @@ vi.mock('@/lib/neon', () => ({
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
     h.sql.push({ text, values });
     if (text.startsWith('INSERT INTO captured_documents') && ++h.docInserts === h.docInsertFails) {
+      return Promise.reject(Object.assign(new Error('connection terminated'), { code: '08006' }));
+    }
+    if (text.startsWith('UPDATE captured_documents SET storage_bucket') && ++h.stamps === h.stampFails) {
       return Promise.reject(Object.assign(new Error('connection terminated'), { code: '08006' }));
     }
     return Promise.resolve(/RETURNING id/.test(text) ? [{ id: crypto.randomUUID() }] : []);
@@ -82,6 +87,8 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     h.upserts = 0;
     h.docInsertFails = 0;
     h.docInserts = 0;
+    h.stampFails = 0;
+    h.stamps = 0;
   });
 
   it('a clean scan advances the cursor to the last message', async () => {
@@ -105,6 +112,24 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     h.upsertFails.add(2);
     const r = await scanConnection(conn);
     expect([r.ingested, r.errors, cursorWritten()]).toEqual([2, 1, 13]);
+  });
+
+  it('the first message failing leaves the cursor where it was, shows the error and stamps no success', async () => {
+    h.failWith = Object.assign(new Error('permission denied for table capture_inboxes'), { code: '42501' });
+    h.upsertFails.add(1); // message 11, the first of the batch
+    const r = await scanConnection(conn);
+    expect([r.ingested, r.errors, cursorWritten()]).toEqual([0, 1, null]);
+    expect(h.sql.some((q) => /last_success_at = NOW\(\)/.test(q.text))).toBe(false);
+    const stamped = h.sql.find((q) => q.text.startsWith('UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error'));
+    expect(stamped?.values[0]).toBe('permission denied for table capture_inboxes');
+    expect(h.sql.some((q) => /status = CASE/.test(q.text))).toBe(false); // stays active: the next scan retries
+  });
+
+  it('a failure inside the first attachment, after its document row, is retried; that row is left pending (runbook)', async () => {
+    h.stampFails = 2; // message 12's first attachment: its storage stamp
+    const r = await scanConnection(conn);
+    expect([r.errors, cursorWritten()]).toEqual([1, 11]);
+    expect(documentsCreated()).toBe(2); // 11's, and 12's first, left without an event
   });
 
   it('a database failure after part of a message was ingested is passed, so nothing is captured twice', async () => {
