@@ -190,6 +190,7 @@ describe('document-capture ?attachable=1', () => {
     expect([...seen].sort()).toEqual(EXPECTED);
     const all = (await list({ attachable: '1', pageSize: '50' })).body as { data: Array<{ id: string }> };
     expect(seen).toEqual(all.data.map((d) => d.id));
+    expect(seen[0]).toBe(ids.linkUnlinked); // the last one inserted: newest first
   });
 
   it('leaves the unfiltered list alone', async () => {
