@@ -40,6 +40,7 @@ export function response() {
     getHeader(name: string) { return headers.get(name.toLowerCase()); },
     removeHeader(name: string) { headers.delete(name.toLowerCase()); },
     json(body: unknown) { this.body = body; return this.end(); },
+    redirect(code: number, url: string) { this.statusCode = code; headers.set('location', url); return this.end(); },
     end() { return this; },
   };
   return { res: state as unknown as NextApiResponse, state, headers };

@@ -1,6 +1,15 @@
-/** Open Banking — connection CRUD and sync log queries */
+/**
+ * Open Banking — connection CRUD and sync log queries.
+ *
+ * Create and disconnect run on the migration_admin pool (S-07d, migration
+ * 937): a connection's is_active is the revocation switch for the extension's
+ * 90-day pairing JWT (withExtensionToken), so no app role may INSERT a
+ * connection or UPDATE more than its sync stamps (forged claims revived a
+ * revoked pairing). `companyId` and `userId` are the verified request's.
+ */
 
 import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import {
@@ -110,22 +119,14 @@ export async function createBankFeedConnection(
   }
 
   const configJson = JSON.stringify(input.config ?? {});
-  const rows = (await sql`
-    INSERT INTO bank_feed_connections (
-      company_id, bank_account_id, provider,
-      external_account_id, status, config, created_by, is_active
-    ) VALUES (
-      ${companyId}::UUID,
-      ${input.accountId ?? null}::UUID,
-      ${input.provider},
-      ${input.externalAccountId ?? null},
-      'active',
-      ${configJson}::JSONB,
-      ${userId}::UUID,
-      true
-    )
-    RETURNING *
-  `) as DbRow[];
+  const rows = await migrationAdminTx('create bank feed connection', async (client) => (await client.query(
+    `INSERT INTO bank_feed_connections (
+       company_id, bank_account_id, provider,
+       external_account_id, status, config, created_by, is_active
+     ) VALUES ($1::UUID, $2::UUID, $3, $4, 'active', $5::JSONB, $6::UUID, true)
+     RETURNING *`,
+    [companyId, input.accountId ?? null, input.provider, input.externalAccountId ?? null, configJson, userId],
+  )).rows as DbRow[]);
 
   const created = rows[0]!;
   log.info('Open banking connection created', {
@@ -139,12 +140,13 @@ export async function deleteBankFeedConnection(
   companyId: string,
   connectionId: string,
 ): Promise<void> {
-  await sql`
-    UPDATE bank_feed_connections
-    SET is_active = false, status = 'disconnected', updated_at = NOW()
-    WHERE id = ${connectionId}::UUID
-      AND company_id = ${companyId}::UUID
-  `;
+  await migrationAdminTx('disconnect bank feed', (client) => client.query(
+    `UPDATE bank_feed_connections
+        SET is_active = false, status = 'disconnected', updated_at = NOW()
+      WHERE id = $1::UUID
+        AND company_id = $2::UUID`,
+    [connectionId, companyId],
+  ));
   log.info('Open banking connection deleted', { connectionId, companyId }, 'open-banking');
 }
 

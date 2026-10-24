@@ -14,6 +14,9 @@ vi.mock('@/lib/neon', () => {
   return { sql: sqlMock, withTransaction: vi.fn(), transaction: vi.fn(), fmtDate: (d: unknown) => String(d) };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// Each member's year is the registry's (March-based unless a test gives a company its own calendar).
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../helpers/fiscalYearSqlFake')).registryMock());
 
 const getGroupMembers = vi.fn();
 const getCoaMappingsForCompanies = vi.fn();
@@ -26,6 +29,7 @@ vi.mock('@/modules/accounting/services/reports/consolidatedTrialBalanceService',
 
 import { sql } from '@/lib/neon';
 import { getConsolidatedTrialBalance } from '@/modules/accounting/services/reports/consolidatedTrialBalanceReport';
+import { fakeRegistry, resetFakeRegistry, TRANSITION_YEARS } from '../../helpers/fiscalYearSqlFake';
 import { BALANCE_TOLERANCE } from '@/modules/accounting/services/gl/trialBalanceService';
 
 const GROUP_ID = 'eeeeeeee-0000-0000-0000-000000000001';
@@ -66,6 +70,7 @@ const BANK_MAPPING = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetFakeRegistry();
   getGroupMembers.mockResolvedValue([
     { companyId: CO_A, companyName: 'Co A', ownershipPct: 100, consolidationMethod: 'full' },
   ]);
@@ -75,16 +80,14 @@ beforeEach(() => {
 
 /**
  * Queue the per-member queries, in order:
- *   0 fiscal-year lookup, 1 balances, 2 brought-forward profit.
+ *   0 balances, 1 brought-forward profit (the fiscal year is the mocked registry's).
  */
 function primeMember(
   balanceRows: Record<string, unknown>[],
   broughtForward = '0',
-  fyStartMonth: unknown = 3,
 ) {
   const mockSql = sql as SqlMock;
   mockSql
-    .mockResolvedValueOnce([{ financial_year_start: fyStartMonth }])
     .mockResolvedValueOnce(balanceRows)
     .mockResolvedValueOnce([{ retained: broughtForward }]);
   return mockSql;
@@ -101,10 +104,10 @@ describe('getConsolidatedTrialBalance (GRP-06 — balances, not range movement)'
     const mockSql = primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '250' }]);
     await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
 
-    const params = (mockSql.mock.calls[1] as unknown[]).slice(1);
+    const params = (mockSql.mock.calls[0] as unknown[]).slice(1);
     expect(params).toContain(PERIOD_END);
 
-    const text = sqlTextOf(mockSql, 1);
+    const text = sqlTextOf(mockSql, 0);
     expect(text).toContain("ga.account_type IN ('asset', 'liability', 'equity')");
     expect(text).toContain('je.entry_date <=');
     // No lower bound on the ROW SET — that is CS-01. See trialBalanceService.
@@ -161,9 +164,9 @@ describe('getConsolidatedTrialBalance (GRP-06 — balances, not range movement)'
   it('asks for the brought-forward profit strictly before periodStart', async () => {
     const mockSql = primeMember([{ account_id: 'acc-bank', total_debit: '1', total_credit: '0' }], '5000');
     await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
-    const params = (mockSql.mock.calls[2] as unknown[]).slice(1);
+    const params = (mockSql.mock.calls[1] as unknown[]).slice(1);
     expect(params).toContain(PERIOD_START);
-    expect(sqlTextOf(mockSql, 2)).toMatch(/je\.entry_date\s*<\s*\?/);
+    expect(sqlTextOf(mockSql, 1)).toMatch(/je\.entry_date\s*<\s*\?/);
   });
 
   it('reports the profit even when the group has no retained earnings mapping', async () => {
@@ -275,7 +278,6 @@ describe('getConsolidatedTrialBalance — balanced assertion and dropped account
   it('excludes unmapped accounts from the brought-forward sum too, so it still balances', async () => {
     const mockSql = sql as SqlMock;
     mockSql
-      .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([
         { account_id: 'acc-bank', total_debit: '1000', total_credit: '0' },
         { account_id: 'acc-UNMAPPED', total_debit: '0', total_credit: '1000' },
@@ -285,9 +287,9 @@ describe('getConsolidatedTrialBalance — balanced assertion and dropped account
     await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
 
     // The brought-forward query must be restricted to the mapped accounts.
-    const bfText = sqlTextOf(mockSql, 2);
+    const bfText = sqlTextOf(mockSql, 1);
     expect(bfText).toContain('ga.id = ANY');
-    const bfParams = (mockSql.mock.calls[2] as unknown[]).slice(1);
+    const bfParams = (mockSql.mock.calls[1] as unknown[]).slice(1);
     expect(bfParams.some(p => Array.isArray(p) && (p as string[]).includes('acc-bank'))).toBe(true);
     expect(bfParams.some(p => Array.isArray(p) && (p as string[]).includes('acc-UNMAPPED'))).toBe(false);
   });
@@ -307,15 +309,23 @@ describe('getConsolidatedTrialBalance — income statement is year-to-date', () 
     // Period 2026-02-01..2026-02-28 with a March year end → FY starts 2025-03-01.
     await getConsolidatedTrialBalance(GROUP_ID, '2026-02-01', '2026-02-28');
 
-    const params = (mockSql.mock.calls[1] as unknown[]).slice(1);
+    const params = (mockSql.mock.calls[0] as unknown[]).slice(1);
     expect(params).toContain('2025-03-01');
     expect(params).toContain('2026-02-28');
+  });
+
+  it('cuts a member in a 14-month transition year at that year\'s own start', async () => {
+    fakeRegistry.years = TRANSITION_YEARS;
+    const mockSql = primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
+    // 2027-02 sits in FY2027, 2026-01-01 to 2027-02-28: not a March or a twelve-month cut.
+    await getConsolidatedTrialBalance(GROUP_ID, '2027-02-01', '2027-02-28');
+    expect((mockSql.mock.calls[0] as unknown[]).slice(1)).toContain('2026-01-01');
   });
 
   it('takes the brought-forward profit at the same fiscal year start it cut the P&L at', async () => {
     const mockSql = primeMember([{ account_id: 'acc-bank', total_debit: '1', total_credit: '0' }], '5000');
     await getConsolidatedTrialBalance(GROUP_ID, '2026-02-01', '2026-02-28');
-    expect((mockSql.mock.calls[2] as unknown[]).slice(1)).toContain('2025-03-01');
+    expect((mockSql.mock.calls[1] as unknown[]).slice(1)).toContain('2025-03-01');
   });
 
   it('exposes each member fiscal year start and flags a group that is not coterminous', async () => {
@@ -327,12 +337,11 @@ describe('getConsolidatedTrialBalance — income statement is year-to-date', () 
       new Map([[CO_A, new Map([['acc-bank', BANK_MAPPING]])], [CO_B, new Map([['acc-bank', BANK_MAPPING]])]]),
     );
     const mockSql = sql as SqlMock;
-    // Co A: March year end. Co B: December year end.
+    // Co A: March year end (the default calendar). Co B: December year end.
+    fakeRegistry.companies[CO_B] = { years: [], templateMonth: 12 };
     mockSql
-      .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([{ account_id: 'acc-bank', total_debit: '100', total_credit: '0' }])
       .mockResolvedValueOnce([{ retained: '0' }])
-      .mockResolvedValueOnce([{ financial_year_start: 12 }])
       .mockResolvedValueOnce([{ account_id: 'acc-bank', total_debit: '100', total_credit: '0' }])
       .mockResolvedValueOnce([{ retained: '0' }]);
 
