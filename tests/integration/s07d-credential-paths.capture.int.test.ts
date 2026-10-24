@@ -118,8 +118,15 @@ describe('S-07d: capture inboxes, on migration_admin', () => {
       WHERE company_id = $1 AND channel = 'whatsapp'`, [company]);
     expect(inbox.rows).toEqual([{ is_active: true, verified: true }]);
     expect((await fixture.query('SELECT 1 FROM capture_whatsapp_claims WHERE company_id = $1', [company])).rowCount).toBe(0);
-    // The same callback again finds the active binding.
-    expect((await verifyWhatsAppDestination(token, address))?.inboxId).toBe(bound?.inboxId);
+    // The same callback again finds the active binding, on the service pool:
+    // every inbound message makes this call, so it takes no migration_admin connection.
+    const checkout = vi.spyOn(migrationAdminPool(), 'connect');
+    try {
+      expect((await verifyWhatsAppDestination(token, address))?.inboxId).toBe(bound?.inboxId);
+      expect(checkout).not.toHaveBeenCalled();
+    } finally {
+      checkout.mockRestore();
+    }
   });
 });
 

@@ -150,7 +150,10 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   `portal_access.password_hash` or write `portal_access` (DELETE stays).
   Granted back: `share_links (view_count, last_viewed_at)`,
   `audit_portal_sessions (last_used_at, use_count)`, and
-  `bank_feed_connections`' sync stamps. 935 refuses to apply unless
+  `bank_feed_connections`' sync stamps. `portal_access` gains `company_id`
+  (backfilled from each login's customer): an AR portal login signs in only
+  to that company, so a login created by hand from now on must set it, or it
+  signs in nowhere (nothing in the app creates logins). 935 refuses to apply unless
   migration_admin holds the moved writes and bypasses row security.
 - During the deploy window, and after a code-only rollback, the old release
   answers an error (42501), writing nothing, for: member role change and

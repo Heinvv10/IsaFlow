@@ -111,6 +111,23 @@ describe('S-07d: a member\'s role, on migration_admin', () => {
     await fixture.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, invitee]);
   });
 
+  it('a role change that waits past the 5 s lock timeout answers 409, writing nothing (migrationAdminTx bounds every lock wait)', async () => {
+    const before = await role(invitee);
+    const holder = await fixture.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM company_users WHERE company_id = $1 AND user_id = $2 FOR UPDATE', [company, invitee]);
+      const started = Date.now();
+      const r = await setRole(me, invitee, before === 'manager' ? 'viewer' : 'manager');
+      expect(r.status).toBe(409);
+      expect(Date.now() - started).toBeLessThan(15_000);
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    expect(await role(invitee)).toBe(before);
+  }, 30_000);
+
   it('a non-member target is refused, not silently ignored', async () => {
     expect((await setRole(owner, crypto.randomUUID(), 'viewer')).status).toBe(400);
   });
