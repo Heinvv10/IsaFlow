@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { formatDate, formatRandAbs } from '@/utils/formatters';
 import { ProvisionalAttachModal } from '@/components/accounting/bank/ProvisionalAttachModal';
 import { Clock, AlertCircle, Loader2, Paperclip, X, ChevronUp, ChevronDown, CheckCircle2 } from 'lucide-react';
 
@@ -23,8 +24,6 @@ type SortKey = 'transactionDate' | 'amount' | 'daysOutstanding' | 'predictedSupp
 type SortDir = 'asc' | 'desc';
 type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
 
-const fmtZAR = (n: number) => 'R ' + Math.abs(n).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtDate = (s: string | null) => { if (!s) return '—'; try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return s; } };
 
 function ConfBadge({ v }: { v: number }) {
   const cls = v >= 0.9 ? 'bg-teal-900/40 text-teal-300' : v >= 0.7 ? 'bg-amber-900/40 text-amber-300' : 'bg-red-900/40 text-red-300';
@@ -163,12 +162,12 @@ export default function ProvisionalEntriesPage() {
                   {filtered.map(e => (
                     <tr key={e.jeId} id={`tx-${e.bankTxId}`}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 transition-colors">
-                      <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-secondary)]">{fmtDate(e.transactionDate)}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-secondary)]">{formatDate(e.transactionDate)}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] max-w-[200px]">
                         <span className="line-clamp-2 text-xs">{e.description || '—'}</span>
                         <span className="block text-[var(--ff-text-tertiary)] text-xs">{e.bankAccountName}</span>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{fmtZAR(e.amount)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-xs">{formatRandAbs(e.amount)}</td>
                       <td className="px-4 py-3">
                         {e.predictedSupplierName
                           ? <div className="flex items-center gap-2 flex-wrap"><Link href={`/accounting/suppliers/${e.predictedSupplierId}`} className="text-xs text-blue-400 hover:underline">{e.predictedSupplierName}</Link><ConfBadge v={e.predictionConfidence} /></div>

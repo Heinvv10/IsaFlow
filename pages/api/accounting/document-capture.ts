@@ -3,7 +3,8 @@
  * POST /api/accounting/document-capture  — Upload PDF or image; the row is saved as 'reading' and read in the background
  * GET  /api/accounting/document-capture  — List captured documents (`?id=<uuid>` returns one, company-scoped;
  *      `?attachable=1` lists those the provisional evidence attach accepts, narrowed to supplier evidence;
- *      `&after=<cursor>` from `meta.nextAfter` gives the next page, and `page` is then ignored)
+ *      `&after=<cursor>` from `meta.nextAfter` gives the next page, and `page` is then ignored; `status` is ignored
+ *      with `attachable=1`)
  *
  * A long digital PDF takes the VLM 70-104 s and Cloudflare cuts a request at 100 s, so the upload answers at once
  * (201 `{ document }`, readState 'reading') and `runCaptureRead` fills the row after COMMIT. Clients poll `?id=`.
@@ -72,9 +73,6 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '25'), 10)));
   const offset = (page - 1) * pageSize;
 
-  let rows: Record<string, unknown>[];
-  let countResult: Record<string, unknown>[];
-
   if (req.query.attachable === '1') {
     // What the provisional evidence attach accepts, narrowed on purpose to supplier evidence (it would also accept
     // sent invoices, sent emails, dunning letters and statements; the picker hides them).
@@ -84,7 +82,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
     const attachable = await listAttachableDocuments(companyId, { page, pageSize, after });
     return apiResponse.paginated(res, attachable.rows.map(r => mapRow(r)), { page, pageSize, total: attachable.total },
       undefined, { nextAfter: attachable.nextAfter });
-  } else if (status) {
+  }
+
+  let rows: Record<string, unknown>[];
+  let countResult: Record<string, unknown>[];
+
+  if (status) {
     rows = await sql`
       SELECT * FROM captured_documents
       WHERE status = ${status} AND company_id = ${companyId}
