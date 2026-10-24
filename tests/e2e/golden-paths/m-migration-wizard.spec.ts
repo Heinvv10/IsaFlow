@@ -26,7 +26,7 @@ import { test, expect } from '@playwright/test';
 import ExcelJS from 'exceljs';
 import { Api, gpRef } from './_api';
 import {
-  activeCompanyId, findOrCreateMigrationSandbox, switchApiCompany, switchBrowserCompany,
+  activeCompanyId, findLedgerRow, findOrCreateMigrationSandbox, switchApiCompany, switchBrowserCompany,
 } from './_migrationSandbox';
 
 /** Pastel accounts export: upper-case / padded headers, SA amount formats, one unreadable balance. */
@@ -196,10 +196,8 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
     expect(ar.imported, JSON.stringify(ar.errors)).toBe(1);
     arInvoiceId = (await arTakeOns()).find((i) => i.invoice_number === arNumber)?.id;
     expect(arInvoiceId, 'the take-on invoice must be listed').toBeTruthy();
-    const arLedger = await api.get<any>(
-      `/api/accounting/reports-account-ledger?account_code=1120&from=${effectiveDate}&to=${period.endDate}`,
-    );
-    const arLine = arLedger.rows.find((r: any) => r.description === `Take-on AR invoice ${arNumber}`);
+    const arLine = await findLedgerRow(api, '1120', effectiveDate, period.endDate,
+      (r) => r.description === `Take-on AR invoice ${arNumber}`);
     expect(arLine, 'the take-on journal must be on the 1120 ledger').toBeTruthy();
     expect(arLine.entryDate).toBe(isoDay);
     const arEntry = await api.get<any>(`/api/accounting/journal-entries-detail?id=${arLine.journalEntryId}`);
@@ -236,10 +234,7 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
     expect(imported.entriesCreated).toBe(1);
     expect(imported.heldForApproval).toEqual([]);
     // The journal list hides auto_* sources; the account ledger shows them.
-    const ledger = await api.get<any>(
-      `/api/accounting/reports-account-ledger?account_code=5200&from=${effectiveDate}&to=${period.endDate}`,
-    );
-    const line = ledger.rows.find((r: any) => r.reference === ref);
+    const line = await findLedgerRow(api, '5200', effectiveDate, period.endDate, (r) => r.reference === ref);
     expect(line, 'the imported journal must be on the 5200 ledger').toBeTruthy();
     importedEntryId = line.journalEntryId;
     expect(line.entryDate).toBe(isoDay); // DD/MM read day first
