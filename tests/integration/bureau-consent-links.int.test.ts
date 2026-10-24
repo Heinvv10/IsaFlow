@@ -175,6 +175,29 @@ describe('932: the breaker\'s repro (shared_pool_lookup 0 -> 1) stays at 0', () 
   });
 });
 
+describe('932: the pool lookup sees bureaus the caller cannot', () => {
+  it('a non-sharing bureau hidden from the caller by row security still keeps the company out', async () => {
+    // `company` stays linked to `sharing` (on) and `outside` (off; owner is not in it, so cannot see it).
+    await fixture.query('DELETE FROM bureau_companies WHERE bureau_id = $1 AND company_id = $2', [keeper, company]);
+    vi.stubEnv('MERCHANT_SHARING_ENABLED', 'true');
+    const c = await getAuthPool().connect();
+    try {
+      await c.query('BEGIN');
+      await c.query('SET LOCAL ROLE app_user');
+      await c.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: owner })]);
+      await c.query(`SELECT set_config('app.current_company_id', $1, true)`, [company]);
+      expect((await c.query('SELECT id FROM bureaus WHERE id = $1', [outside])).rows).toEqual([]);
+      expect((await c.query('SELECT count(*)::int AS n FROM shared_pool_lookup($1::uuid, ARRAY[$2::text])', [company, merchant])).rows)
+        .toEqual([{ n: 0 }]);
+    } finally {
+      await c.query('ROLLBACK');
+      c.release(true);
+      vi.stubEnv('MERCHANT_SHARING_ENABLED', '');
+      await fixture.query('INSERT INTO bureau_companies (bureau_id, company_id) VALUES ($1, $2)', [keeper, company]);
+    }
+  });
+});
+
 describe('932: the legitimate paths, through the real routes on the production logins', () => {
   const audit = async (bureauId: string) => (await fixture.query(
     'SELECT actor_user_id, old_value, new_value FROM bureau_audit_log WHERE bureau_id = $1 ORDER BY created_at, id', [bureauId])).rows;
