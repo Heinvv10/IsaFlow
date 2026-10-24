@@ -83,7 +83,8 @@ it('revokes the source\'s portal logins and leaves the target\'s alone', async (
   await h.merge({ source_id: source, target_id: target });
   const { rows } = await pool.query(
     'SELECT client_id, is_active FROM portal_access WHERE client_id = ANY($1) ORDER BY is_active', [[source, target]]);
-  expect(rows).toEqual([{ client_id: source, is_active: false }, { client_id: target, is_active: true }]);
+  // Removed, not deactivated, since S-07d (937): no app role may UPDATE portal_access.
+  expect(rows).toEqual([{ client_id: target, is_active: true }]);
 });
 
 it('moves the source\'s recurring invoices AND recurring transaction templates paused, counts both, leaves the target\'s running', async () => {
