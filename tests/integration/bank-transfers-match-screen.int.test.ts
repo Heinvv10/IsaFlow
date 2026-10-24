@@ -89,11 +89,25 @@ describeIfDb('the match screen offers the transfer guard\'s remedy, and only the
     const offered = (await fetchJournalLineCandidates(c.fx.companyId, 150, '2029-11-03', 'REM2 B IN', bankB))
       .map((x) => x.id);
     expect(offered).toContain(await lineOf(transfer, bankB));
-    // sec-nrfa round 16 forged a journal dated 'infinity' by an UPDATE of a posted journal, to prove it sorts
-    // last. Migration 941 now refuses that UPDATE (no fiscal period covers the date), so the row cannot exist.
+    // sec-nrfa round 16: a journal dated 'infinity' sorts last, not a failed query. Migration 941 refuses
+    // re-dating a POSTED journal there, but a draft re-dated and then posted still gets there (drafts are exempt,
+    // its period becomes NULL), so the read path must still cope with the row.
     const inf = await post('2029-11-03', prepaid, c.expense, 'PAIR forged infinity');
-    const forged = await sql`UPDATE gl_journal_entries SET entry_date = 'infinity' WHERE id = ${inf}::UUID`.catch((e: Error) => e);
-    expect(String(forged)).toMatch(/no fiscal period covers the new entry_date infinity/);
+    const refused = await sql`UPDATE gl_journal_entries SET entry_date = 'infinity' WHERE id = ${inf}::UUID`.catch((e: Error) => e);
+    expect(String(refused)).toMatch(/no fiscal period covers the new entry_date infinity/);
+    const draft = await inTx(c.fx, async () => String((await createJournalEntry(c.fx.companyId, { entryDate: '2029-11-03',
+      description: 'PAIR forged infinity (draft path)', source: 'manual', lines: [
+        { glAccountId: prepaid, debit: 150, credit: 0, description: 'dr' },
+        { glAccountId: c.expense, debit: 0, credit: 150, description: 'cr' }] } as never, c.fx.userId)).id));
+    try {
+      await sql`UPDATE gl_journal_entries SET entry_date = 'infinity' WHERE id = ${draft}::UUID`;
+      await sql`UPDATE gl_journal_entries SET status = 'posted' WHERE id = ${draft}::UUID`;
+      const again = (await fetchJournalLineCandidates(c.fx.companyId, 150, '2029-11-03', 'REM2 B IN', bankB)).map((x) => x.id);
+      expect(again).toContain(await lineOf(transfer, bankB));
+    } finally {
+      await sql`UPDATE gl_journal_entries SET status = 'draft' WHERE id = ${draft}::UUID`;
+      await sql`UPDATE gl_journal_entries SET entry_date = '2029-11-03' WHERE id = ${draft}::UUID`;
+    }
   }, 300000);
 
   // brk-nrfa round 18 L1: the "existing bank transfer" bonus is for the same movement only (the guard's ten days). An
