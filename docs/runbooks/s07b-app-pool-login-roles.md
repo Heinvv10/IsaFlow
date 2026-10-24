@@ -139,6 +139,33 @@ Migration 932 (bureau consent and client links, 2026-10-24) also takes effect on
   To revert, re-run 932 (it is idempotent). Until then every deploy's
   `app_pool_reach_violations()` check refuses the code switch.
 
+Migration 936 (company standing and billing columns, 2026-10-24) also takes effect on deploy:
+
+- No app role may INSERT, DELETE or TRUNCATE `companies`, or UPDATE its 13
+  standing and billing columns: `status`, `suspended_at`, `suspended_reason`,
+  `is_active`, `plan_id`, `trial_ends_at`, `stripe_customer_id`,
+  `payg_eligible`, `is_demo`, `fx_documents_enabled`, `metadata`,
+  `billing_email`, `billing_contact`. UPDATE comes back on every other column
+  except `id` and `created_at` (company settings, onboarding, chase, CIPC,
+  logo, PIS, client-query WhatsApp). The admin site (platform_admin) and signup provisioning
+  (migration_admin) write the 13; onboarding inserts through
+  `create_company_with_owner(jsonb)`. 936 refuses to apply unless they still can.
+- A column added to `companies` later gets no app privilege. Granting one
+  UPDATE is a violation until a migration adds it to the companies rule in
+  `app_pool_reach_violations()`.
+- The deploy window changes nothing: no release writes the 13, or inserts or
+  deletes a company, on an app pool.
+- On production `companies` is owned by migration_admin, not postgres. The
+  deploy role is a member of it, so 936's REVOKE runs as the owner.
+- Break-glass, only if something on an app pool must write one of the 13 before a fix ships:
+
+  ```sql
+  -- BREAK-GLASS: undoes 936's protection (a tenant can un-suspend its company). Revert before deploying.
+  GRANT INSERT, UPDATE, DELETE ON public.companies TO app_user;
+  ```
+  To revert, re-run 936 (it is idempotent). Until then every deploy's
+  `app_pool_reach_violations()` check refuses the code switch.
+
 - 930's rules join 920's in `app_pool_reach_violations()`, so every later
   deploy refuses the code switch if one of these privileges comes back.
 - Every SECURITY DEFINER function is listed in `app_definer_reviews` with a
@@ -286,7 +313,28 @@ SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, ac
          'public.bureau_audit_log']::regclass[])
    AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
    AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
--- After the deploy, 930's and 932's rules run on every deploy; by hand (zero rows):
+-- 936: a table or column grant on companies to a role either login reaches,
+-- other than app_user (936 revokes from app_user, app_service and PUBLIC only;
+-- zero rows). Also check the owner: 936 runs its REVOKE as the owner, so the
+-- deploy role must be a member of it (one row: t).
+SELECT 'companies' AS t, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
+ WHERE c.oid = 'public.companies'::regclass
+   AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'))
+UNION ALL
+SELECT 'companies.' || att.attname, a.grantee::regrole, a.privilege_type FROM pg_attribute att, aclexplode(att.attacl) a
+ WHERE att.attrelid = 'public.companies'::regclass AND att.attacl IS NOT NULL
+   AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
+SELECT pg_has_role('postgres', relowner, 'USAGE') FROM pg_class WHERE oid = 'public.companies'::regclass;
+-- 936: the writers of the 13 (936 refuses to apply without them; zero rows)
+SELECT w.role, w.priv, c.col FROM (VALUES
+    ('platform_admin', 'UPDATE', 'status,suspended_at,suspended_reason,is_active,plan_id,trial_ends_at,stripe_customer_id,payg_eligible,is_demo,fx_documents_enabled,metadata,billing_email,billing_contact'),
+    ('platform_admin', 'INSERT', 'name,registered_name,trading_name,email,phone,country,default_currency,status,annual_turnover_cents,payg_eligible'),
+    ('migration_admin', 'INSERT', 'name,email,phone,is_active,annual_turnover_cents,payg_eligible,trial_ends_at')) w(role, priv, cols),
+  unnest(string_to_array(w.cols, ',')) c(col)
+ WHERE NOT has_column_privilege(w.role, 'public.companies', c.col, w.priv);
+-- After the deploy, 930's, 932's and 936's rules run on every deploy; by hand (zero rows):
 --   SELECT * FROM public.app_pool_reach_violations();
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (
