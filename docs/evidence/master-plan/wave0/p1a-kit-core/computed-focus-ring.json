@@ -1,0 +1,46 @@
+[
+  {
+    "theme": "light",
+    "field": "date",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px",
+      "shadow": "none"
+    },
+    "echo": "Monday, 23 November 2026"
+  },
+  {
+    "theme": "light",
+    "field": "button via Tab",
+    "btn": {
+      "text": "Save draft",
+      "width": "3px",
+      "color": "rgb(13, 148, 136)",
+      "style": "solid"
+    }
+  },
+  {
+    "theme": "dark",
+    "field": "date",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px",
+      "shadow": "none"
+    },
+    "echo": "Monday, 23 November 2026"
+  },
+  {
+    "theme": "dark",
+    "field": "button via Tab",
+    "btn": {
+      "text": "Save draft",
+      "width": "3px",
+      "color": "rgb(45, 212, 191)",
+      "style": "solid"
+    }
+  }
+]

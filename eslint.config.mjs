@@ -2,6 +2,7 @@ import { FlatCompat } from '@eslint/eslintrc';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
 import pluginReactHooks from 'eslint-plugin-react-hooks';
+import isaflowPlugin from './eslint/isaflow-plugin.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -103,6 +104,15 @@ export default [
   {
     files: ['src/modules/billing/services/paystack{Client,Http,Transactions,Subscriptions}.ts'],
     rules: { 'no-restricted-imports': 'off', 'no-restricted-syntax': 'off' },
+  },
+
+  // Master plan P1a: forms use the kit (src/components/ui), not raw <input>. Existing violators
+  // are listed in eslint/raw-input-allowlist.json (the rule reads it); the list only shrinks,
+  // enforced by scripts/ci/check-raw-input-allowlist.ts. The kit itself is exempt in the rule.
+  {
+    files: ['src/**/*.tsx', 'pages/**/*.tsx'],
+    plugins: { isaflow: isaflowPlugin },
+    rules: { 'isaflow/no-raw-form-input': 'error' },
   },
 
   // Files allowed to use console (logger internals).
