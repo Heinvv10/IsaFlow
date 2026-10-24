@@ -70,6 +70,10 @@ describe('932: migration', () => {
     ['bureau_users without row security', 'ALTER TABLE public.bureau_users DISABLE ROW LEVEL SECURITY', /932: bureau_users has no row security/],
     ['bureau_companies without row security', 'ALTER TABLE public.bureau_companies DISABLE ROW LEVEL SECURITY',
       /932: bureau_companies has no row security/],
+    // A trigger created by an app role fires inside the migration_admin pool's writes (breaker round 1).
+    ['a trigger creatable on a table migration_admin writes', 'GRANT TRIGGER ON public.bureau_companies TO app_user',
+      R(APP, 'TRIGGER bureau_companies$')],
+    ['a trigger creatable on any table', 'GRANT TRIGGER ON public.customers TO isaflow_service', R('isaflow_service', 'TRIGGER customers$')],
     // 930's rules are kept: one of each kind.
     ['930: a PAT mintable', 'GRANT INSERT ON public.personal_access_tokens TO app_user', R(APP, 'INSERT personal_access_tokens\\.')],
     ['930: the waitlist without row security', 'ALTER TABLE public.waitlist_signups DISABLE ROW LEVEL SECURITY',
