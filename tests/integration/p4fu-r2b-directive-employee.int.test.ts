@@ -152,7 +152,7 @@ describe('R6: the live updateTaxDirectiveStatus cancels through the paid guard',
 
 describe('round 2 review: the create route\'s body and the employee record', () => {
   it('a non-string text field is a 400, not a 500 (security 2)', async () => {
-    for (const bad of [{ employee_tax_number: 123 }, { directive_number: [] },
+    for (const bad of [{ directive_number: [] },
       { effective_date: 20260501 }, { expiry_date: true }, { sars_reference: 1 }, { notes: {} }, { issued_date: 5 }]) {
       const r = await post({ ...BODY, employee_id: f.employee, ...bad });
       expect(r.statusCode, JSON.stringify(bad)).toBe(400);

@@ -4,8 +4,8 @@
  * POST — create a new directive. employee_id is required and must be one of
  *        the company's payroll employees (400): a run pays a directive only to
  *        its employee and the stand-alone payment refuses one without. The name
- *        is that employee's (a body name is ignored); the tax number defaults
- *        from it, and a different one is 400. An 'inactive' employee is 400.
+ *        and tax number are that employee's record's (body values are
+ *        ignored). An 'inactive' employee is 400.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -25,9 +25,9 @@ import { getDirectivePayee } from '@/modules/accounting/services/payroll/payroll
 
 const VALID_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
 const VALID_STATUSES = ['pending', 'approved', 'expired', 'cancelled'] as const;
-// employee_name is not among them: it is ignored (the record's name is stored).
+// employee_name and employee_tax_number are not among them: both are ignored (the record's are stored).
 const TEXT_FIELDS = [
-  'employee_tax_number', 'directive_number', 'effective_date', 'issued_date', 'expiry_date', 'sars_reference', 'notes',
+  'directive_number', 'effective_date', 'issued_date', 'expiry_date', 'sars_reference', 'notes',
 ] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,18 +68,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (employee.status === 'inactive') {
       return apiResponse.badRequest(res, 'employee_id is an inactive employee: a directive is for an active employee or a leaver');
     }
-    // The name is the employee record's, whatever the body says (breaker REPRO 3: the body could name
-    // someone else); the tax number defaults from the record, and one that is not the record's would file
-    // the payment against someone else.
-    const suppliedTaxNumber = body.employee_tax_number?.trim() || '';
-    if (suppliedTaxNumber && employee.taxNumber && suppliedTaxNumber !== employee.taxNumber) {
-      return apiResponse.badRequest(res, 'employee_tax_number is not the tax number on this employee\'s payroll record');
-    }
-    // The record decides: with no tax number on it there is nothing to check a supplied one against, and the
-    // certificate (3150) reads the record's, not the directive's. Put it on the employee first.
-    if (suppliedTaxNumber && !employee.taxNumber) {
-      return apiResponse.badRequest(res, 'employee_tax_number cannot be checked: this employee\'s payroll record has no tax number. Add it to the employee first');
-    }
+    // Name and tax number are the employee record's, whatever the body says (breaker REPRO 3 and round 2:
+    // the body could name someone else, or carry a number the record does not hold).
     if (!body.directive_type || !VALID_TYPES.includes(body.directive_type)) {
       return apiResponse.badRequest(
         res,
@@ -104,7 +94,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const input: TaxDirectiveCreateInput = {
       employee_id: body.employee_id,
       employee_name: employee.name,
-      employee_tax_number: suppliedTaxNumber || employee.taxNumber || undefined,
+      employee_tax_number: employee.taxNumber ?? undefined,
       directive_number: body.directive_number,
       directive_type: body.directive_type,
       amount: Number(body.amount),
