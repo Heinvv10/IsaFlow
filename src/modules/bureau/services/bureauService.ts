@@ -2,12 +2,15 @@
  * Bureau service — read/write helpers for bureaus, bureau_companies, bureau_users.
  *
  * Used by:
- *   • Signup flow: createBureauForOwner() when user picks "I am an accountant".
  *   • Admin: convertUserToBureauOwner() — manual conversion of an existing user.
  *   • /bureau/* pages: listBureausForUser(), listBureauCompanies().
  *
  * No company_id scoping (bureaus are user-scoped, not tenant-scoped). Callers
  * must enforce that the calling user is a member of the bureau before reading.
+ * Writes: no app role may write bureaus, bureau_users or bureau_companies
+ * (migration 932). createBureauForOwner runs on the admin convert route's
+ * platform_admin transaction; client links and the sharing consent run on the
+ * migration_admin pool (bureauCompanyLinkService, bureauSettingsService).
  */
 
 import { sql } from '@/lib/neon';
@@ -145,18 +148,7 @@ export async function listBureauCompanies(bureauId: string): Promise<BureauCompa
   }));
 }
 
-export { linkCompanyToBureau } from './bureauCompanyLinkService';
-
-/** Remove a company from a bureau. Does NOT delete the company. */
-export async function unlinkCompanyFromBureau(opts: {
-  bureauId: string;
-  companyId: string;
-}): Promise<void> {
-  await sql`
-    DELETE FROM bureau_companies
-     WHERE bureau_id = ${opts.bureauId} AND company_id = ${opts.companyId}
-  `;
-}
+export { linkCompanyToBureau, unlinkCompanyFromBureau } from './bureauCompanyLinkService';
 
 /** Members of a bureau, joined with user names/emails. */
 export async function listBureauMembers(bureauId: string): Promise<BureauMember[]> {

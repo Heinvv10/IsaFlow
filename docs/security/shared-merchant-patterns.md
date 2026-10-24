@@ -163,6 +163,13 @@ The rule is "when unsure, reject". About 100 unit cases cover it. On top of that
 - **The census pins the doors.** `tests/unit/sharedPool/sharedPoolTableGuard.test.ts` checks the
   columns, the deny-all grants, and that only the job calls publish and only the reader calls lookup.
 
+- **Only the owner can consent, and only an owner or admin can link (migration 932).** No app role may
+  write `bureaus`, `bureau_users` or `bureau_companies`: forged claims on an app pool could otherwise
+  switch any bureau's `share_merchant_patterns` on, or link a company to a sharing bureau (or unlink it
+  from the one keeping it out) and so read the pool. The toggle, link and unlink run on the
+  migration_admin pool with the authorization read live in the statement;
+  `tests/integration/bureau-consent-links.int.test.ts` shows the lookup stays empty.
+
 ## Residual risks (summary)
 
 1. k = 5 rather than 10 (Hein's choice). Small-cohort inference is possible in principle; see T2.

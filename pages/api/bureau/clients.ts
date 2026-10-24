@@ -3,8 +3,11 @@
  * POST   /api/bureau/clients                — link a company { bureauId, companyId }
  * DELETE /api/bureau/clients                — unlink { bureauId, companyId }
  *
- * Auth: caller must be a member of the bureau (any role) for GET; for POST/DELETE
- * caller must be the bureau owner.
+ * Auth: caller must be a member of the bureau (any role) for GET; for POST the
+ * bureau owner who is also the company's owner or admin; for DELETE the bureau
+ * owner, or the company's owner or admin (a company can always withdraw). The
+ * link services re-check that inside their one write statement, on the
+ * migration_admin pool (migration 932).
  */
 
 import type { NextApiResponse } from 'next';
@@ -80,13 +83,14 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     if (!parsed.success) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
-    if (!(await isBureauOwner(userId, parsed.data.bureauId))) {
-      return apiResponse.forbidden(res, 'Only the bureau owner can unlink clients');
-    }
-    await unlinkCompanyFromBureau({
+    const authorized = await unlinkCompanyFromBureau({
       bureauId: parsed.data.bureauId,
       companyId: parsed.data.companyId,
+      removedBy: userId,
     });
+    if (!authorized) {
+      return apiResponse.forbidden(res, "Only the bureau owner or the company's owner or admin can unlink a client");
+    }
     return apiResponse.success(res, { unlinked: true });
   }
 
