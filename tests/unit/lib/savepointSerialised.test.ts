@@ -160,5 +160,15 @@ describe('withSavepoint on one request connection', () => {
     const marks = pg.log.filter((t) => /SAVEPOINT/.test(t)).map((t) => t.replace(/sp_sqltx_\d+/, 'sp_sqltx'));
     expect(marks).toEqual(['SAVEPOINT sp_a', 'RELEASE SAVEPOINT sp_a', 'SAVEPOINT sp_sqltx', 'RELEASE SAVEPOINT sp_sqltx']);
   });
+
+  it('a failed sql.transaction batch rolls back AND releases its savepoint (no open subtransaction is left)', async () => {
+    const pg = pgLikeClient();
+    const results = await inRequest(pg.client, () => Promise.allSettled([
+      sql.transaction([sql`SELECT ok`, sql`SELECT FAIL`]),
+      withSavepoint('after', read(3)),
+    ]));
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'fulfilled']);
+    expect(pg.stack).toEqual([]);
+  });
 });
 
