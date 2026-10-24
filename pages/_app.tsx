@@ -13,6 +13,7 @@ import { TrackerScript } from '@/components/analytics/TrackerScript';
 import { isSharePath } from '@/lib/paths/isSharePath';
 import { dmSans } from '@/lib/fonts';
 import '../styles/globals.css';
+import '../styles/themeContrast.css';
 import '../styles/print.css';
 
 /**

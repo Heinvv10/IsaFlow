@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus, AlertTriangle, CheckCircle, CircleDollarSign } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
-import { KpiStrip } from '@/components/ui';
+import { KpiStrip, PageHeader } from '@/components/ui';
 import Link from 'next/link';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -67,27 +67,21 @@ export default function CustomerInvoicesPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-500/10">
-                  <FileText className="h-6 w-6 text-blue-500" />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Tax Invoices</h1>
-                  <p className="text-sm text-[var(--ff-text-secondary)]">Customer invoices across all projects</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <ExportCSVButton endpoint="/api/accounting/customer-invoices-export" filenamePrefix="customer-invoices" params={arFiltersToApiParams(filters)} label="Export CSV" />
-                <Link href="/accounting/customer-invoices/new" className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm">
-                  <Plus className="h-4 w-4" /> New Invoice
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={FileText}
+          title="Tax Invoices"
+          subtitle="Customer invoices across all projects"
+          chipColor="bg-blue-500/10 text-blue-700 dark:text-blue-400"
+          className="mb-0"
+          actions={
+            <>
+              <ExportCSVButton endpoint="/api/accounting/customer-invoices-export" filenamePrefix="customer-invoices" params={arFiltersToApiParams(filters)} label="Export CSV" />
+              <Link href="/accounting/customer-invoices/new" className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm">
+                <Plus className="h-4 w-4" /> New Invoice
+              </Link>
+            </>
+          }
+        />
 
         <div className="p-6">
           {/* KPI strip */}

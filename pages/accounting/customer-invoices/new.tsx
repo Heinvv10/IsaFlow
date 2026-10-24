@@ -4,8 +4,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { ArrowLeft, FileText, Loader2, Info, Receipt } from 'lucide-react';
+import { FileText, Loader2, Info, Receipt } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { ApiEnvelopeError, apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
@@ -112,26 +112,13 @@ export default function NewCustomerInvoicePage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
-        {/* Page header */}
-        <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-6 py-7">
-          <div className="absolute inset-0 opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
-          <div className="absolute -top-12 right-8 w-72 h-72 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="relative z-10">
-            <Link href="/accounting/customer-invoices" className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-200 mb-4 transition-colors">
-              <ArrowLeft className="h-3.5 w-3.5" /> Back to Invoices
-            </Link>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center"><FileText className="w-5 h-5 text-amber-400" /></div>
-                <div>
-                  <p className="text-amber-400 text-xs font-semibold uppercase tracking-widest mb-0.5">New Document</p>
-                  <h1 className="text-xl font-bold text-slate-900 dark:text-white">Customer Invoice</h1>
-                </div>
-              </div>
-              <ScanAndFillButton onExtracted={handleExtracted} label="Scan Invoice" />
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={FileText}
+          title="New Customer Invoice"
+          breadcrumb={[{ label: 'Invoices', href: '/accounting/customer-invoices' }, { label: 'New invoice' }]}
+          actions={<ScanAndFillButton onExtracted={handleExtracted} label="Scan Invoice" />}
+          className="mb-0"
+        />
 
         <div className="p-6 xl:p-8">
           <div className="max-w-6xl mx-auto flex gap-6 items-start">
@@ -169,12 +156,12 @@ export default function NewCustomerInvoicePage() {
                     </select>
                   </div>
                   <div>
-                    <label className={lbl}>Job <span className="normal-case font-normal opacity-60">(display; new lines start on it)</span></label>
+                    <label className={lbl}>Job <span className="normal-case font-normal">(display; new lines start on it)</span></label>
                     <CodingPicker label="Invoice job" value={form.projectId} options={codingOptions.projects} all={codingOptions} empty="No job" onChange={pickProject} />
                   </div>
                   {isFx && (
                     <div>
-                      <label className={lbl}>Exchange Rate <span className="normal-case font-normal opacity-60">({form.currencyCode} → ZAR)</span></label>
+                      <label className={lbl}>Exchange Rate <span className="normal-case font-normal">({form.currencyCode} → ZAR)</span></label>
                       <input type="number" name="exchangeRate" min={0.000001} step={0.000001} value={form.exchangeRate} onChange={e => setForm(p => ({ ...p, exchangeRate: Number(e.target.value) }))} placeholder="e.g. 18.5" className={inp} />
                     </div>
                   )}
@@ -246,7 +233,7 @@ export default function NewCustomerInvoicePage() {
                   </button>
                 </div>
 
-                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center px-2">Invoice will be saved as a draft. You can email it from the invoice detail page.</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 text-center px-2">Invoice will be saved as a draft. You can email it from the invoice detail page.</p>
               </div>
             </div>
           </div>

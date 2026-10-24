@@ -7,6 +7,7 @@ import { Fragment, type ReactNode } from 'react';
 import type { ComparatorKey, StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { COMPARATORS } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { StatementRowView } from './StatementRowView';
+import { STICKY_FIRST_HEAD, STICKY_HEAD, STICKY_WRAP } from './stickyTable';
 
 export interface StatementGridProps {
   rows: StatementRow[];
@@ -23,9 +24,12 @@ export interface StatementGridProps {
    * is what the share and PDF surfaces do — annotations are internal. */
   onOpenNote?: (rowId: string) => void;
   cents?: boolean;
+  /** Sticky header row and first column, inside a viewport-capped scroll area. For the on-screen
+   * report pages; the share, slide and pack surfaces render the table at its full height. */
+  sticky?: boolean;
 }
 
-export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false }: StatementGridProps) {
+export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false, sticky = false }: StatementGridProps) {
   const active = COMPARATORS.filter(c => columns[c.key]);
   // One bar scale PER COMPARATOR. Sharing one scale across prior and budget
   // would draw a small budget movement at the size of a large prior one.
@@ -39,25 +43,25 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
     ]),
   ) as Record<ComparatorKey, number>;
   return (
-    <div className="overflow-x-auto rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
+    <div data-sticky-frame={sticky ? '' : undefined} className={`${sticky ? STICKY_WRAP : 'overflow-x-auto'} rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]`}>
       <table className="w-full border-collapse">
         <thead>
           <tr className="text-xs uppercase tracking-wide text-[var(--ff-text-tertiary)] border-b border-[var(--ff-border-secondary)]">
-            <th className="text-left pl-3 py-2 font-medium">{title ?? ''}</th>
-            <th className="text-right pr-3 py-2 font-medium">Actual</th>
+            <th className={`text-left pl-3 py-2 font-medium ${sticky ? STICKY_FIRST_HEAD : ''}`}>{title ?? ''}</th>
+            <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Actual</th>
             {active.map(c => (
               <Fragment key={c.key}>
-                <th className="text-right pr-3 py-2 font-medium">{c.label}</th>
+                <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>{c.label}</th>
                 {columns.variance && (
                   <>
-                    <th className="text-right pr-3 py-2 font-medium">{`Δ ${c.label}`}</th>
-                    <th className="py-2 font-medium">Variance</th>
-                    <th className="text-right pr-3 py-2 font-medium">Δ%</th>
+                    <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>{`Δ ${c.label}`}</th>
+                    <th className={`py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Variance</th>
+                    <th className={`text-right pr-3 py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>Δ%</th>
                   </>
                 )}
               </Fragment>
             ))}
-            {columns.trend && <th className="py-2 font-medium">12 mo</th>}
+            {columns.trend && <th className={`py-2 font-medium ${sticky ? STICKY_HEAD : ''}`}>12 mo</th>}
           </tr>
         </thead>
         <tbody>
@@ -65,6 +69,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
             const expanded = row.accountCode !== undefined && row.accountCode === expandedAccount;
             return (
               <StatementRowView key={row.id} row={row} columns={columns} maxVariance={maxVariance} cents={cents}
+                stickyFirst={sticky}
                 expanded={expanded}
                 onToggle={onToggleAccount}
                 onEvidence={onEvidence}

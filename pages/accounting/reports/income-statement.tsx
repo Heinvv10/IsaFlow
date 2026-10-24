@@ -6,8 +6,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -108,7 +108,6 @@ export default function IncomeStatementPage() {
       asOf: periodEnd, basis: 'movement', periodStart, periodEnd,
     });
   const showComparative = columns.prior;
-  const anyColumn = columns.prior || columns.budget || columns.trend;
   const returnTo = reportHref('is', { period_start: periodStart, period_end: periodEnd,
     cost_centre_id: costCentreId, business_unit_id: businessUnitId });
 
@@ -178,38 +177,30 @@ export default function IncomeStatementPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
-          <div className="px-6 py-4">
-            <Link href="/accounting?tab=reports" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2">
-              <ArrowLeft className="h-4 w-4" /> Back to Reports
-            </Link>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-teal-500/10">
-                  <BarChart3 className="h-6 w-6 text-teal-500" />
-                </div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Income Statement</h1>
-              </div>
-              <div className="flex items-center gap-2">
-                <PresentLink from={periodStart} to={periodEnd} />
-                <button onClick={handleXlsxExport} disabled={!report}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
-                  <FileSpreadsheet className="h-4 w-4" /> Export Excel
-                </button>
-                <button onClick={handleExport} disabled={!report}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
-                  <Download className="h-4 w-4" /> Export CSV
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          icon={BarChart3}
+          title="Income Statement"
+          breadcrumb={[{ label: 'Reports', href: '/accounting?tab=reports' }, { label: 'Income Statement' }]}
+          chipColor="bg-teal-500/10 text-teal-700 dark:text-teal-400"
+          className="mb-0"
+          actions={
+            <>
+              <PresentLink from={periodStart} to={periodEnd} />
+              <button onClick={handleXlsxExport} disabled={!report}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                <FileSpreadsheet className="h-4 w-4" /> Export Excel
+              </button>
+              <button onClick={handleExport} disabled={!report}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
+                <Download className="h-4 w-4" /> Export CSV
+              </button>
+            </>
+          }
+        />
 
-        {/* The statement is a narrow column until a comparator is on. With
-            prior, budget and trend all showing, eleven columns inside
-            max-w-4xl push the trend off the right edge of a container the
-            reader has no reason to suspect scrolls. */}
-        <div className={`p-6 space-y-6 ${anyColumn ? 'max-w-7xl' : 'max-w-4xl'}`}>
+        {/* Full width: with prior, budget and trend all showing there are eleven columns, and the
+            grid scrolls inside its own frame with the header row and the label column pinned. */}
+        <div className="p-6 space-y-6">
           {/* Date Range + Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>

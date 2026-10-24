@@ -1,43 +1,77 @@
 import { createContext, useCallback, useContext, useEffect, useState, useMemo, ReactNode } from 'react';
-
-type Theme = 'dark' | 'light';
+import { log } from '@/lib/logger';
+import {
+  DEFAULT_THEME_PREFERENCE,
+  SYSTEM_DARK_QUERY,
+  THEME_STORAGE_KEY,
+  applyTheme,
+  parseThemePreference,
+  resolveTheme,
+  type Theme,
+  type ThemePreference,
+} from '@/lib/theme/themePreference';
 
 interface ThemeContextType {
+  /** The theme in effect: the preference with 'system' resolved against the OS. */
   theme: Theme;
+  /** What the user chose: Light, Dark or System. */
+  preference: ThemePreference;
+  setPreference: (next: ThemePreference) => void;
+  /** Flips the resolved theme into an explicit Light or Dark preference. */
   toggleTheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'accounting-theme';
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('dark');
+  const [preference, setPreferenceState] = useState<ThemePreference>(DEFAULT_THEME_PREFERENCE);
+  const [systemDark, setSystemDark] = useState(false);
+  // Nothing touches <html> until the saved choice has been read: public/theme-init.js already
+  // applied it before first paint, and applying the default first is what used to overwrite a
+  // saved light preference under StrictMode.
+  const [hydrated, setHydrated] = useState(false);
 
-  // Read saved theme on mount
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as Theme | null;
-    if (saved === 'light' || saved === 'dark') {
-      setTheme(saved);
+    try {
+      setPreferenceState(parseThemePreference(window.localStorage.getItem(THEME_STORAGE_KEY)));
+    } catch (error) {
+      log.warn('Could not read the saved theme', { error }, 'theme');
     }
+    setSystemDark(window.matchMedia(SYSTEM_DARK_QUERY).matches);
+    setHydrated(true);
   }, []);
 
-  // Apply class to <html> element
+  // Follow the OS live; only matters while the preference is 'system'.
   useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
+    const query = window.matchMedia(SYSTEM_DARK_QUERY);
+    const onChange = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+
+  const theme = resolveTheme(preference, systemDark);
+
+  useEffect(() => {
+    if (hydrated) applyTheme(document.documentElement, theme);
+  }, [hydrated, theme]);
+
+  const setPreference = useCallback((next: ThemePreference) => {
+    setPreferenceState(next);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch (error) {
+      log.warn('Could not save the theme', { error }, 'theme');
     }
-    localStorage.setItem(STORAGE_KEY, theme);
-  }, [theme]);
+  }, []);
 
   const toggleTheme = useCallback(() => {
-    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
-  }, []);
+    setPreference(theme === 'dark' ? 'light' : 'dark');
+  }, [setPreference, theme]);
 
-  const value = useMemo(() => ({ theme, toggleTheme }), [theme, toggleTheme]);
+  const value = useMemo(
+    () => ({ theme, preference, setPreference, toggleTheme }),
+    [theme, preference, setPreference, toggleTheme],
+  );
 
   return (
     <ThemeContext.Provider value={value}>

@@ -5,8 +5,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { STICKY_WRAP } from '@/components/accounting/statement/stickyTable';
+import { BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { countPostedAccounts, derivedAccountNote } from '@/components/reports/generalLedgerRows';
 
@@ -124,28 +125,19 @@ export default function GeneralLedgerPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <Link
-            href="/accounting"
-            className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2"
-          >
-            <ArrowLeft className="h-4 w-4" /> Back to Accounting
-          </Link>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-violet-500/10">
-                <BookOpen className="h-6 w-6 text-violet-500" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">General Ledger</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">
-                  {reports.length > 0
-                    ? `${postedVisible === postedTotal ? postedTotal : `${postedVisible} of ${postedTotal}`} account${postedTotal === 1 ? '' : 's'}${derivedAccountNote(reports)} with activity in this period`
-                    : 'Account transactions for the selected period'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
+        <PageHeader
+          icon={BookOpen}
+          title="General Ledger"
+          subtitle={
+            reports.length > 0
+              ? `${postedVisible === postedTotal ? postedTotal : `${postedVisible} of ${postedTotal}`} account${postedTotal === 1 ? '' : 's'}${derivedAccountNote(reports)} with activity in this period`
+              : 'Account transactions for the selected period'
+          }
+          breadcrumb={[{ label: 'Accounting', href: '/accounting' }, { label: 'General Ledger' }]}
+          chipColor="bg-violet-500/10 text-violet-700 dark:text-violet-400"
+          className="mb-0"
+          actions={
+            <>
               <input
                 type="search"
                 value={filter}
@@ -165,9 +157,9 @@ export default function GeneralLedgerPage() {
               >
                 <Download className="h-4 w-4" /> Export CSV
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <div className="p-6">
           {error && (
@@ -230,34 +222,36 @@ export default function GeneralLedgerPage() {
                     </button>
 
                     {isOpen && r.transactions.length > 0 && (
-                      <table className="w-full text-sm border-t border-[var(--ff-border-light)]">
-                        <thead>
-                          <tr className="bg-[var(--ff-bg-tertiary)]">
-                            <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Date</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Entry #</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Description</th>
-                            <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Debit</th>
-                            <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Credit</th>
-                            <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">Balance</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[var(--ff-border-light)]">
-                          <tr className="text-xs text-[var(--ff-text-tertiary)]">
-                            <td className="px-4 py-2" colSpan={5}>Opening Balance</td>
-                            <td className="px-4 py-2 text-right font-mono">{fmt(r.openingBalance)}</td>
-                          </tr>
-                          {r.transactions.map((t, i) => (
-                            <tr key={i} className={`hover:bg-[var(--ff-bg-tertiary)]${t.derived ? ' italic' : ''}`}>
-                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.date?.split('T')[0]}</td>
-                              <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{t.entryNumber}</td>
-                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.description}</td>
-                              <td className="px-4 py-2 text-right font-mono">{t.debit > 0 ? fmt(t.debit) : ''}</td>
-                              <td className="px-4 py-2 text-right font-mono">{t.credit > 0 ? fmt(t.credit) : ''}</td>
-                              <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(t.balance)}</td>
+                      <div data-sticky-frame className={`border-t border-[var(--ff-border-light)] ${STICKY_WRAP}`}>
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-[var(--ff-bg-tertiary)]">
+                              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky left-0 top-0 z-30 bg-[var(--ff-bg-tertiary)] print:static">Date</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Entry #</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Description</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Debit</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Credit</th>
+                              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Balance</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="divide-y divide-[var(--ff-border-light)]">
+                            <tr className="text-xs text-[var(--ff-text-tertiary)]">
+                              <td className="px-4 py-2 sticky left-0 bg-[var(--ff-bg-secondary)] print:static" colSpan={5}>Opening Balance</td>
+                              <td className="px-4 py-2 text-right font-mono">{fmt(r.openingBalance)}</td>
+                            </tr>
+                            {r.transactions.map((t, i) => (
+                              <tr key={i} className={`group hover:bg-[var(--ff-bg-tertiary)]${t.derived ? ' italic' : ''}`}>
+                                <td className="px-4 py-2 text-[var(--ff-text-primary)] sticky left-0 z-10 bg-[var(--ff-bg-secondary)] group-hover:bg-[var(--ff-bg-tertiary)] print:static">{t.date?.split('T')[0]}</td>
+                                <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{t.entryNumber}</td>
+                                <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.description}</td>
+                                <td className="px-4 py-2 text-right font-mono">{t.debit > 0 ? fmt(t.debit) : ''}</td>
+                                <td className="px-4 py-2 text-right font-mono">{t.credit > 0 ? fmt(t.credit) : ''}</td>
+                                <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(t.balance)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
                 );

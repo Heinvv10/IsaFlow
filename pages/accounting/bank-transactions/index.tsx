@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import {
@@ -20,7 +21,7 @@ import { BankTxModals } from '@/components/accounting/bank-transactions/BankTxMo
 import { buildBankTxActions } from '@/components/accounting/bank-transactions/useBankTxActions';
 import { useRelinkTransfers } from '@/components/accounting/bank-transactions/useRelinkTransfers';
 import { useBankTxRefData } from '@/components/accounting/bank-transactions/useBankTxRefData';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, Landmark } from 'lucide-react';
 import { BankTxSuppliersNotice, type SuppliersStatus } from '@/components/accounting/bank-transactions/BankTxSuppliersNotice';
 import { BankEmptyState } from '@/components/accounting/banking/BankEmptyState';
 import { AutoPostRunsPanel } from '@/components/accounting/bank-transactions/AutoPostRunsPanel';
@@ -245,6 +246,7 @@ export default function BankTransactionsPage() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+        <PageHeader icon={Landmark} title="Bank Transactions" subtitle="Allocate, match and reconcile bank lines" className="mb-0" />
         <BankTxBankCards bankAccounts={bankAccounts} selectedBank={selectedBank} tab={tab} total={total} onSelectBank={setSelectedBank} />
 
         {/* Tabs */}
