@@ -24,6 +24,15 @@ describe('mergeDisclosureNotes', () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
+  it('a manual note below 8 keeps its number unless a generated note has it', () => {
+    const generated = [auto(1), auto(2), auto(4)];
+    expect(numbers(mergeDisclosureNotes(generated, [manual(3), manual(4)]))).toEqual(['a1', 'a2', 'm3', 'a4', 'm5']);
+  });
+
+  it('the list comes back in number order, manual notes placed among the generated ones', () => {
+    expect(numbers(mergeDisclosureNotes([auto(1), auto(5)], [manual(3)]))).toEqual(['a1', 'm3', 'a5']);
+  });
+
   it('does not change its inputs', () => {
     const m = [manual(8)];
     mergeDisclosureNotes(autos(8), m);
