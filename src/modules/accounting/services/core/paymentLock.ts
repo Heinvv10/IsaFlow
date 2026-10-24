@@ -218,6 +218,16 @@ export async function lockSupplierPaymentForUpdate(
  * concurrent transaction can leave available, and refusing on a ceiling is the
  * safe direction. Two REFUNDS are the unsafe pair, and both take this lock.
  *
+ * The SUPPLIER row is taken `FOR NO KEY UPDATE`, not `FOR UPDATE` (2026-10-24):
+ * it serialises refund against refund exactly as before, but does not block the
+ * `FOR KEY SHARE` a payment application takes on the supplier before its
+ * payment and bills (`supplierFirst`) or an INSERT's foreign key takes. A bank
+ * rule sweep pays a bill on one line and plans a refund on the next, so with
+ * `FOR UPDATE` it held the bill and waited on the supplier while an application
+ * held the supplier and waited on the bill: 40P01. Neither a new payment nor a
+ * new bill can lower the on-account credit this reads, so letting them through
+ * keeps the ceiling argument above intact.
+ *
  * Mirrors `lockSupplierPaymentForUpdate` exactly: same 5s `lock_timeout`, same
  * `isLockContention` mapping so a timeout and a deadlock victim reach the
  * caller as one retryable refusal rather than a 500.
@@ -236,7 +246,7 @@ export async function lockContactForRefund(
       ? await sql`
         SELECT s.id, s.name FROM suppliers s
         WHERE s.id = ${contactId}::UUID AND s.company_id = ${companyId}::UUID
-        FOR UPDATE OF s`
+        FOR NO KEY UPDATE OF s`
       : await sql`
         SELECT c.id, c.name FROM customers c
         WHERE c.id = ${contactId}::UUID AND c.company_id = ${companyId}::UUID

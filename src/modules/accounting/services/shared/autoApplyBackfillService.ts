@@ -165,7 +165,7 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
   // Visited in contact-id order (stable: oldest first within a contact), reported in the population's order. The
   // run is one transaction and keeps every source's locks, and an AP source key-shares its supplier first: in id
   // order, as a supplier merge and the take-on import lock suppliers, or a merge of two of them deadlocks with it.
-  const key = (s: BackfillSource) => s.entityId ?? '';
+  const key = (s: BackfillSource) => (s.entityId ?? '').toLowerCase();
   const visitOrder = [...sources.entries()]
     .sort(([, a], [, b]) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)); // byte order, as uuid's ORDER BY
   for (const [index, source] of visitOrder) {

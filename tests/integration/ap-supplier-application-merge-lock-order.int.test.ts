@@ -18,7 +18,7 @@ import { Pool } from 'pg';
 
 type At = 'source2' | 'plan';
 type Park = null | { at: At; entered: () => void; hold: Promise<void> };
-const gate = vi.hoisted(() => ({ locks: 0, park: null as Park }));
+const gate = vi.hoisted(() => ({ first: null as string | null, park: null as Park }));
 async function pass(at: At) {
   const park = gate.park;
   if (park?.at === at) { gate.park = null; park.entered(); await park.hold; }
@@ -26,8 +26,12 @@ async function pass(at: At) {
 vi.mock('@/modules/accounting/services/core/paymentLock', async (orig) => {
   const actual = await orig<typeof import('@/modules/accounting/services/core/paymentLock')>();
   return { ...actual, lockSupplierPaymentForUpdate: async (...a: Parameters<typeof actual.lockSupplierPaymentForUpdate>) => {
-    gate.locks += 1; // counted from the park: each back-fill source locks twice (applyOnePayment, then the plan)
-    if (gate.locks === 3) await pass('source2'); // the back-fill's second source, before its first lock
+    // The back-fill's second source, before its first lock: the first lock of a payment other than the first one
+    // locked after the park was set (a source locks its payment more than once).
+    if (gate.park) {
+      gate.first ??= a[1];
+      if (a[1] !== gate.first) await pass('source2');
+    }
     return actual.lockSupplierPaymentForUpdate(...a);
   } };
 });
@@ -90,7 +94,7 @@ async function race(c: string, at: At, primary: string, duplicate: string) {
   let release!: () => void;
   let entered!: () => void;
   const inGate = new Promise<void>((res) => { entered = res; });
-  gate.locks = 0;
+  gate.first = null;
   gate.park = { at, entered, hold: new Promise<void>((res) => { release = res; }) };
   let failed: unknown[] | null = null;
   const backfill = startWriter(c, async () => {
