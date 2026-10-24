@@ -2,8 +2,10 @@
  * Bureau settings — the merchant-pattern sharing opt-in (bureaus.share_merchant_patterns, migration 904)
  * and its audit trail (bureau_audit_log).
  *
- * Runs on the RLS-bypassing pool like every bureau service (no company context; bureau_audit_log is
- * deny-all to app_user by design, see 904's header). Authority:
+ * The toggle and the audit history run on the migration_admin pool (migration 932): no app role may write
+ * bureaus or read or write bureau_audit_log (deny-all to app_user, 904), because SQL injected on an app pool
+ * can forge the claims any policy would judge. Every statement is fixed and keyed on the verified session's
+ * user id. The flag itself is read on the service pool. Authority:
  *   - read: any bureau member (the route checks bureauService.getBureauRole first);
  *   - change: the bureau OWNER only — bureaus.owner_user_id (getBureauRole explains why that column),
  *     re-checked INSIDE the write transaction with the bureau row locked, so an ownership change between the
@@ -15,7 +17,8 @@
  * 403 and "on" for a bureau already on is a no-op; switching OFF is always allowed.
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { isMerchantSharingEnabled } from './merchantSharingGate';
 
 export interface BureauSettingChange {
@@ -41,22 +44,23 @@ export type SetSharingResult =
 const asBool = (v: unknown): boolean | null => (v === true ? true : v === false ? false : null);
 
 export async function getBureauSharingSetting(bureauId: string, historyLimit = 10): Promise<BureauSharingSetting | null> {
+  // The flag is readable on the service pool; only the audit log (deny-all to the app roles) needs migration_admin.
   const rows = (await sql`
     SELECT share_merchant_patterns FROM bureaus WHERE id = ${bureauId}::UUID
   `) as Array<{ share_merchant_patterns: boolean }>;
   if (rows.length === 0) return null;
-  const history = (await sql`
+  const history = await migrationAdminTx('bureau-sharing-history', async (c) => (await c.query<{
+    id: string; created_at: Date | string; actor_user_id: string; old_value: unknown; new_value: unknown;
+    actor_name: string | null;
+  }>(`
     SELECT a.id, a.created_at, a.actor_user_id, a.old_value, a.new_value,
            COALESCE(NULLIF(btrim(concat_ws(' ', u.first_name, u.last_name)), ''), u.email) AS actor_name
     FROM bureau_audit_log a
     LEFT JOIN users u ON u.id = a.actor_user_id::TEXT
-    WHERE a.bureau_id = ${bureauId}::UUID AND a.setting = 'share_merchant_patterns'
+    WHERE a.bureau_id = $1::UUID AND a.setting = 'share_merchant_patterns'
     ORDER BY a.created_at DESC, a.id DESC
-    LIMIT ${historyLimit}
-  `) as Array<{
-    id: string; created_at: Date | string; actor_user_id: string; old_value: unknown; new_value: unknown;
-    actor_name: string | null;
-  }>;
+    LIMIT $2
+  `, [bureauId, historyLimit])).rows);
   return {
     shareMerchantPatterns: rows[0]!.share_merchant_patterns === true,
     history: history.map((h) => ({
@@ -74,27 +78,27 @@ export async function getBureauSharingSetting(bureauId: string, historyLimit = 1
 export async function setBureauSharingSetting(opts: {
   bureauId: string; actorUserId: string; value: boolean;
 }): Promise<SetSharingResult> {
-  return withTransaction(async (tx) => {
-    const rows = (await tx`
+  return migrationAdminTx('bureau-sharing-set', async (c) => {
+    // The owner is read live, under the row lock: the only authority for the write below.
+    const { rows } = await c.query<{ share_merchant_patterns: boolean }>(`
       SELECT b.share_merchant_patterns
       FROM bureaus b
-      WHERE b.id = ${opts.bureauId}::UUID AND b.owner_user_id = ${opts.actorUserId}
+      WHERE b.id = $1::UUID AND b.owner_user_id = $2
       FOR UPDATE
-    `) as Array<{ share_merchant_patterns: boolean }>;
+    `, [opts.bureauId, opts.actorUserId]);
     if (rows.length === 0) return { kind: 'forbidden' } as const;
     const oldValue = rows[0]!.share_merchant_patterns === true;
     if (oldValue === opts.value) return { kind: 'ok', changed: false, oldValue, newValue: opts.value } as const;
     // After the owner check, so a non-owner hears 403, not the gate; switching OFF never reaches it.
     if (opts.value && !isMerchantSharingEnabled()) return { kind: 'pending_legal_review' } as const;
-    await tx`
-      UPDATE bureaus SET share_merchant_patterns = ${opts.value}, updated_at = now()
-      WHERE id = ${opts.bureauId}::UUID
-    `;
-    await tx`
+    await c.query(`
+      UPDATE bureaus SET share_merchant_patterns = $2, updated_at = now()
+      WHERE id = $1::UUID AND owner_user_id = $3
+    `, [opts.bureauId, opts.value, opts.actorUserId]);
+    await c.query(`
       INSERT INTO bureau_audit_log (bureau_id, actor_user_id, action, setting, old_value, new_value)
-      VALUES (${opts.bureauId}::UUID, ${opts.actorUserId}, 'setting_changed', 'share_merchant_patterns',
-              to_jsonb(${oldValue}::BOOLEAN), to_jsonb(${opts.value}::BOOLEAN))
-    `;
+      VALUES ($1::UUID, $2, 'setting_changed', 'share_merchant_patterns', to_jsonb($3::BOOLEAN), to_jsonb($4::BOOLEAN))
+    `, [opts.bureauId, opts.actorUserId, oldValue, opts.value]);
     return { kind: 'ok', changed: true, oldValue, newValue: opts.value } as const;
   });
 }

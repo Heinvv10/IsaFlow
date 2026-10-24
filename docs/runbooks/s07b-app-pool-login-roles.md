@@ -115,6 +115,30 @@ S-07c (migration 930, 2026-10-23) also takes effect on deploy:
   ALTER TABLE public.waitlist_signups DISABLE ROW LEVEL SECURITY;
   SELECT public.app_service_sync_policies();
   ```
+Migration 932 (bureau consent and client links, 2026-10-24) also takes effect on deploy:
+
+- No app role may INSERT, UPDATE, DELETE or TRUNCATE `bureaus`, `bureau_users`
+  or `bureau_companies`; `bureau_audit_log` stays unreadable to them.
+  `bureaus` and `bureau_users` get row security (owner or member reads a
+  bureau). The sharing toggle and its history, and client link and unlink, run
+  on the migration_admin pool; 932 grants migration_admin SELECT and INSERT on
+  `bureau_audit_log` and refuses to apply unless migration_admin holds the
+  bureau writes and platform_admin can still create bureaus (admin convert).
+- During the deploy window, and after a code-only rollback, the old release's
+  sharing toggle, client link and client unlink answer an error (42501),
+  writing nothing. The old toggle already failed (no app role could write the
+  audit log). Production had no bureau rows on 2026-10-24.
+- If old code must run for more than an hour and needs bureau links:
+
+  ```sql
+  -- BREAK-GLASS, old code only: undoes 932's protection (reopens the consent forgery). Revert before deploying.
+  GRANT INSERT, UPDATE, DELETE ON public.bureaus, public.bureau_users, public.bureau_companies TO app_user;
+  ALTER TABLE public.bureaus DISABLE ROW LEVEL SECURITY;
+  ALTER TABLE public.bureau_users DISABLE ROW LEVEL SECURITY;
+  ```
+  To revert, re-run 932 (it is idempotent). Until then every deploy's
+  `app_pool_reach_violations()` check refuses the code switch.
+
 - 930's rules join 920's in `app_pool_reach_violations()`, so every later
   deploy refuses the code switch if one of these privileges comes back.
 - Every SECURITY DEFINER function is listed in `app_definer_reviews` with a
@@ -242,7 +266,27 @@ RESET search_path;
 -- 930: adding a company must not depend on app_user's INSERT (930 refuses otherwise)
 SELECT pg_get_userbyid(p.proowner) FROM pg_proc p WHERE p.oid = 'public.create_company_with_owner(jsonb)'::regprocedure
    AND NOT has_table_privilege(p.proowner, 'public.company_users', 'INSERT');
--- After the deploy, 930's rules run on every deploy; by hand (zero rows):
+-- 932: the bureau writes it moves onto migration_admin, and bureau creation on
+-- platform_admin (932 refuses to apply without them; zero rows)
+SELECT w.role, w.tbl, p.priv FROM (VALUES
+    ('migration_admin', 'public.bureaus', 'SELECT, UPDATE'),
+    ('migration_admin', 'public.bureau_users', 'SELECT'),
+    ('migration_admin', 'public.bureau_companies', 'SELECT, INSERT, DELETE'),
+    ('migration_admin', 'public.company_users', 'SELECT'),
+    ('migration_admin', 'public.companies', 'SELECT'),
+    ('migration_admin', 'public.users', 'SELECT'),
+    ('platform_admin', 'public.bureaus', 'SELECT, INSERT'),
+    ('platform_admin', 'public.bureau_users', 'INSERT')) w(role, tbl, privs),
+  unnest(string_to_array(w.privs, ', ')) p(priv)
+ WHERE NOT has_table_privilege(w.role, w.tbl, p.priv);
+-- 932: a grant on the bureau tables to a role either login reaches, other than
+-- app_user (932 revokes from app_user, app_service and PUBLIC only; zero rows)
+SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
+ WHERE c.oid = ANY (ARRAY['public.bureaus', 'public.bureau_users', 'public.bureau_companies',
+         'public.bureau_audit_log']::regclass[])
+   AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
+-- After the deploy, 930's and 932's rules run on every deploy; by hand (zero rows):
 --   SELECT * FROM public.app_pool_reach_violations();
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (
