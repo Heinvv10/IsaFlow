@@ -204,7 +204,7 @@ describe('round 2 review: the create route\'s body and the employee record', () 
   });
 
   it('the body\'s tax number is ignored: the stored number is the employee record\'s (decided round 2)', async () => {
-    for (const supplied of ['0987654321', ' 0123456789 ', '']) {
+    for (const supplied of ['0987654321', ' 0123456789 ', '', 123 as unknown as string, { x: 1 } as unknown as string]) {
       const r = await post({ ...BODY, employee_id: f.employee, employee_tax_number: supplied });
       expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
       expect((await pool.query('SELECT employee_tax_number FROM tax_directives WHERE id = $1', [r.body.data!.id])).rows[0]!.employee_tax_number).toBe('0123456789');
