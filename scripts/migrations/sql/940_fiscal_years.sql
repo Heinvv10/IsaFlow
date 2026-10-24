@@ -60,9 +60,9 @@ CREATE TABLE IF NOT EXISTS fiscal_years (
   -- The change of year end that made this a transition year (Feature B's table).
   change_id UUID,
   -- True when the year was cut on an ASSUMED March start (a period linked for a
-  -- company with no usable financial_year_start). Strict readers refuse it while
-  -- the company declares no start month or another one; declaring the month it
-  -- really starts in confirms it.
+  -- company with no usable financial_year_start). Strict readers refuse it. Declaring
+  -- the month it really starts in confirms it, once and for good (the companies
+  -- trigger clears the flag), so a later change of year end does not un-confirm it.
   assumed_start BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -221,8 +221,7 @@ AS $$
 BEGIN
   RETURN QUERY
     SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true,
-           -- Confirmed only by declaring the month the year really starts in, not any month.
-           fy.assumed_start AND c.financial_year_start IS DISTINCT FROM EXTRACT(MONTH FROM fy.start_date)::int
+           fy.assumed_start  -- cleared, once, by declaring the month it starts in (see the companies trigger)
       FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
      WHERE fy.company_id = p_company AND p_date BETWEEN fy.start_date AND fy.end_date;
   IF NOT FOUND THEN
@@ -247,8 +246,7 @@ DECLARE
 BEGIN
   RETURN QUERY
     SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true,
-           -- Confirmed only by declaring the month the year really starts in, not any month.
-           fy.assumed_start AND c.financial_year_start IS DISTINCT FROM EXTRACT(MONTH FROM fy.start_date)::int
+           fy.assumed_start  -- cleared, once, by declaring the month it starts in (see the companies trigger)
       FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
      WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
   IF FOUND THEN RETURN; END IF;
@@ -677,6 +675,45 @@ CREATE CONSTRAINT TRIGGER trg_fiscal_years_holds_periods
   AFTER UPDATE OF start_date, end_date ON fiscal_years
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_check_holds_periods();
+
+-- Declaring a start month confirms the assumed years that really start in it.
+-- Stored, not re-derived on every read: a later change of month (a change of
+-- year end) must not turn a confirmed year back into an assumed one. Declaring
+-- another month confirms nothing.
+-- SECURITY DEFINER: the caller may update this company's row (it administers
+-- it) while working in another company, where fiscal_years' RLS would hide this
+-- company's years and confirm nothing. It touches only NEW.id's assumed flags.
+-- Fires on every write of the column (no "changed" condition): saving the same
+-- month again re-runs the confirmation, so a missed one is never stuck.
+CREATE OR REPLACE FUNCTION public.fiscal_years_confirm_declared_month()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  UPDATE fiscal_years SET assumed_start = false
+   WHERE company_id = NEW.id AND assumed_start
+     AND EXTRACT(MONTH FROM start_date)::int = NEW.financial_year_start;
+  RETURN NULL;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_companies_confirm_fiscal_years ON companies;
+REVOKE ALL ON FUNCTION public.fiscal_years_confirm_declared_month() FROM PUBLIC;
+CREATE TRIGGER trg_companies_confirm_fiscal_years AFTER UPDATE OF financial_year_start ON companies
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_confirm_declared_month();
+ALTER TABLE companies ENABLE ALWAYS TRIGGER trg_companies_confirm_fiscal_years;
+-- 930's definer registry: reviewed here, where it is created.
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+VALUES ('fiscal_years_confirm_declared_month()',
+        'trigger: fiscal_years.assumed_start of the updated company only (clears it on years starting in the declared month)',
+        public.app_definer_hash('public.fiscal_years_confirm_declared_month()'::regprocedure))
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
+-- Years already confirmed by the month their company declares today.
+UPDATE fiscal_years fy SET assumed_start = false
+  FROM companies c
+ WHERE c.id = fy.company_id AND fy.assumed_start
+   AND EXTRACT(MONTH FROM fy.start_date)::int = c.financial_year_start;
 
 -- The functions are SECURITY INVOKER: a caller reads and writes only what its
 -- own privileges and RLS allow, so EXECUTE stays with PUBLIC (provisioning runs
