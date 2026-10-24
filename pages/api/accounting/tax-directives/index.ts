@@ -30,6 +30,9 @@ const TEXT_FIELDS = [
 ] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const isNumeric = (v: unknown): boolean =>
+  (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)));
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
 
@@ -81,7 +84,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         `directive_type must be one of: ${VALID_TYPES.join(', ')}`,
       );
     }
-    if (body.amount == null || isNaN(Number(body.amount)) || Number(body.amount) <= 0) {
+    // A number or a numeric string only: Number([]) is 0 and Number([5]) is 5, so an array slipped through.
+    if (!isNumeric(body.amount) || Number(body.amount) <= 0) {
       return apiResponse.badRequest(res, 'amount must be a positive number');
     }
     if (!body.effective_date) {
@@ -91,7 +95,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'issued_date must be a date in YYYY-MM-DD format from 2000 to today');
     }
     // A rate is a fraction of the gross (0.18 = 18%): above 1 the PAYE would exceed the lump sum.
-    if (body.tax_rate != null && (isNaN(Number(body.tax_rate)) || Number(body.tax_rate) < 0 || Number(body.tax_rate) > 1)) {
+    if (body.tax_rate != null && (!isNumeric(body.tax_rate) || Number(body.tax_rate) < 0 || Number(body.tax_rate) > 1)) {
       return apiResponse.badRequest(res, 'tax_rate must be a fraction between 0 and 1 (0.18 = 18%)');
     }
 
