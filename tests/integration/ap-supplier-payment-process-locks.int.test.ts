@@ -3,7 +3,7 @@
  * (a supplier FOR KEY SHARE taken before the payment lock) got wrong, found by the adversarial review.
  *
  * (1) Journal-number lock x refund plan. One bank-rule sweep transaction numbers a journal (company+year advisory
- *     lock, migration 857, held to COMMIT), then plans a supplier refund (lockContactForRefund: supplier FOR UPDATE).
+ *     lock, migration 857, held to COMMIT), then plans a supplier refund (lockContactForRefund: a supplier row lock).
  *     A process route that holds a lock on that supplier and then numbers its journal closes a cycle with it.
  * (2) Merge re-point. A merge holds both suppliers and re-points the payment; the process route gets the payment
  *     once the merge commits, now naming the surviving supplier; updateSupplier(survivor) then holds it and waits on

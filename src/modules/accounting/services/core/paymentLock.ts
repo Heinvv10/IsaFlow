@@ -225,8 +225,10 @@ export async function lockSupplierPaymentForUpdate(
  * rule sweep pays a bill on one line and plans a refund on the next, so with
  * `FOR UPDATE` it held the bill and waited on the supplier while an application
  * held the supplier and waited on the bill: 40P01. Neither a new payment nor a
- * new bill can lower the on-account credit this reads, so letting them through
- * keeps the ceiling argument above intact.
+ * new bill can lower the on-account credit this reads. An APPLICATION can, and
+ * now runs beside a refund rather than queueing behind it; that is the case the
+ * ceiling argument above already covers (the figure is read once, and an
+ * application that started before this lock was never blocked by it).
  *
  * Mirrors `lockSupplierPaymentForUpdate` exactly: same 5s `lock_timeout`, same
  * `isLockContention` mapping so a timeout and a deadlock victim reach the
