@@ -36,6 +36,15 @@ describe('report templates page and document_id', () => {
     expect(screen.getByTestId('template-period').textContent).toBe('Wording for the 14 months ended 2027-02-28 (2026-01-01 to 2027-02-28).');
   });
 
+  it('the period line uses text colours that pass 4.5:1 on both themes (measured 7.24 light, 6.97 dark; was 2.45 light)', async () => {
+    fetchMock.mockResolvedValue(body(null));
+    render(<ReportTemplatesPage />);
+    const cls = (await screen.findByTestId('template-period')).className;
+    expect(cls).toContain('text-slate-600');
+    expect(cls).toContain('dark:text-zinc-400');
+    expect(cls).not.toMatch(/(^|\s)text-zinc-400/);
+  });
+
   it('without a document it sends none and says the dates are placeholders', async () => {
     fetchMock.mockResolvedValue(body(null));
     render(<ReportTemplatesPage />);

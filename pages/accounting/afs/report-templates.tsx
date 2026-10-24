@@ -147,7 +147,7 @@ export default function ReportTemplatesPage() {
 
       {/* The period the wording is for */}
       {data && !loading && (
-        <p className="mb-4 text-sm text-zinc-400" data-testid="template-period">
+        <p className="mb-4 text-sm text-slate-600 dark:text-zinc-400" data-testid="template-period">
           {data.period
             ? `Wording for the ${data.period.phrase} (${data.period.start} to ${data.period.end}).`
             : 'No financial year chosen: the period dates are left as {periodEnd} placeholders. Open this page from an AFS document to fill them in.'}
