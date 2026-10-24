@@ -34,8 +34,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // registry year for ytd / full_year, calendar months summed from
     // budget_month_amounts.
     const chosen = await chosenReportYear(companyId, req.query.fiscal_year, period);
-    const { startDate, endDate } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
-    const budgets = await loadWindowBudgets(companyId, startDate, endDate);
+    const { startDate, endDate, notStarted } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
+    // A year that has not started has no budget and no actuals, whatever dates its window happens to name.
+    const budgets = notStarted ? {} : await loadWindowBudgets(companyId, startDate, endDate);
 
     // Fetch actual GL amounts for expense and revenue accounts in the period
     // The period filter MUST live inside this subquery. It used to sit in the
@@ -48,7 +49,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     //
     // is_active is deliberately absent: it is a picker flag, and an account
     // deactivated mid-year still earned or spent what it earned or spent.
-    const actuals = await sql`
+    const actuals = notStarted ? [] : await sql`
       SELECT
         ga.id, ga.account_code, ga.account_name, ga.account_type,
         COALESCE(

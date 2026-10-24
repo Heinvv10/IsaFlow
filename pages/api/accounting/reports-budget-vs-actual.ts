@@ -41,7 +41,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const period = String(req.query.period ?? 'ytd');
     const chosen = await chosenReportYear(companyId, req.query.fiscal_year, period);
     const { startDate, endDate, fiscalYear, notStarted } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
-    const budgets = await loadWindowBudgets(companyId, startDate, endDate);
+    // A year that has not started has no budget and no actuals, whatever dates its window happens to name.
+    const budgets = notStarted ? {} : await loadWindowBudgets(companyId, startDate, endDate);
 
     // Get actual GL balances for expense and revenue accounts. We don't filter
     // by ga.level — many companies don't populate the hierarchy fully and that
@@ -58,7 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     //
     // is_active is deliberately absent: it is a picker flag, and an account
     // deactivated mid-year still earned or spent what it earned or spent.
-    const actuals = await sql`
+    const actuals = notStarted ? [] : await sql`
       SELECT
         ga.id, ga.account_code, ga.account_name, ga.account_type,
         COALESCE(

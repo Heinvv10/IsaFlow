@@ -112,6 +112,27 @@ describe('year to date of a year that has not started', () => {
     expect(d.report.starts_on).toBe('2059-03-01');
   });
 
+  it('is empty whatever day the year starts on: a year starting 15 March shows none of its March budget', async () => {
+    // FY2100 = 15 March 2099 - 14 March 2100, with a budget in each of its 13 months (a window ending the
+    // day before its start would still name March 2099 and count its whole month).
+    await pool.query(
+      `INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1, 2100, '2099-03-15', '2100-03-14')`, [companyId]);
+    await pool.query(
+      `INSERT INTO budget_month_amounts (company_id, gl_account_id, month, amount)
+       SELECT $1, (SELECT id FROM gl_accounts WHERE company_id = $1 AND account_code = 'BR-5000'), m::date, 5
+         FROM unnest($2::text[]) m`, [companyId, monthsFrom('2099-03', 13)]);
+    const r = await rep.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2100' });
+    const d = r.body.data as unknown as { report: Report & { total_budget: number; not_started?: boolean } };
+    expect(d.report.not_started).toBe(true);
+    expect(d.report.lines).toEqual([]);
+    expect(d.report.total_budget).toBe(0);
+    const c = await csv.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2100' });
+    expect(String(c.body).split('\n').every((l, i) => i === 0 || l.endsWith(',0.00,0.00,0.00,0.00'))).toBe(true);
+    // The same year's full year does count its budget.
+    const full = await rep.call(u, 'GET', undefined, { period: 'full_year', fiscal_year: '2100' });
+    expect((full.body.data as unknown as { report: Report }).report.lines.find((l) => l.account_code === 'BR-5000')!.budget_amount).toBe(65);
+  });
+
   it('the full year of it is a normal report', async () => {
     const r = await rep.call(u, 'GET', undefined, { period: 'full_year', fiscal_year: '2060' });
     expect(r.status).toBe(200);
