@@ -78,7 +78,9 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
       FROM unnest(ARRAY['users', 'companies', 'gl_journal_entries', 'flow_bundles', 'impersonation_sessions',
                         'entity_changes', 'audit_snapshots', 'company_invitations', 'approval_requests',
                         'company_users', 'personal_access_tokens', 'oauth_apps', 'oauth_authorisation_codes',
-                        'oauth_authorisations', 'waitlist_signups']) t`);
+                        'oauth_authorisations', 'waitlist_signups', 'portal_magic_links', 'portal_contacts',
+                        'share_links', 'audit_portal_sessions', 'capture_whatsapp_claims', 'capture_inboxes',
+                        'bank_feed_connections']) t`);
     expect(Object.fromEntries(r.rows.map((x) => [x.t, x.cmds]))).toEqual({
       users: 'rw',                    // 902: app_user selects and updates columns; no insert or delete
       companies: 'rw',                // app_user creates no company (the definer does)
@@ -90,13 +92,23 @@ describe('S-07b: app_service\'s policies drop only forgeable predicates', () => 
       company_invitations: 'dr',      // 930: written on the migration_admin pool; a cancel deletes
       approval_requests: 'r',         // 872: writes only through the definer functions
       // 930: no app role inserts a credential or a membership. UPDATE stays only
-      // where a column grant came back: a member's role, the bearer last-used stamp.
-      company_users: 'drw',
+      // where a column grant came back: the bearer last-used stamp. 935: nor
+      // updates or removes a membership.
+      company_users: 'r',
       personal_access_tokens: 'drw',
       oauth_apps: 'dr',               // the dynamic-client prune deletes
       oauth_authorisation_codes: 'dr',
       oauth_authorisations: 'drw',
       waitlist_signups: 'a',          // 930: the public form inserts; nothing reads it
+      // 935: written on the migration_admin pool; UPDATE stays only for a
+      // bearer's use stamps, DELETE where it only removes access.
+      portal_magic_links: '',         // no privilege at all
+      portal_contacts: 'dr',
+      share_links: 'drw',             // the view counter
+      audit_portal_sessions: 'drw',   // the auditor's last use
+      capture_whatsapp_claims: 'dr',
+      capture_inboxes: 'dr',
+      bank_feed_connections: 'drw',   // the sync stamps
     });
   });
 

@@ -7,7 +7,8 @@
 // would mint, revive, re-key or read a credential, a role or a route that a
 // privileged path later honours; each must now be refused by privilege, on the
 // logins production has, as in s07c-credential-writes.int.test.ts:
-//   company_users.role         a member makes itself owner;
+//   company_users              a member makes itself owner, or an owner's
+//                              forged claims remove the other members;
 //   portal_magic_links         an AFS portal session for any contact;
 //   portal_contacts            who may ask for one, and with which role;
 //   portal_access              an AR portal login with a known password;
@@ -40,6 +41,8 @@ type Mint = [string, string, string, () => unknown[]];
 const MINTS: Mint[] = [
   ['a membership raised to owner', 'company_users', `UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2`,
     () => [company, me]],
+  ['the other members and owners removed', 'company_users', 'DELETE FROM company_users WHERE company_id = $1 AND user_id <> $2',
+    () => [company, owner]],
   ['an AFS portal link for any contact', 'portal_magic_links', `INSERT INTO portal_magic_links (company_id, contact_id, token, expires_at)
     VALUES ($1, $2, 'forged-portal-token', NOW() + interval '30 minutes')`, () => [other, uuid()]],
   ['an AFS portal link revived', 'portal_magic_links', 'UPDATE portal_magic_links SET used_at = NULL WHERE company_id = $1', () => [other]],
@@ -119,7 +122,6 @@ describe('S-07d (935): what an app role may still do', () => {
     ['an AFS portal contact read', 'SELECT id, email, role, active FROM portal_contacts WHERE company_id = $1'],
     ['a share link deleted (removes access only)', 'DELETE FROM share_links WHERE company_id = $1'],
     ['an AR portal login deleted (removes access only)', 'DELETE FROM portal_access WHERE client_id = $1'],
-    ['a member removed (removes access only)', 'DELETE FROM company_users WHERE company_id = $1 AND user_id = $2 AND false'],
   ])('%s, in a request', async (_, text) => {
     const params = text.includes('$2') ? [company, me] : [company];
     expect(await attempt(getAuthPool(), [[text, params]], { asRequest: { sub: owner, companyId: company } })).toBeNull();

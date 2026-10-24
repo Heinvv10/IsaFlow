@@ -14,15 +14,19 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const h = vi.hoisted(() => ({ statements: [] as string[], targetRole: 'owner', actorRole: 'owner', ownerCount: 2 }));
 
-// One recorder answers both paths: the `sql` tagged template (DELETE, owner lock)
-// and the migration_admin client the role change now runs on (S-07d, mig 935).
+// One recorder answers both: the `sql` tagged template and the migration_admin
+// client the role change and the removal now run on (S-07d, mig 935).
 function answer(raw: string): Promise<unknown[]> {
   const text = raw.replace(/\s+/g, ' ').trim();
   h.statements.push(text);
-  if (/^SELECT role FROM company_users.*FOR UPDATE$/.test(text)) return Promise.resolve([{ role: h.targetRole }]);
+  // The target, under its row lock: is it an owner, as the guard judges owner-ness.
+  if (/^SELECT public\.company_member_role_is_owner\(role\) AS is_owner FROM company_users.*FOR UPDATE$/.test(text)) {
+    return Promise.resolve([{ is_owner: h.targetRole === 'owner' }]);
+  }
   // The actor's own role, read live after the owner lock.
-  if (/^SELECT role FROM company_users/.test(text)) return Promise.resolve([{ role: h.actorRole }]);
-  if (/^SELECT COUNT\(\*\)/.test(text)) return Promise.resolve([{ cnt: String(h.ownerCount) }]);
+  if (/^SELECT role, public\.company_member_role_is_owner\(role\) AS is_owner FROM company_users/.test(text)) {
+    return Promise.resolve([{ role: h.actorRole, is_owner: h.actorRole === 'owner' }]);
+  }
   // Owners other than the target, by person: the owners that exist, less the target.
   if (/^SELECT count\(DISTINCT/.test(text)) return Promise.resolve([{ n: h.ownerCount - 1 }]);
   return Promise.resolve([]);
@@ -99,7 +103,8 @@ describe('company-users S-04 — only an owner changes or removes an owner', () 
 
   it('reads the target role under a row lock', async () => {
     await call('PUT', 'admin', { userId: TARGET, role: 'viewer' }).promise;
-    expect(h.statements.find((s) => s.startsWith('SELECT role FROM company_users'))).toMatch(/FOR UPDATE$/);
+    expect(h.statements.find((s) => s.startsWith('SELECT public.company_member_role_is_owner(role) AS is_owner FROM company_users')))
+      .toMatch(/FOR UPDATE$/);
   });
 
   it('lets an owner demote another owner when two exist', async () => {
@@ -143,7 +148,7 @@ describe('company-users service — non-owner cannot promote to owner (defence-i
   function expectLockThenActorRead(): void {
     const rowLock = h.statements.findIndex((s) => /FOR UPDATE$/.test(s));
     const ownerLock = h.statements.findIndex((s) => s.includes('pg_advisory_xact_lock'));
-    const actorRead = h.statements.findIndex((s, i) => i > rowLock && /^SELECT role FROM company_users/.test(s));
+    const actorRead = h.statements.findIndex((s, i) => i > rowLock && /^SELECT role, .* FROM company_users/.test(s));
     expect(rowLock).toBeGreaterThanOrEqual(0);
     expect(ownerLock).toBeGreaterThan(rowLock);
     expect(actorRead).toBeGreaterThan(ownerLock);

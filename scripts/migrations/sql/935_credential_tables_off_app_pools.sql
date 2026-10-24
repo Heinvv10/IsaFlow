@@ -6,9 +6,11 @@
 -- so a row an app role may write is whatever the forged claims say. Each table
 -- below holds rows a privileged path later honours as a role, a credential or
 -- a route:
---   company_users.role      the members screen's role change (930 kept it):
---                           an owner's forged claims raised any member to
---                           owner, and bureau link/unlink (932) reads it;
+--   company_users           the members screen's role change (930 kept
+--                           UPDATE (role)) and removal: an owner's forged
+--                           claims raised any member to owner (bureau
+--                           link/unlink, 932, reads that role) or removed the
+--                           other members and owners;
 --   portal_magic_links      the RAW token that signs an AFS portal contact in;
 --   portal_contacts         who may ask for one, and the portal role;
 --   portal_access           an AR portal login's bcrypt password hash;
@@ -31,9 +33,11 @@
 -- but password_hash, and DELETE. DELETE stays where it only removes access
 -- (with INSERT gone, a deleted row cannot come back).
 -- company_users_role_guard judges only app_user and app_service, so the role
--- change re-checks its rules (RC001-RC005, RC010) in TypeScript on
--- migration_admin, against the memberships as they stand, as 930 did for
--- invitations; RC011 (last owner) still runs for migration_admin.
+-- change and the removal re-check its rules (RC001-RC006, RC010) in
+-- TypeScript on migration_admin, against the memberships as they stand, as
+-- 930 did for invitations; RC011 (last owner) still runs for migration_admin.
+-- (A row lock needs an UPDATE privilege, so the removal's FOR UPDATE could
+-- not stay on app_user once UPDATE (role) went.)
 -- No new SECURITY DEFINER function, so no new app_definer_reviews row.
 --
 -- Every rule is added to app_pool_reach_violations() (920, 930, 932), which
@@ -42,7 +46,7 @@
 -- Deploy window: migrations apply before the code switch. Until the new code
 -- is live, and after a code-only rollback, the previous release's writes to
 -- these tables are refused 42501 and answer an error, minting nothing:
---   member role changes (500; invite, remove and accept keep working);
+--   member role changes and removals (500; invite and accept keep working);
 --   AFS portal sign-in links are not sent (the request answers as always; the
 --     failure is logged) and an emailed link does not verify (500);
 --   AFS portal contact create, edit and remove;
@@ -59,13 +63,13 @@
 -- Rollback (break-glass, in docs/runbooks/s07b-app-pool-login-roles.md), which
 -- reopens the forgery and makes every deploy's check refuse until this
 -- migration's state is restored:
---   GRANT UPDATE (role) ON public.company_users TO app_user;
+--   GRANT UPDATE (role), DELETE ON public.company_users TO app_user;
 --   GRANT SELECT, INSERT, UPDATE, DELETE ON public.portal_magic_links,
 --     public.portal_contacts, public.portal_access, public.share_links,
 --     public.audit_portal_sessions, public.capture_whatsapp_claims,
 --     public.capture_inboxes, public.bank_feed_connections TO app_user;
 
-REVOKE UPDATE ON public.company_users FROM app_user, app_service, PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE ON public.company_users FROM app_user, app_service, PUBLIC;
 
 REVOKE ALL ON public.portal_magic_links FROM app_user, app_service, PUBLIC;
 
@@ -109,7 +113,7 @@ AS $$
   -- not allowed, and TRUNCATE anywhere, is a violation.
   rules (tbl, may_insert, may_update, may_read, may_delete) AS (VALUES
     ('public.company_invitations',        '{}'::text[], '{}'::text[],                    true,  true),
-    ('public.company_users',              '{}',         '{}',                            true,  true),
+    ('public.company_users',              '{}',         '{}',                            true,  false),
     ('public.personal_access_tokens',     '{}',         '{last_used_at,last_used_ip}',   true,  true),
     ('public.oauth_apps',                 '{}',         '{}',                            true,  true),
     ('public.oauth_authorisation_codes',  '{}',         '{}',                            true,  true),
@@ -238,7 +242,7 @@ DECLARE
   r record;
 BEGIN
   FOR r IN SELECT * FROM (VALUES
-      ('public.company_users', 'SELECT, UPDATE'),
+      ('public.company_users', 'SELECT, UPDATE, DELETE'),
       ('public.portal_magic_links', 'SELECT, INSERT, UPDATE, DELETE'),
       ('public.portal_contacts', 'INSERT, UPDATE'),
       ('public.portal_access', 'SELECT, UPDATE'),
