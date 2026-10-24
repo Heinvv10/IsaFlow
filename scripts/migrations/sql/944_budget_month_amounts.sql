@@ -143,6 +143,8 @@ $$;
 
 -- Every stored month of every legacy budget row (an annual-only row spread over twelve), with the
 -- month it is filed under (NULL: skipped, see budget_legacy_month). Cents-rounded.
+-- An earlier revision had a one-argument signature; drop it so calls are never ambiguous.
+DROP FUNCTION IF EXISTS public.budget_legacy_month_values(uuid);
 CREATE OR REPLACE FUNCTION public.budget_legacy_month_values(p_company uuid DEFAULT NULL, p_budget uuid DEFAULT NULL)
 RETURNS TABLE (budget_id uuid, company_id uuid, gl_account_id uuid, idx int, val numeric, month date)
 LANGUAGE sql STABLE
