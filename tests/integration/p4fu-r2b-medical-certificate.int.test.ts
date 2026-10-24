@@ -32,9 +32,9 @@ import {
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 3 });
-type Key = 'a' | 'b' | 'c' | 'd' | 'at65' | 'at64' | 'noDob';
+type Key = 'a' | 'b' | 'c' | 'd' | 'at65' | 'at64' | 'noDob' | 'mismatch';
 const fx: Record<Key, SeveranceFixture> = {} as never;
-const runs: Record<Key, string[]> = { a: [], b: [], c: [], d: [], at65: [], at64: [], noDob: [] };
+const runs: Record<Key, string[]> = { a: [], b: [], c: [], d: [], at65: [], at64: [], noDob: [], mismatch: [] };
 
 const SARS_PROFILE = `UPDATE companies SET paye_reference_number = '7123456789', sars_contact_first_name = 'Pat',
   sars_contact_last_name = 'Payroll', sars_contact_telephone = '0115550000',
@@ -113,6 +113,7 @@ beforeAll(async () => {
   ({ f: fx.at65, runs: runs.at65 } = await seed('R3 cert 65 on 28 Feb', 30_000, 2, 5_100, [3], 0, { born: '1962-02-28', idNumber: '6202285009087' }));
   ({ f: fx.at64, runs: runs.at64 } = await seed('R3 cert 65 on 1 Mar', 30_000, 2, 5_100, [3], 0, { born: '1962-03-01', idNumber: '6203015009087' }));
   ({ f: fx.noDob, runs: runs.noDob } = await seed('R3 cert no DOB', 30_000, 2, 0, [3], 0, { born: null, idNumber: '5806155009087' }));
+  ({ f: fx.mismatch, runs: runs.mismatch } = await seed('R3 cert DOB vs ID', 30_000, 2, 5_100, [3], 0, { born: '1960-06-15', idNumber: '6206155009087' }));
 });
 
 afterAll(async () => {
@@ -193,6 +194,12 @@ describe('R3: medical fields on the e@syFile certificate', () => {
     // (Member + 1 with no 4005 deduction: the no-4005 warning too.)
     expect(out.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/^Wanda Test: no date of birth.*68/)]));
     expect(out.warnings).toHaveLength(2);
+  });
+
+  it('a date of birth (1960) and an ID number (1962) on either side of 65: the export refuses, naming both dates', async () => {
+    const out = await exportFile(fx.mismatch);
+    expect(out.status).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(out.body)).toMatch(/date of birth on the payroll record \(1960-06-15\).*ID number \(1962-06-15\)/);
   });
 });
 
