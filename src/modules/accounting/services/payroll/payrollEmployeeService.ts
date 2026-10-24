@@ -29,10 +29,19 @@ export function mapPayrollEmployeeRow(r: Row): PayrollEmployee {
   };
 }
 
-export async function listPayrollEmployees(companyId: string): Promise<PayrollEmployee[]> {
+/**
+ * Active employees; with `includeTerminated`, leavers too (the tax-directive
+ * form: severance, retirement and death directives are for people who left).
+ * 'inactive' employees are never listed.
+ */
+export async function listPayrollEmployees(
+  companyId: string,
+  opts: { includeTerminated?: boolean } = {},
+): Promise<PayrollEmployee[]> {
+  const statuses = opts.includeTerminated ? ['active', 'terminated'] : ['active'];
   const rows = (await sql`
     SELECT * FROM payroll_employees
-    WHERE company_id = ${companyId}::uuid AND status = 'active'
+    WHERE company_id = ${companyId}::uuid AND status = ANY(${statuses}::text[])
     ORDER BY last_name, first_name
   `) as Row[];
   return rows.map(mapPayrollEmployeeRow);
@@ -74,6 +83,23 @@ export async function getPayrollEmployee(
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   `) as Row[];
   return rows.length > 0 && rows[0] ? mapPayrollEmployeeRow(rows[0]) : null;
+}
+
+/** The record a tax directive is filed under: name, tax number and status, or null when not this company's employee. */
+export async function getDirectivePayee(
+  companyId: string,
+  id: string,
+): Promise<{ id: string; name: string; taxNumber: string | null; status: string } | null> {
+  const rows = (await sql`
+    SELECT id, first_name, last_name, tax_number, status FROM payroll_employees
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+  `) as Row[];
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    id: String(r.id), name: `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim(),
+    taxNumber: r.tax_number ? String(r.tax_number).trim() : null, status: String(r.status),
+  };
 }
 
 export async function createPayrollEmployee(

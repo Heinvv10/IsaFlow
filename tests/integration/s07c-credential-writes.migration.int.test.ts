@@ -125,7 +125,7 @@ describe('S-07c: migration 930', () => {
   });
 
   it.each([
-    ['a member\'s role', 'GRANT UPDATE (role) ON public.company_users TO app_user'],
+    // A member's role, which 930 granted back, is a violation since 937 (s07d-credential-tables.migration).
     ['the bearer last-used stamp', 'GRANT UPDATE (last_used_at, last_used_ip) ON public.oauth_authorisations TO app_user'],
     ['a cancel', 'GRANT DELETE ON public.company_invitations TO app_user'],
     ['the capture-key last-used stamp', 'GRANT UPDATE (last_used_at) ON public.capture_api_keys TO app_user'],
