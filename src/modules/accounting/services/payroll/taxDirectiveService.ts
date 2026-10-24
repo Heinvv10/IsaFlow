@@ -242,11 +242,37 @@ export async function updateTaxDirective(
   return rows.length ? mapRow(rows[0]!) : null;
 }
 
+/**
+ * Delete a directive. Refused with TaxDirectivePaidError (route: 409, nothing
+ * written) while its payment stands (the paid guard, as for a cancel), and
+ * while any payment row still names it (a run's claim or a stand-alone payment
+ * whose journal is undone: the row is the record of what was paid, and the
+ * foreign key would turn the delete into a 500). Cancelling stays possible.
+ * Same lock as updateTaxDirective: the directive row FOR UPDATE, nothing after.
+ */
 export async function deleteTaxDirective(
   companyId: string,
   id: string,
 ): Promise<boolean> {
   log.info('deleteTaxDirective', { companyId, id });
+
+  const locked = await underFlowLockBudget('This tax directive', async () => (await sql`
+    SELECT id, directive_number FROM tax_directives
+    WHERE company_id = ${companyId} AND id = ${id}
+    FOR UPDATE
+  `) as DbRow[]);
+  if (!locked[0]) return false;
+  const which = `SARS directive ${String(locked[0].directive_number ?? id)}`;
+  const paid = await directivePaidBy(companyId, id, locked[0].directive_number);
+  // Its own message, naming what paid it (the guard's explanation, quoted whole).
+  if (paid) throw new TaxDirectivePaidError(id, `${which} cannot be deleted: it is paid. ${paid}`);
+  const recorded = (await sql`
+    SELECT 1 FROM tax_directive_payments WHERE company_id = ${companyId} AND tax_directive_id = ${id} LIMIT 1
+  `) as DbRow[];
+  if (recorded.length > 0) {
+    throw new TaxDirectivePaidError(id, `${which} has a payment record (a payroll run's `
+      + 'claim or a reversed stand-alone payment), so it cannot be deleted. Cancel it instead.');
+  }
 
   const rows = await sql`
     DELETE FROM tax_directives
