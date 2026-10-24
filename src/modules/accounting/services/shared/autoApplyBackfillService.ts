@@ -159,15 +159,21 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
     oldestFirstFor: makeStrategyReader(req.companyId, req.subledger),
   };
 
-  const decided: { source: BackfillSource; lines: PlannedLine[] }[] = [];
-  const failed: BackfillPlan['failed'] = [];
+  const decidedAt: [number, { source: BackfillSource; lines: PlannedLine[] }][] = [];
+  const failedAt: [number, BackfillPlan['failed'][number]][] = [];
 
-  for (const [index, source] of sources.entries()) {
+  // Visited in contact-id order (stable: oldest first within a contact), reported in the population's order. The
+  // run is one transaction and keeps every source's locks, and an AP source key-shares its supplier first: in id
+  // order, as a supplier merge and the take-on import lock suppliers, or a merge of two of them deadlocks with it.
+  const key = (s: BackfillSource) => s.entityId ?? '';
+  const visitOrder = [...sources.entries()]
+    .sort(([, a], [, b]) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)); // byte order, as uuid's ORDER BY
+  for (const [index, source] of visitOrder) {
     // THE SAME DECISION THE DRY RUN MADE, taken from the source rather than
     // retaken here. Every skip lives in the population for exactly this reason:
     // a rule applied in one mode and not the other is a preview that lies.
     if (source.skippedReason) {
-      decided.push({ source, lines: [] });
+      decidedAt.push([index, { source, lines: [] }]);
       continue;
     }
     try {
@@ -178,7 +184,7 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
           ? applyOneCreditNote(ctx, source)
           : applyOnePayment(ctx, source)
       ));
-      decided.push({ source, lines });
+      decidedAt.push([index, { source, lines }]);
     } catch (err) {
       log.warn('Back-fill could not apply one source', {
         subledger: req.subledger,
@@ -186,14 +192,17 @@ async function runLive(req: BackfillRequest, sources: BackfillSource[]): Promise
         idempotencyKey: ctx.idempotencyKey,
         error: err,
       }, 'accounting');
-      failed.push({
+      failedAt.push([index, {
         payment_id: source.paymentId,
         payment_number: source.paymentNumber,
         error: safeReason(err),
-      });
+      }]);
     }
   }
 
+  const inPopulationOrder = <T>(at: [number, T][]) => at.sort(([a], [b]) => a - b).map(([, v]) => v);
+  const decided = inPopulationOrder(decidedAt);
+  const failed = inPopulationOrder(failedAt);
   await fillDocumentFacts(req.companyId, req.subledger, decided);
   return assembleBackfillPlan(false, req.subledger, decided, failed);
 }
