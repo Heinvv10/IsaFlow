@@ -1,4 +1,4 @@
-// The attach modal fetches 50 documents a page; "Load more" fetches the next page and appends it, and goes away
+// The attach modal fetches 50 documents a page; "Load more" fetches the next page by the server's keyset cursor and appends it, and goes away
 // once everything the server counted is loaded.
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -20,18 +20,22 @@ const docsUrls = () => vi.mocked(apiFetch).mock.calls.map(([u]) => String(u)).fi
 
 afterEach(() => vi.mocked(apiFetch).mockReset());
 
-async function open(docsPage: (page: number) => Response) {
+async function open(docsPage: (after: string | null) => Response) {
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     const u = String(url);
     if (!u.includes('document-capture')) return json({ success: true, data: { outstanding: [entry] } });
-    return docsPage(Number(new URL(u, 'http://x').searchParams.get('page') ?? '1'));
+    return docsPage(new URL(u, 'http://x').searchParams.get('after'));
   });
   render(<ProvisionalPage />);
   fireEvent.click(await screen.findByRole('button', { name: 'Attach evidence' }));
 }
 
-const pages: Record<number, number[]> = { 1: Array.from({ length: 50 }, (_, i) => i + 1), 2: [51, 52, 53] };
-const page = (n: number) => json({ success: true, data: (pages[n] ?? []).map(doc), pagination: { page: n, pageSize: 50, total: 53 } });
+// The server's cursor for the last row of page 1: the modal must hand it back untouched.
+const CURSOR = '2026-09-21T10:00:00.123456Z,d50';
+const first = Array.from({ length: 50 }, (_, i) => i + 1);
+const page = (after: string | null) => (after === null
+  ? json({ success: true, data: first.map(doc), pagination: { page: 1, pageSize: 50, total: 53 }, meta: { nextAfter: CURSOR } })
+  : json({ success: true, data: [51, 52, 53].map(doc), pagination: { page: 1, pageSize: 50, total: 53 }, meta: { nextAfter: '2026-09-20T10:00:00.000001Z,d53' } }));
 
 it('Load more fetches the next page, appends it, and hides once all 53 are loaded', async () => {
   await open(page);
@@ -41,19 +45,20 @@ it('Load more fetches the next page, appends it, and hides once all 53 are loade
   expect(screen.getByText('Vendor 1')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
   const second = new URL(docsUrls()[1]!, 'http://x').searchParams;
-  expect(second.get('page')).toBe('2');
+  expect(second.get('after')).toBe(CURSOR);
+  expect(second.has('page')).toBe(false);
   expect(second.get('attachable')).toBe('1');
 });
 
 it('no Load more when everything fits in the first page', async () => {
-  await open(() => json({ success: true, data: [doc(1)], pagination: { page: 1, pageSize: 50, total: 1 } }));
+  await open(() => json({ success: true, data: [doc(1)], pagination: { page: 1, pageSize: 50, total: 1 }, meta: { nextAfter: 'x,d1' } }));
   expect(await screen.findByText('Vendor 1')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
 });
 
 it('a failed Load more keeps the loaded documents, says so, and can be tried again', async () => {
   let second = 0;
-  await open((n) => (n === 2 && ++second === 1 ? new Response('', { status: 500 }) : page(n)));
+  await open((after) => (after !== null && ++second === 1 ? new Response('', { status: 500 }) : page(after)));
   expect(await screen.findByText('Vendor 1')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
   expect(await screen.findByText('Could not load documents - try again')).toBeTruthy();

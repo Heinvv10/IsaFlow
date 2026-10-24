@@ -44,6 +44,10 @@ const ids = {
   journalDraft: crypto.randomUUID(),
   linkActive: crypto.randomUUID(),
   linkUnlinked: crypto.randomUUID(),
+  // Three created within one millisecond: a cursor cut to milliseconds would skip the ones between.
+  micro1: crypto.randomUUID(),
+  micro2: crypto.randomUUID(),
+  micro3: crypto.randomUUID(),
 };
 const attachable = (...keys: Array<keyof typeof ids>) => keys.map((k) => ids[k]);
 const supplier = crypto.randomUUID();
@@ -104,6 +108,9 @@ beforeAll(async () => {
     [ids.journalDraft, company, 'pending', 'done', false, 'receipt'],
     [ids.linkActive, company, 'pending', 'done', false, 'receipt'],
     [ids.linkUnlinked, company, 'pending', 'done', false, 'receipt'],
+    [ids.micro1, company, 'pending', 'done', false, 'receipt'],
+    [ids.micro2, company, 'pending', 'done', false, 'receipt'],
+    [ids.micro3, company, 'pending', 'done', false, 'receipt'],
   ];
   for (const [id, co, status, readState, posted, type, sha] of rows) {
     await pool.query(
@@ -111,6 +118,10 @@ beforeAll(async () => {
        VALUES($1, $2, $3, 'pdf', $4, $5, CASE WHEN $6 THEN NOW() END, $7, $8)`,
       [id, co, `${id}.pdf`, status, readState, posted, type, sha ?? null],
     );
+  }
+  for (const [i, key] of (['micro1', 'micro2', 'micro3'] as const).entries()) {
+    await pool.query('UPDATE captured_documents SET created_at = $2::timestamptz WHERE id = $1',
+      [ids[key], `2026-09-01T10:00:00.123${i + 1}00Z`]);
   }
   // reverseJournalEntry leaves the original 'posted', stamps reversed_at, and posts a contra pointing back at it.
   const journal = async (n: number, status: string, doc: string | null, reversalOf: string | null = null): Promise<string> => {
@@ -153,7 +164,7 @@ afterAll(async () => {
 }, 60_000);
 
 const EXPECTED = [
-  ...attachable('pending', 'reviewed', 'matchedUnposted', 'uniqueHash', 'journalReversed', 'journalDraft', 'linkUnlinked'),
+  ...attachable('pending', 'reviewed', 'matchedUnposted', 'uniqueHash', 'journalReversed', 'journalDraft', 'linkUnlinked', 'micro1', 'micro2', 'micro3'),
 ].sort();
 
 async function listIds() {
@@ -217,5 +228,53 @@ describe('document-capture ?attachable=1', () => {
     const body = r.body as { data: Array<{ id: string }> };
     expect(body.data.map((d) => d.id)).toEqual(expect.arrayContaining([ids.posted, ids.rejected, ids.reading, ids.failed]));
     expect(body.data.map((d) => d.id)).not.toContain(ids.otherCompany);
+  });
+
+  type Body = { data: Array<{ id: string }>; pagination: { total: number }; meta: { nextAfter: string | null } };
+  const page = async (query: Record<string, string>) => (await list({ attachable: '1', ...query })).body as Body;
+
+  it('Load more by keyset: pages of 1 by `after` walk the whole list, no repeats, no skips, even within one millisecond', async () => {
+    const seen: string[] = [];
+    let after: string | undefined;
+    for (let guard = 0; guard < EXPECTED.length + 2; guard++) {
+      const body = await page({ pageSize: '1', ...(after ? { after } : {}) });
+      expect(body.pagination.total).toBe(EXPECTED.length);
+      if (body.data.length === 0) break;
+      seen.push(body.data[0]!.id);
+      after = body.meta.nextAfter ?? undefined;
+    }
+    expect(seen.length).toBe(EXPECTED.length);
+    expect([...seen].sort()).toEqual(EXPECTED);
+    expect(seen.slice(-3)).toEqual([ids.micro3, ids.micro2, ids.micro1]);
+  });
+
+  it('a row leaving the list between two loads does not push a row out of the next page', async () => {
+    const full = (await page({ pageSize: '50' })).data.map((d) => d.id);
+    const first = await page({ pageSize: '2' });
+    expect(first.data.map((d) => d.id)).toEqual(full.slice(0, 2));
+    // The second row of page 1 is attached elsewhere (posted) before "Load more".
+    await pool.query('UPDATE captured_documents SET posted_at = NOW() WHERE id = $1', [full[1]]);
+    try {
+      const keyset = await page({ pageSize: '2', after: first.meta.nextAfter! });
+      expect(keyset.data.map((d) => d.id)).toEqual(full.slice(2, 4));
+      expect(keyset.pagination.total).toBe(EXPECTED.length - 1);
+      // The offset page would have started two rows into the shrunk list and skipped full[2].
+      const offset = await page({ pageSize: '2', page: '2' });
+      expect(offset.data.map((d) => d.id)).not.toContain(full[2]);
+    } finally {
+      await pool.query('UPDATE captured_documents SET posted_at = NULL WHERE id = $1', [full[1]]);
+    }
+  });
+
+  it.each([
+    ['not a cursor', 'garbage'],
+    ['no comma', '2026-09-01T10:00:00.123456Z'],
+    ['milliseconds only', `2026-09-01T10:00:00.123Z,${crypto.randomUUID()}`],
+    ['31 February', `2026-02-31T10:00:00.123456Z,${crypto.randomUUID()}`],
+    ['hour 24', `2026-09-01T24:00:00.123456Z,${crypto.randomUUID()}`],
+    ['bad id', '2026-09-01T10:00:00.123456Z,not-a-uuid'],
+  ])('a bad `after` (%s) answers 400', async (_label, after) => {
+    const r = await list({ attachable: '1', pageSize: '2', after });
+    expect(r.statusCode).toBe(400);
   });
 });

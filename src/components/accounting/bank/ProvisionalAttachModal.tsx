@@ -1,6 +1,8 @@
 /**
  * The provisional page's "Select captured document" modal: lists the captured documents the evidence attach accepts
- * (`document-capture?attachable=1`), 50 at a time, with "Load more" while the server reports more.
+ * (`document-capture?attachable=1`), 50 at a time, with "Load more" while the server reports more. Load more pages by
+ * keyset (`after` = the server's cursor for the last row), not by offset: a document attached or posted elsewhere
+ * between two loads must not shift a row out of the next page.
  * Mounted when opened and unmounted on close, so every open starts from a fresh load.
  */
 
@@ -25,24 +27,26 @@ export function ProvisionalAttachModal({ submitting, onSelect, onClose }: {
 }) {
   const [docs, setDocs] = useState<CapturedDoc[]>([]);
   const [total, setTotal] = useState<number | null>(null);
+  const [nextAfter, setNextAfter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [moreError, setMoreError] = useState('');
 
-  const fetchPage = useCallback(async (page: number) => {
-    const res = await apiFetch(`/api/accounting/document-capture?attachable=1&pageSize=${PAGE_SIZE}&page=${page}`);
+  const fetchPage = useCallback(async (after: string | null) => {
+    const cursor = after ? `&after=${encodeURIComponent(after)}` : '';
+    const res = await apiFetch(`/api/accounting/document-capture?attachable=1&pageSize=${PAGE_SIZE}${cursor}`);
     await assertOk(res, LOAD_ERROR);
-    return await res.json() as { data?: CapturedDoc[]; pagination?: { total?: number } };
+    return await res.json() as { data?: CapturedDoc[]; pagination?: { total?: number }; meta?: { nextAfter?: string | null } };
   }, []);
 
   useEffect(() => {
     let live = true;
     void (async () => {
       try {
-        const json = await fetchPage(1);
+        const json = await fetchPage(null);
         if (!live) return;
-        setDocs(json.data ?? []); setTotal(json.pagination?.total ?? null);
+        setDocs(json.data ?? []); setTotal(json.pagination?.total ?? null); setNextAfter(json.meta?.nextAfter ?? null);
       } catch (err) {
         if (!live) return;
         log.error('Failed to load captured documents', { error: err }, 'provisional-ui');
@@ -56,13 +60,14 @@ export function ProvisionalAttachModal({ submitting, onSelect, onClose }: {
   const loadMore = async () => {
     setLoadingMore(true); setMoreError('');
     try {
-      const json = await fetchPage(Math.floor(docs.length / PAGE_SIZE) + 1);
+      const json = await fetchPage(nextAfter);
       const next = json.data ?? [];
       const seen = new Set(docs.map((d) => d.id));
       const fresh = next.filter((d) => !seen.has(d.id));
       setDocs([...docs, ...fresh]);
       // A page with nothing new ends the list, whatever the total said: no endless "Load more".
       setTotal(fresh.length === 0 ? docs.length : json.pagination?.total ?? null);
+      setNextAfter(json.meta?.nextAfter ?? null);
     } catch (err) {
       log.error('Failed to load more captured documents', { error: err }, 'provisional-ui');
       setMoreError(apiErrorMessage(err, LOAD_ERROR));
@@ -92,7 +97,7 @@ export function ProvisionalAttachModal({ submitting, onSelect, onClose }: {
                 </button>
               ))}
               {moreError && <p className="flex items-center justify-center gap-2 text-sm text-red-400 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{moreError}</p>}
-              {total !== null && docs.length < total && (
+              {total !== null && nextAfter && docs.length < total && (
                 <button onClick={() => void loadMore()} disabled={loadingMore}
                   className="w-full mt-1 px-3 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] hover:bg-white/5 disabled:opacity-50">
                   {loadingMore ? 'Loading…' : 'Load more'}

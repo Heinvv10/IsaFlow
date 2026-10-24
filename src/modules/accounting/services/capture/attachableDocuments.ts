@@ -12,6 +12,11 @@
  * invoices, sent emails and dunning letters, and bank or supplier statements (a statement may have no document_type;
  * the bank import or supplier reconciliation that points at it identifies it).
  *
+ * Paging is offset for the first call and KEYSET (`after`) for "Load more": the next page is the rows strictly older
+ * than the last one seen by (created_at, id), so a document attached or posted elsewhere between two loads cannot
+ * shift a row out of the next page. `total` is always the full count under the predicate. The cursor carries the
+ * created_at at full microsecond precision (a JS Date would cut it to milliseconds and skip rows).
+ *
  * The rows query and the count query repeat one predicate; the paging test pins that they agree. It is written out
  * twice rather than shared as a fragment, because a nested `sql` fragment breaks the unit suites that mock `sql`
  * (see the header of shared/journalInForceAsAt.ts).
@@ -19,15 +24,34 @@
 import { sql } from '@/lib/neon';
 import { journalStandsFragment } from '../shared/journalInForceAsAt';
 
+const CURSOR_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z,([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+export interface AttachableCursor { createdAt: string; id: string }
+
+/** `<created_at as YYYY-MM-DDTHH:MM:SS.uuuuuuZ>,<uuid>`, or null when it is not a real instant and a uuid. */
+export function parseAttachableCursor(raw: string): AttachableCursor | null {
+  const m = CURSOR_RE.exec(raw);
+  if (!m) return null;
+  const [y, mo, d, h, mi, sec] = m.slice(1, 7).map(Number) as [number, number, number, number, number, number];
+  const t = new Date(Date.UTC(y, mo - 1, d, h, mi, sec));
+  // A date that rolls over (31 February, hour 24, second 60) is not an instant Postgres would accept.
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d
+    || t.getUTCHours() !== h || t.getUTCMinutes() !== mi || t.getUTCSeconds() !== sec) return null;
+  return { createdAt: raw.slice(0, raw.indexOf(',')), id: m[8]!.toLowerCase() };
+}
+
 export async function listAttachableDocuments(
   companyId: string,
-  page: number,
-  pageSize: number,
-): Promise<{ rows: Record<string, unknown>[]; total: number }> {
-  const offset = (page - 1) * pageSize;
+  opts: { page?: number; pageSize: number; after?: AttachableCursor },
+): Promise<{ rows: Record<string, unknown>[]; total: number; nextAfter: string | null }> {
+  const { pageSize } = opts;
+  const offset = opts.after ? 0 : ((opts.page ?? 1) - 1) * pageSize;
+  const afterTs = opts.after?.createdAt ?? null;
+  const afterId = opts.after?.id ?? null;
 
   const rows = await sql`
-    SELECT cd.* FROM captured_documents cd
+    SELECT cd.*, to_char(cd.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
+    FROM captured_documents cd
     WHERE cd.company_id = ${companyId} AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
       AND cd.document_type IS DISTINCT FROM 'sent_invoice' AND cd.document_type IS DISTINCT FROM 'outbound_email'
       AND cd.document_type IS DISTINCT FROM 'dunning' AND cd.document_type IS DISTINCT FROM 'statement'
@@ -42,6 +66,7 @@ export async function listAttachableDocuments(
                         AND ${journalStandsFragment('je.id', companyId)})
       AND NOT EXISTS (SELECT 1 FROM gl_journal_document_links l
                       WHERE l.company_id = cd.company_id AND l.captured_document_id = cd.id AND l.unlinked_at IS NULL)
+      AND (${afterTs}::timestamptz IS NULL OR (cd.created_at, cd.id) < (${afterTs}::timestamptz, ${afterId}::uuid))
     ORDER BY cd.created_at DESC, cd.id DESC
     LIMIT ${pageSize} OFFSET ${offset}
   ` as Record<string, unknown>[];
@@ -64,5 +89,10 @@ export async function listAttachableDocuments(
                       WHERE l.company_id = cd.company_id AND l.captured_document_id = cd.id AND l.unlinked_at IS NULL)
   ` as Record<string, unknown>[];
 
-  return { rows, total: (countResult[0]?.total as number) || 0 };
+  const last = rows[rows.length - 1];
+  return {
+    rows,
+    total: (countResult[0]?.total as number) || 0,
+    nextAfter: last ? `${String(last.cursor_ts)},${String(last.id)}` : null,
+  };
 }
