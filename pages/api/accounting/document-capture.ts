@@ -2,7 +2,8 @@
  * Document Capture API
  * POST /api/accounting/document-capture  — Upload PDF or image; the row is saved as 'reading' and read in the background
  * GET  /api/accounting/document-capture  — List captured documents (`?id=<uuid>` returns one, company-scoped;
- *      `?attachable=1` lists those the provisional evidence attach accepts, narrowed to supplier evidence)
+ *      `?attachable=1` lists those the provisional evidence attach accepts, narrowed to supplier evidence;
+ *      `&after=<cursor>` from `meta.nextAfter` gives the next page, and `page` is then ignored)
  *
  * A long digital PDF takes the VLM 70-104 s and Cloudflare cuts a request at 100 s, so the upload answers at once
  * (201 `{ document }`, readState 'reading') and `runCaptureRead` fills the row after COMMIT. Clients poll `?id=`.

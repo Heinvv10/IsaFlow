@@ -16,6 +16,8 @@
  * than the last one seen by (created_at, id), so a document attached or posted elsewhere between two loads cannot
  * shift a row out of the next page. `total` is always the full count under the predicate. The cursor carries the
  * created_at at full microsecond precision (a JS Date would cut it to milliseconds and skip rows).
+ * created_at is nullable in the schema (always DEFAULT NOW() in practice); a NULL one is left out, since it would sort
+ * first under DESC and yield a cursor that cannot be parsed.
  *
  * The rows query and the count query repeat one predicate; the paging test pins that they agree. It is written out
  * twice rather than shared as a fragment, because a nested `sql` fragment breaks the unit suites that mock `sql`
@@ -52,7 +54,7 @@ export async function listAttachableDocuments(
   const rows = await sql`
     SELECT cd.*, to_char(cd.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts
     FROM captured_documents cd
-    WHERE cd.company_id = ${companyId} AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
+    WHERE cd.company_id = ${companyId} AND cd.created_at IS NOT NULL AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
       AND cd.document_type IS DISTINCT FROM 'sent_invoice' AND cd.document_type IS DISTINCT FROM 'outbound_email'
       AND cd.document_type IS DISTINCT FROM 'dunning' AND cd.document_type IS DISTINCT FROM 'statement'
       AND NOT EXISTS (SELECT 1 FROM bank_statement_imports b WHERE b.source_document_id = cd.id AND b.company_id = cd.company_id)
@@ -73,7 +75,7 @@ export async function listAttachableDocuments(
 
   const countResult = await sql`
     SELECT COUNT(*)::int AS total FROM captured_documents cd
-    WHERE cd.company_id = ${companyId} AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
+    WHERE cd.company_id = ${companyId} AND cd.created_at IS NOT NULL AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
       AND cd.document_type IS DISTINCT FROM 'sent_invoice' AND cd.document_type IS DISTINCT FROM 'outbound_email'
       AND cd.document_type IS DISTINCT FROM 'dunning' AND cd.document_type IS DISTINCT FROM 'statement'
       AND NOT EXISTS (SELECT 1 FROM bank_statement_imports b WHERE b.source_document_id = cd.id AND b.company_id = cd.company_id)
