@@ -52,16 +52,34 @@ export async function fetchItems(query: string, signal: AbortSignal): Promise<Se
 
 export interface AccountRow {
   option: SelectOption;
+  id: string;
+  accountCode: string;
   accountType: string;
   accountSubtype: string;
+  parentAccountId: string | null;
+  level: number | null;
+  hasTransactions: boolean;
 }
 
-/** The whole active chart (the route takes no search parameter); the account picker filters it locally. */
-export async function fetchAccountRows(signal: AbortSignal): Promise<AccountRow[]> {
-  const data = await apiJson('/api/accounting/chart-of-accounts', { signal }, 'Could not load accounts - try again');
-  return rows(data, 'accounts').map((r) => ({
-    option: { value: text(r, 'id', 'account'), label: `${text(r, 'accountCode', 'account')} · ${text(r, 'accountName', 'account')}` },
-    accountType: optText(r, 'accountType'),
-    accountSubtype: optText(r, 'accountSubtype'),
-  }));
+/**
+ * The whole active chart (the route takes no search parameter); the account picker filters it locally.
+ * Takes no AbortSignal on purpose: the one request is shared by every caller, and aborting it for one of them
+ * (a newer keystroke, an unmount) would fail the others.
+ */
+export async function fetchAccountRows(): Promise<AccountRow[]> {
+  const data = await apiJson('/api/accounting/chart-of-accounts', undefined, 'Could not load the chart of accounts - try again');
+  return rows(data, 'accounts').map((r) => {
+    const id = text(r, 'id', 'account');
+    const accountCode = text(r, 'accountCode', 'account');
+    return {
+      option: { value: id, label: `${accountCode} · ${text(r, 'accountName', 'account')}` },
+      id,
+      accountCode,
+      accountType: optText(r, 'accountType'),
+      accountSubtype: optText(r, 'accountSubtype'),
+      parentAccountId: optText(r, 'parentAccountId') || null,
+      level: typeof r.level === 'number' ? r.level : null,
+      hasTransactions: r.hasTransactions === true,
+    };
+  });
 }
