@@ -62,7 +62,7 @@ export async function seedPortalFixture(): Promise<PortalFixture> {
     const id = ((await sql`INSERT INTO customers (company_id, name, email) VALUES (${co}::UUID, ${name + ' ' + tag}, ${email}) RETURNING id`) as { id: string }[])[0]!.id;
     // The hash is never checked by these files (tokens are signed directly);
     // the row is what makes a session live.
-    await sql`INSERT INTO portal_access (client_id, email, password_hash, name) VALUES (${id}::UUID, ${email}, 'x', ${name})`;
+    await sql`INSERT INTO portal_access (client_id, company_id, email, password_hash, name) VALUES (${id}::UUID, (SELECT company_id FROM customers WHERE id = ${id}::UUID), ${email}, 'x', ${name})`;
     return id;
   };
   const emailA = `a-${tag}@test.local`;

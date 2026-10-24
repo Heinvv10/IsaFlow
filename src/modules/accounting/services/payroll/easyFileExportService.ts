@@ -28,7 +28,8 @@
  *     4149 total tax/UIF/SDL): their exact definitions need the BRS in hand, so
  *     they are not guessed. Do not submit this file without checking e@syFile's
  *     import validation for them.
- *   - Reason codes 4150 other than 02 and 04 (08 needs 4116, not emitted).
+ *   - Reason codes 4150 other than 02, 04 and 08 (08: medical credits, with
+ *     4005/4116/4120, easyFileMedicalFields; PAYE 4a follow-ups round 2, R3).
  *   - ETI (codes 3026, 3190, 7002-7009)
  *   - Foreign nationals / passport / alternate ID (codes 3061/3090/3100)
  *   - Fixed-rate PAYE directives
@@ -43,6 +44,7 @@ import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, 
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
+import { assertBirthCorrelates, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -95,6 +97,10 @@ export interface EmployeeInput {
    * or under it; without it, or above it, a certificate with no tax is refused.
    */
   taxThreshold?: number;
+  /** Medical scheme fees and credits (4005, 4116, 4120); absent = none reported. */
+  medical?: MedicalCertificateInput;
+  /** The payroll record's date of birth, checked against the ID number (assertBirthCorrelates); not emitted. */
+  dateOfBirth?: Date | null;
 }
 
 export interface LumpSumInput {
@@ -183,35 +189,19 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
   return [...byCode.keys()].sort().map(code => formatField(Number(code), byCode.get(code)!, 'N'));
 }
 
-/**
- * Reason 02 is a statement to SARS that the employee earned less than the tax
- * threshold. Nil PAYE above it (medical credits: reason 08, which needs 4116,
- * not produced; or a payroll error) has no reason this file can state.
- */
-function assertUnderThreshold(emp: EmployeeInput): void {
-  const income = Math.max(0, emp.grossSalary3601) + Math.max(0, emp.annualPayments3605 ?? 0);
-  if (emp.taxThreshold != null && income <= emp.taxThreshold) return;
-  throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): no PAYE was deducted on R${income.toFixed(2)} `
-    + (emp.taxThreshold == null
-      ? 'and the tax threshold is not known (it needs the employee\'s age, from the date of birth or ID number, and the tax tables of that year), '
-      : `which is above the tax threshold of R${emp.taxThreshold.toFixed(2)}, `)
-    + ((emp.lumpSums ?? []).length > 0 ? 'beside a nil-tax directive, ' : '')
-    + 'so no reason for non-deduction (4150) can be stated: 02 and 04 are only for pay under the threshold, and 08 (medical credits) '
-    + 'needs code 4116, which this file does not produce. Check the payroll, or file this certificate by hand.');
-}
-
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
+  assertBirthCorrelates(emp);
   const lumpSums = emp.lumpSums ?? [];
   const under4115 = lumpSums.filter(l => lumpSumPayeCode(l.sourceCode) === '4115');
   const paye4115 = Math.round(under4115.reduce((t, l) => t + l.paye, 0) * 100) / 100;
   // No tax at all: an IT3(a) with a reason code instead of the tax fields (BRS
-  // V25.3.0 p. 17, 3015). 04 "non-taxable earnings, including nil directives"
-  // when a directive is on it (valid only then, p. 58), else 02 "earn less than
-  // the tax threshold" (p. 108).
+  // V25.3.0 p. 17, 3015), from nilTaxReason: 02 / 04 under the threshold, 08
+  // (medical credits) above it. Lump sums are outside 3601/3605: a nil
+  // directive beside taxable pay over the threshold is no reason 04 either.
   const it3a = emp.paye4102 <= 0 && paye4115 <= 0;
-  // Lump sums are outside 3601/3605: a nil directive beside taxable pay over the threshold is no reason 04 either.
-  if (it3a) assertUnderThreshold(emp);
+  const reason = it3a ? nilTaxReason(emp) : null;
+  const medical = medicalFieldLines(emp);
   const lines: (string | null)[] = [
     formatField(3010, emp.certificateNumber, 'AN'),
     formatField(3015, it3a ? 'IT3(a)' : 'IRP5', 'AN'),
@@ -235,13 +225,15 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(3601, emp.grossSalary3601 > 0 ? emp.grossSalary3601 : null, 'N'),
     formatField(3605, (emp.annualPayments3605 ?? 0) > 0 ? emp.annualPayments3605! : null, 'N'),
     ...lumpIncome(lumpSums),
+    ...medical.fees,
     it3a ? null : formatField(4102, emp.paye4102, 'N_CENTS'),
     // 4115 only for 3901 / 3915 / 3920-3924 (lumpSumPayeCode); a 3907's PAYE is in 4102.
     !it3a && under4115.length > 0 ? formatField(4115, paye4115, 'N_CENTS') : null,
+    ...medical.credits,
     // 4141 is ONE field: the employee's and the employer's UIF together.
     formatField(4141, Math.round((emp.uifEmployee + emp.uifEmployer) * 100) / 100, 'N_CENTS'),
     formatField(4142, emp.sdl4142, 'N_CENTS'),
-    it3a ? `4150,${lumpSums.length > 0 ? '04' : '02'}` : null,
+    reason ? `4150,${reason}` : null,
     '9999,9999',
   ];
   const record = lines.filter((l): l is string => l !== null);

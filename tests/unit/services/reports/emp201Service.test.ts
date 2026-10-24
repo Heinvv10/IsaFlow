@@ -43,6 +43,7 @@ const HEADER_ROW = {
   total_paye: 7000,
   total_uif: 1000,
   total_sdl: 500,
+  employee_ids: ['emp-a', 'emp-b'],
 };
 
 /**
@@ -214,6 +215,7 @@ describe('emp201Service — Phase 1 schema (payroll_run_headers)', () => {
       total_paye: 8000,
       total_uif: 1200,
       total_sdl: 600,
+      employee_ids: ['emp-a', 'emp-c', 'emp-d'],
     };
 
     vi.mocked(sql)
@@ -226,7 +228,21 @@ describe('emp201Service — Phase 1 schema (payroll_run_headers)', () => {
     expect(res.totalUIF).toBe(1000 + 1200);      // 2200
     expect(res.totalSDL).toBe(500 + 600);        // 1100
     expect(res.totalTaxableRemuneration).toBe(50000 + 60000); // 110000
-    expect(res.employeeCount).toBe(3);           // max across runs
+    // Distinct employees across the runs (R5): a, b, c, d; the old max-of-runs said 3.
+    expect(res.employeeCount).toBe(4);
     expect(res.payrollRuns).toHaveLength(2);
+  });
+
+  it('counts a stand-alone directive payee with the run employees, each person once (R5)', async () => {
+    const filing = await import('@/modules/accounting/services/payroll/directivePaymentFiling');
+    vi.mocked(filing.listStandaloneDirectivePayments).mockResolvedValueOnce([
+      { paymentId: 'p-1', directiveId: 'd-1', directiveNumber: '1', employeeId: 'emp-b', employeeName: 'B', paymentDate: '2025-03-10', gross: 100, paye: 10, filing: {} as never },
+      { paymentId: 'p-2', directiveId: 'd-2', directiveNumber: '2', employeeId: 'emp-z', employeeName: 'Z', paymentDate: '2025-03-11', gross: 100, paye: 10, filing: {} as never },
+    ]);
+    mockHappyPath();
+
+    const res = await generateEMP201(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(res.employeeCount).toBe(3); // emp-a, emp-b (run and payment), emp-z (payment only)
   });
 });

@@ -17,6 +17,12 @@ const { sqlMock } = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+// S-07d (migration 937): mint/retire run on the migration_admin pool. The fake
+// client feeds the same recorder as sql, so call order and counts stay asserted.
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>
+    fn({ query: async (text: string, params: unknown[]) => ({ rows: await sqlMock(text, params) }) }),
+}));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
@@ -90,7 +96,7 @@ describe('generateInboxAddress', () => {
 // ── getOrCreateEmailInbox ─────────────────────────────────────────────────────
 
 describe('getOrCreateEmailInbox', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); sqlMock.mockReset(); });
 
   it('returns existing inbox without inserting when one is active', async () => {
     vi.mocked(sql).mockResolvedValueOnce([
@@ -178,7 +184,7 @@ describe('getOrCreateEmailInbox', () => {
 // ── regenerateEmailAddress ────────────────────────────────────────────────────
 
 describe('regenerateEmailAddress', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); sqlMock.mockReset(); });
 
   it('issues an UPDATE setting is_active=false before creating new inbox', async () => {
     // Call order: UPDATE (deactivate) → SELECT (no existing) → INSERT (new)
@@ -193,8 +199,9 @@ describe('regenerateEmailAddress', () => {
     // First sql call must be the deactivation UPDATE
     const calls = vi.mocked(sql).mock.calls;
     expect(calls.length).toBe(3);
-    // The UPDATE is call[0]; it should reference is_active and the company
-    // We assert on call count + final result rather than SQL string contents
+    // The UPDATE is call[0] (client.query text, params): retires the company's active email inbox
+    expect(String(calls[0]![0])).toMatch(/UPDATE capture_inboxes\s+SET is_active = false/);
+    expect(calls[0]![1]).toEqual([COMPANY_ID]);
     expect(result.address).toBe('cap-ff1122@inbox.isaflow.co.za');
     expect(result.id).toBe('new-inbox-id');
   });
@@ -218,7 +225,7 @@ describe('regenerateEmailAddress', () => {
 // ── listInboxes ───────────────────────────────────────────────────────────────
 
 describe('listInboxes', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); sqlMock.mockReset(); });
 
   it('returns mapped Inbox objects for all rows', async () => {
     vi.mocked(sql).mockResolvedValueOnce([
