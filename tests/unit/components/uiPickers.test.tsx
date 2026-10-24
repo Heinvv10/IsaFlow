@@ -1,7 +1,7 @@
 // Shared pickers (ContactPicker, AccountPicker, ItemPicker, TaxRatePicker) over the real routes' shapes.
 // apiFetch is mocked at the boundary; the REAL apiJson/assertOk run on top, so a 4xx/5xx must surface as an error state.
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useState } from 'react';
 
@@ -36,21 +36,28 @@ describe('ContactPicker', () => {
   });
 
   it('searches the supplier endpoint server-side, debounced to one request for fast typing', async () => {
-    vi.mocked(apiFetch).mockImplementation(async (u) => route(String(u)));
-    render(<ContactPicker kind="supplier" label="Supplier" value={null} onChange={() => {}} />);
-    await openPicker('Supplier');
-    await screen.findByRole('option', { name: 'Bravo Logistics' });
-    const search = screen.getByRole('textbox', { name: 'Search Supplier' });
-    for (const q of ['a', 'ac', 'acm']) {
-      fireEvent.change(search, { target: { value: q } });
-      await new Promise((r) => setTimeout(r, 60)); // keystrokes arrive well inside the 250 ms window
+    vi.useFakeTimers();
+    try {
+      vi.mocked(apiFetch).mockImplementation(async (u) => route(String(u)));
+      render(<ContactPicker kind="supplier" label="Supplier" value={null} onChange={() => {}} />);
+      fireEvent.click(trigger('Supplier'));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole('option', { name: 'Bravo Logistics' })).toBeTruthy();
+      const search = screen.getByRole('textbox', { name: 'Search Supplier' });
+      for (const q of ['a', 'ac', 'acm']) {
+        fireEvent.change(search, { target: { value: q } });
+        await act(async () => { await vi.advanceTimersByTimeAsync(100); }); // keystrokes arrive inside the 250 ms window
+      }
+      expect(urls().filter((u) => /q=.+/.test(u))).toHaveLength(0);
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      const searched = urls().filter((u) => /q=.+/.test(u));
+      expect(searched).toHaveLength(1);
+      expect(searched[0]).toContain('/api/accounting/suppliers-list');
+      expect(searched[0]).toContain('q=acm');
+      expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Acme Trading', 'Acme Holdings']);
+    } finally {
+      vi.useRealTimers();
     }
-    await waitFor(() => expect(screen.queryByRole('option', { name: 'Bravo Logistics' })).toBeNull());
-    const searched = urls().filter((u) => u.includes('q=') && !u.endsWith('q='));
-    expect(searched).toHaveLength(1);
-    expect(searched[0]).toContain('/api/accounting/suppliers-list');
-    expect(searched[0]).toContain('q=acm');
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Acme Trading', 'Acme Holdings']);
   });
 
   it('selects with the keyboard and reports value and option', async () => {
