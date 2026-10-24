@@ -1,0 +1,733 @@
+-- 940: Financial years as stored records (change-of-year-end programme,
+-- Feature A; Hein's decisions 2026-10-22/23).
+--
+-- WHY. A financial year was never stored: it was `GROUP BY fiscal_year` over
+-- fiscal_periods, and every report re-derived its dates from the CURRENT
+-- companies.financial_year_start. Change that month and every historical year
+-- re-cuts in every report. From here a year is a row with its own dates; the
+-- readers take a year's range from it (gl/fiscalYearRegistry.ts), so a year
+-- keeps its dates after a change of year end.
+--
+-- WHICH DATES THE EXISTING YEARS GET (Hein, 2026-10-23, gate G1/G3). Every
+-- real company declares financial_year_start = 3 while its periods are
+-- labelled January-December. Reports have always used the DECLARED March year
+-- (TB year-to-date, AFS, prior year), and the AFS are signed for it. So the
+-- years are built from the declared month, not from the period labels, and
+-- each period is linked to the year that holds its dates. Reports stay
+-- identical. Period rows keep their dates, labels and numbers; only the new
+-- fiscal_year_id column is set. A period that fits no declared year (a single
+-- January-December "period", which only test fixtures write) gets a year cut
+-- from its own label group instead, exactly as the periods describe it.
+--
+-- ONE TEMPLATE. fiscal_year_template() is the only place a year's range is
+-- derived when no row holds a date yet: chained 12 months on from the nearest
+-- stored year (so a transition year's new year end carries forward), else the
+-- declared month. The app's resolver and generator call it; nothing in
+-- TypeScript re-derives it.
+--
+-- INVARIANTS (enforced here, not by convention):
+--   * a year is 2 days to 15 months long (Companies Act 71 of 2008, s27(4)) and
+--     a company's years never overlap;
+--   * every period lies inside its year, of the same company (deferred, so a
+--     change of year end can move a year's edges and its periods in one
+--     transaction);
+--   * a closed or locked period cannot be moved, re-dated or relabelled, and
+--     nothing is added to a closed or locked year; a closed or locked year
+--     cannot be re-dated or relabelled;
+--   * a year's status is never written, only derived from its periods
+--     (enforced by trigger on every INSERT/UPDATE): locked/closed only when every day
+--     of the year is covered by periods that all are, closing while any period
+--     is closing, otherwise open.
+--
+-- Legacy writers (136 integration fixtures INSERT fiscal_periods directly)
+-- keep working: a period inserted without fiscal_year_id is linked by
+-- fiscal_periods_link_year(), which creates the template year when none holds
+-- it.
+
+-- ── Table ─────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS fiscal_years (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  -- The label: named for the calendar year the year ENDS in (FY2027 = Mar 2026
+  -- - Feb 2027), as gl/fiscalYearCalendar.ts always has.
+  fiscal_year INT NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'open'
+    CHECK (status IN ('open', 'closing', 'closed', 'locked')),
+  kind VARCHAR(20) NOT NULL DEFAULT 'normal' CHECK (kind IN ('normal', 'transition')),
+  -- The change of year end that made this a transition year (Feature B's table).
+  change_id UUID,
+  -- True when the year was cut on an ASSUMED March start (a period linked for a
+  -- company with no usable financial_year_start). Strict readers refuse it. Declaring
+  -- the month it really starts in confirms it, once and for good (the companies
+  -- trigger clears the flag), so a later change of year end does not un-confirm it.
+  assumed_start BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT fiscal_years_company_label_key UNIQUE (company_id, fiscal_year),
+  -- The target of the periods' composite FK: a period can only point at a year
+  -- of its OWN company, whatever RLS lets a session see.
+  CONSTRAINT fiscal_years_company_id_key UNIQUE (company_id, id),
+  CONSTRAINT fiscal_years_dates_ordered CHECK (end_date > start_date),
+  CONSTRAINT fiscal_years_at_most_15_months CHECK (end_date < (start_date + INTERVAL '15 months')::date),
+  CONSTRAINT fiscal_years_no_overlap
+    EXCLUDE USING gist (company_id WITH =, daterange(start_date, end_date, '[]') WITH &&)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fiscal_years_company_end ON fiscal_years (company_id, end_date);
+
+ALTER TABLE fiscal_years ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fiscal_years FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON fiscal_years;
+-- The active company AND membership (migration 897's form): a member of two
+-- companies working in A cannot read or write B's rows through app_user.
+CREATE POLICY tenant_isolation ON fiscal_years FOR ALL TO app_user
+  USING (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
+  WITH CHECK (company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
+GRANT SELECT, INSERT, UPDATE, DELETE ON fiscal_years TO app_user;
+
+DROP TRIGGER IF EXISTS trg_fiscal_years_updated_at ON fiscal_years;
+CREATE TRIGGER trg_fiscal_years_updated_at BEFORE UPDATE ON fiscal_years
+  FOR EACH ROW EXECUTE FUNCTION accounting_updated_at();
+
+-- Composite (company_id, fiscal_year_id): the database itself refuses a period
+-- linked to another company's year (a SECURITY INVOKER check under FORCE RLS
+-- could not see the other company's row to object). DEFERRABLE (immediate by
+-- default): a change of year end replaces the open years after the transition
+-- year and re-points their periods in one transaction (SET CONSTRAINTS ...).
+ALTER TABLE fiscal_periods ADD COLUMN IF NOT EXISTS fiscal_year_id UUID;
+ALTER TABLE fiscal_periods DROP CONSTRAINT IF EXISTS fiscal_periods_fiscal_year_id_fkey;
+ALTER TABLE fiscal_periods ADD CONSTRAINT fiscal_periods_fiscal_year_id_fkey
+  FOREIGN KEY (company_id, fiscal_year_id) REFERENCES fiscal_years (company_id, id) DEFERRABLE INITIALLY IMMEDIATE;
+CREATE INDEX IF NOT EXISTS idx_fiscal_periods_fiscal_year_id ON fiscal_periods (fiscal_year_id);
+
+-- ── The template: a year's range where no row holds the date yet ─────────────
+
+-- p_fallback: the start month a READ path assumes for a company with no usable
+-- financial_year_start and no stored year (gl/fiscalYearBasis: the March default
+-- is the caller's choice, never a silent one). Write paths pass NULL and refuse.
+CREATE OR REPLACE FUNCTION public.fiscal_year_template(p_company uuid, p_date date, p_fallback int DEFAULT NULL)
+RETURNS TABLE (fiscal_year int, start_date date, end_date date, assumed boolean)
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  prev_label int; prev_end date; next_label int; next_start date;
+  s date; e date; lbl int; m int; steps int := 0; used_fallback boolean := false;
+  raw_prev_end date; raw_prev_label int;
+  prev_assumed boolean := false; next_assumed boolean := false; start_unusable boolean;
+BEGIN
+  SELECT fy.fiscal_year, fy.end_date, fy.assumed_start INTO prev_label, prev_end, prev_assumed
+    FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.end_date < p_date
+   ORDER BY fy.end_date DESC LIMIT 1;
+  SELECT fy.fiscal_year, fy.start_date, fy.assumed_start INTO next_label, next_start, next_assumed
+    FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.start_date > p_date
+   ORDER BY fy.start_date LIMIT 1;
+
+  -- Later years are chained FORWARD from a stored year only when the year after
+  -- it starts in the declared month (every declared year, and a transition year
+  -- once its change has set the new month). A year cut from a fixture's
+  -- whole-year "period" does not re-cut every later year; the template then
+  -- takes the declared month, kept clear of that year. Walking BACK from the
+  -- next stored year (a post-change company's pre-change calendar years) always
+  -- applies: those years are history and the year before them is theirs.
+  SELECT CASE WHEN c.financial_year_start BETWEEN 1 AND 12 THEN c.financial_year_start END
+    INTO m FROM companies c WHERE c.id = p_company;
+  start_unusable := m IS NULL;
+  raw_prev_end := prev_end; raw_prev_label := prev_label;
+  IF prev_end IS NOT NULL AND m IS NOT NULL AND EXTRACT(MONTH FROM prev_end + 1)::int <> m THEN
+    prev_label := NULL; prev_end := NULL;
+  END IF;
+
+  IF prev_end IS NOT NULL THEN
+    -- Twelve-month steps on from the last stored year: after a transition the
+    -- new year end carries forward. A label is the year the range ends in, and
+    -- never repeats: a short year ending in the same calendar year as the one
+    -- before pushes later labels up by one (documented in the gl .claude.md).
+    s := prev_end + 1; lbl := prev_label;
+    LOOP
+      e := (s + INTERVAL '12 months')::date - 1;
+      lbl := GREATEST(lbl + 1, EXTRACT(YEAR FROM e)::int);
+      EXIT WHEN p_date <= e;
+      s := e + 1; steps := steps + 1;
+      IF steps > 500 THEN RAISE EXCEPTION 'fiscal_year_template: % is too far from the stored years', p_date; END IF;
+    END LOOP;
+    IF next_start IS NOT NULL AND e >= next_start THEN
+      e := next_start - 1;  -- the gap before the next stored year is shorter than a year
+    END IF;
+    IF next_label IS NOT NULL AND lbl >= next_label THEN
+      RAISE EXCEPTION 'fiscal_year_template: no free label for the year holding % (between FY% and FY%)', p_date, prev_label, next_label;
+    END IF;
+  ELSIF next_start IS NOT NULL THEN
+    e := next_start - 1; lbl := next_label;
+    LOOP
+      s := (e + 1 - INTERVAL '12 months')::date;
+      lbl := LEAST(lbl - 1, EXTRACT(YEAR FROM e)::int);
+      EXIT WHEN p_date >= s;
+      e := s - 1; steps := steps + 1;
+      IF steps > 500 THEN RAISE EXCEPTION 'fiscal_year_template: % is too far from the stored years', p_date; END IF;
+    END LOOP;
+    IF raw_prev_end IS NOT NULL AND s <= raw_prev_end THEN s := raw_prev_end + 1; END IF;
+    IF raw_prev_label IS NOT NULL AND lbl <= raw_prev_label THEN
+      RAISE EXCEPTION 'fiscal_year_template: no free label for the year holding % (between FY% and FY%)', p_date, raw_prev_label, next_label;
+    END IF;
+  ELSE
+    -- No stored year: the declared month. No silent March (gl/fiscalYearBasis):
+    -- an unusable financial_year_start is refused, not guessed.
+    IF NOT EXISTS (SELECT 1 FROM companies c WHERE c.id = p_company) THEN
+      RAISE EXCEPTION 'fiscal_year_template: company % not found', p_company;
+    END IF;
+    SELECT c.financial_year_start INTO m FROM companies c WHERE c.id = p_company;
+    IF (m IS NULL OR m NOT BETWEEN 1 AND 12) AND p_fallback BETWEEN 1 AND 12 THEN
+      m := p_fallback; used_fallback := true;
+    END IF;
+    IF m IS NULL OR m NOT BETWEEN 1 AND 12 THEN
+      RAISE EXCEPTION 'Company % has no usable financial_year_start (found %): set the month its financial year begins (1-12) before its first financial year can be built',
+        p_company, COALESCE(m::text, 'NULL') USING ERRCODE = '22023';
+    END IF;
+    IF EXTRACT(MONTH FROM p_date)::int >= m THEN
+      s := make_date(EXTRACT(YEAR FROM p_date)::int, m, 1);
+    ELSE
+      s := make_date(EXTRACT(YEAR FROM p_date)::int - 1, m, 1);
+    END IF;
+    e := (s + INTERVAL '12 months')::date - 1;
+    lbl := EXTRACT(YEAR FROM e)::int;
+    -- Never across, nor under the label of, a stored year the chaining rule set aside.
+    IF raw_prev_end IS NOT NULL THEN
+      IF s <= raw_prev_end THEN s := raw_prev_end + 1; END IF;
+      lbl := GREATEST(lbl, raw_prev_label + 1);
+    END IF;
+  END IF;
+
+  -- A year chained from a year cut on an assumed start month is assumed too,
+  -- while the company still has no usable start month.
+  fiscal_year := lbl; start_date := s; end_date := e;
+  assumed := used_fallback
+          OR (start_unusable AND ((prev_end IS NOT NULL AND COALESCE(prev_assumed, false))
+                                  OR (prev_end IS NULL AND next_start IS NOT NULL AND COALESCE(next_assumed, false))));
+  RETURN NEXT;
+END;
+$$;
+
+-- The year holding a date: the stored row, else the template (id NULL, stored false).
+CREATE OR REPLACE FUNCTION public.fiscal_year_for_date(p_company uuid, p_date date)
+RETURNS TABLE (id uuid, fiscal_year int, start_date date, end_date date, status varchar,
+               kind varchar, stored boolean, assumed boolean)
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  RETURN QUERY
+    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true,
+           fy.assumed_start  -- cleared, once, by declaring the month it starts in (see the companies trigger)
+      FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
+     WHERE fy.company_id = p_company AND p_date BETWEEN fy.start_date AND fy.end_date;
+  IF NOT FOUND THEN
+    RETURN QUERY
+      SELECT NULL::uuid, t.fiscal_year, t.start_date, t.end_date, 'open'::varchar, 'normal'::varchar, false, t.assumed
+        FROM public.fiscal_year_template(p_company, p_date, 3) t;  -- a read path: March, as every reader assumed
+  END IF;
+END;
+$$;
+
+-- The year with a label: the stored row, else the template year that carries
+-- it (none when the template skips that label).
+CREATE OR REPLACE FUNCTION public.fiscal_year_for_label(p_company uuid, p_label int)
+RETURNS TABLE (id uuid, fiscal_year int, start_date date, end_date date, status varchar,
+               kind varchar, stored boolean, assumed boolean)
+LANGUAGE plpgsql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  prev_label int; prev_end date; next_label int; next_start date; m int;
+  probe date; t record; steps int := 0;
+BEGIN
+  RETURN QUERY
+    SELECT fy.id, fy.fiscal_year, fy.start_date, fy.end_date, fy.status, fy.kind, true,
+           fy.assumed_start  -- cleared, once, by declaring the month it starts in (see the companies trigger)
+      FROM fiscal_years fy JOIN companies c ON c.id = fy.company_id
+     WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
+  IF FOUND THEN RETURN; END IF;
+
+  SELECT fy.fiscal_year, fy.end_date INTO prev_label, prev_end FROM fiscal_years fy
+   WHERE fy.company_id = p_company AND fy.fiscal_year < p_label ORDER BY fy.fiscal_year DESC LIMIT 1;
+  SELECT fy.fiscal_year, fy.start_date INTO next_label, next_start FROM fiscal_years fy
+   WHERE fy.company_id = p_company AND fy.fiscal_year > p_label ORDER BY fy.fiscal_year LIMIT 1;
+
+  IF prev_end IS NULL AND next_start IS NULL THEN
+    SELECT c.financial_year_start INTO m FROM companies c WHERE c.id = p_company;
+    IF NOT FOUND THEN RETURN; END IF;
+    IF m IS NULL OR m NOT BETWEEN 1 AND 12 THEN m := 3; END IF;  -- a read path: March, as every reader assumed
+    -- The year ending in calendar year p_label: its last day is the day before
+    -- the start month of p_label (a January start ends 31 December p_label).
+    IF m = 1 THEN probe := make_date(p_label, 12, 31);
+    ELSE probe := make_date(p_label, m, 1) - 1;
+    END IF;
+  ELSIF prev_end IS NOT NULL THEN
+    probe := prev_end + 1;
+  ELSE
+    probe := next_start - 1;
+  END IF;
+
+  -- Walk year by year from the nearest stored neighbour, through the template.
+  LOOP
+    SELECT * INTO t FROM public.fiscal_year_template(p_company, probe, 3);
+    EXIT WHEN t.fiscal_year = p_label;
+    IF prev_end IS NOT NULL OR (prev_end IS NULL AND next_start IS NULL) THEN
+      EXIT WHEN t.fiscal_year > p_label;
+      probe := t.end_date + 1;
+    ELSE
+      EXIT WHEN t.fiscal_year < p_label;
+      probe := t.start_date - 1;
+    END IF;
+    steps := steps + 1;
+    IF steps > 500 THEN RETURN; END IF;
+  END LOOP;
+  IF t.fiscal_year = p_label THEN
+    RETURN QUERY SELECT NULL::uuid, t.fiscal_year, t.start_date, t.end_date, 'open'::varchar, 'normal'::varchar, false, t.assumed;
+  END IF;
+END;
+$$;
+
+-- ── Linking a period to its year ─────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fiscal_year_link_period(
+  p_company uuid, p_label int, p_start date, p_end date
+) RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  y uuid; t record; lo date; hi date;
+BEGIN
+  -- 1. A stored year that holds the whole period.
+  SELECT fy.id INTO y FROM fiscal_years fy
+   WHERE fy.company_id = p_company AND fy.start_date <= p_start AND fy.end_date >= p_end;
+  IF y IS NOT NULL THEN RETURN y; END IF;
+
+  -- 2. The template year, when it holds the whole period and nothing is in its way.
+  -- The read fallback: a legacy writer (or the backfill) linking a period of a
+  -- company with no usable start month still gets a year, never an abort.
+  SELECT * INTO t FROM public.fiscal_year_template(p_company, p_start, 3);
+  IF t.start_date <= p_start AND t.end_date >= p_end THEN
+    INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, assumed_start)
+    VALUES (p_company, t.fiscal_year, t.start_date, t.end_date, t.assumed)
+    ON CONFLICT DO NOTHING
+    RETURNING id INTO y;
+    IF y IS NOT NULL THEN RETURN y; END IF;
+    SELECT fy.id INTO y FROM fiscal_years fy  -- a concurrent writer created it
+     WHERE fy.company_id = p_company AND fy.start_date <= p_start AND fy.end_date >= p_end;
+    IF y IS NOT NULL THEN RETURN y; END IF;
+  END IF;
+
+  -- 3. The period fits no template year (a whole-year "period" of a fixture):
+  --    the year is its label group, as the periods describe it.
+  --    Widening a year re-cuts the range its reports cover, so it is refused
+  --    once any journal sits in the year (only fixture-shaped data reaches here).
+  --    Never assumed_start: its dates are the periods' own, not a guessed start month.
+  SELECT fy.id, LEAST(fy.start_date, p_start), GREATEST(fy.end_date, p_end) INTO y, lo, hi
+    FROM fiscal_years fy WHERE fy.company_id = p_company AND fy.fiscal_year = p_label;
+  IF y IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM gl_journal_entries je JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+                WHERE fp.fiscal_year_id = y AND je.company_id = p_company) THEN
+      RAISE EXCEPTION 'period % to % fits no financial year of company %, and FY% already holds journals: it is not widened',
+        p_start, p_end, p_company, p_label USING ERRCODE = '23514';
+    END IF;
+    UPDATE fiscal_years SET start_date = lo, end_date = hi WHERE id = y;
+    RETURN y;
+  END IF;
+  INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
+  VALUES (p_company, p_label, p_start, p_end)
+  RETURNING id INTO y;
+  RETURN y;
+END;
+$$;
+
+-- ── Status follows the periods ───────────────────────────────────────────────
+
+-- p_start/p_end: the year's range as it will be (a BEFORE UPDATE passes NEW's).
+CREATE OR REPLACE FUNCTION public.fiscal_year_derived_status(p_year uuid, p_start date, p_end date)
+RETURNS varchar
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT CASE
+    WHEN COUNT(fp.id) = 0 THEN 'open'
+    WHEN bool_or(fp.status = 'closing') THEN 'closing'
+    WHEN bool_and(fp.status IN ('closed', 'locked'))
+         AND SUM(fp.end_date - fp.start_date + 1) = (p_end - p_start + 1)
+      THEN CASE WHEN bool_and(fp.status = 'locked') THEN 'locked' ELSE 'closed' END
+    ELSE 'open'
+  END
+  FROM fiscal_periods fp WHERE fp.fiscal_year_id = p_year
+$$;
+
+CREATE OR REPLACE FUNCTION public.fiscal_year_derived_status(p_year uuid)
+RETURNS varchar
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT public.fiscal_year_derived_status(fy.id, fy.start_date, fy.end_date) FROM fiscal_years fy WHERE fy.id = p_year
+$$;
+
+-- A new year has no periods yet: it is open, whatever the INSERT says.
+CREATE OR REPLACE FUNCTION public.fiscal_years_insert_open()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  NEW.status := 'open';
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fiscal_years_sync_status()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  y uuid;
+BEGIN
+  FOR y IN
+    SELECT DISTINCT u FROM unnest(ARRAY[
+      CASE WHEN TG_OP <> 'DELETE' THEN NEW.fiscal_year_id END,
+      CASE WHEN TG_OP <> 'INSERT' THEN OLD.fiscal_year_id END]) AS u
+    WHERE u IS NOT NULL
+    ORDER BY u  -- a fixed lock order across concurrent writers
+  LOOP
+    -- Lock the year first, then derive: two transactions closing the year's last
+    -- two periods serialise here, and the second derives from the first's
+    -- committed period (each statement takes a fresh snapshot under READ COMMITTED).
+    PERFORM 1 FROM fiscal_years WHERE id = y FOR UPDATE;
+    UPDATE fiscal_years SET status = public.fiscal_year_derived_status(y)
+     WHERE id = y AND status IS DISTINCT FROM public.fiscal_year_derived_status(y);
+  END LOOP;
+  RETURN NULL;
+END;
+$$;
+
+-- ── Period triggers ──────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION public.fiscal_periods_link_year()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF NEW.fiscal_year_id IS NULL THEN
+    NEW.fiscal_year_id := public.fiscal_year_link_period(NEW.company_id, NEW.fiscal_year, NEW.start_date, NEW.end_date);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fiscal_periods_guard_closed()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  year_status varchar;
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.status IN ('closed', 'locked') AND (
+       NEW.start_date IS DISTINCT FROM OLD.start_date OR NEW.end_date IS DISTINCT FROM OLD.end_date
+    OR NEW.fiscal_year IS DISTINCT FROM OLD.fiscal_year OR NEW.period_number IS DISTINCT FROM OLD.period_number
+    OR NEW.company_id IS DISTINCT FROM OLD.company_id
+    OR (OLD.fiscal_year_id IS NOT NULL AND NEW.fiscal_year_id IS DISTINCT FROM OLD.fiscal_year_id)) THEN
+    RAISE EXCEPTION 'fiscal period % (%) is %: it cannot be moved, re-dated or relabelled',
+      OLD.id, OLD.period_name, OLD.status USING ERRCODE = '55000';
+  END IF;
+  -- A period never changes company: its journals and balance rows would follow
+  -- it into another tenant.
+  IF TG_OP = 'UPDATE' AND NEW.company_id IS DISTINCT FROM OLD.company_id THEN
+    RAISE EXCEPTION 'fiscal period % cannot move to another company', OLD.id USING ERRCODE = '55000';
+  END IF;
+  -- Locked is final for the application role (reopenPeriod refuses it too).
+  IF TG_OP = 'UPDATE' AND OLD.status = 'locked' AND NEW.status IS DISTINCT FROM 'locked'
+     AND NOT public.fiscal_period_override() THEN
+    RAISE EXCEPTION 'fiscal period % (%) is locked: it cannot be reopened', OLD.id, OLD.period_name USING ERRCODE = '55000';
+  END IF;
+  IF TG_OP = 'INSERT' OR NEW.fiscal_year_id IS DISTINCT FROM OLD.fiscal_year_id THEN
+    SELECT fy.status INTO year_status FROM fiscal_years fy WHERE fy.id = NEW.fiscal_year_id;
+    IF year_status IN ('closed', 'locked') THEN
+      RAISE EXCEPTION 'fiscal year % is %: no period can be added to it', NEW.fiscal_year_id, year_status
+        USING ERRCODE = '55000';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Only a superuser (fixtures, an operator's data correction) may delete a closed
+-- or locked period or reopen a locked one (a custom setting would not do: any
+-- role can set one): that would reopen its year and
+-- let a month be added beside closed books. No app path does either
+-- (rebuildUnusedFiscalPeriods refuses any period not open; reopenPeriod refuses
+-- a locked one). Every other role — app_user, platform_admin, migration_admin —
+-- is refused.
+CREATE OR REPLACE FUNCTION public.fiscal_period_override()
+RETURNS boolean
+LANGUAGE sql STABLE
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+  SELECT COALESCE((SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = current_user), false)
+$$;
+
+CREATE OR REPLACE FUNCTION public.fiscal_periods_guard_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF OLD.status IN ('closed', 'locked')
+     AND NOT public.fiscal_period_override() THEN
+    RAISE EXCEPTION 'fiscal period % (%) is %: it cannot be deleted', OLD.id, OLD.period_name, OLD.status
+      USING ERRCODE = '55000';
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+-- Deferred: a change of year end moves a year's edge and its periods in one transaction.
+CREATE OR REPLACE FUNCTION public.fiscal_periods_check_inside_year()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  bad record;
+BEGIN
+  SELECT fp.id, fp.period_name, fp.start_date, fp.end_date, fy.fiscal_year, fy.start_date AS ys, fy.end_date AS ye,
+         fy.company_id AS ycompany, fp.company_id AS pcompany
+    INTO bad
+    FROM fiscal_periods fp JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
+   WHERE fp.id = NEW.id
+     AND (fy.company_id <> fp.company_id OR fp.start_date < fy.start_date OR fp.end_date > fy.end_date);
+  IF NOT FOUND AND EXISTS (
+       SELECT 1 FROM gl_journal_entries je JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+        WHERE fp.id = NEW.id
+          AND (je.company_id <> fp.company_id OR je.entry_date NOT BETWEEN fp.start_date AND fp.end_date)) THEN
+    RAISE EXCEPTION 'fiscal period % would no longer hold the journals that point at it; move or re-date them first', NEW.id
+      USING ERRCODE = '23514';
+  END IF;
+  IF FOUND THEN
+    RAISE EXCEPTION 'fiscal period % (% to %) lies outside its fiscal year FY% (% to %)%',
+      bad.period_name, bad.start_date, bad.end_date, bad.fiscal_year, bad.ys, bad.ye,
+      CASE WHEN bad.ycompany <> bad.pcompany THEN ', of another company' ELSE '' END
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fiscal_years_check_holds_periods()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  bad record;
+BEGIN
+  SELECT fp.period_name, fp.start_date, fp.end_date INTO bad
+    FROM fiscal_periods fp JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
+   WHERE fy.id = NEW.id AND (fp.start_date < fy.start_date OR fp.end_date > fy.end_date)
+   LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'fiscal year FY% (% to %) no longer holds its period % (% to %)',
+      NEW.fiscal_year, NEW.start_date, NEW.end_date, bad.period_name, bad.start_date, bad.end_date
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fiscal_years_guard_closed()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF OLD.status IN ('closed', 'locked') AND (
+       NEW.start_date IS DISTINCT FROM OLD.start_date OR NEW.end_date IS DISTINCT FROM OLD.end_date
+    OR NEW.fiscal_year IS DISTINCT FROM OLD.fiscal_year OR NEW.company_id IS DISTINCT FROM OLD.company_id
+    OR NEW.kind IS DISTINCT FROM OLD.kind) THEN
+    RAISE EXCEPTION 'fiscal year FY% is %: it cannot be re-dated or relabelled', OLD.fiscal_year, OLD.status
+      USING ERRCODE = '55000';
+  END IF;
+  -- Status is never written, only derived (an app_user UPDATE of status alone
+  -- cannot mark a year closed): from the periods, with the new coverage.
+  NEW.status := public.fiscal_year_derived_status(NEW.id, NEW.start_date, NEW.end_date);
+  RETURN NEW;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fiscal_years_guard_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  IF OLD.status IN ('closed', 'locked') THEN
+    -- A company being deleted takes its years with it (ON DELETE CASCADE).
+    IF EXISTS (SELECT 1 FROM companies c WHERE c.id = OLD.company_id) THEN
+      RAISE EXCEPTION 'fiscal year FY% is %: it cannot be deleted', OLD.fiscal_year, OLD.status
+        USING ERRCODE = '55000';
+    END IF;
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+-- ── Backfill: every existing period, oldest first per company ────────────────
+-- Runs BEFORE the period guards exist: linking a closed period is its first
+-- fiscal_year_id, which the guard allows anyway (OLD NULL), but the year's
+-- status is derived once at the end instead of per row.
+
+-- Linking touches each period's updated_at (its accounting_updated_at trigger);
+-- accepted: the row did change (fiscal_year_id), and no trigger is switched off
+-- (the entity-change census refuses migrations that do).
+DO $$
+DECLARE
+  p record;
+  linked int := 0;
+BEGIN
+  FOR p IN
+    SELECT id, company_id, fiscal_year, start_date, end_date FROM fiscal_periods
+     WHERE fiscal_year_id IS NULL
+     ORDER BY company_id, start_date, end_date
+  LOOP
+    UPDATE fiscal_periods
+       SET fiscal_year_id = public.fiscal_year_link_period(p.company_id, p.fiscal_year, p.start_date, p.end_date)
+     WHERE id = p.id;
+    linked := linked + 1;
+  END LOOP;
+  UPDATE fiscal_years fy SET status = public.fiscal_year_derived_status(fy.id)
+   WHERE fy.status IS DISTINCT FROM public.fiscal_year_derived_status(fy.id);
+  RAISE NOTICE '940: linked % fiscal periods to % fiscal years', linked, (SELECT COUNT(*) FROM fiscal_years);
+END;
+$$;
+
+-- Verification: refuse to finish on a backfill that does not hold.
+DO $$
+DECLARE
+  unlinked int; outside int; too_long int; companies_without int; status_wrong int;
+BEGIN
+  SELECT COUNT(*) INTO unlinked FROM fiscal_periods WHERE fiscal_year_id IS NULL;
+  SELECT COUNT(*) INTO outside FROM fiscal_periods fp JOIN fiscal_years fy ON fy.id = fp.fiscal_year_id
+   WHERE fy.company_id <> fp.company_id OR fp.start_date < fy.start_date OR fp.end_date > fy.end_date;
+  SELECT COUNT(*) INTO too_long FROM fiscal_years WHERE end_date >= (start_date + INTERVAL '15 months')::date;
+  SELECT COUNT(DISTINCT fp.company_id) INTO companies_without FROM fiscal_periods fp
+   WHERE NOT EXISTS (SELECT 1 FROM fiscal_years fy WHERE fy.company_id = fp.company_id);
+  SELECT COUNT(*) INTO status_wrong FROM fiscal_years fy WHERE fy.status <> public.fiscal_year_derived_status(fy.id);
+  IF unlinked + outside + too_long + companies_without + status_wrong > 0 THEN
+    RAISE EXCEPTION '940 backfill verification failed: unlinked=% outside=% too_long=% companies_without=% status_wrong=%',
+      unlinked, outside, too_long, companies_without, status_wrong;
+  END IF;
+END;
+$$;
+
+ALTER TABLE fiscal_periods ALTER COLUMN fiscal_year_id SET NOT NULL;
+
+-- ── Triggers (after the backfill) ────────────────────────────────────────────
+-- BEFORE triggers fire in name order: link, then guard.
+
+DROP TRIGGER IF EXISTS trg_fiscal_periods_a_link_year ON fiscal_periods;
+CREATE TRIGGER trg_fiscal_periods_a_link_year BEFORE INSERT ON fiscal_periods
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_periods_link_year();
+
+DROP TRIGGER IF EXISTS trg_fiscal_periods_b_guard_closed ON fiscal_periods;
+CREATE TRIGGER trg_fiscal_periods_b_guard_closed BEFORE INSERT OR UPDATE ON fiscal_periods
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_periods_guard_closed();
+
+DROP TRIGGER IF EXISTS trg_fiscal_periods_c_guard_delete ON fiscal_periods;
+CREATE TRIGGER trg_fiscal_periods_c_guard_delete BEFORE DELETE ON fiscal_periods
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_periods_guard_delete();
+
+DROP TRIGGER IF EXISTS trg_fiscal_periods_inside_year ON fiscal_periods;
+CREATE CONSTRAINT TRIGGER trg_fiscal_periods_inside_year
+  AFTER INSERT OR UPDATE OF start_date, end_date, fiscal_year_id, company_id ON fiscal_periods
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_periods_check_inside_year();
+
+DROP TRIGGER IF EXISTS trg_fiscal_periods_sync_year_status ON fiscal_periods;
+CREATE TRIGGER trg_fiscal_periods_sync_year_status
+  AFTER INSERT OR DELETE OR UPDATE OF status, fiscal_year_id, start_date, end_date ON fiscal_periods
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_sync_status();
+
+DROP TRIGGER IF EXISTS trg_fiscal_years_guard_closed ON fiscal_years;
+CREATE TRIGGER trg_fiscal_years_guard_closed BEFORE UPDATE ON fiscal_years
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_guard_closed();
+
+DROP TRIGGER IF EXISTS trg_fiscal_years_insert_open ON fiscal_years;
+CREATE TRIGGER trg_fiscal_years_insert_open BEFORE INSERT ON fiscal_years
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_insert_open();
+
+DROP TRIGGER IF EXISTS trg_fiscal_years_guard_delete ON fiscal_years;
+CREATE TRIGGER trg_fiscal_years_guard_delete BEFORE DELETE ON fiscal_years
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_guard_delete();
+
+DROP TRIGGER IF EXISTS trg_fiscal_years_holds_periods ON fiscal_years;
+CREATE CONSTRAINT TRIGGER trg_fiscal_years_holds_periods
+  AFTER UPDATE OF start_date, end_date ON fiscal_years
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_check_holds_periods();
+
+-- Declaring a start month confirms the assumed years that really start in it.
+-- Stored, not re-derived on every read: a later change of month (a change of
+-- year end) must not turn a confirmed year back into an assumed one. Declaring
+-- another month confirms nothing.
+-- SECURITY DEFINER: the caller may update this company's row (it administers
+-- it) while working in another company, where fiscal_years' RLS would hide this
+-- company's years and confirm nothing. It touches only NEW.id's assumed flags.
+-- Fires on every write of the column (no "changed" condition): saving the same
+-- month again re-runs the confirmation, so a missed one is never stuck.
+CREATE OR REPLACE FUNCTION public.fiscal_years_confirm_declared_month()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+BEGIN
+  UPDATE fiscal_years SET assumed_start = false
+   WHERE company_id = NEW.id AND assumed_start
+     AND EXTRACT(MONTH FROM start_date)::int = NEW.financial_year_start;
+  RETURN NULL;
+END;
+$$;
+DROP TRIGGER IF EXISTS trg_companies_confirm_fiscal_years ON companies;
+REVOKE ALL ON FUNCTION public.fiscal_years_confirm_declared_month() FROM PUBLIC;
+CREATE TRIGGER trg_companies_confirm_fiscal_years AFTER UPDATE OF financial_year_start ON companies
+  FOR EACH ROW EXECUTE FUNCTION public.fiscal_years_confirm_declared_month();
+ALTER TABLE companies ENABLE ALWAYS TRIGGER trg_companies_confirm_fiscal_years;
+-- 930's definer registry: reviewed here, where it is created.
+INSERT INTO public.app_definer_reviews (signature, writes, body_md5)
+VALUES ('fiscal_years_confirm_declared_month()',
+        'trigger: fiscal_years.assumed_start of the updated company only (clears it on years starting in the declared month)',
+        public.app_definer_hash('public.fiscal_years_confirm_declared_month()'::regprocedure))
+ON CONFLICT (signature) DO UPDATE SET writes = EXCLUDED.writes, body_md5 = EXCLUDED.body_md5;
+-- Years already confirmed by the month their company declares today.
+UPDATE fiscal_years fy SET assumed_start = false
+  FROM companies c
+ WHERE c.id = fy.company_id AND fy.assumed_start
+   AND EXTRACT(MONTH FROM fy.start_date)::int = c.financial_year_start;
+
+-- The functions are SECURITY INVOKER: a caller reads and writes only what its
+-- own privileges and RLS allow, so EXECUTE stays with PUBLIC (provisioning runs
+-- them as migration_admin, the request as app_user, the portal as platform_admin).
+
+-- The link, the guards and the status sync are the table's own invariants: they
+-- fire for every writer, a superuser's replica-mode bulk load included (as 888's
+-- capture triggers do).
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_a_link_year;
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_b_guard_closed;
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_c_guard_delete;
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_inside_year;
+ALTER TABLE fiscal_periods ENABLE ALWAYS TRIGGER trg_fiscal_periods_sync_year_status;
+ALTER TABLE fiscal_years ENABLE ALWAYS TRIGGER trg_fiscal_years_guard_closed;
+ALTER TABLE fiscal_years ENABLE ALWAYS TRIGGER trg_fiscal_years_insert_open;
+ALTER TABLE fiscal_years ENABLE ALWAYS TRIGGER trg_fiscal_years_guard_delete;
+ALTER TABLE fiscal_years ENABLE ALWAYS TRIGGER trg_fiscal_years_holds_periods;
