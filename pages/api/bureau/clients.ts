@@ -77,7 +77,7 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
       return apiResponse.forbidden(res, 'Company management authority is required to link clients');
     }
     // bureau_companies has no change capture; a link changes pool eligibility, so record who made it.
-    log.info('Bureau client linked', { bureauId: parsed.data.bureauId, companyId: parsed.data.companyId, userId }, 'bureau');
+    log.info('Bureau client link authorized (new or already linked)', { bureauId: parsed.data.bureauId, companyId: parsed.data.companyId, userId }, 'bureau');
     return apiResponse.success(res, { linked: true });
   }
 
@@ -94,7 +94,7 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     if (!authorized) {
       return apiResponse.forbidden(res, "Only the bureau owner or the company's owner or admin can unlink a client");
     }
-    log.info('Bureau client unlinked', { bureauId: parsed.data.bureauId, companyId: parsed.data.companyId, userId }, 'bureau');
+    log.info('Bureau client unlink authorized (removed or not linked)', { bureauId: parsed.data.bureauId, companyId: parsed.data.companyId, userId }, 'bureau');
     return apiResponse.success(res, { unlinked: true });
   }
 
