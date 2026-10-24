@@ -215,7 +215,7 @@ describe('dashboard-stats handler — BL-04 AR/AP exclude drafts', () => {
           return Promise.resolve([{ total: '0' }]);
         // [2] arTotal — DB returns 500 (only 'approved' invoice matches open filter)
         case 2:
-          return Promise.resolve([{ total: '500' }]);
+          return Promise.resolve([{ outstanding: '500', overdue_count: '0', overdue_amount: '0' }]);
         // [3] monthRevenue
         case 3:
           return Promise.resolve([{ total: '0' }]);
