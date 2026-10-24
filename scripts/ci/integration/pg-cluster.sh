@@ -79,7 +79,7 @@ pg_cluster_stop() {
 # RLS (SECURITY DEFINER functions owned by migration_admin read through FORCE
 # RLS on that basis); `postgres`, the role production's deploy connects and
 # migrates as, is NOT a superuser, bypasses RLS and inherits migration_admin
-# and app_user. Only `postgres` can log in, with $PGPASSWORD. It holds ADMIN
+# and app_user. Only `postgres` can authenticate, with $PGPASSWORD. It holds ADMIN
 # OPTION on app_user because migration 915 grants app_user to the app's login
 # roles: on PG 15 (production) CREATEROLE alone allows that, on PG 16 it needs
 # ADMIN OPTION on the granted role. Supabase's `supabase_read_only_user`
