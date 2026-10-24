@@ -1,6 +1,6 @@
 /**
- * FormKitDemo — showcase section for the form kit: MoneyField, DateField, FormSection,
- * AutosaveStatus and ExplainDrawer.
+ * FormKitShowcase — the "Form kit" section of the admin component library (/admin/components):
+ * MoneyField, DateField, FormSection, AutosaveStatus, FieldHelp and ExplainDrawer.
  */
 
 import { useState } from 'react';
@@ -20,7 +20,7 @@ const EXPLANATION: Explanation = {
   caution: 'Medical aid credits are not included in this estimate.',
 };
 
-export function FormKitDemo() {
+export function FormKitShowcase() {
   const [amount, setAmount] = useState<number | null>(2_500_000);
   const [date, setDate] = useState<string | null>(null);
   const [state, setState] = useState<AutosaveState>('saved');
@@ -37,7 +37,13 @@ export function FormKitDemo() {
   };
 
   return (
-    <div className="space-y-6">
+    <section id="FormKit" className="scroll-mt-8 space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Form kit</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          MoneyField, DateField, FormSection, AutosaveStatus, ExplainDrawer. Teal 3 px focus ring on both themes.
+        </p>
+      </div>
       <FormSection
         number={1}
         title="Invoice details"
@@ -80,6 +86,6 @@ export function FormKitDemo() {
       </FormSection>
 
       <ExplainDrawer open={explain} onClose={() => setExplain(false)} explanation={EXPLANATION} />
-    </div>
+    </section>
   );
 }
