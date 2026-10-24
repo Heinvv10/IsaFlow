@@ -22,7 +22,7 @@ const FORGEABLE: RegExp[] = [
   /(\w+\.)?company_id IN \( SELECT auth\.user_companies\(\) AS user_companies\)/g,
   /(\w+\.)?(company_id|id) IN \( SELECT auth\.user_admin_companies\(\) AS user_admin_companies\)/g,
   /company_id = \(current_setting\('app\.current_company_id'::text, true\)\)::uuid/g,
-  /(user_id|owner_user_id|verified_by|proposed_by|decided_by|\(id\)::text) = auth\.uid\(\)/g,
+  /(user_id|owner_user_id|verified_by|proposed_by|decided_by|\((id|user_id|owner_user_id)\)::text) = auth\.uid\(\)/g,
   /company_id = \( SELECT s\.c FROM \( SELECT app\.current_company_id\(\) AS c\) s WHERE audit_snapshot_reader\(s\.c\)\)/g,
   /session_id = \(\(NULLIF\(current_setting\('request\.jwt\.claims'::text, true\), ''::text\)\)::jsonb ->> 'session_id'::text\)/g,
 ];
@@ -48,6 +48,7 @@ const REVIEWED: Record<string, string> = {
   'company_invitations.invites_by_token': 'SELECT only; invites_tenant admits the same rows to forged claims',
   'oauth_apps.oauth_apps_dynamic_read': 'SELECT only; oauth_apps_owner (ALL) admits every row to a forged owner id',
   'entity_changes.entity_changes_read': 'SELECT only; the CASE is the caller\'s company role, which forged claims of an owner satisfy',
+  'bureaus.bureaus_owner_member_read': 'SELECT only (932); membership is a bureau_users row with user_id = auth.uid(), which forged claims of a member satisfy; the service pool reads every bureau, as the bureau routes do',
 };
 
 describe('S-07b: app_service\'s policies drop only forgeable predicates', () => {
