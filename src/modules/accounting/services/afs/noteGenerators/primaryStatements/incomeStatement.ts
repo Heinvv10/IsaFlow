@@ -42,7 +42,7 @@ export async function generateIncomeStatement(
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateIncomeStatement', { companyId, fiscalYear }, 'AfsPrimary');
   const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
-  const lines = rollUpTotals(await fetchSectionLines(companyId, 'income_statement', fiscalYear, fiscalYear - 1));
+  const lines = rollUpTotals(await fetchSectionLines(companyId, 'income_statement', fiscalYear, true));
   const adjusted = lines.map((l) => (isRevenueLine(l) ? flipSign(l) : l));
   const blocks = renderHierarchicalTable(adjusted, true);
   return {
