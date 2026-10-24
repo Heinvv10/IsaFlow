@@ -32,3 +32,17 @@ export function payeTaxYearBounds(taxYear: number): { start: string; end: string
     end: `${taxYear}-02-${String(lastFebruaryDay).padStart(2, '0')}`,
   };
 }
+
+/**
+ * The payroll periods a tax year holds as year/month bounds, for the
+ * `(period_year = startYear AND period_month >= startMonth) OR (period_year =
+ * endYear AND period_month <= endMonth)` predicate (which an index on the
+ * period columns can serve, unlike a date built from them).
+ */
+export function payeTaxYearPeriods(taxYear: number): { startYear: number; startMonth: number; endYear: number; endMonth: number } {
+  const { start, end } = payeTaxYearBounds(taxYear);
+  return {
+    startYear: Number(start.slice(0, 4)), startMonth: Number(start.slice(5, 7)),
+    endYear: Number(end.slice(0, 4)), endMonth: Number(end.slice(5, 7)),
+  };
+}

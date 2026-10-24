@@ -12,7 +12,7 @@ import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
+import { payeTaxYearBounds, payeTaxYearPeriods } from '@/modules/accounting/utils/payeTaxYear';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import {
@@ -67,6 +67,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const taxYear = taxYearRaw;
 
   const bounds = payeTaxYearBounds(taxYear);
+  const periods = payeTaxYearPeriods(taxYear);
   // The screen previews the e@syFile export, so it must aggregate exactly the
   // runs that export declares.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
@@ -93,7 +94,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       JOIN payroll_run_headers prh ON prh.id = prl.run_id
       WHERE prh.company_id = ${companyId}::uuid
         AND prh.status = ANY(${declarableStatuses}::text[])
-        AND make_date(prh.period_year, prh.period_month, 1) BETWEEN ${bounds.start}::date AND ${bounds.end}::date
+        AND (
+          (prh.period_year = ${periods.startYear} AND prh.period_month >= ${periods.startMonth})
+          OR
+          (prh.period_year = ${periods.endYear}   AND prh.period_month <= ${periods.endMonth})
+        )
       GROUP BY prl.employee_id
     ` as Promise<Row[]>,
 
