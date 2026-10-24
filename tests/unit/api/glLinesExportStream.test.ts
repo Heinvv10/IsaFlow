@@ -40,7 +40,7 @@ vi.mock('@/modules/accounting/services/reports/glLineExportService', async (orig
   return {
     ...real,
     getGlLineExportSummary: async () => ({ rowCount: PAGE * pages.total, controlTotal: 0, unbalancedTxnCount: 0 }),
-    getExportEntity: async () => ({ name: 'Co', fyStartMonth: 3 }),
+    getExportEntity: async () => ({ name: 'Co' }),
     fetchGlLineExportPage: async () => {
       const n = ++pages.calls;
       await new Promise((r) => setTimeout(r, pages.delayMs[n - 1] ?? 0));

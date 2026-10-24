@@ -1,15 +1,29 @@
 /**
  * The LED-01 ledger-agreement fixture (PR #595's breaker repro plus a revenue
- * account and capital), shared by ledgerFiscalYearAgreementDb and
- * trialBalanceFiscalYearFootingDb.
+ * account and capital), shared by ledgerFiscalYearAgreementDb,
+ * trialBalanceFiscalYearFootingDb and the MCP trial_balance suite.
  *
- * Connection-local temp tables in a rolled-back transaction — no persistent
- * writes; the temp tables shadow the real ones on this connection only.
+ * REAL rows (companies, fiscal periods and the financial years they link to,
+ * accounts, journals, lines) in one transaction that is always ROLLED BACK, so
+ * nothing persists. Temp tables named like real ones are not an option: the
+ * fiscal-year registry's SQL functions pin `search_path = ..., public, pg_temp`
+ * and read the public tables (tests/unit/helpers/realLedgerRows.ts).
+ *
+ * SEPT and FEB are real periods. `extraPeriods` are REPORT WINDOWS (a Jan-Dec
+ * year on a March company, 3- and 24-month spans, a month beside SEPT): real
+ * fiscal periods cannot be those any more (migration 940: a period lies inside
+ * one financial year of at most 15 months and a company's periods never
+ * overlap), but the trial balance still accepts any period row, so the report
+ * must stay correct for one. Only when windows are asked for, a TEMP
+ * `fiscal_periods` (SEPT, FEB and the windows) shadows the real table for
+ * this connection's application SQL; the registry reads fiscal_years, which
+ * the real SEPT/FEB periods created, never fiscal_periods.
  */
 import { als } from '@/lib/als';
 import { getPoolForTests, sql } from '@/lib/neon';
 import type { TrialBalanceRow } from '@/modules/accounting/types/gl.types';
 import { assertNotProductionDb } from '../../../helpers/assertNotProductionDb';
+import { insertAccount, insertCompany, insertJournal, insertPeriod } from '../../helpers/realLedgerRows';
 
 export const company = '10000000-0000-4000-8000-0000000000b1';
 const other = '10000000-0000-4000-8000-0000000000b2';
@@ -53,36 +67,30 @@ export async function withLedger(
   try {
     await client.query('BEGIN');
     await als.run({ client, companyId: company, userId: '', claims: {} }, async () => {
-      await sql`CREATE TEMP TABLE companies (id uuid, financial_year_start int) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE fiscal_periods (id uuid, company_id uuid, start_date date, end_date date) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_accounts (id uuid, company_id uuid, account_code text, account_name text,
-        account_type text, normal_balance text, account_subtype text) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_journal_entries (id uuid, company_id uuid, status text, entry_date date,
-        entry_number text, description text, reference text, source text, created_at timestamptz) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_journal_lines (id uuid DEFAULT gen_random_uuid(), company_id uuid,
-        journal_entry_id uuid, gl_account_id uuid, debit numeric, credit numeric, cost_center_id uuid,
-        cc1_id uuid, cc2_id uuid, bu_id uuid, project_id uuid) ON COMMIT DROP`;
-      await sql`INSERT INTO companies VALUES (${company}::uuid, ${fy}), (${other}::uuid, ${otherFy})`;
-      await sql`INSERT INTO fiscal_periods VALUES (${SEPT}::uuid, ${company}::uuid, '2026-09-01', '2026-09-30'),
-        (${FEB}::uuid, ${company}::uuid, '2026-02-01', '2026-02-28')`;
-      for (const [id, start, end] of extraPeriods) {
-        await sql`INSERT INTO fiscal_periods VALUES (${id}::uuid, ${company}::uuid, ${start}::date, ${end}::date)`;
+      await insertCompany(company, fy);
+      await insertCompany(other, otherFy, 'Fixture other tenant');
+      await insertPeriod(SEPT, company, '2026-09-01', '2026-09-30');
+      await insertPeriod(FEB, company, '2026-02-01', '2026-02-28');
+      if (extraPeriods.length > 0) {
+        await sql`CREATE TEMP TABLE fiscal_periods ON COMMIT DROP AS
+          SELECT * FROM public.fiscal_periods WHERE company_id = ${company}::uuid`;
+        for (const [id, start, end] of extraPeriods) {
+          await sql`INSERT INTO fiscal_periods (id, company_id, period_name, period_number, fiscal_year,
+              start_date, end_date, status)
+            VALUES (${id}::uuid, ${company}::uuid, ${`W ${start}`}, 0, 0, ${start}::date, ${end}::date, 'open')`;
+        }
       }
       for (const [id, code, name, type] of [
         [acct.bank, '1100', 'Bank', 'asset'], [acct.equity, '3000', 'Capital', 'equity'],
         [acct.labour, '5200', 'Labour Costs', 'expense'], [acct.income, '4300', 'Other Income', 'revenue'],
       ] as const) {
-        await sql`INSERT INTO gl_accounts VALUES (${id}::uuid, ${company}::uuid, ${code}, ${name}, ${type},
-          ${NORMAL[code]!}, NULL)`;
+        await insertAccount(id, company, code, name, type, NORMAL[code]!);
       }
       for (const [n, [date, lines]] of fixtureJournals.entries()) {
-        const je = `40000000-0000-4000-8000-${String(n + 1).padStart(12, '0')}`;
-        await sql`INSERT INTO gl_journal_entries VALUES (${je}::uuid, ${company}::uuid, 'posted', ${date}::date,
-          ${String(n + 1)}, 'Fixture', '', 'manual', ${date}::timestamptz)`;
-        for (const [account, debit, credit] of lines) {
-          await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
-            VALUES (${company}::uuid, ${je}::uuid, ${account}::uuid, ${debit}, ${credit})`;
-        }
+        await insertJournal({
+          id: `40000000-0000-4000-8000-${String(n + 1).padStart(12, '0')}`, companyId: company, date, lines,
+          entryNumber: String(n + 1), createdAt: date,
+        });
       }
       await run();
     });
