@@ -62,9 +62,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!employee) {
       return apiResponse.badRequest(res, 'employee_id is not an employee of this company');
     }
-    // The picker offers active employees and leavers; an 'inactive' one is neither (breaker REPRO 2).
-    if (employee.status !== 'active' && employee.status !== 'terminated') {
-      return apiResponse.badRequest(res, `employee_id is an ${employee.status} employee: a directive is for an active employee or a leaver`);
+    // The picker offers active employees and leavers (status CHECK: active, inactive, terminated, mig 380);
+    // an 'inactive' one is neither (breaker REPRO 2).
+    if (employee.status === 'inactive') {
+      return apiResponse.badRequest(res, 'employee_id is an inactive employee: a directive is for an active employee or a leaver');
     }
     // The name is the employee record's, whatever the body says (breaker REPRO 3: the body could name
     // someone else); the tax number defaults from the record, and one that is not the record's would file
