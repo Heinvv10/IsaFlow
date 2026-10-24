@@ -154,12 +154,13 @@ describe('S-07b (916): the service pool takes app_user\'s member rules', () => {
       () => [company, ids.invitee], /^permission denied for table company_users$/],
     ['moves a membership', `UPDATE company_users SET company_id = $1 WHERE company_id = $2 AND user_id = $3`,
       () => [other, company, me], /^permission denied for table company_users$/],
+    // 935: no app role may UPDATE or DELETE a membership; the guard's rules are behind the privilege.
     ['grants an unknown role to a member', `UPDATE company_users SET role = 'super_admin' WHERE company_id = $1 AND user_id = $2`,
-      () => [company, me], /^Invalid role/],
+      () => [company, me], /^permission denied for table company_users$/],
     ['removes the last owner', `DELETE FROM company_users WHERE company_id = $1 AND user_id = $2`,
-      () => [company, owner], /^You cannot remove yourself from the company\.$/],
+      () => [company, owner], /^permission denied for table company_users$/],
     ['demotes the last owner', `UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2`,
-      () => [company, owner], /^Cannot change role: this is the last owner of the company\.$/],
+      () => [company, owner], /^permission denied for table company_users$/],
   ] as Array<[string, string, () => unknown[], RegExp]>)('with an owner\'s forged claims, refused when it %s', async (_, text, params, msg) => {
     expect(await attempt(pool(), [[text, params()]], asOwner)).toMatchObject({ message: expect.stringMatching(msg) });
   });

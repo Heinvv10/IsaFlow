@@ -6,9 +6,11 @@
 // remove an owner; an admin still manages every non-owner.
 //
 // The service runs here as the route runs it: inside a withAuth-shaped
-// transaction (app_user, JWT sub, active company), so the member role guard
-// trigger (migs 883/886) is live too. The race test drives two such
-// transactions at once and checks the outcome, not who refused.
+// transaction (app_user, JWT sub, active company). Since S-07d (migration
+// 935) the service writes on the migration_admin pool in its own transaction,
+// which re-checks these rules in TypeScript, so the races that held its write
+// open inside the request transaction are s07d-member-writes.int.test.ts's,
+// on the production migration_admin login.
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
@@ -51,19 +53,6 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
     } finally {
       if (!client) c.release();
     }
-  }
-
-  /** A function that resolves once `client`'s backend is waiting on a lock (row or advisory). */
-  async function lockWaiter(client: PoolClient): Promise<() => Promise<void>> {
-    const pid = (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
-    return async () => {
-      for (const deadline = Date.now() + 15_000; Date.now() < deadline;) {
-        const r = await admin.query(`SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1`, [pid]);
-        if (r.rows[0]?.wait_event_type === 'Lock') return;
-        await new Promise((res) => setTimeout(res, 10));
-      }
-      throw new Error(`backend ${pid} never waited on a lock`);
-    };
   }
 
   async function roleOf(userId: string): Promise<string | null> {
@@ -125,77 +114,11 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
     expect(await roleOf(OWNER_B)).toBe('owner');
   });
 
-  // Breaker round 2 NEW B: the caller's role is read AFTER the owner lock. B,
-  // demoting A, holds that lock; A's own owner action must wait for it and
-  // then see that A is no longer an owner.
-  it('a caller being demoted at that moment never acts on an owner as one', async () => {
-    for (let round = 0; round < 5; round++) {
-      await seedMembers();
-      await admin.query(`UPDATE company_users SET role = 'owner' WHERE company_id = $1 AND user_id = $2`, [COMPANY, MANAGER]);
-      const [cb, ca] = [await admin.connect(), await admin.connect()];
-      try {
-        const aWaits = await lockWaiter(ca);
-        let commitDemotion!: () => void;
-        let bHoldsLock!: () => void;
-        const held = new Promise<void>((r) => { commitDemotion = r; });
-        const locked = new Promise<void>((r) => { bHoldsLock = r; });
-        const demoteA = asMember(OWNER_B, async () => {
-          await updateCompanyUserRole(COMPANY, OWNER_A, 'viewer', OWNER_B);
-          bHoldsLock();
-          await held; // B holds the owner lock, A's demotion uncommitted
-        }, cb);
-        await Promise.race([locked, demoteA]); // a throwing holder fails here, not at the timeout
-        const aActs = asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', OWNER_A), ca);
-        await aWaits();
-        commitDemotion();
-        const [b, a] = await Promise.allSettled([demoteA, aActs]);
-        expect(b.status, `round ${round}`).toBe('fulfilled');
-        expect(a.status === 'rejected' ? a.reason : a.status, `round ${round}`).toBeInstanceOf(OwnerProtectedError);
-        expect(await roleOf(MANAGER), `round ${round}`).toBe('owner');
-      } finally {
-        cb.release(); ca.release();
-      }
-    }
-  });
-
   it('refuses an admin promoting a member to owner (403 wording, not trigger RC003)', async () => {
     const err = await asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'owner', ADMIN)).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(OwnerProtectedError);
     expect((err as Error).message).toBe('Only an owner can grant the owner role.');
     expect(await roleOf(MANAGER)).toBe('manager');
-  });
-
-  // The trigger reads the actor's role from its statement snapshot, without the
-  // owner lock: it still sees A as an owner while B's demotion of A is
-  // uncommitted. Only the service's live read after the lock refuses A.
-  it('an owner being demoted at that moment cannot promote anyone to owner', async () => {
-    for (let round = 0; round < 5; round++) {
-      await seedMembers();
-      const [cb, ca] = [await admin.connect(), await admin.connect()];
-      try {
-        const aWaits = await lockWaiter(ca);
-        let commitDemotion!: () => void;
-        let bHoldsLock!: () => void;
-        const held = new Promise<void>((r) => { commitDemotion = r; });
-        const locked = new Promise<void>((r) => { bHoldsLock = r; });
-        const demoteA = asMember(OWNER_B, async () => {
-          await updateCompanyUserRole(COMPANY, OWNER_A, 'viewer', OWNER_B);
-          bHoldsLock();
-          await held;
-        }, cb);
-        await Promise.race([locked, demoteA]);
-        const aPromotes = asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, MANAGER, 'owner', OWNER_A), ca);
-        // Released whatever happens: an A that never waits must not leave B's
-        // transaction open, holding the lock, for the tests after this one.
-        try { await aWaits(); } finally { commitDemotion(); }
-        const [b, a] = await Promise.allSettled([demoteA, aPromotes]);
-        expect(b.status, `round ${round}`).toBe('fulfilled');
-        expect(a.status === 'rejected' ? a.reason : a.status, `round ${round}`).toBeInstanceOf(OwnerProtectedError);
-        expect(await roleOf(MANAGER), `round ${round}`).toBe('manager');
-      } finally {
-        cb.release(); ca.release();
-      }
-    }
   });
 
   it('lets an owner demote another owner when two exist', async () => {
@@ -225,38 +148,6 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only an owner changes o
     await expect(asMember(OWNER_A, () => updateCompanyUserRole(COMPANY, OWNER_A, 'admin', OWNER_A)))
       .rejects.toThrow(/last owner/);
     expect(await roleOf(OWNER_A)).toBe('owner');
-  });
-
-  // The target's role is read FOR UPDATE: without it, an admin reads X as a
-  // manager while an owner's promotion of X is in flight, and then demotes the
-  // new owner once that commits.
-  it('an admin demoting a member an owner is promoting at that moment never demotes an owner', async () => {
-    for (let round = 0; round < 5; round++) {
-      await seedMembers();
-      const [co, ca] = [await admin.connect(), await admin.connect()];
-      try {
-        const adminWaits = await lockWaiter(ca);
-        let commitPromotion!: () => void;
-        let promoted!: () => void;
-        const held = new Promise<void>((r) => { commitPromotion = r; });
-        const written = new Promise<void>((r) => { promoted = r; });
-        const promotion = asMember(OWNER_A, async () => {
-          await updateCompanyUserRole(COMPANY, MANAGER, 'owner', OWNER_A);
-          promoted();
-          await held; // keep the promotion uncommitted while the admin starts
-        }, co);
-        await Promise.race([written, promotion]); // a throwing holder fails here, not at the timeout
-        const demotion = asMember(ADMIN, () => updateCompanyUserRole(COMPANY, MANAGER, 'viewer', ADMIN), ca);
-        await adminWaits();
-        commitPromotion();
-        const [p, d] = await Promise.allSettled([promotion, demotion]);
-        expect(p.status, `round ${round}`).toBe('fulfilled');
-        expect(d.status === 'rejected' ? d.reason : d.status, `round ${round}`).toBeInstanceOf(OwnerProtectedError);
-        expect(await roleOf(MANAGER), `round ${round}`).toBe('owner');
-      } finally {
-        co.release(); ca.release();
-      }
-    }
   });
 
   it('two owners demoting each other at the same moment leave exactly one owner', async () => {

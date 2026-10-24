@@ -72,7 +72,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
     'scripts/provision-isademo2.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
-    'scripts/stress-test.ts', `${S}core/userAccessService.ts`,
+    'scripts/stress-test.ts', `${S}core/memberWrites.ts`,
     'src/modules/admin/services/adminUserActionsService.ts',
     'src/modules/admin/services/companyMembershipService.ts',
     'src/modules/onboarding/services/tenantProvisioningService.ts',

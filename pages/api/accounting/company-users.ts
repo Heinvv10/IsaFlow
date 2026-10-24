@@ -73,7 +73,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {
-      if (err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof OwnerProtectedError || err instanceof MemberRoleForbiddenError) return apiResponse.forbidden(res, err.message);
       return apiResponse.badRequestFromError(res, err, 'Remove failed.');
     }
   }

@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { assertDisposableDb, isDisposableDb } from '../helpers/assertDisposableDb';
+import { updateCompanyUserRole, removeCompanyUser } from '@/modules/accounting/services/core/memberWrites';
 import { asRole, cleanup, outcome, ownersOf, roleOf, seedCompany } from './s0408-owner-rules.helpers';
 
 assertDisposableDb('908b seeds companies and members.');
@@ -134,45 +135,53 @@ describe.skipIf(!isDisposableDb(process.env.DATABASE_URL))('908b — owner rules
     });
   });
 
-  describe('B — as app_user, only an owner changes or removes an owner', () => {
+  // Since S-07d (migration 935) app_user may neither UPDATE nor DELETE a
+  // membership, so B is enforced where the members screen now writes: on the
+  // migration_admin pool, in TypeScript (memberWrites.ts), against the
+  // memberships as they stand. Its races: s07d-member-writes.int.test.ts.
+  describe('B — only an owner changes or removes an owner', () => {
+    const OWNER_ONLY = 'Only an owner can change or remove another owner.';
+
+    it('as app_user, no demotion or removal reaches the guard (42501 since 935), a multi-row one included', async () => {
+      const [o1, o2, a, v] = [id(), id(), id(), id()];
+      const c = await seedCompany(pool, companies, [[o1, 'owner'], [o2, 'owner'], [a, 'admin'], [v, 'viewer']]);
+      expect(await outcome(asRole(pool, 'app_user', c, DEMOTE, [c, o1], a))).toBe('42501');
+      expect(await outcome(asRole(pool, 'app_user', c, DEL, [c, o1], o2))).toBe('42501');
+      expect(await outcome(asRole(pool, 'app_user', c,
+        'DELETE FROM company_users WHERE company_id = $1 AND user_id = ANY($2)', [c, [v, o2]], a))).toBe('42501');
+      expect(await ownersOf(pool, c)).toEqual([o1, o2].sort());
+    });
+
     it('an admin cannot demote or remove an owner, even with another owner left (RC010)', async () => {
       const [o1, o2, a] = [id(), id(), id()];
       const c = await seedCompany(pool, companies, [[o1, 'owner'], [o2, 'owner'], [a, 'admin']]);
-      expect(await outcome(asRole(pool, 'app_user', c, DEMOTE, [c, o1], a))).toBe('RC010');
-      expect(await outcome(asRole(pool, 'app_user', c, "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, o1], a))).toBe('RC010');
-      expect(await outcome(asRole(pool, 'app_user', c, DEL, [c, o1], a))).toBe('RC010');
+      expect(await outcome(updateCompanyUserRole(c, o1, 'admin', a))).toBe(OWNER_ONLY);
+      expect(await outcome(updateCompanyUserRole(c, o1, 'viewer', a))).toBe(OWNER_ONLY);
+      expect(await outcome(removeCompanyUser(c, o1, a))).toBe(OWNER_ONLY);
       expect(await ownersOf(pool, c)).toEqual([o1, o2].sort());
     });
 
     it('an owner demotes and removes another owner', async () => {
       const [o1, o2, o3] = [id(), id(), id()];
       const c = await seedCompany(pool, companies, [[o1, 'owner'], [o2, 'owner'], [o3, 'owner']]);
-      await asRole(pool, 'app_user', c, DEMOTE, [c, o2], o1);
-      await asRole(pool, 'app_user', c, DEL, [c, o3], o1);
+      await updateCompanyUserRole(c, o2, 'admin', o1);
+      await removeCompanyUser(c, o3, o1);
       expect([await roleOf(pool, c, o2), await roleOf(pool, c, o3)]).toEqual(['admin', null]);
     });
 
-    it('the last owner rule still holds for an owner (RC005), and self-removal stays RC006', async () => {
+    it('the last owner rule still holds for an owner (RC005), and self-removal stays refused (RC006)', async () => {
       const [o, a] = [id(), id()];
       const c = await seedCompany(pool, companies, [[o, 'owner'], [a, 'admin']]);
-      expect(await outcome(asRole(pool, 'app_user', c, DEMOTE, [c, o], o))).toBe('RC005');
-      expect(await outcome(asRole(pool, 'app_user', c, DEL, [c, o], o))).toBe('RC006');
+      expect(await outcome(updateCompanyUserRole(c, o, 'admin', o))).toBe('Cannot change role: this is the last owner of the company.');
+      expect(await outcome(removeCompanyUser(c, o, o))).toBe('You cannot remove yourself from the company.');
     });
 
     it('an admin still manages every non-owner (admin → manager, remove a viewer)', async () => {
       const [o, a, a2, v] = [id(), id(), id(), id()];
       const c = await seedCompany(pool, companies, [[o, 'owner'], [a, 'admin'], [a2, 'admin'], [v, 'viewer']]);
-      await asRole(pool, 'app_user', c, "UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2", [c, a2], a);
-      await asRole(pool, 'app_user', c, DEL, [c, v], a);
+      await updateCompanyUserRole(c, a2, 'manager', a);
+      await removeCompanyUser(c, v, a);
       expect([await roleOf(pool, c, a2), await roleOf(pool, c, v)]).toEqual(['manager', null]);
-    });
-
-    it("an admin's multi-row delete that reaches an owner row is refused whole", async () => {
-      const [o1, o2, a, v] = [id(), id(), id(), id()];
-      const c = await seedCompany(pool, companies, [[o1, 'owner'], [o2, 'owner'], [a, 'admin'], [v, 'viewer']]);
-      expect(await outcome(asRole(pool, 'app_user', c,
-        'DELETE FROM company_users WHERE company_id = $1 AND user_id = ANY($2)', [c, [v, o2]], a))).toBe('RC010');
-      expect([await roleOf(pool, c, v), await roleOf(pool, c, o2)]).toEqual(['viewer', 'owner']);
     });
   });
 });

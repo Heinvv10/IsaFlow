@@ -100,6 +100,17 @@ describe('S-07d: a member\'s role, on migration_admin', () => {
     expect(await role(owner)).toBe('owner');
   });
 
+  it('removal: an admin cannot remove an owner (RC010) or themselves (RC006); an owner removes a member', async () => {
+    const remove = (sub: string, userId: string) =>
+      callRoute(companyUsersRoute, { sub, method: 'DELETE', companyId: company, body: { userId } });
+    expect((await remove(me, owner)).status).toBe(403);
+    expect((await remove(me, me)).status).toBe(400);
+    expect(await role(owner)).toBe('owner');
+    expect((await remove(owner, invitee)).status).toBe(200);
+    expect(await role(invitee)).toBeUndefined();
+    await fixture.query(`INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'viewer')`, [company, invitee]);
+  });
+
   it('a non-member target is refused, not silently ignored', async () => {
     expect((await setRole(owner, crypto.randomUUID(), 'viewer')).status).toBe(400);
   });

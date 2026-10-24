@@ -117,10 +117,11 @@ describe.each(pools)('S-07c (930): %s', (_, pool, opts) => {
 });
 
 describe('S-07c (930): what an app role may still write', () => {
-  it('a member\'s role, under the members guard (it judges the forged claims; residual, see the PR)', async () => {
+  // 930 kept a member's role here (the residual); 935 closed it: s07d-credential-tables.int.test.ts.
+  it('no longer a member\'s role (935)', async () => {
     const r = await attempt(getAuthPool(), [[`UPDATE company_users SET role = 'manager' WHERE company_id = $1 AND user_id = $2`,
       [company, ids.me]]], { asRequest: { sub: owner, companyId: company } });
-    expect(r).toBeNull();
+    expect(r).toEqual(denied('company_users'));
   });
 
   it.each([
