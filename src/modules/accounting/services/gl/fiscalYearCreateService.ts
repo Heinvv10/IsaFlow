@@ -19,53 +19,27 @@
  * codebase (`afs/pisCalculatorService`): a fiscal year is named for the calendar
  * year it ENDS in.
  *
- * ── WHY IT REFUSES INSTEAD OF WRITING ───────────────────────────────────────
+ * ── SINCE THE CHANGE-OF-YEAR-END PROGRAMME ──────────────────────────────────
  *
- * Every existing tenant already holds calendar-aligned periods. A fiscal-aligned
- * year overlaps them, `fiscal_periods_no_overlap` (an EXCLUDE constraint) raises
- * 23P01, and that surfaces to a caller as an unattributed generic failure.
- * Re-dating live periods is explicitly out of scope for this programme — it is a
- * data correction with its own approval — so the overlap is detected up front
- * and refused with the conflicting periods NAMED. A human then decides;
- * nothing is written either way.
+ * A year is a stored `fiscal_years` row (migration 940). createFiscalYear asks
+ * the registry for the year with that label (stored, else the template) and
+ * builds it with the one generator (fiscalYearGenerator). It no longer refuses
+ * a year whose range overlaps existing periods: those periods already belong
+ * to that year by their dates (a company onboarded before #777 holds
+ * January-December periods inside its declared March year), and the generator
+ * fills only the months nobody covers, continuing the labels the neighbouring
+ * periods use.
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
-import { buildFiscalYearPeriods, fiscalYearRange } from './fiscalYearCalendar';
 import { JOURNAL_DATE_MAX, JOURNAL_DATE_MIN, journalDayWindowError } from '../../utils/journalDateWindow';
 import { resolveFiscalYearStartMonth } from './fiscalYearBasis';
-
-/**
- * Raised when the requested fiscal year's date range collides with periods the
- * company already has. Carries the conflicts so a caller can show them rather
- * than reporting "it failed".
- */
-export class FiscalPeriodOverlapError extends Error {
-  readonly conflicts: Array<{ id: string; periodName: string; fiscalYear: number; startDate: string; endDate: string }>;
-
-  constructor(
-    fiscalYear: number,
-    range: { startDate: string; endDate: string },
-    conflicts: FiscalPeriodOverlapError['conflicts'],
-  ) {
-    const named = conflicts
-      .slice(0, 5)
-      .map((c) => `${c.periodName} (${c.startDate}–${c.endDate})`)
-      .join(', ');
-    const more = conflicts.length > 5 ? ` and ${conflicts.length - 5} more` : '';
-    super(
-      `Fiscal year ${fiscalYear} (${range.startDate}–${range.endDate}) overlaps periods that already exist: `
-      + `${named}${more}. The existing periods are calendar-aligned; re-dating them is a data `
-      + `correction and is not done automatically.`,
-    );
-    this.name = 'FiscalPeriodOverlapError';
-    this.conflicts = conflicts;
-  }
-}
+import { getFiscalYear } from './fiscalYearRegistry';
+import { generateFiscalYearForDate } from './fiscalYearGenerator';
 
 /**
  * Which start month a NEW fiscal year for this company should use.
@@ -132,35 +106,13 @@ export interface FiscalYearAlignment {
   aligned: boolean;
 }
 
-async function findOverlapping(
-  companyId: string,
-  startDate: string,
-  endDate: string,
-): Promise<FiscalPeriodOverlapError['conflicts']> {
-  // Inclusive on both ends, matching the EXCLUDE constraint's daterange '[]'.
-  const rows = (await sql`
-    SELECT id, period_name, fiscal_year, start_date, end_date
-      FROM fiscal_periods
-     WHERE company_id = ${companyId}
-       AND start_date <= ${endDate}::DATE
-       AND end_date   >= ${startDate}::DATE
-     ORDER BY start_date
-  `) as DbRow[];
-  return rows.map((r) => ({
-    id: String(r.id),
-    periodName: String(r.period_name),
-    fiscalYear: Number(r.fiscal_year),
-    startDate: fmtDate(r.start_date),
-    endDate: fmtDate(r.end_date),
-  }));
-}
-
-export async function createFiscalYear(
-  companyId: string,
-  year: number,
-  /** Injected by tests only; production always reads the company row. */
-  startMonthOverride?: number,
-): Promise<FiscalPeriod[]> {
+/**
+ * Make sure the financial year labelled `year` exists with a period for every
+ * month: the stored year, else the template year that carries the label.
+ * Refuses a label whose periods already exist, a label the template skips, a
+ * year outside the ledger-date window, and a closed or locked year.
+ */
+export async function createFiscalYear(companyId: string, year: number): Promise<FiscalPeriod[]> {
   const existing = (await sql`
     SELECT COUNT(*) AS cnt FROM fiscal_periods WHERE company_id = ${companyId} AND fiscal_year = ${year}
   `) as DbRow[];
@@ -168,41 +120,35 @@ export async function createFiscalYear(
     throw new Error(`Fiscal year ${year} already exists`);
   }
 
-  const startMonth = startMonthOverride ?? (await resolveCompanyPeriodAlignment(companyId)).startMonth;
-  const range = fiscalYearRange(year, startMonth);
-  // Ledger-date window (utils/journalDateWindow): a period dates the journals no createJournalEntry check sees (the
-  // year-end close, depreciation), so the year's whole range must lie inside it.
-  if (journalDayWindowError(range.startDate) ?? journalDayWindowError(range.endDate)) {
+  // The label's own calendar year must lie in the ledger-date window before the
+  // registry walks to it (it steps year by year from the stored years).
+  if (!Number.isInteger(year) || journalDayWindowError(`${year}-01-01`) || journalDayWindowError(`${year}-12-31`)) {
     throw new Error(`Fiscal year ${year} is outside ${JOURNAL_DATE_MIN} to ${JOURNAL_DATE_MAX}`);
   }
-
-  const conflicts = await findOverlapping(companyId, range.startDate, range.endDate);
-  if (conflicts.length > 0) {
-    throw new FiscalPeriodOverlapError(year, range, conflicts);
+  const target = await getFiscalYear(companyId, year);
+  if (!target) {
+    throw new Error(`Fiscal year ${year} cannot be created: no financial year of this company carries that label`);
+  }
+  // Ledger-date window (utils/journalDateWindow): a period dates the journals no createJournalEntry check sees (the
+  // year-end close, depreciation), so the year's whole range must lie inside it.
+  if (journalDayWindowError(target.startDate) ?? journalDayWindowError(target.endDate)) {
+    throw new Error(`Fiscal year ${year} is outside ${JOURNAL_DATE_MIN} to ${JOURNAL_DATE_MAX}`);
+  }
+  if (target.status === 'closed' || target.status === 'locked') {
+    throw new Error(`Fiscal year ${year} is ${target.status}`);
   }
 
-  const periodDefs = buildFiscalYearPeriods(year, startMonth);
+  const { fiscalYearId, periodsCreated } = await generateFiscalYearForDate(companyId, target.startDate);
+  const rows = (await sql`
+    SELECT * FROM fiscal_periods WHERE company_id = ${companyId}::UUID AND fiscal_year_id = ${fiscalYearId}::UUID
+     ORDER BY start_date
+  `) as DbRow[];
 
-  // All 12 inserted atomically — a partial year is worse than none, because
-  // the missing months resolve to NULL fiscal_period_id and post invisibly.
-  const periods = await withTransaction(async (tx) => {
-    const created: FiscalPeriod[] = [];
-    for (const def of periodDefs) {
-      const rows = (await tx`
-        INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
-        VALUES (${companyId}, ${def.periodName}, ${def.periodNumber}, ${year}, ${def.startDate}, ${def.endDate})
-        RETURNING *
-      `) as DbRow[];
-      created.push(mapRow(rows[0]!));
-    }
-    return created;
-  });
-
-  log.info('Created fiscal year', { companyId, year, startMonth, range }, 'accounting');
-  return periods;
+  log.info('Created fiscal year', { companyId, year, range: [target.startDate, target.endDate], periodsCreated }, 'accounting');
+  return rows.map(mapFiscalPeriodRow);
 }
 
-function mapRow(row: DbRow): FiscalPeriod {
+export function mapFiscalPeriodRow(row: DbRow): FiscalPeriod {
   return {
     id: String(row.id),
     periodName: String(row.period_name),

@@ -85,9 +85,24 @@ describeIfDb('back-fill — dry run and live agree, and a back-filled note cance
     const p1 = await paymentFor(r1.journalEntryId);
     // Out of every period, the state `createJournalEntry` leaves when no fiscal
     // year covers the date. Done by hand because the fixture opens all of 2026.
-    await sql`
-      UPDATE gl_journal_entries SET fiscal_period_id = NULL
-      WHERE id = ${r1.journalEntryId}::UUID AND company_id = ${fx.companyId}::UUID`;
+    // A journal's period is derived from its date (migration 941), so nulling
+    // the column alone is re-derived: the journal moves to a day no period
+    // covers, and the trigger leaves it NULL.
+    // A POSTED journal can no longer be moved out of every period, so the
+    // legacy state (rows written before migration 941) is staged with the
+    // trigger off, as such a row would have been written.
+    await sql`ALTER TABLE gl_journal_entries DISABLE TRIGGER trg_gl_je_fiscal_period_from_date`;
+    try {
+      await sql`
+        UPDATE gl_journal_entries SET entry_date = '2025-03-01', fiscal_period_id = NULL
+        WHERE id = ${r1.journalEntryId}::UUID AND company_id = ${fx.companyId}::UUID`;
+    } finally {
+      await sql`ALTER TABLE gl_journal_entries ENABLE ALWAYS TRIGGER trg_gl_je_fiscal_period_from_date`;
+    }
+    const moved = (await sql`
+      SELECT fiscal_period_id FROM gl_journal_entries
+      WHERE id = ${r1.journalEntryId}::UUID AND company_id = ${fx.companyId}::UUID`) as Record<string, unknown>[];
+    expect(moved[0]!.fiscal_period_id).toBeNull();
 
     const tx2 = await seedBankTx(fx, { date: '2026-03-02', amount: -500, description: 'BFP-P2' });
     const r2 = await inTx(fx, () => allocateTransaction(

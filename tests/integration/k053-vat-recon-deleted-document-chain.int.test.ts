@@ -32,6 +32,7 @@ import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/suppli
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears, setPeriodsEndingBy } from './helpers/fiscalYearSeed';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 
@@ -45,7 +46,6 @@ function shift(days: number): string {
   return fmtDate(d);
 }
 const CLOSED_END = shift(-60);
-const OPEN_START = shift(-59);
 const OPEN_END = shift(400);
 const DOC_DATE = shift(-120);
 /** The hand reversals land a month on — a month the invoice leg has nothing in. */
@@ -94,7 +94,7 @@ async function account(id: string, code: string, name: string, type: string, nor
 
 /** An approved invoice and bill, posted into the prior period, which is then closed. */
 async function postPair(suffix: string, sub: number, vat: number): Promise<{ ar: string; ap: string }> {
-  await sql`UPDATE fiscal_periods SET status = 'open' WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
+  await setPeriodsEndingBy(COMPANY, CLOSED_END, 'open');
   const ar = ((await sql`
     INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date,
       due_date, status, subtotal, tax_rate, tax_amount, total_amount, amount_paid, created_by)
@@ -112,7 +112,7 @@ async function postPair(suffix: string, sub: number, vat: number): Promise<{ ar:
     VALUES (${ap}::UUID, ${'D7 line'}, 1, ${sub}, 15, ${vat}, ${sub}, ${expense}::UUID)`;
   await inTx(() => postCustomerInvoiceToGL(COMPANY, ar, USER));
   await inTx(() => postSupplierInvoiceToGL(COMPANY, ap, USER));
-  await sql`UPDATE fiscal_periods SET status = 'closed' WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
+  await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
   return { ar, ap };
 }
 
@@ -168,9 +168,7 @@ describeIfDb('D7 the VAT reconciliation\'s revenue arm excludes a deleted docume
     // the multi-year summary would split them; the clock decides that, so say so.
     expect(LATER.slice(0, 4)).toBe(DOC_DATE.slice(0, 4));
     await sql`INSERT INTO companies (id, name, registration_number) VALUES (${COMPANY}::UUID, ${'D7VAT ' + TAG}, ${TAG})`;
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'D7VAT prior ' + TAG}, 1, 2026, '2020-01-01', ${CLOSED_END}::date, 'open'),
-                     (${COMPANY}::UUID, ${'D7VAT current ' + TAG}, 2, 2026, ${OPEN_START}::date, ${OPEN_END}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), OPEN_END);
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
     await account(payable, '2100', 'Trade Creditors', 'liability', 'credit', 'payable');
     await account(revenue, '4000', 'Sales', 'revenue', 'credit', 'default_revenue');
