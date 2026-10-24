@@ -224,6 +224,19 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
   return (
     <div className="absolute top-full left-0 z-40">
       <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[200px] py-1">
+        {tab.links?.map(item => (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={onClose}
+            className={makeLinkCls(isLinkActive(item.href, asPath), accent)}
+          >
+            {item.label}
+          </Link>
+        ))}
+        {tab.links && tab.links.length > 0 && (
+          <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
+        )}
         {tab.topItems?.map(item => (
           <Link
             key={item.href}

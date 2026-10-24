@@ -118,6 +118,12 @@ function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; on
 
   return (
     <>
+      {/* Plain navigation links */}
+      {tab.links?.map(item => (
+        <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(isLinkActive(item.href, asPath))}>{item.label}</Link>
+      ))}
+      {tab.links && tab.links.length > 0 && <div className="border-t border-[var(--ff-canvas-border)] my-1" />}
+
       {/* Quick actions */}
       {tab.topItems?.map(item => (
         <Link key={item.href} href={item.href} onClick={onNav}
