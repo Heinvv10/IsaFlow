@@ -40,7 +40,8 @@
 -- that label has no header yet), leaving no empty year with notes.
 -- A month the registry cannot place (no free label in a hole between stored
 -- years; any other registry error stops the migration) is still filed by the old
--- readers' placement; its header stays put. The headers are moved and copied
+-- readers' placement. A header whose months the registry refuses for any reason
+-- stays put (only notes are at stake there). The headers are moved and copied
 -- AFTER the verification (budget_headers_follow_months), because the
 -- verification reads each row under its own label. Headers are processed from
 -- the latest label down, so a header can move into the label a later row has
@@ -250,11 +251,12 @@ BEGIN
   LOOP
     lab := '{}';
     FOR d IN SELECT v.month FROM public.budget_legacy_month_values(b.company_id, b.id) v WHERE v.month IS NOT NULL ORDER BY v.month LOOP
-      -- The registry year that now holds the month (a hole between stored years leaves the notes where they are).
+      -- The registry year that now holds the month. Any registry refusal (a hole between stored years, a
+      -- typo'd label far from every stored year) leaves the notes where they are: only notes depend on it here,
+      -- the months are already filed and verified. Placement itself (budget_legacy_month) stays strict.
       BEGIN
         SELECT fy.fiscal_year INTO reg_label FROM public.fiscal_year_for_date(b.company_id, d) fy;
       EXCEPTION WHEN raise_exception THEN
-        IF SQLERRM NOT LIKE 'fiscal_year_template: no free label%' THEN RAISE; END IF;
         reg_label := NULL;
       END;
       IF reg_label IS NOT NULL AND NOT (reg_label = ANY(lab)) THEN lab := lab || reg_label; END IF;
