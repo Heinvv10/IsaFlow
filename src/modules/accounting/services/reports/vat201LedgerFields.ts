@@ -37,6 +37,12 @@
  * unaffected by it, and `getNilRatedSupplies` throws rather than degrading,
  * because a compulsory disclosure silently reading zero is what K-031 was.
  *
+ * NUMBERING. `field1`..`field11` are STORAGE KEYS, not SARS field numbers —
+ * they predate the form layout and are persisted in `sars_submissions.form_data`,
+ * compared by `draftDrift` and sent in the provisional ISV payload. The VAT201
+ * the user sees is numbered by `vat201SarsFields` (1, 1A, ... 20); see
+ * `getVat201Return`.
+ *
  * COST. A GET now runs the VAT-journal line scan AND the invoice queries AND
  * the nil-rated query, where it previously ran the invoice queries alone. The
  * drill-down lists and fields 2/3/8 need the document population; the boxes
@@ -44,7 +50,8 @@
  */
 import { generateVAT201, type VAT201Data } from './vat201Service';
 import { getVat201Report, type Vat201Report } from './vat201ReportService';
-import { getNilRatedSupplies } from './vat201NilRatedSupplies';
+import { getNilRatedSupplies, type NilRatedSupplies } from './vat201NilRatedSupplies';
+import { buildVat201SarsFields, type Vat201SarsField } from './vat201SarsFields';
 
 /** Output boxes whose value is reported in field 2 or field 3, not field 1. */
 const NIL_RATED_OUTPUT_BOXES: readonly string[] = ['2', '2A', '3'];
@@ -105,12 +112,48 @@ export async function getLedgerVAT201(
   periodStart: string,
   periodEnd: string,
 ): Promise<LedgerVAT201> {
+  const sources = await loadSources(companyId, periodStart, periodEnd);
+  return assembleLedger(periodStart, periodEnd, sources);
+}
+
+/**
+ * The page's return: the ledger fields above PLUS the SARS form
+ * (`vat201SarsFields`) built from the very same report and nil-rated reads, so
+ * the two cannot disagree and the period is scanned once.
+ *
+ * `sarsFields` is deliberately NOT part of `getLedgerVAT201`: that object is
+ * spread into the ISV payload and compared field by field against saved drafts,
+ * and the form's numbering has no place in either.
+ */
+export async function getVat201Return(
+  companyId: string,
+  periodStart: string,
+  periodEnd: string,
+): Promise<LedgerVAT201 & { sarsFields: Vat201SarsField[] }> {
+  const sources = await loadSources(companyId, periodStart, periodEnd);
+  return {
+    ...assembleLedger(periodStart, periodEnd, sources),
+    sarsFields: buildVat201SarsFields(sources.report, sources.nilRated),
+  };
+}
+
+interface LedgerSources {
+  report: Vat201Report;
+  invoiceDerived: VAT201Data;
+  nilRated: NilRatedSupplies;
+}
+
+async function loadSources(companyId: string, periodStart: string, periodEnd: string): Promise<LedgerSources> {
   const [report, invoiceDerived, nilRated] = await Promise.all([
     getVat201Report(companyId, periodStart, periodEnd, { detail: 'summary' }),
     generateVAT201(companyId, periodStart, periodEnd),
     getNilRatedSupplies(companyId, periodStart, periodEnd),
   ]);
+  return { report, invoiceDerived, nilRated };
+}
 
+function assembleLedger(periodStart: string, periodEnd: string, sources: LedgerSources): LedgerVAT201 {
+  const { report, invoiceDerived, nilRated } = sources;
   const field6_capitalGoods = boxTax(report, ['14']);
   const field9_imports = boxTax(report, ['14A/15A']);
   const field8_services = invoiceDerived.field8_services;

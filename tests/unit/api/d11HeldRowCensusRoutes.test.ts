@@ -34,7 +34,7 @@ vi.mock('@/modules/accounting/services/ar/recurringInvoiceService', async (orig)
 vi.mock('@/modules/accounting/services/gl/recurringJournalService', async (orig) => ({ ...(await orig<object>()), createRecurringJournal: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/recurringTransactionService', async (orig) => ({ ...(await orig<object>()), createRecurringTemplate: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/sarsEfilingSubmissionService', async (orig) => ({ ...(await orig<object>()), submitVAT201ToSars: vi.fn() }));
-vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', async (orig) => ({ ...(await orig<object>()), getLedgerVAT201: vi.fn().mockResolvedValue({}) }));
+vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', async (orig) => ({ ...(await orig<object>()), getLedgerVAT201: vi.fn().mockResolvedValue({}), getVat201Return: vi.fn().mockResolvedValue({}) }));
 vi.mock('@/modules/accounting/services/reports/sarsService', async (orig) => ({ ...(await orig<object>()), saveDraftSubmission: vi.fn(), generateEMP201: vi.fn().mockResolvedValue({}) }));
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', async (orig) => ({ ...(await orig<object>()), smartCategorizeForAccount: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/vatAdjustmentService', async (orig) => ({ ...(await orig<object>()), createVATAdjustment: vi.fn() }));

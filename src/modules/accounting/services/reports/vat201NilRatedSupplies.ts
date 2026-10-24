@@ -31,13 +31,16 @@ import type { DbRow } from '@/lib/neon';
 /** Both spellings of a killed document are in use across AR and the credit notes. */
 const CANCELLED_STATUSES: readonly string[] = ['cancelled', 'void', 'voided'];
 
-const ZERO_RATED_TYPES: readonly string[] = ['zero_rated', 'export'];
+const EXPORT_TYPE = 'export';
+const ZERO_RATED_TYPES: readonly string[] = ['zero_rated', EXPORT_TYPE];
 const EXEMPT_TYPES: readonly string[] = ['exempt', 'no_vat'];
 const NIL_RATED_TYPES: readonly string[] = [...ZERO_RATED_TYPES, ...EXEMPT_TYPES];
 
 export interface NilRatedSupplies {
-  /** Field 2 — zero-rated supplies, net of zero-rated credit notes. */
+  /** Zero-rated supplies, exports included, net of zero-rated credit notes. */
   zeroRated: number;
+  /** The `export` part of `zeroRated` — SARS field 2A; field 2 is `zeroRated` less this. */
+  exported: number;
   /** Field 3 — exempt supplies, net of exempt credit notes. */
   exempt: number;
   /**
@@ -138,16 +141,21 @@ export async function getNilRatedSupplies(
   `) as DbRow[];
 
   let zeroRated = 0;
+  let exported = 0;
   let exempt = 0;
   let onTaxedJournals = 0;
   for (const row of rows) {
     const vatType = String(row.vat_type ?? '');
     const base = Number(row.base) || 0;
-    if (ZERO_RATED_TYPES.includes(vatType)) zeroRated += base;
-    else if (EXEMPT_TYPES.includes(vatType)) exempt += base;
+    if (ZERO_RATED_TYPES.includes(vatType)) {
+      zeroRated += base;
+      if (vatType === EXPORT_TYPE) exported += base;
+    } else if (EXEMPT_TYPES.includes(vatType)) exempt += base;
     else continue;
     onTaxedJournals += Number(row.base_on_taxed) || 0;
   }
 
-  return { zeroRated: r2(zeroRated), exempt: r2(exempt), onTaxedJournals: r2(onTaxedJournals) };
+  return {
+    zeroRated: r2(zeroRated), exported: r2(exported), exempt: r2(exempt), onTaxedJournals: r2(onTaxedJournals),
+  };
 }

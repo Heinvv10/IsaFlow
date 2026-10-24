@@ -29,7 +29,7 @@ export const PAGE_REGISTRY: Record<string, PageMeta> = {
   '/accounting/journal-entries': { path: '/accounting/journal-entries', title: 'Journal Entries', description: 'View posted journals', icon: 'FileSpreadsheet', color: 'purple' },
   '/accounting/reports/income-statement': { path: '/accounting/reports/income-statement', title: 'Income Statement', description: 'Revenue and expense report', icon: 'BarChart3', color: 'teal' },
   '/accounting/reports/balance-sheet': { path: '/accounting/reports/balance-sheet', title: 'Balance Sheet', description: 'Assets, liabilities and equity', icon: 'BarChart3', color: 'blue' },
-  '/accounting/reports/vat-return': { path: '/accounting/reports/vat-return', title: 'VAT Return', description: 'Prepare VAT201 return', icon: 'FileText', color: 'indigo' },
+  '/accounting/sars/vat201': { path: '/accounting/sars/vat201', title: 'VAT201 Return', description: 'Prepare VAT201 return', icon: 'FileText', color: 'indigo' },
   '/accounting/ap-aging': { path: '/accounting/ap-aging', title: 'AP Aging Report', description: 'Outstanding payables by age', icon: 'TrendingUp', color: 'orange' },
   '/accounting/supplier-payments': { path: '/accounting/supplier-payments', title: 'Supplier Payments', description: 'Record supplier payments', icon: 'CreditCard', color: 'orange' },
   '/accounting/company-settings': { path: '/accounting/company-settings', title: 'Company Settings', description: 'Manage company configuration', icon: 'Calculator', color: 'gray' },
