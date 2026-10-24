@@ -18,6 +18,7 @@ import {
 } from './smartCategorizationMatchingService';
 import { recordSuggestionsShown } from '../bank/codingDecisionLog';
 import { sourceFromStrategy } from '../bank/codingDecisionOutcome';
+import { getSharedSuggestions } from '../sharedPool/sharedSuggestionService';
 import { categorizeSweepScope, type CategorizeSweepScope } from './categorizeSweepScope';
 import { markAttempted, recentlyAttempted } from './categorizeSweepAttempts';
 
@@ -170,6 +171,20 @@ export async function bulkCategorize(companyId: string,
         matched.push({ txId, result });
         resultMap.set(txId, result);
       }
+    }
+  }
+
+  // 5b. Cold start: the shared merchant pool, only for lines the company's own rules, patterns and history
+  // left unmatched, and BEFORE the LLM residual pass (cheaper, and backed by other companies' real coding).
+  // Ineligible companies get nothing (shared_pool_lookup); never auto-posted (autoPostGate rung 1).
+  const stillUnmatched = txRows.filter(tx => resultMap.get(String(tx.id)) === null);
+  if (stillUnmatched.length > 0) {
+    const pooled = await getSharedSuggestions(companyId, stillUnmatched.map(tx => ({
+      txId: String(tx.id), description: String(tx.description || ''),
+    })));
+    for (const [txId, result] of pooled) {
+      matched.push({ txId, result });
+      resultMap.set(txId, result);
     }
   }
 
