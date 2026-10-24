@@ -124,7 +124,7 @@ export function k061(pool: Pool) {
        VALUES($1,$2,'customer',$3,'debit',1,'k061',$4)`, [company, `ADJ-${n}`, cust, admin]);
     await q("INSERT INTO entity_udf_values(company_id,entity_type,entity_id,field_number,value) VALUES($1,'customer',$2,1,$3)", [company, cust, `udf ${n}`]);
     await q("INSERT INTO portal_payment_links(invoice_id,client_id,amount) VALUES($1,$2,100)", [inv, cust]);
-    await q("INSERT INTO portal_access(client_id,email,password_hash,name,is_active) VALUES($1,$2,'x','k061',true)", [cust, `${n}-${cust}@portal.test`]);
+    await q("INSERT INTO portal_access(client_id,company_id,email,password_hash,name,is_active) VALUES($1,(SELECT company_id FROM customers WHERE id=$1),$2,'x','k061',true)", [cust, `${n}-${cust}@portal.test`]);
     return { inv };
   }
 

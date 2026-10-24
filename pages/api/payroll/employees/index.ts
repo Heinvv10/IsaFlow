@@ -1,6 +1,6 @@
 /**
  * Payroll Employees API (new payroll_employees table)
- * GET  /api/payroll/employees  - List payroll employees
+ * GET  /api/payroll/employees  - List active payroll employees (?include=terminated: leavers too)
  * POST /api/payroll/employees  - Create a payroll employee
  */
 
@@ -29,7 +29,8 @@ async function handler(
   const { companyId, companyRole } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    const employees = await listPayrollEmployees(companyId);
+    // ?include=terminated adds leavers (the tax-directive form's employee picker).
+    const employees = await listPayrollEmployees(companyId, { includeTerminated: req.query.include === 'terminated' });
     // Personal data is for write roles; a viewer gets who the employees are, nothing else.
     return apiResponse.success(res, canWrite(companyRole) ? employees : employees.map(employeeNamesOnly));
   }

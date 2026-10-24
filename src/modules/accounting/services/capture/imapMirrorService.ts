@@ -14,6 +14,7 @@
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
+import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
@@ -191,7 +192,7 @@ async function updateCursor(conn: MirrorConnection, folder: string, uid: number)
     UPDATE imap_mirror_connections
     SET scan_cursor = ${JSON.stringify(nextCursor)}::jsonb,
         last_scan_at = NOW(),
-        last_success_at = NOW(),
+        last_success_at = NOW(), last_error = NULL,
         messages_ingested_total = messages_ingested_total
     WHERE id = ${conn.id}::uuid
   `;
@@ -208,7 +209,7 @@ async function markScanError(conn: MirrorConnection, error: string): Promise<voi
 }
 
 async function ingestAttachment(
-  conn: MirrorConnection,
+  conn: MirrorConnection, inboxId: string,
   parsed: ParsedMail,
   att: Attachment,
 ): Promise<string> {
@@ -240,21 +241,12 @@ async function ingestAttachment(
     WHERE id = ${documentId}::uuid
   `;
 
-  // Find or synthesise the mirror inbox row, so capture_events can join
-  const [inboxRow] = (await sql`
-    INSERT INTO capture_inboxes (company_id, channel, address, is_active)
-    VALUES (${conn.companyId}::uuid, 'imap_mirror', ${conn.accountEmail}, true)
-    ON CONFLICT (company_id, channel, address)
-    DO UPDATE SET is_active = true
-    RETURNING id
-  `) as Row[];
-
   const [event] = (await sql`
     INSERT INTO capture_events (
       company_id, inbox_id, channel, sender, subject,
       status, captured_document_id
     ) VALUES (
-      ${conn.companyId}::uuid, ${inboxRow!.id as string}::uuid,
+      ${conn.companyId}::uuid, ${inboxId}::uuid,
       'imap_mirror', ${parsed.from?.text ?? null}, ${parsed.subject ?? null},
       'received', ${documentId}::uuid
     )
@@ -300,6 +292,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
       }
 
       let maxUidSeen = cursorUid;
+      let stoppedOn: string | null = null;
 
       for (const meta of msgs) {
         result.scanned += 1;
@@ -343,8 +336,10 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
 
         const eventIds: string[] = [];
         try {
+          // Once per message, before any attachment: a failure here leaves nothing half-ingested.
+          const inboxId = await ensureMirrorInbox(conn.companyId, conn.accountEmail);
           for (const att of attachments) {
-            const eventId = await ingestAttachment(conn, parsed, att);
+            const eventId = await ingestAttachment(conn, inboxId, parsed, att);
             eventIds.push(eventId);
           }
           result.ingested += eventIds.length;
@@ -358,19 +353,23 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: attachments.length,
             outcome: 'error', error: msg });
+          // Database-side, nothing of it ingested: stop, cursor before it, so the next scan retries it.
+          if (isTransientIngestError(ingestErr) && eventIds.length === 0) { stoppedOn = msg; maxUidSeen = uid - 1; break; }
         }
       }
 
       if (maxUidSeen > cursorUid) {
         await updateCursor(conn, conn.folder, maxUidSeen);
-      } else {
+      } else if (!stoppedOn) {
         // Still bump last_scan_at so the poll interval kicks in correctly
         await sql`
           UPDATE imap_mirror_connections
-          SET last_scan_at = NOW(), last_success_at = NOW()
+          SET last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL
           WHERE id = ${conn.id}::uuid
         `;
       }
+      // A stop shows its error (after any progress above); status stays active so the next scan retries.
+      if (stoppedOn) await sql`UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = ${stoppedOn} WHERE id = ${conn.id}::uuid`;
 
       // Increment total ingested counter
       if (result.ingested > 0) {
