@@ -54,14 +54,13 @@ export async function fetchSectionLines(
   companyId: string,
   section: 'balance_sheet' | 'income_statement',
   fiscalYear: number,
-  priorYear?: number,
+  withPrior = false,
 ): Promise<SectionLine[]> {
-  // The comparative year is on the SAME fiscal calendar as the current one.
-  // Hard-coding January-December here reintroduced the very defect the current
-  // year was fixed for, silently and only in the prior-year column. Both
-  // ranges come from one lookup rather than two.
+  // The comparative is the registry year immediately before this one (not
+  // "fiscalYear - 1" re-cut on today's start month), so a transition year or a
+  // changed year end reports the comparative it really had.
   const { current: { start, end }, prior } =
-    await getFiscalRangeWithPrior(companyId, fiscalYear, priorYear);
+    await getFiscalRangeWithPrior(companyId, fiscalYear, withPrior);
   const priorStart = prior?.start ?? null;
   const priorEnd = prior?.end ?? null;
   const isBs = section === 'balance_sheet';
