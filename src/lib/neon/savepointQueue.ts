@@ -43,7 +43,7 @@ export function noteActivity(client: object): void {
 }
 
 /** How long a queue may go without anything finishing before a waiter is refused. Tests shorten it. */
-// 120 s: progress (a sibling starting or finishing) re-arms it, but one long
+// 120 s: progress (any completed statement or savepoint) re-arms it, but one long
 // statement in flight is invisible here and the main pool sets no
 // statement_timeout, so the bound sits well above any legitimate statement.
 export const savepointQueueWait = { ms: 120_000 };
