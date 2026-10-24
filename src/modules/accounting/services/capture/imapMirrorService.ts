@@ -14,8 +14,7 @@
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
-import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
-import { isTransientIngestError } from './transientIngestError';
+import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
@@ -211,6 +210,7 @@ async function markScanError(conn: MirrorConnection, error: string): Promise<voi
 
 async function ingestAttachment(
   conn: MirrorConnection,
+  inboxId: string,
   parsed: ParsedMail,
   att: Attachment,
 ): Promise<string> {
@@ -218,18 +218,6 @@ async function ingestAttachment(
   const sha = sha256(content);
   const mime = (att.contentType ?? 'application/octet-stream').toLowerCase();
   const filename = att.filename ?? `mirror-${sha.slice(0, 8)}`;
-
-  // Find or synthesise the mirror inbox row, so capture_events can join: on
-  // migration_admin, as no app role may write capture_inboxes (S-07d, 935), and
-  // first, so a refusal there leaves no document behind.
-  const [inboxRow] = await migrationAdminTx('imap mirror inbox', async (client) => (await client.query(
-    `INSERT INTO capture_inboxes (company_id, channel, address, is_active)
-     VALUES ($1::uuid, 'imap_mirror', $2, true)
-     ON CONFLICT (company_id, channel, address)
-     DO UPDATE SET is_active = true
-     RETURNING id`,
-    [conn.companyId, conn.accountEmail],
-  )).rows as Row[]);
 
   // Create captured_documents row first — storeCapturedBytes needs the id
   // so it can scope the storage key.
@@ -259,7 +247,7 @@ async function ingestAttachment(
       company_id, inbox_id, channel, sender, subject,
       status, captured_document_id
     ) VALUES (
-      ${conn.companyId}::uuid, ${inboxRow!.id as string}::uuid,
+      ${conn.companyId}::uuid, ${inboxId}::uuid,
       'imap_mirror', ${parsed.from?.text ?? null}, ${parsed.subject ?? null},
       'received', ${documentId}::uuid
     )
@@ -348,8 +336,10 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
 
         const eventIds: string[] = [];
         try {
+          // Once per message, before any attachment: a failure here leaves nothing half-ingested to retry.
+          const inboxId = await ensureMirrorInbox(conn.companyId, conn.accountEmail);
           for (const att of attachments) {
-            const eventId = await ingestAttachment(conn, parsed, att);
+            const eventId = await ingestAttachment(conn, inboxId, parsed, att);
             eventIds.push(eventId);
           }
           result.ingested += eventIds.length;
@@ -363,8 +353,9 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: attachments.length,
             outcome: 'error', error: msg });
-          // Not the message's fault: stop, cursor before it, so the next scan retries it.
-          if (isTransientIngestError(ingestErr)) { maxUidSeen = uid - 1; break; }
+          // Not the message's fault, and none of it ingested yet: stop, cursor
+          // before it, so the next scan retries it (never twice-captured).
+          if (isTransientIngestError(ingestErr) && eventIds.length === 0) { maxUidSeen = uid - 1; break; }
         }
       }
 

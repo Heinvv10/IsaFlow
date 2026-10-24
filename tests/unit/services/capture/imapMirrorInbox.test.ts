@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isTransientIngestError } from '@/modules/accounting/services/capture/transientIngestError';
+import { isTransientIngestError } from '@/modules/accounting/services/capture/imapMirrorInbox';
 
 const pgError = (code: string) => Object.assign(new Error(`pg ${code}`), { code });
 

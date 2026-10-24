@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
   upsertFails: new Set<number>(),
   upserts: 0,
   failWith: null as unknown,
+  docInsertFails: 0,
+  docInserts: 0,
 }));
 
 vi.mock('imapflow', () => ({
@@ -29,7 +31,9 @@ vi.mock('imapflow', () => ({
 vi.mock('mailparser', () => ({
   simpleParser: async (source: Buffer) => ({
     subject: source.toString(), from: { text: 'ap@supplier.test' },
-    attachments: [{ contentType: 'application/pdf', size: 3, content: Buffer.from('pdf'), filename: 'i.pdf' }],
+    // Message 12 carries two attachments.
+    attachments: Array.from({ length: source.toString() === 'msg 12' ? 2 : 1 },
+      (_, i) => ({ contentType: 'application/pdf', size: 3, content: Buffer.from(`pdf${i}`), filename: `i${i}.pdf` })),
   }),
 }));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
@@ -42,6 +46,9 @@ vi.mock('@/lib/neon', () => ({
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
     h.sql.push({ text, values });
+    if (text.startsWith('INSERT INTO captured_documents') && ++h.docInserts === h.docInsertFails) {
+      return Promise.reject(Object.assign(new Error('connection terminated'), { code: '08006' }));
+    }
     return Promise.resolve(/RETURNING id/.test(text) ? [{ id: crypto.randomUUID() }] : []);
   }),
 }));
@@ -73,11 +80,13 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     h.sql.length = 0;
     h.upsertFails.clear();
     h.upserts = 0;
+    h.docInsertFails = 0;
+    h.docInserts = 0;
   });
 
   it('a clean scan advances the cursor to the last message', async () => {
     const r = await scanConnection(conn);
-    expect([r.ingested, r.errors, cursorWritten()]).toEqual([3, 0, 13]);
+    expect([r.ingested, r.errors, cursorWritten()]).toEqual([4, 0, 13]);
   });
 
   it.each([
@@ -96,5 +105,12 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     h.upsertFails.add(2);
     const r = await scanConnection(conn);
     expect([r.ingested, r.errors, cursorWritten()]).toEqual([2, 1, 13]);
+  });
+
+  it('a database failure after part of a message was ingested is passed, so nothing is captured twice', async () => {
+    h.docInsertFails = 3; // message 12's second attachment (11's one, then 12's first)
+    const r = await scanConnection(conn);
+    expect([r.errors, cursorWritten()]).toEqual([1, 13]);
+    expect(documentsCreated()).toBe(4); // 11, 12a, 12b (refused), 13: none retried
   });
 });
