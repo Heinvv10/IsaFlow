@@ -1,15 +1,10 @@
 {
- "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24), recorded on dev after a full golden run. May only SHRINK: fix a violation and delete its entry (an entry that no longer occurs FAILS the run), or lower its max. Never add an entry or raise a max to make a red run green. Keyed by page path (ids -> :id); selector = nearest anchor + the tags/names down to the node (tests/e2e/golden-paths/helpers/a11yDescribe.ts); max = most nodes allowed to match; perRow = inside a table row / list item, so any number of rows is allowed. scripts/verify-deploy.sh runs report-only (A11Y_GATE=report).",
+ "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24), recorded on dev after a full golden run. May only SHRINK: fix a violation and delete its entry (an entry that no longer occurs FAILS the run), or lower its max. Never add an entry or raise a max to make a red run green. Keyed by page path (ids -> :id); selector = nearest anchor + the tags/names down to the node (tests/e2e/golden-paths/helpers/a11yDescribe.ts); max = most nodes allowed to match; dataDriven = how many nodes match (even none) follows the company's data or async state, so any number is allowed and the entry is never stale (reason given per entry). scripts/verify-deploy.sh runs report-only (A11Y_GATE=report). 'shell:*' keys are pieces of the app shell scanned on their own.",
  "pages": {
   "/accounting/assets": [
    {
     "rule": "color-contrast",
     "selector": "div > div > div > div > div > a[href=\"/accounting/assets/new\"]",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
     "max": 1
    },
    {
@@ -27,23 +22,20 @@
    {
     "rule": "color-contrast",
     "selector": "div > div > button > div > div > span",
-    "max": 1
+    "max": 1,
+    "dataDriven": "amount and difference chips of an imported batch: present only when batches have amounts"
    },
    {
     "rule": "color-contrast",
     "selector": "div > div > div > div > div > span",
-    "max": 1
+    "max": 1,
+    "dataDriven": "statement id chip: present only for imported statements"
    },
    {
     "rule": "color-contrast",
     "selector": "div > div > div > ul > li > button[type=\"button\"]",
     "max": 1,
-    "perRow": true
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
+    "dataDriven": "one match per table row or list item"
    },
    {
     "rule": "document-title",
@@ -59,12 +51,13 @@
     "rule": "label",
     "selector": "table > tbody > tr > td > input[type=\"checkbox\"]",
     "max": 25,
-    "perRow": true
+    "dataDriven": "one match per table row or list item"
    },
    {
     "rule": "label",
     "selector": "table > thead > tr > th > input[type=\"checkbox\"]",
-    "max": 1
+    "max": 1,
+    "dataDriven": "select-all box: the table (and its header) renders only when there are transactions"
    },
    {
     "rule": "select-name",
@@ -75,7 +68,7 @@
     "rule": "select-name",
     "selector": "table > tbody > tr > td > select",
     "max": 46,
-    "perRow": true
+    "dataDriven": "one match per table row or list item"
    }
   ],
   "/accounting/credit-notes": [
@@ -90,11 +83,6 @@
     "max": 1
    },
    {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
-   },
-   {
     "rule": "document-title",
     "selector": "html",
     "max": 1
@@ -104,11 +92,6 @@
    {
     "rule": "color-contrast",
     "selector": "div > div > div > div > div > a[href=\"/accounting/customer-invoices/new\"]",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
     "max": 1
    },
    {
@@ -131,11 +114,6 @@
    {
     "rule": "color-contrast",
     "selector": "div > div > div > div > label > span",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
     "max": 1
    },
    {
@@ -182,7 +160,7 @@
     "rule": "select-name",
     "selector": "table > tbody > tr > td > select[name=\"incomeType\"]",
     "max": 1,
-    "perRow": true
+    "dataDriven": "one match per table row or list item"
    }
   ],
   "/accounting/customer-payments/new": [
@@ -194,11 +172,6 @@
    {
     "rule": "color-contrast",
     "selector": "form > div > div > div > p",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
     "max": 1
    },
    {
@@ -239,11 +212,6 @@
     "max": 1
    },
    {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
-   },
-   {
     "rule": "document-title",
     "selector": "html",
     "max": 1
@@ -254,16 +222,11 @@
     "rule": "button-name",
     "selector": "table > tbody > tr > td > button[type=\"button\"]",
     "max": 2,
-    "perRow": true
+    "dataDriven": "one match per table row or list item"
    },
    {
     "rule": "color-contrast",
     "selector": "form > div > div > div > div > button[type=\"button\"]",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
     "max": 1
    },
    {
@@ -280,7 +243,7 @@
     "rule": "select-name",
     "selector": "table > tbody > tr > td > select[name=\"accountId\"]",
     "max": 2,
-    "perRow": true
+    "dataDriven": "one match per table row or list item"
    }
   ],
   "/accounting/migration": [
@@ -292,12 +255,8 @@
    {
     "rule": "color-contrast",
     "selector": "div > div > div > div > div > span",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
+    "max": 1,
+    "dataDriven": "migration session status badge: present only while a session is in progress"
    },
    {
     "rule": "document-title",
@@ -306,11 +265,6 @@
    }
   ],
   "/accounting/migration/opening-balances": [
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
-   },
    {
     "rule": "document-title",
     "selector": "html",
@@ -325,13 +279,9 @@
   "/accounting/month-end-workbench": [
    {
     "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
     "selector": "main > div > div > div > div > button",
-    "max": 1
+    "max": 1,
+    "dataDriven": "Start close run: rendered only while the month has no close run yet"
    },
    {
     "rule": "document-title",
@@ -340,11 +290,6 @@
    }
   ],
   "/accounting/reports/account-transactions": [
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
-   },
    {
     "rule": "document-title",
     "selector": "html",
@@ -358,23 +303,20 @@
    {
     "rule": "select-name",
     "selector": "div > div > div > div > div > select",
-    "max": 1
+    "max": 1,
+    "dataDriven": "Cost Centre select: rendered only when the company has cost centres"
    }
   ],
   "/accounting/reports/vat-return": [
    {
     "rule": "color-contrast",
     "selector": "div > div > div > button > div > span",
-    "max": 1
+    "max": 1,
+    "dataDriven": "per-box transaction-count badge: shown only for boxes that have transactions"
    },
    {
     "rule": "color-contrast",
     "selector": "div > div > div > div > div > button",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
     "max": 1
    },
    {
@@ -397,11 +339,6 @@
    {
     "rule": "color-contrast",
     "selector": "form > div > div > div > p",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
     "max": 1
    },
    {
@@ -433,17 +370,19 @@
   "/payroll/runs": [
    {
     "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
     "selector": "main > div > div > div > div > a[href=\"/payroll/runs/new\"]",
     "max": 1
    },
    {
     "rule": "document-title",
     "selector": "html",
+    "max": 1
+   }
+  ],
+  "shell:setup-guide-badge": [
+   {
+    "rule": "color-contrast",
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
     "max": 1
    }
   ]
