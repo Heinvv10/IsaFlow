@@ -66,7 +66,9 @@ export async function unapplySupplierPayment(
   userId: string,
 ): Promise<PaymentUnapplyResult> {
   // Payment first, then its bills by id: the order void and process take.
-  await lockSupplierPaymentForUpdate(companyId, input.paymentId);
+  // Its supplier before it (`supplierFirst`): each bill is written twice below, and the second write's supplier FK
+  // check otherwise came after the payment and crossed a supplier merge (40P01).
+  await lockSupplierPaymentForUpdate(companyId, input.paymentId, { supplierFirst: true });
   // BOUNDED: lockSupplierPaymentForUpdate restores the default lock_timeout on
   // its way out, and there is no session default, so a bare FOR UPDATE here
   // would wait forever on a contended bill. The shared helper bounds it and
