@@ -109,6 +109,14 @@ function createSql(client?: pg.PoolClient): SqlFunction {
         } catch (err) {
           try {
             await settled(ctxClient.query(`ROLLBACK TO SAVEPOINT ${sp}`));
+            // Released too, as withSavepoint does: a loop that carries on after
+            // failed batches must not pile up open subtransactions.
+            try {
+              await settled(ctxClient.query(`RELEASE SAVEPOINT ${sp}`));
+            } catch (releaseErr) {
+              log.warn('RELEASE SAVEPOINT failed after a successful batch rollback; transaction left usable',
+                { savepoint: sp, error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr) }, 'DB');
+            }
           } catch (rollbackErr) {
             // Same reasoning as withSavepoint: the connection is aborted now, so
             // mark the context or the next batch in the loop gets a bare 25P02
