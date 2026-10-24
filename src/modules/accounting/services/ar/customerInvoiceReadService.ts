@@ -12,6 +12,8 @@
 import { sql } from '@/lib/neon';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
+import { arOverdueFragment } from './arOutstandingService';
+import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type Row = Record<string, unknown>;
 
@@ -46,6 +48,10 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
   const { status = null, clientId = null, search = null, agingFilters = [], dateFrom = null, dateTo = null } = filters;
 
   const statusValues: string[] | null = status && status.length > 0 ? status : null;
+  // 'overdue' is a date fact, not a stored status: nothing flips 'sent' or
+  // 'approved' to 'overdue', so that option runs the AR service's predicate.
+  const wantsOverdue = statusValues?.includes('overdue') ?? false;
+  const storedStatuses: string[] | null = statusValues ? statusValues.filter((s) => s !== 'overdue') : null;
   const clientIdFilter: string | null = clientId && clientId.trim() ? clientId.trim() : null;
   const searchTermFilter: string | null = search && search.trim() ? search.trim() : null;
   const filterDueSoon = agingFilters.includes('due-soon');
@@ -55,7 +61,11 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
   return sql`
     ci.company_id = ${companyId}::UUID
     AND ci.deleted_at IS NULL
-    AND (${statusValues}::text[] IS NULL OR ci.status = ANY(${statusValues}::text[]))
+    AND (
+      ${statusValues}::text[] IS NULL
+      OR ci.status = ANY(${storedStatuses}::text[])
+      OR (${wantsOverdue} AND ${arOverdueFragment(asAtTodayStr(), companyId)})
+    )
     AND (${clientIdFilter}::uuid IS NULL OR COALESCE(ci.client_id, ci.customer_id) = ${clientIdFilter}::uuid)
     AND (
       ${searchTermFilter}::text IS NULL
