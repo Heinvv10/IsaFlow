@@ -275,4 +275,29 @@ describe('944 conversion', () => {
       `SELECT fiscal_year, notes FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2 ORDER BY fiscal_year`, [gap, gapAcct])).rows;
     expect(headers).toEqual([{ fiscal_year: 2030, notes: 'both years' }, { fiscal_year: 2031, notes: 'both years' }]);
   });
+
+  it('a short year\'s keys outside its window are skipped (the old reader never read them), so they do not collide with the next year', async () => {
+    await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [reg]);
+    await pool.query('DELETE FROM fiscal_years WHERE company_id = $1', [reg]);
+    await pool.query(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'BUDCONV reg', 3) ON CONFLICT DO NOTHING`, [reg]);
+    await pool.query(
+      `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+       VALUES ($1, $2, 'B-5000', 'Rent', 'expense', 'debit', 3, true) ON CONFLICT DO NOTHING`, [regAcct, reg]);
+    // FY2027 is a four-month year (a year-end change to June), then FY2028 is July 2026 - June 2027.
+    for (const [label, start, end, kind] of [[2027, '2026-03-01', '2026-06-30', 'transition'], [2028, '2026-07-01', '2027-06-30', 'normal']] as const) {
+      const y = (await pool.query(
+        `INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date, kind) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [reg, label, start, end, kind])).rows[0];
+      await pool.query('SELECT public.fiscal_periods_generate($1)', [y.id]);
+    }
+    await budget(regAcct, 2027, JAN_DEC, 0, reg);
+    await budget(regAcct, 2028, JAN_DEC, 0, reg);
+    // FY2027 holds its four months; its other eight keys were never read by anything and are skipped.
+    expect(await convert(reg)).toBe(4 + 12);
+    expect((await months(regAcct, reg)).slice(0, 4)).toEqual([['2026-03', 3], ['2026-04', 4], ['2026-05', 5], ['2026-06', 6]]);
+    expect((await months(regAcct, reg)).slice(4).map(([k]) => k)).toEqual(
+      ['2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04', '2027-05', '2027-06']);
+    expect((await pool.query('SELECT public.budget_months_legacy_skipped($1) AS n', [reg])).rows[0].n).toBe(8);
+    expect(await mismatches(reg)).toBe(0);
+  });
 });
