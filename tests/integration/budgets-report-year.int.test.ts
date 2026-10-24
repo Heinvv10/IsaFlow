@@ -81,7 +81,7 @@ describe('reports-budget-vs-actual?fiscal_year=', () => {
   });
 
   it('a value that is not a year label is a 400', async () => {
-    for (const bad of ['abc', '2.5', '-1', '0', '20x6']) {
+    for (const bad of ['abc', '2.5', '-1', '0', '20x6', '1e3', ' 2026', '12345']) {
       const r = await rep.call(u, 'GET', undefined, { period: 'full_year', fiscal_year: bad });
       expect(r.status, `${bad} ${JSON.stringify(r.body)}`).toBe(400);
     }
@@ -97,6 +97,34 @@ describe('reports-budget-vs-actual?fiscal_year=', () => {
     const [start, end] = data(r).report.period.split(' to ');
     expect(start).toBe('2026-01-01');
     expect(end! <= '2027-02-28' && end! >= start!).toBe(true);
+  });
+});
+
+describe('year to date of a year that has not started', () => {
+  // Label 2060 is the registry's template year Mar 2059 - Feb 2060: it never starts within a test's lifetime.
+  it('is empty: no lines, zero totals, and the report says when the year starts', async () => {
+    const r = await rep.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2060' });
+    expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
+    const d = r.body.data as unknown as { report: Report & { total_budget: number; total_actual: number; not_started?: boolean; starts_on?: string } };
+    expect(d.report.lines).toEqual([]);
+    expect([d.report.total_budget, d.report.total_actual]).toEqual([0, 0]);
+    expect(d.report.not_started).toBe(true);
+    expect(d.report.starts_on).toBe('2059-03-01');
+  });
+
+  it('the full year of it is a normal report', async () => {
+    const r = await rep.call(u, 'GET', undefined, { period: 'full_year', fiscal_year: '2060' });
+    expect(r.status).toBe(200);
+    expect((r.body.data as unknown as { report: { not_started?: boolean } }).report.not_started).toBeUndefined();
+  });
+
+  it('the CSV of it is all zeros, the budget of the other years not among them', async () => {
+    const r = await csv.call(u, 'GET', undefined, { period: 'ytd', fiscal_year: '2060' });
+    const [header, ...rows] = String(r.body).split('\n');
+    expect(header).toBe('Account Code,Account Name,Budget,Actual,Variance,Variance %');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((l) => l.endsWith(',0.00,0.00,0.00,0.00'))).toBe(true);
+    expect(rows.at(-1)).toBe('"","TOTALS",0.00,0.00,0.00,0.00');
   });
 });
 

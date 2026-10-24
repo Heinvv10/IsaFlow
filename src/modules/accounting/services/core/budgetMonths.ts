@@ -43,6 +43,16 @@ export function round2(n: number): number {
   return out === 0 ? 0 : out;
 }
 
+/**
+ * A financial-year LABEL from a request value: a whole number 1-9999 as a JSON
+ * number or as 1-4 plain digits. `Number()` alone would take `true`, `'1e3'`,
+ * `[2027]` and `' 2027'`. Null when it is not one.
+ */
+export function parseYearLabel(raw: unknown): number | null {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && /^[0-9]{1,4}$/.test(raw) ? Number(raw) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= 9999 ? n : null;
+}
+
 /** `annual` over `count` months: equal cents, the remainder on the last month. */
 export function spreadEvenly(annual: number, count: number): number[] {
   const monthly = round2(annual / count);

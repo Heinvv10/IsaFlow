@@ -54,6 +54,16 @@ describe('budgets-action', () => {
     expect((await call(o.u, 'POST', { action: 'copy', fromYear: 'x', toYear: o.label })).status).toBe(400);
   });
 
+  it('a year label that only Number() would take (true, 1e3, an array) is a 400', async () => {
+    const o = await owner();
+    for (const bad of [true, '1e3', [o.label], ' 2027', 12345]) {
+      const del = await call(o.u, 'POST', { action: 'delete', glAccountId: o.account, fiscalYear: bad });
+      expect(del.status, `delete ${JSON.stringify(bad)} ${JSON.stringify(del.body).slice(0, 150)}`).toBe(400);
+      const copy = await call(o.u, 'POST', { action: 'copy', fromYear: bad, toYear: o.label + 1 });
+      expect(copy.status, `copy ${JSON.stringify(bad)}`).toBe(400);
+    }
+  });
+
   it('a database failure is a 500 that does not echo the database text', async () => {
     const o = await owner();
     // withErrorHandler masks a 500's message in production only.

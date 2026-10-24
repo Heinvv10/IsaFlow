@@ -3,7 +3,7 @@
  * that is not exactly the year's months.
  */
 import { describe, it, expect } from 'vitest';
-import { BudgetInputError, resolveMonthAmounts, round2, spreadEvenly } from '@/modules/accounting/services/core/budgetMonths';
+import { BudgetInputError, parseYearLabel, resolveMonthAmounts, round2, spreadEvenly } from '@/modules/accounting/services/core/budgetMonths';
 
 const KEYS_14 = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07',
   '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02'];
@@ -130,5 +130,18 @@ describe('round2', () => {
   it('passes a non-finite number through', () => {
     expect(round2(Number.NaN)).toBeNaN();
     expect(round2(Infinity)).toBe(Infinity);
+  });
+});
+
+describe('parseYearLabel', () => {
+  it.each([[2027, 2027], ['2027', 2027], [1, 1], ['0001', 1], [9999, 9999], ['9999', 9999]])('%j is the label %i', (raw, label) => {
+    expect(parseYearLabel(raw)).toBe(label);
+  });
+
+  it.each([
+    true, false, null, undefined, '', ' ', '0', 0, -1, '-1', '1e3', 1e3 + 0.5, '2.5', 2.5, '20x6', '2027 ', ' 2027',
+    '12345', 12345, [2027], ['2027'], {}, Number.NaN, Infinity, '٢٠٢٧',
+  ])('%j is not a label', (raw) => {
+    expect(parseYearLabel(raw)).toBeNull();
   });
 });

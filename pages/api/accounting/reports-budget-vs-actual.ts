@@ -40,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // month, so "current month" used to open a day early.
     const period = String(req.query.period ?? 'ytd');
     const chosen = await chosenReportYear(companyId, req.query.fiscal_year, period);
-    const { startDate, endDate, fiscalYear } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
+    const { startDate, endDate, fiscalYear, notStarted } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
     const budgets = await loadWindowBudgets(companyId, startDate, endDate);
 
     // Get actual GL balances for expense and revenue accounts. We don't filter
@@ -89,7 +89,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const lines = buildBudgetVsActualLines(actuals as unknown as RawActualRow[], budgets);
 
     const report = {
-      period: `${startDate} to ${endDate}`,
+      // A year that has not started has no window to name; the page says when it starts.
+      period: notStarted ? 'not started' : `${startDate} to ${endDate}`,
+      ...(notStarted ? { not_started: true, starts_on: startDate } : {}),
       lines,
       total_budget: lines.reduce((s, l) => s + l.budget_amount, 0),
       total_actual: lines.reduce((s, l) => s + l.actual_amount, 0),
@@ -103,8 +105,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (err instanceof BudgetReportYearError) {
       return err.unknown ? apiResponse.notFound(res, 'Financial year', String(err.label)) : apiResponse.badRequest(res, err.message);
     }
+    // Anything else is a real failure: rethrown, withErrorHandler answers 500 and the request rolls back.
     log.error('Failed to generate budget vs actual report', { error: err, module: 'accounting' });
-    return apiResponse.databaseError(res, err, 'Failed to generate budget vs actual report');
+    throw err;
   }
 }
 

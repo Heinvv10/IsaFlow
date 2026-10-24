@@ -47,15 +47,19 @@ describe('GET', () => {
 
   it('a year label that is not a number is a 400', async () => {
     const o = await owner();
-    expect((await call(o.u, 'GET', undefined, { fiscal_year: 'abc' })).status).toBe(400);
+    for (const bad of ['abc', '1e3', '2.5', ' 2027', '12345']) {
+      expect((await call(o.u, 'GET', undefined, { fiscal_year: bad })).status, bad).toBe(400);
+    }
   });
 });
 
 describe('POST bodies that are wrong are 400s', () => {
   it('a fiscalYear that is not a year label', async () => {
     const o = await owner();
-    const r = await call(o.u, 'POST', { glAccountId: o.account, fiscalYear: 'abc', annualAmount: 100 });
-    expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(400);
+    for (const bad of ['abc', true, '1e3', [o.label], 2.5]) {
+      const r = await call(o.u, 'POST', { glAccountId: o.account, fiscalYear: bad, annualAmount: 100 });
+      expect(r.status, `${JSON.stringify(bad)} ${JSON.stringify(r.body).slice(0, 300)}`).toBe(400);
+    }
   });
 
   it('a months entry that is null or has no month', async () => {

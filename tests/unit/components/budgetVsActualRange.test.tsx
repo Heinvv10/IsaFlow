@@ -82,4 +82,15 @@ describe('budget vs actual page range', () => {
     expect(screen.queryByTestId('report-year')).toBeNull();
     expect(reportUrls().every((u) => !u.includes('fiscal_year'))).toBe(true);
   });
+
+  it('year to date of a year that has not started says when it starts, with no range or lines', async () => {
+    script(() => ok({
+      fiscal_year: 2028, years: YEARS,
+      report: { period: 'not started', lines: [], total_budget: 0, total_actual: 0, total_variance: 0, not_started: true, starts_on: '2027-03-01' },
+    }));
+    render(<BudgetVsActualPage />);
+    expect((await screen.findByTestId('year-not-started')).textContent).toBe('This financial year starts on 1 March 2027');
+    expect(screen.queryByTestId('report-period')).toBeNull();
+    expect(screen.queryByText('No budget data available')).toBeNull();
+  });
 });

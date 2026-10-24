@@ -5,6 +5,7 @@
  */
 
 import { getFiscalYear, type FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { parseYearLabel } from '../core/budgetMonths';
 import { listBudgetYears } from '../core/budgetYears';
 
 /** A `fiscal_year` the caller got wrong: `unknown` when it is well formed but no year carries it (a 404), else a 400. */
@@ -22,8 +23,8 @@ export class BudgetReportYearError extends Error {
  */
 export async function chosenReportYear(companyId: string, raw: unknown, period: string): Promise<FiscalYearRecord | null> {
   if (raw === undefined || raw === '') return null;
-  const label = typeof raw === 'string' && /^\d{1,4}$/.test(raw) ? Number(raw) : 0;
-  if (label < 1) throw new BudgetReportYearError('fiscal_year must be a year label such as 2027', false);
+  const label = parseYearLabel(raw);
+  if (label === null) throw new BudgetReportYearError('fiscal_year must be a year label such as 2027', false);
   if (period === 'current') throw new BudgetReportYearError('fiscal_year applies to ytd and full_year, not the current month', false);
   const year = await getFiscalYear(companyId, label);
   if (!year) throw new BudgetReportYearError(`No financial year is labelled ${label}`, true, label);

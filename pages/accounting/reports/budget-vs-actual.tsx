@@ -30,6 +30,9 @@ interface BudgetReport {
   total_budget: number;
   total_actual: number;
   total_variance: number;
+  /** Year to date of a chosen year that has not begun: nothing to show; `starts_on` is its first day. */
+  not_started?: boolean;
+  starts_on?: string;
 }
 
 /** The report's query string: the period, and the financial-year label when one is chosen. */
@@ -152,10 +155,23 @@ export default function BudgetVsActualPage() {
           ) : !report || !report.lines || report.lines.length === 0 ? (
             <div className="text-center py-12">
               <BarChart3 className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)]">No budget data available</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
-                Set budgets per GL account to see variance analysis
-              </p>
+              {report?.not_started && report.starts_on ? (
+                <>
+                  <p data-testid="year-not-started" className="text-[var(--ff-text-secondary)]">
+                    This financial year starts on {longDate(report.starts_on)}
+                  </p>
+                  <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
+                    There is nothing to show for year to date yet; choose Full Year to see its budget.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[var(--ff-text-secondary)]">No budget data available</p>
+                  <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
+                    Set budgets per GL account to see variance analysis
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">

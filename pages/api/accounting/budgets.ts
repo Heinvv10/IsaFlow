@@ -13,6 +13,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { BudgetInputError, getBudgetsForYear, upsertBudget, type BudgetMonthAmount } from '@/modules/accounting/services/core/budgetService';
+import { parseYearLabel } from '@/modules/accounting/services/core/budgetMonths';
 import { listBudgetYears, toBudgetYearInfo } from '@/modules/accounting/services/core/budgetYears';
 import { fiscalYearForDate, getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { localISODate } from '@/lib/dateUtils';
@@ -30,8 +31,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const today = localISODate();
     const raw = req.query.fiscal_year;
     // The page's first load has no year yet: absent and empty both mean "the current year".
-    const requested = raw === undefined || raw === '' ? null : Number(raw);
-    if (requested !== null && !(Number.isInteger(requested) && requested > 0)) {
+    const requested = raw === undefined || raw === '' ? null : parseYearLabel(raw);
+    if (raw !== undefined && raw !== '' && requested === null) {
       return apiResponse.badRequest(res, 'fiscal_year must be a year label such as 2027');
     }
     const fiscalYear = requested ?? (await fiscalYearForDate(companyId, today)).fiscalYear;
@@ -52,8 +53,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'glAccountId, fiscalYear, and months or annualAmount are required');
     }
     if (!isUuidParam(glAccountId)) return apiResponse.badRequest(res, 'glAccountId must be an account id');
-    const label = Number(fiscalYear);
-    if (!(Number.isInteger(label) && label > 0)) {
+    const label = parseYearLabel(fiscalYear);
+    if (label === null) {
       return apiResponse.badRequest(res, 'fiscalYear must be a year label such as 2027');
     }
     if (Array.isArray(months) && !months.every(isMonthAmount)) {
