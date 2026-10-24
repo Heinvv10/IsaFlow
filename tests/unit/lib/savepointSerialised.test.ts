@@ -148,5 +148,17 @@ describe('withSavepoint on one request connection', () => {
       savepointQueueWait.ms = saved;
     }
   });
+
+  it('a sql.transaction batch queues with sibling savepoints instead of interleaving', async () => {
+    const pg = pgLikeClient();
+    const out = await inRequest(pg.client, () => Promise.all([
+      withSavepoint('sp_a', read(1)),
+      sql.transaction([sql`SELECT 10`, sql`SELECT 11`]).then((r) => r.length),
+    ]));
+    expect(out).toEqual([1, 2]);
+    expect(pg.stack).toEqual([]);
+    const marks = pg.log.filter((t) => /SAVEPOINT/.test(t)).map((t) => t.replace(/sp_sqltx_\d+/, 'sp_sqltx'));
+    expect(marks).toEqual(['SAVEPOINT sp_a', 'RELEASE SAVEPOINT sp_a', 'SAVEPOINT sp_sqltx', 'RELEASE SAVEPOINT sp_sqltx']);
+  });
 });
 

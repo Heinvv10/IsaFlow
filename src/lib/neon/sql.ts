@@ -15,6 +15,7 @@ import { rollbackFailed } from '@/lib/rollbackFailed';
 import { als, assertTxUsable, markTxUnusable } from '@/lib/als';
 import { getPool } from './pool';
 import { LazyQuery, buildQuery, type DbRow } from './query';
+import { noteActivity, queuedSavepoint } from './savepointQueue';
 
 /** Per-process sequence for ALS-batch savepoint names (nested batches must not collide). */
 let alsBatchSeq = 0;
@@ -87,28 +88,36 @@ function createSql(client?: pg.PoolClient): SqlFunction {
       // sageImportService's messy-data groups) must be able to continue
       // after a batch error without "current transaction is aborted".
       const sp = `sp_sqltx_${++alsBatchSeq}`;
-      await ctxClient.query(`SAVEPOINT ${sp}`);
-      try {
-        const list =
-          typeof queries === 'function' ? queries(createSql(ctxClient)) : queries;
-        const results: T[][] = [];
-        for (const q of list) {
-          const res = await ctxClient.query(q.text, q.values);
-          results.push(res.rows as T[]);
-        }
-        await ctxClient.query(`RELEASE SAVEPOINT ${sp}`);
-        return results;
-      } catch (err) {
+      // A savepoint like any other: it queues behind sibling savepoints on this
+      // connection, and its statements count as progress (./savepointQueue).
+      const settled = async <R>(query: Promise<R>): Promise<R> => {
+        try { return await query; } finally { noteActivity(ctxClient); }
+      };
+      return queuedSavepoint(ctxClient, sp, async () => {
+        assertTxUsable();
+        await settled(ctxClient.query(`SAVEPOINT ${sp}`));
         try {
-          await ctxClient.query(`ROLLBACK TO SAVEPOINT ${sp}`);
-        } catch (rollbackErr) {
-          // Same reasoning as withSavepoint: the connection is aborted now, so
-          // mark the context or the next batch in the loop gets a bare 25P02
-          // with this cause gone.
-          markTxUnusable(err, rollbackErr);
+          const list =
+            typeof queries === 'function' ? queries(createSql(ctxClient)) : queries;
+          const results: T[][] = [];
+          for (const q of list) {
+            const res = await settled(ctxClient.query(q.text, q.values));
+            results.push(res.rows as T[]);
+          }
+          await settled(ctxClient.query(`RELEASE SAVEPOINT ${sp}`));
+          return results;
+        } catch (err) {
+          try {
+            await settled(ctxClient.query(`ROLLBACK TO SAVEPOINT ${sp}`));
+          } catch (rollbackErr) {
+            // Same reasoning as withSavepoint: the connection is aborted now, so
+            // mark the context or the next batch in the loop gets a bare 25P02
+            // with this cause gone.
+            markTxUnusable(err, rollbackErr);
+          }
+          throw err;
         }
-        throw err;
-      }
+      });
     }
 
     const pool = getPool();

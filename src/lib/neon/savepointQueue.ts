@@ -4,7 +4,7 @@
  * abort the request. So siblings on the same connection QUEUE. Each nesting
  * level has its own queue per connection (held in `level`), and a savepoint
  * opened inside another queues only behind its own siblings, never behind its
- * parent.
+ * parent. withSavepoint, withTransaction and sql.transaction all go through it.
  *
  * A plain query on the connection waits while a sibling savepoint at its level
  * is open, so it cannot land inside that savepoint's window and be undone by
@@ -14,15 +14,24 @@
  * query or savepoint that was started OUTSIDE it on the same connection. It is
  * queued behind the savepoint that is waiting for it.
  *
+ * Outside the queue: code that calls `client.query` on the request client
+ * directly (the lock helpers' `SET LOCAL lock_timeout` / `set_config` before a
+ * FOR UPDATE, e.g. rowLockBudget, bankTxLock, paymentLock). Run them
+ * sequentially, never concurrently with a sibling savepoint: a sibling's
+ * ROLLBACK TO SAVEPOINT would revert the SET LOCAL and leave the lock wait
+ * unbounded.
+ *
  * The wait is BOUNDED by lack of progress, not by total time: it fails only
  * when the connection has completed nothing (no statement, no savepoint) for
  * `savepointQueueWait.ms`, so a slow sibling that keeps issuing statements
  * never trips it. One statement running longer than the bound is invisible
  * here, hence the generous default. Waiters queued behind a real deadlock are
- * refused with it (they are stuck too, and the request is failing anyway). A savepoint (or a query) whose own
- * sibling awaits it cannot ever start: a callback awaiting a promise started outside it that
- * later opens a savepoint, or a "start the read early" promise awaited inside
- * a savepoint. Unbounded, that hangs with the transaction and its row locks
+ * refused with it (they are stuck too, and the request is failing anyway).
+ *
+ * Why bounded: a savepoint (or a query) whose own sibling awaits it can never
+ * start. Examples: a callback awaiting a promise started outside it that later
+ * opens a savepoint, or a "start the read early" promise awaited inside a
+ * savepoint. Unbounded, that hangs with the transaction and its row locks
  * held and no statement running, so no statement_timeout fires. Bounded, it
  * fails loudly and the request rolls back.
  *
@@ -43,7 +52,7 @@ export function noteActivity(client: object): void {
 }
 
 /** How long a queue may go without anything finishing before a waiter is refused. Tests shorten it. */
-// 120 s: progress (a sibling starting or finishing) re-arms it, but one long
+// 120 s: progress (any completed statement or savepoint) re-arms it, but one long
 // statement in flight is invisible here and the main pool sets no
 // statement_timeout, so the bound sits well above any legitimate statement.
 export const savepointQueueWait = { ms: 120_000 };
