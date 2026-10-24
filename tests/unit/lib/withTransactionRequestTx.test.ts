@@ -116,7 +116,8 @@ describe('withTransaction — request tx in flight (integration)', async () => {
     try {
       await client.query('BEGIN');
       const mgr = await client.query(
-        `SELECT cu.user_id, cu.company_id FROM company_users cu WHERE cu.role NOT IN ('owner','admin') LIMIT 1`,
+        // Not already the default, so the readback below proves the definer set it.
+        `SELECT cu.user_id, cu.company_id FROM company_users cu WHERE cu.role NOT IN ('owner','admin') AND NOT cu.is_default LIMIT 1`,
       );
       if (mgr.rows.length === 0) return; // no non-admin fixture in this DB
       const { user_id: uid, company_id: cid } = mgr.rows[0] as { user_id: string; company_id: string };
