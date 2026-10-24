@@ -12,6 +12,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { postedTotals } from '@/components/reports/generalLedgerRows';
 import { postableAccounts } from '@/components/reports/postableAccounts';
 import { AccountPicker } from '@/components/ui';
+import { REPORT_FILTER_LABEL_CLASS } from '@/components/reports/reportFilterLabel';
 
 interface Txn {
   date: string;
@@ -124,7 +125,7 @@ export default function AccountTransactionsPage() {
         <div className="p-6 max-w-5xl space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
             <AccountPicker label="Account" valueKey="code" refine={postableAccounts} value={accountCode} onChange={code => setAccountCode(code ?? '')}
-              className="w-72" labelClassName="block text-xs font-normal text-[var(--ff-text-tertiary)] mb-1" />
+              className="w-72" labelClassName={REPORT_FILTER_LABEL_CLASS} />
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
               <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="ff-input text-sm" />
