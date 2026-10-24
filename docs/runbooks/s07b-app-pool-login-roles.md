@@ -189,11 +189,19 @@ Migration 937 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
     JOIN public.imap_mirror_scan_log l ON l.connection_id = c.id
    WHERE l.outcome = 'error' AND l.error LIKE 'permission denied for table capture_inboxes%'
    GROUP BY c.id;
-  -- Messages the new code captured since (each would be captured again by a cursor move).
-  SELECT l.connection_id, l.imap_uid FROM public.imap_mirror_scan_log l
-   WHERE l.outcome = 'ingested' AND l.imap_uid::bigint > <first_refused_uid> AND l.connection_id = '<connection>';
-  -- If that second list is empty, move the cursor to first_refused_uid - 1 (the scan resumes after it):
-  -- UPDATE public.imap_mirror_connections SET scan_cursor = jsonb_set(scan_cursor, '{<folder>}', '<uid>') WHERE id = '<connection>';
+  -- Messages the new code captured since, wholly or in part (each would be captured again by a cursor move).
+  SELECT l.connection_id, l.imap_uid, l.outcome FROM public.imap_mirror_scan_log l
+   WHERE l.outcome IN ('ingested', 'error') AND l.error IS DISTINCT FROM 'permission denied for table capture_inboxes'
+     AND l.imap_uid::bigint > <first_refused_uid> AND l.connection_id = '<connection>';
+  -- If that list is empty, take the connection out of the scan list (no new scan picks it up), wait
+  -- until last_scan_at is over a minute old (a scan in flight would write its own cursor over yours),
+  -- move the cursor to first_refused_uid - 1 only if still nothing was captured, then put it back:
+  -- UPDATE public.imap_mirror_connections SET status = 'disconnected' WHERE id = '<connection>' AND status = 'active';
+  -- UPDATE public.imap_mirror_connections c SET scan_cursor = jsonb_set(c.scan_cursor, '{<folder>}', '<uid>')
+  --  WHERE c.id = '<connection>' AND NOT EXISTS (SELECT 1 FROM public.imap_mirror_scan_log l WHERE l.connection_id = c.id
+  --    AND l.outcome IN ('ingested', 'error') AND l.error IS DISTINCT FROM 'permission denied for table capture_inboxes'
+  --    AND l.imap_uid::bigint > <first_refused_uid>);
+  -- UPDATE public.imap_mirror_connections SET status = 'active' WHERE id = '<connection>' AND status = 'disconnected';
   ```
   If it is not empty, do not move the cursor: ask the company to forward the
   refused emails to its capture address instead.
