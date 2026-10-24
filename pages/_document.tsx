@@ -18,7 +18,6 @@ export default function Document() {
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
         {/* Applies the saved theme before first paint. Blocking on purpose: deferred, the page flashes the wrong theme. */}
-        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script src="/theme-init.js" />
       </Head>
       <body className="h-full antialiased">
