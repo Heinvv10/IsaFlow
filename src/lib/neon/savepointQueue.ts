@@ -14,6 +14,13 @@
  * query or savepoint that was started OUTSIDE it on the same connection. It is
  * queued behind the savepoint that is waiting for it.
  *
+ * Outside the queue: code that calls `client.query` on the request client
+ * directly (the lock helpers' `SET LOCAL lock_timeout` / `set_config` before a
+ * FOR UPDATE, e.g. rowLockBudget, bankTxLock, paymentLock). Run them
+ * sequentially, never concurrently with a sibling savepoint: a sibling's
+ * ROLLBACK TO SAVEPOINT would revert the SET LOCAL and leave the lock wait
+ * unbounded.
+ *
  * The wait is BOUNDED by lack of progress, not by total time: it fails only
  * when the connection has completed nothing (no statement, no savepoint) for
  * `savepointQueueWait.ms`, so a slow sibling that keeps issuing statements
