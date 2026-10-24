@@ -39,7 +39,13 @@
 -- whose months land under its own label MOVES to a label that holds them (when
 -- that label has no header yet), leaving no empty year with notes.
 -- A month the registry cannot place (no free label in a hole between stored
--- years) is still filed by the old readers' placement; its header stays put. A row with no monthly split spreads
+-- years; any other registry error stops the migration) is still filed by the old
+-- readers' placement; its header stays put. The headers are moved and copied
+-- AFTER the verification (budget_headers_follow_months), because the
+-- verification reads each row under its own label. Headers are processed from
+-- the latest label down, so a header can move into the label a later row has
+-- just left. Both steps are one-shot: run on rows already converted or moved
+-- they would collide or misplace. A row with no monthly split spreads
 -- annual_amount over the twelve months, cents on the last, as the reader
 -- pro-rated it. An empty string is 0 (the reader's Number('')). A monthly amount
 -- in the JSON may have more than two decimals (annual_amount cannot: it is
@@ -124,7 +130,8 @@ BEGIN
   -- stored years): placed as no year carries it.
   BEGIN
     SELECT fy.start_date, fy.end_date INTO win_start, win_end FROM public.fiscal_year_for_label(p_company, p_label) fy;
-  EXCEPTION WHEN raise_exception OR invalid_parameter_value THEN
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'fiscal_year_template: no free label%' THEN RAISE; END IF;
     win_start := NULL;
   END;
   IF win_start IS NULL THEN RETURN make_date(p_label, p_idx, 1); END IF;  -- a label no year carries: calendar placement
@@ -136,12 +143,12 @@ $$;
 
 -- Every stored month of every legacy budget row (an annual-only row spread over twelve), with the
 -- month it is filed under (NULL: skipped, see budget_legacy_month). Cents-rounded.
-CREATE OR REPLACE FUNCTION public.budget_legacy_month_values(p_company uuid DEFAULT NULL)
-RETURNS TABLE (company_id uuid, gl_account_id uuid, idx int, val numeric, month date)
+CREATE OR REPLACE FUNCTION public.budget_legacy_month_values(p_company uuid DEFAULT NULL, p_budget uuid DEFAULT NULL)
+RETURNS TABLE (budget_id uuid, company_id uuid, gl_account_id uuid, idx int, val numeric, month date)
 LANGUAGE sql STABLE
 SET search_path = pg_catalog, public, pg_temp
 AS $$
-  SELECT b.company_id, b.gl_account_id, m.n::int, v.val,
+  SELECT b.id, b.company_id, b.gl_account_id, m.n::int, v.val,
          public.budget_legacy_month(b.company_id, b.fiscal_year, m.n::int)
     FROM accounting_budgets b
     JOIN gl_accounts ga ON ga.id = b.gl_account_id AND ga.company_id = b.company_id
@@ -155,7 +162,7 @@ AS $$
         WHEN m.n = 12 THEN b.annual_amount - round(b.annual_amount / 12, 2) * 11
         ELSE round(b.annual_amount / 12, 2)
       END AS val) v
-   WHERE v.val IS NOT NULL AND (p_company IS NULL OR b.company_id = p_company)
+   WHERE v.val IS NOT NULL AND (p_company IS NULL OR b.company_id = p_company) AND (p_budget IS NULL OR b.id = p_budget)
 $$;
 
 -- One conversion, callable per company so it is tested on old-shape rows
@@ -170,12 +177,11 @@ AS $$
 DECLARE
   b record; k text; idx int; raw text; val numeric; month_date date;
   keys text[] := ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-  monthly numeric; inserted int; converted int := 0; reg_label int;
-  lab int[]; target int; lbl int;
+  monthly numeric; inserted int; converted int := 0;
 BEGIN
   FOR b IN
     SELECT id, company_id, gl_account_id, fiscal_year, COALESCE(period_amounts, '{}'::jsonb) AS pa,
-           COALESCE(annual_amount, 0) AS annual, created_by, notes
+           COALESCE(annual_amount, 0) AS annual, created_by
       FROM accounting_budgets ab
      WHERE gl_account_id IS NOT NULL AND company_id IS NOT NULL
        AND EXISTS (SELECT 1 FROM gl_accounts ga WHERE ga.id = ab.gl_account_id AND ga.company_id = ab.company_id)
@@ -185,7 +191,6 @@ BEGIN
     IF jsonb_typeof(b.pa) <> 'object' THEN
       RAISE EXCEPTION 'budget_months_from_legacy: budget % has period_amounts that is not an object (%)', b.id, jsonb_typeof(b.pa);
     END IF;
-    lab := '{}';
     FOR idx IN 1..12 LOOP
       k := keys[idx];
       IF (SELECT COUNT(*) FROM jsonb_object_keys(b.pa)) > 0 THEN
@@ -212,37 +217,66 @@ BEGIN
           b.id, b.fiscal_year, month_date, b.gl_account_id;
       END IF;
       converted := converted + 1;
-      -- The registry year that now holds the month (a month it cannot place leaves the notes where they are).
-      BEGIN
-        SELECT fy.fiscal_year INTO reg_label FROM public.fiscal_year_for_date(b.company_id, month_date) fy;
-      EXCEPTION WHEN raise_exception OR invalid_parameter_value THEN
-        reg_label := NULL;
-      END;
-      IF reg_label IS NOT NULL THEN
-        IF NOT (reg_label = ANY(lab)) THEN lab := lab || reg_label; END IF;
-      END IF;
-      month_date := NULL; reg_label := NULL;
+      month_date := NULL;
     END LOOP;
-    -- The notes header follows the months into the registry years that now hold them. When none of
-    -- its months is under its own label it MOVES to a label that holds them (no empty year carrying
-    -- notes), unless that label has a header already; every other label gets a copy.
-    IF cardinality(lab) > 0 THEN
-      IF NOT (b.fiscal_year = ANY(lab)) THEN
-        target := lab[1];
-        IF NOT EXISTS (SELECT 1 FROM accounting_budgets h WHERE h.company_id = b.company_id
-                         AND h.gl_account_id = b.gl_account_id AND h.fiscal_year = target) THEN
-          UPDATE accounting_budgets SET fiscal_year = target, budget_name = 'FY' || target || ' Budget' WHERE id = b.id;
-        END IF;
-      END IF;
-      FOREACH lbl IN ARRAY lab LOOP
-        CONTINUE WHEN lbl = b.fiscal_year;
-        INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes, created_by)
-        VALUES (b.company_id, 'FY' || lbl || ' Budget', lbl, b.gl_account_id, b.notes, b.created_by)
-        ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL DO NOTHING;
-      END LOOP;
-    END IF;
   END LOOP;
   RETURN converted;
+END;
+$$;
+
+-- The notes header follows the months into the registry years that now hold them. When none of a
+-- row's converted months is under its own label its header MOVES to a label that holds them (no
+-- empty year carrying notes), unless that label has a header already; every other label gets a
+-- copy. Rows are taken from the latest label down, so a header can move into the label a later
+-- row has just vacated. Run it AFTER budget_months_legacy_mismatches: the verification reads each
+-- row under its own label. One-shot, like the converter.
+CREATE OR REPLACE FUNCTION public.budget_headers_follow_months(p_company uuid DEFAULT NULL)
+RETURNS int
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  b record; d date; reg_label int; lab int[]; target int; lbl int; touched int := 0; d_ins int;
+BEGIN
+  FOR b IN
+    SELECT id, company_id, gl_account_id, fiscal_year, notes, created_by
+      FROM accounting_budgets ab
+     WHERE gl_account_id IS NOT NULL AND company_id IS NOT NULL
+       AND EXISTS (SELECT 1 FROM gl_accounts ga WHERE ga.id = ab.gl_account_id AND ga.company_id = ab.company_id)
+       AND (p_company IS NULL OR company_id = p_company)
+     ORDER BY company_id, gl_account_id, fiscal_year DESC
+  LOOP
+    lab := '{}';
+    FOR d IN SELECT v.month FROM public.budget_legacy_month_values(b.company_id, b.id) v WHERE v.month IS NOT NULL ORDER BY v.month LOOP
+      -- The registry year that now holds the month (a hole between stored years leaves the notes where they are).
+      BEGIN
+        SELECT fy.fiscal_year INTO reg_label FROM public.fiscal_year_for_date(b.company_id, d) fy;
+      EXCEPTION WHEN raise_exception THEN
+        IF SQLERRM NOT LIKE 'fiscal_year_template: no free label%' THEN RAISE; END IF;
+        reg_label := NULL;
+      END;
+      IF reg_label IS NOT NULL AND NOT (reg_label = ANY(lab)) THEN lab := lab || reg_label; END IF;
+      reg_label := NULL;
+    END LOOP;
+    CONTINUE WHEN cardinality(lab) = 0;
+    IF NOT (b.fiscal_year = ANY(lab)) THEN
+      target := lab[1];
+      IF NOT EXISTS (SELECT 1 FROM accounting_budgets h WHERE h.company_id = b.company_id
+                       AND h.gl_account_id = b.gl_account_id AND h.fiscal_year = target) THEN
+        UPDATE accounting_budgets SET fiscal_year = target, budget_name = 'FY' || target || ' Budget' WHERE id = b.id;
+        touched := touched + 1;
+      END IF;
+    END IF;
+    FOREACH lbl IN ARRAY lab LOOP
+      CONTINUE WHEN lbl = b.fiscal_year;
+      INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes, created_by)
+      VALUES (b.company_id, 'FY' || lbl || ' Budget', lbl, b.gl_account_id, b.notes, b.created_by)
+      ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL DO NOTHING;
+      GET DIAGNOSTICS d_ins = ROW_COUNT;
+      touched := touched + d_ins;
+    END LOOP;
+  END LOOP;
+  RETURN touched;
 END;
 $$;
 
@@ -276,7 +310,8 @@ REVOKE ALL ON FUNCTION public.budget_months_from_legacy(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_months_legacy_mismatches(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_months_legacy_skipped(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.budget_legacy_month(uuid, int, int) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.budget_legacy_month_values(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_legacy_month_values(uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.budget_headers_follow_months(uuid) FROM PUBLIC;
 
 DO $$
 DECLARE
@@ -303,6 +338,8 @@ BEGIN
   IF bad > 0 THEN
     RAISE EXCEPTION '944 verification failed: % company/account budget totals differ after conversion', bad;
   END IF;
+  -- After the verification, which reads each row under its own label.
+  RAISE NOTICE '944: % budget header(s) moved or copied to the registry year of their months', public.budget_headers_follow_months(NULL);
 END;
 $$;
 
