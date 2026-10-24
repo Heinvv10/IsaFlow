@@ -64,7 +64,10 @@ describe('ContactPicker', () => {
     await openPicker('Supplier');
     await screen.findByRole('option', { name: 'Bravo Logistics' });
     const search = screen.getByRole('textbox', { name: 'Search Supplier' });
-    for (const q of ['a', 'ac', 'acm']) fireEvent.change(search, { target: { value: q } });
+    for (const q of ['a', 'ac', 'acm']) {
+      fireEvent.change(search, { target: { value: q } });
+      await new Promise((r) => setTimeout(r, 60)); // keystrokes arrive well inside the 250 ms window
+    }
     await waitFor(() => expect(screen.queryByRole('option', { name: 'Bravo Logistics' })).toBeNull());
     const searched = urls().filter((u) => u.includes('q=') && !u.endsWith('q='));
     expect(searched).toHaveLength(1);
