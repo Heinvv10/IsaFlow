@@ -20,11 +20,11 @@ vi.mock('@/lib/logger', () => ({
 import { withSavepoint, sql, SavepointQueueTimeoutError, savepointQueueWait } from '@/lib/neon';
 import { als } from '@/lib/als';
 
-function pgLikeClient() {
+function pgLikeClient(delayMs = 0) {
   const stack: string[] = [];
   const log: string[] = [];
   const query = vi.fn(async (text: string) => {
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, delayMs));
     log.push(text);
     const m = /^(SAVEPOINT|RELEASE SAVEPOINT|ROLLBACK TO SAVEPOINT) (\w+)$/.exec(text);
     if (m) {
@@ -130,6 +130,20 @@ describe('withSavepoint on one request connection', () => {
       // The last one waits about 180 ms in total, but something finishes every 60 ms.
       const out = await inRequest(pg.client, () => Promise.all([slow('s1'), slow('s2'), slow('s3'), withSavepoint('last', read(1))]));
       expect(out).toEqual(['s1', 's2', 's3', 1]);
+    } finally {
+      savepointQueueWait.ms = saved;
+    }
+  });
+
+  it('a waiter behind ONE long savepoint that keeps completing statements is not refused', async () => {
+    const pg = pgLikeClient(40);
+    const saved = savepointQueueWait.ms;
+    savepointQueueWait.ms = 100;
+    try {
+      // About 320 ms inside one savepoint, but a statement completes every 40 ms.
+      const busy = () => withSavepoint('busy', async () => { for (let i = 0; i < 6; i += 1) await sql`SELECT ${i}`; return 'busy'; });
+      const out = await inRequest(pg.client, () => Promise.all([busy(), sql`SELECT after`.then(() => 'after')]));
+      expect(out).toEqual(['busy', 'after']);
     } finally {
       savepointQueueWait.ms = saved;
     }
