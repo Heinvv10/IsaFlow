@@ -15,7 +15,8 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const co = crypto.randomUUID(), acct = crypto.randomUUID(), acct2 = crypto.randomUUID();
 const bare = crypto.randomUUID(), bareAcct = crypto.randomUUID(); // declares March, no periods at all
 const reg = crypto.randomUUID(), regAcct = crypto.randomUUID(); // periods made by the generator: registry-labelled
-const all = [co, bare, reg];
+const gap = crypto.randomUUID(), gapAcct = crypto.randomUUID(); // stored years FY2026 and FY2027 with a year-long hole between them
+const all = [co, bare, reg, gap];
 
 beforeEach(async () => {
   await pool.query('DELETE FROM budget_month_amounts WHERE company_id = ANY($1)', [all]);
@@ -215,5 +216,63 @@ describe('944 conversion', () => {
     const headers = (await pool.query(
       `SELECT fiscal_year, budget_name FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2 ORDER BY fiscal_year`, [co, acct])).rows;
     expect(headers).toEqual([{ fiscal_year: 2026, budget_name: 'old' }, { fiscal_year: 2027, budget_name: 'FY2027 Budget' }]);
+  });
+
+  it('a header none of whose months land under its label MOVES to a registry label that holds them', async () => {
+    await setup();
+    // March-April 2026 are registry FY2027, so the FY2026 header (and its note) would sit on an empty year.
+    await budget(acct, 2026, { mar: 3, apr: 4 }, 0, co, 'moved note');
+    await convert();
+    const headers = (await pool.query(
+      `SELECT fiscal_year, budget_name, notes FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2 ORDER BY fiscal_year`, [co, acct])).rows;
+    expect(headers).toEqual([{ fiscal_year: 2027, budget_name: 'FY2027 Budget', notes: 'moved note' }]);
+    expect(await getBudgets(co, 2026)).toEqual([]);
+    expect((await getBudgets(co, 2027)).map((e) => [e.notes, e.annualAmount])).toEqual([['moved note', 7]]);
+  });
+
+  it('a header whose first label already has one stays where it is (the copy does nothing)', async () => {
+    await setup();
+    await budget(acct, 2026, { mar: 3 }, 0, co, 'note a');   // March 2026 is FY2027
+    await budget(acct, 2027, { jan: 5 }, 0, co, 'note b');   // January 2027 is FY2027 too
+    await convert();
+    const headers = (await pool.query(
+      `SELECT fiscal_year, notes FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2 ORDER BY fiscal_year`, [co, acct])).rows;
+    expect(headers).toEqual([{ fiscal_year: 2026, notes: 'note a' }, { fiscal_year: 2027, notes: 'note b' }]);
+    expect(await mismatches()).toBe(0);
+  });
+
+  it('a registry that cannot place a month (no free label in a hole between stored years) does not stop the conversion', async () => {
+    await pool.query(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'BUDCONV gap', 3) ON CONFLICT DO NOTHING`, [gap]);
+    await pool.query(
+      `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+       VALUES ($1, $2, 'B-5000', 'Rent', 'expense', 'debit', 3, true) ON CONFLICT DO NOTHING`, [gapAcct, gap]);
+    await pool.query('DELETE FROM fiscal_years WHERE company_id = $1', [gap]);
+    for (const [label, start, end] of [[2026, '2025-03-01', '2026-02-28'], [2027, '2027-03-01', '2028-02-29']] as const) {
+      await pool.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1, $2, $3, $4)`, [gap, label, start, end]);
+    }
+    // The registry itself refuses a date in the hole ...
+    await expect(pool.query(`SELECT * FROM public.fiscal_year_for_date($1, '2026-06-01')`, [gap])).rejects.toThrow(/no free label/);
+    // ... but the conversion files the amounts by the old readers' placement and goes on.
+    await budget(gapAcct, 2026, { mar: 1, jan: 2 }, 0, gap, 'kept');
+    expect(await convert(gap)).toBe(2);
+    expect(await months(gapAcct, gap)).toEqual([['2026-03', 1], ['2027-01', 2]]);
+    expect(await mismatches(gap)).toBe(0);
+  });
+
+  it('with months in two registry years neither of which is its own, the notes are on both and none stays on the empty label', async () => {
+    await pool.query(`INSERT INTO companies (id, name, financial_year_start) VALUES ($1, 'BUDCONV gap', 3) ON CONFLICT DO NOTHING`, [gap]);
+    await pool.query(
+      `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active)
+       VALUES ($1, $2, 'B-5000', 'Rent', 'expense', 'debit', 3, true) ON CONFLICT DO NOTHING`, [gapAcct, gap]);
+    await pool.query('DELETE FROM fiscal_years WHERE company_id = $1', [gap]);
+    // Two short years labelled 2030 (Mar-Oct 2024) and 2031 (Nov 2024 - Feb 2025); the legacy label 2024 is neither.
+    for (const [label, start, end] of [[2030, '2024-03-01', '2024-10-31'], [2031, '2024-11-01', '2025-02-28']] as const) {
+      await pool.query(`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date) VALUES ($1, $2, $3, $4)`, [gap, label, start, end]);
+    }
+    await budget(gapAcct, 2024, { jan: 1, mar: 3 }, 0, gap, 'both years');
+    await convert(gap);
+    const headers = (await pool.query(
+      `SELECT fiscal_year, notes FROM accounting_budgets WHERE company_id = $1 AND gl_account_id = $2 ORDER BY fiscal_year`, [gap, gapAcct])).rows;
+    expect(headers).toEqual([{ fiscal_year: 2030, notes: 'both years' }, { fiscal_year: 2031, notes: 'both years' }]);
   });
 });
