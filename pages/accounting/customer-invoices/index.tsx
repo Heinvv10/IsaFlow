@@ -100,7 +100,7 @@ export default function CustomerInvoicesPage() {
             const { outstanding, overdueCount, overdueAmount } = arSummary;
             return (
               <KpiStrip items={[
-                { label: 'Total Invoices', value: total, icon: FileText, tone: 'info' },
+                { label: 'Invoices (this filter)', value: total, icon: FileText, tone: 'info' },
                 { label: 'Outstanding (all invoices)', value: fmt(outstanding), sub: 'Open balance, company-wide', icon: CheckCircle, tone: 'warning' },
                 { label: 'Overdue (all invoices)', value: overdueCount, sub: overdueCount === 0 ? 'All on time' : `${fmt(overdueAmount)} past due date`, icon: AlertTriangle, tone: overdueCount > 0 ? 'danger' : 'success' },
               ]} />
