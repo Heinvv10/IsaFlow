@@ -19,6 +19,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getAROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
 
 interface OverdueInvoice {
   id: string;
@@ -38,6 +39,8 @@ interface PendingSupplierPayment {
 
 interface TodoData {
   overdueInvoices: OverdueInvoice[];
+  /** True company-wide count (shared AR service); overdueInvoices is only the top 10 rows. */
+  overdueInvoiceCount: number;
   pendingSupplierPayments: PendingSupplierPayment[];
   uncategorizedBankTxns: number;
   draftInvoices: number;
@@ -51,7 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   try {
-    const [overdueRows, supplierRows, bankCountRows, draftCountRows] = await Promise.all([
+    const [overdueRows, supplierRows, bankCountRows, draftCountRows, arSummary] = await Promise.all([
       sql`
         SELECT
           ci.id::text,
@@ -99,6 +102,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND deleted_at IS NULL
           AND status = 'draft'
       `,
+      getAROutstandingSummary(companyId),
     ]);
 
     const overdueInvoices: OverdueInvoice[] = overdueRows.map((r) => ({
@@ -122,6 +126,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const data: TodoData = {
       overdueInvoices,
+      overdueInvoiceCount: arSummary.overdueCount,
       pendingSupplierPayments,
       uncategorizedBankTxns,
       draftInvoices,

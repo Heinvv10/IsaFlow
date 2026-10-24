@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { getAROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
 import listRoute from '../../pages/api/accounting/customer-invoices-list';
+import todosRoute from '../../pages/api/accounting/dashboard-todos';
 import dashboardStatsRoute from '../../pages/api/accounting/dashboard-stats';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
@@ -104,5 +105,11 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
   it('the dashboard receivable total is the same number the tile shows', async () => {
     const dash = await call<{ arTotal: number }>(dashboardStatsRoute);
     expect(dash.arTotal).toBe(EXPECTED.outstanding);
+  });
+
+  it('the dashboard overdue action count is the true count while the list stays at 10 rows', async () => {
+    const todos = await call<{ overdueInvoiceCount: number; overdueInvoices: unknown[] }>(todosRoute);
+    expect(todos.overdueInvoiceCount).toBe(EXPECTED.overdueCount);
+    expect(todos.overdueInvoices).toHaveLength(10);
   });
 });

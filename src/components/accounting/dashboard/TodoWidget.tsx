@@ -27,6 +27,7 @@ interface PendingSupplierPayment {
 
 interface TodoData {
   overdueInvoices: OverdueInvoice[];
+  overdueInvoiceCount: number;
   pendingSupplierPayments: PendingSupplierPayment[];
   uncategorizedBankTxns: number;
   draftInvoices: number;
@@ -156,9 +157,9 @@ export function TodoWidget() {
           {data.overdueInvoices.length > 0 && (
             <>
               <ActionRow
-                label={`${data.overdueInvoices.length} overdue invoice${data.overdueInvoices.length !== 1 ? 's' : ''}`}
+                label={`${data.overdueInvoiceCount} overdue invoice${data.overdueInvoiceCount !== 1 ? 's' : ''}`}
                 href="/accounting/customer-invoices?filter=overdue"
-                badge={data.overdueInvoices.length}
+                badge={data.overdueInvoiceCount}
                 badgeColor="rose"
               />
               {data.overdueInvoices.slice(0, 3).map((inv) => (
