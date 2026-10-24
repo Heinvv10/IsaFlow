@@ -42,6 +42,9 @@ describe('customers GET ?id=', () => {
     expect(status(res)).toBe(200);
     expect(body(res).data).toEqual({ id: CUSTOMER, name: 'Acme' });
     expect(mocks.listCustomers).not.toHaveBeenCalled();
+    // The tenant scope is a bound value of the query itself: the id AND this company's id, nothing else.
+    const bound = (mocks.sql.mock.calls[0] as unknown[]).slice(1);
+    expect(bound).toEqual([CUSTOMER, COMPANY]);
   });
 
   it('answers 404 for a customer that is missing or another company\'s (the query is scoped by company_id)', async () => {
