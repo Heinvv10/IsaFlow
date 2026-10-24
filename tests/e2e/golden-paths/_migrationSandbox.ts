@@ -81,3 +81,20 @@ export async function switchBrowserCompany(context: BrowserContext, companyId: s
   const uc = await (await context.request.get('/api/accounting/companies?action=user-companies')).json();
   expect(uc?.data?.activeCompanyId, 'browser context must be scoped to the switched company').toBe(companyId);
 }
+
+/**
+ * The first ledger row on `accountCode` between `from` and `to` that `match` accepts, reading every page.
+ * The sandbox outlives each run and every run posts into the same period, so its ledger grows past one
+ * page (200 rows by default; 2026-10-24 the 1120 ledger reached 208 and the newest row fell off page 1).
+ */
+export async function findLedgerRow(api: Api, accountCode: string, from: string, to: string,
+  match: (row: any) => boolean): Promise<any | undefined> {
+  const limit = 500;
+  for (let offset = 0; ; offset += limit) {
+    const page = await api.get<{ rows: any[]; total: number }>(
+      `/api/accounting/reports-account-ledger?account_code=${accountCode}&from=${from}&to=${to}&limit=${limit}&offset=${offset}`,
+    );
+    const hit = page.rows.find(match);
+    if (hit || page.rows.length < limit || offset + limit >= page.total) return hit;
+  }
+}
