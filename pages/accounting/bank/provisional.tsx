@@ -81,7 +81,7 @@ export default function ProvisionalEntriesPage() {
   const openAttach = useCallback(async (jeId: string) => {
     setAttachJeId(jeId); setDocsLoading(true); setDocsError('');
     try {
-      const res = await apiFetch('/api/accounting/document-capture?status=extracted&pageSize=50');
+      const res = await apiFetch('/api/accounting/document-capture?attachable=1&pageSize=50');
       await assertOk(res, 'Could not load documents - try again');
       const json = await res.json() as { data?: CapturedDoc[] };
       setDocs(json.data ?? []);
