@@ -30,6 +30,7 @@ import {
   ReversalPeriodError,
 } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears } from './helpers/fiscalYearSeed';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -45,7 +46,7 @@ function shift(days: number): string {
 }
 const DOC_DATE = shift(-30);
 const BEFORE_DOC = shift(-40);
-const PERIOD_END = shift(400);
+/** Past the last seeded year: the years run to the one holding today, at most 12 months on. */
 const OUTSIDE_EVERY_PERIOD = shift(500);
 
 const SUB = 1000;
@@ -108,8 +109,7 @@ describeIfDb('K-053 the parity predicate assumes reversals are never back-dated'
     assertDisposable();
     await sql`INSERT INTO companies (id, name, registration_number)
               VALUES (${COMPANY}::UUID, ${'K053ORDER ' + TAG}, ${TAG})`;
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'K053ORDER ' + TAG}, 1, 2026, '2020-01-01', ${PERIOD_END}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), shift(0));
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
     await account(revenue, '4000', 'Sales', 'revenue', 'credit', 'default_revenue');
     await account(vatOutput, '2200', 'VAT Output', 'liability', 'credit', 'vat_output');

@@ -10,12 +10,8 @@
  * So the dry run must show: which periods block the close (named, not counted),
  * and the retained-earnings journal that would post — every line, both totals.
  *
- * Two defects are fixed here alongside it. The `app_settings` lookup for the
- * retained-earnings account was NOT scoped by company, on a view that has a
- * `company_id` column — one tenant's setting would have chosen another tenant's
- * equity account. And the account lookup was `LIMIT 1` with no ORDER BY, which
- * is a heap-order winner: with a code match and a name match both present,
- * which one you get depends on physical row order.
+ * Also pinned: the retained-earnings lookup is company-scoped and deterministic
+ * (it was an unscoped `app_settings` read and a `LIMIT 1` heap-order winner).
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
@@ -30,6 +26,9 @@ vi.mock('@/lib/neon', () => ({
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txSpy)),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// The year's real dates are the registry's (a stored fiscal_years row), not the declared start month.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../../helpers/fiscalYearSqlFake')).registryMock());
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountCandidates: vi.fn(),
 }));
@@ -37,6 +36,7 @@ vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
 import { sql } from '@/lib/neon';
 import { getSystemAccountCandidates } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
+import { fakeRegistry, resetFakeRegistry, TRANSITION_YEARS, type FakeYear } from '../../../helpers/fiscalYearSqlFake';
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockSql = sql as unknown as SqlFn;
@@ -62,24 +62,15 @@ function retainedEarnings(accounts: Array<{ code: string }>): void {
   })) as never);
 }
 
-/**
- * open-period probe → year range → financial_year_start → revenue → expenses →
- * the already-closed lookup → (live path only) the fiscal period covering the
- * closing date. Retained
- * earnings comes from the system-account RESOLVER and costs no sql call.
- */
-function mockReads(openPeriods: unknown[] = [], startMonth: unknown = 3,
+/** open periods → year range → revenue → expenses → closed lookup → (live) closing period; RE via the resolver. */
+function mockReads(openPeriods: unknown[] = [], years?: readonly FakeYear[],
                    range = { start_date: '2026-03-01', end_date: '2027-02-28' }): void {
+  if (years) fakeRegistry.years = years;
   mockSql
     .mockResolvedValueOnce(openPeriods)
     .mockResolvedValueOnce([range])
-    .mockResolvedValueOnce([{ financial_year_start: startMonth }])
-    .mockResolvedValueOnce([
-      { id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000000.00' },
-    ])
-    .mockResolvedValueOnce([
-      { id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '400000.00' },
-    ])
+    .mockResolvedValueOnce([{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000000.00' }])
+    .mockResolvedValueOnce([{ id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '400000.00' }])
     .mockResolvedValueOnce([])                       // no existing closing journal (K-113 lookup)
     .mockResolvedValueOnce([{ id: 'fp-12' }]);
   retainedEarnings([{ code: '3200' }]);
@@ -87,10 +78,9 @@ function mockReads(openPeriods: unknown[] = [], startMonth: unknown = 3,
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // mockReset, not just clearAllMocks: the latter clears recorded calls but
-  // leaves the mockResolvedValueOnce QUEUE intact, so a dry-run test that does
-  // not consume the queued fiscal-period lookup leaks it into the next test.
+  // mockReset too: clearAllMocks leaves the mockResolvedValueOnce QUEUE, which would leak between tests.
   mockSql.mockReset();
+  resetFakeRegistry();
   writes.length = 0;
 });
 
@@ -127,7 +117,6 @@ describe('closeFiscalYear — dry run', () => {
     mockSql
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
-      .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '100.00' }])
       .mockResolvedValueOnce([{ id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '500.00' }])
       .mockResolvedValueOnce([]);  // no existing closing journal (K-113 lookup)
@@ -168,7 +157,6 @@ describe('closeFiscalYear — dry run', () => {
     mockSql
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
-      .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);  // no existing closing journal (K-113 lookup)
@@ -185,7 +173,6 @@ describe('closeFiscalYear — dry run', () => {
     mockSql
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
-      .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);  // no existing closing journal (K-113 lookup)
@@ -203,7 +190,7 @@ describe('closeFiscalYear — the periods must actually BE the fiscal year', () 
     // 1 Mar 2025 – 28 Feb 2026. Closing the calendar span rolls the WRONG
     // twelve months into retained earnings, and then locks every period behind
     // it. Nothing about the arithmetic would look wrong afterwards.
-    mockReads([], 3, { start_date: '2026-01-01', end_date: '2026-12-31' });
+    mockReads([], undefined, { start_date: '2026-01-01', end_date: '2026-12-31' });
 
     const result = await closeFiscalYear(COMPANY, '2026', USER, { dryRun: true });
 
@@ -214,27 +201,44 @@ describe('closeFiscalYear — the periods must actually BE the fiscal year', () 
   });
 
   it('refuses on the DRY RUN as well as the live call, and writes nothing', async () => {
-    mockReads([], 3, { start_date: '2026-01-01', end_date: '2026-12-31' });
+    mockReads([], undefined, { start_date: '2026-01-01', end_date: '2026-12-31' });
     await closeFiscalYear(COMPANY, '2026', USER);
     expect(writes).toHaveLength(0);
   });
 
   it('allows a year whose periods DO span the financial year', async () => {
-    mockReads([], 3, { start_date: '2026-03-01', end_date: '2027-02-28' });
+    mockReads([], undefined, { start_date: '2026-03-01', end_date: '2027-02-28' });
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
     expect(result).not.toHaveProperty('error');
   });
 
-  it('allows a calendar year for a company that declares a January start', async () => {
-    mockReads([], 1, { start_date: '2026-01-01', end_date: '2026-12-31' });
+  it('allows a calendar year for a company whose registry year is the calendar year', async () => {
+    mockReads([], [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }],
+      { start_date: '2026-01-01', end_date: '2026-12-31' });
     const result = await closeFiscalYear(COMPANY, '2026', USER, { dryRun: true });
     expect(result).not.toHaveProperty('error');
   });
 
-  it('REFUSES rather than assuming March when financial_year_start is unusable', async () => {
-    mockReads([], null, { start_date: '2026-03-01', end_date: '2027-02-28' });
-    await expect(closeFiscalYear(COMPANY, '2027', USER, { dryRun: true }))
-      .rejects.toThrow(/no usable financial_year_start/);
+  it('allows a 14-month transition year whose periods span its stored dates', async () => {
+    // FY2027 is 2026-01-01 to 2027-02-28 after a change of year end; twelve months of the
+    // declared March start (2026-03-01 to 2027-02-28) would have refused it.
+    mockReads([], TRANSITION_YEARS, { start_date: '2026-01-01', end_date: '2027-02-28' });
+    const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
+    expect(result).not.toHaveProperty('error');
+  });
+
+  it('REFUSES a transition year whose periods stop short of its stored dates', async () => {
+    mockReads([], TRANSITION_YEARS, { start_date: '2026-03-01', end_date: '2027-02-28' });
+    const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
+    expect(result).toMatchObject({ error: 'period_range_mismatch' });
+    if (!('expected' in result)) throw new Error('expected the two ranges');
+    expect(result.expected).toEqual({ startDate: '2026-01-01', endDate: '2027-02-28' });
+  });
+
+  it('reports year_not_found when no registry year carries the label, rather than guessing a range', async () => {
+    mockReads([], [], { start_date: '2026-03-01', end_date: '2027-02-28' });
+    const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
+    expect(result).toEqual({ error: 'year_not_found' });
   });
 });
 

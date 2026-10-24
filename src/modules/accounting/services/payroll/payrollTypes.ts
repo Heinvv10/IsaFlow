@@ -55,6 +55,8 @@ export interface PayeInput {
   ageAtPeriodEnd: number;
   monthlyMedicalBeneficiaries: number;
   taxYear: number;
+  /** Medical scheme fees paid through payroll for the year (4005), for the 65+ additional credit; absent = none. */
+  annualMedicalSchemeFees?: number;
 }
 
 export interface PayeResult {
@@ -168,6 +170,12 @@ export interface PayeYearToDate {
   annualPayments: number;
   /** PAYE deducted by the tables (regular + annual payments), directive PAYE excluded. */
   tablePaye: number;
+  /** Medical scheme fees tax credit recorded on those lines (payroll_run_lines.medical_credit; a line before migration 926 recorded none). */
+  medicalCredit: number;
+  /** Additional medical expenses tax credit recorded on those lines (additional_medical_credit; likewise). */
+  additionalMedicalCredit: number;
+  /** Medical scheme fees deducted on those lines (4005; a line before 926 from its breakdown, payrollMedicalRecord). */
+  medicalSchemeFees: number;
 }
 
 /** How a line's PAYE is made up (audit 2026-10-18 P3). */
@@ -191,6 +199,12 @@ export interface PayrollLineResult {
   /** The regular calculation's figures, except `monthlyPaye`, which is the line's whole PAYE (payeSplit summed). */
   paye: PayeResult;
   payeSplit: PayeSplit;
+  /** The medical scheme fees tax credit this line's PAYE took into account (payeCumulative; e@syFile 4116). */
+  medicalCredit: number;
+  /** The 65+ additional medical expenses tax credit this line's PAYE took into account (payeCumulative; e@syFile 4120). */
+  additionalMedicalCredit: number;
+  /** Medical scheme fees deducted on this line: deductions coded 4005 (e@syFile 4005). */
+  medicalSchemeFees: number;
   uif: UifResult;
   sdl: number;
   /** Remuneration this line contributes to the SDL leviable amount. */

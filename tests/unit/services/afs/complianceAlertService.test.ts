@@ -2,12 +2,15 @@
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+// The deadline's year end is the registry year's, not a start month re-applied.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({ getFiscalYear: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import {
   createAfsAlert,
   getActiveAfsAlerts,
@@ -153,13 +156,18 @@ describe('detectAndFireAfsAlerts — the AFS filing deadline', () => {
   /** The filing-deadline alerts the detector inserted: [alert_type, message, detail]. */
   async function alertsFor(
     today: string,
-    documents: Array<{ fiscal_year: number; financial_year_start: unknown }>,
+    documents: Array<{ fiscal_year: number; yearEnd: string | null }>,
   ): Promise<Array<[string, string, string]>> {
     mockSql.mockReset();
     mockSql.mockImplementation(async (strings: unknown) => {
       const text = (strings as readonly string[]).join('?');
-      if (text.includes('d.fiscal_year')) return documents;
+      if (text.includes('d.fiscal_year')) return documents.map((d) => ({ fiscal_year: d.fiscal_year }));
       return [];
+    });
+    // The registry year with each label: its end, or none (null).
+    vi.mocked(getFiscalYear).mockImplementation(async (_companyId, label) => {
+      const end = documents.find((d) => d.fiscal_year === label)?.yearEnd;
+      return end ? { id: 'fy', fiscalYear: label, startDate: '2000-01-01', endDate: end, status: 'open', kind: 'normal', stored: true, months: 12 } : null;
     });
     vi.useFakeTimers();
     // Midday SAST on `today`, so the calendar day is not in doubt.
@@ -175,24 +183,25 @@ describe('detectAndFireAfsAlerts — the AFS filing deadline', () => {
   }
 
   it.each([
-    ['28 February', 2026, 3, '2026-08-31'],
-    ['29 February in a leap year', 2028, 3, '2028-08-31'],
-    ['31 March', 2026, 4, '2026-09-30'],
-    ['31 August', 2025, 9, '2026-02-28'],
-    ['31 December', 2025, 1, '2026-06-30'],
-    ['30 June', 2026, 7, '2026-12-31'],
-  ])('a %s year end is due on the last day of the sixth month after it', async (_what, fiscalYear, start, deadline) => {
+    ['28 February', 2026, '2026-02-28', '2026-08-31'],
+    ['29 February in a leap year', 2028, '2028-02-29', '2028-08-31'],
+    ['31 March', 2026, '2026-03-31', '2026-09-30'],
+    ['31 August', 2025, '2025-08-31', '2026-02-28'],
+    ['31 December', 2025, '2025-12-31', '2026-06-30'],
+    ['30 June', 2026, '2026-06-30', '2026-12-31'],
+    ['28 February ending a 14-month transition year', 2027, '2027-02-28', '2027-08-31'],
+  ])('a %s year end is due on the last day of the sixth month after it', async (_what, fiscalYear, yearEnd, deadline) => {
     // Ten days before the deadline, counted on the calendar.
     const [y, m, d] = deadline.split('-').map(Number);
     const today = new Date(Date.UTC(y!, m! - 1, d! - 10)).toISOString().slice(0, 10);
-    const alerts = await alertsFor(today, [{ fiscal_year: fiscalYear, financial_year_start: start }]);
+    const alerts = await alertsFor(today, [{ fiscal_year: fiscalYear, yearEnd }]);
     expect(alerts).toEqual([
       ['afs_filing_deadline_14', 'AFS filing deadline is in 10 day(s)', `Deadline: ${deadline}`],
     ]);
   });
 
   it('counts whole calendar days, and picks the alert band from them', async () => {
-    const doc = [{ fiscal_year: 2026, financial_year_start: 3 }]; // due 2026-08-31
+    const doc = [{ fiscal_year: 2026, yearEnd: '2026-02-28' }]; // due 2026-08-31
     expect((await alertsFor('2026-08-24', doc))[0]).toEqual(
       ['afs_filing_deadline_7', 'AFS filing deadline is in 7 day(s)', 'Deadline: 2026-08-31']);
     expect((await alertsFor('2026-08-23', doc))[0]![0]).toBe('afs_filing_deadline_14');
@@ -202,37 +211,38 @@ describe('detectAndFireAfsAlerts — the AFS filing deadline', () => {
   });
 
   it('says a deadline has passed rather than that it is in a negative number of days', async () => {
-    const [alert] = await alertsFor('2026-09-07', [{ fiscal_year: 2026, financial_year_start: 3 }]);
+    const [alert] = await alertsFor('2026-09-07', [{ fiscal_year: 2026, yearEnd: '2026-02-28' }]);
     expect(alert).toEqual(['afs_filing_deadline_7', 'AFS filing deadline passed 7 day(s) ago', 'Deadline: 2026-08-31']);
   });
 
   const UNKNOWN: [string, string, string] = [
     'afs_filing_deadline_unknown',
-    'AFS filing deadline cannot be assessed: the financial year start is not set',
-    'Set the financial year start in Company Settings. Until then no filing deadline reminder can be raised.',
+    'AFS filing deadline cannot be assessed: no financial year of this company carries this label',
+    'The statements name a financial year the company does not have (a change of year end can skip a label). '
+      + 'Check the year on the statements against Accounting > Financial Years. Until then no filing deadline reminder can be raised.',
   ];
 
-  it.each([null, '', 0, 13])('says the deadline cannot be assessed for a company whose financial year start is %s', async (raw) => {
+  it('says the deadline cannot be assessed for a statement whose fiscal year no registry year carries', async () => {
     vi.mocked(log.warn).mockClear();
-    const alerts = await alertsFor('2026-08-25', [{ fiscal_year: 2026, financial_year_start: raw }]);
+    const alerts = await alertsFor('2026-08-25', [{ fiscal_year: 2026, yearEnd: null }]);
     // It used to assume March and fire "deadline is in 3 day(s)" off it; then
     // it fired nothing and told only the server log, so the reader saw a
     // clean alert list for a company whose deadline nobody had checked.
     expect(alerts).toEqual([UNKNOWN]);
     expect(log.warn).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(vi.mocked(log.warn).mock.calls[0])).toMatch(/financial_year_start/);
+    expect(JSON.stringify(vi.mocked(log.warn).mock.calls[0])).toMatch(/no financial year with this label/);
   });
 
   it('raises that alert once for the company, however many statements are open', async () => {
     const alerts = await alertsFor('2026-08-25', [
-      { fiscal_year: 2025, financial_year_start: null },
-      { fiscal_year: 2026, financial_year_start: null },
+      { fiscal_year: 2025, yearEnd: null },
+      { fiscal_year: 2026, yearEnd: null },
     ]);
     expect(alerts).toEqual([UNKNOWN]);
   });
 
-  it('raises nothing of the kind for a company whose year start is set', async () => {
-    const alerts = await alertsFor('2026-08-25', [{ fiscal_year: 2026, financial_year_start: 3 }]);
+  it('raises nothing of the kind for a statement whose year resolves', async () => {
+    const alerts = await alertsFor('2026-08-25', [{ fiscal_year: 2026, yearEnd: '2026-02-28' }]);
     expect(alerts.map((a) => a[0])).toEqual(['afs_filing_deadline_7']);
   });
 
@@ -241,8 +251,8 @@ describe('detectAndFireAfsAlerts — the AFS filing deadline', () => {
     .filter(([strings]) => /UPDATE compliance_alerts\s+SET dismissed_at/.test((strings as readonly string[]).join('?')))
     .map((call) => [call[1], call[2]]);
 
-  it('withdraws that alert once the year start is usable, for this company only', async () => {
-    await alertsFor('2026-08-25', [{ fiscal_year: 2026, financial_year_start: 3 }]);
+  it('withdraws that alert once the year resolves, for this company only', async () => {
+    await alertsFor('2026-08-25', [{ fiscal_year: 2026, yearEnd: '2026-02-28' }]);
     expect(withdrawals()).toEqual([['company-1', 'afs_filing_deadline_unknown']]);
   });
 
@@ -252,16 +262,15 @@ describe('detectAndFireAfsAlerts — the AFS filing deadline', () => {
   });
 
   it('does not withdraw it in the run that raises it', async () => {
-    await alertsFor('2026-08-25', [{ fiscal_year: 2026, financial_year_start: null }]);
+    await alertsFor('2026-08-25', [{ fiscal_year: 2026, yearEnd: null }]);
     expect(withdrawals()).toEqual([]);
   });
 
-  it('still alerts for the company\'s other statements when one has no usable year start', async () => {
-    // Rows are per document; the year start is the company's, so in practice
-    // they share it. The detector must not let one bad row stop the loop.
+  it('still alerts for the company\'s other statements when one has no registry year', async () => {
+    // Rows are per document; the detector must not let one bad row stop the loop.
     const alerts = await alertsFor('2026-08-25', [
-      { fiscal_year: 2026, financial_year_start: null },
-      { fiscal_year: 2026, financial_year_start: 3 },
+      { fiscal_year: 2025, yearEnd: null },
+      { fiscal_year: 2026, yearEnd: '2026-02-28' },
     ]);
     expect(alerts.map((a) => a[2])).toEqual([UNKNOWN[2], 'Deadline: 2026-08-31']);
   });

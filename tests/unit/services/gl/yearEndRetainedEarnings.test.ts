@@ -34,6 +34,9 @@ vi.mock('@/lib/neon', () => ({
   withTransaction: (fn: unknown) => withTransactionMock(fn),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// FY2026 is 1 Mar 2025 to 28 Feb 2026 in the registry (March-based): the fixture's periods ARE that year.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../../helpers/fiscalYearSqlFake')).registryMock());
 
 const getSystemAccountCandidatesMock = vi.fn();
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', async (importOriginal) => ({
@@ -69,9 +72,9 @@ function queryTexts(): string[] {
  *
  * The open-period probe returns the open period ROWS, not a count — an agent
  * cannot act on "3 periods are open" and can act on their names. And the close
- * now reads `companies.financial_year_start` to check that the periods it is
+ * now reads the registry year with the label to check that the periods it is
  * about to close actually ARE the company's fiscal year: 1 Mar 2025 to
- * 28 Feb 2026 IS FY2026 on a March start, so this fixture passes that guard.
+ * 28 Feb 2026 IS FY2026 in the (March-based) registry, so this fixture passes that guard.
  */
 function primeSqlToStepFive() {
   let call = 0;
@@ -79,12 +82,11 @@ function primeSqlToStepFive() {
     call += 1;
     if (call === 1) return [];                                             // no open periods
     if (call === 2) return [{ start_date: '2025-03-01', end_date: '2026-02-28' }];
-    if (call === 3) return [{ financial_year_start: 3 }];
-    if (call === 4) return [{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000' }];
-    if (call === 5) return [{ id: 'exp-1', account_code: '5000', account_name: 'Rent', balance: '400' }];
+    if (call === 3) return [{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000' }];
+    if (call === 4) return [{ id: 'exp-1', account_code: '5000', account_name: 'Rent', balance: '400' }];
     // The year's own closing journal, read before the write (K-113). No row:
     // this year has never been closed.
-    if (call === 6) return [];
+    if (call === 5) return [];
     // The fiscal period covering the closing date, resolved before the write
     // transaction opens: a NULL fiscal_period_id would leave the year-end
     // journal outside the trial balance permanently, and the next statement
