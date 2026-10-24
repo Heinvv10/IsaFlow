@@ -64,7 +64,7 @@ async function getSummary(taxYear: number) {
   req.query = { taxYear: String(taxYear) };
   const out = response();
   await (summary as Route)(req as never, out.res as never);
-  return { status: out.state.statusCode, body: out.state.body as { data?: { employees: Array<{ messages: Array<{ code: string }> }> } } };
+  return { status: out.state.statusCode, body: out.state.body as { data?: { employees: Array<{ totalGross: number; messages: Array<{ code: string }> }> } } };
 }
 
 async function getExport(taxYear: number) {
@@ -133,7 +133,7 @@ describe('the tax year ends on 29 February in a leap year', () => {
     expect(JSON.stringify(before.body)).toMatch(/No employees with payroll activity/);
   });
 
-  it('EMP501 CSV: February 2028 is in tax year 2028 and March 2028 is not', async () => {
+  it('EMP501 CSV, IRP5 summary and reconciliation: February 2028 is in tax year 2028 and March 2028 is not', async () => {
     const extra: string[] = [];
     for (const [month, gross] of [[2, 10_000], [3, 5_000]] as const) {
       const paye = gross / 20;
@@ -150,6 +150,9 @@ describe('the tax year ends on 29 February in a leap year', () => {
       // January 20 000 + February 10 000; the March 5 000 belongs to the 2029 tax year.
       expect(await getEmp501Csv(2028)).toContain(',30000.00,');
       expect(await getEmp501Csv(2029)).toContain(',5000.00,');
+      // The IRP5 summary takes the same months: January 20 000 + February 10 000, not March.
+      expect((await getSummary(2028)).body.data!.employees[0]!.totalGross).toBe(30_000);
+      expect((await getSummary(2029)).body.data!.employees[0]!.totalGross).toBe(5_000);
       // The reconciliation: January 2 115 + February 500 PAYE in 2028 (March's 250 is not), both ways.
       const y2028 = await getReconciliation(2028);
       expect(y2028.rows.find((r) => r.month === 2 && r.year === 2028)!.emp201Paye).toBe(500);

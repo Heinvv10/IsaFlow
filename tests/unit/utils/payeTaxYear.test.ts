@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   payeTaxPeriodNumber,
   payeTaxYearBounds,
+  payeTaxYearPeriods,
   payeTaxYearOf,
 } from '@/modules/accounting/utils/payeTaxYear';
 
@@ -33,5 +34,12 @@ describe('payeTaxYearBounds', () => {
   it('treats 2100 (divisible by 100, not 400) as common and 2000 as leap', () => {
     expect(payeTaxYearBounds(2100).end).toBe('2100-02-28');
     expect(payeTaxYearBounds(2000).end).toBe('2000-02-29');
+  });
+});
+
+describe('payeTaxYearPeriods', () => {
+  it('is the year/month bounds of the payroll periods in the tax year (March of the year before to February)', () => {
+    expect(payeTaxYearPeriods(2027)).toEqual({ startYear: 2026, startMonth: 3, endYear: 2027, endMonth: 2 });
+    expect(payeTaxYearPeriods(2028)).toEqual({ startYear: 2027, startMonth: 3, endYear: 2028, endMonth: 2 });
   });
 });
