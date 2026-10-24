@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, X } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
@@ -53,7 +53,7 @@ export function MedicalAidReviewBanner() {
   const load = useCallback(async () => {
     try {
       const res = await apiFetch('/api/payroll/employees/medical-aid-review');
-      if (!res.ok) throw new Error(`medical-aid review answered ${res.status}`);
+      await assertOk(res, 'Could not load the medical-aid review');
       const json = await res.json();
       const list = (json.data ?? json)?.employees;
       setFlagged(Array.isArray(list) ? (list as ReviewEmployee[]) : []);
