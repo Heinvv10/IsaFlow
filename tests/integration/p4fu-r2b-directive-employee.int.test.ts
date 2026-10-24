@@ -166,12 +166,18 @@ describe('round 2 review: the create route\'s body and the employee record', () 
     expect(row).toEqual({ employee_name: 'Wanda Test', employee_tax_number: '0123456789' });
   });
 
-  it('a tax number that is not the employee\'s is refused; the same number, or a different name, is accepted (security 3)', async () => {
+  it('a tax number that is not the employee\'s is refused; the same number is accepted (security 3)', async () => {
     const wrong = await post({ ...BODY, employee_id: f.employee, employee_tax_number: '0987654321' });
     expect(wrong.statusCode).toBe(400);
     expect(wrong.body.error?.message).toMatch(/tax number/);
     expect((await post({ ...BODY, employee_id: f.employee, employee_tax_number: ' 0123456789 ' })).statusCode).toBe(201);
-    expect((await post({ ...BODY, employee_id: f.employee, employee_name: 'W. Test (as on the directive)' })).statusCode).toBe(201);
+  });
+
+  it('the body\'s name is ignored: the stored name is the employee record\'s (breaker REPRO 3)', async () => {
+    const r = await post({ ...BODY, employee_id: f.employee, employee_name: 'W. Test (as on the directive)' });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+    const row = (await pool.query('SELECT employee_name FROM tax_directives WHERE id = $1', [r.body.data!.id])).rows[0]!;
+    expect(row.employee_name).toBe('Wanda Test');
   });
 
   it('DELETE of a paid directive is a 409 and keeps it; an unpaid one is deleted (security 1)', async () => {

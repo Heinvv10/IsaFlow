@@ -60,6 +60,8 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     await waitFor(() => expect(select.options.length).toBe(3));
     fireEvent.change(select, { target: { value: 'e-1' } });
     expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).value).toBe('Wanda Test');
+    // The name is the employee record's (the server stores that one whatever is sent): shown, not typed.
+    expect((screen.getByLabelText('Employee Name *') as HTMLInputElement).readOnly).toBe(true);
     expect((screen.getByLabelText('Tax Number') as HTMLInputElement).value).toBe('0123456789');
     fill('Gross Amount (ZAR) *', '10000');
     fill('Effective Date *', '2026-05-01');
