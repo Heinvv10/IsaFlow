@@ -51,6 +51,8 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
   // 'overdue' is a date fact, not a stored status: nothing flips 'sent' or
   // 'approved' to 'overdue', so that option runs the AR service's predicate.
   const wantsOverdue = statusValues?.includes('overdue') ?? false;
+  // Built only when asked for: it is several fragment builds a plain list never needs.
+  const overdueArm = wantsOverdue ? arOverdueFragment(asAtTodayStr(), companyId) : sql.unsafe('FALSE');
   const storedStatuses: string[] | null = statusValues ? statusValues.filter((s) => s !== 'overdue') : null;
   const clientIdFilter: string | null = clientId && clientId.trim() ? clientId.trim() : null;
   const searchTermFilter: string | null = search && search.trim() ? search.trim() : null;
@@ -64,7 +66,7 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
     AND (
       ${statusValues}::text[] IS NULL
       OR ci.status = ANY(${storedStatuses}::text[])
-      OR (${wantsOverdue} AND ${arOverdueFragment(asAtTodayStr(), companyId)})
+      OR (${wantsOverdue} AND ${overdueArm})
     )
     AND (${clientIdFilter}::uuid IS NULL OR COALESCE(ci.client_id, ci.customer_id) = ${clientIdFilter}::uuid)
     AND (

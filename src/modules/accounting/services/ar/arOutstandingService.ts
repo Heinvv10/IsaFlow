@@ -47,12 +47,13 @@ export function arOverdueFragment(asAtStr: string, companyId: string) {
 
 export async function getAROutstandingSummary(companyId: string): Promise<AROutstandingSummary> {
   const asAtStr = asAtTodayStr();
+  const overdue = arOverdueFragment(asAtStr, companyId);
   const rows = (await sql`
     SELECT
       COALESCE(SUM(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0)), 0) AS outstanding,
-      COUNT(*) FILTER (WHERE ${arOverdueFragment(asAtStr, companyId)}) AS overdue_count,
+      COUNT(*) FILTER (WHERE ${overdue}) AS overdue_count,
       COALESCE(SUM(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))
-        FILTER (WHERE ${arOverdueFragment(asAtStr, companyId)}), 0) AS overdue_amount
+        FILTER (WHERE ${overdue}), 0) AS overdue_amount
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}
       AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}

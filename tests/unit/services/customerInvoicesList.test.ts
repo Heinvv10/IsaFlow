@@ -29,7 +29,7 @@ vi.mock('@/lib/neon', () => {
     sqlCalls.push(values);
     return Promise.resolve([]);
   });
-  return { sql: mockSql };
+  return { sql: Object.assign(mockSql, { unsafe: mockUnsafe }) };
 });
 
 // auth middleware — unwrap, injecting companyId via req object
@@ -53,6 +53,8 @@ vi.mock('@/lib/apiResponse', () => ({
 
 // ── Import handler after mocks ────────────────────────────────────────────────
 
+import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { mockUnsafe } from '../helpers/sqlFragmentMock';
 import handler from '../../../pages/api/accounting/customer-invoices-list';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -73,6 +75,9 @@ function makeRes(): NextApiResponse {
   return {} as NextApiResponse;
 }
 
+// The AR summary's own open-status allowlist rides along in every list response.
+const isOpenStatuses = (v: unknown[]) => JSON.stringify(v) === JSON.stringify([...AR_OPEN_STATUSES]);
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('customer-invoices-list handler (BL-23)', () => {
@@ -84,8 +89,8 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('no filter — fires the WHERE fragment, main and count queries; all filter params are null', async () => {
     await (handler as Function)(makeReq({ limit: '25' }), makeRes());
 
-    // Three sql calls: the shared WHERE fragment, the main query, the count
-    expect(sqlCalls.length).toBe(3);
+    // Five sql calls: the shared WHERE fragment, the main query, the count, and the AR summary's overdue fragment + query
+    expect(sqlCalls.length).toBe(5);
 
     // All filter params should be null
     const mainCallValues = sqlCalls.flat();
@@ -107,7 +112,7 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('status filter — statusValues array [approved] is passed as non-null', async () => {
     await (handler as Function)(makeReq({ status: 'approved' }), makeRes());
 
-    expect(sqlCalls.length).toBe(3);
+    expect(sqlCalls.length).toBe(5);
     const mainCallValues = sqlCalls.flat();
 
     // statusValues should be ['approved']
@@ -123,13 +128,13 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('clientId filter — clientIdFilter uuid is passed, statusValues remains null', async () => {
     await (handler as Function)(makeReq({ client_id: CLIENT_ID }), makeRes());
 
-    expect(sqlCalls.length).toBe(3);
+    expect(sqlCalls.length).toBe(5);
     const mainCallValues = sqlCalls.flat();
 
     expect(mainCallValues).toContain(CLIENT_ID);
     // statusValues array should NOT be present (it is null, not an array)
     const hasStatusArray = mainCallValues.some(
-      (v) => Array.isArray(v) && (v as unknown[]).length > 0,
+      (v) => Array.isArray(v) && (v as unknown[]).length > 0 && !isOpenStatuses(v),
     );
     expect(hasStatusArray).toBe(false);
   });
@@ -137,13 +142,13 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('searchTerm filter — searchTermFilter string is passed for q=INV-001', async () => {
     await (handler as Function)(makeReq({ q: 'INV-001' }), makeRes());
 
-    expect(sqlCalls.length).toBe(3);
+    expect(sqlCalls.length).toBe(5);
     const mainCallValues = sqlCalls.flat();
 
     expect(mainCallValues).toContain('INV-001');
     // statusValues should remain null
     const hasStatusArray = mainCallValues.some(
-      (v) => Array.isArray(v) && (v as unknown[]).length > 0,
+      (v) => Array.isArray(v) && (v as unknown[]).length > 0 && !isOpenStatuses(v),
     );
     expect(hasStatusArray).toBe(false);
   });
@@ -151,7 +156,7 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('combined status + clientId — both non-null, searchTerm null', async () => {
     await (handler as Function)(makeReq({ status: 'sent', client_id: CLIENT_ID }), makeRes());
 
-    expect(sqlCalls.length).toBe(3);
+    expect(sqlCalls.length).toBe(5);
     const mainCallValues = sqlCalls.flat();
 
     const statusArg = mainCallValues.find(
@@ -166,7 +171,7 @@ describe('customer-invoices-list handler (BL-23)', () => {
   it('status=all is treated as no filter (statusValues is null, not [all])', async () => {
     await (handler as Function)(makeReq({ status: 'all' }), makeRes());
 
-    expect(sqlCalls.length).toBe(3);
+    expect(sqlCalls.length).toBe(5);
     const mainCallValues = sqlCalls.flat();
 
     // statusValues should be null (not ['all'])
