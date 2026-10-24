@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
-import { log } from '@/lib/logger';
+import { ProvisionalAttachModal } from '@/components/accounting/bank/ProvisionalAttachModal';
 import { Clock, AlertCircle, Loader2, Paperclip, X, ChevronUp, ChevronDown, CheckCircle2 } from 'lucide-react';
 
 interface ProvisionalEntry {
@@ -16,10 +16,6 @@ interface ProvisionalEntry {
   predictedSupplierId: string | null; predictedSupplierName: string | null;
   predictionConfidence: number; glAccountId: string | null; glAccountName: string | null;
   postedAt: string;
-}
-interface CapturedDoc {
-  id: string; fileName: string; vendorName: string | null;
-  documentDate: string | null; totalAmount: number | null; documentType: string | null;
 }
 
 type DaysFilter = 'all' | '3' | '5' | '7';
@@ -48,9 +44,6 @@ export default function ProvisionalEntriesPage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [attachJeId, setAttachJeId] = useState<string | null>(null);
   const [dismissJeId, setDismissJeId] = useState<string | null>(null);
-  const [docs, setDocs] = useState<CapturedDoc[]>([]);
-  const [docsLoading, setDocsLoading] = useState(false);
-  const [docsError, setDocsError] = useState('');
   const [toast, setToast] = useState<Toast>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -77,22 +70,6 @@ export default function ProvisionalEntriesPage() {
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
-
-  const openAttach = useCallback(async (jeId: string) => {
-    setAttachJeId(jeId); setDocsLoading(true); setDocsError('');
-    try {
-      const res = await apiFetch('/api/accounting/document-capture?attachable=1&pageSize=50');
-      await assertOk(res, 'Could not load documents - try again');
-      const json = await res.json() as { data?: CapturedDoc[] };
-      setDocs(json.data ?? []);
-    } catch (err) {
-      log.error('Failed to load captured documents', { error: err }, 'provisional-ui');
-      setDocs([]);
-      // Shown in the modal in place of its empty state (D8 round 14): a failed load is not "no documents".
-      setDocsError(apiErrorMessage(err, 'Could not load documents - try again'));
-    }
-    finally { setDocsLoading(false); }
-  }, []);
 
   const handleAttach = useCallback(async (capturedDocumentId: string) => {
     if (!attachJeId || submitting) return;
@@ -201,7 +178,7 @@ export default function ProvisionalEntriesPage() {
                       <td className="px-4 py-3 text-center"><DaysBadge d={e.daysOutstanding} /></td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <button onClick={() => openAttach(e.jeId)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 transition-colors"><Paperclip className="h-3.5 w-3.5" />Attach evidence</button>
+                          <button onClick={() => setAttachJeId(e.jeId)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 transition-colors"><Paperclip className="h-3.5 w-3.5" />Attach evidence</button>
                           <button onClick={() => setDismissJeId(e.jeId)} className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"><X className="h-3.5 w-3.5" />Dismiss</button>
                         </div>
                       </td>
@@ -214,34 +191,7 @@ export default function ProvisionalEntriesPage() {
         </div>
       </div>
 
-      {attachJeId && (
-        <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] rounded-xl shadow-2xl w-full max-w-lg">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--ff-border-light)]">
-              <h2 className="font-semibold text-[var(--ff-text-primary)]">Select captured document</h2>
-              <button onClick={() => setAttachJeId(null)} className="text-[var(--ff-text-tertiary)] hover:text-[var(--ff-text-primary)]"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="px-5 py-3 max-h-96 overflow-y-auto">
-              {docsLoading ? <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-teal-400" /></div>
-                : docsError ? <p className="flex items-center justify-center gap-2 text-sm text-red-400 py-8"><AlertCircle className="h-4 w-4 shrink-0" />{docsError}</p>
-                : docs.length === 0 ? <p className="text-sm text-[var(--ff-text-secondary)] text-center py-8">No extracted documents found. Upload and extract a document via the Capture Inbox first.</p>
-                : docs.map(d => (
-                  <button key={d.id} onClick={() => handleAttach(d.id)} disabled={submitting}
-                    className="w-full text-left flex items-center justify-between p-3 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-[var(--ff-border-light)] mb-1 disabled:opacity-50">
-                    <div>
-                      <p className="text-sm font-medium text-[var(--ff-text-primary)]">{d.vendorName ?? d.fileName}</p>
-                      <p className="text-xs text-[var(--ff-text-tertiary)]">{d.documentType ?? 'Unknown type'} · {fmtDate(d.documentDate)}</p>
-                    </div>
-                    <span className="text-xs font-mono text-[var(--ff-text-secondary)] shrink-0 ml-2">{d.totalAmount != null ? fmtZAR(d.totalAmount) : '—'}</span>
-                  </button>
-                ))}
-            </div>
-            <div className="px-5 py-3 border-t border-[var(--ff-border-light)] flex justify-end">
-              <button onClick={() => setAttachJeId(null)} className="px-4 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]">Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {attachJeId && <ProvisionalAttachModal submitting={submitting} onSelect={handleAttach} onClose={() => setAttachJeId(null)} />}
 
       {dismissJeId && (
         <div className="fixed inset-0 z-40 bg-black/60 flex items-center justify-center p-4">
