@@ -3,8 +3,11 @@
  * POST   /api/bureau/clients                — link a company { bureauId, companyId }
  * DELETE /api/bureau/clients                — unlink { bureauId, companyId }
  *
- * Auth: caller must be a member of the bureau (any role) for GET; for POST/DELETE
- * caller must be the bureau owner.
+ * Auth: caller must be a member of the bureau (any role) for GET; for POST the
+ * bureau owner who is also the company's owner or admin; for DELETE the bureau
+ * owner, or the company's owner or admin (a company can always withdraw). The
+ * link services re-check that inside their one write statement, on the
+ * migration_admin pool (migration 932).
  */
 
 import type { NextApiResponse } from 'next';
@@ -17,6 +20,7 @@ import { apiResponse } from '@/lib/apiResponse';
 // refuses the seeded demo company id, and companyId here names a company.
 import { UUID } from '@/lib/schemas/common';
 import { sql } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import {
   listBureauCompanies,
   linkCompanyToBureau,
@@ -72,6 +76,8 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     if (!authorized) {
       return apiResponse.forbidden(res, 'Company management authority is required to link clients');
     }
+    // bureau_companies has no change capture; a link changes pool eligibility, so record who made it.
+    log.info('Bureau client link authorized (new or already linked)', { bureauId: parsed.data.bureauId, companyId: parsed.data.companyId, userId }, 'bureau');
     return apiResponse.success(res, { linked: true });
   }
 
@@ -80,13 +86,15 @@ async function handler(req: UserAuthedRequest, res: NextApiResponse) {
     if (!parsed.success) {
       return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
     }
-    if (!(await isBureauOwner(userId, parsed.data.bureauId))) {
-      return apiResponse.forbidden(res, 'Only the bureau owner can unlink clients');
-    }
-    await unlinkCompanyFromBureau({
+    const authorized = await unlinkCompanyFromBureau({
       bureauId: parsed.data.bureauId,
       companyId: parsed.data.companyId,
+      removedBy: userId,
     });
+    if (!authorized) {
+      return apiResponse.forbidden(res, "Only the bureau owner or the company's owner or admin can unlink a client");
+    }
+    log.info('Bureau client unlink authorized (removed or not linked)', { bureauId: parsed.data.bureauId, companyId: parsed.data.companyId, userId }, 'bureau');
     return apiResponse.success(res, { unlinked: true });
   }
 
