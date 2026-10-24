@@ -8,9 +8,11 @@
  * Since migration 923 the gate then share-locks the batch's paying gl_accounts row too (batch -> supplier ->
  * gl_accounts, batchApprovedDigest.lockBatchPayees). No writer of gl_accounts reaches a batch or supplier row
  * (2026-10-23 census of `UPDATE gl_accounts`): one that does must lock in that order.
- * A single payment comes after its supplier too: `lockSupplierPaymentForUpdate` key-shares the payee supplier before
- * the payment row (2026-10-24), as the payment's own FK check would later, and updateSupplier takes the supplier and
- * then the supplier's payments (`recordBankDetailsSetter`). Full order: batch -> supplier -> payments -> gl_accounts.
+ * Payments come after their supplier too: updateSupplier takes the supplier and then its payments
+ * (`recordBankDetailsSetter`); a payment writer that would key-share the supplier after the payment (a second write
+ * of a supplier-referencing row re-runs its FK check) either writes once (processSupplierPayment) or key-shares the
+ * supplier first (`lockSupplierPaymentForUpdate`'s `supplierFirst`, 2026-10-24). Full order: batch -> supplier ->
+ * payments -> bills -> gl_accounts.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';

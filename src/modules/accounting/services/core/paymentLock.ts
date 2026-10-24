@@ -140,24 +140,25 @@ export async function lockCustomerPaymentForUpdate(
 export async function lockSupplierPaymentForUpdate(
   companyId: string,
   paymentId: string,
+  opts: { supplierFirst?: boolean } = {},
 ): Promise<DbRow | null> {
   const client = requireRequestTransaction('lockSupplierPaymentForUpdate');
   const previousLockTimeout = await currentLockTimeout(client);
   await client.query("SET LOCAL lock_timeout = '5s'");
   let failure: unknown = null;
   try {
-    // The payee's supplier row FIRST, FOR KEY SHARE: the lock the payment's own supplier FK check takes anyway once
-    // this transaction writes the row a second time (processSupplierPayment's claim, then its gl_journal_entry_id).
-    // Taken there, after the payment, it crossed updateSupplier (supplier FOR UPDATE, then the supplier's payments in
-    // recordBankDetailsSetter) and Postgres aborted one of them (40P01). Supplier before payment, as batch ->
-    // supplier -> payments everywhere else (ap/.claude.md).
-    const keyShared = ((await sql`
+    // `supplierFirst`: the payee supplier FOR KEY SHARE before the payment, for a caller that will then write a
+    // supplier-referencing row twice (applying the payment: applyLineToBill sets amount_paid, then
+    // recomputeInvoiceStatus the status, and the second write re-runs the bill's supplier FK check). Taken there,
+    // after the payment, it crossed a supplier merge (suppliers FOR UPDATE, then their payments): 40P01. Opt-in:
+    // a caller that writes no such row twice (approve, cancel, process) must not wait on a supplier holder.
+    const keyShared = opts.supplierFirst ? ((await sql`
       SELECT s.id FROM suppliers s
       WHERE s.company_id = ${companyId}::UUID
         AND s.id = (SELECT sp.supplier_id FROM supplier_payments sp
                     WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID)
       FOR KEY SHARE OF s
-    `) as DbRow[])[0]?.id;
+    `) as DbRow[])[0]?.id : undefined;
     const rows = (await sql`
       SELECT sp.*,
              COALESCE((
@@ -169,13 +170,11 @@ export async function lockSupplierPaymentForUpdate(
       WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID
       FOR UPDATE OF sp
     `) as DbRow[];
-    // Re-pointed to another supplier between the two statements (a merge, committed by the time the payment lock was
-    // granted): key-share the new one now, under this budget, so a holder of it is a typed retryable refusal here
-    // rather than a later FK wait. Bounded, not closed: this one case is payment -> supplier, so it can still cross an
-    // updateSupplier of the new supplier, and Postgres picks the victim.
+    // Re-pointed by a merge between the two statements: the new supplier NOWAIT, so a holder of it is the typed
+    // retryable refusal (55P03) with nothing written, never a wait after the payment lock.
     const supplierId = rows[0]?.supplier_id;
-    if (supplierId != null && String(supplierId) !== String(keyShared)) {
-      await sql`SELECT 1 FROM suppliers WHERE id = ${String(supplierId)}::UUID AND company_id = ${companyId}::UUID FOR KEY SHARE`;
+    if (opts.supplierFirst && supplierId != null && String(supplierId) !== String(keyShared)) {
+      await sql`SELECT 1 FROM suppliers WHERE id = ${String(supplierId)}::UUID AND company_id = ${companyId}::UUID FOR KEY SHARE NOWAIT`;
     }
     return rows[0] ?? null;
   } catch (err) {
