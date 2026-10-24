@@ -3,7 +3,7 @@
 // fiscal_year or management_pack period column.
 //
 // GET /api/accounting/afs/[documentId]/period
-// Response: { periodStart: string; periodEnd: string }
+// Response: { periodStart: string; periodEnd: string; periodMonths: number }  (whole months; 14 for a transition year)
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -39,6 +39,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const doc = rows[0]!;
   let periodStart: string | null = null;
   let periodEnd: string | null = null;
+  let periodMonths = 12;
 
   if (doc.document_type === 'afs' && doc.fiscal_year) {
     // The financial year's own dates (a 14-month transition year included),
@@ -49,12 +50,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!year) return apiResponse.notFound(res, 'Financial year', String(doc.fiscal_year));
     periodStart = year.startDate;
     periodEnd = year.endDate;
+    periodMonths = year.months;
   } else if (doc.document_type === 'management_pack' && doc.period) {
     const [y, m] = doc.period.split('-').map(Number);
     if (y && m) {
       const lastDay = new Date(y, m, 0).getDate();
       periodStart = `${doc.period}-01`;
       periodEnd   = `${doc.period}-${String(lastDay).padStart(2, '0')}`;
+      periodMonths = 1;
     }
   }
 
@@ -63,8 +66,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const current = await fiscalYearForDate(companyId, localISODate());
     periodStart = current.startDate;
     periodEnd = current.endDate;
+    periodMonths = current.months;
   }
-  const result = { periodStart, periodEnd };
+  const result = { periodStart, periodEnd, periodMonths };
 
   log.info('AFS period resolved', { companyId, documentId, ...result }, 'afs-period-api');
   return apiResponse.success(res, result);

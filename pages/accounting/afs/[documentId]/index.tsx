@@ -22,7 +22,8 @@ import { AfsExportTab } from '@/components/accounting/afs/AfsExportTab';
 
 type TabId = 'overview' | 'notes' | 'statements' | 'review' | 'compliance' | 'export';
 
-interface PageProps { documentId: string; periodStart: string; periodEnd: string; periodError: string | null; }
+/** periodMonths: null when the period came from the query or could not be stated (its length is unknown). */
+interface PageProps { documentId: string; periodStart: string; periodEnd: string; periodMonths: number | null; periodError: string | null; }
 const PERIOD_ERROR = 'Could not work out the reporting period for this document - reload the page to try again';
 
 const STATUS_CONFIG: Record<DocumentStatus, { label: string; colour: string; icon: React.ReactNode }> = {
@@ -51,7 +52,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ReactNode }> = [
   { id: 'export',      label: 'Export',      icon: <Download className="w-4 h-4" /> },
 ];
 
-const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodEnd, periodError }) => {
+const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodEnd, periodMonths, periodError }) => {
   const router = useRouter();
   const [doc, setDoc] = useState<AfsDocument | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
@@ -142,7 +143,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
         {/* Page header */}
         <div className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 px-6 py-5">
-          <div className="max-w-6xl mx-auto flex items-start justify-between gap-4">
+          <div className="max-w-6xl mx-auto flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-3">
                 <h1 className="text-xl font-bold text-slate-900 dark:text-white">Annual Financial Statements</h1>
@@ -153,11 +154,11 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
                 {doc && `${hasPeriod ? ' · ' : ''}v${doc.version}`}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {doc?.documentType === 'afs' && (
                 <Link
                   href={`/accounting/afs/report-templates?document_id=${encodeURIComponent(documentId)}`}
-                  className="text-sm text-blue-500 hover:underline"
+                  className="text-sm text-blue-700 dark:text-blue-400 hover:underline"
                 >
                   Report templates for this period
                 </Link>
@@ -193,7 +194,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
 
         {/* Tab bar */}
         <div className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 px-6">
-          <div className="max-w-6xl mx-auto flex gap-0">
+          <div className="max-w-6xl mx-auto flex gap-0 overflow-x-auto">
             {TABS.map(tab => (
               <button
                 key={tab.id}
@@ -204,7 +205,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
                     setActiveTab(tab.id);
                   }
                 }}
-                className={`inline-flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${ activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-200' }`}
+                className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors ${ activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-200' }`}
               >
                 {tab.icon}{tab.label}
               </button>
@@ -215,7 +216,7 @@ const AfsDocumentPage: NextPage<PageProps> = ({ documentId, periodStart, periodE
         {/* Tab content */}
         <div className="max-w-6xl mx-auto px-6 py-8">
           {hasPeriod && activeTab === 'overview' && (
-            <AfsOverviewTab documentId={documentId} periodStart={periodStart} periodEnd={periodEnd} />
+            <AfsOverviewTab documentId={documentId} periodStart={periodStart} periodEnd={periodEnd} periodMonths={periodMonths} />
           )}
           {hasPeriod && activeTab === 'notes' && (
             <AfsNotesTab fiscalYear={doc?.fiscalYear ?? Number(periodStart.slice(0, 4))} />
@@ -248,6 +249,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
 
   let periodStart: string | null = null;
   let periodEnd: string | null = null;
+  let periodMonths: number | null = null;
   let periodError: string | null = null;
 
   // Otherwise derive the period from the API route — keeps DB access
@@ -264,9 +266,10 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
       if (apiRes.status === 401) return { redirect: { destination: `/login?returnTo=${encodeURIComponent(resolvedUrl)}`, permanent: false } };
       // 403: the client load explains the refusal; this is not a failure to work out the period.
       if (apiRes.ok) {
-        const json = (await apiRes.json()) as { data?: { periodStart?: string; periodEnd?: string } };
-        periodStart = json.data?.periodStart ?? null;
-        periodEnd   = json.data?.periodEnd   ?? null;
+        const json = (await apiRes.json()) as { data?: { periodStart?: string; periodEnd?: string; periodMonths?: number } };
+        periodStart  = json.data?.periodStart ?? null;
+        periodEnd    = json.data?.periodEnd   ?? null;
+        periodMonths = json.data?.periodMonths ?? null;
       } else if (apiRes.status !== 403) {
         periodError = PERIOD_ERROR;
       }
@@ -283,6 +286,8 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async ({ query,
       documentId,
       periodStart: queryStart ?? periodStart ?? '',
       periodEnd:   queryEnd   ?? periodEnd   ?? '',
+      // The length belongs to the period the API stated; a period given in the query has no known length.
+      periodMonths: queryStart || queryEnd ? null : periodMonths,
       periodError,
     },
   };

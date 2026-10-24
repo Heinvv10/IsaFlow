@@ -12,6 +12,13 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/afsFiscalPeriod', () => ({
   getFiscalRange: vi.fn(async () => ({ start: '2026-01-01', end: '2026-12-31' })),
 }));
+// The period wording comes from the registry (afsReportingPeriod, tested against a database in
+// tests/integration/afs-transition-year.int.test.ts); a twelve-month year here.
+vi.mock('@/modules/accounting/services/afs/afsReportingPeriod', () => ({
+  getReportingPeriod: vi.fn(async () => ({
+    current: { start: '2026-01-01', end: '2026-12-31', months: 12, phrase: 'year ended 2026-12-31' },
+  })),
+}));
 vi.mock('@/modules/accounting/services/afs/entityTerminology', async (orig) => {
   const actual = await orig<typeof import('@/modules/accounting/services/afs/entityTerminology')>();
   return {

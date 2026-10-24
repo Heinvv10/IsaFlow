@@ -14,6 +14,7 @@ import { Pool } from 'pg';
 import { als } from '@/lib/als';
 import { localISODate } from '@/lib/dateUtils';
 import route from '../../pages/api/accounting/afs/[documentId]/period';
+import notesRoute from '../../pages/api/accounting/disclosure-notes';
 import templatesRoute from '../../pages/api/accounting/afs/report-templates';
 import { generateFiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearGenerator';
 import { applyYearEndChange } from '@/modules/accounting/services/gl/financialYearEndChangeApply';
@@ -26,7 +27,7 @@ let u: SetupUser;
 let co: string;
 const docs: Record<string, string> = {};
 
-type Out = { status: number; body: { data?: { periodStart: string; periodEnd: string }; error?: { message?: string } } };
+type Out = { status: number; body: { data?: { periodStart: string; periodEnd: string; periodMonths: number }; error?: { message?: string } } };
 
 async function call(documentId: string): Promise<Out> {
   const req = request({ 'sb-access-token': u.token, active_company_id: co }, 'GET') as unknown as
@@ -82,6 +83,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   try {
+    await pool.query('DELETE FROM disclosure_notes_manual WHERE company_id = $1', [co]);
     await pool.query('DELETE FROM afs_documents WHERE company_id = $1', [co]);
     await pool.query('UPDATE fiscal_years SET change_id = NULL WHERE company_id = $1', [co]);
     await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [co]);
@@ -93,13 +95,13 @@ describe('GET /api/accounting/afs/[documentId]/period', () => {
   it('the 14-month transition year answers its real dates, not January-December', async () => {
     const r = await call(docs.transition!);
     expect(r.status, JSON.stringify(r.body).slice(0, 300)).toBe(200);
-    expect(r.body.data).toEqual({ periodStart: '2026-01-01', periodEnd: '2027-02-28' });
+    expect(r.body.data).toEqual({ periodStart: '2026-01-01', periodEnd: '2027-02-28', periodMonths: 14 });
   });
 
   it('the year after answers twelve months to the new year end (a leap day included)', async () => {
     const r = await call(docs.after!);
     expect(r.status).toBe(200);
-    expect(r.body.data).toEqual({ periodStart: '2027-03-01', periodEnd: '2028-02-29' });
+    expect(r.body.data).toEqual({ periodStart: '2027-03-01', periodEnd: '2028-02-29', periodMonths: 12 });
   });
 
   it('a label the change of year end skipped is a 404 that names it, not some other year', async () => {
@@ -115,13 +117,13 @@ describe('GET /api/accounting/afs/[documentId]/period', () => {
     const today = localISODate();
     const expected = (await pool.query(
       `SELECT start_date::text AS s, end_date::text AS e FROM public.fiscal_year_for_date($1, $2::date)`, [co, today])).rows[0];
-    expect(r.body.data).toEqual({ periodStart: expected.s, periodEnd: expected.e });
+    expect(r.body.data).toEqual({ periodStart: expected.s, periodEnd: expected.e, periodMonths: 14 });
     expect(r.body.data!.periodStart <= today && today <= r.body.data!.periodEnd).toBe(true);
   });
 
   it('a management pack answers its calendar month', async () => {
     const r = await call(docs.pack!);
-    expect(r.body.data).toEqual({ periodStart: '2028-02-01', periodEnd: '2028-02-29' });
+    expect(r.body.data).toEqual({ periodStart: '2028-02-01', periodEnd: '2028-02-29', periodMonths: 1 });
   });
 
   it('another company\'s document is a 404', async () => {
@@ -177,6 +179,35 @@ describe('GET /api/accounting/afs/report-templates', () => {
     } finally {
       await pool.query('DELETE FROM fiscal_years WHERE company_id = $1', [other.homeCompanyId]);
       await pool.query('DELETE FROM company_users WHERE user_id = $1', [other.userId]);
+    }
+  });
+});
+
+describe('GET /api/accounting/disclosure-notes (generated and manual notes together)', () => {
+  type Note = { noteNumber: number; source: string; title: string };
+  async function notes(year: number): Promise<Note[]> {
+    const req = request({ 'sb-access-token': u.token, active_company_id: co }, 'GET') as unknown as { url: string; query: Record<string, string> };
+    req.url = '/api/accounting/disclosure-notes';
+    req.query = { year: String(year) };
+    const out = response();
+    await (notesRoute as (a: never, b: never) => Promise<unknown>)(req as never, out.res as never);
+    expect(out.state.statusCode, JSON.stringify(out.state.body).slice(0, 300)).toBe(200);
+    return (out.state.body as { data: { notes: Note[] } }).data.notes;
+  }
+
+  it('a manual note saved as 8 does not share its number with the last generated note of a transition year', async () => {
+    await pool.query(
+      `INSERT INTO disclosure_notes_manual (company_id, fiscal_year, note_number, title, content, created_by) VALUES ($1, 2026, 8, 'Manual eight', 'text', $2)`,
+      [co, u.userId]);
+    try {
+      const list = await notes(2026);
+      const numbers = list.map((n) => n.noteNumber);
+      expect(new Set(numbers).size).toBe(numbers.length);
+      expect(list.filter((n) => n.source === 'auto').map((n) => n.noteNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+      expect(list.find((n) => n.title === 'Reporting period')?.noteNumber).toBe(2);
+      expect(list.find((n) => n.title === 'Manual eight')?.noteNumber).toBe(9);
+    } finally {
+      await pool.query('DELETE FROM disclosure_notes_manual WHERE company_id = $1', [co]);
     }
   });
 });

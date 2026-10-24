@@ -18,6 +18,7 @@ import { generateStatementOfFinancialPosition } from '@/modules/accounting/servi
 import { generateCashFlow } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/cashFlow';
 import { generateCover } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/cover';
 import { generateNote25ContingenciesAndCommitments } from '@/modules/accounting/services/afs/noteGenerators/notes21to25';
+import { generateNote27GoingConcern } from '@/modules/accounting/services/afs/noteGenerators/notes26to30';
 import { generateChangesInEquity } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/equity';
 import { generateDirectorsReport } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/directorsReport';
 import { renderToDocx } from '@/modules/accounting/services/afs/docxExportService';
@@ -133,6 +134,11 @@ describe('the other statements and notes say what the year really is', () => {
     expect(JSON.stringify(dr.content)).toContain('14 months ended 2027-02-28');
     const eq = await inTx(() => generateChangesInEquity(co, 2026, 'ifrs_sme' as never));
     expect(texts(eq)[0]).toBe('Movements in equity for the 14 months ended 2027-02-28.');
+  });
+
+  it('the going-concern note says 14 months, not "for the year"', async () => {
+    const gc = await inTx(() => generateNote27GoingConcern(co, 2026));
+    expect(texts(gc)[0]).toMatch(/ for the 14 months ended 2027-02-28\.$/);
   });
 
   it('the contingencies note names the real year end, not 31 December', async () => {

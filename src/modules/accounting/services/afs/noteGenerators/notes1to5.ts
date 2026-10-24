@@ -8,6 +8,7 @@ import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum, getAccountingPolicies, type FrameworkType } from './noteHelpers';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
@@ -149,7 +150,7 @@ export async function generateNote3PropertyPlantEquipment(
 ): Promise<NoteResult> {
   log.info('Generating AFS note 3', { companyId }, 'noteGenerators');
 
-  const { start, end } = await getFiscalRange(companyId, fiscalYear);
+  const { current: { start, end, phrase } } = await getReportingPeriod(companyId, fiscalYear);
 
   const rows = (await sql`
     SELECT a.category,
@@ -208,7 +209,7 @@ export async function generateNote3PropertyPlantEquipment(
     blocks: [
       {
         type: 'paragraph',
-        text: 'The following table summarises the carrying amounts and movements in property, plant and equipment for the year:',
+        text: `The following table summarises the carrying amounts and movements in property, plant and equipment for the ${phrase}:`,
       },
       {
         type: 'table',
