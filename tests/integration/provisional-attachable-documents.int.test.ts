@@ -3,7 +3,10 @@
 // offer as evidence. That page asked for `?status=extracted`, a status captured
 // documents never have, so its picker was always empty. "Attachable" is what
 // the attach itself accepts (claimCapturedDocumentForPosting): not posted, not
-// rejected, read finished — and the caller's company only.
+// rejected, read finished — and the caller's company only. It also leaves out what is
+// not supplier evidence: our own sent invoices, sent emails and dunning letters, and
+// bank or supplier STATEMENTS (a supplier statement carries no document_type; it is
+// known by the reconciliation that points at it).
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 import { SignJWT } from 'jose';
@@ -25,7 +28,13 @@ const ids = {
   reading: crypto.randomUUID(),
   failed: crypto.randomUUID(),
   otherCompany: crypto.randomUUID(),
+  sentInvoice: crypto.randomUUID(),
+  outboundEmail: crypto.randomUUID(),
+  dunning: crypto.randomUUID(),
+  bankStatement: crypto.randomUUID(),
+  supplierStatement: crypto.randomUUID(),
 };
+const supplier = crypto.randomUUID();
 let token = '';
 
 async function list(query: Record<string, string>) {
@@ -38,7 +47,9 @@ async function list(query: Record<string, string>) {
 }
 
 async function purge(): Promise<void> {
+  await pool.query('DELETE FROM supplier_statement_reconciliations WHERE source_document_id = $1', [ids.supplierStatement]);
   await pool.query('DELETE FROM captured_documents WHERE id = ANY($1::uuid[])', [Object.values(ids)]);
+  await pool.query('DELETE FROM suppliers WHERE id = $1', [supplier]);
   await pool.query('DELETE FROM company_users WHERE company_id = ANY($1::uuid[])', [[company, other]]);
   await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[company, other]]);
   await pool.query('DELETE FROM users WHERE id = $1', [user]);
@@ -52,24 +63,36 @@ beforeAll(async () => {
   token = await new SignJWT({ sub: user, aal: 'aal2' })
     .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
     .sign(new TextEncoder().encode(process.env.JWT_SECRET));
-  const rows: Array<[string, string, string, string, boolean]> = [
-    // id, company, status, read_state, posted
-    [ids.pending, company, 'pending', 'done', false],
-    [ids.reviewed, company, 'reviewed', 'done', false],
-    [ids.matchedUnposted, company, 'matched', 'done', false],
-    [ids.posted, company, 'matched', 'done', true],
-    [ids.rejected, company, 'rejected', 'done', false],
-    [ids.reading, company, 'pending', 'reading', false],
-    [ids.failed, company, 'pending', 'failed', false],
-    [ids.otherCompany, other, 'pending', 'done', false],
+  const rows: Array<[string, string, string, string, boolean, string | null]> = [
+    // id, company, status, read_state, posted, document_type
+    [ids.pending, company, 'pending', 'done', false, null],
+    [ids.reviewed, company, 'reviewed', 'done', false, 'receipt'],
+    [ids.matchedUnposted, company, 'matched', 'done', false, 'invoice'],
+    [ids.posted, company, 'matched', 'done', true, 'receipt'],
+    [ids.rejected, company, 'rejected', 'done', false, 'receipt'],
+    [ids.reading, company, 'pending', 'reading', false, null],
+    [ids.failed, company, 'pending', 'failed', false, null],
+    [ids.otherCompany, other, 'pending', 'done', false, 'receipt'],
+    [ids.sentInvoice, company, 'matched', 'done', false, 'sent_invoice'],
+    [ids.outboundEmail, company, 'matched', 'done', false, 'outbound_email'],
+    [ids.dunning, company, 'matched', 'done', false, 'dunning'],
+    [ids.bankStatement, company, 'pending', 'done', false, 'statement'],
+    [ids.supplierStatement, company, 'pending', 'done', false, null],
   ];
-  for (const [id, co, status, readState, posted] of rows) {
+  for (const [id, co, status, readState, posted, type] of rows) {
     await pool.query(
-      `INSERT INTO captured_documents(id, company_id, file_name, file_type, status, read_state, posted_at)
-       VALUES($1, $2, $3, 'pdf', $4, $5, CASE WHEN $6 THEN NOW() END)`,
-      [id, co, `${id}.pdf`, status, readState, posted],
+      `INSERT INTO captured_documents(id, company_id, file_name, file_type, status, read_state, posted_at, document_type)
+       VALUES($1, $2, $3, 'pdf', $4, $5, CASE WHEN $6 THEN NOW() END, $7)`,
+      [id, co, `${id}.pdf`, status, readState, posted, type],
     );
   }
+  await pool.query('INSERT INTO suppliers(id, company_id, name) VALUES($1, $2, $3)', [supplier, company, 'Attachable Supplier']);
+  await pool.query(
+    `INSERT INTO supplier_statement_reconciliations
+       (company_id, supplier_id, source_document_id, statement_date, supplier_balance, isaflow_balance, variance)
+     VALUES($1, $2, $3, '2026-10-01', 100, 100, 0)`,
+    [company, supplier, ids.supplierStatement],
+  );
 });
 
 afterAll(async () => {
