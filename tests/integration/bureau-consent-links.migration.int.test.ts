@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { closeSql, createSql } from '../../scripts/_pg';
 import { appLoginRoleViolations } from '../../scripts/check-app-login-roles';
+import { getAuthPool } from '@/lib/auth/authPool';
 import { doBlock, fixture, migration, newIds, rolledBack, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
 const ids = newIds();
@@ -19,7 +20,7 @@ const GUARD_932 = doBlock(M932, "RAISE EXCEPTION '932: %'");
 const PREFLIGHT_932 = doBlock(M932, 'which the bureau code writes on it');
 
 beforeAll(() => setup(ids), 60000);
-afterAll(async () => { await closeSql(); await teardown(ids, []); });
+afterAll(async () => { await closeSql(); await teardown(ids, [getAuthPool()]); });
 
 type Q = (text: string) => Promise<unknown>;
 const rows = async (q: Q, text: string) => ((await q(text)) as { rows: Array<Record<string, unknown>> }).rows;
@@ -84,6 +85,27 @@ describe('932: migration', () => {
   ])('refuses the mutant: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(GUARD_932);
+      await q(mutate);
+      await expect(q(GUARD_932)).rejects.toThrow(msg);
+    });
+  });
+
+  it('a temporary table an app session holds is not a TRIGGER violation (breaker round 2)', async () => {
+    const c = await getAuthPool().connect();
+    try {
+      await c.query('SET ROLE app_user');
+      await c.query('CREATE TEMP TABLE b932_junk (x int)');
+      await rolledBack(async (q) => { await q(GUARD_932); });
+    } finally {
+      c.release(true);
+    }
+  });
+
+  it.each([
+    ['a trigger creatable on a view', 'CREATE VIEW public.b932_v AS SELECT 1 AS x; GRANT TRIGGER ON public.b932_v TO app_user',
+      R(APP, 'TRIGGER b932_v$')],
+  ])('refuses the mutant: %s', async (_, mutate, msg) => {
+    await rolledBack(async (q) => {
       await q(mutate);
       await expect(q(GUARD_932)).rejects.toThrow(msg);
     });

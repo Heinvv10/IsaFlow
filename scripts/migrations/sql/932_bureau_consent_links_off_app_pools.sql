@@ -23,6 +23,12 @@
 --   link         the bureau's owner who is also the company's owner or admin;
 --   unlink       the bureau's owner, OR the company's owner or admin (a
 --                company can always withdraw).
+-- Residual (S-07d): the company owner/admin half of link and unlink reads
+-- company_users.role, which app_user may still UPDATE (930 kept it for the
+-- members screen), so forged claims of a company owner can promote a member
+-- and then link or unlink as admin. Those claims already reach every write the
+-- company's admin has. It closes when S-07d moves the role change off the app
+-- pools.
 -- Creating a bureau stays where it runs today: the admin convert route, on
 -- platform_admin. Nothing on the app pools creates one.
 -- bureau_audit_log stays deny-all to the app roles (904). migration_admin
@@ -164,7 +170,11 @@ AS $$
     FROM reach
    CROSS JOIN pg_catalog.pg_class c
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-   WHERE c.relkind IN ('r', 'p') AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+   -- Views take INSTEAD OF triggers. A temporary table is its own session's (its
+   -- owner holds TRIGGER), and no other session writes it: not a violation, or any
+   -- session could stop every deploy with one CREATE TEMP TABLE.
+   WHERE c.relkind IN ('r', 'p', 'v', 'f') AND c.relpersistence <> 't'
+     AND n.nspname NOT IN ('pg_catalog', 'information_schema')
      AND pg_catalog.has_table_privilege(reach.oid, c.oid, 'TRIGGER')
   UNION ALL
   -- A definer runs as its owner, so no privilege rule sees what it writes.
