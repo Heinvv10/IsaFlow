@@ -93,8 +93,8 @@ async function seedDocuments(
     `INSERT INTO customer_invoice_items (invoice_id, description, quantity, unit_price, amount, gl_account_id)
      VALUES ($1, 'doc fixture', 1, 100, 100, $2) RETURNING id`, [customerInvoice, accountId]);
   const employee = await one(c,
-    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
-     VALUES ($1, $2, 'Doc', 'Fixture', CURRENT_DATE) RETURNING id`, [companyId, `ZZ-${tag}`]);
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+     VALUES ($1, $2, 'Doc', 'Fixture', CURRENT_DATE, true) RETURNING id`, [companyId, `ZZ-${tag}`]);
   const claim = await one(c,
     `INSERT INTO expense_claims (company_id, employee_id, claim_number, claim_date, status)
      VALUES ($1, $2, $3, CURRENT_DATE, 'posted') RETURNING id`, [companyId, employee, `ZZ-EC-${tag}`]);

@@ -107,8 +107,8 @@ describeIfDb('migration 702: expense-claim VAT legs coded standard, figure-neutr
     assertNotProductionDb('This test posts journals, locks a VAT period and runs a migration.');
     fx = await seedLateFixture('ECB', DATABASE_URL!);
     employee = randomUUID();
-    await sql`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date)
-      VALUES (${employee}::UUID, ${fx.companyId}::UUID, ${`E-${fx.tag}`.slice(0, 20)}, 'Claim', 'Backfill', '2026-01-01')`;
+    await sql`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+      VALUES (${employee}::UUID, ${fx.companyId}::UUID, ${`E-${fx.tag}`.slice(0, 20)}, 'Claim', 'Backfill', '2026-01-01', true)`;
     reimburse = String(((await sql`
       INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
       VALUES (${fx.companyId}::UUID, '2300', ${`Reimbursements ${fx.tag}`}, 'liability', 'other_current_liability', 'credit', true)
