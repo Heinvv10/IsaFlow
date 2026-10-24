@@ -10,8 +10,12 @@
  *
  * "HAS A MEDICAL-AID DEDUCTION" means a payroll_employee_components assignment
  * in force on `asAt` whose component is an active deduction coded 4005 (the SARS
- * code the components page offers for medical aid) or named "medical…". Pay
- * packages need no join of their own: applying one writes
+ * code the components page offers for medical aid). The schema has no medical
+ * component type (component_type is only earning / deduction /
+ * employer_contribution), so the SARS code is the one reliable marker; a name
+ * match was dropped as free text. A medical component under another code shows
+ * here and is dismissed by a human, which is the safe side for a review list.
+ * Pay packages need no join of their own: applying one writes
  * payroll_employee_components rows (payPackageService).
  */
 
@@ -45,7 +49,7 @@ export async function listMainMembersWithoutMedicalDeduction(
           WHERE ec.employee_id = e.id
             AND c.is_active = true
             AND c.component_type = 'deduction'
-            AND (c.sars_source_code = '4005' OR c.name ILIKE '%medical%')
+            AND c.sars_source_code = '4005'
             AND ec.effective_from <= ${asAt}::date
             AND (ec.effective_to IS NULL OR ec.effective_to >= ${asAt}::date)
        )

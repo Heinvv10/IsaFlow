@@ -75,9 +75,9 @@ beforeAll(async () => {
   }
 
   const medA = await component(companyA, 'Medical Aid', '4005', 'deduction');
-  const namedA = await component(companyA, 'Discovery Medical Scheme', '4001', 'deduction');
+  const namedA = await component(companyA, 'Discovery Medical Scheme', '4001', 'deduction');   // medical by name, not by code
   const inactiveMedA = await component(companyA, 'Old Medical Aid', '4005', 'deduction', false);
-  const medEarningA = await component(companyA, 'Medical Reimbursement', '3601', 'earning');
+  const medEarningA = await component(companyA, 'Medical Reimbursement', '4005', 'earning');
   const salaryA = await component(companyA, 'Basic Salary', '3601', 'earning');
 
   await employee(companyA, 'A01');                                             // flagged: nothing assigned
@@ -86,7 +86,7 @@ beforeAll(async () => {
   await employee(companyA, 'A04', { main: false });                            // not a main member
   await assign(await employee(companyA, 'A05'), salaryA, '2020-01-01');        // flagged: only an earning
   await employee(companyA, 'A06', { status: 'terminated' });                   // terminated: out of scope
-  await assign(await employee(companyA, 'A07'), namedA, '2020-01-01');         // has a "…Medical…" deduction
+  await assign(await employee(companyA, 'A07'), namedA, '2020-01-01');         // flagged: only the 4005 code counts, not a name
   await assign(await employee(companyA, 'A08'), inactiveMedA, '2020-01-01');   // flagged: component inactive
   await assign(await employee(companyA, 'A09'), medEarningA, '2020-01-01');    // flagged: an earning is not a deduction
   await assign(await employee(companyA, 'A10'), medA, day(30));                // flagged: starts in the future
@@ -108,8 +108,8 @@ describe('GET /api/payroll/employees/medical-aid-review', () => {
   it('company A: exactly the flagged employees', async () => {
     const r = await flagged(callA);
     expect(r.statusCode).toBe(200);
-    expect(numbers(r)).toEqual(['A01', 'A03', 'A05', 'A08', 'A09', 'A10']);
-    expect((r.body.data as unknown as { count: number }).count).toBe(6);
+    expect(numbers(r)).toEqual(['A01', 'A03', 'A05', 'A07', 'A08', 'A09', 'A10']);
+    expect((r.body.data as unknown as { count: number }).count).toBe(7);
   });
 
   it('company B sees only its own: B01, and B02 whose only medical component belongs to company A', async () => {
@@ -136,7 +136,7 @@ describe('the service on its own (outside a request: no row-level security to le
   it("scopes by company_id itself: A's rows for A, B's for B, B02's foreign component not counted", async () => {
     const a = (await listMainMembersWithoutMedicalDeduction(companyA)).map((e) => e.employeeNumber).sort();
     const b = (await listMainMembersWithoutMedicalDeduction(companyB)).map((e) => e.employeeNumber).sort();
-    expect(a).toEqual(['A01', 'A03', 'A05', 'A08', 'A09', 'A10']);
+    expect(a).toEqual(['A01', 'A03', 'A05', 'A07', 'A08', 'A09', 'A10']);
     expect(b).toEqual(['B01', 'B02']);
   });
 });
