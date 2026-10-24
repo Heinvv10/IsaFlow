@@ -65,6 +65,8 @@ export function MedicalAidReviewBanner() {
   }, []);
 
   useEffect(() => {
+    // A company switch must never show the previous company's list while the new one loads.
+    setFlagged([]);
     if (!mayWrite) return;
     setDismissed(readDismissed(key));
     void load();
@@ -79,7 +81,7 @@ export function MedicalAidReviewBanner() {
   };
 
   return (
-    <div role="alert" data-testid="medical-aid-review-banner"
+    <div role="status" data-testid="medical-aid-review-banner"
       className="mb-6 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-sm text-[var(--ff-text-primary)]">
       <div className="flex items-start gap-3">
         <AlertTriangle className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
