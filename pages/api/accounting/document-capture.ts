@@ -74,18 +74,30 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   let countResult: Record<string, unknown>[];
 
   if (req.query.attachable === '1') {
-    // What the provisional evidence attach accepts (claimCapturedDocumentForPosting):
-    // not posted, not rejected, read finished.
+    // What the provisional evidence attach accepts (claimCapturedDocumentForPosting): not
+    // posted, not rejected, read finished. And only supplier evidence: not our own sent
+    // invoices, sent emails or dunning letters, and not a bank or supplier statement (a
+    // supplier statement has no document_type; its reconciliation points at it).
     rows = await sql`
-      SELECT * FROM captured_documents
-      WHERE company_id = ${companyId} AND posted_at IS NULL AND status <> 'rejected' AND read_state = 'done'
-      ORDER BY created_at DESC
+      SELECT cd.* FROM captured_documents cd
+      WHERE cd.company_id = ${companyId} AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
+        AND cd.document_type IS DISTINCT FROM 'sent_invoice' AND cd.document_type IS DISTINCT FROM 'outbound_email'
+        AND cd.document_type IS DISTINCT FROM 'dunning' AND cd.document_type IS DISTINCT FROM 'statement'
+        AND NOT EXISTS (SELECT 1 FROM bank_statement_imports b WHERE b.source_document_id = cd.id AND b.company_id = cd.company_id)
+        AND NOT EXISTS (SELECT 1 FROM supplier_statement_reconciliations r
+                        WHERE r.source_document_id = cd.id AND r.company_id = cd.company_id)
+      ORDER BY cd.created_at DESC
       LIMIT ${pageSize} OFFSET ${offset}
     ` as Record<string, unknown>[];
 
     countResult = await sql`
-      SELECT COUNT(*)::int AS total FROM captured_documents
-      WHERE company_id = ${companyId} AND posted_at IS NULL AND status <> 'rejected' AND read_state = 'done'
+      SELECT COUNT(*)::int AS total FROM captured_documents cd
+      WHERE cd.company_id = ${companyId} AND cd.posted_at IS NULL AND cd.status <> 'rejected' AND cd.read_state = 'done'
+        AND cd.document_type IS DISTINCT FROM 'sent_invoice' AND cd.document_type IS DISTINCT FROM 'outbound_email'
+        AND cd.document_type IS DISTINCT FROM 'dunning' AND cd.document_type IS DISTINCT FROM 'statement'
+        AND NOT EXISTS (SELECT 1 FROM bank_statement_imports b WHERE b.source_document_id = cd.id AND b.company_id = cd.company_id)
+        AND NOT EXISTS (SELECT 1 FROM supplier_statement_reconciliations r
+                        WHERE r.source_document_id = cd.id AND r.company_id = cd.company_id)
     ` as Record<string, unknown>[];
   } else if (status) {
     rows = await sql`
