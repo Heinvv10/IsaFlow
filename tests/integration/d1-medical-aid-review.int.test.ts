@@ -17,6 +17,7 @@ import { SignJWT } from 'jose';
 import employeesIndex from '../../pages/api/payroll/employees';
 import employeeDetail from '../../pages/api/payroll/employees/[id]';
 import review from '../../pages/api/payroll/employees/medical-aid-review';
+import { listMainMembersWithoutMedicalDeduction } from '../../src/modules/accounting/services/payroll/payrollMedicalAidReviewService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { cleanPayrollCompanies, routeCaller, type Route } from './w3-01-payroll.helpers';
 
@@ -128,6 +129,15 @@ describe('GET /api/payroll/employees/medical-aid-review', () => {
     await flagged(callA);
     const after = (await pool.query('SELECT count(*)::int AS n FROM payroll_employees WHERE company_id = $1 AND medical_aid_main_member', [companyA])).rows[0].n;
     expect(after).toBe(before);
+  });
+});
+
+describe('the service on its own (outside a request: no row-level security to lean on)', () => {
+  it("scopes by company_id itself: A's rows for A, B's for B, B02's foreign component not counted", async () => {
+    const a = (await listMainMembersWithoutMedicalDeduction(companyA)).map((e) => e.employeeNumber).sort();
+    const b = (await listMainMembersWithoutMedicalDeduction(companyB)).map((e) => e.employeeNumber).sort();
+    expect(a).toEqual(['A01', 'A03', 'A05', 'A08', 'A09', 'A10']);
+    expect(b).toEqual(['B01', 'B02']);
   });
 });
 
