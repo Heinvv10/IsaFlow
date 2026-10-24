@@ -2,15 +2,20 @@
  * Bureau merchant-pattern sharing: owner-only toggle, one audit row per real change, and the route's auth.
  * The owner is bureaus.owner_user_id (bureauService.getBureauRole), re-checked inside the write transaction;
  * here the queries are answered as Postgres would answer them, and the real SQL runs against a schema in
- * tests/integration/bureau-audit-log-rls.int.test.ts (including a stale bureau_users 'owner' row).
+ * tests/integration/bureau-audit-log-rls.int.test.ts (including a stale bureau_users 'owner' row) and, on the
+ * production logins, bureau-consent-links.int.test.ts. The setting is read and written on the migration_admin
+ * pool (migration 932); its client's query(text, params) is answered through txMock with each $N as '?'.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const { sqlMock, txMock } = vi.hoisted(() => ({ sqlMock: vi.fn(), txMock: vi.fn() }));
-vi.mock('@/lib/neon', () => ({
-  sql: sqlMock,
-  withTransaction: async (fn: (tx: typeof txMock) => unknown) => fn(txMock),
+vi.mock('@/lib/neon', () => ({ sql: sqlMock }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminTx: async (_label: string, fn: (c: unknown) => unknown) => fn({
+    query: async (text: string, params: unknown[] = []) =>
+      ({ rows: await txMock(Object.assign(text.split(/\$\d+/), { raw: [] }) as unknown as TemplateStringsArray, ...params) }),
+  }),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/auth/withUserAuth', () => ({
@@ -39,6 +44,7 @@ function bureauOf(ownerUserId: string | null, members: Record<string, Role>, cur
     if (/owner_user_id = \?\s+FOR UPDATE/.test(text)) {
       return vals[1] === ownerUserId ? [{ share_merchant_patterns: current }] : [];
     }
+    if (/SELECT share_merchant_patterns FROM bureaus/.test(text)) return [{ share_merchant_patterns: current }];
     return [];
   });
   sqlMock.mockImplementation(async (strings: TemplateStringsArray, ...vals: unknown[]) => {
@@ -48,7 +54,6 @@ function bureauOf(ownerUserId: string | null, members: Record<string, Role>, cur
       const role = user === ownerUserId ? 'owner' : members[user] === 'owner' ? 'accountant' : members[user];
       return role ? [{ role }] : [];
     }
-    if (/SELECT share_merchant_patterns FROM bureaus/.test(text)) return [{ share_merchant_patterns: current }];
     return [];
   });
 }
