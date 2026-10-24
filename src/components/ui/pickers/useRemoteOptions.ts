@@ -3,8 +3,8 @@
  *
  * Loads lazily: nothing is requested until the dropdown opens, and every open refetches (so a record created
  * since the last open appears, and a failed load is retried). Typing is debounced; a newer request cancels the
- * older one, and a response for a superseded request is dropped. A failure sets `error` and EMPTIES `options`,
- * so the dropdown shows the failure instead of an empty list that reads as "no results".
+ * older one, and a response for a superseded request is dropped. A failure sets `error`, which the dropdown shows
+ * INSTEAD of the list (an empty list would read as "no results").
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -63,7 +63,6 @@ export function useRemoteOptions(fetchOptions: FetchOptions, failureMessage: str
     } catch (err) {
       if (seq.current !== mine) return;
       log.warn('Picker options failed to load', { error: err instanceof Error ? err.message : String(err) }, 'ui-picker');
-      setOptions([]);
       setError(apiErrorMessage(err, messageRef.current));
     } finally {
       if (seq.current === mine) setLoading(false);
