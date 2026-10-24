@@ -94,6 +94,9 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
   it('a clean scan advances the cursor to the last message', async () => {
     const r = await scanConnection(conn);
     expect([r.ingested, r.errors, cursorWritten()]).toEqual([4, 0, 13]);
+    // A success clears an earlier stop's error.
+    expect(h.sql.find((q) => q.text.startsWith('UPDATE imap_mirror_connections SET scan_cursor'))?.text).toContain('last_error = NULL');
+    expect(h.sql.some((q) => /SET last_scan_at = NOW\(\), last_error = \?/.test(q.text))).toBe(false);
   });
 
   it.each([
@@ -130,6 +133,9 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     const r = await scanConnection(conn);
     expect([r.errors, cursorWritten()]).toEqual([1, 11]);
     expect(documentsCreated()).toBe(2); // 11's, and 12's first, left without an event
+    // Progress (message 11) is recorded, and so is the stop's error after it.
+    const writes = h.sql.filter((q) => q.text.startsWith('UPDATE imap_mirror_connections')).map((q) => q.text);
+    expect(writes.findIndex((t) => t.includes('scan_cursor'))).toBeLessThan(writes.findIndex((t) => /last_error = \?/.test(t)));
   });
 
   it('a database failure after part of a message was ingested is passed, so nothing is captured twice', async () => {
