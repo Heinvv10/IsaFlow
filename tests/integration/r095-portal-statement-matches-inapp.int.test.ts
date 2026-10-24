@@ -95,7 +95,7 @@ describeIfDb('R-095 portal statement matches the in-app statement', () => {
     const email = `p-${f.tag}@test.local`;
     const [c] = (await sql`INSERT INTO customers (company_id, name, email) VALUES (${f.companyA}::UUID, ${'part ' + f.tag}, ${email}) RETURNING id`) as { id: string }[];
     try {
-      await sql`INSERT INTO portal_access (client_id, email, password_hash, name) VALUES (${c!.id}::UUID, ${email}, 'x', 'part')`;
+      await sql`INSERT INTO portal_access (client_id, company_id, email, password_hash, name) VALUES (${c!.id}::UUID, (SELECT company_id FROM customers WHERE id = ${c!.id}::UUID), ${email}, 'x', 'part')`;
       const [inv] = (await sql`
         INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, subtotal, tax_amount, total_amount, amount_paid, created_by)
         VALUES (${f.companyA}::UUID, ${c!.id}::UUID, ${c!.id}::UUID, ${f.tag + '-PART-INV'}, ${shift(-20)}::date, ${shift(10)}::date, 'approved', 1500, 0, 1500, 600, ${f.user}::UUID)
