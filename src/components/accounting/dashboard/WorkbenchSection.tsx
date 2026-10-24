@@ -102,17 +102,17 @@ const SEVERITY_STYLES: Record<Severity, { card: string; value: string; badge: st
   normal: {
     card: 'bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)]',
     value: 'text-[var(--ff-text-primary)]',
-    badge: 'bg-slate-500/10 text-slate-400',
+    badge: 'bg-slate-500/10 text-ink-muted',
   },
   amber: {
-    card: 'bg-amber-900/15 border-amber-500/30',
-    value: 'text-amber-300',
-    badge: 'bg-amber-500/10 text-amber-400',
+    card: 'bg-amber-50 border-amber-300 dark:bg-amber-900/15 dark:border-amber-500/30',
+    value: 'text-amber-800 dark:text-amber-300',
+    badge: 'bg-amber-500/15 text-amber-800 dark:text-amber-400',
   },
   red: {
-    card: 'bg-red-900/15 border-red-500/30',
-    value: 'text-red-300',
-    badge: 'bg-red-500/10 text-red-400',
+    card: 'bg-red-50 border-red-300 dark:bg-red-900/15 dark:border-red-500/30',
+    value: 'text-red-800 dark:text-red-300',
+    badge: 'bg-red-500/10 text-red-700 dark:text-red-400',
   },
 };
 
@@ -172,7 +172,7 @@ export function WorkbenchSection() {
     <section role="region" aria-labelledby="workbench-heading">
       <div className="flex items-center gap-2 mb-3">
         <AlertCircle className="h-4 w-4 text-amber-400" />
-        <h2 id="workbench-heading" className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+        <h2 id="workbench-heading" className="text-xs font-semibold uppercase tracking-widest text-ink-muted">
           Today in the books
         </h2>
       </div>
@@ -205,7 +205,7 @@ export function WorkbenchSection() {
                     <div className={`p-1 rounded-md ${styles.badge}`}>
                       <Icon className="h-3.5 w-3.5" />
                     </div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 leading-tight line-clamp-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted leading-tight line-clamp-2">
                       {card.label}
                     </p>
                   </div>
@@ -215,10 +215,10 @@ export function WorkbenchSection() {
                   </p>
 
                   <div className="flex items-center gap-1 mt-auto">
-                    <span className="text-[10px] text-slate-500 group-hover:text-teal-400 transition-colors">
+                    <span className="text-[10px] text-ink-faint group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors">
                       View
                     </span>
-                    <ArrowRight className="h-3 w-3 text-slate-500 group-hover:text-teal-400 transition-colors" />
+                    <ArrowRight className="h-3 w-3 text-ink-faint group-hover:text-teal-700 dark:group-hover:text-teal-400 transition-colors" />
                   </div>
                 </Link>
               );

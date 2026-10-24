@@ -76,16 +76,20 @@ export function TrialBalanceRow({
   // A derived row has no journals behind it: expanding it or drilling into it
   // would show an empty ledger and imply the figure was posted. Neither is offered.
   const derived = r.derived === true;
+  // The Code and Account cells stay pinned on horizontal scroll, so they need an opaque surface.
+  const stickyBg = derived
+    ? 'bg-[var(--ff-bg-tertiary)]'
+    : 'bg-[var(--ff-bg-secondary)] group-hover:bg-[var(--ff-bg-primary)]';
 
   return (
     <React.Fragment>
       <tr
         onClick={derived ? undefined : () => onToggle(r.accountCode)}
-        className={`border-b border-[var(--ff-border-light)] ${derived
+        className={`group border-b border-[var(--ff-border-light)] ${derived
           ? 'bg-[var(--ff-bg-tertiary)]/40'
           : 'hover:bg-[var(--ff-bg-primary)]/50 cursor-pointer'}`}
       >
-        <td className={`${rowClass} font-mono text-[var(--ff-text-tertiary)]`}>
+        <td className={`${rowClass} font-mono text-[var(--ff-text-tertiary)] w-28 min-w-[7rem] sticky left-0 z-10 print:static ${stickyBg}`}>
           <span className="flex items-center gap-1">
             {derived ? <span className="w-3" aria-hidden="true" /> : isExpanded
               ? <ChevronDown className="h-3 w-3" />
@@ -93,7 +97,7 @@ export function TrialBalanceRow({
             {r.accountCode}
           </span>
         </td>
-        <td className={`${rowClass} text-[var(--ff-text-primary)]`}>
+        <td className={`${rowClass} text-[var(--ff-text-primary)] sticky left-28 z-10 print:static ${stickyBg}`}>
           {derived ? (
             <span className="flex items-center gap-2">
               <span

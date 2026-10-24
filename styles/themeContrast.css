@@ -1,0 +1,178 @@
+/*
+ * Theme contrast layer (master plan §3b.1). Imported after globals.css.
+ *
+ * The app grew dark-first: hundreds of files colour text with a light palette stop
+ * (`text-teal-400`, `text-slate-500`) and no light-theme twin. On a white page that is
+ * 1.1-3:1. Rewriting every call site is not a surgical change, so the light theme remaps
+ * those stops here to the 700-weight of the same hue (AA on white and on the #f3f4f6 / tinted
+ * chip surfaces). `dark:` variants and the dark theme are untouched.
+ *
+ * Opt out for text that sits on a deliberately dark panel in the light theme: put
+ * data-surface="dark" on that panel.
+ *
+ * Specificity: the theme selector sits in :where(), so each rule is (0,1,0), the same as the
+ * utility it remaps (this file loads after globals.css, so it wins), and hover: / focus: /
+ * group-hover: variants and any explicit `dark:` class still outrank it.
+ */
+
+:where(html:not(.dark)) .text-teal-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-teal-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-teal-500:not(:where([data-surface="dark"] *)) {
+  color: #0f766e;
+}
+
+:where(html:not(.dark)) .text-cyan-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-cyan-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-cyan-500:not(:where([data-surface="dark"] *)) {
+  color: #0e7490;
+}
+
+:where(html:not(.dark)) .text-sky-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-sky-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-sky-500:not(:where([data-surface="dark"] *)) {
+  color: #0369a1;
+}
+
+:where(html:not(.dark)) .text-blue-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-blue-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-blue-500:not(:where([data-surface="dark"] *)) {
+  color: #1d4ed8;
+}
+
+:where(html:not(.dark)) .text-indigo-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-indigo-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-indigo-500:not(:where([data-surface="dark"] *)) {
+  color: #4338ca;
+}
+
+:where(html:not(.dark)) .text-violet-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-violet-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-violet-500:not(:where([data-surface="dark"] *)) {
+  color: #6d28d9;
+}
+
+:where(html:not(.dark)) .text-purple-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-purple-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-purple-500:not(:where([data-surface="dark"] *)) {
+  color: #7e22ce;
+}
+
+:where(html:not(.dark)) .text-pink-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-pink-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-pink-500:not(:where([data-surface="dark"] *)) {
+  color: #be185d;
+}
+
+:where(html:not(.dark)) .text-rose-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-rose-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-rose-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-rose-600:not(:where([data-surface="dark"] *)) {
+  color: #be123c;
+}
+
+:where(html:not(.dark)) .text-red-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-red-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-red-500:not(:where([data-surface="dark"] *)) {
+  color: #b91c1c;
+}
+
+:where(html:not(.dark)) .text-orange-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-orange-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-orange-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-orange-600:not(:where([data-surface="dark"] *)) {
+  color: #c2410c;
+}
+
+:where(html:not(.dark)) .text-amber-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-amber-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-amber-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-amber-600:not(:where([data-surface="dark"] *)) {
+  color: #92400e;
+}
+
+:where(html:not(.dark)) .text-yellow-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-yellow-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-yellow-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-yellow-600:not(:where([data-surface="dark"] *)) {
+  color: #854d0e;
+}
+
+:where(html:not(.dark)) .text-lime-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-lime-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-lime-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-lime-600:not(:where([data-surface="dark"] *)) {
+  color: #3f6212;
+}
+
+:where(html:not(.dark)) .text-green-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-green-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-green-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-green-600:not(:where([data-surface="dark"] *)) {
+  color: #15803d;
+}
+
+:where(html:not(.dark)) .text-emerald-300:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-emerald-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-emerald-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-emerald-600:not(:where([data-surface="dark"] *)) {
+  color: #047857;
+}
+
+:where(html:not(.dark)) .text-slate-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-slate-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-gray-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-gray-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-zinc-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-zinc-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-neutral-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-neutral-500:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-stone-400:not(:where([data-surface="dark"] *)),
+:where(html:not(.dark)) .text-stone-500:not(:where([data-surface="dark"] *)) {
+  color: #5b6573;
+}
+
+
+/*
+ * Dark theme: the 500 stops of blue/rose and the mid greys read 3.5-4.0:1 on the slate
+ * surfaces; lift them one step (AA on #1e293b, 4.5:1+ on the #334155 chips too).
+ */
+
+:where(.dark) .text-blue-500 {
+  color: #60a5fa;
+}
+
+:where(.dark) .text-rose-500 {
+  color: #fb7185;
+}
+
+:where(.dark) .text-indigo-400 {
+  color: #a5b4fc;
+}
+
+:where(.dark) .text-teal-500 {
+  color: #2dd4bf;
+}
+
+:where(.dark) .text-slate-500 {
+  color: #a9b6c9;
+}
+
+:where(.dark) .text-gray-500 {
+  color: #a9b6c9;
+}
+
+:where(.dark) .text-slate-400 {
+  color: #a9b6c9;
+}
+
+:where(.dark) .text-gray-400 {
+  color: #a9b6c9;
+}
+
+/*
+ * Chart legends: recharts colours each label with its series (teal, orange, rose), which is
+ * 1.8-3.5:1 on a light card. The swatch beside the label still carries the series colour.
+ */
+.recharts-legend-item-text {
+  color: var(--ff-text-secondary) !important;
+}

@@ -86,7 +86,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
                   {fmtCurrency(b.balance)}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] text-teal-500/80 font-mono" title="Allocated to GL entries">
+                  <span className="text-[10px] text-teal-700 dark:text-teal-400 font-mono" title="Allocated to GL entries">
                     ✓ {fmtCurrency(b.reconciledBalance)}
                   </span>
                   {hasGap && (

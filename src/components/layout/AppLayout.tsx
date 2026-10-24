@@ -15,8 +15,6 @@ import {
   Menu,
   LogOut,
   User,
-  Moon,
-  Sun,
   PanelLeft,
   PanelTop,
   Download,
@@ -25,7 +23,7 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTheme } from '@/contexts/ThemeContext';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { useCompany } from '@/contexts/CompanyContext';
 import { startSessionHeartbeat } from '@/lib/auth/sessionHeartbeat';
 import { AuthPendingScreen } from '@/components/layout/AuthPendingScreen';
@@ -72,7 +70,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     router.query as Record<string, string | string[] | undefined>,
   );
   const { user, loading, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const { companyRole, activeCompany } = useCompany();
 
   // Track page visits for usage-based quick actions
@@ -436,14 +433,8 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Table density toggle */}
           <TableDensityToggle />
 
-          {/* Theme toggle */}
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-lg text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </button>
+          {/* Theme: Light / Dark / System */}
+          <ThemeToggle />
 
           {/* User info */}
           {user && (
