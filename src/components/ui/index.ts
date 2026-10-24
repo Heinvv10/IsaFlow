@@ -47,6 +47,15 @@ export type { ToastType, ToastOptions, ToastItem } from './Toast';
 export { Select } from './Select';
 export type { SelectProps, SelectOption } from './Select';
 
+export { ContactPicker } from './pickers/ContactPicker';
+export type { ContactPickerProps } from './pickers/ContactPicker';
+export { AccountPicker } from './pickers/AccountPicker';
+export type { AccountPickerProps } from './pickers/AccountPicker';
+export { ItemPicker } from './pickers/ItemPicker';
+export { TaxRatePicker } from './pickers/TaxRatePicker';
+export type { TaxRatePickerProps, VatCodeValue } from './pickers/TaxRatePicker';
+export type { PickerProps } from './pickers/RemotePicker';
+
 export { Breadcrumb } from './Breadcrumb';
 export type { BreadcrumbItem, BreadcrumbSeparator } from './Breadcrumb';
 
