@@ -2,11 +2,10 @@ import type { Tab } from './types';
 
 export const bankingTab: Tab = {
   id: 'banking', label: 'Banking',
-  // FlyoutDropdown renders sections as hover-only chevron rows and only `topItems`
-  // as direct links, so the daily set goes here or the menu shows just Settings.
-  topItems: [
-    { label: 'Bank Transactions', href: '/accounting/bank-transactions' },
-    { label: 'Bank Reconciliation', href: '/accounting/bank-reconciliation' },
+  // Sections render as hover-only rows; the daily set is surfaced as direct links.
+  links: [
+    { label: 'Transactions', href: '/accounting/bank-transactions' },
+    { label: 'Reconcile', href: '/accounting/bank-reconciliation' },
     { label: 'Transfers', href: '/accounting/bank-transfers' },
     { label: 'Import Statement', href: '/accounting/bank-reconciliation/import' },
   ],

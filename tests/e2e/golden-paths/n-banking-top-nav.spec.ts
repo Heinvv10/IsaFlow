@@ -9,9 +9,10 @@
 import { test, expect } from '@playwright/test';
 
 const LINKS: Array<{ name: string; path: RegExp }> = [
-  { name: 'Bank Transactions', path: /\/accounting\/bank-transactions$/ },
-  { name: 'Bank Reconciliation', path: /\/accounting\/bank-reconciliation$/ },
+  { name: 'Transactions', path: /\/accounting\/bank-transactions$/ },
+  { name: 'Reconcile', path: /\/accounting\/bank-reconciliation$/ },
   { name: 'Transfers', path: /\/accounting\/bank-transfers$/ },
+  { name: 'Import Statement', path: /\/accounting\/bank-reconciliation\/import$/ },
 ];
 
 for (const { name, path } of LINKS) {
