@@ -368,7 +368,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
           WHERE id = ${conn.id}::uuid
         `;
       }
-      // A stop shows its error, and stamps no success; status stays active so the next scan retries.
+      // A stop shows its error (after any progress above); status stays active so the next scan retries.
       if (stoppedOn) await sql`UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = ${stoppedOn} WHERE id = ${conn.id}::uuid`;
 
       // Increment total ingested counter
