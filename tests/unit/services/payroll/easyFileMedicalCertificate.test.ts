@@ -166,7 +166,8 @@ describe('R3: the date of birth and the ID number (BRS V25.3.0 p. 26, 3080 "must
     expect(run).toThrow(/p\. 26/);
     let message = '';
     try { run(); } catch (err) { message = (err as Error).message; }
-    expect(message).not.toMatch(/\b6[0-9]\b(?![-\d])/);
+    // Neither computed age (66 by the record, 64 by the ID) is quoted; "65 or older" is the rule, not an age.
+    expect(message).not.toMatch(/\b(64|66)\b/);
   });
   it('disagreeing on the same side of 65, or agreeing, is not this refusal', () => {
     expect(() => buildEmployeeRecord({ ...base, dateOfBirth: new Date(1991, 0, 1) })).not.toThrow();
