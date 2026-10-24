@@ -32,6 +32,7 @@ Read-only share links for a report pack: mint, list, revoke (authenticated) and 
 - **Reading the link LIST is owner/admin/manager** (`canReadSharingSurface`, `services/reports/sharingAccess.ts`). `withWriteAccess` gates mutating methods only — its `allowedRoles` option says nothing about a GET — so the route checks the role itself. The list is who a pack was shared with, when the link expires, who minted it and how often an outsider opened it.
 
 ## Recent changes
+- 2026-10-24 (S-07d, migration 935): `createShareLink` and `revokeShareLink` run on the migration_admin pool (same per-company advisory lock, 5 s lock_timeout); app roles keep only the view counter (`view_count`, `last_viewed_at`).
 - 2026-09-06: the share route serves its own CSP, the site policy minus Cloudflare Web Analytics. Partial — the zone setting is the complete fix and is not a code change.
 - 2026-09-06: `commitShareView` re-checks revocation and expiry in its own UPDATE, so a revoke landing while the pack was being built stops the response instead of being recorded as a plain `ok`.
 - 2026-09-06: migration 613. An unmatched token is audited too, with a null link and company, so the three dead outcomes cost the same; and the resolve moved inside the page's `try` so a throw is the neutral 404 rather than a 500.
