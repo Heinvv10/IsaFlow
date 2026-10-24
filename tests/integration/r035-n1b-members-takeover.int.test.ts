@@ -90,101 +90,19 @@ describe("an admin cannot take over an owner's invitation", () => {
   });
 });
 
-/** Waits until backend `pid` waits on a lock. */
-async function blocked(pid: number): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if ((await pool.query("SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", [pid])).rows.length) return;
-    await new Promise((res) => setTimeout(res, 50));
-  }
-  throw new Error(`backend ${pid} never blocked`);
-}
-
-async function session(c: string, sub: string): Promise<PoolClient> {
-  const cl = await pool.connect();
-  await cl.query('BEGIN');
-  await cl.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub, session_id: crypto.randomUUID() })]);
-  await cl.query("SELECT set_config('app.current_company_id', $1, true)", [c]);
-  await cl.query('SET LOCAL ROLE app_user');
-  return cl;
-}
-
 describe('the last owner', () => {
-  // The second's actor is the owner the first just demoted: since 908b it is
-  // refused as no longer an owner (RC010), read after the lock, before the
-  // last-owner count (RC005) would refuse it. Either way one owner stays.
-  it('two owners demoting each other at once: the second is judged after the first commits, and refused (RC010)', async () => {
+  // Since S-07d (migration 937) app_user may neither UPDATE nor DELETE a
+  // membership: role changes and removals run on the migration_admin pool,
+  // which re-checks these rules in TypeScript. Their races (two owners demoting
+  // each other, a portal demotion or removal against the members screen, a
+  // case-variant duplicate row) are s07d-member-writes.int.test.ts's.
+  it('no app_user demotion or removal reaches the guard (42501 since 937)', async () => {
     const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner']]);
-    const one = await session(c, p.o);
-    const two = await session(c, p.o2);
-    try {
-      await one.query("UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o2]);
-      const pid = (await two.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
-      const second = two.query("UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o])
-        .then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
-      await blocked(pid);
-      await one.query('COMMIT');
-      expect(await second).toBe('RC010');
-    } finally {
-      await two.query('ROLLBACK').catch(() => undefined);
-      await one.query('ROLLBACK').catch(() => undefined);
-      one.release();
-      two.release();
-    }
-    expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.o2)]).toEqual(['owner', 'admin']);
-  });
-
-  it('a portal demotion and an app demotion of the other owner: the app one waits for the portal, then is refused (RC005)', async () => {
-    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner']]);
-    const portal = await pool.connect();
-    const app = await session(c, p.o2);
-    try {
-      await portal.query('BEGIN');
-      await portal.query('SET LOCAL ROLE platform_admin');
-      await portal.query("UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o]);
-      const pid = (await app.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
-      const appDemotion = app.query("UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o2])
-        .then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
-      await blocked(pid);
-      await portal.query('COMMIT');
-      expect(await appDemotion).toBe('RC005');
-    } finally {
-      await app.query('ROLLBACK').catch(() => undefined);
-      await portal.query('ROLLBACK').catch(() => undefined);
-      app.release();
-      portal.release();
-    }
-    expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.o2)]).toEqual(['admin', 'owner']);
-  });
-
-  it('a portal REMOVAL of one owner and an app demotion of the other: the app one waits, then is refused (RC005; adversarial round 3, L2)', async () => {
-    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.o2, 'owner']]);
-    const portal = await pool.connect();
-    const app = await session(c, p.o2);
-    try {
-      await portal.query('BEGIN');
-      await portal.query('SET LOCAL ROLE platform_admin');
-      await portal.query('DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [c, p.o]);
-      const pid = (await app.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
-      const appDemotion = app.query("UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o2])
-        .then(() => 'ok', (e: { code?: string }) => e.code ?? 'error');
-      await blocked(pid);
-      await portal.query('COMMIT');
-      expect(await appDemotion).toBe('RC005');
-    } finally {
-      await app.query('ROLLBACK').catch(() => undefined);
-      await portal.query('ROLLBACK').catch(() => undefined);
-      app.release();
-      portal.release();
-    }
-    expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.o2)]).toEqual([null, 'owner']);
-  });
-
-  it("a duplicate row of the same user, in another case, is not a second owner (RC005)", async () => {
-    const c = await company(pool, p, companies, [[p.o, 'owner'], [p.a, 'admin']]);
-    await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1, upper($2), 'owner')", [c, p.o]);
-    // The owner demotes themselves (an admin is refused first, RC010, since 908b).
     expect(await outcome(asApp(c, p.o, (cl) => cl.query(
-      "UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2", [c, p.o])))).toBe('RC005');
+      "UPDATE company_users SET role = 'admin' WHERE company_id = $1 AND user_id = $2", [c, p.o2])))).toBe('42501');
+    expect(await outcome(asApp(c, p.o, (cl) => cl.query(
+      'DELETE FROM company_users WHERE company_id = $1 AND user_id = $2', [c, p.o2])))).toBe('42501');
+    expect([await roleOf(pool, c, p.o), await roleOf(pool, c, p.o2)]).toEqual(['owner', 'owner']);
   });
 });
 
