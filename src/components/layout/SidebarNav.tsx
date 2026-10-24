@@ -17,6 +17,7 @@ import {
   type Tab,
   type NavItem,
 } from '../accounting/accountingNavConfig';
+import { NavLinksBlock } from './NavLinksBlock';
 import { stripVatNav } from '../accounting/navSections/vatNav';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 
@@ -119,10 +120,13 @@ function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; on
   return (
     <>
       {/* Plain navigation links */}
-      {tab.links?.map(item => (
-        <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(isLinkActive(item.href, asPath))}>{item.label}</Link>
-      ))}
-      {tab.links && tab.links.length > 0 && <div className="border-t border-[var(--ff-canvas-border)] my-1" />}
+      <NavLinksBlock
+        links={tab.links}
+        asPath={asPath}
+        onNav={onNav}
+        linkClassName={linkCls}
+        separatorClassName="border-t border-[var(--ff-canvas-border)] my-1"
+      />
 
       {/* Quick actions */}
       {tab.topItems?.map(item => (
@@ -231,6 +235,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
 
           return (
             <div key={tab.id}
+              data-testid={`sidebar-tab-${tab.id}`}
               onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
               onMouseLeave={dl}
               className={`flex items-center justify-between px-4 py-2 text-sm font-medium cursor-pointer transition-colors border-l-[3px] ${
