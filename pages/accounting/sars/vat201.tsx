@@ -10,6 +10,7 @@ import { ApiRequestError, apiFetch, apiErrorMessage, assertOk } from '@/lib/apiF
 import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodSelector';
 import { TransactionTable } from '@/components/accounting/sars/VAT201FormSections';
 import { VAT201SummaryForm } from '@/components/accounting/sars/VAT201SummaryForm';
+import { buildVat201Csv } from '@/components/accounting/sars/vat201Csv';
 import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
 import { VAT201SarsSubmit } from '@/components/accounting/sars/VAT201SarsSubmit';
@@ -22,18 +23,16 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+import type { Vat201SarsField } from '@/modules/accounting/services/reports/vat201SarsFields';
 
 interface VAT201Invoice {
   id: string; invoiceNumber: string; counterpartyName: string;
   invoiceDate: string; totalExclVat: number; vatAmount: number; vatType: string;
 }
 
-interface VAT201Data {
+interface VAT201Data { // the API also returns legacy field1..11 storage keys; the page uses only the SARS form
   periodStart: string; periodEnd: string;
-  field1_standardRatedSupplies: number; field2_zeroRatedSupplies: number;
-  field3_exemptSupplies: number; field4_totalImports: number; field5_outputVAT: number;
-  field6_capitalGoods: number; field7_otherGoods: number; field8_services: number;
-  field9_imports: number; field10_totalInputVAT: number; field11_vatPayableOrRefundable: number;
+  sarsFields: Vat201SarsField[];
   outputInvoices: VAT201Invoice[]; inputInvoices: VAT201Invoice[];
 }
 
@@ -42,6 +41,10 @@ const fmt = (n: number) =>
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
 
+/** A SARS field's amount, as the server computed it. */
+const sarsAmount = (data: VAT201Data, field: string): number =>
+  data.sarsFields.find((f) => f.field === field)?.amount ?? 0;
+
 export default function VAT201Page() {
   const { activeCompany, companyRole } = useCompany();
   const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
@@ -49,6 +52,10 @@ export default function VAT201Page() {
   const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
   const [vatPeriod, setVatPeriod] = useState<'monthly' | 'bi-monthly'>('bi-monthly');
   const [quickPeriods, setQuickPeriods] = useState<VatQuickPeriod[]>([]);
+  // The selector waits for the company's VAT settings. Shown earlier it printed the
+  // bi-monthly default, then flipped its label and grew a row of chips ~90ms later,
+  // pushing Generate down 46px: a click at the first position hit a chip, no request.
+  const [settingsReady, setSettingsReady] = useState(false);
   const defaults = defaultVatQuickPeriod(vatPeriod, alignment, new Date());
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
@@ -76,6 +83,7 @@ export default function VAT201Page() {
     // company's full record (?id=) instead, same as the settings page.
     if (!activeCompany?.id) return;
     let cancelled = false;
+    setSettingsReady(false);
     void (async () => {
       try {
         const res = await apiFetch(`/api/accounting/companies?id=${activeCompany.id}`, { credentials: 'include' });
@@ -89,15 +97,19 @@ export default function VAT201Page() {
           (c.vatSystemType ?? c.vat_system_type) as string | undefined,
         );
         // Non-vendors render the notice instead; leave the period state alone.
-        if (setting === 'none') return;
+        if (setting === 'none') { setSettingsReady(true); return; }
         const vp = setting;
         setAlignment(a); setVatPeriod(vp);
         setQuickPeriods(vatQuickPeriods(new Date().getFullYear(), vp, a));
         const def = defaultVatQuickPeriod(vp, a, new Date());
         setFrom(def.from); setTo(def.to);
+        setSettingsReady(true);
       } catch {
         // Silent defaults are exactly the bug class this effect fixes — say so.
-        if (!cancelled) setError('Could not load company VAT settings — periods shown use the bi-monthly Category A default');
+        if (!cancelled) {
+          setError('Could not load company VAT settings — periods shown use the bi-monthly Category A default');
+          setSettingsReady(true);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -160,22 +172,7 @@ export default function VAT201Page() {
 
   const exportCSV = () => {
     if (!data) return;
-    const rows = [
-      ['Field', 'Description', 'Amount (ZAR)'],
-      ['1', 'Standard-rated supplies (15%)', data.field1_standardRatedSupplies.toFixed(2)],
-      ['2', 'Zero-rated supplies', data.field2_zeroRatedSupplies.toFixed(2)],
-      ['3', 'Exempt supplies', data.field3_exemptSupplies.toFixed(2)],
-      ['4', 'Total imports', data.field4_totalImports.toFixed(2)],
-      ['5', 'Output VAT (Field 1 x 15%)', data.field5_outputVAT.toFixed(2)],
-      ['6', 'Input VAT — Capital goods', data.field6_capitalGoods.toFixed(2)],
-      ['7', 'Input VAT — Other goods', data.field7_otherGoods.toFixed(2)],
-      ['8', 'Input VAT — Services', data.field8_services.toFixed(2)],
-      ['9', 'Input VAT — Imports', data.field9_imports.toFixed(2)],
-      ['10', 'Total input VAT', data.field10_totalInputVAT.toFixed(2)],
-      ['11', 'VAT payable / (refundable)', data.field11_vatPayableOrRefundable.toFixed(2)],
-      [], ['Period', `${data.periodStart} to ${data.periodEnd}`],
-    ];
-    const csv = rows.map((r) => r.join(',')).join('\n');
+    const csv = buildVat201Csv(data);
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -217,7 +214,14 @@ export default function VAT201Page() {
 
           {known && !isRegistered && <NotVatRegisteredNotice surface="The VAT201 return" />}
 
-          {known && isRegistered && <VAT201PeriodSelector
+          {known && isRegistered && !settingsReady && (
+            <div data-testid="vat201-period-loading" aria-busy="true"
+              className="h-[8.5rem] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] flex items-center justify-center text-sm text-[var(--ff-text-tertiary)]">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading VAT period settings
+            </div>
+          )}
+
+          {known && isRegistered && settingsReady && <VAT201PeriodSelector
             from={from} to={to} loading={loading} vatPeriod={vatPeriod} alignment={alignment}
             quickPeriods={quickPeriods}
             onFromChange={setFrom} onToChange={setTo}
@@ -245,14 +249,14 @@ export default function VAT201Page() {
                 <VAT201SummaryForm data={data} />
               ) : (
                 <div className="space-y-4">
-                  <TransactionTable title="Section A — Output Tax (Sales)" sectionColor="teal" invoices={data.outputInvoices} totalLabel="Total Output Tax (Box 13)" totalVat={data.field5_outputVAT} />
-                  <TransactionTable title="Section B — Input Tax (Purchases)" sectionColor="blue" invoices={data.inputInvoices} totalLabel="Total Input Tax (Box 19)" totalVat={data.field10_totalInputVAT} />
+                  <TransactionTable title="Section A — Output Tax (Sales)" sectionColor="teal" invoices={data.outputInvoices} totalLabel="Total Output Tax (Field 13)" totalVat={sarsAmount(data, '13')} />
+                  <TransactionTable title="Section B — Input Tax (Purchases)" sectionColor="blue" invoices={data.inputInvoices} totalLabel="Total Input Tax (Field 19)" totalVat={sarsAmount(data, '19')} />
                   <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] px-4 py-3 flex items-center justify-between">
                     <span className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                      Net VAT — Box 20 ({data.field11_vatPayableOrRefundable >= 0 ? 'Payable to SARS' : 'Refundable from SARS'})
+                      Net VAT — Field 20 ({sarsAmount(data, '20') >= 0 ? 'Payable to SARS' : 'Refundable from SARS'})
                     </span>
-                    <span className={`text-lg font-bold ${data.field11_vatPayableOrRefundable >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {fmt(Math.abs(data.field11_vatPayableOrRefundable))}
+                    <span className={`text-lg font-bold ${sarsAmount(data, '20') >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {fmt(Math.abs(sarsAmount(data, '20')))}
                     </span>
                   </div>
                 </div>

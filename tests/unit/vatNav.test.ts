@@ -93,3 +93,14 @@ describe('stripVatNav', () => {
     expect(stripVatNav([tab], false)).toEqual([]);
   });
 });
+
+describe('one VAT201 surface', () => {
+  it('no nav entry points at the retired VAT return report', () => {
+    expect(allHrefs(TABS)).not.toContain('/accounting/reports/vat-return');
+  });
+
+  it('the Tax tab lists the VAT201 page exactly once', () => {
+    const links = hrefs(taxTab.items).filter((h) => h === '/accounting/sars/vat201');
+    expect(links).toHaveLength(1);
+  });
+});

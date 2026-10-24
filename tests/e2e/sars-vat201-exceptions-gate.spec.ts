@@ -27,6 +27,11 @@ const VAT201_DATA = {
   field4_totalImports: 0, field5_outputVAT: 15000,
   field6_capitalGoods: 0, field7_otherGoods: 5000, field8_services: 0, field9_imports: 0,
   field10_totalInputVAT: 5000, field11_vatPayableOrRefundable: 10000,
+  sarsFields: [
+    { field: '13', label: 'Total output tax (4 + 4A + 9 + 11 + 12)', kind: 'tax', group: 'output-total', amount: 15000 },
+    { field: '19', label: 'Total input tax (14 + 14A + 15 + 15A + 16 + 17 + 18)', kind: 'tax', group: 'input-total', amount: 5000 },
+    { field: '20', label: 'VAT payable / refundable (Total A - Total B)', kind: 'tax', group: 'result', amount: 10000 },
+  ],
   outputInvoices: [], inputInvoices: [], degradedSources: [],
 };
 
@@ -37,6 +42,9 @@ function report(totalExceptions: number) {
     invoiceTaxCodeIssues: [], invoiceTaxCodeIssueCount: 0,
     billTaxCodeWarnings: [], billTaxCodeWarningCount: 0, billTaxCodeWarningPotentialVat: 0,
     invoiceGlMismatches: [], invoiceGlMismatchCount: 0,
+    vatOnBalanceSheetLines: [], vatOnBalanceSheetCount: 0, vatNonSupplyLines: [], vatNonSupplyCount: 0,
+    unpostedInvoiceVat: [], unpostedInvoiceVatCount: 0, declaredElsewhereVat: [], declaredElsewhereVatCount: 0,
+    unsupportedInputVat: [], unsupportedInputVatCount: 0, inputVatWithoutTaxInvoice: [], inputVatWithoutTaxInvoiceCount: 0,
     controlRecon: {
       outputVat201: 15000, outputGl: 15000, outputVariance: 0,
       inputVat201: 5000, inputGl: 5000, inputVariance: 0,
