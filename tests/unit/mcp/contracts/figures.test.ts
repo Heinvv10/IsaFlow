@@ -74,16 +74,17 @@ describe('figure registry', () => {
     expect(FIGURE_DEFINITIONS['cash.statement.v1']!.excludes).toMatch(/cash\.ledger\.v1/);
   });
 
-  it('names the fiscal-year start as a figure, with every ad-hoc site recorded', () => {
-    // Six implementations, not one: the five pre-existing `financial_year_start
-    // || 3` sites plus the shared basis. Recording them in `contested` is what
-    // stops a seventh; they are NOT converged here (two are payroll and two are
-    // AFS, which would collide with W6).
+  it('names the financial year as a registry figure, with the remaining ad-hoc site recorded', () => {
+    // The year's boundaries come from the fiscal-year registry. The one reader
+    // still deriving a year from `financial_year_start` (payroll) is recorded in
+    // `contested`, which is what stops a second.
     const fy = FIGURE_DEFINITIONS['fiscalyear.start.v1']!;
-    expect(fy.owner).toBe('gl/fiscalYearBasis#getFiscalYearStartMonth');
-    expect(fy.contested).toHaveLength(5);
-    // The trap the peer flagged, recorded where a reader will hit it.
+    expect(fy.owner).toBe('gl/fiscalYearRegistry#fiscalYearForDate');
+    expect(fy.contested).toHaveLength(1);
+    expect(fy.contested![0]).toMatch(/payroll\/period-context/);
+    // The trap, recorded where a reader will hit it.
     expect(fy.excludes).toMatch(/fiscal_periods\.fiscal_year/);
+    expect(fy.excludes).toMatch(/financial_year_start/);
   });
 
   it('throws on an unknown basis rather than emitting an authoritative-looking typo', () => {
