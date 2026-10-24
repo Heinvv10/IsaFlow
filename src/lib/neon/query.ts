@@ -16,6 +16,7 @@ import type pg from 'pg';
 // @/lib/logger and pg types, so there is no cycle back to this module.
 import { als, assertTxUsable } from '@/lib/als';
 import { getPool } from './pool';
+import { noteActivity, openSiblingSavepoint } from './savepointQueue';
 
 // Matches the shape the Neon driver returned to the rest of the codebase —
 // `NeonQueryFunction<false, false>` yields `Record<string, any>[]`. Keeping
@@ -49,8 +50,15 @@ export class LazyQuery<T = DbRow> implements Promise<T[]> {
       // A savepoint rollback may have aborted this connection. Fail with the
       // ORIGINAL cause rather than the bare 25P02 pg would answer with.
       assertTxUsable();
-      const res = await ctxClient.query(this.text, this.values);
-      return res.rows as T[];
+      // Never inside a sibling savepoint's window (its rollback would undo this).
+      const wait = openSiblingSavepoint(ctxClient);
+      if (wait) { await wait; assertTxUsable(); }
+      try {
+        const res = await ctxClient.query(this.text, this.values);
+        return res.rows as T[];
+      } finally {
+        noteActivity(ctxClient);
+      }
     }
     const res = await getPool().query(this.text, this.values);
     return res.rows as T[];
