@@ -9,6 +9,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
+import { expectNoSeriousA11yViolations, waitForScreenReady } from './helpers/axe';
 
 test('supplier payment created through the /new form allocates to the invoice', async ({
   page,
@@ -36,6 +37,8 @@ test('supplier payment created through the /new form allocates to the invoice', 
 
     // ── UI path (page fixture carries the shared golden session) ─────────
     await page.goto('/accounting/supplier-payments/new');
+    await waitForScreenReady(page);
+    await expectNoSeriousA11yViolations(page);
     // The supplier picker is a server-searched combobox (SupplierSelect): type
     // the name, click the hit, and confirm the form holds the fixture's id.
     const picker = page.getByTestId('supplier-select-input');
