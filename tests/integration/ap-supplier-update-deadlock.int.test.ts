@@ -38,10 +38,11 @@ vi.mock('@/modules/accounting/services/ap/supplierPaymentApproval', async (orig)
 });
 
 import { updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
+import { lockSupplierPaymentForUpdate } from '@/modules/accounting/services/core/paymentLock';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { lockOrderKit } from './ap-supplier-batch-lock-order.helpers';
 import { createUser } from './r035-approval.helpers';
-import { cleanupPr5, payCompany, payRoutes, plantPayment } from './r035-pr5.helpers';
+import { cleanupPr5, payCompany, payRoutes, plantPayment, plantSupplier } from './r035-pr5.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
@@ -82,13 +83,48 @@ describe('updateSupplier against processSupplierPayment: supplier, then payment'
     const { c, p } = await approvedPayment();
     const { processing, release } = await startParkedProcess(c, p.id); // route holds the payment row
     const edit = startWriter(c, () => updateSupplier(c, p.supplierId, input, u.a));
-    // Master: the edit holds the supplier and waits on the payment. Fixed: it waits on the supplier the route key-shares.
-    expect(await blockedStatement(await edit.pid)).toMatch(/suppliers|supplier_payments/);
-    release();
+    const blocked = await blockedStatement(await edit.pid).finally(release);
     const [res, edited] = await Promise.all([processing, edit.outcome]);
     expect({ process: res.state.statusCode, edited }).toEqual({ process: 200, edited: { ok: true } });
+    // The edit waited on the supplier the route key-shares (before the fix: it held the supplier, waited on the payment).
+    expect(blocked).toMatch(/FROM suppliers WHERE[\s\S]*FOR UPDATE/);
     const row = (await pool.query('SELECT status, gl_journal_entry_id FROM supplier_payments WHERE id = $1', [p.id])).rows[0];
     expect(row.status).toBe('processed');
     expect(row.gl_journal_entry_id).not.toBeNull();
+  });
+});
+
+describe('lockSupplierPaymentForUpdate: a payment re-pointed while it waited', () => {
+  it('key-shares the supplier the payment names once locked, not only the one it named before', async () => {
+    const { company: c, bank } = await payCompany(pool, [[u.a, 'admin']], companies);
+    const p = await plantPayment(pool, c, u.a, bank); // draft
+    const moved = await plantSupplier(pool, c);
+    // A merge-like writer re-points the payment and holds it.
+    const merge = await pool.connect();
+    try {
+      await merge.query('BEGIN');
+      await merge.query('UPDATE supplier_payments SET supplier_id = $1 WHERE id = $2', [moved, p.id]);
+      let release!: () => void;
+      const hold = new Promise<void>((res) => { release = res; });
+      const locker = startWriter(c, async () => {
+        const row = await lockSupplierPaymentForUpdate(c, p.id);
+        await hold; // keep the transaction (and its locks) open while the probe runs
+        return row;
+      });
+      expect(await blockedStatement(await locker.pid)).toMatch(/FOR UPDATE OF sp/);
+      await merge.query('COMMIT');
+      // Once the payment lock is granted the new supplier is key-shared: a FOR UPDATE of it cannot be had.
+      let probe: string | undefined;
+      for (let i = 0; i < 500 && probe !== '55P03'; i += 1) {
+        probe = await pool.query('SELECT id FROM suppliers WHERE id = $1 FOR UPDATE NOWAIT', [moved])
+          .then(() => 'free', (e: { code?: string }) => e.code);
+        if (probe !== '55P03') await new Promise((res) => setTimeout(res, 20));
+      }
+      release();
+      expect({ probe, locked: await locker.outcome }).toEqual({ probe: '55P03', locked: { ok: true } });
+    } finally {
+      await merge.query('ROLLBACK').catch(() => undefined);
+      merge.release();
+    }
   });
 });
