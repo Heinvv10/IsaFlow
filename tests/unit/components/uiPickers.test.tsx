@@ -191,6 +191,40 @@ describe('AccountPicker', () => {
     await waitFor(() => expect(trigger('Account').textContent).toContain('Cash at Bank'));
   });
 
+  it('with valueKey="code" carries the code, names the current value on mount, and applies refine', async () => {
+    vi.mocked(apiFetch).mockImplementation(route);
+    const onChange = vi.fn();
+    render(<AccountPicker label="Account" valueKey="code" value="6100" onChange={onChange} refine={(rows) => rows.filter((r) => r.accountType === 'expense')} />);
+    await waitFor(() => expect(trigger('Account').textContent).toContain('6100 · Repairs'));
+    fireEvent.click(trigger('Account'));
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['6000 · Rent', '6100 · Repairs']);
+    fireEvent.click(screen.getByRole('option', { name: '6000 · Rent' }));
+    expect(onChange).toHaveBeenCalledWith('6000', expect.objectContaining({ value: '6000' }));
+  });
+
+  it('typing while the chart is still loading waits for it instead of failing', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(apiFetch).mockImplementation(async (_u, init) => {
+      await gate;
+      if (init?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      return ok(ACCOUNTS);
+    });
+    render(<AccountPicker label="Account" value={null} onChange={() => {}} />);
+    fireEvent.click(trigger('Account'));
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Search Account' }), { target: { value: 'sales' } });
+    await new Promise((r) => setTimeout(r, 400)); // the debounced search fires while the first load is still in flight
+    release();
+    await waitFor(() => expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['4000 · Sales']));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows at once, under the field, a failure to name the current value', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => fail(500));
+    render(<AccountPicker label="Account" valueKey="code" value="6100" onChange={() => {}} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('boom');
+  });
+
   it('create-new passes the query', async () => {
     vi.mocked(apiFetch).mockImplementation(route);
     const onCreateNew = vi.fn();
