@@ -10,6 +10,8 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Loader2, Search, UserPlus, ExternalLink, X, Check } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type StatusFilter = 'pending' | 'promoted' | 'all';
 
@@ -40,12 +42,12 @@ const TURNOVER_THRESHOLD_CENTS = 100_000_000;
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: '2-digit' });
+  return Number.isNaN(d.getTime()) ? '—' : formatSaDateValue(d);
 }
 
 function fmtTurnover(cents: number | null): string {
   if (cents === null) return '—';
-  return `R${(cents / 100).toLocaleString('en-ZA', { maximumFractionDigits: 0 })}`;
+  return formatMoney(cents / 100, { decimals: 0 });
 }
 
 export default function AdminWaitlistPage() {
@@ -212,9 +214,9 @@ export default function AdminWaitlistPage() {
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">
                       {r.signup_type === 'accountant' ? (r.practice_name || '—') : (r.company_name || '—')}
                     </td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs whitespace-nowrap">
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs whitespace-nowrap">
                       {fmtTurnover(r.annual_turnover_cents)}
-                      {isPayg && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400">PAYG</span>}
+                      {isPayg && <span className="ml-2 px-1.5 py-0.5 rounded text-xs font-medium bg-teal-500/10 text-teal-600 dark:text-teal-400">PAYG</span>}
                     </td>
                     <td className="px-4 py-3">
                       {r.promoted_at
@@ -263,7 +265,7 @@ export default function AdminWaitlistPage() {
                 <dt className="text-gray-500 dark:text-gray-400">{promoteTarget.signup_type === 'accountant' ? 'Practice' : 'Company'}</dt>
                 <dd className="col-span-2 text-gray-900 dark:text-white">{promoteTarget.signup_type === 'accountant' ? (promoteTarget.practice_name ?? '—') : (promoteTarget.company_name ?? '—')}</dd>
                 <dt className="text-gray-500 dark:text-gray-400">Turnover</dt>
-                <dd className="col-span-2 text-gray-900 dark:text-white font-mono">{fmtTurnover(promoteTarget.annual_turnover_cents)}</dd>
+                <dd className="col-span-2 text-gray-900 dark:text-white tabular-nums">{fmtTurnover(promoteTarget.annual_turnover_cents)}</dd>
               </dl>
               <div>
                 <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Plan</label>

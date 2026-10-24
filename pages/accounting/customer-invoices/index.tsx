@@ -23,6 +23,7 @@ import { ARFilterBar } from '@/components/accounting/customer-invoices/ARFilterB
 import { CustomerInvoiceTable, type CustomerInvoiceRow } from '@/components/accounting/customer-invoices/CustomerInvoiceTable';
 import { useCustomerInvoiceListState } from '@/components/accounting/customer-invoices/useCustomerInvoiceListState';
 import { arFiltersToApiParams } from '@/components/accounting/customer-invoices/listQuery';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const LIMIT = 25;
 
@@ -95,7 +96,7 @@ export default function CustomerInvoicesPage() {
             const visTotal = invoices.reduce((s, i) => s + Number(i.total_amount || 0), 0);
             const visOutstanding = invoices.reduce((s, i) => s + (Number(i.total_amount || 0) - Number(i.amount_paid || 0)), 0);
             const visOverdue = invoices.filter(i => i.status === 'overdue').length;
-            const fmt = (n: number) => 'R ' + new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 }).format(n);
+            const fmt = (n: number) => formatMoney(n, { decimals: 0 });
             return (
               <KpiStrip items={[
                 { label: 'Total Invoices', value: total, icon: FileText, tone: 'info' },

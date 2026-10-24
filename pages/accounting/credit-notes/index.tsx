@@ -10,6 +10,7 @@ import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
@@ -51,7 +52,7 @@ export default function CreditNotesPage() {
     const rows = creditNotes.map(cn => [
       cn.creditNoteNumber, cn.type,
       cn.type === 'customer' ? cn.clientName : cn.supplierName || '',
-      cn.invoiceNumber || '', new Date(cn.creditDate).toLocaleDateString('en-ZA'),
+      cn.invoiceNumber || '', formatSaDateValue(cn.creditDate),
       cn.totalAmount, cn.status,
     ]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -131,8 +132,8 @@ export default function CreditNotesPage() {
                         <td className="px-5 py-3.5"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${TYPE_CLS[cn.type] || ''}`}>{cn.type}</span></td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.type === 'customer' ? cn.clientName : cn.supplierName || '—'}</td>
                         <td className="px-5 py-3.5 font-mono text-xs text-slate-500 dark:text-slate-400">{cn.invoiceNumber || '—'}</td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{new Date(cn.creditDate).toLocaleDateString('en-ZA')}</td>
-                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{formatCurrency(cn.totalAmount)}</td>
+                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{formatSaDateValue(cn.creditDate)}</td>
+                        <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(cn.totalAmount)}</td>
                         <td className="px-5 py-3.5"><StatusPill status={cn.status} /></td>
                         <td className="px-4 py-3.5 text-right"><ChevronRight className="h-4 w-4 text-slate-500 dark:text-slate-400 ml-auto" /></td>
                       </tr>

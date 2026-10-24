@@ -7,6 +7,7 @@ import {
   DOC_TYPE_LABELS, INDUSTRIES,
 } from './settingsTypes';
 import { ENTITY_TYPES } from '@/lib/entityTypes';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface Props {
   company: Company;
@@ -203,22 +204,22 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
           <div>
             <label className={LABEL_CLS}>PAYE Reference Number</label>
             <input className={INPUT_CLS} maxLength={10} placeholder="7XXXXXXXXX" value={company.payeReferenceNumber || ''} onChange={e => onChange('payeReferenceNumber', e.target.value)} />
-            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">10 digits. Starts with 7 if registered for PAYE.</p>
+            <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">10 digits. Starts with 7 if registered for PAYE.</p>
           </div>
           <div>
             <label className={LABEL_CLS}>SDL Reference Number</label>
             <input className={INPUT_CLS} maxLength={10} placeholder="LXXXXXXXXX" value={company.sdlReferenceNumber || ''} onChange={e => onChange('sdlReferenceNumber', e.target.value)} />
-            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">L followed by 9 digits. Leave blank if not registered for SDL.</p>
+            <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">L followed by 9 digits. Leave blank if not registered for SDL.</p>
           </div>
           <div>
             <label className={LABEL_CLS}>UIF Reference Number</label>
             <input className={INPUT_CLS} maxLength={10} placeholder="UXXXXXXXXX" value={company.uifReferenceNumber || ''} onChange={e => onChange('uifReferenceNumber', e.target.value)} />
-            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">SARS-issued UIF ref (starts with U). Not the UIF fund number.</p>
+            <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">SARS-issued UIF ref (starts with U). Not the UIF fund number.</p>
           </div>
           <div>
             <label className={LABEL_CLS}>SIC7 Code</label>
             <input className={INPUT_CLS} maxLength={5} placeholder="XXXXX" value={company.sic7Code || ''} onChange={e => onChange('sic7Code', e.target.value)} />
-            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">5-digit SIC7 industry classification code (SARS BRS Appendix C).</p>
+            <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">5-digit SIC7 industry classification code (SARS BRS Appendix C).</p>
           </div>
         </div>
       </section>
@@ -274,7 +275,7 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
                   <tr key={doc.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                     <td className="py-3 text-[var(--ff-text-primary)]">{DOC_TYPE_LABELS[doc.documentType] || doc.documentType}</td>
                     <td className="py-3 text-[var(--ff-text-secondary)] flex items-center gap-2"><FileText className="h-4 w-4 text-[var(--ff-text-tertiary)]" />{doc.documentName}</td>
-                    <td className="py-3 text-[var(--ff-text-secondary)]">{new Date(doc.createdAt).toLocaleDateString()}</td>
+                    <td className="py-3 text-[var(--ff-text-secondary)]">{formatSaDateValue(doc.createdAt)}</td>
                     <td className="py-3 text-[var(--ff-text-secondary)]">{formatFileSize(doc.fileSize)}</td>
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-2">

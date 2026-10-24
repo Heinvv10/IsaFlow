@@ -7,8 +7,9 @@ import { useCallback, useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { assertOk, apiErrorMessage, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const LOAD_FALLBACK = 'Could not load the payment details - try again';
 const NOT_FOUND_MESSAGE = 'This payment link was not found or has expired.';

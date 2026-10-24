@@ -8,9 +8,10 @@
  */
 
 import type { NonSupplyReason, VatNonSupplyLine } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const th = 'px-2 py-1.5 text-left text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider';
 const td = 'px-2 py-1.5 text-xs text-[var(--ff-text-primary)] whitespace-nowrap';
@@ -53,7 +54,7 @@ export default function VatNonSupplySection({ lines }: { lines: VatNonSupplyLine
           {lines.map((l, i) => (
             <tr key={`${l.journalEntryId}-${i}`}>
               <td className={td}>{l.entryNumber}</td>
-              <td className={td}>{l.entryDate}</td>
+              <td className={td}>{formatSaDateValue(l.entryDate)}</td>
               <td className={td}>{l.accountCode} {l.accountName}</td>
               <td className={`${td} text-amber-400`}>
                 {l.reason ? NON_SUPPLY_REASON_LABEL[l.reason] : '—'}

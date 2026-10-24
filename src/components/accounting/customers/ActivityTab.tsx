@@ -10,6 +10,7 @@ import {
   Clock, Plus, Trash2, Loader2,
 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 type ActivityType =
   | 'note'
@@ -90,7 +91,7 @@ function relativeTime(raw: string | Date): string {
   if (diffHr < 24)    return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`;
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 30)   return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
-  return date.toLocaleDateString('en-ZA');
+  return formatSaDateValue(date);
 }
 
 function creatorName(activity: CustomerActivity): string {

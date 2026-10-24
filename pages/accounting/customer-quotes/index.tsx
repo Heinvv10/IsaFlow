@@ -10,13 +10,14 @@ import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
 interface CustomerOption { id: string; name: string }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const TABS = ['all', 'draft', 'sent', 'accepted', 'declined', 'expired', 'converted'] as const;
 
 interface ModalProps { customers: CustomerOption[]; onClose: () => void; onCreated: () => void }
@@ -91,7 +92,7 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
                       <td className="px-2 py-2"><input value={l.desc} onChange={e => { const n = [...lines]; n[i] = { ...l, desc: e.target.value }; setLines(n); }} placeholder="Item description" className={inp} /></td>
                       <td className="px-2 py-2"><input type="number" value={l.qty} min={1} onChange={e => { const n = [...lines]; n[i] = { ...l, qty: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
                       <td className="px-2 py-2"><input type="number" value={l.price} min={0} step={0.01} onChange={e => { const n = [...lines]; n[i] = { ...l, price: Number(e.target.value) }; setLines(n); }} className={`${inp} text-right`} /></td>
-                      <td className="px-3 py-2 text-right font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(l.qty * l.price)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-xs font-semibold text-slate-700 dark:text-slate-300">{fmt(l.qty * l.price)}</td>
                       <td className="px-2 py-2"><button onClick={() => lines.length > 1 && setLines(lines.filter((_, j) => j !== i))} className="p-1 rounded text-slate-700 dark:text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button></td>
                     </tr>
                   ))}
@@ -100,9 +101,9 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
             </div>
             {subtotal > 0 && (
               <div className="mt-3 flex justify-end gap-4 text-sm px-1">
-                <span className="text-slate-500 dark:text-slate-400">Subtotal <span className="font-mono text-slate-700 dark:text-slate-200">{fmt(subtotal)}</span></span>
-                <span className="text-slate-500 dark:text-slate-400">VAT 15% <span className="font-mono text-slate-700 dark:text-slate-200">{fmt(subtotal * 0.15)}</span></span>
-                <span className="font-bold text-amber-500 font-mono">{fmt(subtotal * 1.15)}</span>
+                <span className="text-slate-500 dark:text-slate-400">Subtotal <span className="tabular-nums text-slate-700 dark:text-slate-200">{fmt(subtotal)}</span></span>
+                <span className="text-slate-500 dark:text-slate-400">VAT 15% <span className="tabular-nums text-slate-700 dark:text-slate-200">{fmt(subtotal * 0.15)}</span></span>
+                <span className="font-bold text-amber-500 tabular-nums">{fmt(subtotal * 1.15)}</span>
               </div>
             )}
           </div>
@@ -261,7 +262,7 @@ export default function CustomerQuotesPage() {
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{q.customerName}</td>
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{q.quoteDate?.split('T')[0]}</td>
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{q.expiryDate?.split('T')[0] || '—'}</td>
-                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{fmt(q.total)}</td>
+                        <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(q.total)}</td>
                         <td className="px-5 py-3.5"><StatusPill status={q.status} /></td>
                         <td className="px-4 py-3.5">
                           <div className="flex justify-end gap-1.5">

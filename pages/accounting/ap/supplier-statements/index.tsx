@@ -10,6 +10,8 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { Loader2, AlertCircle, Upload, X, CheckCircle2, FileText } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 
@@ -27,12 +29,12 @@ type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
 function fmtZAR(n: number | null) {
   if (n === null) return '—';
-  return 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMoney(n);
 }
 
 function fmtDate(s: string | null) {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  try { return formatSaDateValue(s); } catch { return String(s); }
 }
 
 function readCompanyId(): string | null {
@@ -50,7 +52,7 @@ function VarianceBadge({ variance }: { variance: number | null }) {
   if (variance === null) return <span className="font-mono text-xs text-[var(--ff-text-tertiary)]">—</span>;
   const abs = Math.abs(variance);
   const cls = abs <= 0.01 ? 'text-teal-400' : abs <= 100 ? 'text-amber-400' : 'text-red-400';
-  return <span className={`font-mono text-xs font-medium ${cls}`}>{fmtZAR(variance)}</span>;
+  return <span className={`tabular-nums text-xs font-medium ${cls}`}>{fmtZAR(variance)}</span>;
 }
 
 function StatusBadge({ status }: { status: ReconStatus }) {
@@ -186,11 +188,11 @@ export default function SupplierStatementsIndexPage() {
                     return (
                     <tr key={s.id} onClick={() => router.push(`/accounting/ap/supplier-statements/${s.id}`)}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors">
-                      <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtDate(s.statementDate)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(s.statementDate)}</td>
                       <td className="px-4 py-3 text-xs font-medium text-[var(--ff-text-primary)]">{s.supplierName}</td>
                       <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">{s.periodStart || s.periodEnd ? `${fmtDate(s.periodStart)} – ${fmtDate(s.periodEnd)}` : '—'}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.supplierBalance)}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.isaflowBalance)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.supplierBalance)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(s.isaflowBalance)}</td>
                       <td className="px-4 py-3 text-right"><VarianceBadge variance={s.variance} /></td>
                       <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
                     </tr>

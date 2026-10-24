@@ -8,6 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Upload, FileText } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 type ImportStatus = 'extracting' | 'extracted' | 'reviewing' | 'committed' | 'rolled_back' | 'failed';
 
@@ -27,7 +28,7 @@ type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  try { return formatSaDateValue(s); } catch { return String(s); }
 }
 
 function StatusBadge({ status }: { status: ImportStatus }) {
@@ -131,7 +132,7 @@ export default function BankStatementsIndexPage() {
                       onClick={() => router.push(`/accounting/bank/statements/import-pdf?id=${imp.id}`)}
                       className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors"
                     >
-                      <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">
+                      <td className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">
                         {fmtDate(imp.createdAt)}
                       </td>
                       <td className="px-4 py-3 text-xs text-[var(--ff-text-primary)] font-medium">

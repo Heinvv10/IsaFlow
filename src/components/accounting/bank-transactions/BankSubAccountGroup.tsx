@@ -41,12 +41,12 @@ export function BankGroupCard({ group, containsSelection, expanded, onToggle }: 
         </p>
       </div>
       <div className="ml-3 text-right">
-        <p className={`text-sm font-bold font-mono ${group.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+        <p className={`text-sm font-bold tabular-nums ${group.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
           {fmtCurrency(group.balance)}
         </p>
         {hasGap && (
           <span
-            className="text-[10px] text-amber-400 font-mono"
+            className="text-xs text-amber-400 font-mono"
             title={`${group.unreconciledCount} unallocated transaction${group.unreconciledCount !== 1 ? 's' : ''} across this group`}
           >
             Δ {fmtCurrency(Math.abs(group.unreconciledBalance))}
@@ -100,11 +100,11 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Worklis
                 </span>
                 <span className="text-xs font-mono text-[var(--ff-text-tertiary)] shrink-0">{a.accountCode}</span>
               </button>
-              <span className={`font-mono text-xs shrink-0 ${a.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+              <span className={`tabular-nums text-xs shrink-0 ${a.balance >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                 {fmtCurrency(a.balance)}
               </span>
               {a.unallocatedCount > 0 && (
-                <span className="text-[10px] font-mono text-amber-400 shrink-0" title="Unallocated transactions">
+                <span className="text-xs font-mono text-amber-400 shrink-0" title="Unallocated transactions">
                   {a.unallocatedCount} open
                 </span>
               )}

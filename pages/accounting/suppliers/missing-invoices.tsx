@@ -8,17 +8,19 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, Mail, MessageSquare, X, CheckCircle2, Clock, Search, FileQuestion, Zap } from 'lucide-react';
 import { MissingInvoiceModals, type ExpectedAlert } from '@/components/accounting/suppliers/MissingInvoiceModals';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 type StatusFilter = 'pending' | 'chased' | 'resolved' | 'dismissed';
 type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
 interface ChaseSettings { chaseAutoSendEnabled: boolean; chaseGraceDays: number; whatsappChaseEnabled: boolean; }
 
 export const fmtZAR = (n: number | null) =>
-  n == null ? '—' : 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n == null ? '—' : formatMoney(n);
 
 export const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  try { return formatSaDateValue(s); } catch { return String(s); }
 };
 
 function DaysOverdueBadge({ d }: { d: number }) {
@@ -201,8 +203,8 @@ export default function MissingInvoicesPage() {
                   {filtered.map(a => (
                     <tr key={a.id} className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 transition-colors">
                       <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)] text-xs">{a.supplierName}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtDate(a.expectedBy)}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtZAR(a.expectedAmount)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(a.expectedBy)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtZAR(a.expectedAmount)}</td>
                       <td className="px-4 py-3"><DaysOverdueBadge d={a.daysOverdue} /></td>
                       <td className="px-4 py-3">
                         <span className="inline-block px-2 py-0.5 rounded text-xs font-medium border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] capitalize">{a.status}</span>

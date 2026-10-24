@@ -121,10 +121,10 @@ export function parseSaAmount(input: string): AmountParseResult {
 
 /** "25 000.00" / "-123.45": space-grouped, dot decimal. Parses back to the same cents. */
 export function formatCentsPlain(cents: number): string {
-  return formatMoney(cents / 100).replace(/,/g, '\u00A0').replace(/^(-?)R /, '$1');
+  return formatMoney(cents / 100).replace(/^(-?)R /, '$1');
 }
 
 /** "R 25 000.00": space-grouped (no comma that could be read as a decimal), dot decimal. */
 export function formatCentsEcho(cents: number): string {
-  return formatMoney(cents / 100).replace(/,/g, '\u00A0');
+  return formatMoney(cents / 100);
 }

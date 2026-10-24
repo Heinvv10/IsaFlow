@@ -9,13 +9,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Layers, Plus, Check, Zap, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Batch {
   id: string; batchNumber: string; batchDate: string; totalAmount: number;
   paymentCount: number; paymentMethod: string; status: string;
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',

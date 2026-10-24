@@ -8,9 +8,11 @@ import { Fuel, Landmark, Loader2, Wrench } from 'lucide-react';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { FleetRecordsTab } from './FleetRecordsTab';
 import { loadAssetBankLinks, type AssetBankLine } from './fleetRecordsApi';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 type Tab = 'fuel' | 'service' | 'bank';
-const fmtR = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmtR = (n: number) => formatMoney(n);
 
 function LinkedBankTransactions({ assetId, version }: { assetId: string; version: number }) {
   const [rows, setRows] = useState<AssetBankLine[]>([]);
@@ -47,14 +49,14 @@ function LinkedBankTransactions({ assetId, version }: { assetId: string; version
       <tbody>
         {rows.map(r => (
           <tr key={r.id} className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-primary)]">
-            <td className="px-2 py-1.5">{r.transactionDate}</td>
+            <td className="px-2 py-1.5">{formatSaDateValue(r.transactionDate)}</td>
             <td className="px-2 py-1.5">
               <Link href={`/accounting/bank-transactions?account_id=${encodeURIComponent(r.bankAccountId)}`} className="text-blue-400 hover:text-blue-300">
                 {r.bankAccountName ?? 'Bank account'}
               </Link>
             </td>
             <td className="px-2 py-1.5 truncate max-w-[240px]">{r.description ?? '—'}</td>
-            <td className="px-2 py-1.5 text-right font-mono">{fmtR(r.amount)}</td>
+            <td className="px-2 py-1.5 text-right tabular-nums">{fmtR(r.amount)}</td>
             <td className="px-2 py-1.5">{r.kind === 'asset' ? 'Asset' : r.link.label}</td>
             <td className="px-2 py-1.5 capitalize">{r.status}</td>
           </tr>

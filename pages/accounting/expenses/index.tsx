@@ -10,6 +10,8 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Plus, RefreshCw, AlertCircle, Loader2, Receipt, ArrowRight, Filter,
 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface ClaimRow {
   id: string;
@@ -34,7 +36,7 @@ const STATUS_LABELS: Record<ClaimRow['status'], { text: string; tone: string }> 
 };
 
 function fmtZAR(n: number): string {
-  return `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(n);
 }
 
 export default function ExpenseClaimsIndex() {
@@ -122,7 +124,7 @@ export default function ExpenseClaimsIndex() {
                     <tr key={c.id} className="hover:bg-white/5 cursor-pointer"
                         onClick={() => { window.location.href = `/accounting/expenses/${c.id}`; }}>
                       <td className="px-6 py-3 text-slate-200 font-mono text-xs">{c.claimNumber}</td>
-                      <td className="px-6 py-3 text-slate-400">{c.claimDate}</td>
+                      <td className="px-6 py-3 text-slate-400">{formatSaDateValue(c.claimDate)}</td>
                       <td className="px-6 py-3 text-slate-300">{c.title ?? '—'}</td>
                       <td className="px-6 py-3">
                         <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${STATUS_LABELS[c.status].tone}`}>

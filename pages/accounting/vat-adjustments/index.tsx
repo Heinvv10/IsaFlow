@@ -11,13 +11,14 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
   adjustmentType: string; amount: number; reason: string; status: string;
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',

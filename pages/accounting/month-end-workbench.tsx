@@ -53,7 +53,7 @@ function CardTile({ card }: CardProps) {
           <Icon className={`w-4 h-4 ${meta.iconColor}`} aria-hidden />
           <h3 className="text-sm font-medium text-zinc-200">{card.title}</h3>
         </div>
-        <span className={`text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded border ${STATUS_TONE_CLASSES[meta.tone]}`}>
+        <span className={`text-xs uppercase tracking-wide font-semibold px-2 py-0.5 rounded border ${STATUS_TONE_CLASSES[meta.tone]}`}>
           {meta.label}
         </span>
       </div>

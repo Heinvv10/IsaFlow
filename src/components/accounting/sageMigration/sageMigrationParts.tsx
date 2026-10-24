@@ -3,6 +3,7 @@
  * pages/accounting/sage-migration/index.tsx under the 300-line cap.
  */
 import { Loader2, CheckCircle2, Play, RotateCcw } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 export interface MigrationRunSummary {
   id: string; runType: string; status: string; totalRecords: number;
@@ -32,7 +33,7 @@ export function MigrationHistory({ runs }: { runs: MigrationRunSummary[] }) {
             <div>
               <span className="font-medium text-[var(--ff-text-primary)]">{run.runType.replace('_', ' ')}</span>
               <span className="text-[var(--ff-text-tertiary)] text-xs ml-2">
-                {new Date(run.startedAt).toLocaleDateString('en-ZA')}
+                {formatSaDateValue(run.startedAt)}
               </span>
             </div>
             <div className="flex items-center gap-3">

@@ -17,7 +17,27 @@ export default {
     'bg-gray-500/20', 'text-gray-400',
   ],
   theme: {
+    // The type scale: six sizes, 12 px minimum. A size below 12 px (text-[10px], text-[11px],
+    // fontSize: 10 on a chart tick) is not a token and is refused by tests/unit/lib/typeScaleCensus.test.ts.
+    fontSize: {
+      xs: ['0.75rem', { lineHeight: '1rem' }],
+      sm: ['0.875rem', { lineHeight: '1.25rem' }],
+      base: ['1rem', { lineHeight: '1.5rem' }],
+      lg: ['1.125rem', { lineHeight: '1.75rem' }],
+      xl: ['1.25rem', { lineHeight: '1.75rem' }],
+      '2xl': ['1.5rem', { lineHeight: '2rem' }],
+    },
     extend: {
+      // Display sizes: marketing, legal, sign-in and slide surfaces only. The same census keeps them out of app screens.
+      fontSize: {
+        '3xl': ['1.875rem', { lineHeight: '2.25rem' }],
+        '4xl': ['2.25rem', { lineHeight: '2.5rem' }],
+        '5xl': ['3rem', { lineHeight: '1' }],
+        '6xl': ['3.75rem', { lineHeight: '1' }],
+        '7xl': ['4.5rem', { lineHeight: '1' }],
+        '8xl': ['6rem', { lineHeight: '1' }],
+        '9xl': ['8rem', { lineHeight: '1' }],
+      },
       colors: {
         primary: {
           '50': '#eff6ff',

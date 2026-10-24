@@ -13,6 +13,7 @@ import {
 import { localISODate } from '@/lib/dateUtils';
 import { AuditSnapshotsPanel } from '@/components/accounting/audit/AuditSnapshotsPanel';
 import { AuditInviteDrawer } from '@/components/accounting/audit/AuditInviteDrawer';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface AuditExport {
   id: string;
@@ -31,7 +32,6 @@ interface AuditExport {
   builtAt: string | null;
 }
 
-
 const STATUS_STYLES: Record<AuditExport['status'], string> = {
   queued:   'bg-slate-700 text-slate-300',
   building: 'bg-amber-900/50 text-amber-300',
@@ -40,7 +40,7 @@ const STATUS_STYLES: Record<AuditExport['status'], string> = {
 };
 
 function fmtZAR(n: number): string {
-  return `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(n);
 }
 
 export default function AuditTrailPage() {

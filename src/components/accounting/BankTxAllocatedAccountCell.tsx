@@ -46,7 +46,7 @@ export function AllocatedAccountCell({ tx, fallbackLabel }: {
         {account}
       </span>
       {counterparty && (
-        <span className="text-[10px] truncate block text-[var(--ff-text-tertiary)]" title={counterparty}>
+        <span className="text-xs truncate block text-[var(--ff-text-tertiary)]" title={counterparty}>
           {counterparty}
         </span>
       )}

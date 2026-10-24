@@ -78,7 +78,7 @@ export function IncomeStatementSections({
               downloaded from it, and stops a count being taken from
               the CAPPED named list. */}
           <DataQualityNotice notices={report.subtypeDisclosure.notices} />
-          <p className="mt-2 font-mono text-xs text-[var(--ff-text-tertiary)]">
+          <p className="mt-2 tabular-nums text-xs text-[var(--ff-text-tertiary)]">
             {report.subtypeDisclosure.accounts
               .map(a => `${a.accountCode} ${a.accountName} ${formatMoney(a.amount, { cents: true, symbol: true })}`)
               .join(' · ')}
@@ -102,13 +102,13 @@ export function IncomeStatementSections({
         <div className="px-6 py-2 flex gap-6 text-sm border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
           <span className="text-[var(--ff-text-tertiary)]">
             Gross Margin:{' '}
-            <span className="font-mono font-medium text-[var(--ff-text-primary)]">
+            <span className="tabular-nums font-medium text-[var(--ff-text-primary)]">
               {report.grossMarginPct.toFixed(1)}%
             </span>
           </span>
           <span className="text-[var(--ff-text-tertiary)]">
             Net Margin:{' '}
-            <span className="font-mono font-medium text-[var(--ff-text-primary)]">
+            <span className="tabular-nums font-medium text-[var(--ff-text-primary)]">
               {report.netMarginPct.toFixed(1)}%
             </span>
           </span>

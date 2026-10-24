@@ -33,7 +33,7 @@ const STATUS_CLS: Record<PracticeTimeEntry['status'], string> = {
   invoiced: 'bg-green-500/20 text-green-400',
 };
 
-const TH_CLS = 'text-left py-2 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase';
+const TH_CLS = 'text-left py-2 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD_CLS = 'py-2.5 px-4 text-[var(--ff-text-secondary)]';
 
 function ErrorBanner({ msg }: { msg: string }) {
@@ -201,7 +201,7 @@ export default function TimeEntryPage() {
                     {entries.map((e) => (
                       <tr key={e.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                         <td className={TD_CLS}><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_CLS[e.status]}`}>{e.status}</span></td>
-                        <td className="py-2.5 px-4 font-mono text-[var(--ff-text-primary)]">{e.hours.toFixed(2)}h</td>
+                        <td className="py-2.5 px-4 tabular-nums text-[var(--ff-text-primary)]">{e.hours.toFixed(2)}h</td>
                         <td className={TD_CLS}>{e.practiceClientName ?? '—'}</td>
                         <td className={TD_CLS}>{e.jobCategoryName ?? '—'}{e.workItemName && <span className="text-[var(--ff-text-tertiary)]"> / {e.workItemName}</span>}</td>
                         <td className={`${TD_CLS} max-w-xs truncate`}>{e.taskDescription}</td>

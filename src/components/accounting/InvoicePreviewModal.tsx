@@ -8,6 +8,8 @@ import { Send, Download, Loader2, AlertCircle } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,14 +56,11 @@ interface InvoicePreviewModalProps {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const fmtDate = (d: string | Date | undefined): string => {
   if (!d) return '—';
-  return (d instanceof Date ? d : new Date(d)).toLocaleDateString('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
+  return formatSaDateValue((d instanceof Date ? d : new Date(d)));
 };
 
 // ── Invoice Document ─────────────────────────────────────────────────────────
@@ -90,7 +89,7 @@ function InvoiceDocument({ inv }: { inv: InvoicePreviewData }) {
           )}
         </div>
         <div className="text-right">
-          <p className="text-3xl font-extrabold text-teal-600 dark:text-teal-400">INVOICE</p>
+          <p className="text-2xl font-extrabold text-teal-600 dark:text-teal-400">INVOICE</p>
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-1">{inv.invoice_number}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             <span className="font-medium text-gray-700 dark:text-gray-300">Date: </span>{fmtDate(inv.invoice_date)}

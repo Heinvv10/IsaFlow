@@ -4,9 +4,9 @@
 
 import { formatDate } from '@/utils/formatters';
 import { FormRow } from './VAT201FormSections';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface VAT201Data {
   periodStart: string;

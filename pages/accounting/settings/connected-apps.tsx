@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plug, ShieldCheck, Loader2, ShieldOff, X } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface ConnectedApp {
   authorisationId: string;
@@ -23,7 +24,7 @@ interface ConnectedApp {
 function fmt(val: string | null): string {
   if (!val) return 'Never';
   try {
-    return new Date(val).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
+    return formatSaDateValue(val);
   } catch { return val; }
 }
 

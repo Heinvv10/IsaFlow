@@ -2,9 +2,9 @@
  * VAT201 summary view (form rows) and detail view (transaction tables).
  */
 import { formatDate } from '@/utils/formatters';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 // ── FormRow ──────────────────────────────────────────────────────────────────
 

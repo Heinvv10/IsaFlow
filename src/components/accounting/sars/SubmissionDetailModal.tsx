@@ -7,6 +7,7 @@
 import { useEffect, useId } from 'react';
 import { X, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface SubmissionDetail {
   id: string;
@@ -22,8 +23,7 @@ export interface SubmissionDetail {
   updatedAt: string;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const formatDateTime = (d: string) => {
   if (!d) return '—';

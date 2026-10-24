@@ -5,7 +5,7 @@
  * Locale: en-ZA (South Africa) for all user-facing dates.
  *
  * Display formats:
- *   formatDisplayDate()       → "25 Feb 2026"
+ *   formatDisplayDate()       → "25 Feb 2026" (zero-padded day: "05 Feb 2026")
  *   formatDisplayDateTime()   → "25 Feb 2026, 14:30"
  *   formatDisplayDateLong()   → "25 February 2026"
  *   formatDisplayDateShort()  → "25 Feb"
@@ -17,6 +17,7 @@
  */
 
 import { localISODate } from '@/lib/dateUtils';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 const LOCALE = 'en-ZA';
 
@@ -54,12 +55,12 @@ function toDate(date: DateInput): Date | null {
 // ─── Display Formats (user-facing) ──────────────────────────────
 
 /**
- * "25 Feb 2026" — Standard display date
+ * "25 Feb 2026" — Standard display date (the shared formatSaDateValue, with a fallback)
  */
 export function formatDisplayDate(date: DateInput, fallback = 'N/A'): string {
   const d = toDate(date);
   if (!d) return fallback;
-  return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
+  return formatSaDateValue(d);
 }
 
 /**
@@ -68,7 +69,7 @@ export function formatDisplayDate(date: DateInput, fallback = 'N/A'): string {
 export function formatDisplayDateTime(date: DateInput, fallback = 'N/A'): string {
   const d = toDate(date);
   if (!d) return fallback;
-  const datePart = d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' });
+  const datePart = formatSaDateValue(d);
   const timePart = d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit', hour12: false });
   return `${datePart}, ${timePart}`;
 }

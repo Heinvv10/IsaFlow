@@ -6,6 +6,7 @@
 import { DM_Serif_Display } from 'next/font/google';
 import { TrendingUp, FileText, Landmark, Clock, ArrowDown } from 'lucide-react';
 import type { ElementType } from 'react';
+import { formatMoneyCompact } from '@/lib/money/formatMoney';
 
 const serif = DM_Serif_Display({ subsets: ['latin'], weight: '400' });
 
@@ -30,11 +31,7 @@ export interface DashboardHeroProps {
   onTabChange: (id: string) => void;
 }
 
-function fmt(n: number): string {
-  if (Math.abs(n) >= 1_000_000) return `R\u00A0${(n / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(n) >= 1_000) return `R\u00A0${(n / 1_000).toFixed(1)}K`;
-  return `R\u00A0${new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2 }).format(n)}`;
-}
+const fmt = (n: number): string => formatMoneyCompact(n);
 
 const PILLS = (s: DashboardHeroStats) => [
   {
@@ -139,7 +136,7 @@ export function DashboardHero({
         {loading ? (
           <div className="h-10 w-64 rounded-lg bg-white/10 animate-pulse mb-2" />
         ) : (
-          <h1 className={`${serif.className} text-3xl sm:text-4xl text-slate-900 dark:text-white leading-tight`}>
+          <h1 className={`${serif.className} text-2xl text-slate-900 dark:text-white leading-tight`}>
             {title}
           </h1>
         )}
@@ -161,7 +158,7 @@ export function DashboardHero({
                     <Icon className="h-3.5 w-3.5 text-slate-900 dark:text-white" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 leading-none mb-1.5">{label}</p>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 leading-none mb-1.5">{label}</p>
                     <p className={`text-sm font-bold leading-none flex items-center gap-1 ${valueColor}`}>
                       {warning && <ArrowDown className="h-3 w-3" aria-label="Negative" />}
                       {value}

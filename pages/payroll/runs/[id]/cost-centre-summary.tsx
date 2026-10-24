@@ -94,26 +94,26 @@ export default function CostCentreSummaryPage() {
                     <tr key={idx} className="border-b border-[var(--ff-border-primary)] last:border-0">
                       <td className="py-2 px-3 font-mono">{r.costCentreCode ?? <span className="italic text-[var(--ff-text-tertiary)]">Unassigned</span>}</td>
                       <td className="py-2 px-3">{r.costCentreName ?? '—'}</td>
-                      <td className="py-2 px-3 text-right font-mono">{r.employeeCount}</td>
-                      <td className="py-2 px-3 text-right font-mono">{formatCurrency(r.totalGross)}</td>
-                      <td className="py-2 px-3 text-right font-mono">{formatCurrency(r.totalPaye)}</td>
-                      <td className="py-2 px-3 text-right font-mono">{formatCurrency(r.totalUif)}</td>
-                      <td className="py-2 px-3 text-right font-mono">{formatCurrency(r.totalSdl)}</td>
-                      <td className="py-2 px-3 text-right font-mono">{formatCurrency(r.totalEti)}</td>
-                      <td className="py-2 px-3 text-right font-mono font-medium">{formatCurrency(r.totalNet)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{r.employeeCount}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(r.totalGross)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(r.totalPaye)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(r.totalUif)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(r.totalSdl)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(r.totalEti)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums font-medium">{formatCurrency(r.totalNet)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="bg-[var(--ff-bg-secondary)] border-t border-[var(--ff-border-primary)] font-medium">
                     <td className="py-2 px-3" colSpan={2}>Totals</td>
-                    <td className="py-2 px-3 text-right font-mono">{data.totals.employeeCount}</td>
-                    <td className="py-2 px-3 text-right font-mono">{formatCurrency(data.totals.totalGross)}</td>
-                    <td className="py-2 px-3 text-right font-mono">{formatCurrency(data.totals.totalPaye)}</td>
-                    <td className="py-2 px-3 text-right font-mono">{formatCurrency(data.totals.totalUif)}</td>
-                    <td className="py-2 px-3 text-right font-mono">{formatCurrency(data.totals.totalSdl)}</td>
-                    <td className="py-2 px-3 text-right font-mono">{formatCurrency(data.totals.totalEti)}</td>
-                    <td className="py-2 px-3 text-right font-mono">{formatCurrency(data.totals.totalNet)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{data.totals.employeeCount}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(data.totals.totalGross)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(data.totals.totalPaye)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(data.totals.totalUif)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(data.totals.totalSdl)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(data.totals.totalEti)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(data.totals.totalNet)}</td>
                   </tr>
                 </tfoot>
               </table>

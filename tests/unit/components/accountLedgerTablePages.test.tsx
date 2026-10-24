@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { AccountLedgerTable } from '@/components/reports/AccountLedgerTable';
 import { buildAccountLedgerCsv } from '@/lib/csv/accountLedgerCsv';
 import type { AccountLedgerMeta, AccountLedgerRow } from '@/modules/accounting/services/reports/accountLedgerTypes';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const meta: AccountLedgerMeta = { accountId: 'a', accountCode: '4000', accountName: 'Sales', accountType: 'revenue', normalBalance: 'credit' };
 const row = (date: string, credit: number, runningBalance: number): AccountLedgerRow => ({
@@ -16,7 +17,7 @@ const close: AccountLedgerRow = {
 };
 // Opening 100; +10, +20, close, +5, +7; pages of 2.
 const pages = [[row('2025-01-10', 10, 110), row('2025-02-10', 20, 130)], [close, row('2025-03-05', 5, 5)], [row('2025-04-05', 7, 12)]];
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 function screenBoundaries(page: number) {
   const { container, unmount } = render(

@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { Banknote, ArrowLeft, Loader2, AlertCircle } from 'lucide-react';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface DenomCount { denomination: number; count: number }
 interface Row {
@@ -25,8 +26,7 @@ interface Register {
   totals: { totalNet: number; employeeCount: number; denominations: DenomCount[] };
 }
 
-const zar = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const zar = (n: number) => formatMoney(n);
 
 const DENOM_LABELS: Record<number, string> = {
   200: 'R200', 100: 'R100', 50: 'R50', 20: 'R20', 10: 'R10',

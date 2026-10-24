@@ -39,14 +39,14 @@ export function SignupTrendChart({ data }: Props) {
         <XAxis
           dataKey="date"
           tickFormatter={(v: unknown) => fmtShortDate(v)}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           interval={4}
         />
         <YAxis
           allowDecimals={false}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={28}

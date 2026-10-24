@@ -9,9 +9,9 @@
  */
 
 import { AlertCircle } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export interface UnmappedEntity {
   companyId: string; companyName: string; accountCount: number; value: number;

@@ -9,6 +9,8 @@ import Link from 'next/link';
 import { ArrowLeft, Shield, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface AuditRow {
   entryDate: string;
@@ -23,7 +25,7 @@ interface AuditRow {
   postedAt: string | null;
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const SOURCE_BADGE: Record<string, string> = {
   manual: 'bg-gray-500/10 text-gray-400',
@@ -162,13 +164,13 @@ export default function AuditTrailPage() {
                   {filteredRows.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No entries for period</td></tr>}
                   {filteredRows.map((r, i) => (
                     <tr key={i} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                      <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{r.entryDate}</td>
+                      <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatSaDateValue(r.entryDate)}</td>
                       <td className="px-4 py-2 text-[var(--ff-text-primary)] font-mono text-xs">{r.entryNumber}</td>
                       <td className="px-4 py-2 text-[var(--ff-text-primary)] truncate max-w-[250px]">{r.description}</td>
                       <td className="px-4 py-2"><span className={`px-2 py-0.5 rounded text-xs font-medium ${SOURCE_BADGE[r.source] || 'bg-gray-500/10 text-gray-400'}`}>{r.source.replace('auto_', '')}</span></td>
                       <td className="px-4 py-2"><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[r.status] || ''}`}>{r.status}</span></td>
-                      <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(r.totalDebit)}</td>
-                      <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(r.totalCredit)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalDebit)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalCredit)}</td>
                       <td className="px-4 py-2 text-[var(--ff-text-secondary)] text-xs truncate max-w-[120px]">{r.createdBy}</td>
                     </tr>
                   ))}

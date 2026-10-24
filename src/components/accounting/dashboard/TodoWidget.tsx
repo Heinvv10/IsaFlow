@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { AlertCircle, CheckCircle2, Loader2, ChevronRight } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface OverdueInvoice {
   id: string;
@@ -33,7 +34,7 @@ interface TodoData {
 }
 
 function fmtZAR(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+  return formatMoney(n);
 }
 
 function ActionRow({

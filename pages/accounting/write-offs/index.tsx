@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { XCircle, Plus, Check, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface WriteOff {
   id: string; writeOffNumber: string; clientId: string; clientName?: string;
@@ -16,7 +17,7 @@ interface WriteOff {
 interface Client { id: string; company_name: string }
 interface Invoice { id: string; invoice_number: string; total_amount: number; amount_paid: number }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',

@@ -20,6 +20,7 @@ import {
   ShieldOff,
   X,
 } from 'lucide-react';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 interface PatItem {
   id: string;
@@ -53,11 +54,7 @@ const EXPIRY_OPTIONS = [
 function formatDate(val: string | null): string {
   if (!val) return 'Never';
   try {
-    return new Date(val).toLocaleDateString('en-ZA', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
+    return formatSaDateValue(val);
   } catch {
     return val;
   }
@@ -286,7 +283,7 @@ export default function PersonalTokensPage() {
                       >
                         {s.desc}
                       </span>
-                      <span className="block font-mono text-[10px] text-slate-600 mt-0.5">{s.key}</span>
+                      <span className="block font-mono text-xs text-slate-600 mt-0.5">{s.key}</span>
                     </span>
                   </label>
                 );

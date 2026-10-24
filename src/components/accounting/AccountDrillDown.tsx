@@ -9,9 +9,9 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import Link from 'next/link';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const fmtDate = (d: string) => {
   if (!d) return '—';
@@ -133,11 +133,11 @@ export function AccountDrillDown({
           {/* Opening balance */}
           <div className="px-4 py-1.5 flex items-center justify-between text-xs bg-[var(--ff-bg-tertiary)]/50 border-b border-[var(--ff-border-light)]">
             <span className="text-[var(--ff-text-tertiary)] font-medium">Opening Balance</span>
-            <span className="font-mono text-[var(--ff-text-secondary)]">{fmt(data.openingBalance)}</span>
+            <span className="tabular-nums text-[var(--ff-text-secondary)]">{fmt(data.openingBalance)}</span>
           </div>
 
           {/* Column headers */}
-          <div className="px-4 py-1 flex items-center gap-3 text-[10px] uppercase tracking-wider text-[var(--ff-text-tertiary)] border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]/30">
+          <div className="px-4 py-1 flex items-center gap-3 text-xs uppercase tracking-wider text-[var(--ff-text-tertiary)] border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]/30">
             <span className="w-20">Date</span>
             <span className="w-24">Entry #</span>
             <span className="flex-1">Description</span>
@@ -155,13 +155,13 @@ export function AccountDrillDown({
               <span className="w-20 text-[var(--ff-text-tertiary)]">{fmtDate(tx.date)}</span>
               <span className="w-24 font-mono text-[var(--ff-text-secondary)]">{tx.entryNumber}</span>
               <span className="flex-1 text-[var(--ff-text-secondary)] truncate">{tx.description}</span>
-              <span className="w-24 text-right font-mono text-[var(--ff-text-primary)]">
+              <span className="w-24 text-right tabular-nums text-[var(--ff-text-primary)]">
                 {tx.debit > 0 ? fmt(tx.debit) : ''}
               </span>
-              <span className="w-24 text-right font-mono text-[var(--ff-text-primary)]">
+              <span className="w-24 text-right tabular-nums text-[var(--ff-text-primary)]">
                 {tx.credit > 0 ? fmt(tx.credit) : ''}
               </span>
-              <span className="w-24 text-right font-mono text-[var(--ff-text-secondary)]">
+              <span className="w-24 text-right tabular-nums text-[var(--ff-text-secondary)]">
                 {fmt(tx.balance)}
               </span>
             </div>
@@ -170,7 +170,7 @@ export function AccountDrillDown({
           {/* Movement for period — the figure on the statement line */}
           <div className="px-4 py-1.5 flex items-center justify-between text-xs border-t border-[var(--ff-border-light)]">
             <span className="text-[var(--ff-text-tertiary)] font-medium">Movement for period</span>
-            <span className="font-mono text-[var(--ff-text-secondary)]">{fmt(data.periodNet)}</span>
+            <span className="tabular-nums text-[var(--ff-text-secondary)]">{fmt(data.periodNet)}</span>
           </div>
 
           {/* Closing balance */}
@@ -178,7 +178,7 @@ export function AccountDrillDown({
             <span className="text-[var(--ff-text-tertiary)] font-medium">
               Closing Balance ({postedCount} transaction{postedCount !== 1 ? 's' : ''})
             </span>
-            <span className="font-mono font-medium text-[var(--ff-text-primary)]">{fmt(data.closingBalance)}</span>
+            <span className="tabular-nums font-medium text-[var(--ff-text-primary)]">{fmt(data.closingBalance)}</span>
           </div>
         </div>
       ) : null}

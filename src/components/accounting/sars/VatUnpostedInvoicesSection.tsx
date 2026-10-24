@@ -15,6 +15,8 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
 import type { UnpostedInvoiceVatLine, VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
 const REASON_LABEL: Record<UnpostedInvoiceVatLine['reason'], string> = {
@@ -23,8 +25,7 @@ const REASON_LABEL: Record<UnpostedInvoiceVatLine['reason'], string> = {
   journal_reversed: 'Journal reversed',
   journal_dated_after_period: 'Journal dated after the VAT period',
 };
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const th = 'px-2 py-1.5 text-left text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider';
 const td = 'px-2 py-1.5 text-xs text-[var(--ff-text-primary)] whitespace-nowrap';
@@ -136,7 +137,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
               <td className={td}>{u.invoiceNumber}</td>
               <td className={td}>{u.invoiceKind}</td>
               <td className={td}>{u.counterpartyName}</td>
-              <td className={td}>{u.invoiceDate}</td>
+              <td className={td}>{formatSaDateValue(u.invoiceDate)}</td>
               <td className={td}>{REASON_LABEL[u.reason]}</td>
               <td className={tdNum}>{fmt(u.vat)}</td>
             </tr>

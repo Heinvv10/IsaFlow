@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { StatusPill } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface PO {
   id: string; po_number: string; supplier_name: string;
@@ -16,7 +17,7 @@ interface PO {
   status: string; subtotal: number; tax_amount: number; total: number;
 }
 
-const fmt = (n: number) => `R ${new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`;
+const fmt = (n: number) => formatMoney(n);
 
 const TABS = ['all', 'draft', 'submitted', 'approved', 'partially_received', 'received', 'cancelled'] as const;
 
@@ -124,7 +125,7 @@ export default function PurchaseOrdersPage() {
                       <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{o.supplier_name}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{o.order_date?.split('T')[0]}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{o.expected_delivery_date?.split('T')[0] || '—'}</td>
-                      <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{fmt(Number(o.total))}</td>
+                      <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(Number(o.total))}</td>
                       <td className="px-5 py-3.5">
                         <StatusPill status={o.status} />
                       </td>

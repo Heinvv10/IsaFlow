@@ -18,6 +18,7 @@ import { OverviewTables } from './OverviewTables';
 import { TodoWidget } from './TodoWidget';
 import { WorkbenchSection } from './WorkbenchSection';
 import { NoBankAccountWarning } from '@/components/accounting/banking/NoBankAccountWarning';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -56,7 +57,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
 };
 
 function fmtCurrency(n: number): string {
-  return 'R ' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return formatMoney(n);
 }
 
 function fmtCompact(n: number): string {
@@ -256,8 +257,8 @@ export function OverviewTab() {
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={data?.revenueChart ?? []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--ff-border-light)" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} tickFormatter={(v) => fmtCompact(Number(v))} />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'var(--ff-text-secondary)' }} />
+                <YAxis tick={{ fontSize: 12, fill: 'var(--ff-text-secondary)' }} tickFormatter={(v) => fmtCompact(Number(v))} />
                 <Tooltip contentStyle={{ backgroundColor: 'var(--ff-bg-secondary)', border: '1px solid var(--ff-border-light)', borderRadius: '8px', color: 'var(--ff-text-primary)' }} formatter={(value) => [fmtCurrency(Number(value)), '']} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#14b8a6" strokeWidth={2} dot={false} />
@@ -274,8 +275,8 @@ export function OverviewTab() {
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={data?.cashFlowChart ?? []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--ff-border-light)" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--ff-text-secondary)' }} tickFormatter={(v) => fmtCompact(Number(v))} />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: 'var(--ff-text-secondary)' }} />
+                <YAxis tick={{ fontSize: 12, fill: 'var(--ff-text-secondary)' }} tickFormatter={(v) => fmtCompact(Number(v))} />
                 <Tooltip contentStyle={{ backgroundColor: 'var(--ff-bg-secondary)', border: '1px solid var(--ff-border-light)', borderRadius: '8px', color: 'var(--ff-text-primary)' }} formatter={(value) => [fmtCurrency(Number(value)), '']} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="inflows" name="Inflows" fill="#2dd4bf" radius={[4, 4, 0, 0]} />

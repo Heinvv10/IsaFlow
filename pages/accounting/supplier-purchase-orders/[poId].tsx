@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface PurchaseOrder {
   id: string;
@@ -26,7 +27,7 @@ interface PurchaseOrder {
 
 const fmtCurrency = (v: number | null | undefined) =>
   v != null
-    ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(Number(v))
+    ? formatMoney(Number(v))
     : null;
 
 const statusColor = (s: string | null) => {

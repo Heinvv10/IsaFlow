@@ -9,6 +9,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
+import { formatAmount } from '@/lib/money/formatMoney';
 
 interface FarAsset {
   assetNumber: string;
@@ -52,8 +53,7 @@ interface FarReport {
   setupRequired?: string;
 }
 
-const zar = new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmt = (n: number) => zar.format(n);
+const fmt = (n: number) => formatAmount(n);
 const today = () => localISODate();
 
 export default function FarReportPage() {
@@ -91,7 +91,7 @@ export default function FarReportPage() {
   const statusBadge = (status: string, belowThreshold: boolean) => (
     <span className="flex items-center gap-1">
       <span
-        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider font-mono
+        className={`px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wider font-mono
           ${status === 'active' ? 'bg-emerald-900/60 text-emerald-300' :
             status === 'disposed' ? 'bg-red-900/60 text-red-300' :
             'bg-yellow-900/60 text-yellow-300'}`}
@@ -105,7 +105,7 @@ export default function FarReportPage() {
   );
 
   const numCell = (val: number) => (
-    <td className="px-2 py-1.5 text-right font-mono text-xs text-[var(--ff-text-primary)] whitespace-nowrap">
+    <td className="px-2 py-1.5 text-right tabular-nums text-xs text-[var(--ff-text-primary)] whitespace-nowrap">
       {fmt(val)}
     </td>
   );
@@ -178,37 +178,37 @@ export default function FarReportPage() {
             <thead>
               {/* Group header row */}
               <tr className="bg-[var(--ff-bg-secondary)] border-b border-[var(--ff-border-light)]">
-                <th colSpan={8} className="px-2 py-2 text-left text-[var(--ff-text-tertiary)] font-medium tracking-widest uppercase text-[10px]">
+                <th colSpan={8} className="px-2 py-2 text-left text-[var(--ff-text-tertiary)] font-medium tracking-widest uppercase text-xs">
                   Asset Details
                 </th>
-                <th colSpan={5} className="px-2 py-2 text-center text-emerald-400 font-semibold tracking-widest uppercase text-[10px] border-l border-[var(--ff-border-light)]">
+                <th colSpan={5} className="px-2 py-2 text-center text-emerald-400 font-semibold tracking-widest uppercase text-xs border-l border-[var(--ff-border-light)]">
                   Policy (IAS 16)
                 </th>
-                <th colSpan={5} className="px-2 py-2 text-center text-sky-400 font-semibold tracking-widest uppercase text-[10px] border-l border-[var(--ff-border-light)]">
+                <th colSpan={5} className="px-2 py-2 text-center text-sky-400 font-semibold tracking-widest uppercase text-xs border-l border-[var(--ff-border-light)]">
                   Tax (SARS)
                 </th>
-                <th className="px-2 py-2 text-center text-violet-400 font-semibold tracking-widest uppercase text-[10px] border-l border-[var(--ff-border-light)]">
+                <th className="px-2 py-2 text-center text-violet-400 font-semibold tracking-widest uppercase text-xs border-l border-[var(--ff-border-light)]">
                   Def Tax
                 </th>
               </tr>
               {/* Column header row */}
               <tr className="bg-[var(--ff-bg-secondary)] border-b-2 border-[var(--ff-border-light)]">
                 {(['Asset #', 'Description', 'Code', 'IAS16', 'Tax Life', 'Pol Life', 'Res%', 'Status'] as const).map(h => (
-                  <th key={h} className="px-2 py-1.5 text-left font-mono text-[10px] font-semibold text-[var(--ff-text-secondary)] whitespace-nowrap uppercase tracking-wider">
+                  <th key={h} className="px-2 py-1.5 text-left font-mono text-xs font-semibold text-[var(--ff-text-secondary)] whitespace-nowrap uppercase tracking-wider">
                     {h}
                   </th>
                 ))}
                 {(['Cost', 'Acc Dep', 'CA', 'Curr Dep', 'P/L'] as const).map(h => (
-                  <th key={`p-${h}`} className={`px-2 py-1.5 text-right font-mono text-[10px] font-semibold text-emerald-400 whitespace-nowrap uppercase tracking-wider${h === 'Cost' ? ' border-l border-[var(--ff-border-light)]' : ''}`}>
+                  <th key={`p-${h}`} className={`px-2 py-1.5 text-right tabular-nums text-xs font-semibold text-emerald-400 whitespace-nowrap uppercase tracking-wider${h === 'Cost' ? ' border-l border-[var(--ff-border-light)]' : ''}`}>
                     {h}
                   </th>
                 ))}
                 {(['Cost', 'Acc Dep', 'CA', 'Curr Dep', 'P/L'] as const).map(h => (
-                  <th key={`t-${h}`} className={`px-2 py-1.5 text-right font-mono text-[10px] font-semibold text-sky-400 whitespace-nowrap uppercase tracking-wider${h === 'Cost' ? ' border-l border-[var(--ff-border-light)]' : ''}`}>
+                  <th key={`t-${h}`} className={`px-2 py-1.5 text-right tabular-nums text-xs font-semibold text-sky-400 whitespace-nowrap uppercase tracking-wider${h === 'Cost' ? ' border-l border-[var(--ff-border-light)]' : ''}`}>
                     {h}
                   </th>
                 ))}
-                <th className="px-2 py-1.5 text-right font-mono text-[10px] font-semibold text-violet-400 uppercase tracking-wider border-l border-[var(--ff-border-light)]">
+                <th className="px-2 py-1.5 text-right tabular-nums text-xs font-semibold text-violet-400 uppercase tracking-wider border-l border-[var(--ff-border-light)]">
                   Def Tax
                 </th>
               </tr>
@@ -229,26 +229,26 @@ export default function FarReportPage() {
                 >
                   <td className="px-2 py-1.5 font-mono text-xs text-[var(--ff-text-secondary)] whitespace-nowrap">{a.assetNumber}</td>
                   <td className="px-2 py-1.5 text-xs text-[var(--ff-text-primary)] max-w-[160px] truncate" title={a.assetName}>{a.assetName}</td>
-                  <td className="px-2 py-1.5 font-mono text-[10px] text-[var(--ff-text-tertiary)]">{a.categoryCode}</td>
-                  <td className="px-2 py-1.5 font-mono text-[10px] text-[var(--ff-text-secondary)]">{a.ias16Group}</td>
-                  <td className="px-2 py-1.5 font-mono text-[10px] text-right text-[var(--ff-text-tertiary)]">{a.taxLifeYears}</td>
-                  <td className="px-2 py-1.5 font-mono text-[10px] text-right text-[var(--ff-text-tertiary)]">{a.policyLifeYears}</td>
-                  <td className="px-2 py-1.5 font-mono text-[10px] text-right text-[var(--ff-text-tertiary)]">{a.residualPct}%</td>
+                  <td className="px-2 py-1.5 font-mono text-xs text-[var(--ff-text-tertiary)]">{a.categoryCode}</td>
+                  <td className="px-2 py-1.5 font-mono text-xs text-[var(--ff-text-secondary)]">{a.ias16Group}</td>
+                  <td className="px-2 py-1.5 tabular-nums text-xs text-right text-[var(--ff-text-tertiary)]">{a.taxLifeYears}</td>
+                  <td className="px-2 py-1.5 tabular-nums text-xs text-right text-[var(--ff-text-tertiary)]">{a.policyLifeYears}</td>
+                  <td className="px-2 py-1.5 tabular-nums text-xs text-right text-[var(--ff-text-tertiary)]">{a.residualPct}%</td>
                   <td className="px-2 py-1.5">{statusBadge(a.status, a.belowThreshold)}</td>
                   {/* Policy columns */}
-                  <td className={`px-2 py-1.5 text-right font-mono text-xs text-[var(--ff-text-primary)] whitespace-nowrap border-l border-[var(--ff-border-light)]`}>{fmt(a.policyCost)}</td>
+                  <td className={`px-2 py-1.5 text-right tabular-nums text-xs text-[var(--ff-text-primary)] whitespace-nowrap border-l border-[var(--ff-border-light)]`}>{fmt(a.policyCost)}</td>
                   {numCell(a.policyAccDep)}
                   {numCell(a.policyCA)}
                   {numCell(a.policyCurrentDep)}
                   {numCell(a.policyProfitLoss)}
                   {/* Tax columns */}
-                  <td className="px-2 py-1.5 text-right font-mono text-xs text-[var(--ff-text-primary)] whitespace-nowrap border-l border-[var(--ff-border-light)]">{fmt(a.taxCost)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-xs text-[var(--ff-text-primary)] whitespace-nowrap border-l border-[var(--ff-border-light)]">{fmt(a.taxCost)}</td>
                   {numCell(a.taxAccDep)}
                   {numCell(a.taxCA)}
                   {numCell(a.taxCurrentDep)}
                   {numCell(a.taxProfitLoss)}
                   {/* Deferred tax */}
-                  <td className="px-2 py-1.5 text-right font-mono text-xs text-violet-300 whitespace-nowrap border-l border-[var(--ff-border-light)]">{fmt(a.deferredTax)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums text-xs text-violet-300 whitespace-nowrap border-l border-[var(--ff-border-light)]">{fmt(a.deferredTax)}</td>
                 </tr>
               ))}
             </tbody>
@@ -258,17 +258,17 @@ export default function FarReportPage() {
                   <td colSpan={8} className="px-2 py-2 font-semibold text-xs text-[var(--ff-text-secondary)] uppercase tracking-wider">
                     Totals
                   </td>
-                  <td className="px-2 py-2 text-right font-mono text-xs font-bold text-emerald-300 border-l border-[var(--ff-border-light)]">{fmt(totRow.policyCost)}</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs font-bold text-emerald-300">{fmt(totRow.policyAccDep)}</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs font-bold text-emerald-300">{fmt(totRow.policyCA)}</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs text-[var(--ff-text-tertiary)]">—</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs text-[var(--ff-text-tertiary)]">—</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs font-bold text-sky-300 border-l border-[var(--ff-border-light)]">{fmt(totRow.taxCost)}</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs font-bold text-sky-300">{fmt(totRow.taxAccDep)}</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs font-bold text-sky-300">{fmt(totRow.taxCA)}</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs text-[var(--ff-text-tertiary)]">—</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs text-[var(--ff-text-tertiary)]">—</td>
-                  <td className="px-2 py-2 text-right font-mono text-xs font-bold text-violet-300 border-l border-[var(--ff-border-light)]">{fmt(totRow.deferredTax)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs font-bold text-emerald-300 border-l border-[var(--ff-border-light)]">{fmt(totRow.policyCost)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs font-bold text-emerald-300">{fmt(totRow.policyAccDep)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs font-bold text-emerald-300">{fmt(totRow.policyCA)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs text-[var(--ff-text-tertiary)]">—</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs text-[var(--ff-text-tertiary)]">—</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs font-bold text-sky-300 border-l border-[var(--ff-border-light)]">{fmt(totRow.taxCost)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs font-bold text-sky-300">{fmt(totRow.taxAccDep)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs font-bold text-sky-300">{fmt(totRow.taxCA)}</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs text-[var(--ff-text-tertiary)]">—</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs text-[var(--ff-text-tertiary)]">—</td>
+                  <td className="px-2 py-2 text-right tabular-nums text-xs font-bold text-violet-300 border-l border-[var(--ff-border-light)]">{fmt(totRow.deferredTax)}</td>
                 </tr>
               </tfoot>
             )}

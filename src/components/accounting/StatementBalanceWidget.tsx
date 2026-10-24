@@ -9,15 +9,11 @@
 import { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle2, CalendarDays, Hash } from 'lucide-react';
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 // 🟢 WORKING: ZAR currency formatter (2 decimal places for reconciliation context)
-const fmt = (amount: number): string =>
-  new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: 'ZAR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+const fmt = (amount: number): string => formatMoney(amount);
 
 interface ImportBatch {
   id: string;
@@ -112,11 +108,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
   const isReconciled = difference !== null && Math.abs(difference) < 0.01;
 
   // Format the import date for display
-  const importedOn = new Date(batch.createdAt).toLocaleDateString('en-ZA', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  const importedOn = formatSaDateValue(batch.createdAt);
 
   return (
     <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
@@ -126,7 +118,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
           Statement Balance
         </h3>
         {batch.bankFormat && (
-          <span className="rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-[10px] font-medium text-[var(--ff-text-tertiary)]">
+          <span className="rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-xs font-medium text-[var(--ff-text-tertiary)]">
             {batch.bankFormat.toUpperCase()}
           </span>
         )}
@@ -137,7 +129,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
         {/* Opening Balance */}
         <div className="flex items-center justify-between px-4 py-2.5">
           <span className="text-xs text-[var(--ff-text-tertiary)]">Opening Balance</span>
-          <span className="font-mono text-sm text-[var(--ff-text-primary)]">
+          <span className="tabular-nums text-sm text-[var(--ff-text-primary)]">
             {batch.openingBalance !== null ? fmt(batch.openingBalance) : '—'}
           </span>
         </div>
@@ -145,7 +137,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
         {/* Closing Balance */}
         <div className="flex items-center justify-between px-4 py-2.5">
           <span className="text-xs text-[var(--ff-text-tertiary)]">Closing Balance</span>
-          <span className="font-mono text-sm font-medium text-[var(--ff-text-primary)]">
+          <span className="tabular-nums text-sm font-medium text-[var(--ff-text-primary)]">
             {batch.closingBalance !== null ? fmt(batch.closingBalance) : '—'}
           </span>
         </div>
@@ -154,7 +146,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
         {glBalance !== undefined && (
           <div className="flex items-center justify-between px-4 py-2.5">
             <span className="text-xs text-[var(--ff-text-tertiary)]">GL Balance</span>
-            <span className="font-mono text-sm text-[var(--ff-text-primary)]">
+            <span className="tabular-nums text-sm text-[var(--ff-text-primary)]">
               {fmt(glBalance)}
             </span>
           </div>
@@ -170,7 +162,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
               Difference
             </span>
             <span
-              className={`font-mono text-sm font-semibold ${
+              className={`tabular-nums text-sm font-semibold ${
                 isReconciled ? 'text-teal-500' : 'text-amber-400'
               }`}
             >
@@ -181,10 +173,10 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
       </div>
 
       {/* Footer: import metadata */}
-      <div className="flex items-center gap-4 border-t border-[var(--ff-border-light)] px-4 py-2 text-[10px] text-[var(--ff-text-tertiary)]">
+      <div className="flex items-center gap-4 border-t border-[var(--ff-border-light)] px-4 py-2 text-xs text-[var(--ff-text-tertiary)]">
         <span className="flex items-center gap-1">
           <CalendarDays className="h-3 w-3" />
-          {batch.statementDate}
+          {formatSaDateValue(batch.statementDate)}
         </span>
         <span className="flex items-center gap-1">
           <Hash className="h-3 w-3" />

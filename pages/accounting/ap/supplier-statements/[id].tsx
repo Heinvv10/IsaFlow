@@ -12,6 +12,8 @@ import { StatementReading, StatementReadFailed } from '@/components/accounting/S
 import { MatchStatusCell } from '@/components/accounting/ap/SupplierStatementMatchCell';
 import { usePollWhileReading, type PollOutcome } from '@/hooks/usePollWhileReading';
 import { useStatementReadActions } from '@/hooks/useStatementReadActions';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 type MismatchReason = 'missing_in_isaflow' | 'missing_in_statement' | 'amount_diff' | 'date_diff' | null;
@@ -44,12 +46,12 @@ type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
 function fmtZAR(n: number | null) {
   if (n === null) return '—';
-  return 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMoney(n);
 }
 
 function fmtDate(s: string | null) {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  try { return formatSaDateValue(s); } catch { return String(s); }
 }
 
 function varianceCls(variance: number | null) {
@@ -168,14 +170,14 @@ export default function SupplierStatementDetailPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                   <div><p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Statement date</p><p className="font-medium text-[var(--ff-text-primary)]">{fmtDate(recon.statementDate)}</p></div>
                   <div><p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Period</p><p className="text-[var(--ff-text-primary)]">{recon.periodStart || recon.periodEnd ? `${fmtDate(recon.periodStart)} – ${fmtDate(recon.periodEnd)}` : '—'}</p></div>
-                  <div><p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Supplier balance</p><p className="font-mono text-[var(--ff-text-primary)]">{fmtZAR(recon.supplierBalance)}</p></div>
-                  <div><p className="text-xs text-[var(--ff-text-tertiary)] mb-1">IsaFlow balance</p><p className="font-mono text-[var(--ff-text-primary)]">{fmtZAR(recon.isaflowBalance)}</p></div>
+                  <div><p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Supplier balance</p><p className="tabular-nums text-[var(--ff-text-primary)]">{fmtZAR(recon.supplierBalance)}</p></div>
+                  <div><p className="text-xs text-[var(--ff-text-tertiary)] mb-1">IsaFlow balance</p><p className="tabular-nums text-[var(--ff-text-primary)]">{fmtZAR(recon.isaflowBalance)}</p></div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[var(--ff-border-light)]">
                   <div className="flex items-baseline gap-2">
                     <span className="text-xs text-[var(--ff-text-tertiary)]">Variance</span>
-                    <span className={`text-2xl font-bold font-mono ${varianceCls(recon.variance)}`}>{fmtZAR(recon.variance)}</span>
+                    <span className={`text-2xl font-bold tabular-nums ${varianceCls(recon.variance)}`}>{fmtZAR(recon.variance)}</span>
                   </div>
                   {recon.missingInIsaflowCount > 0 && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-red-500/20 text-red-400">{recon.missingInIsaflowCount} missing in IsaFlow</span>}
                   {recon.amountDiffCount > 0 && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400">{recon.amountDiffCount} amount diff</span>}
@@ -221,11 +223,11 @@ export default function SupplierStatementDetailPage() {
                     <tbody>
                       {recon.lines.map(line => (
                         <tr key={line.id} className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5">
-                          <td className="px-4 py-2.5 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtDate(line.lineDate)}</td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(line.lineDate)}</td>
                           <td className="px-4 py-2.5 text-xs text-[var(--ff-text-tertiary)]">{line.reference ?? '—'}</td>
                           <td className="px-4 py-2.5 text-xs text-[var(--ff-text-primary)] max-w-[200px] truncate" title={line.description ?? undefined}>{line.description ?? '—'}</td>
-                          <td className="px-4 py-2.5 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{line.debit > 0 ? fmtZAR(line.debit) : '—'}</td>
-                          <td className="px-4 py-2.5 text-xs font-mono text-right text-teal-400">{line.credit > 0 ? fmtZAR(line.credit) : '—'}</td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{line.debit > 0 ? fmtZAR(line.debit) : '—'}</td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums text-right text-teal-400">{line.credit > 0 ? fmtZAR(line.credit) : '—'}</td>
                           <td className="px-4 py-2.5"><MatchStatusCell line={line} /></td>
                           <td className="px-4 py-2.5 text-xs text-[var(--ff-text-secondary)]">
                             {line.matchedInvoiceNumber && line.matchedSupplierInvoiceId ? (
@@ -265,8 +267,8 @@ export default function SupplierStatementDetailPage() {
                               onClick={() => router.push(`/accounting/supplier-invoices/${inv.invoiceId}`)}
                               className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5 cursor-pointer transition-colors">
                               <td className="px-4 py-2.5 text-xs font-medium text-indigo-400">{inv.invoiceNumber}</td>
-                              <td className="px-4 py-2.5 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtDate(inv.invoiceDate)}</td>
-                              <td className="px-4 py-2.5 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{fmtZAR(inv.totalAmount)}</td>
+                              <td className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(inv.invoiceDate)}</td>
+                              <td className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{fmtZAR(inv.totalAmount)}</td>
                               <td className="px-4 py-2.5"><span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-slate-600/30 text-slate-400 border-slate-500/30">missing in statement</span></td>
                             </tr>
                           ))}

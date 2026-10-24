@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface TodoItem {
   id: string;
@@ -28,7 +29,7 @@ interface TodoData {
 }
 
 function fmtCurrency(n: number | string): string {
-  return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n));
+  return formatMoney(Number(n));
 }
 
 function fmtDate(raw: Date | string | null | undefined): string {
@@ -142,7 +143,7 @@ export function TodoWidget() {
             <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">To-Do</span>
           </div>
           {!loading && !error && totalActions > 0 && (
-            <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold">
+            <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-xs font-bold">
               {totalActions > 99 ? '99+' : totalActions}
             </span>
           )}

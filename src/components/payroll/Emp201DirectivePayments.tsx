@@ -3,6 +3,7 @@
  * PAYE is already in the EMP201 totals (emp201Service, PAYE 4a follow-ups G1).
  */
 import { formatDate } from '@/utils/formatters';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface Emp201DirectivePaymentRow {
   paymentId: string;
@@ -12,7 +13,7 @@ export interface Emp201DirectivePaymentRow {
   paye: number;
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export function Emp201DirectivePayments({ rows }: { rows: Emp201DirectivePaymentRow[] }) {
   if (rows.length === 0) return null;

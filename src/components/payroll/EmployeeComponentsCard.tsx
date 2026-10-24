@@ -148,7 +148,7 @@ export function EmployeeComponentsCard({
                     </span>
                   )}
                 </td>
-                <td className="py-2 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(a.amount)}</td>
+                <td className="py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(a.amount)}</td>
                 <td className="py-2 text-[var(--ff-text-secondary)]">{a.effectiveFrom.slice(0, 10)}</td>
                 <td className="py-2 text-[var(--ff-text-secondary)]">{a.effectiveTo ? a.effectiveTo.slice(0, 10) : '—'}</td>
                 <td className="py-2 text-right">

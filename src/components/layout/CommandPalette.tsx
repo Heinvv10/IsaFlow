@@ -285,7 +285,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         <div className="border-t border-[var(--ff-border-primary)] px-4 py-2 flex items-center gap-4 text-xs text-[var(--ff-text-tertiary)]">
           {[['↑↓', 'navigate'], ['↵', 'open'], ['Esc', 'close']].map(([key, label]) => (
             <span key={key} className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] rounded text-[10px]">{key}</kbd>
+              <kbd className="px-1.5 py-0.5 bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] rounded text-xs">{key}</kbd>
               {label}
             </span>
           ))}

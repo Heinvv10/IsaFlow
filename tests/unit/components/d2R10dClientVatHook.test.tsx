@@ -26,7 +26,7 @@ configure({ asyncUtilTimeout: 4000 });
 useApiJsonOverMock();
 beforeEach(() => { vi.mocked(apiFetch).mockReset(); route.query = {}; route.isReady = true; });
 afterEach(() => { cleanup(); });
-const money = (digits: string) => new RegExp(digits.replace(' ', '[\\s\\u00a0\\u202f]'));
+const money = (digits: string) => new RegExp(digits.replace('.', '\\.').replace(' ', '[\\s\\u00a0\\u202f]'));
 
 describe('practice/clients/[id] (load only; the page has no write action)', () => {
   const UUID = '11111111-1111-4111-8111-111111111111';
@@ -87,16 +87,16 @@ describe('VatSummaryWidget (route data: full-caps outputVAT / inputVAT / netVAT)
   it('success: shows output, input and net payable from the served fields', async () => {
     serve(on('GET', 'reports-vat-return', () => ok({ outputVAT: 1234.5, inputVAT: 321.25, netVAT: 913.25 })));
     render(<VatSummaryWidget />);
-    expect(await screen.findByText(money('R 1 234,50'))).toBeDefined();
-    expect(screen.getByText(money('R 321,25'))).toBeDefined();
-    expect(screen.getByText(money('R 913,25'))).toBeDefined();
+    expect(await screen.findByText(money('R 1 234.50'))).toBeDefined();
+    expect(screen.getByText(money('R 321.25'))).toBeDefined();
+    expect(screen.getByText(money('R 913.25'))).toBeDefined();
     expect(screen.getByText('Net VAT Payable')).toBeDefined();
   });
   it('a negative net is shown as a refund due, as an absolute amount', async () => {
     serve(on('GET', 'reports-vat-return', () => ok({ outputVAT: 100, inputVAT: 777, netVAT: -677 })));
     render(<VatSummaryWidget />);
     expect(await screen.findByText('VAT Refund Due')).toBeDefined();
-    expect(screen.getByText(money('R 677,00'))).toBeDefined();
+    expect(screen.getByText(money('R 677.00'))).toBeDefined();
   });
   it('a 400 refusal shows the server message; an empty 500 a plain sentence; no figures, no jargon', async () => {
     serve(on('GET', 'reports-vat-return', () => refuse()));

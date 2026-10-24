@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
+import { formatAmount } from '@/lib/money/formatMoney';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ type ViewMode = 'reconciliation' | 'multi_year';
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const fmtR = (n: number | null) =>
-  n == null ? '—' : new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  n == null ? '—' : formatAmount(n);
 
 const fmtMonth = (m: string) => {
   const [y, mo] = m.split('-');
@@ -237,15 +238,15 @@ export default function VatReconciliationPage() {
                 {reconData.months.map((m) => (
                   <tr key={m.month} className="border-b border-zinc-700/50 hover:bg-zinc-800/50">
                     <td className="px-3 py-2 font-medium">{fmtMonth(m.month)}</td>
-                    <td className="px-3 py-2 text-right font-mono">{fmtR(m.glRevenue)}</td>
-                    <td className="px-3 py-2 text-right font-mono">{fmtR(m.glOutputVat)}</td>
-                    <td className="px-3 py-2 text-right font-mono">{fmtR(m.glInputVat)}</td>
-                    <td className="px-3 py-2 text-right font-mono font-semibold">{fmtR(m.glNetVat)}</td>
-                    <td className="px-3 py-2 text-right font-mono">{fmtR(m.returnNetVat)}</td>
-                    <td className={`px-3 py-2 text-right font-mono ${Math.abs(m.revenueVariance) > 100 ? 'text-amber-400' : ''}`}>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtR(m.glRevenue)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtR(m.glOutputVat)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtR(m.glInputVat)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtR(m.glNetVat)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtR(m.returnNetVat)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(m.revenueVariance) > 100 ? 'text-amber-400' : ''}`}>
                       {fmtR(m.revenueVariance)}
                     </td>
-                    <td className={`px-3 py-2 text-right font-mono ${
+                    <td className={`px-3 py-2 text-right tabular-nums ${
                       m.effectiveVatRate > 0 && (m.effectiveVatRate < 13 || m.effectiveVatRate > 17) ? 'text-amber-400' : ''
                     }`}>
                       {m.effectiveVatRate > 0 ? `${m.effectiveVatRate}%` : '—'}
@@ -262,12 +263,12 @@ export default function VatReconciliationPage() {
                 {/* Totals row */}
                 <tr className="border-t-2 border-zinc-600 bg-zinc-800 font-bold text-white">
                   <td className="px-3 py-2">Total</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtR(reconData.totals.glRevenue)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtR(reconData.totals.glOutputVat)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtR(reconData.totals.glInputVat)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtR(reconData.totals.glNetVat)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtR(reconData.totals.returnNetVat)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{fmtR(reconData.totals.revenueVariance)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtR(reconData.totals.glRevenue)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtR(reconData.totals.glOutputVat)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtR(reconData.totals.glInputVat)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtR(reconData.totals.glNetVat)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtR(reconData.totals.returnNetVat)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtR(reconData.totals.revenueVariance)}</td>
                   <td className="px-3 py-2" />
                   <td className="px-3 py-2" />
                 </tr>
@@ -295,10 +296,10 @@ export default function VatReconciliationPage() {
                   {reconData.months.map((m) => (
                     <tr key={m.month} className="border-b border-zinc-700/50">
                       <td className="px-3 py-2">{fmtMonth(m.month)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{fmtR(m.capitalGoodsOutput)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{fmtR(m.capitalGoodsInput)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{fmtR(m.otherGoodsOutput)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{fmtR(m.otherGoodsInput)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtR(m.capitalGoodsOutput)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtR(m.capitalGoodsInput)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtR(m.otherGoodsOutput)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtR(m.otherGoodsInput)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -332,11 +333,11 @@ export default function VatReconciliationPage() {
                 {multiData.summary.map((y) => (
                   <tr key={y.year} className="border-b border-zinc-700/50">
                     <td className="px-4 py-2 font-medium">{y.year}</td>
-                    <td className="px-4 py-2 text-right font-mono">{fmtR(y.totalRevenue)}</td>
-                    <td className="px-4 py-2 text-right font-mono">{fmtR(y.totalOutputVat)}</td>
-                    <td className="px-4 py-2 text-right font-mono">{fmtR(y.totalInputVat)}</td>
-                    <td className="px-4 py-2 text-right font-mono font-semibold">{fmtR(y.netVat)}</td>
-                    <td className="px-4 py-2 text-right font-mono">{y.effectiveRate}%</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{fmtR(y.totalRevenue)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{fmtR(y.totalOutputVat)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{fmtR(y.totalInputVat)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums font-semibold">{fmtR(y.netVat)}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{y.effectiveRate}%</td>
                     <td className="px-4 py-2 text-center">
                       <span className={y.returnsSubmitted < y.returnsExpected ? 'text-amber-400' : 'text-green-400'}>
                         {y.returnsSubmitted}/{y.returnsExpected}

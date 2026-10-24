@@ -1,4 +1,3 @@
-import type { CSSProperties } from 'react';
 import { formatMoney, formatPct } from '@/lib/format/money';
 import { Sparkline } from '@/components/accounting/statement/Sparkline';
 
@@ -22,11 +21,6 @@ export interface KpiTileProps {
   unavailable?: string;
 }
 
-// Inline style rather than a Tailwind arbitrary property, per the convention
-// StatementRowView.tsx settled on: `var(--ff-fig-font)` inside
-// `[font-family:...]` is not reliably picked up by the Tailwind content scan.
-const FIG_STYLE: CSSProperties = { fontFamily: 'var(--ff-fig-font)' };
-
 function fmt(v: number, kind: KpiTileProps['kind']): string {
   if (kind === 'money') return formatMoney(v, { symbol: true });
   if (kind === 'pct') return `${v.toFixed(1)}%`;
@@ -42,7 +36,7 @@ export function KpiTile({ label, value, kind, comparator, deltaPct, favourable, 
         {unavailable ? (
           <span className="text-sm font-semibold text-[var(--ff-text-tertiary)]">{unavailable}</span>
         ) : (
-          <span className="text-2xl font-semibold tabular-nums text-[var(--ff-text-primary)]" style={FIG_STYLE}>
+          <span className="text-2xl font-semibold tabular-nums text-[var(--ff-text-primary)]">
             {fmt(value, kind)}
           </span>
         )}
@@ -50,7 +44,7 @@ export function KpiTile({ label, value, kind, comparator, deltaPct, favourable, 
           <span
             data-fav={favourable === undefined ? undefined : String(favourable)}
             className="text-sm tabular-nums"
-            style={{ ...FIG_STYLE, color: deltaColour }}
+            style={{ color: deltaColour }}
           >
             {formatPct(deltaPct)}
           </span>
@@ -60,7 +54,7 @@ export function KpiTile({ label, value, kind, comparator, deltaPct, favourable, 
         <div className="flex items-center justify-between gap-3 text-xs text-[var(--ff-text-tertiary)]">
           {comparator && (
             <span>
-              {comparator.label} <span className="tabular-nums" style={FIG_STYLE}>{fmt(comparator.value, kind)}</span>
+              {comparator.label} <span className="tabular-nums">{fmt(comparator.value, kind)}</span>
             </span>
           )}
           {trend && trend.length > 1 && (

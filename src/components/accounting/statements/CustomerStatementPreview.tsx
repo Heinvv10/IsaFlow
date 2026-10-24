@@ -154,13 +154,13 @@ export function CustomerStatementPreview({ statement }: { statement: StatementRe
                       <td className="px-4 py-3 text-[var(--ff-text-tertiary)] max-w-[200px] truncate">
                         {txn.description || '—'}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                         {txn.debit > 0 ? formatCurrency(txn.debit) : ''}
                       </td>
-                      <td className={`px-4 py-3 text-right font-mono ${txn.type === 'payment' ? 'text-teal-400' : 'text-amber-400'}`}>
+                      <td className={`px-4 py-3 text-right tabular-nums ${txn.type === 'payment' ? 'text-teal-400' : 'text-amber-400'}`}>
                         {txn.credit > 0 ? formatCurrency(txn.credit) : ''}
                       </td>
-                      <td className={`px-4 py-3 text-right font-mono font-medium ${txn.balance > 0 ? 'text-[var(--ff-text-primary)]' : 'text-teal-400'}`}>
+                      <td className={`px-4 py-3 text-right tabular-nums font-medium ${txn.balance > 0 ? 'text-[var(--ff-text-primary)]' : 'text-teal-400'}`}>
                         {formatCurrency(txn.balance)}
                       </td>
                       <td className="px-2 py-3">
@@ -175,13 +175,13 @@ export function CustomerStatementPreview({ statement }: { statement: StatementRe
                   <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-[var(--ff-text-secondary)]">
                     Closing Balance
                   </td>
-                  <td className="px-4 py-3 text-right font-mono font-bold text-[var(--ff-text-primary)]">
+                  <td className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">
                     {formatCurrency(summary.totalInvoiced + openingDebit)}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono font-bold text-teal-400">
+                  <td className="px-4 py-3 text-right tabular-nums font-bold text-teal-400">
                     {formatCurrency(summary.totalPaid + summary.totalCredits + openingCredit)}
                   </td>
-                  <td className={`px-4 py-3 text-right font-mono font-bold text-lg ${statement.summary.balance > 0 ? 'text-red-400' : 'text-teal-400'}`}>
+                  <td className={`px-4 py-3 text-right tabular-nums font-bold text-lg ${statement.summary.balance > 0 ? 'text-red-400' : 'text-teal-400'}`}>
                     {formatCurrency(statement.summary.balance)}
                   </td>
                   <td />

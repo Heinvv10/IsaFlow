@@ -11,9 +11,11 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
 import { InlineReasonForm } from '@/components/shared/InlineReasonForm';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatSaDateValue } from '@/lib/saDateParser';
 
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 const th = 'px-2 py-1.5 text-left text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider';
 const td = 'px-2 py-1.5 text-xs text-[var(--ff-text-primary)] whitespace-nowrap';
 
@@ -82,7 +84,7 @@ export default function VatDeclaredElsewhereSection({ report, onChanged }: {
               <td className={td}>{d.invoiceNumber}</td>
               <td className={td}>{d.invoiceKind}</td>
               <td className={td}>{d.counterpartyName}</td>
-              <td className={td}>{d.invoiceDate}</td>
+              <td className={td}>{formatSaDateValue(d.invoiceDate)}</td>
               <td className={`${td} text-right tabular-nums`}>{fmt(d.vat)}</td>
               <td className={td}>{d.markedByName}</td>
               <td className={`${td} max-w-[16rem] truncate`}>{d.markedReason}</td>

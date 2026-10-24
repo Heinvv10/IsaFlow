@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { Loader2, TrendingDown, Receipt, AlertTriangle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface PeriodRow {
   yyyymm: string;
@@ -27,10 +28,10 @@ interface PeriodRow {
 }
 
 const fmt = (n: number | null | undefined) =>
-  n != null ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 0 }).format(n) : '—';
+  n != null ? formatMoney(n, { decimals: 0 }) : '—';
 
 const fmtSmall = (n: number | null | undefined) =>
-  n != null ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n) : '—';
+  n != null ? formatMoney(n) : '—';
 
 const periodLabel = (yyyymm: string) => {
   const y = yyyymm.slice(0, 4);
@@ -39,8 +40,8 @@ const periodLabel = (yyyymm: string) => {
 };
 
 const thCls = 'px-3 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] whitespace-nowrap';
-const tdCls = 'px-3 py-2 text-right font-mono text-xs text-[var(--ff-text-primary)] tabular-nums';
-const tdDim = 'px-3 py-2 text-right font-mono text-xs text-[var(--ff-text-tertiary)] tabular-nums';
+const tdCls = 'px-3 py-2 text-right text-xs text-[var(--ff-text-primary)] tabular-nums';
+const tdDim = 'px-3 py-2 text-right text-xs text-[var(--ff-text-tertiary)] tabular-nums';
 
 type TrackTab = 'policy' | 'tax' | 'deferred';
 
@@ -122,9 +123,9 @@ export function AssetDualTrackPanel({ assetId }: { assetId: string }) {
                   <td className={tdDim}>{fmtSmall(r.policyOpeningAccDep)}</td>
                   <td className={`${r.policyCurrentDep ? tdCls : tdDim}`}>{fmtSmall(r.policyCurrentDep)}</td>
                   <td className={tdDim}>{fmtSmall(r.policyClosingAccDep)}</td>
-                  <td className="px-3 py-2 text-right font-mono text-xs text-blue-400 font-semibold tabular-nums">{fmt(r.policyCarryingAmount)}</td>
+                  <td className="px-3 py-2 text-right text-xs text-blue-400 font-semibold tabular-nums">{fmt(r.policyCarryingAmount)}</td>
                   {rows.some(row => row.policyProfitLoss != null) && (
-                    <td className={r.policyProfitLoss != null ? (r.policyProfitLoss >= 0 ? 'px-3 py-2 text-right font-mono text-xs text-teal-400 tabular-nums' : 'px-3 py-2 text-right font-mono text-xs text-red-400 tabular-nums') : tdDim}>
+                    <td className={r.policyProfitLoss != null ? (r.policyProfitLoss >= 0 ? 'px-3 py-2 text-right text-xs text-teal-400 tabular-nums' : 'px-3 py-2 text-right text-xs text-red-400 tabular-nums') : tdDim}>
                       {fmtSmall(r.policyProfitLoss)}
                     </td>
                   )}
@@ -158,9 +159,9 @@ export function AssetDualTrackPanel({ assetId }: { assetId: string }) {
                   <td className={tdDim}>{fmtSmall(r.taxOpeningAccDep)}</td>
                   <td className={`${r.taxCurrentDep ? tdCls : tdDim}`}>{fmtSmall(r.taxCurrentDep)}</td>
                   <td className={tdDim}>{fmtSmall(r.taxClosingAccDep)}</td>
-                  <td className="px-3 py-2 text-right font-mono text-xs text-amber-400 font-semibold tabular-nums">{fmt(r.taxCarryingAmount)}</td>
+                  <td className="px-3 py-2 text-right text-xs text-amber-400 font-semibold tabular-nums">{fmt(r.taxCarryingAmount)}</td>
                   {rows.some(row => row.taxProfitLoss != null) && (
-                    <td className={r.taxProfitLoss != null ? (r.taxProfitLoss >= 0 ? 'px-3 py-2 text-right font-mono text-xs text-teal-400 tabular-nums' : 'px-3 py-2 text-right font-mono text-xs text-red-400 tabular-nums') : tdDim}>
+                    <td className={r.taxProfitLoss != null ? (r.taxProfitLoss >= 0 ? 'px-3 py-2 text-right text-xs text-teal-400 tabular-nums' : 'px-3 py-2 text-right text-xs text-red-400 tabular-nums') : tdDim}>
                       {fmtSmall(r.taxProfitLoss)}
                     </td>
                   )}
@@ -195,7 +196,7 @@ export function AssetDualTrackPanel({ assetId }: { assetId: string }) {
                     <td className={tdDim}>{fmt(r.policyCarryingAmount)}</td>
                     <td className={tdDim}>{fmt(r.taxCarryingAmount)}</td>
                     <td className={diff !== 0 ? tdCls : tdDim}>{fmtSmall(diff)}</td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-violet-400 font-semibold tabular-nums">{fmtSmall(r.deferredTax)}</td>
+                    <td className="px-3 py-2 text-right text-xs text-violet-400 font-semibold tabular-nums">{fmtSmall(r.deferredTax)}</td>
                     <td className="px-3 py-2 text-center">
                       {r.deferredTax != null && r.deferredTax !== 0 && (
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${isLiability ? 'bg-red-500/10 text-red-400' : 'bg-teal-500/10 text-teal-400'}`}>

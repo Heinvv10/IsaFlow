@@ -4,6 +4,7 @@
 
 import dynamic from 'next/dynamic';
 import type { MrrTrendPoint } from '@/modules/admin/types/admin.types';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
 const AreaChart          = dynamic(() => import('recharts').then((m) => m.AreaChart),          { ssr: false });
@@ -23,7 +24,7 @@ function fmtShortDate(dateStr: unknown) {
 }
 
 function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 0 });
+  return formatMoney(cents / 100, { decimals: 0 });
 }
 
 export function MrrTrendChart({ data }: Props) {
@@ -48,14 +49,14 @@ export function MrrTrendChart({ data }: Props) {
         <XAxis
           dataKey="date"
           tickFormatter={(v: unknown) => fmtShortDate(v)}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           interval={4}
         />
         <YAxis
           tickFormatter={(v: number) => fmtZAR(v)}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={72}

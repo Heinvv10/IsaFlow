@@ -40,13 +40,13 @@ function Panel({ anchorRect, onSelect, panelRef }: PanelProps) {
         'shadow-xl shadow-black/10 dark:shadow-black/40',
       )}
     >
-      <p className="px-2 pb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 select-none">
+      <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400 select-none">
         Settings
       </p>
       <div className="grid grid-cols-2 gap-x-4 gap-y-3">
         {sections.map(section => (
           <div key={section.section}>
-            <p className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-wider text-teal-600 dark:text-teal-400">
+            <p className="px-2 mb-1 text-xs font-semibold uppercase tracking-wider text-teal-600 dark:text-teal-400">
               {section.section}
             </p>
             <ul>
