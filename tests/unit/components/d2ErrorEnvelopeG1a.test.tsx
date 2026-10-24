@@ -84,6 +84,8 @@ describe('D2 envelope message reaches the user (group 1a)', () => {
       '/api/accounting/budgets': budgetsPayload([]),
     });
     render(<BudgetsPage />);
+    // Add is disabled while the page loads: wait for it.
+    await waitFor(() => expect((screen.getByRole('button', { name: /add budget/i }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: /add budget/i }));
     await screen.findByRole('option', { name: /Rent/ });
     fireEvent.change(screen.getByText('Select GL Account *').closest('select')!, { target: { value: 'g1' } });
