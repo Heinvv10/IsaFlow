@@ -4,6 +4,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { log } from '@/lib/logger';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { verifyMagicLink } from '@/modules/accounting/services/afs/magicLinkService';
 import { signPortalToken } from '@/lib/auth/portalJwt';
 import type { PortalSession } from '@/modules/accounting/services/afs/afsTypes';
@@ -20,6 +21,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.query.token as string | undefined;
   if (!token) {
     return res.redirect(302, '/accounting/afs/portal/login?error=missing_token');
+  }
+  // A link's token is 64 hex characters (magicLinkService). Anything else, and
+  // more than 20 tries a minute from one address, is answered before the lookup
+  // takes one of the migration_admin pool's few connections (S-07d).
+  if (!/^[0-9a-f]{64}$/.test(token)
+      || !(await checkRateLimit(`afs-portal-verify:${getClientIp(req)}`, { max: 20, windowSecs: 60 }))) {
+    return res.redirect(302, '/accounting/afs/portal/login?error=expired');
   }
 
   const result = await verifyMagicLink(token);

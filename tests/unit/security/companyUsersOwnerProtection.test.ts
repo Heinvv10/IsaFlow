@@ -14,16 +14,26 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 
 const h = vi.hoisted(() => ({ statements: [] as string[], targetRole: 'owner', actorRole: 'owner', ownerCount: 2 }));
 
+// One recorder answers both paths: the `sql` tagged template (DELETE, owner lock)
+// and the migration_admin client the role change now runs on (S-07d, mig 935).
+function answer(raw: string): Promise<unknown[]> {
+  const text = raw.replace(/\s+/g, ' ').trim();
+  h.statements.push(text);
+  if (/^SELECT role FROM company_users.*FOR UPDATE$/.test(text)) return Promise.resolve([{ role: h.targetRole }]);
+  // The actor's own role, read live after the owner lock.
+  if (/^SELECT role FROM company_users/.test(text)) return Promise.resolve([{ role: h.actorRole }]);
+  if (/^SELECT COUNT\(\*\)/.test(text)) return Promise.resolve([{ cnt: String(h.ownerCount) }]);
+  // Owners other than the target, by person: the owners that exist, less the target.
+  if (/^SELECT count\(DISTINCT/.test(text)) return Promise.resolve([{ n: h.ownerCount - 1 }]);
+  return Promise.resolve([]);
+}
+
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn((strings: TemplateStringsArray) => {
-    const text = strings.join('?').replace(/\s+/g, ' ').trim();
-    h.statements.push(text);
-    if (/^SELECT role FROM company_users.*FOR UPDATE$/.test(text)) return Promise.resolve([{ role: h.targetRole }]);
-    // The actor's own role, read live after the owner lock.
-    if (/^SELECT role FROM company_users/.test(text)) return Promise.resolve([{ role: h.actorRole }]);
-    if (/^SELECT COUNT\(\*\)/.test(text)) return Promise.resolve([{ cnt: String(h.ownerCount) }]);
-    return Promise.resolve([]);
-  }),
+  sql: vi.fn((strings: TemplateStringsArray) => answer(strings.join('?'))),
+}));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>
+    fn({ query: async (text: string) => ({ rows: await answer(text) }) }),
 }));
 vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
