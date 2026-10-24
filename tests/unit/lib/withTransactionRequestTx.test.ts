@@ -122,7 +122,12 @@ describe('withTransaction — request tx in flight (integration)', async () => {
       const { user_id: uid, company_id: cid } = mgr.rows[0] as { user_id: string; company_id: string };
       await client.query('SET LOCAL ROLE app_user');
       await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: 'authenticated' })]);
-      await client.query(`UPDATE company_users SET is_default = false WHERE user_id = $1`, [uid]); // RLS: 0 rows for a manager
+      // 930 (S-07c): app_user may not write company_users at all; the definer below is the only door.
+      await client.query('SAVEPOINT s0');
+      await expect(
+        client.query(`UPDATE company_users SET is_default = false WHERE user_id = $1`, [uid]),
+      ).rejects.toMatchObject({ code: '42501' });
+      await client.query('ROLLBACK TO SAVEPOINT s0');
       const r = await client.query(`SELECT auth.set_default_company($1::UUID, $2::UUID) AS n`, [uid, cid]);
       expect(Number((r.rows[0] as { n: number }).n)).toBeGreaterThanOrEqual(0);
       const after = await client.query(`SELECT is_default FROM company_users WHERE user_id = $1 AND company_id = $2`, [uid, cid]);
