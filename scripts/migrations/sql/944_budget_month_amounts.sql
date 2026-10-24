@@ -30,9 +30,13 @@
 --     (public.fiscal_year_for_label), so two labels never fall on one month.
 -- Because the registry's FY2027 is March 2026 - February 2027, converted months
 -- regroup under registry labels: January 2026 now counts in FY2026 and March
--- 2026 in FY2027. The notes header (accounting_budgets) therefore is copied to
--- every registry label that holds converted months of the account, so the notes
--- show wherever the months show. A row with no monthly split spreads
+-- 2026 in FY2027. The notes header (accounting_budgets) therefore follows the
+-- months: it is copied to every registry label that holds converted months of
+-- the account, so the notes show wherever the months show; and a header none of
+-- whose months land under its own label MOVES to a label that holds them (when
+-- that label has no header yet), leaving no empty year with notes.
+-- A month the registry cannot place (no free label in a hole between stored
+-- years) is still filed by the old readers' placement; its header stays put. A row with no monthly split spreads
 -- annual_amount over the twelve months, cents on the last, as the reader
 -- pro-rated it. An empty string is 0 (the reader's Number('')). A monthly amount
 -- in the JSON may have more than two decimals (annual_amount cannot: it is
@@ -102,6 +106,7 @@ DECLARE
   b record; k text; idx int; raw text; val numeric; month_date date;
   keys text[] := ARRAY['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
   monthly numeric; inserted int; converted int := 0; win_start date; reg_label int;
+  lab int[]; target int; lbl int;
 BEGIN
   FOR b IN
     SELECT id, company_id, gl_account_id, fiscal_year, COALESCE(period_amounts, '{}'::jsonb) AS pa,
@@ -115,6 +120,7 @@ BEGIN
     IF jsonb_typeof(b.pa) <> 'object' THEN
       RAISE EXCEPTION 'budget_months_from_legacy: budget % has period_amounts that is not an object (%)', b.id, jsonb_typeof(b.pa);
     END IF;
+    lab := '{}';
     FOR idx IN 1..12 LOOP
       k := keys[idx];
       IF (SELECT COUNT(*) FROM jsonb_object_keys(b.pa)) > 0 THEN
@@ -141,8 +147,13 @@ BEGIN
                              AND fp3.fiscal_year <> EXTRACT(YEAR FROM fp3.start_date)::int) THEN
           month_date := make_date(b.fiscal_year, idx, 1);
         ELSE
-          SELECT fy.start_date INTO win_start
-            FROM public.fiscal_year_for_label(b.company_id, b.fiscal_year) fy;
+          -- The registry refuses some shapes (no free label in a hole between stored years): placed as no year carries it.
+          BEGIN
+            SELECT fy.start_date INTO win_start
+              FROM public.fiscal_year_for_label(b.company_id, b.fiscal_year) fy;
+          EXCEPTION WHEN raise_exception OR invalid_parameter_value THEN
+            win_start := NULL;
+          END;
           IF win_start IS NULL THEN
             month_date := make_date(b.fiscal_year, idx, 1);  -- a label no year carries: calendar placement
           ELSE
@@ -161,15 +172,35 @@ BEGIN
           b.id, b.fiscal_year, month_date, b.gl_account_id;
       END IF;
       converted := converted + 1;
-      -- The notes header follows the months into the registry year that now holds them.
-      SELECT fy.fiscal_year INTO reg_label FROM public.fiscal_year_for_date(b.company_id, month_date) fy;
-      IF reg_label IS NOT NULL AND reg_label <> b.fiscal_year THEN
-        INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes, created_by)
-        VALUES (b.company_id, 'FY' || reg_label || ' Budget', reg_label, b.gl_account_id, b.notes, b.created_by)
-        ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL DO NOTHING;
+      -- The registry year that now holds the month (a month it cannot place leaves the notes where they are).
+      BEGIN
+        SELECT fy.fiscal_year INTO reg_label FROM public.fiscal_year_for_date(b.company_id, month_date) fy;
+      EXCEPTION WHEN raise_exception OR invalid_parameter_value THEN
+        reg_label := NULL;
+      END;
+      IF reg_label IS NOT NULL THEN
+        IF NOT (reg_label = ANY(lab)) THEN lab := lab || reg_label; END IF;
       END IF;
       month_date := NULL; win_start := NULL; reg_label := NULL;
     END LOOP;
+    -- The notes header follows the months into the registry years that now hold them. When none of
+    -- its months is under its own label it MOVES to a label that holds them (no empty year carrying
+    -- notes), unless that label has a header already; every other label gets a copy.
+    IF cardinality(lab) > 0 THEN
+      IF NOT (b.fiscal_year = ANY(lab)) THEN
+        target := lab[1];
+        IF NOT EXISTS (SELECT 1 FROM accounting_budgets h WHERE h.company_id = b.company_id
+                         AND h.gl_account_id = b.gl_account_id AND h.fiscal_year = target) THEN
+          UPDATE accounting_budgets SET fiscal_year = target, budget_name = 'FY' || target || ' Budget' WHERE id = b.id;
+        END IF;
+      END IF;
+      FOREACH lbl IN ARRAY lab LOOP
+        CONTINUE WHEN lbl = b.fiscal_year;
+        INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, notes, created_by)
+        VALUES (b.company_id, 'FY' || lbl || ' Budget', lbl, b.gl_account_id, b.notes, b.created_by)
+        ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL DO NOTHING;
+      END LOOP;
+    END IF;
   END LOOP;
   RETURN converted;
 END;
