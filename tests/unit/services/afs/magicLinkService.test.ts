@@ -2,6 +2,13 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
+// S-07d (migration 937): portal_magic_links reads/writes run on the migration_admin
+// pool; the fake client feeds adminMock. The contact lookup stays on sql.
+const adminMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>
+    fn({ query: async (t: string, p?: unknown[]) => ({ rows: await adminMock(t, p) }) }),
+}));
 const liveMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/auth/liveCompanies', () => ({ listLiveCompanies: liveMock }));
 
@@ -43,17 +50,21 @@ describe('magicLinkService', () => {
 
   describe('createMagicLink', () => {
     it('returns a token string and expiresAt Date', async () => {
-      mockSql
+      adminMock
         .mockResolvedValueOnce([]) // invalidate old tokens
         .mockResolvedValueOnce([]); // insert new token
       const { token, expiresAt } = await createMagicLink(COMPANY_ID, CONTACT_ID);
+      expect(adminMock.mock.calls[0]![0]).toContain('UPDATE portal_magic_links');
+      expect(adminMock.mock.calls[0]![1]).toEqual([CONTACT_ID, COMPANY_ID]);
+      expect(adminMock.mock.calls[1]![0]).toContain('INSERT INTO portal_magic_links');
+      expect(adminMock.mock.calls[1]![1]).toContain(token);
       expect(typeof token).toBe('string');
       expect(token.length).toBe(64); // 32 bytes = 64 hex chars
       expect(expiresAt).toBeInstanceOf(Date);
     });
 
     it('sets expiry approximately 30 minutes from now', async () => {
-      mockSql
+      adminMock
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
       const before = Date.now();
@@ -68,10 +79,10 @@ describe('magicLinkService', () => {
 
   describe('verifyMagicLink', () => {
     it('returns contact and companyId for a valid unused token', async () => {
-      mockSql
+      adminMock
         .mockResolvedValueOnce([LINK_ROW])     // SELECT token
-        .mockResolvedValueOnce([{ id: 'x' }])  // UPDATE used_at RETURNING id
-        .mockResolvedValueOnce([CONTACT_ROW]);  // SELECT contact
+        .mockResolvedValueOnce([{ id: 'x' }]); // UPDATE used_at RETURNING id
+      mockSql.mockResolvedValueOnce([CONTACT_ROW]); // SELECT contact
       const result = await verifyMagicLink('aabbcc');
       expect(result).not.toBeNull();
       expect(result!.contact.id).toBe(CONTACT_ID);
@@ -80,21 +91,22 @@ describe('magicLinkService', () => {
 
     it('returns null, without consuming the token, when the company is no longer live', async () => {
       liveMock.mockResolvedValue([]);
-      mockSql.mockResolvedValueOnce([LINK_ROW]);
+      adminMock.mockResolvedValueOnce([LINK_ROW]);
       const result = await verifyMagicLink('aabbcc');
       expect(result).toBeNull();
       expect(liveMock).toHaveBeenCalledWith([COMPANY_ID]);
-      expect(mockSql).toHaveBeenCalledTimes(1);
+      expect(adminMock).toHaveBeenCalledTimes(1); // the SELECT only: no consuming UPDATE
+      expect(mockSql).not.toHaveBeenCalled();
     });
 
     it('returns null for an expired or already-used token', async () => {
-      mockSql.mockResolvedValueOnce([]); // no rows = expired
+      adminMock.mockResolvedValueOnce([]); // no rows = expired
       const result = await verifyMagicLink('bad-token');
       expect(result).toBeNull();
     });
 
     it('returns null when concurrent request already consumed the token', async () => {
-      mockSql
+      adminMock
         .mockResolvedValueOnce([LINK_ROW]) // SELECT finds the token
         .mockResolvedValueOnce([]);         // UPDATE returns nothing (race)
       const result = await verifyMagicLink('aabbcc');
@@ -102,10 +114,10 @@ describe('magicLinkService', () => {
     });
 
     it('returns null when the contact is inactive after token verification', async () => {
-      mockSql
+      adminMock
         .mockResolvedValueOnce([LINK_ROW])
-        .mockResolvedValueOnce([{ id: 'x' }])
-        .mockResolvedValueOnce([]); // contact not found / inactive
+        .mockResolvedValueOnce([{ id: 'x' }]);
+      mockSql.mockResolvedValueOnce([]); // contact not found / inactive
       const result = await verifyMagicLink('aabbcc');
       expect(result).toBeNull();
     });

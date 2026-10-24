@@ -10,7 +10,10 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { listCompanyUsers, updateCompanyUserRole, removeCompanyUser, OwnerProtectedError } from '@/modules/accounting/services/core/userAccessService';
+import {
+  listCompanyUsers, updateCompanyUserRole, removeCompanyUser, OwnerProtectedError, MemberRoleForbiddenError,
+} from '@/modules/accounting/services/core/userAccessService';
+import { isMemberWriteBusy } from '@/modules/accounting/services/core/memberWrites';
 
 const ADMIN_ROLES = ['owner', 'admin'];
 
@@ -46,7 +49,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {
-      if (err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof OwnerProtectedError || err instanceof MemberRoleForbiddenError) return apiResponse.forbidden(res, err.message);
+      if (isMemberWriteBusy(err)) return apiResponse.conflict(res, 'Another change to these members is in progress. Try again.');
       return apiResponse.badRequestFromError(res, err, 'Update failed.');
     }
   }
@@ -71,7 +75,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const users = await listCompanyUsers(companyId);
       return apiResponse.success(res, users);
     } catch (err) {
-      if (err instanceof OwnerProtectedError) return apiResponse.forbidden(res, err.message);
+      if (err instanceof OwnerProtectedError || err instanceof MemberRoleForbiddenError) return apiResponse.forbidden(res, err.message);
+      if (isMemberWriteBusy(err)) return apiResponse.conflict(res, 'Another change to these members is in progress. Try again.');
       return apiResponse.badRequestFromError(res, err, 'Remove failed.');
     }
   }
