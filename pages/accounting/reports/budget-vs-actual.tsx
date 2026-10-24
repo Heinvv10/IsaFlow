@@ -100,7 +100,7 @@ export default function BudgetVsActualPage() {
                     Compare budgeted and actual amounts by GL account
                   </p>
                   {range && (
-                    <p data-testid="report-period" className="text-xs text-[var(--ff-text-tertiary)] mt-1">
+                    <p data-testid="report-period" className="text-xs text-[var(--ff-text-secondary)] mt-1">
                       {longDate(range.start)} to {longDate(range.end)}
                     </p>
                   )}
@@ -160,14 +160,14 @@ export default function BudgetVsActualPage() {
                   <p data-testid="year-not-started" className="text-[var(--ff-text-secondary)]">
                     This financial year starts on {longDate(report.starts_on)}
                   </p>
-                  <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
+                  <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
                     There is nothing to show for year to date yet; choose Full Year to see its budget.
                   </p>
                 </>
               ) : (
                 <>
                   <p className="text-[var(--ff-text-secondary)]">No budget data available</p>
-                  <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
+                  <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
                     Set budgets per GL account to see variance analysis
                   </p>
                 </>

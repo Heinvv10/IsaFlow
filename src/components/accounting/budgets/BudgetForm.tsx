@@ -95,7 +95,7 @@ export function BudgetForm({ fiscalYear, monthKeys, accounts, editing, busy, onS
           ))}
         </div>
       )}
-      <p className="text-xs text-[var(--ff-text-tertiary)]">
+      <p className="text-xs text-[var(--ff-text-secondary)]">
         The annual amount is spread evenly across the {monthKeys.length || 12} months; edit a month to adjust it.
         A month left empty is saved as 0.
       </p>

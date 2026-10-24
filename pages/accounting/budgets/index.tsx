@@ -189,7 +189,7 @@ export default function BudgetManagementPage() {
           {!loading && budgets.length > 0 && (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 flex items-center justify-between">
               <div>
-                <p className="text-xs text-[var(--ff-text-tertiary)]">Total Budget for {fiscalYear}</p>
+                <p className="text-xs text-[var(--ff-text-secondary)]">Total Budget for {fiscalYear}</p>
                 <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmt(totalBudget)}</p>
               </div>
               <div className="text-sm text-[var(--ff-text-secondary)]">{budgets.length} accounts budgeted</div>
@@ -213,20 +213,20 @@ export default function BudgetManagementPage() {
                 <th className="px-4 py-3">Actions</th>
               </tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">Loading...</td></tr>}
+                {loading && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-secondary)]">Loading...</td></tr>}
                 {!loading && budgets.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-secondary)]">
                     No budgets for {selectedYear}. Add one or copy from another year.
                   </td></tr>
                 )}
                 {budgets.map(b => (
                   <tr key={b.glAccountId} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                    <td className="px-4 py-3 font-mono text-[var(--ff-text-tertiary)]">{b.accountCode}</td>
+                    <td className="px-4 py-3 font-mono text-[var(--ff-text-secondary)]">{b.accountCode}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">{b.accountName}</td>
                     <td className="px-4 py-3"><span className="px-2 py-0.5 rounded text-xs bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">{b.accountType}</span></td>
                     <td data-testid={`budget-total-${b.accountCode}`} className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-medium">{fmt(b.annualAmount)}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt(b.annualAmount / (monthKeys.length || 12))}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs truncate max-w-[150px]">{b.notes || '—'}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs truncate max-w-[150px]">{b.notes || '—'}</td>
                     <td className="px-4 py-3">
                       <button onClick={() => { setShowForm(false); setEditing(b); }} disabled={loading} className="p-1 text-[var(--ff-text-secondary)] disabled:opacity-50" title="Edit">
                         <Pencil className="h-4 w-4" />
@@ -260,7 +260,7 @@ export default function BudgetManagementPage() {
                 <tbody>
                   {budgets.map(b => (
                     <tr key={b.glAccountId} className="border-b border-[var(--ff-border-light)]">
-                      <td className="px-3 py-2 font-mono text-[var(--ff-text-tertiary)] sticky left-0 bg-[var(--ff-bg-secondary)]">{b.accountCode}</td>
+                      <td className="px-3 py-2 font-mono text-[var(--ff-text-secondary)] sticky left-0 bg-[var(--ff-bg-secondary)]">{b.accountCode}</td>
                       {b.months.map(m => (
                         <td key={m.month} className="px-3 py-2 text-right text-[var(--ff-text-primary)]">{fmt(m.amount)}</td>
                       ))}
