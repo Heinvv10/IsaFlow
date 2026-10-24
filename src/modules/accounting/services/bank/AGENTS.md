@@ -50,7 +50,7 @@
 | `reverseReconciledTransaction` → `unwindBankAllocationApplication` → `unwindOnePayment` | bank → payment → invoices → GL |
 | `confirmCustomerInvoiceMatch` / `confirmSupplierInvoiceMatch` (`bank-match-confirm`) | bank → invoice → (`allocateTransaction` re-locks bank) |
 | `voidPaymentDocument` (`core/paymentVoidService`) | bank → payment → invoices → GL |
-| `planReceiptApplication` / `planSupplierPaymentApplication` (no bank line in reach) | payment → invoices; AP (and `unapplySupplierPayment`): supplier `FOR NO KEY UPDATE` first (`supplierFirst`, 2026-10-24 — each bill is written twice, and the second write's supplier FK check otherwise came after the payment and crossed a supplier merge; the mode makes a refund plan's credit read wait for it). The AP auto-apply back-fill takes sources in supplier-id order |
+| `planReceiptApplication` / `planSupplierPaymentApplication` (no bank line in reach) | payment → invoices (AP: each bill is written twice, so its supplier FK key-shares the supplier last — OPEN 40P01 against a supplier merge, ap/.claude.md 2026-10-24) |
 | `confirmCustomerPayment` / `processSupplierPayment` | payment → invoices (the JE they post is CREATED there — exempt, see below). `processSupplierPayment` writes the payment row once (2026-10-24), so it takes no supplier lock |
 | `cancelCustomerPayment` | payment → invoices → GL |
 | `voidSupplierPayment` (K-064 r7) | bank (matched to its journal, from an unlocked peek — `ap/paymentJournalReversal.lockPaymentBankLeg`) → payment → invoices → GL (`lockJournalAndUnmatch`) |

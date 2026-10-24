@@ -88,7 +88,7 @@ export async function planSupplierPaymentApplication(
   // `toCents`, which throws on a non-finite figure, so a malformed body must be refused before any arithmetic.
   assertAllocationShape(allocations);
 
-  const payment = await lockSupplierPaymentForUpdate(companyId, paymentId, { supplierFirst: true });
+  const payment = await lockSupplierPaymentForUpdate(companyId, paymentId);
   if (!payment) throw new SupplierPaymentRefusal(`Supplier payment ${paymentId} not found`);
 
   const status = String(payment.status);

@@ -88,7 +88,7 @@ export async function applyOnePayment(
 ): Promise<PlannedLine[]> {
   const isAp = ctx.subledger === 'ap';
   const payment = isAp
-    ? await lockSupplierPaymentForUpdate(ctx.companyId, source.paymentId, { supplierFirst: true })
+    ? await lockSupplierPaymentForUpdate(ctx.companyId, source.paymentId)
     : await lockCustomerPaymentForUpdate(ctx.companyId, source.paymentId);
   if (!payment) throw new Error(`Payment ${source.paymentId} not found`);
 
