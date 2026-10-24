@@ -52,8 +52,8 @@ export type { ContactPickerProps } from './pickers/ContactPicker';
 export { AccountPicker } from './pickers/AccountPicker';
 export type { AccountPickerProps } from './pickers/AccountPicker';
 export { ItemPicker } from './pickers/ItemPicker';
-export { TaxRatePicker } from './pickers/TaxRatePicker';
-export type { TaxRatePickerProps, VatCodeValue } from './pickers/TaxRatePicker';
+export { VatCodePicker } from './pickers/VatCodePicker';
+export type { VatCodePickerProps } from './pickers/VatCodePicker';
 export type { PickerProps } from './pickers/RemotePicker';
 
 export { Breadcrumb } from './Breadcrumb';

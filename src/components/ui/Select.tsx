@@ -43,6 +43,10 @@ interface SelectBaseProps {
   /** Single select only: how to show `value` when it is not among `options` (e.g. outside the loaded page). */
   valueOption?: SelectOption | null;
   emptyText?: string;
+  /** A note under the list, e.g. "Showing the first 20 - type to narrow". */
+  hint?: string;
+  /** Replaces the default label classes (merged, so a later size/spacing class wins) to match a neighbouring form's labels. */
+  labelClassName?: string;
 }
 
 const CREATE_VALUE = '__select_create_new__';
@@ -64,7 +68,7 @@ export type SelectProps = SingleSelectProps | MultiSelectProps;
 // WORKING: Select component (single and multi-select)
 export function Select(props: SelectProps) {
   const { options, placeholder = 'Select…', label, error, disabled = false, clearable = false, className, id: externalId } = props;
-  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText } = props;
+  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName } = props;
   const searchable = props.searchable === true || onSearch !== undefined;
 
   const autoId = useId();
@@ -155,6 +159,9 @@ export function Select(props: SelectProps) {
     return () => { window.removeEventListener('scroll', recalculate, true); window.removeEventListener('resize', recalculate); };
   }, [open, recalculate]);
 
+  // The panel is positioned from the trigger's box: results arriving, an error line or a hint can move the trigger.
+  useEffect(() => { if (open) recalculate(); }, [open, options, loading, loadError, error, recalculate]);
+
   const selectedLabels = selectedValues
     .map((v) => options.find((o) => o.value === v)?.label ?? (valueOption?.value === v ? valueOption.label : undefined))
     .filter(Boolean) as string[];
@@ -163,7 +170,7 @@ export function Select(props: SelectProps) {
   return (
     <div className={cn('w-full', className)}>
       {label && (
-        <label id={labelId} htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label id={labelId} htmlFor={inputId} className={cn('mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300', labelClassName)}>
           {label}
         </label>
       )}
@@ -227,6 +234,7 @@ export function Select(props: SelectProps) {
               onSearchChange={(v) => { setSearch(v); setActiveIndex(-1); onSearch?.(v); }}
               searchLabel={label ? `Search ${label}` : undefined}
               emptyText={emptyText}
+              hint={hint}
               loading={loading}
               loadError={loadError}
               onSelect={selectOption}

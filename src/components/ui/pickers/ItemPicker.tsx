@@ -1,4 +1,4 @@
-/** ItemPicker - active items/products, searched server-side (?q= on code or description). */
+/** ItemPicker - active items/products, searched server-side (?q= on code or description); opening shows at most 20. */
 
 import { RemotePicker, type PickerProps } from './RemotePicker';
 import { fetchItems } from './pickerData';

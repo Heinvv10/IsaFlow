@@ -3,6 +3,7 @@
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useState } from 'react';
 
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 useApiJsonOverMock();
@@ -106,6 +107,108 @@ describe('ContactPicker', () => {
     render(<ContactPicker kind="customer" label="Customer" value={null} onChange={() => {}} />);
     fireEvent.click(trigger('Customer'));
     expect((await screen.findByRole('alert')).textContent).toMatch(/customers/i);
+  });
+});
+
+const UUID_C = '22222222-2222-4222-8222-222222222222';
+const UUID_S = '33333333-3333-4333-8333-333333333333';
+const many = (n: number, extra: Record<string, unknown> = {}) =>
+  Array.from({ length: n }, (_, i) => ({ id: `c${i}`, name: `Contact ${String(i).padStart(2, '0')}`, ...extra }));
+
+describe('ContactPicker paging and hints', () => {
+  it('opens with a 20-row page and says so, then searches with a 50-row page', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (u) => ok(many(String(u).includes('limit=20') ? 20 : 50)));
+    render(<ContactPicker kind="customer" label="Customer" value={null} onChange={() => {}} />);
+    fireEvent.click(trigger('Customer'));
+    await screen.findAllByRole('option');
+    expect(urls()[0]).toContain('limit=20');
+    expect(screen.getAllByRole('option')).toHaveLength(20);
+    expect(screen.getByRole('status').textContent).toBe('Showing the first 20 - type to search');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search Customer' }), { target: { value: 'con' } });
+    await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(50));
+    expect(urls().at(-1)).toContain('limit=50');
+    expect(screen.getByRole('status').textContent).toBe('Showing the first 50 - keep typing to narrow');
+  });
+
+  it('shows no hint when the page is not full, and uses the suppliers total', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok(many(3)));
+    const { unmount } = render(<ContactPicker kind="customer" label="Customer" value={null} onChange={() => {}} />);
+    fireEvent.click(trigger('Customer'));
+    await screen.findAllByRole('option');
+    expect(screen.queryByRole('status')).toBeNull();
+    unmount();
+    vi.mocked(apiFetch).mockImplementation(async () => ok({ suppliers: many(3), total: 400 }));
+    render(<ContactPicker kind="supplier" label="Supplier" value={null} onChange={() => {}} />);
+    fireEvent.click(trigger('Supplier'));
+    await screen.findAllByRole('option');
+    expect(screen.getByRole('status').textContent).toContain('Showing the first 3');
+  });
+
+  it('offers active contacts only', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok([{ id: 'a', name: 'Active Co', is_active: true }, { id: 'b', name: 'Dormant Co', is_active: false }]));
+    render(<ContactPicker kind="customer" label="Customer" value={null} onChange={() => {}} />);
+    fireEvent.click(trigger('Customer'));
+    expect((await screen.findAllByRole('option')).map((o) => o.textContent)).toEqual(['Active Co']);
+  });
+});
+
+describe('ContactPicker names a preselected id', () => {
+  it('looks a customer up by id when it is not in the page, even if inactive', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok({ id: UUID_C, name: 'Zeta Corp', is_active: false }));
+    render(<ContactPicker kind="customer" label="Customer" value={UUID_C} onChange={() => {}} />);
+    await waitFor(() => expect(trigger('Customer').textContent).toContain('Zeta Corp'));
+    expect(urls()).toEqual([`/api/accounting/customers?id=${UUID_C}`]);
+  });
+
+  it('uses the suppliers route for suppliers', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => ok({ id: UUID_S, name: 'Omega Supplies' }));
+    render(<ContactPicker kind="supplier" label="Supplier" value={UUID_S} onChange={() => {}} />);
+    await waitFor(() => expect(trigger('Supplier').textContent).toContain('Omega Supplies'));
+    expect(urls()).toEqual([`/api/accounting/suppliers-list?id=${UUID_S}`]);
+  });
+
+  it('says so when the record no longer exists, and does not look up a non-UUID', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => fail(404));
+    const { unmount } = render(<ContactPicker kind="customer" label="Customer" value={UUID_C} onChange={() => {}} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('no longer exists');
+    unmount();
+    vi.mocked(apiFetch).mockClear();
+    render(<ContactPicker kind="customer" label="Customer" value="not-a-uuid" onChange={() => {}} />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(urls()).toEqual([]);
+  });
+
+  it('a failed lookup is shown under the field (not mistaken for "not found")', async () => {
+    vi.mocked(apiFetch).mockImplementation(async () => fail(500));
+    render(<ContactPicker kind="customer" label="Customer" value={UUID_C} onChange={() => {}} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('boom');
+  });
+
+  it('an explicit valueLabel skips the lookup', async () => {
+    render(<ContactPicker kind="customer" label="Customer" value={UUID_C} valueLabel="Given Co" onChange={() => {}} />);
+    expect(trigger('Customer').textContent).toContain('Given Co');
+    expect(urls()).toEqual([]);
+  });
+});
+
+describe('RemotePicker remembers what was picked', () => {
+  it('keeps the picked label after a later search no longer lists it', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (u) => {
+      const q = (new URL(String(u), 'http://x').searchParams.get('q') ?? '').toLowerCase();
+      return ok(CUSTOMERS.filter((c) => c.name.toLowerCase().includes(q)));
+    });
+    function Harness() {
+      const [v, setV] = useState<string | null>(null);
+      return <ContactPicker kind="customer" label="Customer" value={v} onChange={setV} />;
+    }
+    render(<Harness />);
+    fireEvent.click(trigger('Customer'));
+    fireEvent.click(await screen.findByRole('option', { name: 'Bravo Logistics' }));
+    await waitFor(() => expect(trigger('Customer').textContent).toContain('Bravo Logistics'));
+    fireEvent.click(trigger('Customer'));
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Search Customer' }), { target: { value: 'acme' } });
+    await waitFor(() => expect(screen.queryByRole('option', { name: 'Bravo Logistics' })).toBeNull());
+    expect(trigger('Customer').textContent).toContain('Bravo Logistics');
   });
 });
 
