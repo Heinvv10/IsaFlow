@@ -42,6 +42,7 @@ export function FormKitDemo() {
         number={1}
         title="Invoice details"
         description="Type, do not pick. The field echoes what it understood."
+        help={{ text: 'Dates and amounts are read once, when you leave the field.', href: 'https://help.isaflow.co.za/forms' }}
         status={<AutosaveStatus state={state} savedAt={savedAt} />}
         summary={
           <div className="rounded-lg border border-gray-200 p-4 text-sm dark:border-gray-700">
@@ -66,6 +67,7 @@ export function FormKitDemo() {
             value={amount}
             onChange={(v) => { setAmount(v); touch(); }}
             helperText='Try "25 000,00" or "25,000.00"'
+            help={{ text: 'The invoice total before any discount, in rand.' }}
           />
           <Input label="Reference" placeholder="INV-0001" onChange={touch} />
           <MoneyField label="Discount (invalid)" value={null} onChange={() => undefined} error="Discount cannot exceed the total." />

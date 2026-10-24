@@ -11,6 +11,7 @@ import * as React from 'react';
 import { cn } from '@/utils/cn';
 import { inputVariants } from './Input';
 import { FieldFrame, describedBy } from './FieldFrame';
+import type { FieldHelpContent } from './FieldHelp';
 import { useParsedField, type ParseOutcome } from './useParsedField';
 import { addDaysISO, localISODate } from '@/lib/dateUtils';
 import { formatSaDate, formatSaDateLong, parseSaDate } from '@/lib/saDateParser';
@@ -33,6 +34,8 @@ export interface DateFieldProps {
   /** External error (e.g. from the server). Overrides the field's own. */
   error?: string;
   helperText?: string;
+  /** (i) tooltip next to the label, with an optional "Learn more" link. */
+  help?: FieldHelpContent;
   placeholder?: string;
   required?: boolean;
   disabled?: boolean;
@@ -44,7 +47,7 @@ export interface DateFieldProps {
 
 export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(function DateField(
   {
-    label, value, onChange, id, name, minDate, maxDate, minMessage, maxMessage, error: externalError, helperText,
+    label, value, onChange, id, name, minDate, maxDate, minMessage, maxMessage, error: externalError, helperText, help,
     placeholder = 'dd MMM yyyy', required, disabled, getToday, className, onBlur,
   },
   ref,
@@ -71,7 +74,7 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   const error = externalError ?? field.error;
   const understood = field.text.trim() === '' ? null : parseSaDate(field.text, now());
   const echo = understood?.ok ? formatSaDateLong(understood.iso) : null;
-  const frame = { error, helperText, echo };
+  const frame = { error, helperText, echo, help };
 
   const step = (days: number): void => {
     const base = understood?.ok ? understood.iso : localISODate(now());
