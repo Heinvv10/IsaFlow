@@ -15,7 +15,6 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { toMoney } from '@/lib/money/decimalSum';
-import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from './fiscalYearBasis';
 import { assertLedgerRange } from './ledgerDateRange';
 import { LedgerAccountNotFoundError } from './ledgerErrors';
 import {
@@ -66,20 +65,15 @@ export async function getAccountTransactions(
   const bu = businessUnitId ?? null;
   try {
     const acctRows = (await sql`
-      SELECT ga.account_name, ga.account_type, ga.normal_balance, c.financial_year_start
+      SELECT ga.account_name, ga.account_type, ga.normal_balance
       FROM gl_accounts ga
-      LEFT JOIN companies c ON c.id = ga.company_id
       WHERE ga.account_code = ${accountCode} AND ga.company_id = ${companyId}::UUID LIMIT 1
     `) as Row[];
     if (!acctRows[0]) throw new LedgerAccountNotFoundError(accountCode);
 
     const normalBal = String(acctRows[0].normal_balance);
     const accountType = String(acctRows[0].account_type);
-    // READ PATH: March fallback taken visibly, as the trial balance does.
-    const fyStartMonth = resolveFiscalYearStartMonth(
-      acctRows[0].financial_year_start, companyId, { fallback: DEFAULT_FY_START_MONTH },
-    );
-    const openingFloor = incomeStatementOpeningFloor(accountType, periodStart, fyStartMonth);
+    const openingFloor = await incomeStatementOpeningFloor(companyId, accountType, periodStart);
 
     const obRows = (await sql`
       SELECT
@@ -131,10 +125,11 @@ export async function getAccountTransactions(
     const periodNet = lines.reduce(
       (sum, l) => sum + (normalBal === 'debit' ? l.debit - l.credit : l.credit - l.debit), 0,
     );
+    const boundaries = openingFloor ? await fiscalYearStartsWithin(companyId, periodStart, periodEnd) : [];
     const { rows: transactions, closing } = runWithYearEndCloses(lines, {
       opening: openingBalance,
       normalBalance: normalBal,
-      boundaries: openingFloor ? fiscalYearStartsWithin(periodStart, periodEnd, fyStartMonth) : [],
+      boundaries,
       makeClose: (fyEnd, { debit, credit }) => ({
         date: fyEnd, entryNumber: '', description: yearEndCloseDescription(fyEnd),
         debit, credit, source: 'year_end_close', derived: true,

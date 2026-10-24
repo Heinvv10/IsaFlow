@@ -29,6 +29,7 @@ import { softDelete } from '@/modules/accounting/services/core/softDeleteService
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears, setPeriodsEndingBy } from './helpers/fiscalYearSeed';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -45,7 +46,6 @@ function shift(days: number): string {
 }
 const TODAY = fmtDate(new Date());
 const CLOSED_END = shift(-60);
-const OPEN_START = shift(-59);
 const OPEN_END = shift(400);
 const DOC_DATE = shift(-120);
 const DUE_DATE = shift(-100);
@@ -153,9 +153,7 @@ describeIfDb('K-053 the group dashboard and the document integrity checks tie to
               VALUES (${GROUP}::UUID, ${'K053GRP group ' + TAG}, ${COMPANY}::UUID, ${USER}::UUID)`;
     await sql`INSERT INTO company_group_members (group_id, company_id, ownership_pct, consolidation_method, is_holding)
               VALUES (${GROUP}::UUID, ${COMPANY}::UUID, 100, 'full', true)`;
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'K053GRP prior ' + TAG}, 1, 2026, '2020-01-01', ${CLOSED_END}::date, 'open'),
-                     (${COMPANY}::UUID, ${'K053GRP current ' + TAG}, 2, 2026, ${OPEN_START}::date, ${OPEN_END}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), OPEN_END);
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
     await account(payable, '2100', 'Trade Creditors', 'liability', 'credit', 'payable');
     await account(revenue, '4000', 'Sales', 'revenue', 'credit', 'default_revenue');
@@ -207,8 +205,7 @@ describeIfDb('K-053 the group dashboard and the document integrity checks tie to
     await inTx(() => postSupplierInvoiceToGL(COMPANY, ap, USER));
     await inTx(() => postSupplierInvoiceToGL(COMPANY, apLegacy, USER));
 
-    await sql`UPDATE fiscal_periods SET status = 'closed'
-              WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
+    await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
 
     for (const id of [ar, noDue, noRev]) {
       await inTx(() => softDelete(COMPANY, 'customer_invoice', id, USER));

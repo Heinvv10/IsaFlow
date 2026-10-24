@@ -222,7 +222,7 @@ export async function getGeneralLedgerLines(
             openingBalances: openingMap(agg.opening_all),
           };
 
-    const nullFrom = incomeStatementBalanceNullFrom(basis.fyStart, periodEnd);
+    const nullFrom = incomeStatementBalanceNullFrom(basis.nextFyStart, periodEnd);
     const lines: GeneralLedgerLine[] = rows.map((r) => ({
       lineId: String(r.line_id),
       journalEntryId: String(r.journal_entry_id),

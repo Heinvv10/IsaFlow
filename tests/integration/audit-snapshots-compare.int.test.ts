@@ -105,6 +105,12 @@ describe('compare to today', { timeout: 120_000 }, () => {
     expect(cmp.masterData).toMatchObject({ byType: { gl_account: 1 } });
   });
 
+  // A posted journal may move only into a period that exists and is open (migration 941).
+  const periodFor = async (company: string, date: string) => {
+    const year = (await pool.query('SELECT public.fiscal_year_ensure($1, $2::date) AS id', [company, date])).rows[0].id;
+    await pool.query('SELECT public.fiscal_periods_generate($1)', [year]);
+  };
+
   it('a journal that entered the frozen period with timestamps from before the snapshot is still backdated, flagged', async () => {
     const c = await newCompany(pool, [[o, 'owner']], companies);
     const l = await plantLedger(pool, c);
@@ -113,6 +119,7 @@ describe('compare to today', { timeout: 120_000 }, () => {
     const draft = await plantJournal(pool, c, { date: '2026-05-05', amount: 60, debit: l.expense, credit: l.bank, by: o, createdAt: old, status: 'draft' });
     const base = await takeSnapshot(as(o, c), { cutoff: '2026-06-30', trigger: 'manual' });
     // After the snapshot: one re-dated into May (its timestamps stay June); one flipped to posted without a posting time.
+    await periodFor(c, '2026-05-20');
     await pool.query("UPDATE gl_journal_entries SET entry_date = '2026-05-20' WHERE id = $1", [july]);
     await pool.query("UPDATE gl_journal_entries SET status = 'posted', posted_at = NULL WHERE id = $1", [draft]);
     const cmp = await compareSnapshotToLive(as(o, c), base.id);
@@ -123,6 +130,7 @@ describe('compare to today', { timeout: 120_000 }, () => {
     const l2 = await plantLedger(pool, c2);
     const may = await plantJournal(pool, c2, { date: '2026-05-10', amount: 70, debit: l2.expense, credit: l2.bank, by: o });
     const a = await takeSnapshot(as(o, c2), { cutoff: '2026-06-30', trigger: 'manual' });
+    await periodFor(c2, '2026-07-03');
     await pool.query("UPDATE gl_journal_entries SET entry_date = '2026-07-03' WHERE id = $1", [may]);
     const b = await takeSnapshot(as(o, c2), { cutoff: '2026-07-31', trigger: 'manual' });
     const between = await compareSnapshots(as(o, c2), a.id, b.id);

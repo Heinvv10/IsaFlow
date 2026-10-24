@@ -25,6 +25,7 @@ const bank = crypto.randomUUID();
 const contra = crypto.randomUUID();
 const period = crypto.randomUUID();
 const otherPeriod = crypto.randomUUID();
+const aprilPeriod = crypto.randomUUID();
 const onDateJe = crypto.randomUUID();
 const bankLine = crypto.randomUUID();
 const bankTx = crypto.randomUUID();
@@ -74,6 +75,12 @@ beforeAll(async () => {
       [p, co],
     );
   }
+  // A journal's period is the one holding its date (migration 941).
+  await pool.query(
+    `INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date,status)
+     VALUES($1,$2,'K020 Apr 2026',4,2026,DATE '2026-04-01',DATE '2026-04-30','open')`,
+    [aprilPeriod, company],
+  );
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance)
      VALUES($1,$3,'K020RB','K020 Bank','asset','bank','debit'),($2,$3,'K020RC','K020 Contra','revenue',NULL,'credit'),
@@ -83,7 +90,7 @@ beforeAll(async () => {
   // In period, posted, on the statement date itself: must be included.
   await seedEntry(onDateJe, company, user, period, '2026-03-31', 'posted', 400, bankLine);
   // Posted but dated after the statement date: must be excluded.
-  await seedEntry(crypto.randomUUID(), company, user, period, '2026-04-02', 'posted', 700);
+  await seedEntry(crypto.randomUUID(), company, user, aprilPeriod, '2026-04-02', 'posted', 700);
   // Draft, in date: must be excluded.
   await seedEntry(crypto.randomUUID(), company, user, period, '2026-03-10', 'draft', 900);
   // Another tenant's line on THIS company's bank account: must be excluded.

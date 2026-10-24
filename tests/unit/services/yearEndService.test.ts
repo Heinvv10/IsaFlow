@@ -44,6 +44,11 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', async () => {
+  const { fakeRegistry, registryMock } = await import('../../helpers/fiscalYearSqlFake');
+  fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }];
+  return registryMock();
+});
 // Retained earnings resolves through the system-account resolver, not a name
 // match — see yearEndRetainedEarnings.test.ts for that contract.
 const getSystemAccountCandidatesMock = vi.fn();
@@ -262,11 +267,10 @@ describe('yearEndService — tenant isolation (S-002)', () => {
       sqlMock.mockResolvedValueOnce([]);
       // call 1: year date range
       sqlMock.mockResolvedValueOnce([{ start_date: START_DATE, end_date: END_DATE }]);
-      // call 1a: companies.financial_year_start. The periods must actually BE
-      // the company's fiscal year — closing a calendar span for a March-start
-      // company rolls the wrong twelve months into retained earnings. This
-      // fixture declares January so its calendar range is the fiscal year.
-      sqlMock.mockResolvedValueOnce([{ financial_year_start: 1 }]);
+      // The periods must actually BE the company's fiscal year (the registry's
+      // FY2026 here, set in the registry mock above) — closing a calendar span
+      // for a March-start company rolls the wrong twelve months into retained
+      // earnings. This fixture's registry year is the calendar year 2026.
       // call 2: revenue accounts for company A (balance = 1000)
       sqlMock.mockResolvedValueOnce([
         { id: 'rev-acc-001', account_code: '4000', account_name: 'Sales', balance: '1000' },
