@@ -1,10 +1,16 @@
 /**
  * Capture Inbox Service
  * Manages capture_inboxes — mint, rotate, list per company.
+ *
+ * Mint and rotate run on the migration_admin pool (S-07d, migration 935): an
+ * inbox row decides which company the documents mailed to its address go to,
+ * so no app role may INSERT or UPDATE capture_inboxes (forged claims moved a
+ * company's address to another company). `companyId` is the verified request's.
  */
 
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 
 // ---------------------------------------------------------------------------
@@ -78,22 +84,28 @@ export async function getOrCreateEmailInbox(
 
   // Mint a new address with retry on unique-constraint collision
   const MAX_ATTEMPTS = 5;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const address = generateInboxAddress(companyId);
-    // A conflict must not abort the caller's withAuth transaction. Empty RETURNING
-    // means retry; SQL/network errors remain errors rather than guessed collisions.
-    const inserted = await sql`
-      INSERT INTO capture_inboxes (company_id, channel, address, is_active, created_by)
-      VALUES (${companyId}, 'email', ${address}, true, ${userId ?? null})
-      ON CONFLICT DO NOTHING
-      RETURNING id, address, is_active
-    ` as InboxRow[];
-    const row = inserted[0];
-    if (row) {
-      log.info('Created email capture inbox', { companyId, address, attempt }, 'capture-inbox');
-      return { id: row.id as string, address: row.address as string, isActive: row.is_active as boolean };
+  const minted = await migrationAdminTx('mint capture inbox', async (client) => {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const address = generateInboxAddress(companyId);
+      // Empty RETURNING means retry; SQL/network errors remain errors rather than guessed collisions.
+      const inserted = (await client.query(
+        `INSERT INTO capture_inboxes (company_id, channel, address, is_active, created_by)
+         VALUES ($1, 'email', $2, true, $3)
+         ON CONFLICT DO NOTHING
+         RETURNING id, address, is_active`,
+        [companyId, address, userId ?? null],
+      )).rows as InboxRow[];
+      const row = inserted[0];
+      if (row) {
+        log.info('Created email capture inbox', { companyId, address, attempt }, 'capture-inbox');
+        return row;
+      }
+      log.warn('Address collision — retrying', { attempt, address }, 'capture-inbox');
     }
-    log.warn('Address collision — retrying', { attempt, address }, 'capture-inbox');
+    return null;
+  });
+  if (minted) {
+    return { id: minted.id as string, address: minted.address as string, isActive: minted.is_active as boolean };
   }
 
   throw new Error('Failed to mint unique inbox address after 5 attempts');
@@ -106,11 +118,12 @@ export async function regenerateEmailAddress(
   companyId: string,
   userId?: string,
 ): Promise<{ id: string; address: string }> {
-  await sql`
-    UPDATE capture_inboxes
-    SET is_active = false, updated_at = NOW()
-    WHERE company_id = ${companyId} AND channel = 'email' AND is_active = true
-  `;
+  await migrationAdminTx('retire capture inbox', (client) => client.query(
+    `UPDATE capture_inboxes
+        SET is_active = false, updated_at = NOW()
+      WHERE company_id = $1 AND channel = 'email' AND is_active = true`,
+    [companyId],
+  ));
 
   const result = await getOrCreateEmailInbox(companyId, userId);
   log.info('Regenerated email capture inbox', { companyId, newAddress: result.address }, 'capture-inbox');

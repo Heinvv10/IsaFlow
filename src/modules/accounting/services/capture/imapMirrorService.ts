@@ -14,6 +14,7 @@
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
@@ -240,14 +241,17 @@ async function ingestAttachment(
     WHERE id = ${documentId}::uuid
   `;
 
-  // Find or synthesise the mirror inbox row, so capture_events can join
-  const [inboxRow] = (await sql`
-    INSERT INTO capture_inboxes (company_id, channel, address, is_active)
-    VALUES (${conn.companyId}::uuid, 'imap_mirror', ${conn.accountEmail}, true)
-    ON CONFLICT (company_id, channel, address)
-    DO UPDATE SET is_active = true
-    RETURNING id
-  `) as Row[];
+  // Find or synthesise the mirror inbox row, so capture_events can join. On
+  // the migration_admin pool: no app role may write capture_inboxes (S-07d,
+  // migration 935); keyed on the connection the sync loaded.
+  const [inboxRow] = await migrationAdminTx('imap mirror inbox', async (client) => (await client.query(
+    `INSERT INTO capture_inboxes (company_id, channel, address, is_active)
+     VALUES ($1::uuid, 'imap_mirror', $2, true)
+     ON CONFLICT (company_id, channel, address)
+     DO UPDATE SET is_active = true
+     RETURNING id`,
+    [conn.companyId, conn.accountEmail],
+  )).rows as Row[]);
 
   const [event] = (await sql`
     INSERT INTO capture_events (

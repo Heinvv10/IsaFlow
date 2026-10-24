@@ -13,6 +13,7 @@ import PDFDocument from 'pdfkit';
 import { createHash, randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 
@@ -260,21 +261,26 @@ export async function createPortalSession(
   const tokenHash = await bcrypt.hash(token, 10);
   const ttlHours = opts.ttlHours ?? 7 * 24;
 
-  const [row] = (await sql`
-    INSERT INTO audit_portal_sessions
-      (export_id, company_id, auditor_email, token_hash, issued_by, expires_at)
-    VALUES
-      (${exportId}::uuid, ${companyId}::uuid, ${auditorEmail},
-       ${tokenHash}, ${opts.issuedBy ?? null},
-       NOW() + (${ttlHours} || ' hours')::interval)
-    RETURNING *
-  `) as Row[];
+  // On the migration_admin pool (S-07d, migration 935): a session row is an
+  // outsider's download of the export's pack, so no app role may INSERT or
+  // UPDATE audit_portal_sessions (forged claims planted a hash of a known
+  // token against any company's export). The export must be this company's
+  // and ready, read in the same statement.
+  const row = await migrationAdminTx('issue audit portal session', async (client) => (await client.query(
+    `INSERT INTO audit_portal_sessions (export_id, company_id, auditor_email, token_hash, issued_by, expires_at)
+     SELECT e.id, e.company_id, $3, $4, $5, NOW() + ($6::text || ' hours')::interval
+       FROM audit_trail_exports e
+      WHERE e.id = $1::uuid AND e.company_id = $2::uuid AND e.status = 'ready'
+     RETURNING *`,
+    [exportId, companyId, auditorEmail, tokenHash, opts.issuedBy ?? null, ttlHours],
+  )).rows[0] as Row | undefined);
+  if (!row) throw new Error('Audit export is not this company\'s, or is not ready');
 
   log.info('audit portal session issued', {
-    exportId, auditorEmail, expiresAt: row!.expires_at,
+    exportId, auditorEmail, expiresAt: row.expires_at,
   }, 'audit-export');
 
-  return { session: mapSession(row!), accessToken: token };
+  return { session: mapSession(row), accessToken: token };
 }
 
 export async function listPortalSessions(
@@ -292,13 +298,14 @@ export async function listPortalSessions(
 }
 
 export async function revokePortalSession(id: string, companyId: string): Promise<boolean> {
-  const rows = (await sql`
-    UPDATE audit_portal_sessions
-    SET revoked_at = NOW()
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-      AND revoked_at IS NULL
-    RETURNING id
-  `) as Array<{ id: string }>;
+  const rows = await migrationAdminTx('revoke audit portal session', async (client) => (await client.query(
+    `UPDATE audit_portal_sessions
+        SET revoked_at = NOW()
+      WHERE id = $1::uuid AND company_id = $2::uuid
+        AND revoked_at IS NULL
+      RETURNING id`,
+    [id, companyId],
+  )).rows as Array<{ id: string }>);
   return rows.length > 0;
 }
 
