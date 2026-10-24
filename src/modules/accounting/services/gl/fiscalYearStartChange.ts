@@ -27,8 +27,9 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod } from '../../types/gl.types';
-import { createFiscalYear, resolveCompanyPeriodAlignment } from './fiscalYearCreateService';
-import { fiscalYearOfDate, normaliseStartMonth } from './fiscalYearCalendar';
+import { mapFiscalPeriodRow } from './fiscalYearCreateService';
+import { generateFiscalYearForDate } from './fiscalYearGenerator';
+import { normaliseStartMonth } from './fiscalYearCalendar';
 import { countFiscalPeriodReferences, periodsInUse, type FiscalPeriodReferences } from './fiscalPeriodReferences';
 import { YEAR_END_CHANGE_MESSAGE } from './financialYearStartMessages';
 
@@ -167,12 +168,15 @@ export async function rebuildUnusedFiscalPeriods(companyId: string, today: Date 
   if (periodsInUse(refs)) throw new FiscalPeriodsInUseError(refs);
 
   await sql`DELETE FROM fiscal_periods WHERE company_id = ${companyId}::UUID`;
-  // No periods now, so the alignment is the declared start month.
-  const { startMonth } = await resolveCompanyPeriodAlignment(companyId);
-  const fiscalYear = fiscalYearOfDate(today, startMonth);
-  const periods = await createFiscalYear(companyId, fiscalYear);
-  log.info('Rebuilt fiscal periods from the financial year start', { companyId, startMonth, fiscalYear }, 'accounting');
-  return periods;
+  await sql`DELETE FROM fiscal_years WHERE company_id = ${companyId}::UUID`;
+  // No years now, so the template is the declared start month.
+  const { fiscalYearId } = await generateFiscalYearForDate(companyId, today);
+  const rows = (await sql`
+    SELECT * FROM fiscal_periods WHERE company_id = ${companyId}::UUID AND fiscal_year_id = ${fiscalYearId}::UUID
+     ORDER BY start_date
+  `) as DbRow[];
+  log.info('Rebuilt fiscal periods from the financial year start', { companyId, fiscalYearId }, 'accounting');
+  return rows.map(mapFiscalPeriodRow);
 }
 
 /**
