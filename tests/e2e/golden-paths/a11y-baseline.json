@@ -1,356 +1,450 @@
 {
- "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24). May only SHRINK: fix a violation, delete its entry. Never add an entry to make a red run green. Keyed by page path (ids -> :id); selectors have nth-child indices and React ids normalised.",
+ "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24), recorded on dev after a full golden run. May only SHRINK: fix a violation and delete its entry (an entry that no longer occurs FAILS the run), or lower its max. Never add an entry or raise a max to make a red run green. Keyed by page path (ids -> :id); selector = nearest anchor + the tags/names down to the node (tests/e2e/golden-paths/helpers/a11yDescribe.ts); max = most nodes allowed to match; perRow = inside a table row / list item, so any number of rows is allowed. scripts/verify-deploy.sh runs report-only (A11Y_GATE=report).",
  "pages": {
   "/accounting/assets": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "div > div > div > div > div > a[href=\"/accounting/assets/new\"]",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": "a[href$=\"new\"]"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select:nth-child(*)"
+    "selector": "main > div > div > div > div > select",
+    "max": 2
    }
   ],
   "/accounting/bank-transactions": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "div > div > button > div > div > span",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".bg-\\[var\\(--ff-bg-tertiary\\)\\]"
+    "selector": "div > div > div > div > div > span",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".text-teal-500\\/80"
+    "selector": "div > div > div > ul > li > button[type=\"button\"]",
+    "max": 1,
+    "perRow": true
    },
    {
     "rule": "color-contrast",
-    "selector": "li:nth-child(*) > .text-blue-500.hover\\:underline.disabled\\:opacity-50"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": ".bg-teal-500\\/5.hover\\:bg-\\[var\\(--ff-bg-secondary\\)\\]\\/50.data-\\[focused\\]\\:bg-\\[var\\(--ff-bg-tertiary\\)\\]:nth-child(*) > td:nth-child(*) > .accent-teal-500[type=\"checkbox\"]"
+    "selector": "main > div > div > div > div > input[type=\"date\"]",
+    "max": 2
    },
    {
     "rule": "label",
-    "selector": ".hover\\:bg-\\[var\\(--ff-bg-secondary\\)\\]\\/50.data-\\[focused\\]\\:bg-\\[var\\(--ff-bg-tertiary\\)\\].data-\\[focused\\]\\:ring-1:nth-child(*) > td:nth-child(*) > .accent-teal-500[type=\"checkbox\"]"
+    "selector": "table > tbody > tr > td > input[type=\"checkbox\"]",
+    "max": 25,
+    "perRow": true
    },
    {
     "rule": "label",
-    "selector": ".py-1[type=\"date\"][value=\"\"]:nth-child(*)"
-   },
-   {
-    "rule": "label",
-    "selector": ".w-8 > .accent-teal-500[type=\"checkbox\"]"
+    "selector": "table > thead > tr > th > input[type=\"checkbox\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": ".hover\\:bg-\\[var\\(--ff-bg-secondary\\)\\]\\/50.data-\\[focused\\]\\:bg-\\[var\\(--ff-bg-tertiary\\)\\].data-\\[focused\\]\\:ring-1:nth-child(*) > td:nth-child(*) > .px-1.w-full"
+    "selector": "main > div > div > div > select",
+    "max": 5
    },
    {
     "rule": "select-name",
-    "selector": ".py-1:nth-child(*)"
-   },
-   {
-    "rule": "select-name",
-    "selector": ".text-cyan-400.px-1.w-full"
+    "selector": "table > tbody > tr > td > select",
+    "max": 46,
+    "perRow": true
    }
   ],
   "/accounting/credit-notes": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "div > div > div > div > div > a[href=\"/accounting/credit-notes/new\"]",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".bg-amber-500"
+    "selector": "div > div > div > div > div > button{all}",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".shadow-lg"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    }
   ],
   "/accounting/customer-invoices": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "div > div > div > div > div > a[href=\"/accounting/customer-invoices/new\"]",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".hover\\:bg-teal-500"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    }
   ],
   "/accounting/customer-invoices/new": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "div > div > div > div > div > button",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".mt-6"
+    "selector": "div > div > div > div > div > p",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".normal-case"
+    "selector": "div > div > div > div > label > span",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".text-center"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[name=\"billingPeriodEnd\"]"
+    "selector": "div > div > div > div > div > input[name=\"billingPeriodEnd\"][type=\"date\"]",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[name=\"billingPeriodStart\"]"
+    "selector": "div > div > div > div > div > input[name=\"billingPeriodStart\"][type=\"date\"]",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[name=\"dueDate\"]"
+    "selector": "div > div > div > div > div > input[name=\"dueDate\"][type=\"date\"]",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[name=\"invoiceDate\"]"
+    "selector": "div > div > div > div > div > input[name=\"invoiceDate\"][type=\"date\"]",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[name=\"taxRate\"]"
+    "selector": "div > div > div > div > div > input[name=\"taxRate\"][type=\"number\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select[name=\"clientId\"]"
+    "selector": "div > div > div > div > div > select[name=\"clientId\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select[name=\"currencyCode\"]"
+    "selector": "div > div > div > div > div > select[name=\"currencyCode\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select[name=\"incomeType\"]"
+    "selector": "table > tbody > tr > td > select[name=\"incomeType\"]",
+    "max": 1,
+    "perRow": true
    }
   ],
   "/accounting/customer-payments/new": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "form > div > div > div > div > button[type=\"button\"]",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".mt-3"
+    "selector": "form > div > div > div > p",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".px-2\\.5"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[type=\"date\"]"
+    "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select[name=\"clientId\"]"
+    "selector": "div > div > div > div > div > select[name=\"clientId\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select[name=\"invoiceId\"]"
+    "selector": "div > div > div > div > div > select[name=\"invoiceId\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select[name=\"paymentMethod\"]"
+    "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
+    "max": 1
    }
   ],
   "/accounting/customer-quotes": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "div > div > div > div > div > button",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".bg-amber-500"
+    "selector": "div > div > div > div > div > button{all}",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".shrink-0.gap-2.flex > .hover\\:bg-teal-700.bg-teal-600.text-white"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    }
   ],
   "/accounting/journal-entries/new": [
    {
     "rule": "button-name",
-    "selector": ".hover\\:bg-slate-50\\/50.dark\\:hover\\:bg-slate-800\\/20:nth-child(*) > .px-2 > .p-1\\.5.text-slate-700.dark\\:text-slate-300"
+    "selector": "table > tbody > tr > td > button[type=\"button\"]",
+    "max": 2,
+    "perRow": true
    },
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "form > div > div > div > div > button[type=\"button\"]",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".px-2\\.5"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[type=\"date\"]"
+    "selector": "div > div > div > div > div > input[name=\"entryDate\"][type=\"date\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": ".hover\\:bg-slate-50\\/50.dark\\:hover\\:bg-slate-800\\/20:nth-child(*) > td:nth-child(*) > select"
+    "selector": "table > tbody > tr > td > select[name=\"accountId\"]",
+    "max": 2,
+    "perRow": true
    }
   ],
   "/accounting/migration": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "a#sage[href=\"/accounting/migration/chart-of-accounts\"] > span",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".bg-blue-500\\/20"
+    "selector": "div > div > div > div > div > span",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".text-center"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    }
   ],
   "/accounting/migration/opening-balances": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[type=\"date\"]"
+    "selector": "main > div > div > div > div > input[type=\"date\"]",
+    "max": 1
    }
   ],
   "/accounting/month-end-workbench": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".hover\\:bg-teal-500"
+    "selector": "main > div > div > div > div > button",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
+   }
+  ],
+  "/accounting/reports/account-transactions": [
+   {
+    "rule": "color-contrast",
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[type=\"date\"]",
+    "max": 2
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select",
+    "max": 1
    }
   ],
   "/accounting/reports/vat-return": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "div > div > div > button > div > span",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".disabled\\:opacity-50"
+    "selector": "div > div > div > div > div > button",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".overflow-hidden.rounded-xl.bg-\\[var\\(--ff-bg-secondary\\)\\]:nth-child(*) > div:nth-child(*) > .hover\\:bg-\\[var\\(--ff-bg-tertiary\\)\\].cursor-pointer.w-full > .gap-2.flex.items-center > .px-1\\.5.py-0\\.5.bg-\\[var\\(--ff-bg-tertiary\\)\\]"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[value=\"2026-09-01\"]"
-   },
-   {
-    "rule": "label",
-    "selector": "input[value=\"2026-09-30\"]"
+    "selector": "div > div > div > div > div > input[type=\"date\"]",
+    "max": 2
    }
   ],
   "/accounting/supplier-payments/new": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "form > div > div > div > div > button[type=\"button\"]",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".px-2\\.5"
+    "selector": "form > div > div > div > p",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": ".text-center"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[type=\"date\"]"
+    "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
+    "max": 1
    },
    {
     "rule": "label",
-    "selector": "input[type=\"number\"]"
+    "selector": "div > div > div > div > div > input[type=\"number\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select[name=\"invoiceId\"]"
+    "selector": "div > div > div > div > div > select[name=\"invoiceId\"]",
+    "max": 1
    },
    {
     "rule": "select-name",
-    "selector": "select[name=\"paymentMethod\"]"
+    "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
+    "max": 1
    }
   ],
   "/payroll/runs": [
    {
     "rule": "color-contrast",
-    "selector": ".-top-0\\.5"
+    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": "a[href$=\"new\"]"
+    "selector": "main > div > div > div > div > a[href=\"/payroll/runs/new\"]",
+    "max": 1
    },
    {
     "rule": "document-title",
-    "selector": "html"
+    "selector": "html",
+    "max": 1
    }
   ]
  }

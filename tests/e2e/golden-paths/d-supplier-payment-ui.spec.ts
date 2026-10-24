@@ -9,12 +9,17 @@
  */
 import { test, expect } from '@playwright/test';
 import { Api, gpRef, today } from './_api';
-import { expectNoSeriousA11yViolations, waitForScreenReady } from './helpers/axe';
+import { expectNoSeriousA11yViolations, openScreen } from './helpers/axe';
+import { A11Y_INLINE_SCREENS } from './helpers/a11yScreens';
 
 test('supplier payment created through the /new form allocates to the invoice', async ({
   page,
   baseURL,
 }) => {
+  // Scan first: a red a11y check must not leave an approved fixture invoice behind.
+  await openScreen(page, A11Y_INLINE_SCREENS.supplierPaymentNew);
+  await expectNoSeriousA11yViolations(page);
+
   const api = await Api.login(baseURL!);
   try {
     // Fixture supplier (find-or-create '0GP-Golden-Supplier'); reuse bounds
@@ -37,8 +42,6 @@ test('supplier payment created through the /new form allocates to the invoice', 
 
     // ── UI path (page fixture carries the shared golden session) ─────────
     await page.goto('/accounting/supplier-payments/new');
-    await waitForScreenReady(page);
-    await expectNoSeriousA11yViolations(page);
     // The supplier picker is a server-searched combobox (SupplierSelect): type
     // the name, click the hit, and confirm the form holds the fixture's id.
     const picker = page.getByTestId('supplier-select-input');
