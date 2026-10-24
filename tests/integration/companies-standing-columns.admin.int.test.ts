@@ -137,12 +137,13 @@ describe('936: the admin site on a real platform_admin login', () => {
   it('converts a trial to a plan (POST /api/admin/trials/convert)', async () => {
     await fixture.query(`UPDATE companies SET status = 'suspended' WHERE id = $1`, [bulkB]);
     const r = await asAdmin(convertRoute, 'POST', { body: { companyId: bulkB, planId: plan } });
-    // BROKEN (not 936): markAsConverted's subscriptions upsert is ON CONFLICT (company_id) and the schema has no
-    // such unique index, so the route answers 400 and the aborted transaction rolls its companies UPDATE back.
-    // Whatever it answers, it must not be a privilege refusal; when it answers 200 the plan and status persist.
+    // BROKEN (before 936, also on production): markAsConverted's subscriptions upsert is ON CONFLICT (company_id)
+    // and subscriptions has no unique index on it, so the route answers 400 and the aborted transaction rolls its
+    // companies UPDATE back. Pinned exactly, so this fails (and gets rewritten) when convert is fixed. The plan and
+    // status write itself, on platform_admin, is proven by the next test.
     const message = (r.body as { error?: { message?: string } }).error?.message ?? '';
-    expect(r.status === 200 ? 'ok' : message, JSON.stringify(r.body)).toMatch(/^ok$|ON CONFLICT specification$/);
-    if (r.status === 200) expect(await standing(bulkB)).toMatchObject({ status: 'active', plan_id: plan });
+    expect({ status: r.status, message }, JSON.stringify(r.body)).toEqual({ status: 400, message: expect.stringMatching(/ON CONFLICT specification$/) });
+    expect(await standing(bulkB)).toMatchObject({ status: 'suspended' });
   });
 
   it('platform_admin writes plan_id and status (the statement markAsConverted opens with)', async () => {
