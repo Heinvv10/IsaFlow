@@ -20,12 +20,16 @@ export interface PickerEmployee {
 
 const LOAD_FAILED = 'Could not load the employees - try again';
 
-export function useDirectiveEmployees(): { employees: PickerEmployee[]; loading: boolean; error: string } {
+export function useDirectiveEmployees(): { employees: PickerEmployee[]; loading: boolean; error: string; reload: () => void } {
   const [employees, setEmployees] = useState<PickerEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Bumped by reload (the error's Try again): the effect runs the load again.
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
+    setLoading(true);
+    setError('');
     void (async () => {
       try {
         const res = await apiFetch('/api/payroll/employees?include=terminated');
@@ -41,8 +45,8 @@ export function useDirectiveEmployees(): { employees: PickerEmployee[]; loading:
       }
     })();
     return () => { live = false; };
-  }, []);
-  return { employees, loading, error };
+  }, [attempt]);
+  return { employees, loading, error, reload: () => setAttempt(n => n + 1) };
 }
 
 interface SelectProps {
@@ -53,9 +57,10 @@ interface SelectProps {
   error: string;
   inputCls: string;
   labelCls: string;
+  onRetry: () => void;
 }
 
-export function DirectiveEmployeeSelect({ value, onChange, employees, loading, error, inputCls, labelCls }: SelectProps) {
+export function DirectiveEmployeeSelect({ value, onChange, employees, loading, error, inputCls, labelCls, onRetry }: SelectProps) {
   const status = error || (loading ? 'Loading employees...'
     : employees.length === 0 ? 'No payroll employees yet - add the employee under Payroll > Employees first' : '');
   return (
@@ -68,6 +73,9 @@ export function DirectiveEmployeeSelect({ value, onChange, employees, loading, e
         ))}
       </select>
       {status && <p className={`text-xs mt-1 ${error ? 'text-red-400' : 'text-gray-500 dark:text-gray-400'}`}>{status}</p>}
+      {error && (
+        <button type="button" onClick={onRetry} className="text-xs mt-1 text-teal-400 hover:text-teal-300">Try again</button>
+      )}
     </div>
   );
 }

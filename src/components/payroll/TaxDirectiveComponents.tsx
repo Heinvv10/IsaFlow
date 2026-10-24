@@ -30,7 +30,7 @@ interface CreateModalProps {
 export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const { employees, loading: employeesLoading, error: employeesError } = useDirectiveEmployees();
+  const { employees, loading: employeesLoading, error: employeesError, reload: reloadEmployees } = useDirectiveEmployees();
   const [form, setForm] = useState({
     employee_id: '',
     employee_name: '',
@@ -109,7 +109,7 @@ export function CreateTaxDirectiveModal({ onClose, onCreated }: CreateModalProps
           )}
           <div className="grid grid-cols-2 gap-4">
             <DirectiveEmployeeSelect value={form.employee_id} onChange={pickEmployee} employees={employees}
-              loading={employeesLoading} error={employeesError} inputCls={inputCls} labelCls={labelCls} />
+              loading={employeesLoading} error={employeesError} inputCls={inputCls} labelCls={labelCls} onRetry={reloadEmployees} />
             <div className="col-span-2">
               <label htmlFor="td-employee-name" className={labelCls}>Employee Name *</label>
               <input id="td-employee-name" className={inputCls} value={form.employee_name} readOnly required placeholder="From the employee picked" />
