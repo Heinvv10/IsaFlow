@@ -26,7 +26,7 @@ import { sql } from '@/lib/neon';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import { checkAiRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { magicBytesMatchMime } from '@/lib/fileMagic';
-import { listAttachableDocuments } from '@/modules/accounting/services/capture/attachableDocuments';
+import { listAttachableDocuments, parseAttachableCursor } from '@/modules/accounting/services/capture/attachableDocuments';
 import { mapCapturedDocumentRow as mapRow } from '@/modules/accounting/services/capture/capturedDocumentMapper';
 import { runCaptureRead } from '@/modules/accounting/services/capture/captureReadJob';
 import { STALE_AFTER_MINUTES } from '@/modules/accounting/services/capture/captureReadState';
@@ -77,9 +77,12 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse) {
   if (req.query.attachable === '1') {
     // What the provisional evidence attach accepts, narrowed on purpose to supplier evidence (it would also accept
     // sent invoices, sent emails, dunning letters and statements; the picker hides them).
-    const attachable = await listAttachableDocuments(companyId, page, pageSize);
-    rows = attachable.rows;
-    countResult = [{ total: attachable.total }];
+    const afterRaw = req.query.after;
+    const after = afterRaw === undefined ? undefined : typeof afterRaw === 'string' ? parseAttachableCursor(afterRaw) : null;
+    if (after === null) return apiResponse.badRequest(res, 'after must be <created_at as YYYY-MM-DDTHH:MM:SS.uuuuuuZ>,<document id>');
+    const attachable = await listAttachableDocuments(companyId, { page, pageSize, after });
+    return apiResponse.paginated(res, attachable.rows.map(r => mapRow(r)), { page, pageSize, total: attachable.total },
+      undefined, { nextAfter: attachable.nextAfter });
   } else if (status) {
     rows = await sql`
       SELECT * FROM captured_documents
