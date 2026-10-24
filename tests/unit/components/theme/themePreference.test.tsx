@@ -161,6 +161,14 @@ describe('public/theme-init.js (runs before first paint)', () => {
     expect(scheme()).toBe('dark');
   });
 
+  it('resolves system to light when the OS is light', () => {
+    window.localStorage.setItem(STORAGE_KEY, 'system');
+    mockMatchMedia(false);
+    run();
+    expect(root().classList.contains('dark')).toBe(false);
+    expect(scheme()).toBe('light');
+  });
+
   it('defaults to dark with nothing saved', () => {
     run();
     expect(root().classList.contains('dark')).toBe(true);
