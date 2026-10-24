@@ -32,7 +32,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   /*  GET — list items or fetch single item                             */
   /* ------------------------------------------------------------------ */
   if (req.method === 'GET') {
-    const { id, q, type, active, category_id, expand_bundle } = req.query;
+    const { id, q, type, active, category_id, expand_bundle, limit } = req.query;
 
     // expand_bundle: return bundle lines with child item details
     if (expand_bundle) {
@@ -55,6 +55,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       type: rawType === 'physical' || rawType === 'service' ? rawType : undefined,
       active: active === 'true' ? 'true' : active === 'false' ? 'false' : undefined,
       category_id: category_id ? String(category_id) : undefined,
+      limit: limit ? Number(limit) : undefined,
     };
 
     const rows = await listItems(companyId, filters);
