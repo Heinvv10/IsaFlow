@@ -80,8 +80,8 @@ CREATE POLICY bureaus_owner_member_read ON public.bureaus FOR SELECT TO app_user
 SELECT public.app_service_sync_policies();
 
 -- 930's rules, unchanged, plus 932's: the three tables read-only, the audit
--- log unreadable, and row security on bureaus, bureau_users and
--- bureau_companies. A migration that changes this function again keeps them.
+-- log unreadable, row security on bureaus, bureau_users and
+-- bureau_companies, and no TRIGGER privilege on any table. A migration that changes this function again keeps them.
 CREATE OR REPLACE FUNCTION public.app_pool_reach_violations()
 RETURNS SETOF text
 LANGUAGE sql
@@ -156,6 +156,16 @@ AS $$
    CROSS JOIN (VALUES ('DELETE'), ('TRUNCATE')) p(priv)
    WHERE (p.priv = 'TRUNCATE' OR NOT ruled.may_delete)
      AND pg_catalog.has_table_privilege(reach.oid, ruled.rel, p.priv)
+  UNION ALL
+  -- 932: TRIGGER on any table. A trigger an app role creates on a table the
+  -- migration_admin pool writes (bureau_companies, say) runs its function in
+  -- that pool's session, as migration_admin.
+  SELECT pg_catalog.format('%s (reachable from an app pool login) can TRIGGER %s', reach.rolname, c.oid::regclass)
+    FROM reach
+   CROSS JOIN pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE c.relkind IN ('r', 'p') AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+     AND pg_catalog.has_table_privilege(reach.oid, c.oid, 'TRIGGER')
   UNION ALL
   -- A definer runs as its owner, so no privilege rule sees what it writes.
   SELECT pg_catalog.format('%s is a SECURITY DEFINER function %s app_definer_reviews: review what it writes, then insert or update its row, with public.app_definer_hash(oid), in the migration that %s it',
