@@ -1,0 +1,357 @@
+{
+ "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24). May only SHRINK: fix a violation, delete its entry. Never add an entry to make a red run green. Keyed by page path (ids -> :id); selectors have nth-child indices and React ids normalised.",
+ "pages": {
+  "/accounting/assets": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "a[href$=\"new\"]"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select:nth-child(*)"
+   }
+  ],
+  "/accounting/bank-transactions": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".bg-\\[var\\(--ff-bg-tertiary\\)\\]"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".text-teal-500\\/80"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "li:nth-child(*) > .text-blue-500.hover\\:underline.disabled\\:opacity-50"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   },
+   {
+    "rule": "label",
+    "selector": ".bg-teal-500\\/5.hover\\:bg-\\[var\\(--ff-bg-secondary\\)\\]\\/50.data-\\[focused\\]\\:bg-\\[var\\(--ff-bg-tertiary\\)\\]:nth-child(*) > td:nth-child(*) > .accent-teal-500[type=\"checkbox\"]"
+   },
+   {
+    "rule": "label",
+    "selector": ".hover\\:bg-\\[var\\(--ff-bg-secondary\\)\\]\\/50.data-\\[focused\\]\\:bg-\\[var\\(--ff-bg-tertiary\\)\\].data-\\[focused\\]\\:ring-1:nth-child(*) > td:nth-child(*) > .accent-teal-500[type=\"checkbox\"]"
+   },
+   {
+    "rule": "label",
+    "selector": ".py-1[type=\"date\"][value=\"\"]:nth-child(*)"
+   },
+   {
+    "rule": "label",
+    "selector": ".w-8 > .accent-teal-500[type=\"checkbox\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": ".hover\\:bg-\\[var\\(--ff-bg-secondary\\)\\]\\/50.data-\\[focused\\]\\:bg-\\[var\\(--ff-bg-tertiary\\)\\].data-\\[focused\\]\\:ring-1:nth-child(*) > td:nth-child(*) > .px-1.w-full"
+   },
+   {
+    "rule": "select-name",
+    "selector": ".py-1:nth-child(*)"
+   },
+   {
+    "rule": "select-name",
+    "selector": ".text-cyan-400.px-1.w-full"
+   }
+  ],
+  "/accounting/credit-notes": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".bg-amber-500"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".shadow-lg"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   }
+  ],
+  "/accounting/customer-invoices": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".hover\\:bg-teal-500"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   }
+  ],
+  "/accounting/customer-invoices/new": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".mt-6"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".normal-case"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".text-center"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   },
+   {
+    "rule": "label",
+    "selector": "input[name=\"billingPeriodEnd\"]"
+   },
+   {
+    "rule": "label",
+    "selector": "input[name=\"billingPeriodStart\"]"
+   },
+   {
+    "rule": "label",
+    "selector": "input[name=\"dueDate\"]"
+   },
+   {
+    "rule": "label",
+    "selector": "input[name=\"invoiceDate\"]"
+   },
+   {
+    "rule": "label",
+    "selector": "input[name=\"taxRate\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[name=\"clientId\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[name=\"currencyCode\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[name=\"incomeType\"]"
+   }
+  ],
+  "/accounting/customer-payments/new": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".mt-3"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".px-2\\.5"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   },
+   {
+    "rule": "label",
+    "selector": "input[type=\"date\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[name=\"clientId\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[name=\"invoiceId\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[name=\"paymentMethod\"]"
+   }
+  ],
+  "/accounting/customer-quotes": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".bg-amber-500"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".shrink-0.gap-2.flex > .hover\\:bg-teal-700.bg-teal-600.text-white"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   }
+  ],
+  "/accounting/journal-entries/new": [
+   {
+    "rule": "button-name",
+    "selector": ".hover\\:bg-slate-50\\/50.dark\\:hover\\:bg-slate-800\\/20:nth-child(*) > .px-2 > .p-1\\.5.text-slate-700.dark\\:text-slate-300"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".px-2\\.5"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   },
+   {
+    "rule": "label",
+    "selector": "input[type=\"date\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": ".hover\\:bg-slate-50\\/50.dark\\:hover\\:bg-slate-800\\/20:nth-child(*) > td:nth-child(*) > select"
+   }
+  ],
+  "/accounting/migration": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".bg-blue-500\\/20"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".text-center"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   }
+  ],
+  "/accounting/migration/opening-balances": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   },
+   {
+    "rule": "label",
+    "selector": "input[type=\"date\"]"
+   }
+  ],
+  "/accounting/month-end-workbench": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".hover\\:bg-teal-500"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   }
+  ],
+  "/accounting/reports/vat-return": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".disabled\\:opacity-50"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".overflow-hidden.rounded-xl.bg-\\[var\\(--ff-bg-secondary\\)\\]:nth-child(*) > div:nth-child(*) > .hover\\:bg-\\[var\\(--ff-bg-tertiary\\)\\].cursor-pointer.w-full > .gap-2.flex.items-center > .px-1\\.5.py-0\\.5.bg-\\[var\\(--ff-bg-tertiary\\)\\]"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   },
+   {
+    "rule": "label",
+    "selector": "input[value=\"2026-09-01\"]"
+   },
+   {
+    "rule": "label",
+    "selector": "input[value=\"2026-09-30\"]"
+   }
+  ],
+  "/accounting/supplier-payments/new": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".px-2\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": ".text-center"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   },
+   {
+    "rule": "label",
+    "selector": "input[type=\"date\"]"
+   },
+   {
+    "rule": "label",
+    "selector": "input[type=\"number\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[name=\"invoiceId\"]"
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[name=\"paymentMethod\"]"
+   }
+  ],
+  "/payroll/runs": [
+   {
+    "rule": "color-contrast",
+    "selector": ".-top-0\\.5"
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "a[href$=\"new\"]"
+   },
+   {
+    "rule": "document-title",
+    "selector": "html"
+   }
+  ]
+ }
+}
