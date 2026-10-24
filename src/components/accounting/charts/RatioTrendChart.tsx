@@ -43,8 +43,8 @@ export function RatioTrendChart({ values }: { values: RatioTrendChartPoint[] }) 
     <ResponsiveContainer width="100%" height={120}>
       <LineChart data={drawn} margin={{ top: 5, right: RIGHT_MARGIN, bottom: 5, left: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-        <XAxis dataKey="axisLabel" tick={{ fontSize: 12, fill: '#888' }} />
-        <YAxis tick={{ fontSize: 12, fill: '#888' }} width={45} />
+        <XAxis dataKey="axisLabel" tick={{ fontSize: 10, fill: '#888' }} />
+        <YAxis tick={{ fontSize: 10, fill: '#888' }} width={45} />
         <Tooltip contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }}
           labelFormatter={tooltipTitle} />
         <Line type="monotone" dataKey="value" stroke="#14b8a6" strokeWidth={2} dot={{ r: 3 }} />

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Fragment } from 'react';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight } from 'lucide-react';
@@ -18,6 +18,10 @@ const KIND_CLASS: Record<StatementRow['kind'], string> = {
   grand: 'font-bold border-t border-[var(--ff-text-primary)] [border-bottom:3px_double_var(--ff-text-primary)]',
 };
 
+// Inline style rather than a Tailwind arbitrary property: `var(--ff-fig-font)`
+// as a CSS custom property value inside `[font-family:...]` is not reliably
+// picked up by this repo's Tailwind content scan.
+const FIG_STYLE: CSSProperties = { fontFamily: 'var(--ff-fig-font, inherit)' };
 const FIG = 'text-right whitespace-nowrap tabular-nums';
 
 // One focus ring for every interactive element in a row. The chevron in the
@@ -45,12 +49,12 @@ function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey 
   const show = !blank && c !== undefined;
   return (
     <>
-      <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`}>
+      <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
         {show ? formatMoney(c.value, { cents }) : ''}
       </td>
       {columns.variance && (
         <>
-          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ color: favColour(c?.favourable) }}>
+          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: favColour(c?.favourable) }}>
             {show && c.variance !== undefined ? varianceAmount(c.variance, cents) : ''}
           </td>
           <td className="w-36 px-2">
@@ -58,7 +62,7 @@ function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey 
               <VarianceBar value={c.variance} max={maxVariance[comparatorKey]} favourable={c.favourable} />
             )}
           </td>
-          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ color: favColour(c?.favourable) }}>
+          <td className={`${FIG} py-1.5 pr-3 text-xs`} style={{ ...FIG_STYLE, color: favColour(c?.favourable) }}>
             {show && c.variancePct !== undefined ? formatPct(c.variancePct) : ''}
           </td>
         </>
@@ -129,7 +133,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, expanded, o
             )}
           </span>
         </td>
-        <td className={`${FIG} py-1.5 pr-3`}>{blank ? '' : formatMoney(row.actual, { cents })}</td>
+        <td className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{blank ? '' : formatMoney(row.actual, { cents })}</td>
         {active.map(c => (
           <Fragment key={c.key}>
             <ComparatorCells c={row[c.key]} blank={blank} columns={columns}
