@@ -25,8 +25,9 @@ import { getDirectivePayee } from '@/modules/accounting/services/payroll/payroll
 
 const VALID_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
 const VALID_STATUSES = ['pending', 'approved', 'expired', 'cancelled'] as const;
+// employee_name is not among them: it is ignored (the record's name is stored).
 const TEXT_FIELDS = [
-  'employee_name', 'employee_tax_number', 'directive_number', 'effective_date', 'issued_date', 'expiry_date', 'sars_reference', 'notes',
+  'employee_tax_number', 'directive_number', 'effective_date', 'issued_date', 'expiry_date', 'sars_reference', 'notes',
 ] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
