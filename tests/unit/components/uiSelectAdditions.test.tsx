@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import colors from 'tailwindcss/colors';
 import { Select } from '@/components/ui';
+import { REPORT_FILTER_LABEL_CLASS } from '@/components/reports/reportFilterLabel';
 
 const OPTIONS = [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }];
 const noop = () => {};
@@ -71,5 +72,16 @@ describe('panel position', () => {
     bottom = 160; // an error line above the field appeared while the list was loading
     rerender(<Select label="X" options={OPTIONS} value={null} onChange={noop} loading={false} />);
     expect(screen.getByRole('listbox').parentElement!.style.top).toBe('164px');
+  });
+});
+
+describe('REPORT_FILTER_LABEL_CLASS on a Select label', () => {
+  it('leaves no default gray colour or size behind, in light or dark', () => {
+    render(<Select label="X" options={OPTIONS} value={null} onChange={noop} labelClassName={REPORT_FILTER_LABEL_CLASS} />);
+    const tokens = screen.getByText('X').className.split(/\s+/);
+    expect(tokens.filter((t) => /(^|:)text-gray-/.test(t))).toEqual([]); // not text-gray-700, not dark:text-gray-300
+    expect(tokens).toEqual(expect.arrayContaining(['text-xs', 'mb-1', 'text-[var(--ff-text-tertiary)]', 'dark:text-[var(--ff-text-tertiary)]']));
+    expect(tokens).not.toContain('text-sm');
+    expect(tokens).not.toContain('mb-1.5');
   });
 });
