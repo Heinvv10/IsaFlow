@@ -146,8 +146,8 @@ Migration 936 (company standing and billing columns, 2026-10-24) also takes effe
   `is_active`, `plan_id`, `trial_ends_at`, `stripe_customer_id`,
   `payg_eligible`, `is_demo`, `fx_documents_enabled`, `metadata`,
   `billing_email`, `billing_contact`. UPDATE comes back on every other column
-  (company settings, onboarding, chase, CIPC, logo, PIS, client-query
-  WhatsApp). The admin site (platform_admin) and signup provisioning
+  except `id` and `created_at` (company settings, onboarding, chase, CIPC,
+  logo, PIS, client-query WhatsApp). The admin site (platform_admin) and signup provisioning
   (migration_admin) write the 13; onboarding inserts through
   `create_company_with_owner(jsonb)`. 936 refuses to apply unless they still can.
 - A column added to `companies` later gets no app privilege. Granting one

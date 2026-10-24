@@ -68,6 +68,8 @@ const ATTACKS: Attack[] = [
   ['re-point the billing contact', hit(`UPDATE companies SET billing_contact = 'attacker' WHERE id = $1`), () => [suspended]],
   ['flip is_active', hit('UPDATE companies SET is_active = true WHERE id = $1'), () => [suspended]],
   ['clear a customer reference', hit('UPDATE companies SET stripe_customer_id = NULL WHERE id = $1'), () => [suspended]],
+  ['re-key a company', hit('UPDATE companies SET id = gen_random_uuid() WHERE id = $1'), () => [deleted]],
+  ['backdate a company', hit(`UPDATE companies SET created_at = '2000-01-01' WHERE id = $1`), () => [suspended]],
   ['insert a company carrying a locked column', hit(`INSERT INTO companies (name, status, payg_eligible)
     VALUES ('936 forged', 'active', true)`), () => []],
   ['insert a company with only unlocked columns', hit(`INSERT INTO companies (name) VALUES ('936 forged')`), () => []],

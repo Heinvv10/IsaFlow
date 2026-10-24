@@ -68,13 +68,13 @@ describe('936: migration', () => {
     });
   });
 
-  it('leaves app_user SELECT on every column, UPDATE on every column but the 13, no INSERT, DELETE or TRUNCATE', async () => {
+  it('leaves app_user SELECT on every column, UPDATE on every column but the 13, id and created_at, no INSERT, DELETE or TRUNCATE', async () => {
     const q: Q = (text) => fixture.query(text);
     const all = (await rows(q, `SELECT attname AS col FROM pg_attribute WHERE attrelid = 'public.companies'::regclass
       AND attnum > 0 AND NOT attisdropped ORDER BY 1`)).map((x) => String(x.col));
     expect(LOCKED.every((c) => all.includes(c))).toBe(true);
     expect(await held(q, 'SELECT')).toEqual(all);
-    expect(await held(q, 'UPDATE')).toEqual(all.filter((c) => !LOCKED.includes(c)));
+    expect(await held(q, 'UPDATE')).toEqual(all.filter((c) => !LOCKED.includes(c) && c !== 'id' && c !== 'created_at'));
     expect(await held(q, 'INSERT')).toEqual([]);
     const t = await rows(q, `SELECT has_table_privilege('app_user', 'public.companies', 'DELETE') AS d,
       has_table_privilege('app_user', 'public.companies', 'TRUNCATE') AS t,
@@ -90,6 +90,7 @@ describe('936: migration', () => {
       R('isaflow_app', 'UPDATE companies\\.plan_id')],
     ['PAYG switchable by PUBLIC', 'GRANT UPDATE (payg_eligible) ON public.companies TO PUBLIC', R('\\w+', 'UPDATE companies\\.payg_eligible')],
     ['every column writable again', 'GRANT UPDATE ON public.companies TO app_user', R(APP, 'UPDATE companies\\.billing_contact')],
+    ['a company id rewritable', 'GRANT UPDATE (id) ON public.companies TO app_service', R('app_service', 'UPDATE companies\\.id$')],
     ['a company insertable by column', 'GRANT INSERT (name) ON public.companies TO app_user', R(APP, 'INSERT companies\\.name')],
     ['a company insertable by PUBLIC', 'GRANT INSERT ON public.companies TO PUBLIC', R('\\w+', 'INSERT companies\\.')],
     ['a company deletable', 'GRANT DELETE ON public.companies TO app_user', R(APP, 'DELETE companies$')],

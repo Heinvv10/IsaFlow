@@ -10,14 +10,19 @@
 --                         un-suspend or un-delete a company; withAuth
 --                         (liveCompanies.ts) admits it again;
 --   plan_id, trial_ends_at, stripe_customer_id, payg_eligible
---                         move plan, extend a trial, turn PAYG on;
+--                         move plan, extend a trial, set the admin's PAYG
+--                         override;
 --   is_demo, fx_documents_enabled, metadata, billing_email, billing_contact
 --                         platform flags and billing contact.
 -- Only privileges hold against forged claims, so the app roles lose INSERT,
 -- UPDATE, DELETE and TRUNCATE on companies, and get UPDATE back on every
 -- other column (company settings, onboarding, chase, CIPC, logo, PIS, client
--- query WhatsApp all write those). annual_turnover_cents stays writable: a
--- self-declaration; an admin overrides PAYG with payg_eligible.
+-- query WhatsApp all write those) except id and created_at, which nothing
+-- rewrites. annual_turnover_cents stays writable (Hein, 2026-10-24): a
+-- self-declaration; an admin overrides PAYG with payg_eligible. Named limit:
+-- paygEligibilityService.isEligible also counts a declared turnover under the
+-- threshold as eligible; nothing calls it today, and whatever wires it in must
+-- not trust the declaration.
 -- No app-pool path inserts or deletes a company: onboarding creates one
 -- through create_company_with_owner(jsonb) (a SECURITY DEFINER, owner rights;
 -- it sets none of the 13), and RLS already gave app roles no INSERT or DELETE
@@ -27,15 +32,18 @@
 -- PAYG eligibility, waitlist promote), and signup's provisionTenant on
 -- migration_admin (is_active, payg_eligible, trial_ends_at). No code change.
 --
--- The grant-back is computed (every column but the 13), and the rule in
--- app_pool_reach_violations() lists the allowed columns by name, so the two
+-- The grant-back is computed (every column but the 13, id and created_at),
+-- and the rule in app_pool_reach_violations() lists the allowed columns by
+-- name, so the two
 -- are checked against each other below. A column added to companies later
 -- gets no app privilege (UPDATE is column-level now); granting it one is a
 -- violation until a migration adds it to the rule. That is intended: someone
 -- decides whether a tenant may write it.
 -- No new SECURITY DEFINER function, so no new app_definer_reviews row.
--- The fx_documents_enabled triggers (871) and entity_change_capture are
--- unchanged: they guard what is written, not who may write.
+-- The fx_documents_enabled triggers (871) and the change-history trigger
+-- (888) are unchanged: they guard what is written, not who may write. 871's
+-- refusal now fires only for a role that holds the column, which app roles
+-- no longer do.
 --
 -- Production: companies is owned by migration_admin there (postgres on dev and
 -- CI). The deploy role postgres is a member of it, so the REVOKE and GRANT
@@ -64,7 +72,7 @@ BEGIN
    WHERE a.attrelid = 'public.companies'::regclass AND a.attnum > 0 AND NOT a.attisdropped
      AND a.attname NOT IN ('status', 'suspended_at', 'suspended_reason', 'is_active', 'plan_id', 'trial_ends_at',
                            'stripe_customer_id', 'payg_eligible', 'is_demo', 'fx_documents_enabled', 'metadata',
-                           'billing_email', 'billing_contact');
+                           'billing_email', 'billing_contact', 'id', 'created_at');
   EXECUTE pg_catalog.format('GRANT UPDATE (%s) ON public.companies TO app_user', v_cols);
 END $$;
 
@@ -109,9 +117,9 @@ AS $$
     -- 936: a company's standing and billing columns are not among them (the header).
     ('public.companies',                  '{}',
      '{
-      id,name,trading_name,registration_number,vat_number,tax_number,address_line1,address_line2,city,
+      name,trading_name,registration_number,vat_number,tax_number,address_line1,address_line2,city,
       province,postal_code,country,phone,email,website,logo_url,bank_name,bank_account_number,
-      bank_branch_code,bank_account_type,financial_year_start,vat_period,default_currency,created_at,
+      bank_branch_code,bank_account_type,financial_year_start,vat_period,default_currency,
       updated_at,logo_data,lockdown_enabled,lockdown_date,vat_system_type,entity_type,registered_name,
       tax_office,contact_name,fax,mobile,physical_address_line1,physical_address_line2,physical_city,
       physical_province,physical_postal_code,tax_practitioner_reg_number,tax_practitioner_name,
