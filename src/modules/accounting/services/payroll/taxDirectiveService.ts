@@ -262,13 +262,15 @@ export async function deleteTaxDirective(
     FOR UPDATE
   `) as DbRow[]);
   if (!locked[0]) return false;
+  const which = `SARS directive ${String(locked[0].directive_number ?? id)}`;
   const paid = await directivePaidBy(companyId, id, locked[0].directive_number);
-  if (paid) throw new TaxDirectivePaidError(id, paid.replace('so it stays approved', 'so it cannot be deleted'));
+  // Its own message, naming what paid it (the guard's explanation, quoted whole).
+  if (paid) throw new TaxDirectivePaidError(id, `${which} cannot be deleted: it is paid. ${paid}`);
   const recorded = (await sql`
     SELECT 1 FROM tax_directive_payments WHERE company_id = ${companyId} AND tax_directive_id = ${id} LIMIT 1
   `) as DbRow[];
   if (recorded.length > 0) {
-    throw new TaxDirectivePaidError(id, `SARS directive ${String(locked[0].directive_number ?? id)} has a payment record (a payroll run's `
+    throw new TaxDirectivePaidError(id, `${which} has a payment record (a payroll run's `
       + 'claim or a reversed stand-alone payment), so it cannot be deleted. Cancel it instead.');
   }
 
