@@ -1,0 +1,23 @@
+[Unit]
+Description=IsaFlow — nightly recompute of the shared merchant-pattern pool (learning loop PR 2)
+After=network-online.target isaflow.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=velo
+Group=velo
+EnvironmentFile=/home/velo/isaflow/.env.local
+ExecStart=/bin/sh -c 'printf "X-Cron-Secret: %%s\\n" "$$CRON_SECRET" | exec /usr/bin/curl --silent --show-error --fail \
+  --max-time 900 \
+  -X POST \
+  -H @- \
+  -H "Content-Type: application/json" \
+  http://127.0.0.1:3101/api/cron/shared-merchant-pool'
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-shared-merchant-pool
+
+NoNewPrivileges=true
+ProtectSystem=strict

@@ -1,6 +1,6 @@
 /**
- * Migration 922, the race: a payee bank-detail edit concurrent with eft-generate of an approved batch (enforcement
- * off). Either the file waits for the edit and is refused (BATCH_CHANGED_SINCE_APPROVAL), or the edit waits for the
+ * Migrations 922 and 923, the race: a payee bank-detail edit (or, 923, an edit of the paying account) concurrent with
+ * eft-generate of an approved batch (enforcement off). Either the file waits for the edit and is refused (BATCH_CHANGED_SINCE_APPROVAL), or the edit waits for the
  * file — built from the approved details — and lands after it. Never a file with details nobody approved.
  *
  * Interleaved deterministically: the other backend is waited for until Postgres reports it blocked by the holder
@@ -30,8 +30,9 @@ vi.mock('@/modules/accounting/services/ap/batchBankFileGate', async (orig) => {
 });
 
 import { updateSupplier } from '@/modules/accounting/services/core/supplierWriteService';
+import bankAccounts from '../../pages/api/accounting/bank-accounts';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { createUser, reasonOf } from './r035-approval.helpers';
+import { callRoute, createUser, reasonOf } from './r035-approval.helpers';
 import { cleanupPr5, digestOf } from './r035-pr5.helpers';
 import { lockOrderKit } from './ap-supplier-batch-lock-order.helpers';
 import { CHANGED, NEW_ACCOUNT, OLD_ACCOUNT, digestKit } from './ap-batch-approved-digest.helpers';
@@ -49,17 +50,18 @@ beforeAll(async () => {
 beforeEach(() => { gate.park = null; });
 afterAll(() => cleanupPr5(pool, companies, Object.values(u)));
 
+/** Resolves once some backend is blocked by `holderPid`. */
+async function blockedBy(holderPid: number) {
+  for (let i = 0; i < 500; i += 1) {
+    const { rowCount } = await pool.query('SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [holderPid]);
+    if (rowCount) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`nothing ever waited on backend ${holderPid}`);
+}
+
 describe('a bank-detail edit racing eft-generate: never a file with unapproved details', () => {
   const { startWriter, blockedStatement, accountOf } = lockOrderKit(pool, () => u.a);
-  /** Resolves once some backend is blocked by `holderPid`. */
-  async function blockedBy(holderPid: number) {
-    for (let i = 0; i < 500; i += 1) {
-      const { rowCount } = await pool.query('SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))', [holderPid]);
-      if (rowCount) return;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    throw new Error(`nothing ever waited on backend ${holderPid}`);
-  }
 
   it('edit first: the file waits for it, then is refused', async () => {
     const { c, b, supplierId } = await fixture();
@@ -122,5 +124,81 @@ describe('a bank-detail edit racing eft-generate: never a file with unapproved d
     const file = await eft(c, b.id);
     expect(file.state.statusCode, JSON.stringify(file.state.body)).toBe(200);
     expect(contentOf(file)).toContain(NEW_ACCOUNT);
+  });
+});
+
+describe('a paying-account edit racing eft-generate (migration 923): never a file from an unapproved originator', () => {
+  const { startWriter, blockedStatement } = lockOrderKit(pool, () => u.a);
+  const APPROVED_ORIGINATOR = '40000000001'; // payCompany's
+  const setOriginator = (db: { query: Pool['query'] }, batchId: string) => db.query(
+    `UPDATE gl_accounts SET bank_account_number = '40000009999'
+     WHERE id = (SELECT bank_account_id FROM supplier_payment_batches WHERE id = $1)`, [batchId]);
+
+  it('file first: the edit waits until the file (with the approved originator) is served', async () => {
+    const { c, b } = await fixture();
+    await approve(c, b.id);
+    let release!: () => void;
+    let entered!: () => void;
+    const inGate = new Promise<void>((res) => { entered = res; });
+    gate.park = { entered, hold: new Promise<void>((res) => { release = res; }) };
+    const generating = eft(c, b.id);
+    await inGate; // gate passed: batch row, payee and paying-account share locks held
+    const edit = startWriter(c, (client) => setOriginator(client, b.id));
+    expect(await blockedStatement(await edit.pid)).toMatch(/gl_accounts/);
+    release();
+    const [res, edited] = await Promise.all([generating, edit.outcome]);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(contentOf(res).split('\n')[0]).toContain(APPROVED_ORIGINATOR);
+    expect(edited).toEqual({ ok: true });
+    expect(reasonOf(await eft(c, b.id))).toBe(CHANGED);
+  });
+
+  it('the Bank Accounts edit waits at the BATCH row (batch -> account), then lands after the file', async () => {
+    const { c, b } = await fixture();
+    await approve(c, b.id);
+    let release!: () => void;
+    let entered!: () => void;
+    const inGate = new Promise<void>((res) => { entered = res; });
+    gate.park = { entered, hold: new Promise<void>((res) => { release = res; }) };
+    const generating = eft(c, b.id);
+    await inGate;
+    const account = (await pool.query('SELECT bank_account_id FROM supplier_payment_batches WHERE id = $1', [b.id])).rows[0].bank_account_id;
+    const put = callRoute(bankAccounts, tokens[u.a]!, c, 'PUT', { id: account, bankAccountNumber: '40000009999' },
+      '/api/accounting/bank-accounts');
+    // The route runs on its own connection: found by what it waits on — the batch lock, never the account row.
+    let waiting = '';
+    for (let i = 0; i < 500 && !waiting; i += 1) {
+      const { rows } = await pool.query(
+        "SELECT query FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query ILIKE '%bank_account_id%' AND pid <> pg_backend_pid()");
+      waiting = rows[0]?.query ?? '';
+      if (!waiting) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(waiting).toMatch(/FROM supplier_payment_batches/);
+    release();
+    const [res, edited] = await Promise.all([generating, put]);
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200);
+    expect(contentOf(res).split('\n')[0]).toContain(APPROVED_ORIGINATOR);
+    expect(edited.state.statusCode, JSON.stringify(edited.state.body)).toBe(200);
+    expect(reasonOf(await eft(c, b.id))).toBe(CHANGED);
+  });
+
+  it('edit first: the file waits for it, then is refused', async () => {
+    const { c, b } = await fixture();
+    await approve(c, b.id);
+    const held = await pool.connect();
+    try {
+      await held.query('BEGIN');
+      await setOriginator(held, b.id);
+      const holder = (await held.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
+      const generating = eft(c, b.id);
+      await blockedBy(holder); // the file request waits on the paying account
+      await held.query('COMMIT');
+      const res = await generating;
+      expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(409);
+      expect(reasonOf(res)).toBe(CHANGED);
+      expect(await exportRecords(b.id)).toBe(0);
+    } finally {
+      held.release(true);
+    }
   });
 });
