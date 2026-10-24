@@ -82,7 +82,11 @@ pg_cluster_stop() {
 # and app_user. Only `postgres` can log in, with $PGPASSWORD. It holds ADMIN
 # OPTION on app_user because migration 915 grants app_user to the app's login
 # roles: on PG 15 (production) CREATEROLE alone allows that, on PG 16 it needs
-# ADMIN OPTION on the granted role.
+# ADMIN OPTION on the granted role. Supabase's `supabase_read_only_user`
+# (LOGIN, BYPASSRLS, in pg_read_all_data) exists on production's cluster, and
+# production's `postgres` is in pg_read_all_data too, so a migration that
+# asserts who can read a table meets them here first (931 did not, #817). The
+# role has no password, so nothing can log in as it.
 pg_create_roles() {
   "$PG_BIN/psql" -h 127.0.0.1 -p "$1" -U "$PG_SUPERUSER" -X -q -v ON_ERROR_STOP=1 -d postgres <<'SQL'
 \getenv pw PGPASSWORD
@@ -92,6 +96,8 @@ CREATE ROLE platform_admin NOLOGIN BYPASSRLS;
 CREATE ROLE postgres NOSUPERUSER INHERIT CREATEDB CREATEROLE LOGIN BYPASSRLS PASSWORD :'pw';
 GRANT migration_admin TO postgres;
 GRANT app_user TO postgres WITH ADMIN OPTION;
+CREATE ROLE supabase_read_only_user NOSUPERUSER INHERIT LOGIN BYPASSRLS IN ROLE pg_read_all_data;
+GRANT pg_read_all_data TO postgres;
 SQL
 }
 
