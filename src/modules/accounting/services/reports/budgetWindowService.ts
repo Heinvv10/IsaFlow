@@ -15,19 +15,22 @@
 
 import { sql } from '@/lib/neon';
 import { localISODate } from '@/lib/dateUtils';
-import { fiscalYearForDate, type FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { dayBefore, fiscalYearForDate, type FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { round2 } from '../core/budgetMonths';
 import { budgetMonthBounds, currentMonthWindow, type BudgetWindow } from './budgetPeriodWindow';
 
 export interface ResolvedBudgetWindow extends BudgetWindow {
   /** The financial year holding the window's start. */
   fiscalYear: FiscalYearRecord;
+  /** Year to date of a chosen year that has not started: the window is EMPTY (ends the day before it starts). */
+  notStarted: boolean;
 }
 
 /**
  * `current` = this month to date; `full_year` = the registry year in full; anything else = year to date.
  * A `chosen` year (budgetReportYear) replaces the year holding today: `full_year` is its whole
- * range, year to date runs from its start to today, held inside the year.
+ * range, year to date runs from its start to today, held inside the year; of a year that has not
+ * started it is empty (`notStarted`), not a day or a month of it.
  */
 export async function resolveBudgetWindow(
   companyId: string,
@@ -37,18 +40,22 @@ export async function resolveBudgetWindow(
 ): Promise<ResolvedBudgetWindow> {
   const today = localISODate(now);
   if (chosen) {
-    const upTo = today < chosen.startDate ? chosen.startDate : today > chosen.endDate ? chosen.endDate : today;
-    return { startDate: chosen.startDate, endDate: period === 'full_year' ? chosen.endDate : upTo, fiscalYear: chosen };
+    if (period !== 'full_year' && today < chosen.startDate) {
+      return { startDate: chosen.startDate, endDate: dayBefore(chosen.startDate), fiscalYear: chosen, notStarted: true };
+    }
+    const upTo = today > chosen.endDate ? chosen.endDate : today;
+    return { startDate: chosen.startDate, endDate: period === 'full_year' ? chosen.endDate : upTo, fiscalYear: chosen, notStarted: false };
   }
   if (period === 'current') {
     const window = currentMonthWindow(now);
-    return { ...window, fiscalYear: await fiscalYearForDate(companyId, window.startDate) };
+    return { ...window, fiscalYear: await fiscalYearForDate(companyId, window.startDate), notStarted: false };
   }
   const fiscalYear = await fiscalYearForDate(companyId, today);
   return {
     startDate: fiscalYear.startDate,
     endDate: period === 'full_year' ? fiscalYear.endDate : today,
     fiscalYear,
+    notStarted: false,
   };
 }
 

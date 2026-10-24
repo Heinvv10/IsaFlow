@@ -11,9 +11,9 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { BudgetInputError, deleteBudget, copyBudgets } from '@/modules/accounting/services/core/budgetService';
+import { parseYearLabel } from '@/modules/accounting/services/core/budgetMonths';
 import { isUuidParam } from '@/lib/validation';
 
-const isYearLabel = (v: unknown): boolean => Number.isInteger(Number(v)) && Number(v) > 0;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method!, ['POST']);
@@ -24,16 +24,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     switch (action) {
-      case 'delete':
+      case 'delete': {
         if (!glAccountId || !fiscalYear) return apiResponse.badRequest(res, 'glAccountId and fiscalYear required');
         if (!isUuidParam(glAccountId)) return apiResponse.badRequest(res, 'glAccountId must be an account id');
-        if (!isYearLabel(fiscalYear)) return apiResponse.badRequest(res, 'fiscalYear must be a year label such as 2027');
-        await deleteBudget(companyId, glAccountId, Number(fiscalYear));
+        const label = parseYearLabel(fiscalYear);
+        if (label === null) return apiResponse.badRequest(res, 'fiscalYear must be a year label such as 2027');
+        await deleteBudget(companyId, glAccountId, label);
         return apiResponse.success(res, { deleted: true });
+      }
       case 'copy': {
         if (!fromYear || !toYear) return apiResponse.badRequest(res, 'fromYear and toYear required');
-        if (!isYearLabel(fromYear) || !isYearLabel(toYear)) return apiResponse.badRequest(res, 'fromYear and toYear must be year labels such as 2027');
-        const count = await copyBudgets(companyId, Number(fromYear), Number(toYear), userId);
+        const from = parseYearLabel(fromYear), to = parseYearLabel(toYear);
+        if (from === null || to === null) return apiResponse.badRequest(res, 'fromYear and toYear must be year labels such as 2027');
+        const count = await copyBudgets(companyId, from, to, userId);
         return apiResponse.success(res, { copied: count });
       }
       default:
