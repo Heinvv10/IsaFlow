@@ -133,6 +133,26 @@ describe('ContactPicker', () => {
   });
 });
 
+describe('combobox ARIA contract (axe: aria-required-attr, aria-valid-attr-value)', () => {
+  it('points aria-controls at an element that exists while open, in every state, and omits it when closed', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(apiFetch).mockImplementation(async () => { await gate; return ok(ITEMS); });
+    render(<ItemPicker label="Item" value={null} onChange={() => {}} />);
+    expect(trigger('Item').getAttribute('aria-controls')).toBeNull();
+    fireEvent.click(trigger('Item'));
+    // loading: no options yet
+    const id = trigger('Item').getAttribute('aria-controls');
+    expect(id).toBeTruthy();
+    expect(document.getElementById(id!)).not.toBeNull();
+    expect(screen.getByRole('status').textContent).toBe('Loading…');
+    release();
+    await screen.findAllByRole('option');
+    expect(document.getElementById(id!)?.getAttribute('role')).toBe('listbox');
+    expect(screen.getByRole('textbox', { name: 'Search Item' }).getAttribute('aria-controls')).toBe(id);
+  });
+});
+
 describe('AccountPicker', () => {
   const route = async () => ok(ACCOUNTS);
 
