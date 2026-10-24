@@ -10,7 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useFirstUseWizard } from '@/hooks/useFirstUseWizard';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface WizardState {
   companyName: string; logoData: string;
@@ -49,7 +49,7 @@ function InvoiceHeaderPreview({ state }: { state: WizardState }) {
         <div className="text-right">
           <p className="text-base font-bold text-teal-600 dark:text-teal-400">INVOICE</p>
           <p className="text-gray-500 dark:text-gray-400">{num}</p>
-          <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500">{formatSaDateValue(new Date())}</p>
+          <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500">{formatDisplayDate(new Date(), '')}</p>
         </div>
       </div>
     </div>

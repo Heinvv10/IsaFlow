@@ -9,7 +9,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, Mail, MessageSquare, X, CheckCircle2, Clock, Search, FileQuestion, Zap } from 'lucide-react';
 import { MissingInvoiceModals, type ExpectedAlert } from '@/components/accounting/suppliers/MissingInvoiceModals';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type StatusFilter = 'pending' | 'chased' | 'resolved' | 'dismissed';
 type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
@@ -20,7 +20,7 @@ export const fmtZAR = (n: number | null) =>
 
 export const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatSaDateValue(s); } catch { return String(s); }
+  try { return formatDisplayDate(s, ''); } catch { return String(s); }
 };
 
 function DaysOverdueBadge({ d }: { d: number }) {

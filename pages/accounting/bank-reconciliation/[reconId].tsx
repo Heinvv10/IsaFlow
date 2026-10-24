@@ -17,7 +17,7 @@ import type { BankReconciliation, BankTransaction } from '@/modules/accounting/t
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 function TxStatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -265,7 +265,7 @@ export default function ReconciliationDetailPage() {
                     {recon.bankAccountName || 'Bank Reconciliation'}
                   </h1>
                   <p className="text-sm text-[var(--ff-text-secondary)]">
-                    Statement: {formatSaDateValue(recon.statementDate)}
+                    Statement: {formatDisplayDate(recon.statementDate, '')}
                     {isCompleted && <span className="ml-2 text-teal-400">Completed</span>}
                   </p>
                 </div>
@@ -370,7 +370,7 @@ export default function ReconciliationDetailPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-[var(--ff-text-primary)] truncate">{tx.description || '—'}</p>
                             <p className="text-xs text-[var(--ff-text-tertiary)]">
-                              {formatSaDateValue(tx.transactionDate)}
+                              {formatDisplayDate(tx.transactionDate, '')}
                               {tx.reference && ` | Ref: ${tx.reference}`}
                             </p>
                           </div>
@@ -402,7 +402,7 @@ export default function ReconciliationDetailPage() {
                               <div className="flex-1 min-w-0">
                                 <p className="text-[var(--ff-text-primary)] truncate">{tx.description || '—'}</p>
                                 <p className="text-xs text-[var(--ff-text-tertiary)]">
-                                  {formatSaDateValue(tx.transactionDate)}
+                                  {formatDisplayDate(tx.transactionDate, '')}
                                 </p>
                               </div>
                               <div className="flex items-center gap-2 ml-2">
@@ -456,7 +456,7 @@ export default function ReconciliationDetailPage() {
                             <div className="flex-1 min-w-0">
                               <p className="text-[var(--ff-text-primary)] truncate">{line.description || '—'}</p>
                               <p className="text-xs text-[var(--ff-text-tertiary)]">
-                                {line.entryNumber} | {formatSaDateValue(line.entryDate)}
+                                {line.entryNumber} | {formatDisplayDate(line.entryDate, '')}
                               </p>
                             </div>
                             <span className={`tabular-nums text-sm ml-2 ${amount >= 0 ? 'text-teal-400' : 'text-red-400'}`}>

@@ -16,7 +16,7 @@ import {
 } from '@/components/accounting/recurring-transactions/RecurringModal';
 import type { RecurringTemplate } from '@/modules/accounting/services/core/recurringTransactionService';
 import { localISODate } from '@/lib/dateUtils';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const BTN_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium';
 const BTN_GHOST = 'inline-flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-primary)] transition-colors';
@@ -206,10 +206,10 @@ export default function RecurringTransactionsPage() {
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{ENTITY_LABELS[t.entityType]}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{FREQ_LABELS[t.frequency]}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-                            {t.nextRunDate ? formatSaDateValue(t.nextRunDate) : '—'}
+                            {t.nextRunDate ? formatDisplayDate(t.nextRunDate, '') : '—'}
                           </td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-                            {t.lastRunDate ? formatSaDateValue(t.lastRunDate) : '—'}
+                            {t.lastRunDate ? formatDisplayDate(t.lastRunDate, '') : '—'}
                           </td>
                           <td className="px-4 py-3">
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.isActive ? 'bg-green-500/15 text-green-400' : 'bg-gray-500/15 text-gray-400'}`}>

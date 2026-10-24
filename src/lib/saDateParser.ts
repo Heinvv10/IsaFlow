@@ -111,31 +111,3 @@ export function formatSaDateLong(iso: string): string {
   const month = MONTHS[d.getMonth()] ?? '';
   return `${WEEKDAYS[d.getDay()]}, ${d.getDate()} ${month.charAt(0).toUpperCase()}${month.slice(1)} ${d.getFullYear()}`;
 }
-
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
-const HAS_ZONE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i;
-
-/**
- * "21 Oct 2026": the one way a date is shown on screen. Takes whatever a date column or an API
- * body holds: a plain ISO date, a timestamp, or a Date. A timestamp with a zone is read in LOCAL
- * time (22:00Z is already the next day in SAST); one without is the calendar day it names. Never
- * goes through toISOString, so there is no UTC off-by-one. '' for null/undefined/invalid Date; an
- * unparseable string is returned as it came so a bad value stays visible. ISO values in APIs and
- * inputs are unchanged: this is display only.
- */
-export function formatSaDateValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '';
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : formatSaDate(localISODate(value));
-  const text = String(value).trim();
-  const plain = formatSaDate(text);
-  if (plain) return plain;
-  if (TIMESTAMP.test(text)) {
-    if (HAS_ZONE.test(text)) {
-      const d = new Date(text);
-      if (!Number.isNaN(d.getTime())) return formatSaDate(localISODate(d));
-    } else {
-      return formatSaDate(text.slice(0, 10)) || text;
-    }
-  }
-  return text;
-}

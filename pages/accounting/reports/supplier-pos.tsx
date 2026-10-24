@@ -6,7 +6,7 @@ import { ShoppingCart, Loader2, Download, ChevronDown, ChevronRight } from 'luci
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface SupplierPoRow {
   id: string;
@@ -143,7 +143,7 @@ function SupplierGroup({ group }: { group: SupplierPoGroup }) {
             {group.pos.map(po => (
               <tr key={po.id} className="hover:bg-teal-500/[0.04] bg-[var(--ff-bg-primary)]">
                 <td className="px-4 py-2 text-[var(--ff-text-primary)] font-mono text-xs">{po.orderNumber}</td>
-                <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatSaDateValue(po.orderDate)}</td>
+                <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDisplayDate(po.orderDate, '')}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{po.deliveryDate ?? '—'}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{po.reference ?? '—'}</td>
                 <td className="px-4 py-2 text-center">{statusBadge(po.status)}</td>

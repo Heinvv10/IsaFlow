@@ -11,7 +11,7 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Asset {
   id: string;
@@ -148,7 +148,7 @@ export default function AssetRegisterPage() {
                     <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">{a.asset_number}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.name}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{a.category_name || a.category}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatSaDateValue(a.purchase_date)}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(a.purchase_date, '')}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(a.purchase_price))}</td>
                     <td className="px-4 py-3 text-right text-purple-400">{fmt(Number(a.total_depreciation))}</td>
                     <td className="px-4 py-3 text-right text-teal-400 font-medium">{fmt(Number(a.net_book_value))}</td>

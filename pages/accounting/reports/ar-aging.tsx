@@ -11,7 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -69,7 +69,7 @@ const fmt = (n: number) => formatMoney(n);
 const fmtDate = (s: string) => {
   if (!s) return '';
   const d = new Date(s);
-  return formatSaDateValue(d);
+  return formatDisplayDate(d, '');
 };
 
 const BUCKETS: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];

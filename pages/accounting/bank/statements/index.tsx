@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Upload, FileText } from 'lucide-react';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type ImportStatus = 'extracting' | 'extracted' | 'reviewing' | 'committed' | 'rolled_back' | 'failed';
 
@@ -28,7 +28,7 @@ type Toast = { msg: string; kind: 'ok' | 'err' } | null;
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
-  try { return formatSaDateValue(s); } catch { return String(s); }
+  try { return formatDisplayDate(s, ''); } catch { return String(s); }
 }
 
 function StatusBadge({ status }: { status: ImportStatus }) {

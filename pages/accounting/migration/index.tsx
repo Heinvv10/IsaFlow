@@ -8,7 +8,7 @@ import {
 import SessionIssues from '@/components/accounting/migration/SessionIssues';
 import { useMigrationSession, type MigrationSession, type StepsCompleted } from '@/components/accounting/migration/useMigrationSession';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const SOURCE_SYSTEMS = [
   { id: 'sage_cloud', label: 'Sage Business Cloud', icon: '☁️', desc: '3-digit account codes' },
@@ -212,7 +212,7 @@ function SessionSummary({ session, onReset }: { session: MigrationSession; onRes
           <p className="text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide mb-1">Active Migration</p>
           <p className="font-semibold text-[var(--ff-text-primary)]">From: {sourceLabel}</p>
           <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
-            {completed}/{STEPS.length} steps completed &bull; Started {formatSaDateValue(session.startedAt)}
+            {completed}/{STEPS.length} steps completed &bull; Started {formatDisplayDate(session.startedAt, '')}
           </p>
         </div>
         <div className="flex items-center gap-2">

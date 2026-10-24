@@ -17,7 +17,7 @@ import { X, Search, Link2, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface BankTxOption {
   id: string;
@@ -36,7 +36,7 @@ function formatAmount(a: number): string {
 }
 
 function formatDate(d: string): string {
-  return formatSaDateValue(d);
+  return formatDisplayDate(d, '');
 }
 
 export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransactionSheetProps) {

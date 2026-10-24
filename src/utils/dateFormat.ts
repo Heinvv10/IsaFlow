@@ -17,7 +17,6 @@
  */
 
 import { localISODate } from '@/lib/dateUtils';
-import { formatSaDateValue } from '@/lib/saDateParser';
 
 const LOCALE = 'en-ZA';
 
@@ -54,13 +53,48 @@ function toDate(date: DateInput): Date | null {
 
 // ─── Display Formats (user-facing) ──────────────────────────────
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
+const HAS_ZONE = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i;
+
+/** "05 Oct 2026" from a strict ISO date; '' when it is not a real calendar date (2026-02-30). */
+function fromISODate(iso: string): string {
+  const m = ISO_DATE.exec(iso);
+  if (!m) return '';
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const real = new Date(y, mo - 1, d);
+  if (real.getFullYear() !== y || real.getMonth() !== mo - 1 || real.getDate() !== d) return '';
+  return `${String(d).padStart(2, '0')} ${SHORT_MONTHS[mo - 1]} ${y}`;
+}
+
+/** The display date of a Date, read in LOCAL time (never via toISOString, which is UTC and can be a day early east of UTC). */
+function fromDate(d: Date): string {
+  return Number.isNaN(d.getTime()) ? '' : fromISODate(localISODate(d));
+}
+
 /**
- * "25 Feb 2026" — Standard display date (the shared formatSaDateValue, with a fallback)
+ * "05 Oct 2026" — THE one way a date is shown on screen (zero-padded day, month name, year).
+ *
+ * Takes whatever a date column or an API body holds: a plain ISO date (no timezone shift), a
+ * timestamp, a Date, epoch milliseconds, or a Timestamp-like with toDate(). A timestamp WITH a zone
+ * is read in local time (22:00Z is already the next day in SAST); one without names its own calendar
+ * day. `fallback` is returned for nothing and for anything that is not a date. Display only: ISO
+ * values in APIs and inputs are unchanged (use formatDateISO for those).
  */
 export function formatDisplayDate(date: DateInput, fallback = 'N/A'): string {
-  const d = toDate(date);
-  if (!d) return fallback;
-  return formatSaDateValue(d);
+  if (date === null || date === undefined || date === '') return fallback;
+  if (typeof date === 'object' && 'toDate' in date && typeof date.toDate === 'function') {
+    return fromDate(date.toDate()) || fallback;
+  }
+  if (date instanceof Date) return fromDate(date) || fallback;
+  if (typeof date === 'number') return fromDate(new Date(date)) || fallback;
+  const text = String(date).trim();
+  if (ISO_DATE.test(text)) return fromISODate(text) || fallback;
+  if (TIMESTAMP.test(text)) {
+    return (HAS_ZONE.test(text) ? fromDate(new Date(text)) : fromISODate(text.slice(0, 10))) || fallback;
+  }
+  return fromDate(new Date(text)) || fallback;
 }
 
 /**
@@ -69,7 +103,7 @@ export function formatDisplayDate(date: DateInput, fallback = 'N/A'): string {
 export function formatDisplayDateTime(date: DateInput, fallback = 'N/A'): string {
   const d = toDate(date);
   if (!d) return fallback;
-  const datePart = formatSaDateValue(d);
+  const datePart = formatDisplayDate(d);
   const timePart = d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit', hour12: false });
   return `${datePart}, ${timePart}`;
 }

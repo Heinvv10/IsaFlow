@@ -10,7 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { Currency, ExchangeRate } from '@/modules/accounting/services/core/currencyService';
 import { localISODate } from '@/lib/dateUtils';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Props {
   currencies: Currency[];
@@ -282,7 +282,7 @@ export function ExchangeRatesPanel({ currencies, exchangeRates, onRefresh }: Pro
                     <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                       {rate.rate.toLocaleString('en-ZA', { minimumFractionDigits: 4, maximumFractionDigits: 6 })}
                     </td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatSaDateValue(rate.effectiveDate)}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(rate.effectiveDate, '')}</td>
                     <td className="px-4 py-3">
                       <span className="px-2 py-0.5 rounded text-xs bg-[var(--ff-bg-primary)] text-[var(--ff-text-tertiary)] capitalize">
                         {rate.source}

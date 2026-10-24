@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { PermissionsGrid } from '@/components/accounting/user-access/PermissionsGrid';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface CompanyUser { userId: string; name: string; email: string; role: string; joinedAt: string; }
 // Note: no `token` field — the API never returns the raw token for
@@ -128,7 +128,7 @@ export default function UserAccessPage() {
   }
 
   const fmt = (iso: string) =>
-    formatSaDateValue(iso);
+    formatDisplayDate(iso, '');
 
   return (
     <AppLayout>

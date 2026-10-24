@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Row { date: string; type: string; reference: string; itemCode: string; itemName: string; qtyIn: number; qtyOut: number; balance: number; }
 
@@ -82,7 +82,7 @@ export default function ItemMovementReport() {
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map((r, i) => (
                     <tr key={i} className="hover:bg-teal-500/[0.04]">
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatSaDateValue(r.date)}</td>
+                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date, '')}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${r.type === 'GRN' ? 'bg-teal-500/10 text-teal-400' : 'bg-amber-500/10 text-amber-400'}`}>
                           {r.type}

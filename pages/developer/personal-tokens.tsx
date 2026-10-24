@@ -20,7 +20,7 @@ import {
   ShieldOff,
   X,
 } from 'lucide-react';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface PatItem {
   id: string;
@@ -54,7 +54,7 @@ const EXPIRY_OPTIONS = [
 function formatDate(val: string | null): string {
   if (!val) return 'Never';
   try {
-    return formatSaDateValue(val);
+    return formatDisplayDate(val, '');
   } catch {
     return val;
   }

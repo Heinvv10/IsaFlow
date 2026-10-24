@@ -24,7 +24,7 @@ import type { ReactNode } from 'react';
 import type { InputVatSupportLine, VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -65,7 +65,7 @@ function SupportTable({ lines, linkable }: { lines: InputVatSupportLine[]; linka
         {lines.map((l) => (
           <tr key={l.journalEntryId}>
             <td className={td}>{l.entryNumber}</td>
-            <td className={td}>{formatSaDateValue(l.entryDate)}</td>
+            <td className={td}>{formatDisplayDate(l.entryDate, '')}</td>
             {/* An unlinked chain had a document; "Nothing" would read as never evidenced. */}
             <td className={td}>{l.reason === 'document_unlinked' ? 'Document removed' : SUPPORT_LABEL[l.supportKind]}</td>
             <td className={`${td} text-amber-400`}>{REASON_LABEL[l.reason]}</td>

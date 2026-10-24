@@ -8,7 +8,7 @@ import { Card, Feed, ActionRow, Money } from '@/components/ui';
 import { SEVERITY_BADGE } from '@/components/bureau/severityBadge';
 import type { WorkItem } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientMetrics } from '@/modules/bureau/services/bureauClientMetricsService';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const METRIC_CARDS: Array<{ key: keyof ClientMetrics; label: string }> = [
   { key: 'cash', label: 'Cash' },
@@ -54,7 +54,7 @@ export function ClientHomeView({ metrics, workItems, onOpenItem }: ClientHomeVie
               title={<span className="font-medium">{it.task}</span>}
               subtitle={it.detail}
               amount={it.amount ?? null}
-              meta={it.dueAt ? formatSaDateValue(it.dueAt) : '—'}
+              meta={it.dueAt ? formatDisplayDate(it.dueAt, '') : '—'}
             />
           );
         })}

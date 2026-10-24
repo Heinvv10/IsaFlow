@@ -7,7 +7,7 @@ import type { AccountLedgerRow } from '@/modules/accounting/services/reports/acc
 import { ledgerPageBoundaries } from '@/lib/csv/ledgerPageBoundaries';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -16,7 +16,7 @@ function fmtDate(d: string): string {
   const iso = d.length === 10 ? `${d}T00:00:00` : d;
   const date = new Date(iso);
   if (isNaN(date.getTime())) return d;
-  return formatSaDateValue(date);
+  return formatDisplayDate(date, '');
 }
 
 interface Props {

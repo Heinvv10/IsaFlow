@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Plug, ShieldCheck, Loader2, ShieldOff, X } from 'lucide-react';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface ConnectedApp {
   authorisationId: string;
@@ -24,7 +24,7 @@ interface ConnectedApp {
 function fmt(val: string | null): string {
   if (!val) return 'Never';
   try {
-    return formatSaDateValue(val);
+    return formatDisplayDate(val, '');
   } catch { return val; }
 }
 

@@ -10,7 +10,7 @@ import { apiJson, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import type { ShareLinkRow } from '@/modules/accounting/services/share/shareLinkService';
 import { clampTtlDays } from '@/modules/accounting/services/share/shareTtl';
 import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-1 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
@@ -163,7 +163,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
                 <div className="min-w-0">
                   <p className="truncate text-sm text-[var(--ff-text-secondary)]">{l.label ?? 'Untitled link'}</p>
                   <p className="text-xs text-[var(--ff-text-tertiary)]">
-                    Expires {formatSaDateValue(l.expiresAt)} · {l.viewCount} view{l.viewCount === 1 ? '' : 's'}
+                    Expires {formatDisplayDate(l.expiresAt, '')} · {l.viewCount} view{l.viewCount === 1 ? '' : 's'}
                     {l.revokedAt ? ' · Revoked' : ''}
                   </p>
                 </div>

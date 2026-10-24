@@ -12,7 +12,7 @@ import { X, MessageCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { composeBankTxQueryMessage } from '@/modules/accounting/services/capture/bankTxQueryMessage';
 import type { BankTx } from '@/components/accounting/BankTxTable';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ interface Props {
 
 function formatShortDate(raw: string | null): string {
   if (!raw) return '';
-  return formatSaDateValue(raw);
+  return formatDisplayDate(raw, '');
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────

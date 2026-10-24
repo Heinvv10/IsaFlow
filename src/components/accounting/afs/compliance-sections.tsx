@@ -3,7 +3,7 @@
 
 import { CheckCircle, XCircle, AlertTriangle, Info, Clock, Bell, X } from 'lucide-react';
 import type { ComplianceIssue, ComplianceResult, CipcFilingGuide, AfsComplianceAlert } from '@/modules/accounting/services/afs/afsTypes';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -173,7 +173,7 @@ export function AlertsSection({
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-amber-900">{alert.message}</p>
               {alert.detail && <p className="text-xs text-amber-700 mt-0.5">{alert.detail}</p>}
-              <p className="text-xs text-amber-500 mt-1">{formatSaDateValue(alert.firedAt)}</p>
+              <p className="text-xs text-amber-500 mt-1">{formatDisplayDate(alert.firedAt, '')}</p>
             </div>
             <button onClick={() => onDismiss(alert.id)} className="text-amber-500 hover:text-amber-700 flex-shrink-0" title="Dismiss">
               <X className="w-4 h-4" />

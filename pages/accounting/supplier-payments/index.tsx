@@ -11,7 +11,7 @@ import type { SupplierPayment } from '@/modules/accounting/types/ap.types';
 import { formatCurrency } from '@/utils/formatters';
 import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const TABS = ['all', 'draft', 'approved', 'processed', 'reconciled', 'cancelled'] as const;
 type Tab = typeof TABS[number];
@@ -108,7 +108,7 @@ export default function SupplierPaymentsPage() {
                     <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                       <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{p.paymentNumber}</td>
                       <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{p.supplierName || '—'}</td>
-                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatSaDateValue(p.paymentDate)}</td>
+                      <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(p.paymentDate, '')}</td>
                       <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(p.totalAmount)}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 uppercase text-xs">{p.paymentMethod}</td>
                       <td className="px-5 py-3.5"><StatusBadge status={p.status} /></td>

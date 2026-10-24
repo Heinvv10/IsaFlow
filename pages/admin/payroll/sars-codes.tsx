@@ -14,7 +14,7 @@ import {
   AlertCircle, Loader2, Upload, CheckCircle2, FileSpreadsheet, X,
   Search, RotateCcw, BadgeCheck, Ban, ExternalLink,
 } from 'lucide-react';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface ReleaseRow {
   effective_year: number;
@@ -198,7 +198,7 @@ export default function AdminSarsCodesPage() {
                     Set as current
                   </button>
                 )}
-                <span className="ml-auto text-xs text-[var(--ff-text-tertiary)]">Imported {formatSaDateValue(r.released_at)}</span>
+                <span className="ml-auto text-xs text-[var(--ff-text-tertiary)]">Imported {formatDisplayDate(r.released_at, '')}</span>
               </div>
             ))}
           </div>

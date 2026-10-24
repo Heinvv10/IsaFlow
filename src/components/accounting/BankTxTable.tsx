@@ -19,7 +19,7 @@ import type { BankTxLink } from '@/modules/accounting/types/bank.types';
 import { DimensionValue } from './bank-transactions/BankTxDimensionValue';
 import { SharedPoolHint } from './bank-transactions/SharedPoolHint';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -380,7 +380,7 @@ export function BankTxTable(props: Props) {
                       onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
                   </td>
                   <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
-                    {formatSaDateValue(tx.transactionDate)}
+                    {formatDisplayDate(tx.transactionDate, '')}
                   </td>
                   <td className="py-2 px-2 text-[var(--ff-text-primary)]">
                     <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>

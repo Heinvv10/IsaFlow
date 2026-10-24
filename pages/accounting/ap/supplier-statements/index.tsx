@@ -11,7 +11,7 @@ import { log } from '@/lib/logger';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
 import { Loader2, AlertCircle, Upload, X, CheckCircle2, FileText } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type ReconStatus = 'extracting' | 'unreconciled' | 'reconciled' | 'disputed' | 'archived' | 'failed';
 
@@ -34,7 +34,7 @@ function fmtZAR(n: number | null) {
 
 function fmtDate(s: string | null) {
   if (!s) return '—';
-  try { return formatSaDateValue(s); } catch { return String(s); }
+  try { return formatDisplayDate(s, ''); } catch { return String(s); }
 }
 
 function readCompanyId(): string | null {

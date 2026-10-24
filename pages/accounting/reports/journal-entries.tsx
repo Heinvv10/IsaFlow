@@ -7,7 +7,7 @@ import { BookOpen, Loader2, Download } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface JournalEntryRow {
   id: string;
@@ -241,7 +241,7 @@ export default function JournalEntriesReport() {
                         className="hover:bg-[var(--ff-bg-tertiary)] bg-[var(--ff-bg-primary)] cursor-pointer"
                       >
                         <td className="px-4 py-2 font-mono text-xs text-[var(--ff-text-primary)]">{entry.entryNumber}</td>
-                        <td className="px-4 py-2 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatSaDateValue(entry.entryDate)}</td>
+                        <td className="px-4 py-2 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDisplayDate(entry.entryDate, '')}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] max-w-xs truncate">{entry.description || '—'}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{sourceLabel(entry.source)}</td>
                         <td className="px-4 py-2 text-center">{statusBadge(entry.status)}</td>

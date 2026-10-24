@@ -8,7 +8,7 @@ import { log } from '@/lib/logger';
 import { Users, Plus, Trash2, AlertCircle, Loader2, X } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
 import type { PortalContact, PortalRole } from '@/modules/accounting/services/afs/afsTypes';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const ROLE_LABELS: Record<PortalRole, string> = {
   director:             'Director',
@@ -167,7 +167,7 @@ export default function PortalContactsPage() {
                   <RoleBadge role={contact.role} />
                 </div>
                 <span className="text-xs text-slate-500">
-                  {formatSaDateValue(contact.createdAt)}
+                  {formatDisplayDate(contact.createdAt, '')}
                 </span>
                 <button
                   onClick={() => { void handleDelete(contact.id); }}

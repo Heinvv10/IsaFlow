@@ -1,6 +1,6 @@
 import { Clock, Trash2, Loader2 } from 'lucide-react';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface TimeEntry {
   id: string;
@@ -83,7 +83,7 @@ export function TimeEntriesTable({
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                 </td>
                 <td className="px-4 py-3 text-gray-900 dark:text-white whitespace-nowrap">
-                  {formatSaDateValue(entry.entryDate)}
+                  {formatDisplayDate(entry.entryDate, '')}
                 </td>
                 <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{entry.projectName || '-'}</td>
                 <td className="px-4 py-3 text-gray-900 dark:text-white max-w-xs truncate">{entry.taskDescription}</td>

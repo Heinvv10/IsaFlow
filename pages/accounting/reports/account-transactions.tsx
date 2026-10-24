@@ -12,7 +12,7 @@ import { localISODate } from '@/lib/dateUtils';
 import { postedTotals } from '@/components/reports/generalLedgerRows';
 import { postableAccounts } from '@/components/reports/postableAccounts';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Txn {
   date: string;
@@ -204,7 +204,7 @@ export default function AccountTransactionsPage() {
                     {report.transactions.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No transactions</td></tr>}
                     {report.transactions.map((t, i) => (
                       <tr key={i} className={`border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50${t.derived ? ' italic' : ''}`}>
-                        <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatSaDateValue(t.date)}</td>
+                        <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDisplayDate(t.date, '')}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">{t.entryNumber}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-primary)] truncate max-w-[200px]">{t.description}</td>
                         <td className="px-4 py-2"><span className="px-2 py-0.5 rounded text-xs bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">{t.source}</span></td>

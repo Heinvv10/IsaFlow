@@ -9,7 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ const fmt = (n: number) => formatMoney(n);
 
 const fmtDate = (d: string | Date | undefined): string => {
   if (!d) return '—';
-  return formatSaDateValue((d instanceof Date ? d : new Date(d)));
+  return formatDisplayDate((d instanceof Date ? d : new Date(d)), '');
 };
 
 // ── Invoice Document ─────────────────────────────────────────────────────────

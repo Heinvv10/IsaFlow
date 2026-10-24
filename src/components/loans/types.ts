@@ -3,7 +3,7 @@
  */
 
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export interface Loan {
   id: string;
@@ -102,5 +102,5 @@ export const fmtPct = (n: number) => `${Number(n).toFixed(4)}%`;
 
 export const fmtDate = (d: string) => {
   if (!d) return '—';
-  return formatSaDateValue(d);
+  return formatDisplayDate(d, '');
 };

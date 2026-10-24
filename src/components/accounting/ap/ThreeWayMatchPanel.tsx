@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Loader2, AlertCircle, RefreshCw, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatSaDateValue } from '@/lib/saDateParser';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ─── API shape ────────────────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ function MatchStatusBadge({ status }: { status: ThreeWayMatchState['matchStatus'
 
 function PaymentBadge({ matched, matchedAt }: { matched: boolean; matchedAt: string | null }) {
   if (matched) {
-    const when = matchedAt ? formatSaDateValue(matchedAt) : null;
+    const when = matchedAt ? formatDisplayDate(matchedAt, '') : null;
     return (
       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-teal-500/20 text-teal-400">
         <CheckCircle2 className="h-3.5 w-3.5" />
