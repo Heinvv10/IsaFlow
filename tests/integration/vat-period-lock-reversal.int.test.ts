@@ -182,8 +182,13 @@ describeIfDb('reversals into a locked VAT period', () => {
     const fy = await seedFixture('VLRY', DATABASE_URL!);
     try {
       await sql`UPDATE companies SET financial_year_start = 1 WHERE id = ${fy.companyId}::UUID`;
-      await sql`UPDATE fiscal_periods SET start_date = '2025-01-01', end_date = '2025-12-31', fiscal_year = 2025
+      // A period lies inside its fiscal year (migration 940): it moves into FY2025, and
+      // the FY2026 it leaves empty is removed, so FY2026 does not exist yet.
+      const was = String(((await sql`SELECT fiscal_year_id FROM fiscal_periods WHERE company_id = ${fy.companyId}::UUID`) as Row[])[0]!.fiscal_year_id);
+      await sql`UPDATE fiscal_periods SET start_date = '2025-01-01', end_date = '2025-12-31', fiscal_year = 2025,
+                  fiscal_year_id = public.fiscal_year_ensure(${fy.companyId}::UUID, '2025-01-01')
                 WHERE company_id = ${fy.companyId}::UUID`;
+      await sql`DELETE FROM fiscal_years WHERE id = ${was}::UUID`;
       const exp = String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${fy.companyId}::UUID AND account_subtype = 'default_expense'`) as Row[])[0]!.id);
       const vin = String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${fy.companyId}::UUID AND account_subtype = 'vat_input'`) as Row[])[0]!.id);
       const ap = String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${fy.companyId}::UUID AND account_subtype = 'payable'`) as Row[])[0]!.id);
@@ -217,41 +222,75 @@ describeIfDb('reversals into a locked VAT period', () => {
     }
   });
 
-  /** L3: a date in a GAP of an existing fiscal year is not postable — the post
-   *  would call createFiscalYear for a year that already exists, and throw. The
-   *  roll must jump the gap to the next open period instead. */
-  it('does not roll into a gap inside an existing fiscal year; jumps to the next open period', async () => {
-    const fy = await seedFixture('VLRG', DATABASE_URL!);
-    try {
-      await sql`UPDATE companies SET financial_year_start = 1 WHERE id = ${fy.companyId}::UUID`;
-      await sql`UPDATE fiscal_periods SET end_date = '2026-06-30' WHERE company_id = ${fy.companyId}::UUID`;
+  /** FY2026 (January start) with a GAP in July-August: an open period Jan-Jun
+   *  holding a posted VAT journal on 2026-06-10, a lock over May-June, and
+   *  `after` filling the year from September. */
+  async function gapYear(prefix: string, after: Array<[string, string, 'open' | 'closed']>): Promise<{ fy: Fixture; je: string }> {
+    const fy = await seedFixture(prefix, DATABASE_URL!);
+    await sql`UPDATE companies SET financial_year_start = 1 WHERE id = ${fy.companyId}::UUID`;
+    await sql`UPDATE fiscal_periods SET end_date = '2026-06-30' WHERE company_id = ${fy.companyId}::UUID`;
+    let n = 1;
+    for (const [start, end, status] of after) {
+      n++;
       await sql`
         INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-        VALUES (${fy.companyId}::UUID, ${`FY26b ${fy.tag}`}, 2, 2026, '2026-09-01', '2026-12-31', 'open')`;
-      const acct = async (st: string) => String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${fy.companyId}::UUID AND account_subtype = ${st}`) as Row[])[0]!.id);
-      const [exp, vin, ap] = [await acct('default_expense'), await acct('vat_input'), await acct('payable')];
-      const je = String(((await sql`
-        INSERT INTO gl_journal_entries
-          (company_id, entry_number, entry_date, description, status, created_by, fiscal_period_id, posted_at, source)
-        VALUES (${fy.companyId}::UUID, ${`VLRG-${fy.tag}`}, '2026-06-10', 'orig', 'posted', ${fy.userId}::UUID,
-                (SELECT id FROM fiscal_periods WHERE company_id = ${fy.companyId}::UUID AND start_date = '2026-01-01'), NOW(), 'manual')
-        RETURNING id`) as Row[])[0]!.id);
-      await sql`
-        INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description, vat_type)
-        VALUES (${fy.companyId}::UUID, ${je}::UUID, ${exp}::UUID, 100, 0, 'exp', NULL),
-               (${fy.companyId}::UUID, ${je}::UUID, ${vin}::UUID, 15, 0, 'vat', 'standard'),
-               (${fy.companyId}::UUID, ${je}::UUID, ${ap}::UUID, 0, 115, 'ap', NULL)`;
-      await sql`
-        INSERT INTO vat_period_locks
-          (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
-        VALUES (${fy.companyId}::UUID, '2026-05-01', '2026-06-30', 0, 0, 0, NOW(), ${fy.userId})`;
+        VALUES (${fy.companyId}::UUID, ${`FY26-${n} ${fy.tag}`}, ${n}, 2026, ${start}::DATE, ${end}::DATE, ${status})`;
+    }
+    const acct = async (st: string) => String(((await sql`SELECT id FROM gl_accounts WHERE company_id = ${fy.companyId}::UUID AND account_subtype = ${st}`) as Row[])[0]!.id);
+    const [exp, vin, ap] = [await acct('default_expense'), await acct('vat_input'), await acct('payable')];
+    const je = String(((await sql`
+      INSERT INTO gl_journal_entries
+        (company_id, entry_number, entry_date, description, status, created_by, fiscal_period_id, posted_at, source)
+      VALUES (${fy.companyId}::UUID, ${`${prefix}-${fy.tag}`}, '2026-06-10', 'orig', 'posted', ${fy.userId}::UUID,
+              (SELECT id FROM fiscal_periods WHERE company_id = ${fy.companyId}::UUID AND start_date = '2026-01-01'), NOW(), 'manual')
+      RETURNING id`) as Row[])[0]!.id);
+    await sql`
+      INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit, description, vat_type)
+      VALUES (${fy.companyId}::UUID, ${je}::UUID, ${exp}::UUID, 100, 0, 'exp', NULL),
+             (${fy.companyId}::UUID, ${je}::UUID, ${vin}::UUID, 15, 0, 'vat', 'standard'),
+             (${fy.companyId}::UUID, ${je}::UUID, ${ap}::UUID, 0, 115, 'ap', NULL)`;
+    await sql`
+      INSERT INTO vat_period_locks
+        (company_id, period_start, period_end, output_tax, input_tax, net_vat, posted_through, locked_by)
+      VALUES (${fy.companyId}::UUID, '2026-05-01', '2026-06-30', 0, 0, 0, NOW(), ${fy.userId})`;
+    return { fy, je };
+  }
+  async function dropGapYear(fy: Fixture): Promise<void> {
+    await sql`DELETE FROM vat_period_locks WHERE company_id = ${fy.companyId}::UUID`;
+    await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${fy.companyId}::UUID`;
+    await dropFixture(fy);
+  }
 
+  /** L3: a date in a GAP of a fiscal year that holds a closed period is not
+   *  postable — the generator adds no month beside a closed one (migration 942;
+   *  before it, createFiscalYear refused the existing year). The roll must jump
+   *  the gap to the next open period instead. */
+  it('does not roll into a gap inside a fiscal year that holds a closed period; jumps to the next open period', async () => {
+    const { fy, je } = await gapYear('VLRG', [['2026-09-01', '2026-11-30', 'open'], ['2026-12-01', '2026-12-31', 'closed']]);
+    try {
       const out = await inTx(fy, () => reverseJournalEntry(fy.companyId, je, fy.userId));
       expect(out.vatLockRoll).toMatchObject({ rolledFrom: '2026-06-10', date: '2026-09-01' });
     } finally {
-      await sql`DELETE FROM vat_period_locks WHERE company_id = ${fy.companyId}::UUID`;
-      await sql`UPDATE gl_journal_entries SET reversal_of_id = NULL WHERE company_id = ${fy.companyId}::UUID`;
-      await dropFixture(fy);
+      await dropGapYear(fy);
+    }
+  });
+
+  /** Since migration 942 a GAP in an OPEN fiscal year with no closed period is
+   *  postable: the post generates the missing month. So the roll lands in the
+   *  gap rather than jumping it (it jumped while createFiscalYear refused the
+   *  existing year), and the contra sits in the generated period. */
+  it('rolls into a gap inside an open fiscal year with no closed period; the post generates its month', async () => {
+    const { fy, je } = await gapYear('VLRO', [['2026-09-01', '2026-12-31', 'open']]);
+    try {
+      const out = await inTx(fy, () => reverseJournalEntry(fy.companyId, je, fy.userId));
+      expect(out.vatLockRoll).toMatchObject({ rolledFrom: '2026-06-10', date: '2026-07-01' });
+      const contra = ((await sql`
+        SELECT je.entry_date::TEXT AS d, fp.start_date::TEXT AS ps, fp.end_date::TEXT AS pe FROM gl_journal_entries je
+        JOIN fiscal_periods fp ON fp.id = je.fiscal_period_id
+        WHERE je.company_id = ${fy.companyId}::UUID AND je.reversal_of_id = ${je}::UUID`) as Row[])[0]!;
+      expect(contra).toMatchObject({ d: '2026-07-01', ps: '2026-07-01', pe: '2026-07-31' });
+    } finally {
+      await dropGapYear(fy);
     }
   });
 });

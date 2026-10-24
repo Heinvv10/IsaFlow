@@ -137,7 +137,6 @@ export async function getFiscalPeriodIdForDate(
 export {
   createFiscalYear,
   resolveCompanyPeriodAlignment,
-  FiscalPeriodOverlapError,
 } from './fiscalYearCreateService';
 
 export async function closePeriod(companyId: string, id: string, userId: string): Promise<FiscalPeriod> {

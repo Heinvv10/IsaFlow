@@ -39,8 +39,20 @@ describe('K-021 reversal atomicity', () => {
     // posted into it yet, but parking stays safe if an earlier test ever does:
     // gl_journal_entries and gl_account_balances both carry an FK to it.
     // Parking it leaves today uncovered, which is the condition under test.
-    await pool.query('UPDATE fiscal_periods SET start_date=$2::date, end_date=$3::date WHERE id=$1',
-      [nowPeriod, parkedStart, parkedEnd]);
+    // A period lies inside its fiscal year (migration 940), so it moves into the
+    // year holding the parked month, and the current year it leaves empty is
+    // removed: today's year does not exist, as for a tenant that never made it.
+    const year = await pool.query('SELECT fiscal_year_id AS id FROM fiscal_periods WHERE id=$1', [nowPeriod]);
+    await pool.query(
+      'UPDATE fiscal_periods SET start_date=$2::date, end_date=$3::date, fiscal_year_id=public.fiscal_year_ensure($4, $2::date) WHERE id=$1',
+      [nowPeriod, parkedStart, parkedEnd, company]);
+    await pool.query(
+      'DELETE FROM fiscal_years fy WHERE fy.id=$1 AND NOT EXISTS (SELECT 1 FROM fiscal_periods fp WHERE fp.fiscal_year_id=fy.id)',
+      [year.rows[0].id]);
+    const todaysYear = await pool.query(
+      'SELECT COUNT(*)::int AS n FROM fiscal_years WHERE company_id=$1 AND start_date <= $2::date AND end_date >= $2::date',
+      [company, fmtDate(new Date())]);
+    expect(todaysYear.rows[0].n).toBe(0);
     // Today is the process's local date the poster books on (SAST on the
     // runner), not the CI cluster's UTC CURRENT_DATE, which lags it from 00:00
     // to 02:00 SAST.

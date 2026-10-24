@@ -6,22 +6,11 @@
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
+import { assertDeclaredBasis, requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { computePisScoreForDocument } from './pisCalculatorService';
 import type { CipcFilingGuide } from './afsTypes';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
-
-function computeYearEnd(fiscalYear: number, financialYearStartMonth: number): string {
-  let endMonth: number;
-  const endYear: number = fiscalYear;
-  if (financialYearStartMonth === 1) {
-    endMonth = 12;
-  } else {
-    endMonth = financialYearStartMonth - 1;
-  }
-  const lastDay = new Date(endYear, endMonth, 0).getDate();
-  return `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-}
 
 function computeFilingDeadline(yearEndIso: string): string {
   const yearEnd = new Date(yearEndIso);
@@ -78,7 +67,6 @@ interface DocumentRow {
   reporting_framework: string;
   name: string;
   registration_number: string | null;
-  financial_year_start: number;
   cipc_annual_return_submitted: boolean;
   cipc_annual_return_submitted_at: string | Date | null;
 }
@@ -99,7 +87,7 @@ export async function generateCipcFilingGuide(
   const [docRows, sectionRows, pisScore] = await Promise.all([
     sql`
       SELECT d.id, d.fiscal_year, d.status, d.pis_score, d.reporting_framework,
-             c.name, c.registration_number, c.financial_year_start,
+             c.name, c.registration_number,
              c.cipc_annual_return_submitted, c.cipc_annual_return_submitted_at
       FROM afs_documents d
       JOIN companies c ON c.id = d.company_id
@@ -122,8 +110,7 @@ export async function generateCipcFilingGuide(
   const doc = docRows[0] as unknown as DocumentRow;
   const sections = sectionRows as unknown as SectionRow[];
 
-  const fyStartMonth = (doc.financial_year_start as number) || 3;
-  const yearEndIso = computeYearEnd(doc.fiscal_year, fyStartMonth);
+  const yearEndIso = assertDeclaredBasis(companyId, await requireFiscalYear(companyId, doc.fiscal_year)).endDate;
   const filingDeadline = computeFilingDeadline(yearEndIso);
 
   const requiredFilings = buildRequiredFilings(pisScore.requiredAudit, pisScore.requiredCipcFiling);
