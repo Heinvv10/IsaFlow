@@ -3,8 +3,8 @@
  *
  * The obvious guard — "no period covers this date, so skip it" — is WRONG in
  * the other direction, and that is the failure this file pins. `createJournalEntry`
- * calls `ensureFiscalPeriodForDate`, which CREATES the fiscal year on demand
- * inside a bounded window around today. An invoice dated in an uncreated but
+ * calls `ensureFiscalPeriodForDate`, which CREATES the date's period on demand
+ * when its fiscal year is inside a bounded window around today and not closed. An invoice dated in an uncreated but
  * creatable year posts perfectly well through the single tool; skipping it in
  * the batch would refuse work the single tool performs, and a historical
  * subledger reload is exactly the caller that names uncreated years.
@@ -19,15 +19,14 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/fiscalYearCreateService', () => ({
-  resolveCompanyPeriodAlignment: vi.fn(),
-}));
+// The fiscal year of an uncovered date is the registry's (stored year, else the template).
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry',
+  async () => (await import('../../helpers/fiscalYearSqlFake')).registryMock());
 
 import { sql } from '@/lib/neon';
-import {
-  resolveCompanyPeriodAlignment,
-} from '@/modules/accounting/services/gl/fiscalYearCreateService';
+import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import { resolvePeriodSkips } from '@/lib/mcp/tools/bulkApprovePeriods';
+import { fakeRegistry, resetFakeRegistry } from '../../helpers/fiscalYearSqlFake';
 
 const COMPANY = 'company-1';
 
@@ -41,7 +40,9 @@ function periods(...rows: { start: string; end: string; status: string }[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(resolveCompanyPeriodAlignment).mockResolvedValue({ startMonth: 1 } as never);
+  resetFakeRegistry();
+  // A calendar-year company: the template is January, so a date's fiscal year is its calendar year.
+  fakeRegistry.templateMonth = 1;
 });
 
 describe('resolvePeriodSkips', () => {
@@ -101,10 +102,10 @@ describe('resolvePeriodSkips', () => {
     expect(vi.mocked(sql)).toHaveBeenCalledTimes(1);
   });
 
-  it('does not resolve the company alignment when every date is covered', async () => {
+  it('does not ask the registry when every date is covered', async () => {
     periods({ start: '2026-09-01', end: '2026-09-30', status: 'open' });
     await resolvePeriodSkips(COMPANY, ['2026-09-15']);
-    expect(resolveCompanyPeriodAlignment).not.toHaveBeenCalled();
+    expect(fiscalYearForDate).not.toHaveBeenCalled();
   });
 
   /**
@@ -128,14 +129,41 @@ describe('resolvePeriodSkips', () => {
   });
 
   /**
-   * A March-start company: a June 2026 date belongs to FY2027, not FY2026.
-   * Testing the CALENDAR year against the window is wrong for ten months of
-   * twelve, which is why the fiscal year is resolved from the alignment.
+   * A March-start company: a June 2028 date belongs to FY2029, not FY2028.
+   * Testing the CALENDAR year against the window (today + 2 years) is wrong for
+   * ten months of twelve, which is why the registry's fiscal year is tested.
    */
   it('tests the FISCAL year against the window, not the calendar year', async () => {
-    vi.mocked(resolveCompanyPeriodAlignment).mockResolvedValue({ startMonth: 3 } as never);
+    fakeRegistry.templateMonth = 3;
     periods();
-    await resolvePeriodSkips(COMPANY, ['2026-06-15']);
-    expect(resolveCompanyPeriodAlignment).toHaveBeenCalledWith(COMPANY);
+    const v = await resolvePeriodSkips(COMPANY, ['2028-01-15', '2028-06-15']);
+    expect(v.get('2028-01-15')).toBeNull();            // FY2028: inside the window
+    expect(v.get('2028-06-15')).toContain('fiscal year 2029');   // FY2029: outside it
+  });
+
+  /**
+   * ensureFiscalPeriodForDate now fills a gap inside an EXISTING open year (the
+   * old rule refused it as "year already exists"), so the batch must pass it.
+   */
+  it('PASSES a date in a GAP of an existing open year', async () => {
+    fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }];
+    periods({ start: '2026-01-01', end: '2026-01-31', status: 'open' },
+            { start: '2026-03-01', end: '2026-12-31', status: 'open' });
+    expect((await resolvePeriodSkips(COMPANY, ['2026-02-10'])).get('2026-02-10')).toBeNull();
+  });
+
+  it('SKIPS a date in a gap of a CLOSED year, naming the status', async () => {
+    fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', status: 'closed' }];
+    periods({ start: '2026-03-01', end: '2026-12-31', status: 'closed' });
+    const reason = (await resolvePeriodSkips(COMPANY, ['2026-02-10'])).get('2026-02-10');
+    expect(reason).toContain('fiscal year 2026 is closed');
+    expect(reason).toContain('reopen it');
+  });
+
+  it('SKIPS a date that is not a real date without asking the registry (its cast would poison the transaction)', async () => {
+    periods();
+    const reason = (await resolvePeriodSkips(COMPANY, ['2026-02-30'])).get('2026-02-30');
+    expect(reason).toContain('not a valid date');
+    expect(fiscalYearForDate).not.toHaveBeenCalled();
   });
 });

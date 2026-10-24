@@ -16,7 +16,6 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { aggregatePpeMovements, type AssetPriorYearSnapshot, type AssetCurrentYearMovement } from '@/modules/accounting/services/items/farAfsService';
-import { getFiscalYearStartMonth } from '@/modules/accounting/services/gl/fiscalYearBasis';
 import { fiscalWindowForPeriod } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 type Row = Record<string, unknown>;
@@ -31,12 +30,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'period must be YYYYMM (e.g. 202312)');
   }
 
-  // The financial year is the company's own, not January-December. Refuse rather
-  // than assume March: an AFS note is signed and filed under the customer's name.
-  const fyStartMonth = await getFiscalYearStartMonth(companyId);
+  // The financial year is the company's own registry year holding the period,
+  // not January-December and not today's start month re-applied to history.
   // Current year range: the first period of the financial year to the period.
   // Prior year end is the period immediately before the financial year opens.
-  const { start: currentYearStart, priorEnd: priorYYYYMM } = fiscalWindowForPeriod(period, fyStartMonth);
+  const { start: currentYearStart, priorEnd: priorYYYYMM } = await fiscalWindowForPeriod(companyId, period);
 
   // Prior year closing snapshot per asset (last available period ≤ priorYYYYMM)
   // The disposal row carries full cost, so an asset disposed BEFORE the year
