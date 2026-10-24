@@ -101,7 +101,7 @@ describeIfDb('R-095 portal session scoping', () => {
 
     const [row] = (await sql`DELETE FROM portal_access WHERE client_id = ${f.customerA}::UUID RETURNING email, password_hash, name`) as { email: string; password_hash: string; name: string }[];
     await expectRefused(token, f.customerA, 'removed');
-    await sql`INSERT INTO portal_access (client_id, email, password_hash, name) VALUES (${f.customerA}::UUID, ${row!.email}, ${row!.password_hash}, ${row!.name})`;
+    await sql`INSERT INTO portal_access (client_id, company_id, email, password_hash, name) VALUES (${f.customerA}::UUID, (SELECT company_id FROM customers WHERE id = ${f.customerA}::UUID), ${row!.email}, ${row!.password_hash}, ${row!.name})`;
 
     expect((await callPortal('statement', token, input('statement', f.customerA))).status).toBe(200);
   });

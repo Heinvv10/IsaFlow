@@ -17,7 +17,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Pool, type PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { assertDisposableDb, isDisposableDb } from '../helpers/assertDisposableDb';
-import { updateCompanyUserRole, createInvitation, OwnerProtectedError } from '@/modules/accounting/services/core/userAccessService';
+import { createInvitation, OwnerProtectedError } from '@/modules/accounting/services/core/userAccessService';
+import { ownerLockKey } from '@/modules/accounting/services/core/ownerLock';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 assertDisposableDb('s04 invitations seeds a company, its members and invitations.');
@@ -131,11 +132,22 @@ describe.skipIf(!isDisposableDb(DATABASE_URL))('S-04 — only a live owner grant
         let bHoldsLock!: () => void;
         const held = new Promise<void>((r) => { commitDemotion = r; });
         const locked = new Promise<void>((r) => { bHoldsLock = r; });
-        const demoteA = asMember(OWNER_B, async () => {
-          await updateCompanyUserRole(COMPANY, OWNER_A, 'viewer', OWNER_B);
-          bHoldsLock();
-          await held;
-        }, cb);
+        // B's demotion of A, held uncommitted with the owner lock, as the
+        // members screen's write holds them (since S-07d it runs on the
+        // migration_admin pool in its own transaction, memberWrites.ts).
+        const demoteA = (async () => {
+          await cb.query('BEGIN');
+          try {
+            await cb.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [ownerLockKey(COMPANY)]);
+            await cb.query(`UPDATE company_users SET role = 'viewer' WHERE company_id = $1 AND user_id = $2`, [COMPANY, OWNER_A]);
+            bHoldsLock();
+            await held;
+            await cb.query('COMMIT');
+          } catch (err) {
+            await cb.query('ROLLBACK');
+            throw err;
+          }
+        })();
         await Promise.race([locked, demoteA]);
         const aInvites = asMember(OWNER_A, () => createInvitation(COMPANY, INVITEE, 'owner', OWNER_A), ca);
         // Released whatever happens: an A that never waits must not leave B's
