@@ -7,7 +7,9 @@
  * account being deactivated (`portal_access.is_active = false`) or removed,
  * and the customer being soft-deleted. Each request therefore re-checks that
  * an ACTIVE portal account still exists for the token's customer AND email,
- * and that the customer still belongs to the token's company. A token that
+ * and that the customer still belongs to the token's company, which is the
+ * login's own (portal_access.company_id, written only on migration_admin,
+ * 937: app roles can move a customer, not a login). A token that
  * fails any of these is refused exactly like a forged one: `null`, and the
  * caller answers 401.
  *
@@ -38,6 +40,7 @@ export async function resolvePortalSession(req: NextApiRequest): Promise<ArPorta
       AND pa.email = ${session.email}
       AND pa.is_active = true
       AND c.company_id::TEXT = ${session.companyId}
+      AND pa.company_id = c.company_id
       AND c.deleted_at IS NULL
     LIMIT 1
   `) as DbRow[];

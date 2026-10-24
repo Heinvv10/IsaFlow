@@ -2,9 +2,15 @@
  * Magic Link Service
  * Generate and verify single-use magic link tokens for portal contacts.
  * Tokens expire after 30 minutes and are single-use (atomically consumed).
+ *
+ * Every read and write of portal_magic_links runs on the migration_admin pool
+ * (S-07d, migration 937): a row holds the raw token that signs a contact in,
+ * so a row planted or read from an app pool (forged claims) was a portal
+ * session for any company. No app role holds any privilege on the table.
  */
 
 import crypto from 'crypto';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listLiveCompanies } from '@/lib/auth/liveCompanies';
@@ -19,20 +25,23 @@ export async function createMagicLink(
   const token = crypto.randomBytes(32).toString('hex'); // 64 hex chars, 256-bit entropy
   const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MS);
 
-  // Invalidate any existing unused tokens for this contact (one active link at a time)
-  await sql`
-    UPDATE portal_magic_links
-    SET used_at = now()
-    WHERE contact_id = ${contactId}::UUID
-      AND company_id = ${companyId}::UUID
-      AND used_at IS NULL
-      AND expires_at > now()
-  `;
-
-  await sql`
-    INSERT INTO portal_magic_links (company_id, contact_id, token, expires_at)
-    VALUES (${companyId}::UUID, ${contactId}::UUID, ${token}, ${expiresAt.toISOString()}::TIMESTAMPTZ)
-  `;
+  await migrationAdminTx('create portal magic link', async (client) => {
+    // Invalidate any existing unused tokens for this contact (one active link at a time)
+    await client.query(
+      `UPDATE portal_magic_links
+          SET used_at = now()
+        WHERE contact_id = $1::UUID
+          AND company_id = $2::UUID
+          AND used_at IS NULL
+          AND expires_at > now()`,
+      [contactId, companyId],
+    );
+    await client.query(
+      `INSERT INTO portal_magic_links (company_id, contact_id, token, expires_at)
+       VALUES ($1::UUID, $2::UUID, $3, $4::TIMESTAMPTZ)`,
+      [companyId, contactId, token, expiresAt.toISOString()],
+    );
+  });
 
   log.info('Magic link created', { companyId, contactId }, 'magicLinkService');
   return { token, expiresAt };
@@ -42,14 +51,15 @@ export async function verifyMagicLink(
   token: string,
 ): Promise<{ contact: PortalContact; companyId: string } | null> {
   // Step 1: Find the token (unused, not expired)
-  const links = (await sql`
-    SELECT id, company_id, contact_id
-    FROM portal_magic_links
-    WHERE token = ${token}
-      AND used_at IS NULL
-      AND expires_at > now()
-    LIMIT 1
-  `) as Record<string, unknown>[];
+  const links = await migrationAdminTx('find portal magic link', async (client) => (await client.query(
+    `SELECT id, company_id, contact_id
+       FROM portal_magic_links
+      WHERE token = $1
+        AND used_at IS NULL
+        AND expires_at > now()
+      LIMIT 1`,
+    [token],
+  )).rows as Record<string, unknown>[]);
 
   if (links.length === 0) return null;
 
@@ -63,12 +73,13 @@ export async function verifyMagicLink(
   }
 
   // Step 2: Atomically mark as used (race condition guard)
-  const updated = (await sql`
-    UPDATE portal_magic_links
-    SET used_at = now()
-    WHERE id = ${link.id}::UUID AND used_at IS NULL
-    RETURNING id
-  `) as Record<string, unknown>[];
+  const updated = await migrationAdminTx('consume portal magic link', async (client) => (await client.query(
+    `UPDATE portal_magic_links
+        SET used_at = now()
+      WHERE id = $1::UUID AND used_at IS NULL
+      RETURNING id`,
+    [link.id],
+  )).rows as Record<string, unknown>[]);
 
   if (updated.length === 0) {
     log.warn('Magic link consumed by concurrent request', { linkId: link.id }, 'magicLinkService');
@@ -100,10 +111,9 @@ export async function verifyMagicLink(
 }
 
 export async function cleanupExpiredMagicLinks(): Promise<void> {
-  await sql`
-    DELETE FROM portal_magic_links
-    WHERE expires_at < now() - INTERVAL '7 days'
-  `;
+  await migrationAdminTx('clean up portal magic links', (client) => client.query(
+    `DELETE FROM portal_magic_links WHERE expires_at < now() - INTERVAL '7 days'`,
+  ));
   log.info('Expired magic links cleaned up', {}, 'magicLinkService');
 }
 
