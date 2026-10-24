@@ -17,7 +17,7 @@ import { saveDraftSubmission } from '@/modules/accounting/services/reports/sarsS
 // notes and manual VAT journals are invisible to `generateVAT201` (audit K-031).
 // `sarsFields` is the SARS form (1, 1A ... 20) the page renders; the field1..11
 // keys beside it are storage keys for drafts and the filing path.
-import { getVat201Return } from '@/modules/accounting/services/reports/vat201LedgerFields';
+import { getVat201Return } from '@/modules/accounting/services/reports/vat201Return';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;

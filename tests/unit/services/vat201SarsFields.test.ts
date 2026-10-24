@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   VAT201_SARS_LAYOUT,
   buildVat201SarsFields,
+  buildVat201Warnings,
 } from '@/modules/accounting/services/reports/vat201SarsFields';
 import type { Vat201Box, Vat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
 
@@ -56,7 +57,9 @@ function report(boxes: Vat201Box[]): Pick<Vat201Report, 'boxes' | 'totals'> {
   };
 }
 
-const NIL = { zeroRated: 0, exported: 0, exempt: 0, onTaxedJournals: 0 };
+const NIL = {
+  zeroRated: 0, exported: 0, exempt: 0, onTaxedJournals: 0, onTaxedCapital: 0, onTaxedAmbiguous: 0, uncodedAssumedZeroRated: 0,
+};
 
 function amounts(fields: ReturnType<typeof buildVat201SarsFields>): Record<string, number | null> {
   return Object.fromEntries(fields.map((f) => [f.field, f.amount]));
@@ -95,7 +98,7 @@ describe('buildVat201SarsFields values', () => {
       '1': 11500, '4': 1500, '1A': 2300, '4A': 300,
       '2': 500, '2A': 700, '3': 300,
       '12': 15, '13': 1815,
-      '14': 600, '15': 900, '15A': 120, '16': 10, '17': 20, '18': 0,
+      '14': 600, '15': 910, '15A': 120, '17': 20, '18': 0,
       '19': 1650, '20': 165,
     });
   });
@@ -144,7 +147,7 @@ describe('buildVat201SarsFields values', () => {
 
   it('does not invent figures for what IsaFlow does not track: accommodation, second-hand goods, 14A', () => {
     const a = amounts(buildVat201SarsFields(report([]), NIL));
-    for (const untracked of ['5', '6', '7', '8', '9', '10', '11', '14A']) expect(a[untracked]).toBeNull();
+    for (const untracked of ['5', '6', '7', '8', '9', '10', '11', '14A', '16']) expect(a[untracked]).toBeNull();
   });
 
   it('flags the fields it cannot fill, with a reason', () => {
@@ -154,8 +157,72 @@ describe('buildVat201SarsFields values', () => {
     for (const f of untracked) expect(f.note).toBeTruthy();
   });
 
+  it('books domestic reverse charge INPUT tax in field 15 with the other claims, never field 16', () => {
+    const r = report([
+      box('15', 'input', 'standard', 1000, 150),
+      box('16', 'input', 'reverse_charge', 400, 60),
+    ]);
+    const fields = buildVat201SarsFields(r, NIL);
+    const a = amounts(fields);
+    expect(a['15']).toBe(210);
+    expect(a['16']).toBeNull();
+    expect(a['19']).toBe(210);
+    expect(fields.find((f) => f.field === '15')?.note).toMatch(/domestic reverse charge input tax/);
+    expect(fields.find((f) => f.field === '15')?.note).toMatch(/UNVERIFIED: SARS DRC guide not on file/);
+  });
+
+  it('keeps domestic reverse charge OUTPUT tax in field 12 and says so', () => {
+    const r = report([box('12', 'output', 'reverse_charge', 400, 60)]);
+    const fields = buildVat201SarsFields(r, NIL);
+    expect(amounts(fields)['12']).toBe(60);
+    expect(fields.find((f) => f.field === '12')?.note).toMatch(/domestic reverse charge output tax/);
+  });
+
+  it('takes the nil-rated share of an all-capital journal off 1A, not 1', () => {
+    const r = report([
+      box('1', 'output', 'standard', 10000, 1500),
+      box('1A', 'output', 'capital_goods', 5000, 750),
+    ]);
+    const a = amounts(buildVat201SarsFields(r, { ...NIL, zeroRated: 500, onTaxedJournals: 500, onTaxedCapital: 500 }));
+    expect(a['1']).toBe(11500);
+    expect(a['1A']).toBe(5250);
+  });
+
+  it('cautions on 2A that exported services belong in field 2', () => {
+    const fields = buildVat201SarsFields(report([]), NIL);
+    expect(fields.find((f) => f.field === '2A')?.note).toMatch(/exported services, which belong in field 2/);
+  });
+
   it('keeps a negative total (a refund) negative on field 20', () => {
     const r = report([box('1', 'output', 'standard', 100, 15), box('15', 'input', 'standard', 1000, 150)]);
     expect(amounts(buildVat201SarsFields(r, NIL))['20']).toBe(-135);
+  });
+});
+
+describe('buildVat201Warnings', () => {
+  const none = (nil = NIL) => buildVat201Warnings(buildVat201SarsFields(report([]), nil), nil);
+
+  it('is silent when nothing needs a second look', () => {
+    expect(none()).toEqual([]);
+  });
+
+  it('warns on a negative supply value, naming the field', () => {
+    const r = report([box('1', 'output', 'standard', -1000, -150)]);
+    const w = buildVat201Warnings(buildVat201SarsFields(r, NIL), NIL);
+    expect(w.map((x) => x.code)).toEqual(['negative-supply-value']);
+    expect(w[0]!.message).toMatch(/Field 1 is negative/);
+  });
+
+  it('warns when a nil-rated line sits on a journal mixing capital and other taxed output', () => {
+    const nil = { ...NIL, zeroRated: 300, onTaxedJournals: 300, onTaxedAmbiguous: 300 };
+    const r = report([box('1', 'output', 'standard', 10000, 1500)]);
+    expect(buildVat201Warnings(buildVat201SarsFields(r, nil), nil).map((x) => x.code)).toEqual(['mixed-capital-and-nil-rated']);
+  });
+
+  it('warns when uncoded revenue was assumed zero-rated, with the amount', () => {
+    const nil = { ...NIL, zeroRated: 800, uncodedAssumedZeroRated: 800 };
+    const w = none(nil);
+    expect(w.map((x) => x.code)).toEqual(['uncoded-revenue-assumed-zero-rated']);
+    expect(w[0]!.amount).toBe(800);
   });
 });

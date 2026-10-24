@@ -11,7 +11,6 @@ import { isFlyout, type NavItem, type Tab } from './types';
 
 /** Page paths that only mean something to a registered VAT vendor. */
 const VAT_SURFACES = [
-  '/accounting/reports/vat-return',
   '/accounting/reports/vat-reconciliation',
   '/accounting/vat-adjustments',
   '/accounting/drc-vat',

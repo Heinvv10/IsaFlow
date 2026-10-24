@@ -19,7 +19,7 @@ const FIELDS = buildVat201SarsFields(
     ],
     totals: { outputTax: 150, inputTax: 60, netVat: 90, standardRatedSupplies: 1000, standardRatedPurchases: 400, lateClaimInputTax: 0 },
   },
-  { zeroRated: 0, exported: 0, exempt: 0, onTaxedJournals: 0 },
+  { zeroRated: 0, exported: 0, exempt: 0, onTaxedJournals: 0, onTaxedCapital: 0, onTaxedAmbiguous: 0, uncodedAssumedZeroRated: 0 },
 );
 const DATA = { periodStart: '2026-09-01', periodEnd: '2026-09-30', sarsFields: FIELDS };
 

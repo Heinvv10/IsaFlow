@@ -4,11 +4,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import Link from 'next/link';
-import { FileText, Loader2, Save, Send, Download, ChevronLeft, ShieldCheck } from 'lucide-react';
+import { Loader2, Save, Send } from 'lucide-react';
 import { ApiRequestError, apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { VAT201PeriodSelector } from '@/components/accounting/sars/VAT201PeriodSelector';
-import { TransactionTable } from '@/components/accounting/sars/VAT201FormSections';
+import { VAT201PageHeader } from '@/components/accounting/sars/VAT201PageHeader';
+import { VAT201DetailView } from '@/components/accounting/sars/VAT201DetailView';
+import { VAT201ReviewNotices } from '@/components/accounting/sars/VAT201ReviewNotices';
 import { VAT201SummaryForm } from '@/components/accounting/sars/VAT201SummaryForm';
 import { buildVat201Csv } from '@/components/accounting/sars/vat201Csv';
 import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModal';
@@ -23,30 +24,21 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
-import type { Vat201SarsField } from '@/modules/accounting/services/reports/vat201SarsFields';
-
-interface VAT201Invoice {
-  id: string; invoiceNumber: string; counterpartyName: string;
-  invoiceDate: string; totalExclVat: number; vatAmount: number; vatType: string;
-}
+import type { Vat201FormWarning, Vat201SarsField } from '@/modules/accounting/services/reports/vat201SarsFields';
+import type { VAT201Invoice } from '@/components/accounting/sars/VAT201FormSections';
 
 interface VAT201Data { // the API also returns legacy field1..11 storage keys; the page uses only the SARS form
   periodStart: string; periodEnd: string;
   sarsFields: Vat201SarsField[];
+  warnings: Vat201FormWarning[];
+  filability: { filable: boolean; reason: string | null };
   outputInvoices: VAT201Invoice[]; inputInvoices: VAT201Invoice[];
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
-
 const OVERRIDE_ROLES = ['owner', 'admin', 'super_admin'];
 
-/** A SARS field's amount, as the server computed it. */
-const sarsAmount = (data: VAT201Data, field: string): number =>
-  data.sarsFields.find((f) => f.field === field)?.amount ?? 0;
-
 export default function VAT201Page() {
-  const { activeCompany, companyRole } = useCompany();
+  const { activeCompany, companyRole, loading: companyLoading } = useCompany();
   const isOwnerOrAdmin = OVERRIDE_ROLES.includes(companyRole ?? '');
   const { isRegistered, known } = useVatRegistration();
   const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
@@ -81,7 +73,12 @@ export default function VAT201Page() {
     // { items: CompanyUser[] } rows WITHOUT VAT settings — reading them put
     // every company on the odd/bi-monthly defaults. Fetch the active
     // company's full record (?id=) instead, same as the settings page.
-    if (!activeCompany?.id) return;
+    if (!activeCompany?.id) {
+      // No company to ask: once the context has finished loading, show the
+      // selector on its defaults rather than a placeholder that never ends.
+      if (!companyLoading) setSettingsReady(true);
+      return;
+    }
     let cancelled = false;
     setSettingsReady(false);
     void (async () => {
@@ -113,7 +110,7 @@ export default function VAT201Page() {
       }
     })();
     return () => { cancelled = true; };
-  }, [activeCompany?.id]);
+  }, [activeCompany?.id, companyLoading]);
 
   const generate = useCallback(async () => {
     if (!from || !to) return;
@@ -183,30 +180,7 @@ export default function VAT201Page() {
   return (
     <AppLayout>
       <div className="min-h-screen bg-[var(--ff-bg-primary)]">
-        <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Link href="/accounting/sars" className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">
-                <ChevronLeft className="h-5 w-5" />
-              </Link>
-              <div className="p-2 rounded-lg bg-teal-500/10"><FileText className="h-6 w-6 text-teal-500" /></div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">VAT201 Return</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">SARS Value-Added Tax Declaration</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Link href="/accounting/sars/vat-locks" className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-teal-500/30">
-                <ShieldCheck className="h-4 w-4" /> Period Locks
-              </Link>
-              {data && (
-                <button onClick={exportCSV} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--ff-border-light)] text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-teal-500/30">
-                  <Download className="h-4 w-4" /> Export CSV
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <VAT201PageHeader canExport={Boolean(data)} onExport={exportCSV} />
 
         <div className="p-6 space-y-6">
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
@@ -248,19 +222,10 @@ export default function VAT201Page() {
               {viewMode === 'summary' ? (
                 <VAT201SummaryForm data={data} />
               ) : (
-                <div className="space-y-4">
-                  <TransactionTable title="Section A — Output Tax (Sales)" sectionColor="teal" invoices={data.outputInvoices} totalLabel="Total Output Tax (Field 13)" totalVat={sarsAmount(data, '13')} />
-                  <TransactionTable title="Section B — Input Tax (Purchases)" sectionColor="blue" invoices={data.inputInvoices} totalLabel="Total Input Tax (Field 19)" totalVat={sarsAmount(data, '19')} />
-                  <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] px-4 py-3 flex items-center justify-between">
-                    <span className="text-sm font-semibold text-[var(--ff-text-primary)]">
-                      Net VAT — Field 20 ({sarsAmount(data, '20') >= 0 ? 'Payable to SARS' : 'Refundable from SARS'})
-                    </span>
-                    <span className={`text-lg font-bold ${sarsAmount(data, '20') >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                      {fmt(Math.abs(sarsAmount(data, '20')))}
-                    </span>
-                  </div>
-                </div>
+                <VAT201DetailView data={data} />
               )}
+
+              <VAT201ReviewNotices warnings={data.warnings} filability={data.filability} />
 
               <VAT201ExceptionsPanel from={data.periodStart} to={data.periodEnd} reloadKey={exceptionsKey} onLoaded={setExceptionsReport} />
 
@@ -293,6 +258,7 @@ export default function VAT201Page() {
           isOwnerOrAdmin={isOwnerOrAdmin}
           overrideReason={overrideReason}
           onOverrideReasonChange={setOverrideReason}
+          filabilityWarning={data && !data.filability.filable ? data.filability.reason : null}
         />
       )}
     </AppLayout>

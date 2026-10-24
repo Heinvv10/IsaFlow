@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
-import { getVat201Return } from '../../src/modules/accounting/services/reports/vat201LedgerFields';
+import { getVat201Return } from '../../src/modules/accounting/services/reports/vat201Return';
 import { getVat201Report } from '../../src/modules/accounting/services/reports/vat201ReportService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
@@ -18,6 +18,8 @@ const user = crypto.randomUUID();
 const A = crypto.randomUUID();
 const B = crypto.randomUUID();
 const EMPTY = crypto.randomUUID();
+const C = crypto.randomUUID();
+const customerC = crypto.randomUUID();
 const START = '2026-06-01';
 const END = '2026-06-30';
 
@@ -28,6 +30,7 @@ const acc = (): Accounts => ({
 });
 const accA = acc();
 const accB = acc();
+const accC = acc();
 
 async function accounts(company: string, a: Accounts) {
   await pool.query(
@@ -43,7 +46,7 @@ async function accounts(company: string, a: Accounts) {
   );
 }
 let n = 0;
-async function post(company: string, date: string, legs: Array<[string, number, number, string | null]>) {
+async function post(company: string, date: string, legs: Array<[string, number, number, string | null]>): Promise<string> {
   const id = crypto.randomUUID();
   n += 1;
   await pool.query(
@@ -58,14 +61,17 @@ async function post(company: string, date: string, legs: Array<[string, number, 
       [id, company, account, debit, credit, vatType],
     );
   }
+  return id;
 }
 
 beforeAll(async () => {
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$4),($2,$5),($3,$6)', [
-    A, B, EMPTY, 'SARS fields A', 'SARS fields B (other tenant)', 'SARS fields empty',
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$5),($2,$6),($3,$7),($4,$8)', [
+    A, B, EMPTY, C, 'SARS fields A', 'SARS fields B (other tenant)', 'SARS fields empty', 'SARS fields C (classification)',
   ]);
+  await pool.query('INSERT INTO customers(id,company_id,name) VALUES($1,$2,$3)', [customerC, C, 'SARS fields customer']);
   await accounts(A, accA);
   await accounts(B, accB);
+  await accounts(C, accC);
 
   // Company A: standard sale R10 000 + R1 500; export R4 000; exempt R2 000;
   // standard purchase R6 000 + R900 and capital purchase R5 000 + R750.
@@ -75,6 +81,26 @@ beforeAll(async () => {
   await post(A, '2026-06-18', [[accA.expense, 6000, 0, 'standard'], [accA.vatInput, 900, 0, 'standard'], [accA.payable, 0, 6900, null]]);
   await post(A, '2026-06-20', [[accA.asset, 5000, 0, 'capital_goods'], [accA.vatInput, 750, 0, 'capital_goods'], [accA.payable, 0, 5750, null]]);
 
+  // Company C, July: an all-capital journal carrying an exempt line; a domestic reverse
+  // charge input claim; and revenue with no VAT code on a document that raised no VAT.
+  await post(C, '2026-07-05', [
+    [accC.receivable, 6250, 0, null], [accC.revenue, 0, 5000, 'capital_goods'], [accC.revenue, 0, 500, 'exempt'],
+    [accC.vatOutput, 0, 750, 'capital_goods'],
+  ]);
+  await post(C, '2026-07-09', [[accC.expense, 400, 0, 'reverse_charge'], [accC.vatInput, 60, 0, 'reverse_charge'], [accC.payable, 0, 460, null]]);
+  const uncodedJournal = await post(C, '2026-07-12', [[accC.receivable, 800, 0, null], [accC.revenue, 0, 800, null]]);
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,invoice_number,customer_id,invoice_date,subtotal,tax_amount,tax_rate,
+       total_amount,status,gl_journal_entry_id,created_by)
+     VALUES($1,$2,'SARSF-UNCODED',$3,'2026-07-12',800,0,0,800,'sent',$4,$5)`,
+    [crypto.randomUUID(), C, customerC, uncodedJournal, user],
+  );
+  // August: one journal mixing capital and standard output legs with an exempt line.
+  await post(C, '2026-08-05', [
+    [accC.receivable, 11750, 0, null], [accC.revenue, 0, 5000, 'capital_goods'], [accC.revenue, 0, 5000, 'standard'],
+    [accC.revenue, 0, 500, 'exempt'], [accC.vatOutput, 0, 750, 'capital_goods'], [accC.vatOutput, 0, 750, 'standard'],
+  ]);
+
   // Company B, same period, very different numbers. None of it may reach A.
   await post(B, '2026-06-11', [[accB.receivable, 1150000, 0, null], [accB.revenue, 0, 1000000, 'standard'], [accB.vatOutput, 0, 150000, 'standard']]);
   await post(B, '2026-06-13', [[accB.receivable, 900000, 0, null], [accB.revenue, 0, 900000, 'export']]);
@@ -82,10 +108,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await pool.query('DELETE FROM gl_journal_lines WHERE company_id = ANY($1::uuid[])', [[A, B, EMPTY]]);
-  await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1::uuid[])', [[A, B, EMPTY]]);
-  await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1::uuid[])', [[A, B, EMPTY]]);
-  await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[A, B, EMPTY]]);
+  await pool.query('DELETE FROM customer_invoices WHERE company_id = $1', [C]);
+  await pool.query('DELETE FROM customers WHERE company_id = $1', [C]);
+  await pool.query('DELETE FROM gl_journal_lines WHERE company_id = ANY($1::uuid[])', [[A, B, EMPTY, C]]);
+  await pool.query('DELETE FROM gl_journal_entries WHERE company_id = ANY($1::uuid[])', [[A, B, EMPTY, C]]);
+  await pool.query('DELETE FROM gl_accounts WHERE company_id = ANY($1::uuid[])', [[A, B, EMPTY, C]]);
+  await pool.query('DELETE FROM companies WHERE id = ANY($1::uuid[])', [[A, B, EMPTY, C]]);
   await pool.end();
 });
 
@@ -101,7 +129,7 @@ describe('getVat201Return — the page API', () => {
       '1': 11500, '4': 1500, '1A': 0, '4A': 0,
       '2': 0, '2A': 4000, '3': 2000,
       '12': 0, '13': 1500,
-      '14': 750, '15': 900, '15A': 0, '16': 0, '17': 0, '18': 0,
+      '14': 750, '15': 900, '15A': 0, '17': 0, '18': 0,
       '19': 1650, '20': -150,
     });
     expect(ret.sarsFields.map((x) => x.field)).toHaveLength(25);
@@ -142,6 +170,45 @@ describe('getVat201Return — the page API', () => {
     const ret = await getVat201Return(EMPTY, START, END);
     const f = byField(ret.sarsFields);
     for (const field of ['1', '4', '2', '2A', '3', '13', '14', '15', '19', '20']) expect(f[field]).toBe(0);
-    for (const field of ['5', '6', '7', '8', '9', '10', '11', '14A']) expect(f[field]).toBeNull();
+    for (const field of ['5', '6', '7', '8', '9', '10', '11', '14A', '16']) expect(f[field]).toBeNull();
+  });
+});
+
+describe('classification calls the ledger cannot settle', () => {
+  it('takes the nil-rated line of an all-capital journal off 1A, not 1', async () => {
+    const ret = await getVat201Return(C, '2026-07-01', '2026-07-31');
+    const f = byField(ret.sarsFields);
+    expect(f['1']).toBe(0);
+    expect(f['1A']).toBe(5750);
+    expect(f['3']).toBe(500);
+    expect(ret.warnings.map((w) => w.code)).not.toContain('mixed-capital-and-nil-rated');
+  });
+
+  it('books domestic reverse charge input tax in field 15, leaving 16 unfilled', async () => {
+    const ret = await getVat201Return(C, '2026-07-01', '2026-07-31');
+    const f = byField(ret.sarsFields);
+    expect(f['15']).toBe(60);
+    expect(f['16']).toBeNull();
+    expect(f['19']).toBe(60);
+    expect(f['20']).toBeCloseTo(690, 2);
+  });
+
+  it('reports uncoded revenue on an untaxed document as zero-rated AND says it assumed so', async () => {
+    const ret = await getVat201Return(C, '2026-07-01', '2026-07-31');
+    expect(byField(ret.sarsFields)['2']).toBe(800);
+    const w = ret.warnings.find((x) => x.code === 'uncoded-revenue-assumed-zero-rated');
+    expect(w?.amount).toBe(800);
+  });
+
+  it('warns when a nil-rated line sits on a journal mixing capital and standard output', async () => {
+    const ret = await getVat201Return(C, '2026-08-01', '2026-08-31');
+    const w = ret.warnings.find((x) => x.code === 'mixed-capital-and-nil-rated');
+    expect(w?.amount).toBe(500);
+  });
+
+  it('has no warnings for a clean company', async () => {
+    const ret = await getVat201Return(A, START, END);
+    expect(ret.warnings).toEqual([]);
+    expect(ret.filability.filable).toBe(true);
   });
 });
