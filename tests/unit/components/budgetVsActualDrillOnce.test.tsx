@@ -73,4 +73,22 @@ describe('budget vs actual drill-down', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(drillFetches()).toHaveLength(2);
   });
+
+  it('two accounts expanded while both requests are still in flight each get their own request', async () => {
+    // Drill requests stay pending until released, so the in-flight join sees both at once.
+    const pending: Array<() => void> = [];
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+      if (!String(url).includes('reports-account-transactions')) return ok(REPORT);
+      await new Promise<void>((resolve) => { pending.push(resolve); });
+      return ok(DRILL);
+    });
+    render(<StrictMode><BudgetVsActualPage /></StrictMode>);
+    fireEvent.click(await screen.findByText('Sales'));
+    fireEvent.click(screen.getByText('Rent'));
+    await waitFor(() => expect(drillAccounts()).toEqual(['4000', '5000']));
+    pending.forEach((release) => release());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(drillAccounts()).toEqual(['4000', '5000']);
+  });
 });
+
