@@ -24,6 +24,7 @@ import { SkeletonDemo } from '@/components/showcase/SkeletonDemo';
 import { AvatarDemo } from '@/components/showcase/AvatarDemo';
 import { ProgressBarDemo } from '@/components/showcase/ProgressBarDemo';
 import { SelectDemo } from '@/components/showcase/SelectDemo';
+import { FormKitDemo } from '@/components/showcase/FormKitDemo';
 
 // ---------------------------------------------------------------------------
 // Data
@@ -37,6 +38,7 @@ const NAV_SECTIONS = [
   { label: 'Feedback', items: ['Modal', 'Toast', 'EmptyState', 'Skeleton', 'ProgressBar'] },
   { label: 'Navigation', items: ['Breadcrumb', 'Tabs', 'Drawer'] },
   { label: 'Data', items: ['Avatar', 'Select'] },
+  { label: 'Forms', items: ['FormKit'] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -312,6 +314,11 @@ export default function ComponentShowcasePage() {
                 {/* ── Avatar ── */}
                 <Section id="Avatar" title="Avatar" description="User avatar with image or deterministic initials fallback. Supports size variants and status dots.">
                   <AvatarDemo />
+                </Section>
+
+                {/* ── Form kit ── */}
+                <Section id="FormKit" title="Form kit" description="MoneyField, DateField, FormSection, AutosaveStatus, ExplainDrawer. Teal 3 px focus ring on both themes.">
+                  <FormKitDemo />
                 </Section>
 
                 {/* ── Select ── */}
