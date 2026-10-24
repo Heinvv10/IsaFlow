@@ -158,6 +158,22 @@ describe('R3: validateCertificateTaxFields, 4120 against the age (BRS p. 59-60, 
   });
 });
 
+describe('R3: the date of birth and the ID number (BRS V25.3.0 p. 26, 3080 "must correlate with the identity number")', () => {
+  it('disagreeing across 65 is refused, naming both dates and no age', () => {
+    // Record: born 15 June 1960 (66); ID 620615...: 15 June 1962 (64).
+    const run = () => buildEmployeeRecord({ ...base, idNumber: '6206155009087', dateOfBirth: new Date(1960, 5, 15), medical: { ...medical, age65OrOlder: true } });
+    expect(run).toThrow(/date of birth on the payroll record \(1960-06-15\).*ID number \(1962-06-15\)/);
+    expect(run).toThrow(/p\. 26/);
+    let message = '';
+    try { run(); } catch (err) { message = (err as Error).message; }
+    expect(message).not.toMatch(/\b6[0-9]\b(?![-\d])/);
+  });
+  it('disagreeing on the same side of 65, or agreeing, is not this refusal', () => {
+    expect(() => buildEmployeeRecord({ ...base, dateOfBirth: new Date(1991, 0, 1) })).not.toThrow();
+    expect(() => buildEmployeeRecord({ ...base, ...over65, dateOfBirth: new Date(1958, 5, 15), medical: { ...medical, age65OrOlder: true } })).not.toThrow();
+  });
+});
+
 describe('R3: certificate warnings (round 2 review)', () => {
   const record = { fees: 0, credit: 1_504, additionalCredit: 0, recorded: true };
   it('a credit the PAYE took with no 4005 deducted: named, with the amount', () => {
