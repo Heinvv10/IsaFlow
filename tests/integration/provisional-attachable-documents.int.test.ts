@@ -48,6 +48,8 @@ const ids = {
   micro1: crypto.randomUUID(),
   micro2: crypto.randomUUID(),
   micro3: crypto.randomUUID(),
+  // created_at NULL (nullable in the schema): it would sort first under DESC and give an unparseable cursor.
+  noCreatedAt: crypto.randomUUID(),
 };
 const attachable = (...keys: Array<keyof typeof ids>) => keys.map((k) => ids[k]);
 const supplier = crypto.randomUUID();
@@ -111,6 +113,7 @@ beforeAll(async () => {
     [ids.micro1, company, 'pending', 'done', false, 'receipt'],
     [ids.micro2, company, 'pending', 'done', false, 'receipt'],
     [ids.micro3, company, 'pending', 'done', false, 'receipt'],
+    [ids.noCreatedAt, company, 'pending', 'done', false, 'receipt'],
   ];
   for (const [id, co, status, readState, posted, type, sha] of rows) {
     await pool.query(
@@ -123,6 +126,7 @@ beforeAll(async () => {
     await pool.query('UPDATE captured_documents SET created_at = $2::timestamptz WHERE id = $1',
       [ids[key], `2026-09-01T10:00:00.123${i + 1}00Z`]);
   }
+  await pool.query('UPDATE captured_documents SET created_at = NULL WHERE id = $1', [ids.noCreatedAt]);
   // reverseJournalEntry leaves the original 'posted', stamps reversed_at, and posts a contra pointing back at it.
   const journal = async (n: number, status: string, doc: string | null, reversalOf: string | null = null): Promise<string> => {
     const r = await pool.query(
@@ -199,6 +203,11 @@ describe('document-capture ?attachable=1', () => {
     expect(got).not.toContain(ids.journalStands);
     expect(got).toContain(ids.journalReversed);
     expect(got).toContain(ids.journalDraft);
+  });
+
+  it('leaves out a document with no created_at, so every page yields a usable cursor', async () => {
+    const got = (await listIds()).ids;
+    expect(got).not.toContain(ids.noCreatedAt);
   });
 
   it('leaves out a document with an active journal link; an unlinked one is offered again', async () => {
