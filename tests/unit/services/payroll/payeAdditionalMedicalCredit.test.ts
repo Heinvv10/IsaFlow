@@ -164,6 +164,24 @@ describe('the calculator passes the 4005 fees through', () => {
     employee: employee(born), period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 'defer',
     components: [{ component: comp('3601', 'earning'), amount: 30_000 }, { component: comp('4005', 'deduction'), amount: 5_100 }],
   });
+  it('4005 fees but no medical aid membership on the employee: the line warns, the PAYE is as before (confirmation 2)', () => {
+    const noMembers = (born: number) => calculatePayrollLine({
+      employee: { ...employee(born), medicalAidMainMember: false, medicalAidDependantsCount: 0 } as PayrollEmployee,
+      period: { year: 2026, month: 3 }, taxYear: 2027, annualPayrollEstimate: 'defer',
+      components: [{ component: comp('3601', 'earning'), amount: 30_000 }, { component: comp('4005', 'deduction'), amount: 5_100 }],
+    });
+    const old = noMembers(1959);
+    // 67: 73 992 - 17 820 - 9 765 = 46 407 / 12, no MTC and no additional credit.
+    expect(old.paye.monthlyPaye).toBe(3_867.25);
+    const warning = old.validationResults.find(v => v.code === 'MEDICAL_FEES_WITHOUT_MEMBERSHIP');
+    expect(warning?.severity).toBe('warning');
+    expect(warning?.message).toMatch(/R5100\.00.*4005.*no medical tax credit.*65.*over-deducted/);
+    const young = noMembers(1985).validationResults.find(v => v.code === 'MEDICAL_FEES_WITHOUT_MEMBERSHIP');
+    expect(young?.message).toMatch(/over-deducted/);
+    expect(young?.message).not.toMatch(/65/);
+    expect(line(1959).validationResults.map(v => v.code)).not.toContain('MEDICAL_FEES_WITHOUT_MEMBERSHIP');
+  });
+
   it('65 only the day after the year ends (born 1 Mar 1962): 64 on its last day, no credit', () => {
     const at64 = calculatePayrollLine({
       employee: { ...employee(1962), dateOfBirth: new Date(1962, 2, 1) } as PayrollEmployee, period: { year: 2026, month: 3 }, taxYear: 2027,

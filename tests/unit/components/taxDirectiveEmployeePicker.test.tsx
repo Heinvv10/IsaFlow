@@ -125,4 +125,39 @@ describe('CreateTaxDirectiveModal: employee picker', () => {
     expect(await screen.findByText('Choose the employee the directive is paid to')).toBeTruthy();
     expect(posted).toEqual([]);
   });
+
+  it('picking an employee with no tax number after one with a number: the POST carries no tax number (confirmation 1)', async () => {
+    const posted: Array<Record<string, unknown>> = [];
+    serve(posted as unknown[]);
+    const onCreated = vi.fn();
+    render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={onCreated} />);
+    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(3));
+    fireEvent.change(select, { target: { value: 'e-1' } });
+    fireEvent.change(select, { target: { value: 'e-2' } });
+    fill('Gross Amount (ZAR) *', '10000');
+    fill('Effective Date *', '2026-05-01');
+    fireEvent.submit(select.closest('form')!);
+    await waitFor(() => expect(onCreated).toHaveBeenCalled());
+    expect(posted).toHaveLength(1);
+    expect(posted[0]!.employee_id).toBe('e-2');
+    expect(posted[0]!.employee_tax_number ?? '').toBe('');
+  });
+
+  it('a failed load offers Try again, which loads the list (confirmation 9)', async () => {
+    let calls = 0;
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (!String(url).startsWith('/api/payroll/employees')) return ok([]);
+      calls += 1;
+      return calls === 1 ? empty500() : ok(EMPLOYEES);
+    });
+    render(<CreateTaxDirectiveModal onClose={() => {}} onCreated={() => {}} />);
+    expect(await screen.findByText('Could not load the employees - try again')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    const select = await screen.findByLabelText('Employee *') as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(3));
+    expect(screen.queryByText('Could not load the employees - try again')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(calls).toBe(2);
+  });
 });

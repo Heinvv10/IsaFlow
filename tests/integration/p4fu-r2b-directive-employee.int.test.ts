@@ -152,11 +152,51 @@ describe('R6: the live updateTaxDirectiveStatus cancels through the paid guard',
 
 describe('round 2 review: the create route\'s body and the employee record', () => {
   it('a non-string text field is a 400, not a 500 (security 2)', async () => {
-    for (const bad of [{ employee_name: 123 }, { employee_name: { x: 1 } }, { employee_tax_number: 123 }, { directive_number: [] },
+    for (const bad of [{ employee_tax_number: 123 }, { directive_number: [] },
       { effective_date: 20260501 }, { expiry_date: true }, { sars_reference: 1 }, { notes: {} }, { issued_date: 5 }]) {
       const r = await post({ ...BODY, employee_id: f.employee, ...bad });
       expect(r.statusCode, JSON.stringify(bad)).toBe(400);
     }
+  });
+
+  it('a non-string employee_name is ignored like any other: the stored name is the record\'s (confirmation 8)', async () => {
+    for (const name of [123, { x: 1 }]) {
+      const r = await post({ ...BODY, employee_id: f.employee, employee_name: name });
+      expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
+      expect((await pool.query('SELECT employee_name FROM tax_directives WHERE id = $1', [r.body.data!.id])).rows[0]!.employee_name).toBe('Wanda Test');
+    }
+  });
+
+  it('amount and tax_rate: a number or a numeric string, nothing else (confirmation 5)', async () => {
+    for (const bad of [{ amount: [] }, { amount: [5_000] }, { amount: true }, { amount: '' }, { amount: ' ' }, { amount: {} },
+      { tax_rate: [] }, { tax_rate: [0.1] }, { tax_rate: false }, { tax_rate: '' }, { tax_rate: '0.1x' }]) {
+      const r = await post({ ...BODY, employee_id: f.employee, ...bad });
+      expect(r.statusCode, JSON.stringify(bad)).toBe(400);
+    }
+    const ok = await post({ ...BODY, employee_id: f.employee, amount: '10000', tax_rate: '0.1' });
+    expect(ok.statusCode, JSON.stringify(ok.body)).toBe(201);
+    expect(ok.body.data!.amount).toBe(10_000);
+  });
+
+  it('an employee with no tax number on the record: a supplied one is refused, nothing to check it against (confirmation 4)', async () => {
+    const bare = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
+       VALUES ($1, 'R4-NT', 'No', 'Number', '2021-01-01') RETURNING id`, [f.company])).rows[0]!.id;
+    const r = await post({ ...BODY, employee_id: bare, employee_tax_number: '0123456789' });
+    expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
+    expect(r.body.error?.message).toMatch(/payroll record has no tax number/);
+    const none = await post({ ...BODY, employee_id: bare });
+    expect(none.statusCode).toBe(201);
+    expect((await pool.query('SELECT employee_tax_number FROM tax_directives WHERE id = $1', [none.body.data!.id])).rows[0]!.employee_tax_number).toBeNull();
+  });
+
+  it('an inactive employee is refused by name (confirmation 6)', async () => {
+    const inactive = (await pool.query<{ id: string }>(
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status)
+       VALUES ($1, 'R4-IN', 'Not', 'Here', '2021-01-01', 'inactive') RETURNING id`, [f.company])).rows[0]!.id;
+    const r = await post({ ...BODY, employee_id: inactive });
+    expect(r.statusCode).toBe(400);
+    expect(r.body.error?.message).toBe('employee_id is an inactive employee: a directive is for an active employee or a leaver');
   });
 
   it('name and tax number default from the employee record when left out (security 3)', async () => {
@@ -186,7 +226,8 @@ describe('round 2 review: the create route\'s body and the employee record', () 
     const refused = await f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${paid}`, paid);
     expect(refused.statusCode, JSON.stringify(refused.body)).toBe(409);
     // The paid guard's message: what paid it and the way back.
-    expect(refused.body.error?.message).toMatch(/outside payroll on 2026-05-21, so it cannot be deleted/);
+    // Its own message (confirmation 7), naming what paid it.
+    expect(refused.body.error?.message).toMatch(/^SARS directive 7777777779 cannot be deleted: it is paid\. .*outside payroll on 2026-05-21/);
     expect((await pool.query('SELECT 1 FROM tax_directives WHERE id = $1', [paid])).rowCount).toBe(1);
     const unpaid = await approvedDirective(f, 6_000, 0.2, '2026-05-01', '7777777780');
     expect((await f.call(directive as Route, 'DELETE', `/api/accounting/tax-directives/${unpaid}`, unpaid)).statusCode).toBe(200);
