@@ -101,6 +101,17 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? 1 + employee.medicalAidDependantsCount
     : employee.medicalAidDependantsCount;
 
+  // Fees deducted for a scheme the employee is not recorded as a member of: no MTC (and, 65+, no
+  // additional credit) is given, so PAYE is over-deducted. Warned, not corrected: the membership is data.
+  if (medicalSchemeFees > 0 && medicalBeneficiaries <= 0) {
+    warnings.push({
+      code: 'MEDICAL_FEES_WITHOUT_MEMBERSHIP',
+      severity: 'warning',
+      message: `R${medicalSchemeFees.toFixed(2)} of medical aid contributions (code 4005) is deducted, but the employee is not marked as a `
+        + `medical aid member and has no dependants, so no medical tax credit${rebateAge >= 65 ? ' (nor the 65+ additional credit)' : ''} `
+        + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
+    });
+  }
   const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit } = calculateCumulativePaye({
     regularTaxable,
     annualPayments: annualTaxable,
