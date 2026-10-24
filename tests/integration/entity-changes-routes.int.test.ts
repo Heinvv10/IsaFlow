@@ -170,8 +170,10 @@ describe('definer-written entities record the person, not the definer', () => {
     const member = latest('company_user');
     expect(member).toMatchObject({ op: 'update', actor: o, entityLabel: `${m}@test.local` });
     expect(member.fields).toEqual([{ key: 'role', before: 'manager', after: 'admin', masked: false }]);
-    const dbRoles = (await pool.query("SELECT DISTINCT db_role FROM entity_changes WHERE company_id = $1 AND channel = 'session'", [c])).rows;
-    expect(dbRoles).toEqual([{ db_role: 'app_user' }]);
+    // The member role change runs on the migration_admin pool since S-07d (935), still under the session's claims.
+    const dbRoles = (await pool.query("SELECT DISTINCT db_role FROM entity_changes WHERE company_id = $1 AND channel = 'session' ORDER BY 1", [c])).rows;
+    // This harness points MIGRATION_ADMIN_DATABASE_URL at postgres; production's pool is migration_admin.
+    expect(dbRoles.map((r) => r.db_role)).toEqual(['app_user', expect.stringMatching(/^(migration_admin|postgres)$/)]);
   });
 });
 

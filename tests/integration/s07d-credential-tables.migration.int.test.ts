@@ -65,6 +65,16 @@ describe('S-07d: migration 935', () => {
       R(APP, 'UPDATE bank_feed_connections\\.is_active')],
     ['pairings insertable', 'GRANT INSERT (id, company_id) ON public.bank_feed_connections TO app_user', R(APP, 'INSERT bank_feed_connections\\.')],
     ['share links truncatable', 'GRANT TRUNCATE ON public.share_links TO app_user', R(APP, 'TRUNCATE share_links$')],
+    ['members removable', 'GRANT DELETE ON public.company_users TO app_user', R(APP, 'DELETE company_users$')],
+    ['members insertable (930\'s rule kept)', 'GRANT INSERT (company_id, user_id, role) ON public.company_users TO app_user',
+      R(APP, 'INSERT company_users\\.')],
+    ['AR portal logins insertable', 'GRANT INSERT (client_id, email, password_hash, name) ON public.portal_access TO app_user',
+      R(APP, 'INSERT portal_access\\.')],
+    ['an AR portal login re-pointed at another company', 'GRANT UPDATE (company_id) ON public.portal_access TO app_service',
+      R('app_service', 'UPDATE portal_access\\.company_id')],
+    ['magic links re-openable', 'GRANT UPDATE (used_at) ON public.portal_magic_links TO app_user', R(APP, 'UPDATE portal_magic_links\\.used_at')],
+    ['a WhatsApp claim re-keyable', 'GRANT UPDATE (token_hash) ON public.capture_whatsapp_claims TO app_user',
+      R(APP, 'UPDATE capture_whatsapp_claims\\.token_hash')],
     ['932\'s rule kept: bureau links insertable', 'GRANT INSERT ON public.bureau_companies TO app_user', R(APP, 'INSERT bureau_companies\\.')],
     ['930\'s rule kept: PATs insertable', 'GRANT INSERT ON public.personal_access_tokens TO app_user', R(APP, 'INSERT personal_access_tokens\\.')],
   ])('refuses the mutant: %s', async (_, mutate, msg) => {
@@ -98,6 +108,10 @@ describe('S-07d: migration 935', () => {
     ['the bank feed disconnect', 'REVOKE UPDATE ON public.bank_feed_connections FROM migration_admin',
       /935: migration_admin cannot UPDATE public\.bank_feed_connections/],
     ['row security bypass', 'ALTER ROLE migration_admin NOBYPASSRLS', /935: migration_admin must bypass row security/],
+    ['the contact edit\'s RETURNING', 'REVOKE SELECT ON public.portal_contacts FROM migration_admin',
+      /935: migration_admin cannot SELECT public\.portal_contacts/],
+    ['the members guard predicate', 'REVOKE EXECUTE ON FUNCTION public.company_member_role_is_owner(text) FROM migration_admin, PUBLIC',
+      /935: migration_admin cannot EXECUTE company_member_role_is_owner/],
   ])('refuses a database where the moved writes could not run: %s', async (_, mutate, msg) => {
     await rolledBack(async (q) => {
       await q(PREFLIGHT_935);

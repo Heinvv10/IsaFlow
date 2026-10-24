@@ -45,14 +45,14 @@ const roleOf = async (c: string, u: string) => (await fixture.query(
   'SELECT role FROM company_users WHERE company_id = $1 AND user_id = $2', [c, u])).rows[0]?.role ?? null;
 const outcome = (p: Promise<unknown>) => p.then(() => 'ok', (e: Error) => e.constructor.name === 'Error' ? e.message : e.constructor.name);
 
-/** Waits until a migration_admin backend waits on a lock. */
-async function adminBlocked(): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    const r = await fixture.query(`SELECT 1 FROM pg_stat_activity WHERE usename = 'migration_admin' AND wait_event_type = 'Lock'`);
-    if (r.rows.length) return;
+/** Waits until at least `n` migration_admin backends wait on a lock. */
+async function adminBlocked(n = 1): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    const r = await fixture.query(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE usename = 'migration_admin' AND wait_event_type = 'Lock'`);
+    if (r.rows[0].n >= n) return;
     await new Promise((res) => setTimeout(res, 25));
   }
-  throw new Error('no migration_admin backend ever waited on a lock');
+  throw new Error(`fewer than ${n} migration_admin backends ever waited on a lock`);
 }
 
 /** A session that runs `steps` and holds them uncommitted until `commit()`. */
@@ -66,16 +66,51 @@ async function holding(steps: Array<[string, unknown[]]>, role?: string): Promis
 const OWNER_LOCK = 'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))';
 
 describe('S-07d: member writes on migration_admin, judged after what they waited for', () => {
-  it('two owners demoting each other at once: one demotion commits, the other is refused (RC010)', async () => {
+  it.each([1, 2, 3, 4, 5])('two owners demoting each other at once: one commits, the other is refused (RC010), round %i', async () => {
     const c = await company();
     const gate = await holding([[OWNER_LOCK, [ownerLockKey(c)]]]);
     const one = outcome(updateCompanyUserRole(c, o2, 'admin', o));
     const two = outcome(updateCompanyUserRole(c, o, 'admin', o2));
-    await adminBlocked();
+    await adminBlocked(1); // the first holds both rows and waits on the owner lock; the second waits on its rows
+    await adminBlocked(2);
     await gate.commit();
     expect([await one, await two].sort()).toEqual(['OwnerProtectedError', 'ok']);
     const owners = [await roleOf(c, o), await roleOf(c, o2)].filter((r) => r === 'owner');
     expect(owners).toHaveLength(1);
+  });
+
+  it.each([1, 2, 3, 4, 5])('two owners removing each other at once: one removal commits, the other is refused, round %i', async () => {
+    const c = await company();
+    const gate = await holding([[OWNER_LOCK, [ownerLockKey(c)]]]);
+    const one = outcome(removeCompanyUser(c, o2, o));
+    const two = outcome(removeCompanyUser(c, o, o2));
+    await adminBlocked(2);
+    await gate.commit();
+    expect([await one, await two].sort()).toEqual(['OwnerProtectedError', 'ok']);
+    expect([await roleOf(c, o), await roleOf(c, o2)].filter((r) => r === 'owner')).toHaveLength(1);
+  });
+
+  it.each([1, 2, 3, 4, 5])('two admins changing each other\'s roles at once queue instead of deadlocking, round %i', async () => {
+    const c = await company([[o, 'owner'], [a, 'admin'], [m, 'admin']]);
+    const results = await Promise.all([
+      outcome(updateCompanyUserRole(c, m, 'viewer', a)),
+      outcome(updateCompanyUserRole(c, a, 'viewer', m)),
+    ]);
+    // One commits; the other's actor was demoted by it, judged after it: never a 40P01.
+    expect(results.sort()).toEqual(['MemberRoleForbiddenError', 'ok']);
+  });
+
+  it('an invalid role is refused (RC002) and a legacy owner-ish row rewritten to itself still needs an owner', async () => {
+    const c = await company([[o, 'owner'], [o2, 'Owner '], [a, 'admin']]);
+    expect(await outcome(updateCompanyUserRole(c, a, 'super_admin', o))).toBe('Invalid role. Must be one of: owner, admin, manager, viewer');
+    expect(await outcome(updateCompanyUserRole(c, o2, 'owner', a))).toBe('OwnerProtectedError');
+    expect(await outcome(updateCompanyUserRole(c, o2, 'owner', o))).toBe('ok');
+  });
+
+  it('an admin whose other, case-variant row is owner-ish is not an owner (the guard reads exactly \'owner\')', async () => {
+    const c = await company([[o, 'owner'], [a, 'admin'], [a.toUpperCase(), 'Owner '], [m, 'manager']]);
+    expect(await outcome(updateCompanyUserRole(c, m, 'owner', a))).toBe('OwnerProtectedError');
+    expect(await roleOf(c, m)).toBe('manager');
   });
 
   it('an owner being demoted at that moment cannot grant owner (RC003)', async () => {

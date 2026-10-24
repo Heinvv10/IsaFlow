@@ -13,7 +13,8 @@
 --                           other members and owners;
 --   portal_magic_links      the RAW token that signs an AFS portal contact in;
 --   portal_contacts         who may ask for one, and the portal role;
---   portal_access           an AR portal login's bcrypt password hash;
+--   portal_access           an AR portal login's bcrypt password hash (and,
+--                           new here, the company it signs in to);
 --   share_links             a read link to a company's reports;
 --   audit_portal_sessions   an outside auditor's download of an export's pack;
 --   capture_whatsapp_claims,
@@ -55,10 +56,16 @@
 --   share link create and revoke (viewing a link keeps working);
 --   auditor session issue and revoke (the auditor's download keeps working);
 --   capture email inbox mint and rotate, WhatsApp inbox claim and its provider
---     verification, and the IMAP mirror's per-message inbox upsert;
+--     verification, and the IMAP mirror's per-message inbox upsert (the old
+--     cron commits the document first, then fails, logs the message as an
+--     error and moves its cursor past it: re-scan after the window, see the
+--     runbook; the new code stops before such a message and retries it);
 --   bank feed create and disconnect (extension pairing of an existing
 --     connection, ingest and sync keep working).
--- Reads and every bearer's use keep working.
+-- Reads and every bearer's use keep working. The revocations among these
+-- (member removal, share link and auditor session revoke, bank feed
+-- disconnect, portal contact deactivate) fail OPEN for that time: access that
+-- should end stays live. The runbook gives the operator SQL to revoke by hand.
 --
 -- Rollback (break-glass, in docs/runbooks/s07b-app-pool-login-roles.md), which
 -- reopens the forgery and makes every deploy's check refuse until this
@@ -75,8 +82,18 @@ REVOKE ALL ON public.portal_magic_links FROM app_user, app_service, PUBLIC;
 
 REVOKE INSERT, UPDATE, TRUNCATE ON public.portal_contacts FROM app_user, app_service, PUBLIC;
 
+-- An AR portal login takes its company from its customer, and app roles may
+-- write customers.company_id: so the login's company is pinned on the login
+-- itself, which only migration_admin writes, and login and every portal
+-- request require the two to agree (breaker, S-07d round 1). Every tenant's
+-- rows, deliberately: each takes its own customer's company. A login whose
+-- customer is gone keeps NULL, which matches nothing.
+ALTER TABLE public.portal_access ADD COLUMN IF NOT EXISTS company_id uuid REFERENCES public.companies(id) ON DELETE CASCADE;
+UPDATE public.portal_access pa SET company_id = c.company_id
+  FROM public.customers c WHERE c.id = pa.client_id AND pa.company_id IS NULL;
+
 REVOKE ALL ON public.portal_access FROM app_user, app_service, PUBLIC;
-GRANT SELECT (id, client_id, email, name, is_active, last_login_at, created_at, updated_at), DELETE
+GRANT SELECT (id, client_id, company_id, email, name, is_active, last_login_at, created_at, updated_at), DELETE
   ON public.portal_access TO app_user;
 
 REVOKE INSERT, UPDATE, TRUNCATE ON public.share_links FROM app_user, app_service, PUBLIC;
@@ -244,17 +261,17 @@ BEGIN
   FOR r IN SELECT * FROM (VALUES
       ('public.company_users', 'SELECT, UPDATE, DELETE'),
       ('public.portal_magic_links', 'SELECT, INSERT, UPDATE, DELETE'),
-      ('public.portal_contacts', 'INSERT, UPDATE'),
+      ('public.portal_contacts', 'SELECT, INSERT, UPDATE'),
       ('public.portal_access', 'SELECT, UPDATE'),
       ('public.customers', 'SELECT'),
       ('public.share_links', 'SELECT, INSERT, UPDATE'),
-      ('public.audit_portal_sessions', 'INSERT, UPDATE'),
+      ('public.audit_portal_sessions', 'SELECT, INSERT, UPDATE'),
       ('public.audit_trail_exports', 'SELECT'),
       ('public.capture_whatsapp_claims', 'SELECT, INSERT, UPDATE, DELETE'),
       ('public.capture_inboxes', 'SELECT, INSERT, UPDATE'),
       ('public.companies', 'SELECT'),
       ('public.users', 'SELECT'),
-      ('public.bank_feed_connections', 'INSERT, UPDATE')) w(tbl, privs),
+      ('public.bank_feed_connections', 'SELECT, INSERT, UPDATE')) w(tbl, privs),
     LATERAL pg_catalog.unnest(pg_catalog.string_to_array(w.privs, ', ')) p(priv)
   LOOP
     -- One privilege at a time: has_table_privilege with a list is true if ANY is held.
@@ -262,6 +279,10 @@ BEGIN
       RAISE EXCEPTION '935: migration_admin cannot % %, which the S-07d code writes on it', r.priv, r.tbl;
     END IF;
   END LOOP;
+  IF pg_catalog.to_regrole('migration_admin') IS NOT NULL
+     AND NOT pg_catalog.has_function_privilege('migration_admin', 'public.company_member_role_is_owner(text)', 'EXECUTE') THEN
+    RAISE EXCEPTION '935: migration_admin cannot EXECUTE company_member_role_is_owner(text), which memberWrites.ts calls';
+  END IF;
   -- Several of these tables force row security, with no policy for it.
   IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'migration_admin' AND NOT rolbypassrls) THEN
     RAISE EXCEPTION '935: migration_admin must bypass row security, which the S-07d code relies on';

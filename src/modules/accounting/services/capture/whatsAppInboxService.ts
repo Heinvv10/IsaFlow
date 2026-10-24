@@ -20,7 +20,6 @@ export async function configureWhatsAppInbox(companyId: string, address: string,
   // role may INSERT or UPDATE capture_whatsapp_claims. Keyed on the verified
   // request (checked above).
   const rows = await migrationAdminTx('claim whatsapp inbox', async (client) => {
-    await client.query(`SET LOCAL lock_timeout = '5s'`);
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1::text, 617))', [companyId]);
     return (await client.query<{ expires_at: Date | string }>(
       `INSERT INTO capture_whatsapp_claims(company_id, address, token_hash, created_by, expires_at)

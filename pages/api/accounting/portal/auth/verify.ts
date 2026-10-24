@@ -25,9 +25,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // A link's token is 64 hex characters (magicLinkService). Anything else, and
   // more than 20 tries a minute from one address, is answered before the lookup
   // takes one of the migration_admin pool's few connections (S-07d).
-  if (!/^[0-9a-f]{64}$/.test(token)
-      || !(await checkRateLimit(`afs-portal-verify:${getClientIp(req)}`, { max: 20, windowSecs: 60 }))) {
+  if (!/^[0-9a-f]{64}$/.test(token)) {
     return res.redirect(302, '/accounting/afs/portal/login?error=expired');
+  }
+  const ip = getClientIp(req);
+  if (!(await checkRateLimit(`afs-portal-verify:${ip}`, { max: 20, windowSecs: 60 }))) {
+    log.warn('Portal verify rate limit exceeded', { ip }, 'portal-verify-api');
+    // The login page shows its generic "request a new link" message for this code.
+    return res.redirect(302, '/accounting/afs/portal/login?error=rate_limited');
   }
 
   const result = await verifyMagicLink(token);

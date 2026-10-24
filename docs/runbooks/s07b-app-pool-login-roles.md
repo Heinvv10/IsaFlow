@@ -160,7 +160,36 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   revoke; capture email inbox mint and rotate, WhatsApp claim and
   verification, the IMAP mirror's inbox upsert; bank feed create and
   disconnect. Viewing a share link, an auditor's download, extension ingest
-  and sync keep working.
+  and sync keep working. The revocations among these fail OPEN while old code
+  runs (access that should end stays live); revoke by hand instead, as the
+  owner, keyed on what the user asked to revoke:
+
+  ```sql
+  -- Emergency revocations while old code runs after 935 (each touches one row; check the count is 1).
+  DELETE FROM public.company_users WHERE company_id = '<company>' AND user_id = '<user>' AND role <> 'owner';
+  UPDATE public.share_links SET revoked_at = now(), revoked_by = '<operator>' WHERE id = '<link>' AND company_id = '<company>' AND revoked_at IS NULL;
+  UPDATE public.audit_portal_sessions SET revoked_at = now() WHERE id = '<session>' AND company_id = '<company>' AND revoked_at IS NULL;
+  UPDATE public.bank_feed_connections SET is_active = false, status = 'disconnected', updated_at = now() WHERE id = '<connection>' AND company_id = '<company>';
+  UPDATE public.portal_contacts SET active = false, updated_at = now() WHERE id = '<contact>' AND company_id = '<company>';
+  ```
+- The old IMAP mirror cron commits each scanned invoice's document, then
+  fails on the inbox upsert and moves its cursor past the message, so mail
+  scanned while old code ran after 935 is not captured. After the new code is
+  live, find the affected connections and move their cursor back to the last
+  uid before the window (read-only first):
+
+  ```sql
+  SELECT c.id, c.company_id, c.folder, c.scan_cursor, count(l.*) AS errored, min(l.imap_uid::bigint) AS first_errored_uid
+    FROM public.imap_mirror_connections c
+    JOIN public.imap_mirror_scan_log l ON l.connection_id = c.id
+   WHERE l.outcome = 'error' AND l.error LIKE 'permission denied for table capture_inboxes%'
+   GROUP BY c.id;
+  -- then, per connection, with <uid> = first_errored_uid - 1 (the scan resumes after it):
+  -- UPDATE public.imap_mirror_connections SET scan_cursor = jsonb_set(scan_cursor, '{<folder>}', '<uid>') WHERE id = '<connection>';
+  ```
+  The orphaned `pending` documents those failures left are listed by
+  `SELECT id FROM captured_documents d WHERE d.status = 'pending' AND NOT EXISTS
+  (SELECT 1 FROM capture_events e WHERE e.captured_document_id = d.id)`.
 - If old code must run for more than an hour and needs these:
 
   ```sql
@@ -325,17 +354,17 @@ SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, ac
 SELECT w.tbl, p.priv FROM (VALUES
     ('public.company_users', 'SELECT, UPDATE, DELETE'),
     ('public.portal_magic_links', 'SELECT, INSERT, UPDATE, DELETE'),
-    ('public.portal_contacts', 'INSERT, UPDATE'),
+    ('public.portal_contacts', 'SELECT, INSERT, UPDATE'),
     ('public.portal_access', 'SELECT, UPDATE'),
     ('public.customers', 'SELECT'),
     ('public.share_links', 'SELECT, INSERT, UPDATE'),
-    ('public.audit_portal_sessions', 'INSERT, UPDATE'),
+    ('public.audit_portal_sessions', 'SELECT, INSERT, UPDATE'),
     ('public.audit_trail_exports', 'SELECT'),
     ('public.capture_whatsapp_claims', 'SELECT, INSERT, UPDATE, DELETE'),
     ('public.capture_inboxes', 'SELECT, INSERT, UPDATE'),
     ('public.companies', 'SELECT'),
     ('public.users', 'SELECT'),
-    ('public.bank_feed_connections', 'INSERT, UPDATE')) w(tbl, privs),
+    ('public.bank_feed_connections', 'SELECT, INSERT, UPDATE')) w(tbl, privs),
   unnest(string_to_array(w.privs, ', ')) p(priv)
  WHERE NOT has_table_privilege('migration_admin', w.tbl, p.priv);
 SELECT rolname FROM pg_roles WHERE rolname = 'migration_admin' AND NOT rolbypassrls;  -- zero rows

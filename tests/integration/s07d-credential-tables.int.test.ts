@@ -123,7 +123,6 @@ describe('S-07d (935): what an app role may still do', () => {
     ['a share link deleted (removes access only)', 'DELETE FROM share_links WHERE company_id = $1'],
     ['an AR portal login deleted (removes access only)', 'DELETE FROM portal_access WHERE client_id = $1'],
   ])('%s, in a request', async (_, text) => {
-    const params = text.includes('$2') ? [company, me] : [company];
-    expect(await attempt(getAuthPool(), [[text, params]], { asRequest: { sub: owner, companyId: company } })).toBeNull();
+    expect(await attempt(getAuthPool(), [[text, [company]]], { asRequest: { sub: owner, companyId: company } })).toBeNull();
   });
 });

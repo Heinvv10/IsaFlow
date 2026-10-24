@@ -9,23 +9,22 @@
  * tests/integration/s04-owner-protection.int.test.ts.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const h = vi.hoisted(() => ({ statements: [] as string[], targetRole: 'owner', actorRole: 'owner', ownerCount: 2 }));
+const h = vi.hoisted(() => ({ statements: [] as string[], onSql: [] as string[], targetRole: 'owner', actorRole: 'owner', ownerCount: 2 }));
 
-// One recorder answers both: the `sql` tagged template and the migration_admin
-// client the role change and the removal now run on (S-07d, mig 935).
+// The role change and the removal run on the migration_admin client (S-07d,
+// mig 935); `sql`, the app pool, must see no member read or write (afterEach).
 function answer(raw: string): Promise<unknown[]> {
   const text = raw.replace(/\s+/g, ' ').trim();
   h.statements.push(text);
-  // The target, under its row lock: is it an owner, as the guard judges owner-ness.
-  if (/^SELECT public\.company_member_role_is_owner\(role\) AS is_owner FROM company_users.*FOR UPDATE$/.test(text)) {
-    return Promise.resolve([{ is_owner: h.targetRole === 'owner' }]);
-  }
-  // The actor's own role, read live after the owner lock.
-  if (/^SELECT role, public\.company_member_role_is_owner\(role\) AS is_owner FROM company_users/.test(text)) {
-    return Promise.resolve([{ role: h.actorRole, is_owner: h.actorRole === 'owner' }]);
+  // The target's and the actor's rows, locked together (one statement, id order).
+  if (/^SELECT role, public\.company_member_role_is_owner\(role\) AS is_owner, .* FROM company_users .*FOR UPDATE$/.test(text)) {
+    return Promise.resolve([
+      { role: h.targetRole, is_owner: h.targetRole === 'owner', is_target: true, is_actor: false },
+      { role: h.actorRole, is_owner: h.actorRole === 'owner', is_target: false, is_actor: true },
+    ]);
   }
   // Owners other than the target, by person: the owners that exist, less the target.
   if (/^SELECT count\(DISTINCT/.test(text)) return Promise.resolve([{ n: h.ownerCount - 1 }]);
@@ -33,11 +32,15 @@ function answer(raw: string): Promise<unknown[]> {
 }
 
 vi.mock('@/lib/neon', () => ({
-  sql: vi.fn((strings: TemplateStringsArray) => answer(strings.join('?'))),
+  sql: vi.fn((strings: TemplateStringsArray) => {
+    h.onSql.push(strings.join('?').replace(/\s+/g, ' ').trim());
+    return answer(strings.join('?'));
+  }),
 }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminTx: (_label: string, fn: (c: unknown) => unknown) =>
-    fn({ query: async (text: string) => ({ rows: await answer(text) }) }),
+    // A tick before answering, as a real round trip: tests change h after starting a call.
+    fn({ query: async (text: string) => { await Promise.resolve(); return { rows: await answer(text) }; } }),
 }));
 vi.mock('@/lib/auth', () => ({
   withAuth: (fn: unknown) => fn,
@@ -67,6 +70,11 @@ function call(method: 'PUT' | 'DELETE', companyRole: string, body: Record<string
 }
 
 const writes = () => h.statements.filter((s) => /^(UPDATE|DELETE)/.test(s));
+
+afterEach(() => {
+  expect(h.onSql.filter((s) => /company_users/.test(s) && !/company_member_directory/.test(s))).toEqual([]);
+  h.onSql.length = 0;
+});
 const statusOf = (res: NextApiResponse) => (res.status as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
 
 describe('company-users S-04 — only an owner changes or removes an owner', () => {
@@ -101,10 +109,10 @@ describe('company-users S-04 — only an owner changes or removes an owner', () 
     expect(writes()).toEqual([]);
   });
 
-  it('reads the target role under a row lock', async () => {
+  it('reads the target and the actor under row locks, in id order', async () => {
     await call('PUT', 'admin', { userId: TARGET, role: 'viewer' }).promise;
-    expect(h.statements.find((s) => s.startsWith('SELECT public.company_member_role_is_owner(role) AS is_owner FROM company_users')))
-      .toMatch(/FOR UPDATE$/);
+    expect(h.statements.find((s) => s.startsWith('SELECT role, public.company_member_role_is_owner(role) AS is_owner')))
+      .toMatch(/ORDER BY id FOR UPDATE$/);
   });
 
   it('lets an owner demote another owner when two exist', async () => {
@@ -135,7 +143,7 @@ describe('company-users S-04 — only an owner changes or removes an owner', () 
 
 describe('company-users service — non-owner cannot promote to owner (defence-in-depth)', () => {
   // These tests call the service directly, bypassing the API-layer check, to
-  // verify that lockTargetRole also gates promotion-to-owner.
+  // verify that memberWrites' own check also gates promotion-to-owner.
   beforeEach(() => {
     h.statements.length = 0;
     h.targetRole = 'manager';
@@ -143,15 +151,14 @@ describe('company-users service — non-owner cannot promote to owner (defence-i
     h.ownerCount = 2;
   });
 
-  // Row lock on the target, then the owner lock, then the actor's role: read
-  // before the lock, an owner being demoted at that moment would still promote.
+  // The rows (target and actor) are locked first, then the owner lock: the
+  // guard's order, so an owner write that waits never holds the owner lock
+  // while it waits for a row.
   function expectLockThenActorRead(): void {
     const rowLock = h.statements.findIndex((s) => /FOR UPDATE$/.test(s));
     const ownerLock = h.statements.findIndex((s) => s.includes('pg_advisory_xact_lock'));
-    const actorRead = h.statements.findIndex((s, i) => i > rowLock && /^SELECT role, .* FROM company_users/.test(s));
     expect(rowLock).toBeGreaterThanOrEqual(0);
     expect(ownerLock).toBeGreaterThan(rowLock);
-    expect(actorRead).toBeGreaterThan(ownerLock);
   }
 
   it('throws OwnerProtectedError when an admin promotes a manager to owner', async () => {

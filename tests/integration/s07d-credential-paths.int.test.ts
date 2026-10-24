@@ -37,7 +37,7 @@ vi.mock('@/modules/accounting/services/afs/portalNotificationService', async (im
 
 const ids = newIds();
 // me is an admin of company, owner its only owner.
-const { me, owner, invitee, company } = ids;
+const { me, owner, invitee, company, other } = ids;
 const contactEmail = `${crypto.randomUUID()}@portal.test.local`;
 const customers = [crypto.randomUUID(), crypto.randomUUID()];
 const arEmail = `${crypto.randomUUID()}@ar.test.local`;
@@ -50,8 +50,8 @@ beforeAll(async () => {
   for (const [i, id] of customers.entries()) {
     await fixture.query(`INSERT INTO customers (id, company_id, name) VALUES ($1, $2, $3)`, [id, company, `S07d customer ${i}`]);
   }
-  await fixture.query(`INSERT INTO portal_access (client_id, email, password_hash, name) VALUES ($1, $2, $3, 'S07d')`,
-    [customers[0], arEmail, await bcrypt.hash('s07d-ar-password', 4)]);
+  await fixture.query(`INSERT INTO portal_access (client_id, company_id, email, password_hash, name) VALUES ($1, $2, $3, $4, 'S07d')`,
+    [customers[0], company, arEmail, await bcrypt.hash('s07d-ar-password', 4)]);
 }, 60000);
 afterAll(async () => {
   await fixture.query('DELETE FROM portal_access WHERE client_id = ANY($1::uuid[])', [customers]);
@@ -62,7 +62,7 @@ afterAll(async () => {
   await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool()]);
 });
 beforeEach(() => fixture.query(`DELETE FROM rate_limit_counters WHERE key LIKE ANY ($1)`,
-  [['afs-portal-magic-link:%', 'portal-auth:%', 'share%']]));
+  [['afs-portal-magic-link:%', 'afs-portal-verify:%', 'portal-auth:%', 'share%']]));
 
 const role = async (userId: string) => (await fixture.query(
   'SELECT role FROM company_users WHERE company_id = $1 AND user_id = $2', [company, userId])).rows[0]?.role as string | undefined;
@@ -143,6 +143,23 @@ describe('S-07d: the AFS portal, on migration_admin', () => {
     expect(String((await verify()).headers.get('location'))).toContain('error=expired');
   });
 
+  it('verify answers a malformed token, and a flood from one address, before the lookup', async () => {
+    const verify = (token: string) => callPublic(portalVerifyRoute, { method: 'GET', query: { token } });
+    expect(String((await verify('not-a-token')).headers.get('location'))).toContain('error=expired');
+    const hex = 'ab'.repeat(32);
+    for (let i = 0; i < 20; i++) expect(String((await verify(hex)).headers.get('location'))).toContain('error=expired');
+    expect(String((await verify(hex)).headers.get('location'))).toContain('error=rate_limited');
+    await fixture.query(`DELETE FROM rate_limit_counters WHERE key LIKE 'afs-portal-verify:%'`);
+  });
+
+  it('expired links are cleaned up on migration_admin', async () => {
+    const { cleanupExpiredMagicLinks } = await import('@/modules/accounting/services/afs/magicLinkService');
+    const stale = (await fixture.query(`INSERT INTO portal_magic_links (company_id, contact_id, token, expires_at)
+      VALUES ($1, $2, $3, NOW() - interval '8 days') RETURNING id`, [company, contactId, `stale-${crypto.randomUUID()}`])).rows[0].id;
+    await cleanupExpiredMagicLinks();
+    expect((await fixture.query('SELECT 1 FROM portal_magic_links WHERE id = $1', [stale])).rowCount).toBe(0);
+  });
+
   it('a removed contact asks and receives nothing', async () => {
     expect((await callRoute(contactRoute, { sub: me, method: 'DELETE', companyId: company, query: { contactId } })).status).toBe(204);
     const before = mail.links.length;
@@ -159,6 +176,17 @@ describe('S-07d: the AR portal, on migration_admin', () => {
     expect(ok.status).toBe(200);
     const stamped = await fixture.query('SELECT last_login_at FROM portal_access WHERE email = $1', [arEmail]);
     expect(stamped.rows[0]?.last_login_at).toBeTruthy();
+  });
+
+  it('a login stays in its own company: a customer moved to another company signs in nowhere (breaker, round 1)', async () => {
+    // As SQL injected on an app pool could: customers.company_id is app-writable.
+    await fixture.query('UPDATE customers SET company_id = $2 WHERE id = $1', [customers[0], other]);
+    try {
+      expect((await callPublic(arPortalAuthRoute, { body: { email: arEmail, password: 's07d-ar-password' } })).status).toBe(401);
+    } finally {
+      await fixture.query('UPDATE customers SET company_id = $2 WHERE id = $1', [customers[0], company]);
+    }
+    expect((await callPublic(arPortalAuthRoute, { body: { email: arEmail, password: 's07d-ar-password' } })).status).toBe(200);
   });
 
   it('merging the customer away removes its portal login', async () => {

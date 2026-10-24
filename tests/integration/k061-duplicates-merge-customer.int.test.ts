@@ -39,9 +39,10 @@ it('moves every census reference off the duplicate and counts the documents it r
   expect(await h.references(duplicate)).toEqual(Object.fromEntries(MOVED.map(([t, c]) => [`${t}.${c}`, 0])));
   const { rows } = await pool.query(
     `SELECT (SELECT status FROM recurring_invoices WHERE template_name='R-d' AND company_id=$1) AS recurring,
-            (SELECT is_active FROM portal_access WHERE client_id=$2) AS portal,
+            (SELECT count(*)::int FROM portal_access WHERE client_id=$2) AS portal,
             (SELECT deleted_at IS NOT NULL FROM customers WHERE id=$2) AS gone`, [h.companyA, duplicate]);
-  expect(rows[0]).toEqual({ recurring: 'paused', portal: false, gone: true });
+  // The duplicate's portal login is removed (S-07d, 935: no app role may UPDATE portal_access).
+  expect(rows[0]).toEqual({ recurring: 'paused', portal: 0, gone: true });
 });
 
 it('refuses with 400 and changes nothing when both customers have a dunning override', async () => {

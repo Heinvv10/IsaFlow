@@ -8,8 +8,9 @@
  * for them are checked here, against the memberships as they stand, with
  * `actorUserId` the verified caller: a valid role (RC002); the actor an owner
  * or admin now (RC001); only an owner grants the owner role, or changes or
- * removes an owner (RC003, RC010), read after the per-company owner lock every
- * owner demotion takes; never the last owner (RC005; the guard's RC011 refuses
+ * removes an owner (RC003, RC010), read from the actor's own row under its
+ * row lock, then the per-company owner lock every owner demotion takes; never
+ * the last owner (RC005; the guard's RC011 refuses
  * it again for this role); nobody removes themselves (RC006); and only the
  * role column is written (RC004).
  */
@@ -18,8 +19,8 @@ import type { PoolClient } from 'pg';
 import { log } from '@/lib/logger';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { OwnerProtectedError, OWNER_GRANT_REFUSED, ownerLockKey } from './ownerLock';
+import { VALID_ROLES } from './userInvitationService';
 
-const VALID_ROLES = ['owner', 'admin', 'manager', 'viewer'] as const;
 
 /** RC001 on the migration_admin pool: the actor is not an owner or admin of the company. Routes answer 403. */
 export class MemberRoleForbiddenError extends Error {
@@ -30,43 +31,42 @@ export class MemberRoleForbiddenError extends Error {
 }
 
 /**
- * The target's role under its row lock, so it cannot change between the checks
- * and the write; then, when an owner is involved, the owner lock, in the
- * guard's order; then the actor's role, judged as the guard judges it.
- * Returns whether the target is an owner.
+ * The target's and the actor's membership rows, locked together in id order
+ * (two members acting on each other at once queue instead of deadlocking),
+ * then, when an owner is involved, the owner lock: rows first, then the
+ * owner lock, the guard's order. Locked rows are read as last committed, so a
+ * concurrent demotion of either is judged before or after this write, never
+ * during it. Returns whether the target is an owner.
  */
 async function authorize(client: PoolClient, companyId: string, userId: string, actorUserId: string,
   grantsOwner: boolean): Promise<boolean> {
-  // Bounded: this holds one of the migration_admin pool's few connections.
-  await client.query(`SET LOCAL lock_timeout = '5s'`);
-  // Owner-ness as the guard judges it (company_member_role_is_owner: any
-  // case, any whitespace), so a legacy owner-ish row is an owner's here too.
-  const target = await client.query<{ is_owner: boolean }>(
-    `SELECT public.company_member_role_is_owner(role) AS is_owner FROM company_users
-      WHERE company_id = $1::UUID AND user_id = $2 FOR UPDATE`,
-    [companyId, userId],
-  );
-  if (target.rows.length === 0) throw new Error('That user is not a member of this company.');
-  const targetIsOwner = target.rows[0]!.is_owner;
-  const ownerInvolved = targetIsOwner || grantsOwner;
-  if (ownerInvolved) {
+  // Owner-ness of the target as the guard judges a row that leaves
+  // (company_member_role_is_owner: any case, any whitespace); the actor's as
+  // the guard judges the actor (exactly 'owner' or 'admin'), by person.
+  const rows = (await client.query<{ role: string; is_owner: boolean; is_target: boolean; is_actor: boolean }>(
+    `SELECT role, public.company_member_role_is_owner(role) AS is_owner,
+            user_id = $2 AS is_target, lower(user_id::TEXT) = lower($3) AS is_actor
+       FROM company_users
+      WHERE company_id = $1::UUID AND (user_id = $2 OR lower(user_id::TEXT) = lower($3))
+      ORDER BY id FOR UPDATE`,
+    [companyId, userId, actorUserId],
+  )).rows;
+  const target = rows.find((r) => r.is_target);
+  if (!target) throw new Error('That user is not a member of this company.');
+  const actorRoles = rows.filter((r) => r.is_actor).map((r) => r.role);
+  if (target.is_owner || grantsOwner) {
     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [ownerLockKey(companyId)]);
-  }
-  // By person, lower-cased, as the guard counts owners. Without the owner
-  // lock, the actor's row is held so a concurrent demotion is judged before
-  // or after this write, not during it.
-  const actor = await client.query<{ role: string; is_owner: boolean }>(
-    `SELECT role, public.company_member_role_is_owner(role) AS is_owner FROM company_users
-      WHERE company_id = $1::UUID AND lower(user_id::TEXT) = lower($2) ${ownerInvolved ? '' : 'FOR SHARE'}`,
-    [companyId, actorUserId],
-  );
-  const actorIsOwner = actor.rows.some((r) => r.is_owner);
-  if (ownerInvolved) {
-    if (!actorIsOwner) throw new OwnerProtectedError(targetIsOwner ? undefined : OWNER_GRANT_REFUSED);
-  } else if (!actorIsOwner && !actor.rows.some((r) => r.role === 'admin')) {
+    if (!actorRoles.includes('owner')) throw new OwnerProtectedError(target.is_owner ? undefined : OWNER_GRANT_REFUSED);
+  } else if (!actorRoles.includes('owner') && !actorRoles.includes('admin')) {
     throw new MemberRoleForbiddenError();
   }
-  return targetIsOwner;
+  return target.is_owner;
+}
+
+/** A member write that waited past migrationAdminTx's lock_timeout (55P03) or lost a deadlock (40P01): the route answers 409. */
+export function isMemberWriteBusy(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === '55P03' || code === '40P01';
 }
 
 /** Throws `message` when `userId` is the company's only owner (by person). */

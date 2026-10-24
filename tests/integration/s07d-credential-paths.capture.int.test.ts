@@ -75,6 +75,13 @@ describe('S-07d: auditor sessions, on migration_admin', () => {
     expect((await head()).status).toBe(401);
   });
 
+  it('the issue itself refuses another company\'s export, past the route\'s check (the statement reads it)', async () => {
+    const { createPortalSession, AuditExportNotIssuableError } = await import('@/modules/accounting/services/capture/auditTrailExportService');
+    await expect(createPortalSession(otherExport, company, 'auditor@s07d.test')).rejects.toBeInstanceOf(AuditExportNotIssuableError);
+    await expect(createPortalSession(crypto.randomUUID(), company, 'auditor@s07d.test')).rejects.toBeInstanceOf(AuditExportNotIssuableError);
+    expect((await fixture.query('SELECT 1 FROM audit_portal_sessions WHERE export_id = $1', [otherExport])).rowCount).toBe(0);
+  });
+
   it('a session for another company\'s export is not issued', async () => {
     const r = await callRoute(sessionsRoute, { sub: owner, method: 'POST', companyId: company, query: { id: otherExport },
       body: { auditorEmail: 'auditor@s07d.test' } });

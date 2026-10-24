@@ -10,6 +10,7 @@
 
 import crypto from 'crypto';
 import { sql } from '@/lib/neon';
+import type { PoolClient } from 'pg';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 
@@ -82,50 +83,56 @@ export async function getOrCreateEmailInbox(
     return { id: row.id as string, address: row.address as string, isActive: row.is_active as boolean };
   }
 
-  // Mint a new address with retry on unique-constraint collision
-  const MAX_ATTEMPTS = 5;
-  const minted = await migrationAdminTx('mint capture inbox', async (client) => {
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      const address = generateInboxAddress(companyId);
-      // Empty RETURNING means retry; SQL/network errors remain errors rather than guessed collisions.
-      const inserted = (await client.query(
-        `INSERT INTO capture_inboxes (company_id, channel, address, is_active, created_by)
-         VALUES ($1, 'email', $2, true, $3)
-         ON CONFLICT DO NOTHING
-         RETURNING id, address, is_active`,
-        [companyId, address, userId ?? null],
-      )).rows as InboxRow[];
-      const row = inserted[0];
-      if (row) {
-        log.info('Created email capture inbox', { companyId, address, attempt }, 'capture-inbox');
-        return row;
-      }
-      log.warn('Address collision — retrying', { attempt, address }, 'capture-inbox');
-    }
-    return null;
-  });
-  if (minted) {
-    return { id: minted.id as string, address: minted.address as string, isActive: minted.is_active as boolean };
-  }
+  return migrationAdminTx('mint capture inbox', (client) => mintEmailInbox(client, companyId, userId));
+}
 
+/**
+ * Mint a new active address, retrying a unique-constraint collision up to 5
+ * times. A conflict must not abort the caller's transaction: an empty
+ * RETURNING means retry; SQL/network errors remain errors rather than guessed
+ * collisions.
+ */
+async function mintEmailInbox(
+  client: PoolClient,
+  companyId: string,
+  userId?: string,
+): Promise<{ id: string; address: string; isActive: boolean }> {
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const address = generateInboxAddress(companyId);
+    const row = (await client.query(
+      `INSERT INTO capture_inboxes (company_id, channel, address, is_active, created_by)
+       VALUES ($1, 'email', $2, true, $3)
+       ON CONFLICT DO NOTHING
+       RETURNING id, address, is_active`,
+      [companyId, address, userId ?? null],
+    )).rows[0] as InboxRow | undefined;
+    if (row) {
+      log.info('Created email capture inbox', { companyId, address, attempt }, 'capture-inbox');
+      return { id: row.id as string, address: row.address as string, isActive: row.is_active as boolean };
+    }
+    log.warn('Address collision — retrying', { attempt, address }, 'capture-inbox');
+  }
   throw new Error('Failed to mint unique inbox address after 5 attempts');
 }
 
 /**
- * Deactivate all existing email inboxes for the company and mint a new one.
+ * Deactivate all existing email inboxes for the company and mint a new one,
+ * in one transaction: a mint that fails leaves the old address active.
  */
 export async function regenerateEmailAddress(
   companyId: string,
   userId?: string,
 ): Promise<{ id: string; address: string }> {
-  await migrationAdminTx('retire capture inbox', (client) => client.query(
-    `UPDATE capture_inboxes
-        SET is_active = false, updated_at = NOW()
-      WHERE company_id = $1 AND channel = 'email' AND is_active = true`,
-    [companyId],
-  ));
-
-  const result = await getOrCreateEmailInbox(companyId, userId);
+  const result = await migrationAdminTx('rotate capture inbox', async (client) => {
+    await client.query(
+      `UPDATE capture_inboxes
+          SET is_active = false, updated_at = NOW()
+        WHERE company_id = $1 AND channel = 'email' AND is_active = true`,
+      [companyId],
+    );
+    return mintEmailInbox(client, companyId, userId);
+  });
   log.info('Regenerated email capture inbox', { companyId, newAddress: result.address }, 'capture-inbox');
   return { id: result.id, address: result.address };
 }

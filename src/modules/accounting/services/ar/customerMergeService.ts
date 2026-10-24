@@ -276,10 +276,8 @@ async function mergeInSavepoint(
   const others = await moveDocuments(tx, companyId, sourceId, targetId, mergedBy);
   await moveRecords(tx, companyId, sourceId, targetId);
   const pausedRecurring = await moveRecurring(tx, companyId, sourceId, targetId, mergedBy);
-  // portal_access has no company_id and no RLS: scope it through the
-  // customer, which refuseOrLock proved is this company's. Removed, not
-  // deactivated: no app role may UPDATE portal_access (S-07d, migration 935),
-  // because an UPDATE that can clear is_active can as well set it.
+  // No RLS here: scoped through the customer refuseOrLock proved is ours. Removed, not
+  // deactivated: no app role may UPDATE portal_access (S-07d, 935), which could revive it.
   const revoked = await tx`
     DELETE FROM portal_access
     WHERE client_id = ${sourceId}::UUID AND is_active

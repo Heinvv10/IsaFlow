@@ -33,7 +33,7 @@ let _pool: pg.Pool | null = null;
 export function migrationAdminPool(): pg.Pool {
   if (_pool) return _pool;
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
-  if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required: invitations, change-email, erasure, PATs, OAuth, password reset');
+  if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required: credential, membership and portal writes (S-07b/c/d)');
   _pool = new pg.Pool({
     connectionString: url,
     // change-email holds a connection (and its users row) across one GoTrue
@@ -43,7 +43,12 @@ export function migrationAdminPool(): pg.Pool {
     // forever: the same bound rollbackFailed assumes for the other pools.
     // Nothing else holds a connection across an outside call: the OAuth token
     // endpoint checks a code or refresh token on the service pool before it
-    // comes here, and an invitation calls GoTrue between its transactions.
+    // comes here, an invitation calls GoTrue between its transactions, and
+    // the AR portal login runs bcrypt between its two. The unauthenticated
+    // callers (S-07d) are bounded before they get here: AR portal login and
+    // AFS sign-in requests and verifies are rate-limited per IP, and a WhatsApp
+    // webhook is signature-checked and reads an active binding on the service
+    // pool first. Every transaction waits at most 5 s for a lock (below).
     max: 4,
     connectionTimeoutMillis: 15_000,
     ssl:
@@ -77,6 +82,9 @@ export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolCli
   try {
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
+    // Bounded: a lock an app-pool request holds (a share link's view counter,
+    // an ingest's lease) must not keep one of this pool's 4 connections.
+    await client.query(`SET LOCAL lock_timeout = '5s'`);
     if (claims && Object.keys(claims).length > 0) {
       await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
     }

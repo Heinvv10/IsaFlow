@@ -144,7 +144,8 @@ describe('every tracked table records', () => {
     const sw = (await pool.query("INSERT INTO approval_enforcement(company_id, document_type, enabled_by) VALUES($1,'supplier_invoice',$2) RETURNING id",
       [c, o])).rows[0].id;
     const member = (await pool.query('SELECT id FROM company_users WHERE company_id = $1 AND user_id = $2', [c, a])).rows[0].id;
-    await asApp(pool, o, c, (db) => db.query("UPDATE company_users SET role = 'manager' WHERE id = $1", [member]));
+    // Member roles are written on the migration_admin pool, under the request's claims (S-07d, 935).
+    await asInviter(c, (db) => db.query("UPDATE company_users SET role = 'manager' WHERE id = $1", [member]));
     const expected: Record<string, string> = { ...ids, company_invitation, approval_rule: rule, approval_enforcement: sw };
     for (const [type, id] of Object.entries(expected)) {
       const rows = await changesOf(pool, id);

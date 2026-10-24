@@ -78,8 +78,6 @@ export async function createShareLink(input: {
   // ROLLBACK, and keyed per company so two tenants never block each other.
   // Same shape as acquireIdempotencyLock in src/lib/mcp/audit.ts.
   const rows = await migrationAdminTx('create share link', async (client) => {
-    // Bounded: this holds one of the migration_admin pool's few connections.
-    await client.query(`SET LOCAL lock_timeout = '5s'`);
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1)::bigint)', [`share:link-create:${input.companyId}`]);
     return (await client.query(
       `INSERT INTO share_links (company_id, report_kind, params, token_hash, label, expires_at, created_by)
