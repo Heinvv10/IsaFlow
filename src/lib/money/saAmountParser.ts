@@ -2,7 +2,7 @@
  * Parse a South African money string to integer cents, once, at the form boundary.
  *
  * Accepts "25 000,00", "25,000.00", "R 1 234.56", "1234.5", "(123.45)" and "-123.45",
- * with ordinary, non-breaking, narrow and thin spaces as thousands separators.
+ * with ordinary, non-breaking, narrow and thin spaces (all `\s`) as thousands separators.
  *
  * Refuses input that has more than one reading ("1,234" is 1234 or 1.234) rather than
  * guessing: SimplePay read "25,000.00" as R25 because a thousands comma looked like a
@@ -20,7 +20,6 @@ export type AmountParseResult =
 
 const fail = (code: AmountParseCode, reason: string): AmountParseResult => ({ ok: false, code, reason });
 
-const UNICODE_SPACES = /[\u00A0\u202F\u2009\u2007\u2008]/g;
 const CURRENCY = /^(?:ZAR|R)\s*/i;
 const LEADING_MINUS = /^[-\u2212]\s*/;
 const DECIMALS_MSG = 'Amounts have at most two decimal places.';
@@ -54,7 +53,7 @@ export function parseSaAmount(input: string): AmountParseResult {
   const malformed = (): AmountParseResult =>
     fail('malformed', `"${shown}" is not a valid amount. Try 25 000.00 or 25,000.00.`);
 
-  const text = input.replace(UNICODE_SPACES, ' ').replace(/\s+/g, ' ').trim();
+  const text = input.replace(/\s+/g, ' ').trim();
   const { negative, body } = splitSign(text);
   if (body === '') return fail('empty', 'Enter an amount.');
   if (!/^[\d .,]+$/.test(body)) {
