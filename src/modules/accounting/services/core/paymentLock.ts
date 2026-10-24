@@ -147,17 +147,20 @@ export async function lockSupplierPaymentForUpdate(
   await client.query("SET LOCAL lock_timeout = '5s'");
   let failure: unknown = null;
   try {
-    // `supplierFirst`: the payee supplier FOR KEY SHARE before the payment, for a caller that will then write a
-    // supplier-referencing row twice (applying the payment: applyLineToBill sets amount_paid, then
-    // recomputeInvoiceStatus the status, and the second write re-runs the bill's supplier FK check). Taken there,
-    // after the payment, it crossed a supplier merge (suppliers FOR UPDATE, then their payments): 40P01. Opt-in:
-    // a caller that writes no such row twice (approve, cancel, process) must not wait on a supplier holder.
+    // `supplierFirst`: the payee supplier FOR NO KEY UPDATE before the payment, for a caller that moves the
+    // supplier's applied cash and writes its bills twice (apply / unapply: amount_paid, then recomputeInvoiceStatus,
+    // and the second write re-runs the bill's supplier FK check). That FK lock, taken after the payment, crossed a
+    // supplier merge (suppliers FOR UPDATE, then their payments): 40P01. NO KEY UPDATE, not KEY SHARE: a refund
+    // plan (lockContactForRefund, FOR UPDATE) must not read the on-account credit beside an application in flight,
+    // and two of these on one supplier (a bank-rule sweep's payment, another application) queue at the supplier
+    // instead of crossing on a bill; an INSERT's FK KEY SHARE is not blocked. Opt-in: approve, cancel and process
+    // write no such row twice and must not wait on a supplier holder.
     const keyShared = opts.supplierFirst ? ((await sql`
       SELECT s.id FROM suppliers s
       WHERE s.company_id = ${companyId}::UUID
         AND s.id = (SELECT sp.supplier_id FROM supplier_payments sp
                     WHERE sp.id = ${paymentId}::UUID AND sp.company_id = ${companyId}::UUID)
-      FOR KEY SHARE OF s
+      FOR NO KEY UPDATE OF s
     `) as DbRow[])[0]?.id : undefined;
     const rows = (await sql`
       SELECT sp.*,
@@ -174,7 +177,7 @@ export async function lockSupplierPaymentForUpdate(
     // retryable refusal (55P03) with nothing written, never a wait after the payment lock.
     const supplierId = rows[0]?.supplier_id;
     if (opts.supplierFirst && supplierId != null && String(supplierId) !== String(keyShared)) {
-      await sql`SELECT 1 FROM suppliers WHERE id = ${String(supplierId)}::UUID AND company_id = ${companyId}::UUID FOR KEY SHARE NOWAIT`;
+      await sql`SELECT 1 FROM suppliers WHERE id = ${String(supplierId)}::UUID AND company_id = ${companyId}::UUID FOR NO KEY UPDATE NOWAIT`;
     }
     return rows[0] ?? null;
   } catch (err) {
@@ -218,18 +221,6 @@ export async function lockSupplierPaymentForUpdate(
  * concurrent transaction can leave available, and refusing on a ceiling is the
  * safe direction. Two REFUNDS are the unsafe pair, and both take this lock.
  *
- * The SUPPLIER row is taken `FOR NO KEY UPDATE`, not `FOR UPDATE` (2026-10-24):
- * it serialises refund against refund exactly as before, but does not block the
- * `FOR KEY SHARE` a payment application takes on the supplier before its
- * payment and bills (`supplierFirst`) or an INSERT's foreign key takes. A bank
- * rule sweep pays a bill on one line and plans a refund on the next, so with
- * `FOR UPDATE` it held the bill and waited on the supplier while an application
- * held the supplier and waited on the bill: 40P01. Neither a new payment nor a
- * new bill can lower the on-account credit this reads. An APPLICATION can, and
- * now runs beside a refund rather than queueing behind it; that is the case the
- * ceiling argument above already covers (the figure is read once, and an
- * application that started before this lock was never blocked by it).
- *
  * Mirrors `lockSupplierPaymentForUpdate` exactly: same 5s `lock_timeout`, same
  * `isLockContention` mapping so a timeout and a deadlock victim reach the
  * caller as one retryable refusal rather than a 500.
@@ -248,7 +239,7 @@ export async function lockContactForRefund(
       ? await sql`
         SELECT s.id, s.name FROM suppliers s
         WHERE s.id = ${contactId}::UUID AND s.company_id = ${companyId}::UUID
-        FOR NO KEY UPDATE OF s`
+        FOR UPDATE OF s`
       : await sql`
         SELECT c.id, c.name FROM customers c
         WHERE c.id = ${contactId}::UUID AND c.company_id = ${companyId}::UUID
