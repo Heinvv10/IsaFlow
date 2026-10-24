@@ -90,3 +90,22 @@ for (const screen of SCREENS) {
     }
   });
 }
+
+test('digits are tabular: 0-9 are one width in the app face, so columns of amounts line up', async ({ page }) => {
+  await page.goto('/accounting/customer-invoices', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('.font-sans', { timeout: 90_000 });
+  const widths = await page.evaluate(async () => {
+    await document.fonts.load('400 20px "IsaFlow Figures"', '0123456789');
+    const host = document.querySelector('.font-sans') as HTMLElement;
+    return '0123456789'.split('').map((digit) => {
+      const probe = document.createElement('span');
+      probe.textContent = digit.repeat(10);
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-size:20px';
+      host.appendChild(probe);
+      const width = probe.getBoundingClientRect().width;
+      probe.remove();
+      return Math.round(width * 100) / 100;
+    });
+  });
+  expect(new Set(widths).size, `digit widths (px, ten of each): ${widths.join(' ')}`).toBe(1);
+});

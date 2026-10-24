@@ -171,6 +171,8 @@ export default {
       },
       fontFamily: {
         sans: [
+          // Digits come from this face (styles/globals.css): DM Sans has no tabular numerals.
+          "'IsaFlow Figures'",
           // Inline fallback, not just the stack below it: an undefined var()
           // invalidates the WHOLE font-family declaration, so the entries that
           // follow never apply and the browser default serif wins. This is what

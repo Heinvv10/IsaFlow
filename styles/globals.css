@@ -232,9 +232,39 @@
 }
 
 /*
- * Figures line up everywhere: tabular numerals in the app face (DM Sans), never a monospace face
- * (master plan 3b). A cell that wants proportional digits opts out with `proportional-nums`.
+ * FIGURES. DM Sans has no tabular numerals (its shipped GSUB has no `tnum`: with tabular-nums set,
+ * "1111111111" measures 60 px and "0000000000" 140 px at 20 px), so a right-aligned column of amounts
+ * did not line up digit for digit. The digits alone (U+0030-0039) come from IBM Plex Sans, whose
+ * digits are all 600/1000 em wide, and every other glyph stays DM Sans. The family is first in the
+ * `sans` stack (tailwind.config.mjs), so it applies wherever the app face does. It is declared
+ * under its own name so the board pack's 'IBM Plex Sans' faces and their readiness gate are untouched.
  */
+@font-face {
+  font-family: 'IsaFlow Figures';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-Regular.woff2') format('woff2');
+  unicode-range: U+0030-0039;
+}
+@font-face {
+  font-family: 'IsaFlow Figures';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-Medium.woff2') format('woff2');
+  unicode-range: U+0030-0039;
+}
+@font-face {
+  font-family: 'IsaFlow Figures';
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-SemiBold.woff2') format('woff2');
+  unicode-range: U+0030-0039;
+}
+
+/* Tabular figures app-wide, never a monospace face. A cell that wants proportional digits opts out with `proportional-nums`. */
 @layer base {
   html {
     font-variant-numeric: tabular-nums;
