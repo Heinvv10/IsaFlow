@@ -31,7 +31,7 @@ export async function generateChangesInEquity(
   log.info('generateChangesInEquity', { companyId, fiscalYear }, 'AfsPrimary');
   const { start: fyStart, end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
   const [lines, dividendsPaid] = await Promise.all([
-    fetchSectionLines(companyId, 'balance_sheet', fiscalYear, fiscalYear - 1),
+    fetchSectionLines(companyId, 'balance_sheet', fiscalYear, true),
     // Paid only: clearing the dividends account into retained earnings is not a distribution.
     fetchDividendsPaid(companyId, fyStart, fyEnd, true),
   ]);

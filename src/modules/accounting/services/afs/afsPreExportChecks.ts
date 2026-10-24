@@ -443,8 +443,8 @@ export async function runPreExportChecks(
     }];
   }
 
-  // getFiscalRange REFUSES an unusable companies.financial_year_start rather
-  // than assuming March. That refusal is right, but letting it propagate turns
+  // getFiscalRange REFUSES a label no registry year carries rather than
+  // guessing a range. That refusal is right, but letting it propagate turns
   // a misconfiguration into a 500 carrying an exception message — while the
   // same class of misconfiguration four lines above returns a readable blocker.
   // A pre-export check that crashes tells the accountant nothing about what to
@@ -458,9 +458,10 @@ export async function runPreExportChecks(
       passed: false,
       severity: 'blocker',
       detail:
-        `The financial year this company reports on is not set, so the period ` +
-        `these statements cover cannot be determined. Set the financial year ` +
-        `start under Settings > General. (${err instanceof Error ? err.message : String(err)})`,
+        `The period these statements cover cannot be determined: the company has no financial ` +
+        `year with this label (a change of year end can skip one), or its financial year start ` +
+        `is not set. Check Accounting > Financial Years and Settings > General. ` +
+        `(${err instanceof Error ? err.message : String(err)})`,
     }];
   }
 

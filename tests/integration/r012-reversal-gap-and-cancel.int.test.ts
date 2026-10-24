@@ -1,9 +1,10 @@
 /**
  * R-012 review round 2, on isaflow_dev (the l1FifoFixture harness refuses the fixture DB).
  *
- * 1. An in-window original whose year CANNOT be created (a gap or an overlap in
- *    the company's period layout) is refused, not reversed before itself. Only
- *    a year outside the auto-create window (a typo'd 9999) keeps today.
+ * 1. An in-window original whose period CANNOT be created (a gap in a fiscal
+ *    year that already holds a closed period: migration 942's generator adds
+ *    no month beside one) is refused, not reversed before itself. Only a year
+ *    outside the auto-create window (a typo'd 9999) keeps today.
  * 2. Cancelling a customer invoice answers the refusal with its own message
  *    (customer-invoices-detail), not the generic closed-period text.
  */
@@ -28,10 +29,16 @@ let seq = 0;
 const acc: Record<string, string> = {};
 const day = (offset: number): string => { const d = new Date(); d.setDate(d.getDate() + offset); return fmtDate(d); };
 
-async function layout(ranges: Array<[string, string, 'open' | 'closed']>): Promise<void> {
+/** Replace the periods, and the fiscal years that held them; `year` stores the one year holding them all. */
+async function layout(ranges: Array<[string, string, 'open' | 'closed']>, year?: [string, string]): Promise<void> {
   await sql`DELETE FROM gl_account_balances WHERE fiscal_period_id IN (
     SELECT id FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID)`;
   await sql`DELETE FROM fiscal_periods WHERE company_id = ${fx.companyId}::UUID`;
+  await sql`DELETE FROM fiscal_years WHERE company_id = ${fx.companyId}::UUID`;
+  if (year) {
+    await sql`INSERT INTO fiscal_years (company_id, fiscal_year, start_date, end_date)
+              VALUES (${fx.companyId}::UUID, ${Number(year[1].slice(0, 4))}, ${year[0]}::DATE, ${year[1]}::DATE)`;
+  }
   let n = 0;
   for (const [start, end, status] of ranges) {
     n++;
@@ -81,9 +88,10 @@ describeIfDb('R-012 round 2: in-window gaps, and the invoice-cancel message', ()
   }, 120000);
 
   it('refuses an in-window original whose year cannot be created, writing nothing', async () => {
-    // One OPEN period up to day(10): day(40) is uncovered, in the window, and
-    // not creatable because its fiscal-year range overlaps the existing period.
-    await layout([[day(-400), day(10), 'open']]);
+    // One fiscal year, day(-200)..day(100): OPEN up to day(10), CLOSED from
+    // day(60). day(40) is uncovered and in the window, and not creatable: the
+    // generator adds no month to a year that already holds a closed period.
+    await layout([[day(-200), day(10), 'open'], [day(60), day(100), 'closed']], [day(-200), day(100)]);
     const je = await postedJournal(day(40));
     expect(await isDateAutoCreatable(fx.companyId, day(40))).toBe(false);
     const before = await entryCount();

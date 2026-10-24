@@ -13,7 +13,6 @@
  */
 
 import type { DbRow } from '@/types/db';
-import { fiscalYearStart } from '@/modules/accounting/services/gl/fiscalYearBasis';
 
 export const GL_LINE_EXPORT_SCHEMA_VERSION = 'isaflow-gl-lines-1.0';
 
@@ -76,11 +75,9 @@ export type GlLineExportColumn = (typeof GL_LINE_EXPORT_COLUMNS)[number];
 export type ExportValue = string | number | boolean | null;
 export type GlLineExportRow = Record<GlLineExportColumn, ExportValue>;
 
-/** What every row of one company's export carries: its name and fiscal basis. */
+/** What every row of one company's export carries: its name. */
 export interface ExportEntity {
   name: string;
-  /** Month 1-12 the company's financial year starts in (companies.financial_year_start). */
-  fyStartMonth: number;
 }
 
 const JOURNAL_TYPE_BY_SOURCE: Record<string, string> = {
@@ -123,23 +120,13 @@ export function journalTypeOf(source: string | null, creditNoteType: string | nu
 const STATUS_LABEL: Record<string, string> = { posted: 'Posted', draft: 'Draft', reversed: 'Reversed' };
 
 /**
- * Period (first of month), FY and FY period number for a YYYY-MM-DD date, on
- * the company's own financial year (`fyStartMonth`, from
- * companies.financial_year_start). The FY is named by the calendar year it ENDS
- * in: on a March year 2025-03-17 is FY26 period 1 and 2026-02-28 is FY26 period
- * 12; on a July year 2025-07-01 is FY26 period 1; on a January year the FY is
- * the calendar year itself.
+ * Period (first of month) for a YYYY-MM-DD date. The FY and FY period number
+ * are not derived here: they come from the registry year holding the date
+ * (glLineExportFiscalYears) and arrive on the query row as `fy_label` and
+ * `fy_period_no`, so a transition year or a changed year end is read as stored.
  */
-export function fiscalOf(date: string, fyStartMonth: number): { period: string; fy: string; fyPeriodNo: number } {
-  const start = fiscalYearStart(date, fyStartMonth);
-  const startYear = Number(start.slice(0, 4));
-  const month = Number(date.slice(5, 7));
-  const endYear = fyStartMonth === 1 ? startYear : startYear + 1;
-  return {
-    period: `${date.slice(0, 7)}-01`,
-    fy: `FY${String(endYear % 100).padStart(2, '0')}`,
-    fyPeriodNo: ((month - fyStartMonth + 12) % 12) + 1,
-  };
+export function periodOf(date: string): string {
+  return `${date.slice(0, 7)}-01`;
 }
 
 export const str = (v: unknown): string | null => (v == null || v === '' ? null : String(v));
@@ -171,7 +158,6 @@ function isoTimestamp(v: unknown): string | null {
 export function toExportRow(r: DbRow, entity: ExportEntity): GlLineExportRow {
   const signed = Math.round((toNum(r.debit) - toNum(r.credit)) * 100) / 100 || 0;
   const txnDate = isoDate(r.entry_date);
-  const { period, fy, fyPeriodNo } = fiscalOf(txnDate, entity.fyStartMonth);
   const isCash = r.is_cash === true;
   return {
     Line_ID: String(r.line_id),
@@ -191,9 +177,9 @@ export function toExportRow(r: DbRow, entity: ExportEntity): GlLineExportRow {
     Posting_Status: STATUS_LABEL[String(r.status)] ?? String(r.status),
     Period_Locked: r.period_locked === true,
     Txn_Date: txnDate,
-    Period: period,
-    FY: fy,
-    FY_Period_No: fyPeriodNo,
+    Period: periodOf(txnDate),
+    FY: String(r.fy_label),
+    FY_Period_No: toNum(r.fy_period_no),
     Amount_Excl_VAT: signed,
     VAT_Amount: 0,
     Amount_Incl_VAT: signed,

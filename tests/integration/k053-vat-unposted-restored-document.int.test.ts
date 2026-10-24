@@ -25,6 +25,7 @@ import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/suppli
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { softDelete, undoDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears } from './helpers/fiscalYearSeed';
 
 const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
 
@@ -124,8 +125,7 @@ describeIfDb('D7 VAT201 journal_reversed reads the chain, not one link', () => {
   beforeAll(async () => {
     assertDisposable();
     await sql`INSERT INTO companies (id, name, registration_number) VALUES (${COMPANY}::UUID, ${'D7VATU ' + TAG}, ${TAG})`;
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'D7VATU open ' + TAG}, 1, 2026, '2020-01-01', ${shift(400)}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), shift(400));
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
     await account(payable, '2100', 'Trade Creditors', 'liability', 'credit', 'payable');
     await account(revenue, '4000', 'Sales', 'revenue', 'credit', 'default_revenue');
