@@ -122,7 +122,7 @@ export function TodoWidget() {
     !loading &&
     !error &&
     data !== null &&
-    data.overdueInvoices.length === 0 &&
+    data.overdueInvoiceCount === 0 &&
     data.pendingSupplierPayments.length === 0 &&
     data.uncategorizedBankTxns === 0 &&
     data.draftInvoices === 0;
@@ -154,7 +154,7 @@ export function TodoWidget() {
       {!loading && !error && !isAllClear && data && (
         <div className="space-y-0.5">
           {/* Overdue customer invoices */}
-          {data.overdueInvoices.length > 0 && (
+          {data.overdueInvoiceCount > 0 && (
             <>
               <ActionRow
                 label={`${data.overdueInvoiceCount} overdue invoice${data.overdueInvoiceCount !== 1 ? 's' : ''}`}
