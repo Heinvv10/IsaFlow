@@ -56,7 +56,7 @@ const SEEDS: Seed[] = [
   { key: 'full-credited', status: 'approved', total: 750, paid: 750, due: -15, credited: 750 },
 ];
 // outstanding: 5*1500 + 5*1000 + 3*800 + 2*700 + 3*600 + 2*500 + 900 + 450 + 400
-const EXPECTED = { outstanding: 20750, overdueCount: 17, overdueAmount: 7500 + 5000 + 2400 + 1000 + 400 + 900 };
+const EXPECTED = { outstanding: 20850, overdueCount: 17, overdueAmount: 7500 + 5000 + 2400 + 1000 + 400 + 900 };
 const keyNumber = (key: string): string => `${TAG}-${SEEDS.findIndex((s) => s.key === key)}`;
 
 let token = '';
