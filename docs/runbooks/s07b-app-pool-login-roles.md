@@ -175,25 +175,38 @@ Migration 935 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   UPDATE public.bank_feed_connections SET is_active = false, status = 'disconnected', updated_at = now() WHERE id = '<connection>' AND company_id = '<company>';
   UPDATE public.portal_contacts SET active = false, updated_at = now() WHERE id = '<contact>' AND company_id = '<company>';
   ```
-- The old IMAP mirror cron commits each scanned invoice's document, then
-  fails on the inbox upsert and moves its cursor past the message, so mail
-  scanned while old code ran after 935 is not captured. After the new code is
-  live, find the affected connections and move their cursor back to the last
-  uid before the window (read-only first):
+- The old IMAP mirror cron fails on the inbox upsert for every scanned
+  invoice and moves its cursor past the message, so mail scanned while old
+  code ran after 935 is not captured (its document row is left `pending`).
+  Recover it as soon as the new code is live, before many new scans: moving a
+  cursor back re-scans EVERY message after that uid, and re-captures any of
+  them the new code has captured since. Read-only first:
 
   ```sql
-  SELECT c.id, c.company_id, c.folder, c.scan_cursor, count(l.*) AS errored, min(l.imap_uid::bigint) AS first_errored_uid
+  -- Messages the old code refused, per connection.
+  SELECT c.id, c.folder, c.scan_cursor, min(l.imap_uid::bigint) AS first_refused_uid, max(l.imap_uid::bigint) AS last_refused_uid
     FROM public.imap_mirror_connections c
     JOIN public.imap_mirror_scan_log l ON l.connection_id = c.id
    WHERE l.outcome = 'error' AND l.error LIKE 'permission denied for table capture_inboxes%'
    GROUP BY c.id;
-  -- then, per connection, with <uid> = first_errored_uid - 1 (the scan resumes after it):
+  -- Messages the new code captured since (each would be captured again by a cursor move).
+  SELECT l.connection_id, l.imap_uid FROM public.imap_mirror_scan_log l
+   WHERE l.outcome = 'ingested' AND l.imap_uid::bigint > <first_refused_uid> AND l.connection_id = '<connection>';
+  -- If that second list is empty, move the cursor to first_refused_uid - 1 (the scan resumes after it):
   -- UPDATE public.imap_mirror_connections SET scan_cursor = jsonb_set(scan_cursor, '{<folder>}', '<uid>') WHERE id = '<connection>';
   ```
-  The same procedure recovers, after 935 too, the remaining attachments of a
-  message the new code passed part-ingested (its scan-log row is `error`; the
-  new code retries a message only when none of it was ingested).
-  The orphaned `pending` documents those failures left are listed by
+  If it is not empty, do not move the cursor: ask the company to forward the
+  refused emails to its capture address instead.
+- After 935 the new code retries a message only when none of it was
+  ingested. A message passed part-ingested (a database failure on its second
+  or later attachment) keeps its first attachments and loses the rest; it is
+  logged as an error. Find them with
+  `SELECT connection_id, imap_uid, error, scanned_at FROM imap_mirror_scan_log
+  WHERE outcome = 'error' AND attachment_count > 1 ORDER BY scanned_at DESC`, and
+  recover the rest by forwarding the email to the company's capture address
+  (a cursor move would capture the first attachments twice).
+- The orphaned `pending` documents those failures left (a failure after a
+  document row, before its event) are listed by
   `SELECT id FROM captured_documents d WHERE d.status = 'pending' AND NOT EXISTS
   (SELECT 1 FROM capture_events e WHERE e.captured_document_id = d.id)`.
 - If old code must run for more than an hour and needs these:

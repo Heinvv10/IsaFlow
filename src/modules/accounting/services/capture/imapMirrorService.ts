@@ -192,7 +192,7 @@ async function updateCursor(conn: MirrorConnection, folder: string, uid: number)
     UPDATE imap_mirror_connections
     SET scan_cursor = ${JSON.stringify(nextCursor)}::jsonb,
         last_scan_at = NOW(),
-        last_success_at = NOW(),
+        last_success_at = NOW(), last_error = NULL,
         messages_ingested_total = messages_ingested_total
     WHERE id = ${conn.id}::uuid
   `;
@@ -360,17 +360,16 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
 
       if (maxUidSeen > cursorUid) {
         await updateCursor(conn, conn.folder, maxUidSeen);
-      } else if (stoppedOn) {
-        // No success stamp; status stays active so the next scan retries (unlike markScanError).
-        await sql`UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = ${stoppedOn} WHERE id = ${conn.id}::uuid`;
-      } else {
+      } else if (!stoppedOn) {
         // Still bump last_scan_at so the poll interval kicks in correctly
         await sql`
           UPDATE imap_mirror_connections
-          SET last_scan_at = NOW(), last_success_at = NOW()
+          SET last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL
           WHERE id = ${conn.id}::uuid
         `;
       }
+      // A stop shows its error, and stamps no success; status stays active so the next scan retries.
+      if (stoppedOn) await sql`UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = ${stoppedOn} WHERE id = ${conn.id}::uuid`;
 
       // Increment total ingested counter
       if (result.ingested > 0) {
