@@ -81,7 +81,7 @@ export function SelectDropdown({
               onKeyDown={onKeyDown}
               placeholder="Search…"
               aria-label={searchLabel}
-              aria-controls={showList ? listboxId : undefined}
+              aria-controls={listboxId}
               aria-activedescendant={activeDescendant}
               className="flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder:text-gray-400 dark:text-gray-100"
             />
@@ -97,53 +97,51 @@ export function SelectDropdown({
         <p role="status" className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400">{emptyText}</p>
       ) : null}
 
-      {showList && (
-        <ul
-          ref={listRef}
-          id={listboxId}
-          role="listbox"
-          aria-multiselectable={isMulti}
-          aria-labelledby={labelId}
-          aria-busy={loading}
-          tabIndex={0}
-          onKeyDown={onKeyDown}
-          aria-activedescendant={activeDescendant}
-          className="max-h-60 overflow-y-auto py-1 focus:outline-none"
-        >
-          {options.map((option, i) => {
-            const isSelected = selectedValues.includes(option.value);
-            const isActive = activeIndex === i;
-            return (
-              <li
-                key={option.value}
-                id={`${inputId}-option-${option.value}`}
-                role="option"
-                aria-selected={isSelected}
-                aria-disabled={option.disabled}
-                onClick={() => onSelect(option)}
-                onMouseEnter={() => onActiveChange(i)}
-                className={cn(
-                  'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm',
-                  'text-gray-700 dark:text-gray-300',
-                  isActive && 'bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
-                  isSelected && !isActive && 'bg-gray-50 dark:bg-gray-800',
-                  option.disabled && 'cursor-not-allowed opacity-50'
-                )}
-              >
-                {option.icon && <span className="shrink-0">{option.icon}</span>}
-                <span className="flex-1">{option.label}</span>
-                {isSelected && (
-                  <Check
-                    size={14}
-                    aria-hidden="true"
-                    className="shrink-0 text-teal-600 dark:text-teal-400"
-                  />
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <ul
+        ref={listRef}
+        id={listboxId}
+        role="listbox"
+        aria-multiselectable={isMulti}
+        aria-labelledby={labelId}
+        aria-busy={loading}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        aria-activedescendant={activeDescendant}
+        className={cn('max-h-60 overflow-y-auto py-1 focus:outline-none', !showList && 'hidden')}
+      >
+        {(showList ? options : []).map((option, i) => {
+          const isSelected = selectedValues.includes(option.value);
+          const isActive = activeIndex === i;
+          return (
+            <li
+              key={option.value}
+              id={`${inputId}-option-${option.value}`}
+              role="option"
+              aria-selected={isSelected}
+              aria-disabled={option.disabled}
+              onClick={() => onSelect(option)}
+              onMouseEnter={() => onActiveChange(i)}
+              className={cn(
+                'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm',
+                'text-gray-700 dark:text-gray-300',
+                isActive && 'bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+                isSelected && !isActive && 'bg-gray-50 dark:bg-gray-800',
+                option.disabled && 'cursor-not-allowed opacity-50'
+              )}
+            >
+              {option.icon && <span className="shrink-0">{option.icon}</span>}
+              <span className="flex-1">{option.label}</span>
+              {isSelected && (
+                <Check
+                  size={14}
+                  aria-hidden="true"
+                  className="shrink-0 text-teal-600 dark:text-teal-400"
+                />
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

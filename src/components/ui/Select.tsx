@@ -173,7 +173,7 @@ export function Select(props: SelectProps) {
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-owns={listboxId}
+        aria-controls={open ? listboxId : undefined}
         aria-labelledby={label ? labelId : undefined}
         aria-disabled={disabled}
         tabIndex={disabled ? -1 : 0}
