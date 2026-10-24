@@ -14,7 +14,7 @@ import { logTransactionRollback } from '@/lib/transactionRefusal';
 import { als, assertTxUsable, markTxUnusable } from '@/lib/als';
 import { getPool } from './pool';
 import { buildQuery } from './query';
-import { queuedSavepoint } from './savepointQueue';
+import { noteActivity, queuedSavepoint } from './savepointQueue';
 
 export type TxSql = (
   strings: TemplateStringsArray,
@@ -49,8 +49,12 @@ export async function withTransaction<T>(
     assertTxUsable();
     const tx: TxSql = async (strings, ...values) => {
       const { text, values: params } = buildQuery(strings, values);
-      const res = await ctxClient.query(text, params);
-      return res.rows as unknown[];
+      try {
+        const res = await ctxClient.query(text, params);
+        return res.rows as unknown[];
+      } finally {
+        noteActivity(ctxClient);
+      }
     };
     withTxSeq = (withTxSeq + 1) % 1_000_000;
     try {
@@ -129,21 +133,25 @@ async function runInSavepoint<T>(
   name: string,
   fn: () => Promise<T>,
 ): Promise<T> {
+  // Each completed statement is progress for queued siblings (./savepointQueue).
+  const settled = async <R>(query: Promise<R> | R): Promise<R> => {
+    try { return await query; } finally { noteActivity(ctxClient); }
+  };
   assertTxUsable();
-  await ctxClient.query(`SAVEPOINT ${name}`);
+  await settled(ctxClient.query(`SAVEPOINT ${name}`));
   try {
     const result = await fn();
-    await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
+    await settled(ctxClient.query(`RELEASE SAVEPOINT ${name}`));
     return result;
   } catch (err) {
     try {
-      await ctxClient.query(`ROLLBACK TO SAVEPOINT ${name}`);
+      await settled(ctxClient.query(`ROLLBACK TO SAVEPOINT ${name}`));
       // Split from the rollback deliberately. After a SUCCESSFUL rollback the
       // transaction state is restored and the tx is structurally fine, so a
       // failing RELEASE must not poison it — and must not be reported as
       // "the rollback failed", which it did not.
       try {
-        await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
+        await settled(ctxClient.query(`RELEASE SAVEPOINT ${name}`));
       } catch (releaseErr) {
         log.warn(
           'RELEASE SAVEPOINT failed after a successful rollback; transaction left usable',
