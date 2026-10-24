@@ -4,130 +4,132 @@
  * The app grew dark-first: hundreds of files colour text with a light palette stop
  * (`text-teal-400`, `text-slate-500`) and no light-theme twin. On a white page that is
  * 1.1-3:1. Rewriting every call site is not a surgical change, so the light theme remaps
- * those stops here to the 700-weight of the same hue (AA on white and on the #f3f4f6 / tinted
- * chip surfaces). `dark:` variants and the dark theme are untouched.
+ * those stops here to the 800-weight of the same hue (AA on white, on #f3f4f6 and on the
+ * 20% tinted chips these colours usually sit on). `dark:` variants and the dark theme are
+ * untouched.
  *
- * Opt out for text that sits on a deliberately dark panel in the light theme: put
- * data-surface="dark" on that panel.
+ * Text that sits on a panel that is dark in BOTH themes keeps its dark-theme colour: a panel
+ * with bg-slate-800/900/950, from-slate-*, bg-black or data-surface="dark" (and anything inside
+ * it) is excluded. Use data-surface="dark" for a dark panel built from another utility.
  *
  * Specificity: the theme selector sits in :where(), so each rule is (0,1,0), the same as the
  * utility it remaps (this file loads after globals.css, so it wins), and hover: / focus: /
  * group-hover: variants and any explicit `dark:` class still outrank it.
  */
 
-:where(html:not(.dark)) .text-teal-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-teal-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-teal-500:not(:where([data-surface="dark"] *)) {
-  color: #0f766e;
+:where(html:not(.dark)) .text-teal-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-teal-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-teal-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #115e59;
 }
 
-:where(html:not(.dark)) .text-cyan-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-cyan-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-cyan-500:not(:where([data-surface="dark"] *)) {
-  color: #0e7490;
+:where(html:not(.dark)) .text-cyan-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-cyan-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-cyan-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #155e75;
 }
 
-:where(html:not(.dark)) .text-sky-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-sky-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-sky-500:not(:where([data-surface="dark"] *)) {
-  color: #0369a1;
+:where(html:not(.dark)) .text-sky-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-sky-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-sky-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #075985;
 }
 
-:where(html:not(.dark)) .text-blue-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-blue-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-blue-500:not(:where([data-surface="dark"] *)) {
-  color: #1d4ed8;
+:where(html:not(.dark)) .text-blue-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-blue-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-blue-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #1e40af;
 }
 
-:where(html:not(.dark)) .text-indigo-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-indigo-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-indigo-500:not(:where([data-surface="dark"] *)) {
-  color: #4338ca;
+:where(html:not(.dark)) .text-indigo-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-indigo-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-indigo-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #3730a3;
 }
 
-:where(html:not(.dark)) .text-violet-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-violet-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-violet-500:not(:where([data-surface="dark"] *)) {
-  color: #6d28d9;
+:where(html:not(.dark)) .text-violet-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-violet-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-violet-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #5b21b6;
 }
 
-:where(html:not(.dark)) .text-purple-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-purple-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-purple-500:not(:where([data-surface="dark"] *)) {
-  color: #7e22ce;
+:where(html:not(.dark)) .text-purple-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-purple-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-purple-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #6b21a8;
 }
 
-:where(html:not(.dark)) .text-pink-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-pink-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-pink-500:not(:where([data-surface="dark"] *)) {
-  color: #be185d;
+:where(html:not(.dark)) .text-pink-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-pink-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-pink-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #9d174d;
 }
 
-:where(html:not(.dark)) .text-rose-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-rose-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-rose-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-rose-600:not(:where([data-surface="dark"] *)) {
-  color: #be123c;
+:where(html:not(.dark)) .text-rose-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-rose-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-rose-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-rose-600:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #9f1239;
 }
 
-:where(html:not(.dark)) .text-red-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-red-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-red-500:not(:where([data-surface="dark"] *)) {
-  color: #b91c1c;
+:where(html:not(.dark)) .text-red-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-red-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-red-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #991b1b;
 }
 
-:where(html:not(.dark)) .text-orange-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-orange-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-orange-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-orange-600:not(:where([data-surface="dark"] *)) {
-  color: #c2410c;
+:where(html:not(.dark)) .text-orange-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-orange-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-orange-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-orange-600:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #9a3412;
 }
 
-:where(html:not(.dark)) .text-amber-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-amber-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-amber-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-amber-600:not(:where([data-surface="dark"] *)) {
+:where(html:not(.dark)) .text-amber-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-amber-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-amber-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-amber-600:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
   color: #92400e;
 }
 
-:where(html:not(.dark)) .text-yellow-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-yellow-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-yellow-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-yellow-600:not(:where([data-surface="dark"] *)) {
+:where(html:not(.dark)) .text-yellow-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-yellow-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-yellow-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-yellow-600:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
   color: #854d0e;
 }
 
-:where(html:not(.dark)) .text-lime-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-lime-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-lime-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-lime-600:not(:where([data-surface="dark"] *)) {
+:where(html:not(.dark)) .text-lime-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-lime-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-lime-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-lime-600:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
   color: #3f6212;
 }
 
-:where(html:not(.dark)) .text-green-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-green-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-green-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-green-600:not(:where([data-surface="dark"] *)) {
-  color: #15803d;
+:where(html:not(.dark)) .text-green-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-green-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-green-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-green-600:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #166534;
 }
 
-:where(html:not(.dark)) .text-emerald-300:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-emerald-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-emerald-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-emerald-600:not(:where([data-surface="dark"] *)) {
-  color: #047857;
+:where(html:not(.dark)) .text-emerald-300:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-emerald-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-emerald-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-emerald-600:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
+  color: #065f46;
 }
 
-:where(html:not(.dark)) .text-slate-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-slate-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-gray-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-gray-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-zinc-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-zinc-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-neutral-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-neutral-500:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-stone-400:not(:where([data-surface="dark"] *)),
-:where(html:not(.dark)) .text-stone-500:not(:where([data-surface="dark"] *)) {
+:where(html:not(.dark)) .text-slate-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-slate-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-gray-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-gray-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-zinc-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-zinc-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-neutral-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-neutral-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-stone-400:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)),
+:where(html:not(.dark)) .text-stone-500:not(:where(:is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black), :is([data-surface="dark"], .bg-slate-800, .bg-slate-900, .bg-slate-950, .from-slate-800, .from-slate-900, .from-slate-950, .bg-gray-900, .bg-zinc-900, .bg-black) *)) {
   color: #5b6573;
 }
 
@@ -168,6 +170,7 @@
 :where(.dark) .text-gray-400 {
   color: #a9b6c9;
 }
+
 
 /*
  * Chart legends: recharts colours each label with its series (teal, orange, rose), which is
