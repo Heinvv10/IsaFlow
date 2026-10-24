@@ -171,7 +171,8 @@ export async function lockSupplierPaymentForUpdate(
     `) as DbRow[];
     // Re-pointed to another supplier between the two statements (a merge, committed by the time the payment lock was
     // granted): key-share the new one now, under this budget, so a holder of it is a typed retryable refusal here
-    // rather than a later FK wait that can still cross updateSupplier.
+    // rather than a later FK wait. Bounded, not closed: this one case is payment -> supplier, so it can still cross an
+    // updateSupplier of the new supplier, and Postgres picks the victim.
     const supplierId = rows[0]?.supplier_id;
     if (supplierId != null && String(supplierId) !== String(keyShared)) {
       await sql`SELECT 1 FROM suppliers WHERE id = ${String(supplierId)}::UUID AND company_id = ${companyId}::UUID FOR KEY SHARE`;

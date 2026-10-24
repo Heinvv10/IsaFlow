@@ -101,11 +101,11 @@ describe('lockSupplierPaymentForUpdate: a payment re-pointed while it waited', (
     const moved = await plantSupplier(pool, c);
     // A merge-like writer re-points the payment and holds it.
     const merge = await pool.connect();
+    let release!: () => void;
+    const hold = new Promise<void>((res) => { release = res; });
     try {
       await merge.query('BEGIN');
       await merge.query('UPDATE supplier_payments SET supplier_id = $1 WHERE id = $2', [moved, p.id]);
-      let release!: () => void;
-      const hold = new Promise<void>((res) => { release = res; });
       const locker = startWriter(c, async () => {
         const row = await lockSupplierPaymentForUpdate(c, p.id);
         await hold; // keep the transaction (and its locks) open while the probe runs
@@ -123,6 +123,7 @@ describe('lockSupplierPaymentForUpdate: a payment re-pointed while it waited', (
       release();
       expect({ probe, locked: await locker.outcome }).toEqual({ probe: '55P03', locked: { ok: true } });
     } finally {
+      release();
       await merge.query('ROLLBACK').catch(() => undefined);
       merge.release();
     }
