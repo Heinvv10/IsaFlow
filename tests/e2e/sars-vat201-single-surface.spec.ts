@@ -34,6 +34,8 @@ const FORM = [
 const REPORT = {
   periodStart: '2026-09-01', periodEnd: '2026-09-30',
   sarsFields: FORM.map(([field, kind, amount]) => ({ field, label: `SARS field ${field}`, kind, group: 'output-supplies', amount })),
+  warnings: [{ code: 'uncoded-revenue-assumed-zero-rated', amount: 800, message: 'Confirm the uncoded revenue.' }],
+  filability: { filable: true, reason: null },
   outputInvoices: [], inputInvoices: [], degradedSources: [],
 };
 const ok = (data: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data }) });
@@ -123,4 +125,5 @@ test('the page prints the official SARS field numbers with the server amounts', 
   expect(numbers).toEqual(FORM.map(([field]) => field));
   await expect(page.getByTestId('vat201-field-13').getByTestId('vat201-field-amount')).toContainText(/1[\s ]?500[.,]00/);
   await expect(page.getByTestId('vat201-field-5').getByTestId('vat201-field-amount')).toHaveText('—');
+  await expect(page.getByTestId('vat201-notice-uncoded-revenue-assumed-zero-rated')).toContainText('Confirm');
 });

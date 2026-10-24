@@ -13,6 +13,11 @@
  *     `getNilRatedSupplies`, because a zero-rated or exempt supply posts no VAT
  *     control leg and the box basis never sees it (see that file).
  *
+ * DOMESTIC REVERSE CHARGE. The report numbers `input:reverse_charge` as 16 ("change
+ * in use"). DRC input tax is an ordinary claim, so here it joins field 15; DRC
+ * output tax stays in field 12. UNVERIFIED: SARS DRC guide not on file, so the
+ * field notes say so whenever DRC tax is present.
+ *
  * TWO RESIDUALS keep the form's own arithmetic true. Field 12 ("other and
  * imported services") is all output tax NOT on fields 4/4A, and field 18
  * ("other") is all input tax not on 14-17, so an unmapped VAT type (box
@@ -82,6 +87,7 @@ export const VAT201_SARS_LAYOUT: readonly Vat201SarsLayoutField[] = [
 ];
 
 const INCLUDES_VAT = 'Value including VAT: the form takes the tax in the next field as this value x r/(100+r).';
+const EXPORT_CAUTION = 'May include exported services, which belong in field 2: the ledger cannot tell exported goods from exported services.';
 const NOT_TRACKED = 'IsaFlow does not compute this field. Complete it on eFiling if it applies to this period.';
 const IMPORTED_CAPITAL = 'IsaFlow books imported goods in one box and cannot separate capital goods; that tax is included in field 15A.';
 
@@ -115,33 +121,56 @@ export function buildVat201SarsFields(report: ReportBoxes, nilRated: NilRatedSup
   const capital = boxOf(report, '1A');
   const field12 = r2(report.totals.outputTax - standard.tax - capital.tax);
 
+  // Domestic reverse charge INPUT tax is an ordinary input claim, so it is field
+  // 15 with the other goods and services — not field 16 (change in use), which
+  // is where the report's `input:reverse_charge` box number puts it. The report
+  // keeps its own numbering (the MCP and export consumers read it); this form
+  // re-homes the tax by VAT type. No ledger type says "capital", so DRC never
+  // reaches field 14. UNVERIFIED: SARS DRC guide not on file; the repo's own
+  // audit (docs/audits/2026-10-18/vat-fx-rounding.md V12) puts it in box 15.
+  const drcInput = r2(report.boxes
+    .filter((b) => b.direction === 'input' && b.vatType === 'reverse_charge')
+    .reduce((s, b) => s + b.tax, 0));
+  const drcOutput = r2(report.boxes
+    .filter((b) => b.direction === 'output' && b.vatType === 'reverse_charge')
+    .reduce((s, b) => s + b.tax, 0));
   const inputCapital = boxOf(report, '14').tax;
-  const inputOther = boxOf(report, '15').tax;
+  const inputOther = r2(boxOf(report, '15').tax + drcInput);
   const inputImported = boxOf(report, '14A/15A').tax;
-  const inputChange = boxOf(report, '16').tax;
   const inputBad = boxOf(report, '17').tax;
-  const field18 = r2(
-    report.totals.inputTax - inputCapital - inputOther - inputImported - inputChange - inputBad,
-  );
+  const field18 = r2(report.totals.inputTax - inputCapital - inputOther - inputImported - inputBad);
 
   const values: Record<string, { amount: number | null; note?: string }> = {
-    '1': { amount: r2(standard.base + standard.tax - nilRated.onTaxedJournals), note: INCLUDES_VAT },
+    '1': {
+      amount: r2(standard.base + standard.tax - (nilRated.onTaxedJournals - nilRated.onTaxedCapital)),
+      note: INCLUDES_VAT,
+    },
     '4': { amount: standard.tax },
-    '1A': { amount: r2(capital.base + capital.tax), note: INCLUDES_VAT },
+    '1A': { amount: r2(capital.base + capital.tax - nilRated.onTaxedCapital), note: INCLUDES_VAT },
     '4A': { amount: capital.tax },
     '2': { amount: r2(nilRated.zeroRated - nilRated.exported) },
-    '2A': { amount: nilRated.exported },
+    '2A': { amount: nilRated.exported, note: EXPORT_CAUTION },
     '3': { amount: nilRated.exempt },
     '12': {
       amount: field12,
-      note: unmappedNote(field12, boxOf(report, '12').tax, 'output tax'),
+      note: [
+        drcOutput !== 0
+          ? `Includes ${drcOutput.toFixed(2)} of domestic reverse charge output tax. UNVERIFIED: SARS DRC guide not on file.`
+          : undefined,
+        unmappedNote(field12, boxOf(report, '12').tax, 'output tax'),
+      ].filter(Boolean).join(' ') || undefined,
     },
     '13': { amount: r2(report.totals.outputTax) },
     '14': { amount: inputCapital },
     '14A': { amount: null, note: IMPORTED_CAPITAL },
-    '15': { amount: inputOther },
+    '15': {
+      amount: inputOther,
+      note: drcInput !== 0
+        ? `Includes ${drcInput.toFixed(2)} of domestic reverse charge input tax. UNVERIFIED: SARS DRC guide not on file.`
+        : undefined,
+    },
     '15A': { amount: inputImported },
-    '16': { amount: inputChange },
+    '16': { amount: null, note: NOT_TRACKED },
     '17': { amount: inputBad },
     '18': {
       amount: field18,
@@ -155,4 +184,43 @@ export function buildVat201SarsFields(report: ReportBoxes, nilRated: NilRatedSup
     const filled = values[layout.field] ?? { amount: null, note: NOT_TRACKED };
     return { ...layout, amount: filled.amount, ...(filled.note ? { note: filled.note } : {}) };
   });
+}
+
+export interface Vat201FormWarning {
+  code: 'negative-supply-value' | 'mixed-capital-and-nil-rated' | 'uncoded-revenue-assumed-zero-rated';
+  message: string;
+  amount: number;
+}
+
+const SUPPLY_VALUE_FIELDS = ['1', '1A', '2', '2A', '3'];
+
+/**
+ * What the reviewer should look at before filing, and that the form alone does
+ * not say. Not part of the pre-filing exceptions count: those feed the eFiling
+ * and mark-submitted gates, and these are judgement calls about classification
+ * that the user confirms, not figures that are wrong against the books.
+ */
+export function buildVat201Warnings(fields: readonly Vat201SarsField[], nilRated: NilRatedSupplies): Vat201FormWarning[] {
+  const warnings: Vat201FormWarning[] = [];
+  for (const f of fields) {
+    if (SUPPLY_VALUE_FIELDS.includes(f.field) && f.amount !== null && f.amount < 0) {
+      warnings.push({
+        code: 'negative-supply-value', amount: f.amount,
+        message: `Field ${f.field} is negative (${f.amount.toFixed(2)}). A VAT201 cannot declare a negative supply value; check the credit notes in this period.`,
+      });
+    }
+  }
+  if (nilRated.onTaxedAmbiguous !== 0) {
+    warnings.push({
+      code: 'mixed-capital-and-nil-rated', amount: nilRated.onTaxedAmbiguous,
+      message: `${nilRated.onTaxedAmbiguous.toFixed(2)} of zero-rated or exempt supplies sit on journals that also carry capital-goods and other taxed output. The ledger cannot say whether it comes off field 1 or 1A (it was taken from field 1). Check both.`,
+    });
+  }
+  if (nilRated.uncodedAssumedZeroRated !== 0) {
+    warnings.push({
+      code: 'uncoded-revenue-assumed-zero-rated', amount: nilRated.uncodedAssumedZeroRated,
+      message: `${nilRated.uncodedAssumedZeroRated.toFixed(2)} of revenue with no VAT code, on documents that raised no VAT, is reported as zero-rated (field 2). Confirm it is not exempt or exported.`,
+    });
+  }
+  return warnings;
 }

@@ -33,7 +33,7 @@ afterEach(() => { cleanup(); });
 describe('VAT201 mark-submitted', () => {
   const REPORT = { periodStart: '2026-01-01', periodEnd: '2026-02-28', field1_standardRatedSupplies: 0, field2_zeroRatedSupplies: 0,
     field3_exemptSupplies: 0, field4_totalImports: 0, field5_outputVAT: 0, field6_capitalGoods: 0, field7_otherGoods: 0, field8_services: 0,
-    field9_imports: 0, field10_totalInputVAT: 0, field11_vatPayableOrRefundable: 0, sarsFields: [], outputInvoices: [], inputInvoices: [] };
+    field9_imports: 0, field10_totalInputVAT: 0, field11_vatPayableOrRefundable: 0, sarsFields: [], warnings: [], filability: { filable: true, reason: null }, outputInvoices: [], inputInvoices: [] };
   const COUNTS = { totalExceptions: 2, unpostedInvoiceVatCount: 2 };
   const blocked = () => new Response(JSON.stringify({ success: false, error: { code: 'VAT_GATE', message: MSG, details: { counts: COUNTS } } }), { status: 400 });
   const open = async (submit: () => Response) => {

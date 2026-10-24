@@ -43,7 +43,7 @@ export function FormRow({
 
 // ── TransactionTable ──────────────────────────────────────────────────────────
 
-interface VAT201Invoice {
+export interface VAT201Invoice {
   id: string;
   invoiceNumber: string;
   counterpartyName: string;

@@ -10,7 +10,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({
   getEfilingConfig: vi.fn(),
   getVatExceptions: vi.fn(),
-  getLedgerVAT201: vi.fn(),
+  getVat201Return: vi.fn(),
+  payloadMapped: vi.fn(),
   authenticate: vi.fn(),
   submitVAT201: vi.fn(),
   pollStatus: vi.fn(),
@@ -34,9 +35,13 @@ vi.mock('@/modules/accounting/services/reports/sarsEfilingConfig', () => ({
 vi.mock('@/modules/accounting/services/reports/vatExceptionsService', () => ({ getVatExceptions: m.getVatExceptions }));
 // Only the IO is mocked. `evaluateVat201Filability` is pure and is the gate
 // under test here, so it runs for real.
-vi.mock('@/modules/accounting/services/reports/vat201LedgerFields', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/modules/accounting/services/reports/vat201LedgerFields')>()),
-  getLedgerVAT201: m.getLedgerVAT201,
+vi.mock('@/modules/accounting/services/reports/vat201Return', () => ({ getVat201Return: m.getVat201Return }));
+// The ISV payload is refused until it is remapped to SARS field numbers; the
+// tests of the gates BEHIND that refusal run as if it had shipped, and the
+// refusal itself is tested below with the real flag.
+vi.mock('@/modules/accounting/services/reports/sarsEfilingPayloadGuard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/reports/sarsEfilingPayloadGuard')>()),
+  isvPayloadMappedToSarsFields: m.payloadMapped,
 }));
 vi.mock('@/modules/accounting/services/reports/sarsEfilingClient', () => ({
   authenticate: m.authenticate,
@@ -60,6 +65,7 @@ import {
   EfilingBlockedError,
   EfilingSubmissionNotFoundError,
   EfilingAlreadyFiledError,
+  EfilingPayloadUnmappedError,
   draftDrift,
 } from '@/modules/accounting/services/reports/sarsEfilingSubmissionService';
 
@@ -89,6 +95,7 @@ function tiedRateCheck(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.payloadMapped.mockReturnValue(true);
   m.getEfilingConfig.mockReturnValue({ baseUrl: 'http://x', isvLogin: 'l', activationKey: 'k' });
   m.getEfilingSubmission.mockResolvedValue({
     id: SID, companyId: CID, formType: 'VAT201',
@@ -96,7 +103,7 @@ beforeEach(() => {
     efilingCorrelationId: null, efilingLastStatus: null, formData: { ...FILED_FIELDS },
   });
   m.getVatExceptions.mockResolvedValue(cleanReport());
-  m.getLedgerVAT201.mockResolvedValue({ ...FILED_FIELDS, rateCheck: tiedRateCheck() });
+  m.getVat201Return.mockResolvedValue({ ...FILED_FIELDS, rateCheck: tiedRateCheck() });
   m.getCompanyVatInfo.mockResolvedValue({ vatNumber: '4123456789', companyName: 'Test Co' });
   m.authenticate.mockResolvedValue({ token: 'tok' });
   m.submitVAT201.mockResolvedValue({ correlationId: 'CORR-1', status: 'received', httpStatus: 202 });
@@ -116,6 +123,40 @@ describe('evaluateEfilingGate (pure)', () => {
     const g = evaluateEfilingGate(cleanReport({ degradedData: true, degradedSources: ['customer_invoices'] }) as never);
     expect(g.allowed).toBe(false);
     expect(g.reason?.toLowerCase()).toContain('incomplete');
+  });
+});
+
+describe('the ISV payload is refused until it is mapped to SARS field numbers', () => {
+  it('refuses with a typed error, audits it, and reaches neither the gates nor SARS', async () => {
+    m.payloadMapped.mockReturnValue(false);
+    const err = await submitVAT201ToSars(CID, SID, UID).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EfilingPayloadUnmappedError);
+    expect(err).toBeInstanceOf(EfilingBlockedError);
+    expect((err as EfilingBlockedError).reason).toBe('payload not yet mapped to SARS field numbers');
+    expect(m.insertEfilingEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'blocked', message: 'payload not yet mapped to SARS field numbers',
+    }));
+    expect(m.getVatExceptions).not.toHaveBeenCalled();
+    expect(m.authenticate).not.toHaveBeenCalled();
+    expect(m.submitVAT201).not.toHaveBeenCalled();
+  });
+
+  it('is still unmapped in the shipped flag (flip it only in the change that sends sarsFields)', async () => {
+    const real = await vi.importActual<typeof import('@/modules/accounting/services/reports/sarsEfilingPayloadGuard')>(
+      '@/modules/accounting/services/reports/sarsEfilingPayloadGuard',
+    );
+    expect(real.isvPayloadMappedToSarsFields()).toBe(false);
+  });
+
+  it('keeps the SARS form out of the payload once it is mapped to the legacy keys', async () => {
+    m.getVat201Return.mockResolvedValue({
+      ...FILED_FIELDS, rateCheck: tiedRateCheck(), sarsFields: [], warnings: [], filability: { filable: true, reason: null },
+    });
+    await submitVAT201ToSars(CID, SID, UID);
+    const sent = m.submitVAT201.mock.calls[0]![2].fields as Record<string, unknown>;
+    expect(Object.keys(sent)).not.toEqual(expect.arrayContaining(['sarsFields']));
+    expect(sent).not.toHaveProperty('warnings');
+    expect(sent).not.toHaveProperty('filability');
   });
 });
 
@@ -201,7 +242,7 @@ describe('submitVAT201ToSars', () => {
   it('BLOCKS a return that fails SARS\'s own 15% check, and audits it', async () => {
     // R1 000 000 of standard supplies implies R150 000 of tax; R158 000 is
     // R8 000 out, well over the 0.5% bar of R790.
-    m.getLedgerVAT201.mockResolvedValue({
+    m.getVat201Return.mockResolvedValue({
       ...FILED_FIELDS,
       field5_outputVAT: 158000,
       rateCheck: tiedRateCheck({ ties: false, outputVariance: 8000, inputVariance: 0 }),
@@ -216,7 +257,7 @@ describe('submitVAT201ToSars', () => {
   it('files a variance that is immaterial against the tax declared', async () => {
     // R200 out on R150 000 is 0.13% — under the bar. vatBoxBasis's own R1
     // absolute tolerance would refuse this book forever.
-    m.getLedgerVAT201.mockResolvedValue({
+    m.getVat201Return.mockResolvedValue({
       ...FILED_FIELDS,
       field5_outputVAT: 150200,
       rateCheck: tiedRateCheck({ ties: false, outputVariance: 200 }),
@@ -233,7 +274,7 @@ describe('submitVAT201ToSars', () => {
 
   it('BLOCKS an input breakdown that contradicts its own total', async () => {
     const contradicted = { ...FILED_FIELDS, field7_otherGoods: -50000, field8_services: 150000 };
-    m.getLedgerVAT201.mockResolvedValue({ ...contradicted, rateCheck: tiedRateCheck() });
+    m.getVat201Return.mockResolvedValue({ ...contradicted, rateCheck: tiedRateCheck() });
     // Saved draft matches, so this is the filability gate and not draft drift.
     m.getEfilingSubmission.mockResolvedValue({
       id: SID, companyId: CID, formType: 'VAT201',
@@ -245,7 +286,7 @@ describe('submitVAT201ToSars', () => {
   });
 
   it('BLOCKS a return declaring a negative supply value', async () => {
-    m.getLedgerVAT201.mockResolvedValue({
+    m.getVat201Return.mockResolvedValue({
       ...FILED_FIELDS, field1_standardRatedSupplies: -4000, rateCheck: tiedRateCheck(),
     });
     await expect(submitVAT201ToSars(CID, SID, UID)).rejects.toThrow(/negative/);
@@ -300,6 +341,46 @@ describe('draftDrift (pure)', () => {
   it('refuses a draft with no figures rather than passing it', () => {
     expect(draftDrift(null, regenerated)).toHaveLength(1);
     expect(draftDrift({ some: 'other shape' }, regenerated)).toHaveLength(1);
+  });
+});
+
+describe('draftDrift — the SARS form', () => {
+  const field = (f: string, amount: number | null) => ({ field: f, amount });
+  const form = (over: Record<string, number | null> = {}) => {
+    const base: Record<string, number | null> = { '1': 11500, '1A': 0, '2': 0, '2A': 0, '3': 0, '12': 0, '15': 900, '17': 0, '18': 0, '14A': null, ...over };
+    return Object.entries(base).map(([f, a]) => field(f, a));
+  };
+  const saved = (sarsFields: unknown) => ({ ...FILED_FIELDS, sarsFields });
+  const now = (sarsFields: unknown) => ({ ...FILED_FIELDS, rateCheck: tiedRateCheck(), sarsFields }) as never;
+
+  it('passes when the saved SARS form matches', () => {
+    expect(draftDrift(saved(form()), now(form()))).toEqual([]);
+  });
+
+  it.each([
+    ['1 -> 1A', { '1': 0, '1A': 11500 }],
+    ['1 -> 12', { '1': 10000, '12': 1500 }],
+    ['15 -> 17', { '15': 0, '17': 900 }],
+    ['15 -> 18', { '15': 0, '18': 900 }],
+    ['2 -> 2A', { '2': 0, '2A': 400 }],
+  ])('blocks a reclassification that moves only SARS boxes (%s) with every legacy total unchanged', (_name, moved) => {
+    const drift = draftDrift(saved(form()), now(form(moved)));
+    expect(drift.length).toBeGreaterThan(0);
+    expect(drift.every((d) => d.startsWith('SARS field '))).toBe(true);
+  });
+
+  it('names the field and both amounts', () => {
+    const drift = draftDrift(saved(form()), now(form({ '1A': 500 })));
+    expect(drift).toEqual(['SARS field 1A 0.00 -> 500.00']);
+  });
+
+  it('sees an uncomputed field turn into a figure, and back', () => {
+    expect(draftDrift(saved(form({ '14A': null })), now(form({ '14A': 10 })))).toEqual(['SARS field 14A none -> 10.00']);
+    expect(draftDrift(saved(form({ '14A': 10 })), now(form({ '14A': null })))).toEqual(['SARS field 14A 10.00 -> none']);
+  });
+
+  it('does not compare the SARS form when the draft predates it', () => {
+    expect(draftDrift({ ...FILED_FIELDS }, now(form()))).toEqual([]);
   });
 });
 

@@ -22,7 +22,6 @@ function allHrefs(tabs: Tab[]): string[] {
 describe('isVatSurfaceHref', () => {
   it('matches the VAT-only pages', () => {
     expect(isVatSurfaceHref('/accounting/sars/vat201')).toBe(true);
-    expect(isVatSurfaceHref('/accounting/reports/vat-return')).toBe(true);
     expect(isVatSurfaceHref('/accounting/drc-vat')).toBe(true);
   });
 

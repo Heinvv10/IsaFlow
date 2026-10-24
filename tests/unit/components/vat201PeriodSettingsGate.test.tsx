@@ -14,20 +14,25 @@ vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock'
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/link', () => ({ default: ({ children }: { children: React.ReactNode }) => <a>{children}</a> }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
-vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ activeCompany: { id: 'c1' }, companyRole: 'owner', loading: false }) }));
+const ctx = vi.hoisted(() => ({ value: { activeCompany: { id: 'c1' } as { id: string } | null, companyRole: 'owner', loading: false } }));
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ctx.value }));
 vi.mock('@/hooks/useVatRegistration', () => ({ useVatRegistration: () => ({ isRegistered: true, known: true }) }));
 vi.mock('@/components/accounting/sars/VAT201ExceptionsPanel', () => ({ VAT201ExceptionsPanel: () => <div>exceptions</div> }));
 vi.mock('@/components/accounting/sars/VAT201SarsSubmit', () => ({ VAT201SarsSubmit: () => <div>sars</div> }));
 
 import VAT201Page from '../../../pages/accounting/sars/vat201';
 
-const REPORT = { periodStart: '2026-09-01', periodEnd: '2026-09-30', sarsFields: [], outputInvoices: [], inputInvoices: [] };
+const REPORT = {
+  periodStart: '2026-09-01', periodEnd: '2026-09-30', sarsFields: [], warnings: [],
+  filability: { filable: true, reason: null }, outputInvoices: [], inputInvoices: [],
+};
 const MONTHLY = { vatPeriod: 'monthly', vatSystemType: 'invoice', vatPeriodAlignment: 'even' };
 
 let releaseSettings: (r: Response) => void = () => {};
 const vatRequests = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('sars-vat201'));
 
 beforeEach(() => {
+  ctx.value = { activeCompany: { id: 'c1' }, companyRole: 'owner', loading: false };
   vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
     const u = String(url);
     if (u.includes('/api/accounting/companies?id=')) return new Promise<Response>((r) => { releaseSettings = r; });
@@ -71,5 +76,39 @@ describe('VAT201 period selector waits for the company VAT settings', () => {
     await act(async () => { releaseSettings(new Response('', { status: 500 })); });
     expect(await screen.findByText(/Could not load company VAT settings/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /generate/i })).toBeTruthy();
+  });
+
+  it('does not wait forever when there is no company to ask: the selector shows on its defaults', async () => {
+    ctx.value = { activeCompany: null, companyRole: 'owner', loading: false };
+    render(<VAT201Page />);
+    expect(await screen.findByRole('button', { name: /generate/i })).toBeTruthy();
+    expect(screen.queryByTestId('vat201-period-loading')).toBeNull();
+  });
+
+  it('keeps waiting while the company is still loading', () => {
+    ctx.value = { activeCompany: null, companyRole: 'owner', loading: true };
+    render(<VAT201Page />);
+    expect(screen.getByTestId('vat201-period-loading')).toBeTruthy();
+  });
+
+  it('puts the review notices on the page after Generate, and the filability warning in the manual submit modal', async () => {
+    const report = {
+      ...REPORT,
+      warnings: [{ code: 'uncoded-revenue-assumed-zero-rated', amount: 800, message: 'Confirm the uncoded revenue.' }],
+      filability: { filable: false, reason: 'field 1 is negative' },
+    };
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url, init) => {
+      const u = String(url);
+      if (u.includes('/api/accounting/companies?id=')) return ok(MONTHLY);
+      if (u.includes('sars-vat201')) return (init?.method ?? 'GET') === 'POST' ? ok({ id: 's1' }) : ok(report);
+      return ok({});
+    });
+    render(<VAT201Page />);
+    fireEvent.click(await screen.findByRole('button', { name: /generate/i }));
+    expect((await screen.findByTestId('vat201-notice-uncoded-revenue-assumed-zero-rated')).textContent).toMatch(/Confirm/);
+    expect(screen.getByTestId('vat201-notice-filability').textContent).toMatch(/field 1 is negative/);
+    fireEvent.click(await screen.findByRole('button', { name: /save draft/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /mark as submitted/i }));
+    expect((await screen.findByTestId('vat201-submit-filability-warning')).textContent).toMatch(/field 1 is negative/);
   });
 });

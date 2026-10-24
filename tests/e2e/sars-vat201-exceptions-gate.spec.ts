@@ -32,6 +32,7 @@ const VAT201_DATA = {
     { field: '19', label: 'Total input tax (14 + 14A + 15 + 15A + 16 + 17 + 18)', kind: 'tax', group: 'input-total', amount: 5000 },
     { field: '20', label: 'VAT payable / refundable (Total A - Total B)', kind: 'tax', group: 'result', amount: 10000 },
   ],
+  warnings: [], filability: { filable: true, reason: null },
   outputInvoices: [], inputInvoices: [], degradedSources: [],
 };
 
