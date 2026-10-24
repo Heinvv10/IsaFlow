@@ -12,6 +12,7 @@
  */
 import { sql } from '@/lib/neon';
 import { materialHash } from './canonical';
+import { fiscalYearForDate } from '../gl/fiscalYearRegistry';
 
 export type CanonicalRow = Record<string, string | null>;
 
@@ -34,16 +35,9 @@ export interface JournalRow { journalId: string; entryDate: string; row: Canonic
 export interface LineRow { lineId: string; journalId: string; row: CanonicalRow; materialHash: string }
 export interface TbRow { accountId: string; row: CanonicalRow }
 
-/** The first day of the fiscal year the cutoff falls in; 1 January when no fiscal period covers it. */
-export async function fiscalYearStart(companyId: string, cutoff: string): Promise<string> {
-  const [r] = (await sql`
-    SELECT COALESCE(
-      (SELECT min(fy.start_date) FROM fiscal_periods p
-         JOIN fiscal_periods fy ON fy.company_id = p.company_id AND fy.fiscal_year = p.fiscal_year
-        WHERE p.company_id = ${companyId}::UUID AND ${cutoff}::DATE BETWEEN p.start_date AND p.end_date),
-      date_trunc('year', ${cutoff}::DATE)::DATE)::TEXT AS start
-  `) as { start: string }[];
-  return r!.start;
+/** The first day of the registry fiscal year the cutoff falls in (a stored year, else the template year). */
+export async function registryYearStart(companyId: string, cutoff: string): Promise<string> {
+  return (await fiscalYearForDate(companyId, cutoff)).startDate;
 }
 
 export async function countPostedLines(companyId: string, cutoff: string): Promise<number> {
