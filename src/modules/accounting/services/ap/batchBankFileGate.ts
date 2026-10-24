@@ -48,14 +48,14 @@ export async function assertBatchMayBeSent(companyId: string, batchId: string, b
   // undone — sending either to the bank pays money no ledger records. A draft was never approved by anyone: with
   // enforcement off no approval gate stands behind it, so its status is the only evidence it may be paid.
   if (!SENDABLE_STATUSES.has(batchStatus)) throw new BatchNotSendableError(batchStatus);
-  // The payees are share-locked FIRST, in id order, held to the end of the request, enforcement on or off: a
-  // bank-detail edit (updateSupplier locks the supplier FOR UPDATE) waits for the file, or the file waits for it and
-  // the gate and the compare below see the new details.
+  // The payees are share-locked FIRST, in id order, then the paying account, held to the end of the request,
+  // enforcement on or off: a bank-detail edit or rename (updateSupplier locks the supplier FOR UPDATE) or an edit
+  // of the paying account waits for the file, or the file waits for it and the gate and compare see the new details.
   await lockBatchPayees(companyId, batchId);
   // Under enforcement the gate answers first, as it always has (APPROVAL_STALE for changed content).
   if (await isEnforced(companyId, 'payment_batch')) await assertApprovalCleared(companyId, 'payment_batch', batchId);
   // Then, enforcement on or off: the content the batch digest covers is what was approved (migration 922) — its
-  // payees, their bank details, the amounts; not the supplier NAME the file carries as beneficiary. A processed batch
-  // is compared too: its file is still built from the payees' live bank details.
+  // payees, their bank details and names, the amounts, the paying account's number and branch (923). A processed
+  // batch is compared too: its file is still built from the payees' live bank details.
   await assertBatchUnchangedSinceApproval(companyId, batchId);
 }

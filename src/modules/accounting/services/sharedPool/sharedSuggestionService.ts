@@ -4,7 +4,7 @@
  * getSharedSuggestions(companyId, lines): for bank lines nothing of the company's own matched, the pool's
  * category for each line's merchant, translated to the company's OWN GL account through its mapping.
  *   1. Each description goes through the same PII filter the job used; a rejected one is never looked up.
- *   2. shared_pool_lookup (906) answers only for the caller's active company, a company the caller belongs
+ *   2. shared_pool_lookup (931) answers only for the caller's active company, a company the caller belongs
  *      to, and only if it is pool-eligible; the exact keys asked, at most 500 per call. App roles have no
  *      privilege on the pool table itself.
  *   3. The category becomes the company's own account via company_category_mappings (RLS-bound to the

@@ -8,7 +8,7 @@
  * WHY THE WORK IS IN TS AND THE WRITE IS A DEFINER FUNCTION. The PII filter is TypeScript (heavily unit
  * tested, and the reader must run the identical code), and it must run before anything is counted, so
  * the aggregation cannot be a SQL function. The write still goes through one door, shared_pool_publish
- * (906): it refuses any field but the five the pool stores, and the table's CHECKs refuse a row under
+ * (931): it refuses any field but the five the pool stores, and the table's CHECKs refuse a row under
  * the thresholds, so a bug here can publish less, never a company id or a k-of-4 merchant.
  *
  * Full recompute every run: the pool is replaced, never patched. A bureau that opts out, a company that

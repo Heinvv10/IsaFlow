@@ -76,11 +76,12 @@ beforeEach(() => {
 afterAll(() => cleanupPr5(pool, companies, Object.values(u)));
 
 /** An approved batch of a company with payment_batch enforcement on, so the gate takes the payee locks. */
-async function approvedBatch() {
+async function approvedBatch(beforeApproval?: (b: Awaited<ReturnType<typeof plantBatch>>) => Promise<unknown>) {
   const { company: c, bank } = await payCompany(pool, [[u.a, 'admin'], [u.b, 'owner']], companies);
   for (const type of ['supplier_payment', 'payment_batch'] as const) await plantRule(pool, c, 'owner', { documentType: type });
   await enforcePay(pool, c, 'payment_batch', u.b);
   const b = await plantBatch(pool, c, u.a, bank);
+  await beforeApproval?.(b);
   await r.approvedBy(pool, u.a, u.b, c, 'payment_batch', b.id);
   expect((await r.batch(u.a, c, 'approve', b.id)).state.statusCode).toBe(200);
   return { c, bank, b, supplierId: b.members[0]!.supplierId };
@@ -123,6 +124,18 @@ describe('supplier writers against the bank-file gate: batch, then supplier', ()
     expect(await accountOf(supplierId)).toBe(NEW_ACCOUNT);
   });
 
+  it('a rename of a payee (approval content since 923) and an eft-generate of its batch do not deadlock', async () => {
+    const { c, b, supplierId } = await approvedBatch();
+    const { file, release } = await startParkedFileRequest(c, b.id, 'before'); // route holds the batch row
+    const edit = startWriter(c, () => updateSupplier(c, supplierId, { name: 'Renamed Payee' }, u.a));
+    expect(await blockedStatement(await edit.pid)).toContain(BATCHES);
+    release();
+    const [res, edited] = await Promise.all([file, edit.outcome]);
+
+    expect({ gate: gate.errorCode, edit: edited }).toEqual({ gate: undefined, edit: { ok: true } });
+    expect(res.state.statusCode, JSON.stringify(res.state.body)).toBe(200); // the file went first, as approved
+  });
+
   it('a supplier merge moving a payee and an eft-generate of its batch do not deadlock', async () => {
     const { c, b, supplierId } = await approvedBatch();
     const primary = await plantSupplier(pool, c);
@@ -153,11 +166,13 @@ describe('supplier writers against the bank-file gate: batch, then supplier', ()
   });
 
   it('a take-on import whose first row names no bank column and second one does does not deadlock with a file request', async () => {
-    const { c, b } = await approvedBatch(); // one batch paying both suppliers' rows below
-    const [s1, s2] = [b.members[0]!.supplierId, b.members[1]!.supplierId];
     const names = { s1: 'Alpha Traders', s2: 'Zulu Holdings' };
-    await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [s1, names.s1]);
-    await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [s2, names.s2]);
+    // Named before the approval: the name is approved content (migration 923).
+    const { c, b } = await approvedBatch(async (planted) => {
+      await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [planted.members[0]!.supplierId, names.s1]);
+      await pool.query('UPDATE suppliers SET name = $2 WHERE id = $1', [planted.members[1]!.supplierId, names.s2]);
+    }); // one batch paying both suppliers' rows below
+    const [s1, s2] = [b.members[0]!.supplierId, b.members[1]!.supplierId];
     const session = await inRequest(pool, u.a, c, () => createSession(c, 'sage', u.a));
     const { file, release } = await startParkedFileRequest(c, b.id, 'before');
     let result: Awaited<ReturnType<typeof importSuppliers>> | undefined;
@@ -177,12 +192,13 @@ describe('supplier writers against the bank-file gate: batch, then supplier', ()
   it('regression guard: an edit that touches no bank detail takes no batch lock', async () => {
     const { c, b, supplierId } = await approvedBatch();
     const { file, release } = await startParkedFileRequest(c, b.id, 'before'); // batch row held, no payee lock yet
-    const renamed = await startWriter(c, async (client) => {
+    // An email: the name is approved content since migration 923, so a rename would (rightly) refuse the file.
+    const edited = await startWriter(c, async (client) => {
       await client.query("SET LOCAL lock_timeout = '3s'");
-      return updateSupplier(c, supplierId, { name: 'Renamed Supplier' }, u.a);
+      return updateSupplier(c, supplierId, { email: 'edited@example.com' }, u.a);
     }).outcome;
     release();
-    expect(renamed).toEqual({ ok: true });
+    expect(edited).toEqual({ ok: true });
     expect((await file).state.statusCode).toBe(200);
   });
 });

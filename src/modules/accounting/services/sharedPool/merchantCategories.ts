@@ -15,7 +15,7 @@
  *
  * `poolable: false` — the category exists so a company can map it, but the pool never publishes it
  * (salaries: decision 1, "category only, never pooled from individual names"). The PII filter rejects
- * salary lines anyway; shared_pool_publish (906) refuses a non-poolable category as a second gate.
+ * salary lines anyway; shared_pool_publish (931) refuses a non-poolable category as a second gate.
  *
  * `aliases` drive the one-click auto-map (categoryMappingService.autoMapCategories): a company account
  * whose normalised name equals an alias, and is the only one that does, is proposed for the category.

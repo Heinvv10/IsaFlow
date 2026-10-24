@@ -24,7 +24,7 @@
 --    aggregation job reads it on the BYPASSRLS pool role, scoped by company_id.
 --    Grants: SELECT, INSERT, DELETE and UPDATE of the mapping columns only, for app_user.
 --
--- Rollback (906 references both tables: roll 906 back first):
+-- Rollback (931 references both tables: roll 931 back first):
 --   DROP TABLE IF EXISTS public.company_category_mappings;
 --   DROP TABLE IF EXISTS public.merchant_categories;
 -- Locks: two new tables; brief SHARE ROW EXCLUSIVE on companies and gl_accounts for the FK triggers.

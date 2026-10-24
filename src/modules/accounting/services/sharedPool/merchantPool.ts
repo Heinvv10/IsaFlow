@@ -21,7 +21,7 @@
  *      pattern the acceptance wrote, a rule made from it, a later 'pattern' suggestion accepted), is
  *      dropped. Only its 'recoded' decisions there still vote: the person chose an account themselves.
  *
- * The two thresholds are also CHECK constraints on shared_merchant_patterns (migration 906), so the table
+ * The two thresholds are also CHECK constraints on shared_merchant_patterns (migration 931), so the table
  * refuses a row under them whatever the writer; merchantPool.test.ts pins the constants to that file.
  */
 
