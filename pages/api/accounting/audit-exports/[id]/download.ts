@@ -30,7 +30,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   let bytes: Buffer;
   try {
     // A snapshot pack's ZIP is served only when its sealed manifest verifies; an older PDF-only pack has no seal.
-    bytes = file.contentType === 'application/zip' ? await verifiedPackZip(companyId, row) : await downloadCapturedDocument(file.bucket, file.path);
+    bytes = file.contentType === 'application/zip' ? await verifiedPackZip(companyId, row) : await downloadCapturedDocument(file.bucket, file.path, companyId);
   } catch (err) {
     if (respondAuditRefusal(res, err)) return;
     throw err;

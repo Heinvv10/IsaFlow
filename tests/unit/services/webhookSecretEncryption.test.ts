@@ -8,6 +8,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import crypto from 'crypto';
 
 const sqlMock = vi.fn();
+// Endpoint writes run on the migration_admin pool (S-07e part B): record its statements.
+const admin = vi.hoisted(() => ({ calls: [] as Array<{ text: string; values: unknown[] }>, rows: [] as unknown[] }));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminTx: async (_label: string, fn: (c: unknown) => Promise<unknown>) => fn({
+    query: async (text: string, values: unknown[]) => { admin.calls.push({ text, values }); return { rows: admin.rows }; },
+  }),
+}));
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 const safeFetchMock = vi.fn();
@@ -28,21 +35,22 @@ function row(secret: string | null) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  admin.calls.length = 0;
   process.env.ENCRYPTION_KEY = KEY;
 });
 afterEach(() => { delete process.env.ENCRYPTION_KEY; });
 
 describe('createWebhook — secret encrypted at rest', () => {
   it('stores ciphertext, never the plaintext secret', async () => {
-    sqlMock.mockResolvedValue([row('stored')]);
+    admin.rows = [row('stored')];
     await createWebhook('co-1', {
       name: 'n', url: 'https://hook.example.com/x',
       secret: 'super-secret-value', events: ['invoice.created'],
     });
-    const insert = sqlMock.mock.calls.find((c) =>
-      (c[0] as readonly string[]).join('?').includes('INSERT INTO webhook_endpoints'));
+    const insert = admin.calls.find((c) => c.text.includes('INSERT INTO webhook_endpoints'));
     expect(insert).toBeTruthy();
-    const stored = insert!.slice(1).find(
+    expect(sqlMock).not.toHaveBeenCalled();
+    const stored = insert!.values.find(
       (v): v is string => typeof v === 'string' && v.split(':').length === 3,
     );
     expect(stored).toBeTruthy();

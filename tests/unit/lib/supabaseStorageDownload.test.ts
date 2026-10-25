@@ -10,7 +10,7 @@ vi.mock('@supabase/storage-js', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { CapturedDocumentMissingError, downloadCapturedDocument } from '@/lib/supabaseStorage';
+import { CapturedDocumentMissingError, StorageObjectOutsideCompanyError, downloadCapturedDocument, signedUrlForCapturedDocument } from '@/lib/supabaseStorage';
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -21,7 +21,7 @@ beforeEach(() => {
 describe('downloadCapturedDocument', () => {
   it('returns the bytes', async () => {
     m.download.mockResolvedValue({ data: new Blob([new Uint8Array([1, 2, 3])]), error: null });
-    expect([...await downloadCapturedDocument('b', 'p')]).toEqual([1, 2, 3]);
+    expect([...await downloadCapturedDocument('b', 'co/p', 'co')]).toEqual([1, 2, 3]);
   });
 
   it.each([
@@ -31,7 +31,7 @@ describe('downloadCapturedDocument', () => {
     ['different case', { message: 'object not found', statusCode: '404' }],
   ])('throws CapturedDocumentMissingError for a 404 that names the object (%s)', async (_n, error) => {
     m.download.mockResolvedValue({ data: null, error });
-    await expect(downloadCapturedDocument('b', 'co/doc')).rejects.toBeInstanceOf(CapturedDocumentMissingError);
+    await expect(downloadCapturedDocument('b', 'co/doc', 'co')).rejects.toBeInstanceOf(CapturedDocumentMissingError);
   });
 
   it.each([
@@ -47,14 +47,29 @@ describe('downloadCapturedDocument', () => {
     ['a fetch failure', { message: 'fetch failed' }],
   ])('throws a plain Error for %s, so the read stays retryable', async (_n, error) => {
     m.download.mockResolvedValue({ data: null, error });
-    const err = await downloadCapturedDocument('b', 'co/doc').catch((e: unknown) => e);
+    const err = await downloadCapturedDocument('b', 'co/doc', 'co').catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(CapturedDocumentMissingError);
   });
 
   it('throws a plain Error when Storage answers with no data and no error', async () => {
     m.download.mockResolvedValue({ data: null, error: null });
-    const err = await downloadCapturedDocument('b', 'co/doc').catch((e: unknown) => e);
+    const err = await downloadCapturedDocument('b', 'co/doc', 'co').catch((e: unknown) => e);
     expect(err).not.toBeInstanceOf(CapturedDocumentMissingError);
+  });
+});
+
+// S-07e: the pointer columns are app-writable and this client bypasses storage RLS.
+describe('only the reading company\'s own objects', () => {
+  it.each([
+    ['another company\'s object', 'victim/doc'],
+    ['a prefix that only starts like it', 'co-other/doc'],
+    ['a climb out of the prefix', 'co/../victim/doc'],
+    ['an empty segment', 'co//doc'],
+    ['no prefix at all', 'doc'],
+  ])('refuses %s without asking Storage', async (_, path) => {
+    await expect(downloadCapturedDocument('b', path, 'co')).rejects.toBeInstanceOf(StorageObjectOutsideCompanyError);
+    await expect(signedUrlForCapturedDocument('b', path, 'co')).rejects.toBeInstanceOf(StorageObjectOutsideCompanyError);
+    expect(m.download).not.toHaveBeenCalled();
   });
 });
