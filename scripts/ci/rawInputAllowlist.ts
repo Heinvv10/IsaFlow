@@ -136,12 +136,13 @@ const TAG = '[raw-input-allowlist]';
 /** The whole gate; returns the process exit code. The base ref is settled BEFORE the slow ESLint run. */
 export async function runGate(deps: GateDeps): Promise<number> {
   const { env, git, log, error } = deps;
+  // Refused in CI for `--write` too: it does not read the base, but a CI that sets the override is wrong either way.
   const resolved = resolveBaseRef(env);
-  if (!resolved.ok && !deps.writing) {
+  if (!resolved.ok) {
     error(`${TAG} FAIL: ${resolved.reason}`);
     return 1;
   }
-  const ref = resolved.ok ? resolved.ref : 'origin/master';
+  const ref = resolved.ref;
 
   const text = deps.readList();
   if (text === null) {

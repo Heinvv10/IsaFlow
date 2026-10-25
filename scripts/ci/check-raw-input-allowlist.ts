@@ -7,12 +7,14 @@
  *   - a file is not on the list but violates (NEW), or has more than its count (GROWN);
  *   - a file has fewer than its count (SHRUNK) or none or is gone (STALE): lower or remove the entry, so
  *     fixing a form forces the list down in the same PR;
- *   - against the list on origin/master (RAW_INPUT_BASE_REF overrides the ref locally; on GitHub the gate
- *     refuses the override). The base ref is resolved before the ESLint run, so a refusal is instant. The
- *     whole flow is `runGate` in ./rawInputAllowlist.ts; this file only wires ESLint, git and the file system. an entry was ADDED or a
- *     count RAISED. When master has no list at that path (the PR that introduces it) the comparison is
- *     skipped and says so; any other git failure, or a base list that does not parse, fails the gate.
- *     With the ref itself missing the gate fails on GitHub (fetch-depth 0 provides it) and warns locally.
+ *   - against the list on origin/master (RAW_INPUT_BASE_REF overrides the ref locally; in CI the gate
+ *     refuses the override) an entry was ADDED or a count RAISED. The base ref is resolved before the ESLint
+ *     run, so a refusal is instant. When master has no list at that path (the PR that introduces it) the
+ *     comparison is skipped and says so; any other git failure, or a base list that does not parse, fails
+ *     the gate. With the ref itself missing the gate fails in CI (fetch-depth 0 provides it) and warns
+ *     locally.
+ *
+ * The whole flow is `runGate` in ./rawInputAllowlist.ts; this file only wires ESLint, git and the file system.
  *
  * Inline `eslint-disable` comments are switched off here (noInlineConfig), so a disable cannot hide a
  * violating file from this gate: it has to be on the list. The comparison logic is in ./rawInputAllowlist.ts.

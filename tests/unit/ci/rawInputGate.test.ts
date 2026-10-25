@@ -62,6 +62,22 @@ describe('runGate: the base-ref override in CI', () => {
   });
 });
 
+describe('runGate --write in CI', () => {
+  it('also refuses the override: --write does not read the base, but a CI that sets it is wrong', async () => {
+    const { d, out } = deps({ writing: true, env: { CI: '1', RAW_INPUT_BASE_REF: 'HEAD' } });
+    expect(await runGate(d)).toBe(1);
+    expect(out.error.join('\n')).toMatch(/RAW_INPUT_BASE_REF is set \(HEAD\) in CI/);
+    expect(d.actualCounts).not.toHaveBeenCalled();
+    expect(out.written).toEqual([]);
+  });
+
+  it('locally --write ignores the override and prunes', async () => {
+    const { d, out } = deps({ writing: true, env: { RAW_INPUT_BASE_REF: 'HEAD' }, readList: () => '{"a.tsx": 3}' });
+    expect(await runGate(d)).toBe(0);
+    expect(out.written).toEqual([{ 'a.tsx': 2 }]);
+  });
+});
+
 describe('runGate: outcomes', () => {
   it('passes when the list matches the tree and there is no list on the base yet', async () => {
     const { d, out } = deps();
