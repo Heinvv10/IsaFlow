@@ -8,6 +8,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Users2, Loader2, AlertCircle, Search, Info, CheckCircle2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, apiJson, assertOk } from '@/lib/apiFetch';
@@ -34,10 +35,11 @@ export default function CustomerDedupPage() {
   const [pending, setPending] = useState<PendingMerge | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
+  const afterToast = useTimeoutOnce();
   const showToast = useCallback((message: string, type: 'success' | 'error') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 5000);
-  }, []);
+    afterToast(() => setToast(null), 5000);
+  }, [afterToast]);
 
   const scan = useCallback(async () => {
     setIsLoading(true);

@@ -3,6 +3,7 @@
  * Route: /accounting/practice/tasks
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -105,7 +106,8 @@ export default function PracticeTasksPage() {
     return () => document.removeEventListener('mousedown', onOut);
   }, [popover]);
 
-  function flash(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000); }
+  const afterToast = useTimeoutOnce();
+  function flash(msg: string) { setToast(msg); afterToast(() => setToast(''), 3000); }
 
   async function doTransition(id: string, ns: PracticeTask['status']) {
     setPopover(null);
