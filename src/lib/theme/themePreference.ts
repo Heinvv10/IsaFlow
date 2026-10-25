@@ -54,4 +54,6 @@ export function resolveTheme(preference: ThemePreference, systemDark: boolean, l
 export function applyTheme(root: HTMLElement, theme: Theme): void {
   root.classList.toggle('dark', theme === 'dark');
   root.style.setProperty('color-scheme', theme);
+  // Set only by the provider (theme-init.js does not): tests wait on it to know hydration has applied the theme.
+  root.dataset.themeApplied = theme;
 }

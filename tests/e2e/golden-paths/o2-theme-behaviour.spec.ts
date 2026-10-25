@@ -43,7 +43,7 @@ test.describe('preference', () => {
   test('the client portal is light with Dark saved, and passes axe color-contrast', async ({ page }) => {
     await seedTheme(page, 'dark');
     await page.goto('/portal', { waitUntil: 'domcontentloaded' });
-    await page.waitForSelector('input, button');
+    await page.waitForSelector('html[data-theme-applied]'); // the provider has run: nothing can flip it later
     expect(await rootTheme(page)).toEqual({ dark: false, scheme: 'light' });
     expect(await page.evaluate(() => window.localStorage.getItem('accounting-theme'))).toBe('dark');
     expect(await axeContrastFailures(page)).toEqual([]);

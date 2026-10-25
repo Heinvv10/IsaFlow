@@ -48,6 +48,7 @@ beforeEach(() => {
   window.localStorage.clear();
   root().classList.remove('dark');
   root().style.removeProperty('color-scheme');
+  delete root().dataset.themeApplied;
   mockMatchMedia(false);
 });
 afterEach(cleanup);
@@ -60,6 +61,12 @@ describe('ThemeProvider', () => {
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe('light');
     expect(root().classList.contains('dark')).toBe(false);
     expect(scheme()).toBe('light');
+  });
+
+  it('records which theme the provider applied, for browser tests to wait on', () => {
+    window.localStorage.setItem(STORAGE_KEY, 'light');
+    render(<ThemeProvider><Probe /></ThemeProvider>);
+    expect(root().dataset.themeApplied).toBe('light');
   });
 
   it('defaults to dark when nothing is saved, and does not write a preference nobody chose', () => {
