@@ -6,7 +6,8 @@
  * composited down the DOM ancestor chain, taking the worst colour stop of a gradient. It does
  * not model overlapping siblings (axe uses the paint stack), so it can differ from axe at the
  * edges; it is the same measurement as the look-and-feel probe that scored the light theme 1.38.
- * AA: 4.5:1 for body text, 3:1 for large text (>= 24 px, or >= 18.66 px bold).
+ * AA: 4.5:1 for body text, 3:1 for large text (>= 24 px, or >= 18.66 px bold). Disabled controls and the
+ * labels of disabled controls are exempt, as in WCAG and axe.
  */
 import type { Page } from '@playwright/test';
 
@@ -117,6 +118,10 @@ function auditInPage(): ContrastReport {
     seen.add(el);
     if (skipTags.has(el.tagName) || el.closest('[aria-hidden="true"],[inert]')) return;
     if ((el as HTMLButtonElement).disabled || el.closest(':disabled')) return;
+    // WCAG exempts inactive components: the label of a disabled checkbox / input (a comparator with no data behind it).
+    const lblEl = el.closest("label");
+    const controlOf = lblEl ? (lblEl.control ?? lblEl.querySelector("input,select,textarea")) : null;
+    if (controlOf && (controlOf as HTMLInputElement).disabled) return;
     if (!visible(el)) return;
     const r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return;

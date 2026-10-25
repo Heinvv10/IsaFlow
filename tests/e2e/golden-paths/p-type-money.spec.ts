@@ -78,6 +78,9 @@ for (const screen of SCREENS) {
       { timeout: 90_000 },
     );
     await page.waitForTimeout(1500); // late rows: widgets and tables fill in after the first amount
+    // The first amounts can be a skeleton or a chart axis that remounts when the company finishes loading (cold
+    // dev compile on CI): wait for the screen to hold amounts for a probe, not just for the first one to appear.
+    await expect.poll(async () => (await probe(page, screen.amount)).amounts, { timeout: 20_000 }).toBeGreaterThan(0);
     const seen = await probe(page, screen.amount);
 
     expect(seen.amounts, 'the screen shows at least one amount').toBeGreaterThan(0);
