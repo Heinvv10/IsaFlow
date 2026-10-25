@@ -70,9 +70,8 @@ function handler(name: string, mode: Mode): (req: unknown, res: TestResponse) =>
     }
     if (mode === 'commit-fails' || mode === 'flush-then-commit-fails') {
       // A deferred FK that is violated only at COMMIT, so the handler's own answer is a 200.
-      await sql`CREATE TEMP TABLE r159_deferred (id int PRIMARY KEY,
-        ref int REFERENCES r159_deferred (id) DEFERRABLE INITIALLY DEFERRED) ON COMMIT DROP`;
-      await sql`INSERT INTO r159_deferred VALUES (1, 2)`;
+      // A table of the fixture's (945 takes TEMPORARY from the app roles).
+      await sql`INSERT INTO public.r159_deferred VALUES (${Math.floor(Math.random() * 1e9)}, -1)`;
       if (mode === 'flush-then-commit-fails') { res.writeHead(200); res.write('partial'); return res.end('rest'); }
       return res.status(200).json({ success: true });
     }
@@ -100,6 +99,9 @@ const wrappers: Array<[string, (m: Mode, n: string) => (req: never, res: never) 
 
 beforeAll(async () => {
   vi.stubEnv('EXTENSION_SIGNING_KEY', 'r159-disposable-extension-signing-key-0123456789');
+  await pool.query(`CREATE TABLE IF NOT EXISTS public.r159_deferred (id int PRIMARY KEY,
+    ref int REFERENCES public.r159_deferred (id) DEFERRABLE INITIALLY DEFERRED)`);
+  await pool.query('GRANT INSERT ON public.r159_deferred TO app_user');
   await pool.query('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [CO, 'R159 throw responds']);
   await pool.query("INSERT INTO users (id, email, role, is_active) VALUES ($1, $2, 'admin', true)",
     [USER, `r159-${USER}@isaflow.test`]);
@@ -127,6 +129,7 @@ afterAll(async () => {
     }
     await pool.query('DELETE FROM companies WHERE id = $1', [CO]);
     await pool.query('DELETE FROM users WHERE id = $1', [USER]);
+    await pool.query('DROP TABLE IF EXISTS public.r159_deferred');
   } finally {
     await pool.end();
     vi.unstubAllEnvs();

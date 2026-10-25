@@ -180,7 +180,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     FROM subscription_charges c
     JOIN subscription_mandates m ON m.id = c.mandate_id
     JOIN companies co ON co.id = c.company_id AND co.status IS DISTINCT FROM 'deleted'
-    LEFT JOIN users u ON u.id = m.authorised_by
+    LEFT JOIN users u ON u.id = m.authorised_by::text
     WHERE c.gateway = 'paystack'
       -- Unattributed charges cannot be settled (624's CHECK) and the rejection
       -- would land after the money moved — skip them before Paystack, not after.

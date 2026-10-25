@@ -95,10 +95,13 @@ describe('append-only', () => {
 
   it('nobody but the owner can attach the capture to a table of their own', async () => {
     const { c } = await companyWithHistory();
+    // Since 945 an app role cannot create the temp table at all; nor may it attach the capture to one it had.
     expect(await outcome(asApp(pool, a, c, async (db) => {
       await db.query('CREATE TEMP TABLE forge(id uuid, company_id uuid) ON COMMIT DROP');
       await db.query("CREATE TRIGGER forge AFTER INSERT ON forge FOR EACH ROW EXECUTE FUNCTION public.entity_change_capture('supplier')");
-    }))).toMatch(/^42501: permission denied for function (public\.)?entity_change_capture/);
+    }))).toMatch(/^42501: permission denied to create temporary tables/);
+    expect((await pool.query(`SELECT has_function_privilege(r, 'public.entity_change_capture()', 'EXECUTE') AS x
+      FROM unnest(ARRAY['app_user', 'app_service']) r`)).rows).toEqual([{ x: false }, { x: false }]);
     for (const fn of ["public.entity_change_projection('supplier', '{}')", "public.entity_change_keys('{}', '{}')",
       "public.entity_change_secret_digest('x')"]) {
       expect(await outcome(asApp(pool, a, c, (db) => db.query(`SELECT ${fn}`))), fn).toMatch(/^42501/);
