@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -94,7 +95,7 @@ export default function UnallocatedReceiptsReport() {
                         <Link href={`/accounting/customer-payments/${r.id}`} className="hover:text-blue-400">{r.paymentNumber}</Link>
                       </td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.clientName}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.date?.split('T')[0]}</td>
+                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date)}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(r.amount))}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(Number(r.allocatedAmount))}</td>
                       <td className="px-4 py-3 text-right tabular-nums font-bold text-amber-400">{fmt(Number(r.amount) - Number(r.allocatedAmount))}</td>

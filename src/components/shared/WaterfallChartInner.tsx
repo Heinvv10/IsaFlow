@@ -1,5 +1,6 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
+import { formatMoneyCompact } from '@/lib/money/formatMoney';
 
 interface Props {
   data: WaterfallStep[];
@@ -14,10 +15,7 @@ const COLORS: Record<string, string> = {
   teal: '#0d9488',
 };
 
-const defaultFormat = (n: number) =>
-  n >= 1_000_000 ? `R ${(n / 1_000_000).toFixed(1)}M`
-  : n >= 1_000 ? `R ${(n / 1_000).toFixed(0)}K`
-  : `R ${n.toFixed(0)}`;
+const defaultFormat = (n: number) => formatMoneyCompact(n, { decimals: 0 });
 
 export default function WaterfallChartInner({ data, height = 300, formatValue = defaultFormat }: Props) {
   const chartData = data.map(step => ({

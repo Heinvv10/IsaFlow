@@ -63,8 +63,7 @@ function formatRands(cents: number): string {
 
 function formatDate(val: string | null): string {
   if (!val) return '—';
-  try { return formatDisplayDate(val, ''); }
-  catch { return val; }
+  return formatDisplayDate(val);
 }
 
 export default function NetcashSubmissionsPage() {

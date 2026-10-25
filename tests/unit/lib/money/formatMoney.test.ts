@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatAmount, formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
+import { formatAmount, formatMoney, formatMoneyCompact, formatRate } from '@/lib/money/formatMoney';
 
 const NB = '\xa0';
 
@@ -84,5 +84,16 @@ describe('formatMoneyCompact', () => {
     expect(formatMoneyCompact(172.5)).toBe('R 172.50');
     expect(formatMoneyCompact(-172.5, { decimals: 0 })).toBe('-R 173');
     expect(formatMoneyCompact(0)).toBe('R 0.00');
+  });
+});
+
+describe('formatRate', () => {
+  it('keeps four to six decimals and groups the integer part', () => {
+    expect(formatRate(18.333)).toBe('18.3330');
+    expect(formatRate(0.054321)).toBe('0.054321');
+    expect(formatRate(0.05432)).toBe('0.05432');
+    expect(formatRate(1)).toBe('1.0000');
+    expect(formatRate(1234.5)).toBe(`1${NB}234.5000`);
+    expect(formatRate(18.1234567)).toBe('18.123457');
   });
 });

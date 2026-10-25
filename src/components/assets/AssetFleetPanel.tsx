@@ -49,7 +49,7 @@ function LinkedBankTransactions({ assetId, version }: { assetId: string; version
       <tbody>
         {rows.map(r => (
           <tr key={r.id} className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-primary)]">
-            <td className="px-2 py-1.5">{formatDisplayDate(r.transactionDate, '')}</td>
+            <td className="px-2 py-1.5">{formatDisplayDate(r.transactionDate)}</td>
             <td className="px-2 py-1.5">
               <Link href={`/accounting/bank-transactions?account_id=${encodeURIComponent(r.bankAccountId)}`} className="text-blue-400 hover:text-blue-300">
                 {r.bankAccountName ?? 'Bank account'}

@@ -22,7 +22,7 @@ const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs 
  *  display name yet — so the id is the fallback rather than an empty byline. */
 function byline(a: Annotation): string {
   const who = a.authorName ?? a.author;
-  return `${who} · ${formatDisplayDate(a.createdAt, '')}`;
+  return `${who} · ${formatDisplayDate(a.createdAt)}`;
 }
 
 export function AnnotationThread({ rowId, rowLabel, annotations, onCreate, onResolve, onClose }: {

@@ -20,7 +20,7 @@ export const fmtZAR = (n: number | null) =>
 
 export const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatDisplayDate(s, ''); } catch { return String(s); }
+  return formatDisplayDate(s);
 };
 
 function DaysOverdueBadge({ d }: { d: number }) {

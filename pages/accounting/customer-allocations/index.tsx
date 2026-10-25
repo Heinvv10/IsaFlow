@@ -9,6 +9,7 @@ import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const fmt = (n: number) => formatMoney(n);
 
@@ -141,7 +142,7 @@ export default function CustomerAllocationsPage() {
                         <span className="text-sm font-medium text-[var(--ff-text-primary)]">{p.paymentNumber}</span>
                         <span className="text-sm tabular-nums text-amber-400">{fmt(p.amount - p.allocatedAmount)}</span>
                       </div>
-                      <div className="text-xs text-[var(--ff-text-tertiary)]">{p.clientName} &middot; {p.date?.split('T')[0]}</div>
+                      <div className="text-xs text-[var(--ff-text-tertiary)]">{p.clientName} &middot; {formatDisplayDate(p.date)}</div>
                     </button>
                   ))}
                 </div>
@@ -171,7 +172,7 @@ export default function CustomerAllocationsPage() {
                             <span className="text-sm text-[var(--ff-text-primary)]">{inv.invoiceNumber}</span>
                             <span className="text-sm tabular-nums text-[var(--ff-text-primary)]">{fmt(inv.outstanding)}</span>
                           </div>
-                          <p className="text-xs text-[var(--ff-text-tertiary)]">{inv.date?.split('T')[0]} &middot; Total: {fmt(inv.total)}</p>
+                          <p className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(inv.date)} &middot; Total: {fmt(inv.total)}</p>
                         </div>
                         {allocs[inv.id] !== undefined && (
                           <input type="number" value={allocs[inv.id]} step="0.01" min="0" max={inv.outstanding}

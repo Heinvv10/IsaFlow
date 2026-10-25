@@ -49,7 +49,7 @@ function InvoiceHeaderPreview({ state }: { state: WizardState }) {
         <div className="text-right">
           <p className="text-base font-bold text-teal-600 dark:text-teal-400">INVOICE</p>
           <p className="text-gray-500 dark:text-gray-400">{num}</p>
-          <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500">{formatDisplayDate(new Date(), '')}</p>
+          <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500">{formatDisplayDate(new Date())}</p>
         </div>
       </div>
     </div>

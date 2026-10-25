@@ -69,7 +69,7 @@ const fmt = (n: number) => formatMoney(n);
 const fmtDate = (s: string) => {
   if (!s) return '';
   const d = new Date(s);
-  return formatDisplayDate(d, '');
+  return formatDisplayDate(d);
 };
 
 const BUCKETS: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];

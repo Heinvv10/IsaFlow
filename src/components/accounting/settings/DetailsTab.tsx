@@ -275,7 +275,7 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
                   <tr key={doc.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                     <td className="py-3 text-[var(--ff-text-primary)]">{DOC_TYPE_LABELS[doc.documentType] || doc.documentType}</td>
                     <td className="py-3 text-[var(--ff-text-secondary)] flex items-center gap-2"><FileText className="h-4 w-4 text-[var(--ff-text-tertiary)]" />{doc.documentName}</td>
-                    <td className="py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(doc.createdAt, '')}</td>
+                    <td className="py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(doc.createdAt)}</td>
                     <td className="py-3 text-[var(--ff-text-secondary)]">{formatFileSize(doc.fileSize)}</td>
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-2">

@@ -34,7 +34,7 @@ type FilterTab = 'all' | 'expiring' | 'expired' | 'converted';
 
 /* --------------------------------------------------------------- helpers */
 function fmtDate(iso: string): string {
-  return formatDisplayDate(iso, '');
+  return formatDisplayDate(iso);
 }
 
 function daysLeftBadge(days: number) {

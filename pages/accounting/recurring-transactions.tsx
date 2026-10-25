@@ -206,10 +206,10 @@ export default function RecurringTransactionsPage() {
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{ENTITY_LABELS[t.entityType]}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{FREQ_LABELS[t.frequency]}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-                            {t.nextRunDate ? formatDisplayDate(t.nextRunDate, '') : '—'}
+                            {t.nextRunDate ? formatDisplayDate(t.nextRunDate) : '—'}
                           </td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
-                            {t.lastRunDate ? formatDisplayDate(t.lastRunDate, '') : '—'}
+                            {t.lastRunDate ? formatDisplayDate(t.lastRunDate) : '—'}
                           </td>
                           <td className="px-4 py-3">
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${t.isActive ? 'bg-green-500/15 text-green-400' : 'bg-gray-500/15 text-gray-400'}`}>

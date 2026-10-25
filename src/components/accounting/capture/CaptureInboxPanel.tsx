@@ -11,6 +11,7 @@ import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { GateBadge, RULE_FAILED, type GateInfo } from './CaptureGateBadge';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 // ─── Shared types (re-exported for page use) ──────────────────────────────────
 
@@ -54,7 +55,7 @@ export interface InboxAddress { id: string; address: string }
 
 export function fmtDate(val: string | Date | null | undefined): string {
   if (!val) return '—';
-  try { return new Date(val).toLocaleString('en-ZA'); } catch { return String(val); }
+  try { return formatDisplayDateTime(val); } catch { return String(val); }
 }
 
 export function fmtZAR(val: number | null | undefined): string {

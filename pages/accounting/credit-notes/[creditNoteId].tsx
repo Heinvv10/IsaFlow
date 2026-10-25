@@ -13,6 +13,7 @@ import { formatCurrency, formatDate } from '@/utils/formatters';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import { creditNoteApprovalType } from '@/modules/accounting/services/gl/approvalDocumentTypes';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
@@ -182,13 +183,13 @@ export default function CreditNoteDetailPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: 'Type', value: note.type },
-              { label: 'Credit Date', value: note.creditDate?.split('T')[0] },
+              { label: 'Credit Date', value: formatDisplayDate(note.creditDate) },
               { label: 'Invoice Ref', value: note.invoiceNumber || '—' },
               { label: 'VAT Rate', value: `${note.taxRate}%` },
               { label: 'Subtotal', value: formatCurrency(Number(note.subtotal)) },
               { label: 'VAT', value: formatCurrency(Number(note.taxAmount)) },
               { label: 'Total Amount', value: formatCurrency(Number(note.totalAmount)), hl: true },
-              { label: 'Created', value: note.createdAt?.split('T')[0] },
+              { label: 'Created', value: formatDisplayDate(note.createdAt) },
             ].map((c, i) => (
               <div key={i} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
                 <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">{c.label}</p>
@@ -207,7 +208,7 @@ export default function CreditNoteDetailPage() {
           {note.approvedBy && (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase mb-1">Approved</p>
-              <p className="text-sm text-[var(--ff-text-secondary)]">By {note.approvedBy} on {note.approvedAt?.split('T')[0]}</p>
+              <p className="text-sm text-[var(--ff-text-secondary)]">By {note.approvedBy} on {formatDisplayDate(note.approvedAt)}</p>
             </div>
           )}
 

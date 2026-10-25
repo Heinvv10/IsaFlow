@@ -38,9 +38,8 @@ function StatusBadge({ status }: { status: string }) {
 
 function toDateStr(val: Date | string | null | undefined): string {
   if (!val) return '—';
-  if (val instanceof Date) return formatDisplayDate(val, '');
-  const s = String(val);
-  return s.split('T')[0] ?? s;
+  if (val instanceof Date) return formatDisplayDate(val);
+  return formatDisplayDate(String(val));
 }
 
 export default function SupplierCreditNoteDetailPage() {

@@ -91,7 +91,7 @@ function relativeTime(raw: string | Date): string {
   if (diffHr < 24)    return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`;
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 30)   return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
-  return formatDisplayDate(date, '');
+  return formatDisplayDate(date);
 }
 
 function creatorName(activity: CustomerActivity): string {

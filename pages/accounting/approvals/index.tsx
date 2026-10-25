@@ -229,7 +229,7 @@ export default function ApprovalsPage() {
                     {req.amount != null && <span className="ml-2 text-teal-500">{formatCurrency(req.amount)}</span>}
                   </p>
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
-                    Requested by {req.requestedByName || 'Unknown'} • {formatDisplayDate(req.requestedAt, '')}
+                    Requested by {req.requestedByName || 'Unknown'} • {formatDisplayDate(req.requestedAt)}
                     {req.decidedByName && ` • Decided by ${req.decidedByName}`}
                   </p>
                 </div>

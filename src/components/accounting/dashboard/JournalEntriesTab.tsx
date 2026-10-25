@@ -117,7 +117,7 @@ export function JournalEntriesTab() {
                       </Link>
                     </td>
                     <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)]">
-                      {formatDisplayDate(entry.entryDate, '')}
+                      {formatDisplayDate(entry.entryDate)}
                     </td>
                     <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)] max-w-xs truncate">
                       {entry.description || '-'}

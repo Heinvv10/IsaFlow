@@ -13,6 +13,7 @@ import {
   Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
   PowerOff, ChevronLeft, ListChecks, CheckCircle2, XCircle,
 } from 'lucide-react';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Connection {
   id: string;
@@ -45,7 +46,7 @@ type ToastState = { msg: string; ok: boolean } | null;
 
 function fmtDate(val: string | null | undefined): string {
   if (!val) return 'never';
-  try { return new Date(val).toLocaleString('en-ZA'); } catch { return String(val); }
+  try { return formatDisplayDateTime(val); } catch { return String(val); }
 }
 
 function StatusPill({ status }: { status: Connection['status'] }) {

@@ -19,7 +19,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 // ---------- helpers ----------
 
 function fmtDate(iso: string) {
-  return iso ? formatDisplayDate(iso, '') : '—';
+  return iso ? formatDisplayDate(iso) : '—';
 }
 function fmtMoney(n: number | null) {
   if (n == null) return '—';

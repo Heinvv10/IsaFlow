@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, History, ArrowLeft, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatDisplayDate, formatDisplayTime } from '@/utils/dateFormat';
 
 type Tone = 'polite' | 'firm' | 'final' | 'legal';
 type EmailStatus = 'sent' | 'failed' | 'pending';
@@ -55,7 +55,7 @@ const RESPONSE_BADGE: Record<ResponseAction, string> = {
 function fmtDateTime(iso: string): string {
   if (!iso) return '';
   const d = new Date(iso);
-  return `${formatDisplayDate(d, '')} ${d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' })}`;
+  return `${formatDisplayDate(d)} ${formatDisplayTime(d)}`;
 }
 
 export default function DunningRunsPage() {

@@ -155,7 +155,7 @@ export default function SupplierCreditNotesPage() {
                       <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{cn.supplierName ?? '—'}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 font-mono text-xs">{cn.invoiceNumber ?? '—'}</td>
                       <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">
-                        {formatDisplayDate(cn.creditDate, '')}
+                        {formatDisplayDate(cn.creditDate)}
                       </td>
                       <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">
                         {formatCurrency(cn.totalAmount)}

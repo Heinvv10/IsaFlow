@@ -102,5 +102,5 @@ export const fmtPct = (n: number) => `${Number(n).toFixed(4)}%`;
 
 export const fmtDate = (d: string) => {
   if (!d) return '—';
-  return formatDisplayDate(d, '');
+  return formatDisplayDate(d);
 };

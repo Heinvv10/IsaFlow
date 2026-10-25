@@ -247,7 +247,7 @@ export default function TaxDirectivesPage() {
                         {TYPE_LABELS[d.directiveType]}
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
-                        {formatDisplayDate(d.effectiveDate, '')}
+                        {formatDisplayDate(d.effectiveDate)}
                       </td>
                       <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
                         {fmtCurrency(d.amount)}

@@ -137,7 +137,7 @@ export default function VatUnpostedInvoicesSection({ report, Section, onChanged 
               <td className={td}>{u.invoiceNumber}</td>
               <td className={td}>{u.invoiceKind}</td>
               <td className={td}>{u.counterpartyName}</td>
-              <td className={td}>{formatDisplayDate(u.invoiceDate, '')}</td>
+              <td className={td}>{formatDisplayDate(u.invoiceDate)}</td>
               <td className={td}>{REASON_LABEL[u.reason]}</td>
               <td className={tdNum}>{fmt(u.vat)}</td>
             </tr>

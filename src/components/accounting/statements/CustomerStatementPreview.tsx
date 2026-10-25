@@ -6,6 +6,7 @@
 import { useRouter } from 'next/router';
 import { ClipboardList, ExternalLink } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export interface Customer { id: string; name: string; email?: string | null; phone?: string | null; }
 
@@ -51,8 +52,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 function formatDate(d: string): string {
-  const parts = d.split('T')[0]?.split('-') ?? [];
-  return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+  return formatDisplayDate(d);
 }
 
 function getTxnUrl(txn: StatementTransaction): string | null {

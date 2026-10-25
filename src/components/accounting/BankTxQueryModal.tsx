@@ -38,7 +38,7 @@ interface Props {
 
 function formatShortDate(raw: string | null): string {
   if (!raw) return '';
-  return formatDisplayDate(raw, '');
+  return formatDisplayDate(raw);
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────

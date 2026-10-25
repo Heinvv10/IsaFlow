@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { XCircle, Plus, Check, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface WriteOff {
   id: string; writeOffNumber: string; clientId: string; clientName?: string;
@@ -159,7 +160,7 @@ export default function WriteOffsPage() {
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.clientName || '—'}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.invoiceNumber || '—'}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(item.amount)}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.writeOffDate?.split('T')[0]}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(item.writeOffDate)}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[item.status] || ''}`}>{item.status}</span></td>
                     <td className="px-4 py-3">
                       {item.status === 'draft' && (

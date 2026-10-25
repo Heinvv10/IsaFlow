@@ -245,7 +245,7 @@ export default function BureauDashboardPage() {
                       : it.detail
                   }
                   amount={it.amount ?? null}
-                  meta={it.dueAt ? formatDisplayDate(it.dueAt, '') : '—'}
+                  meta={it.dueAt ? formatDisplayDate(it.dueAt) : '—'}
                 />
               );
             })}

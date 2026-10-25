@@ -13,6 +13,7 @@ import type { PeriodRange } from '@/components/practice/PeriodPicker';
 import { downloadCsv, reportFilename } from '@/lib/csvExport';
 import type { CsvColumn } from '@/lib/csvExport';
 import { localISODate, monthStartISO } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 function firstOfMonth() { return monthStartISO(); }
 function todayIso() { return localISODate(); }
@@ -124,7 +125,7 @@ export default function ServiceMixPage() {
                         <tr key={r.jobCategoryId} className={i % 2 === 1 ? 'bg-slate-50/5' : ''}>
                           <td className={`${TD} font-medium text-[var(--ff-text-primary)]`}>{r.name}</td>
                           <td className={`${TD} text-right tabular-nums`}>{r.hours.toFixed(2)}</td>
-                          <td className={`${TD} text-right tabular-nums`}>R{r.value.toFixed(2)}</td>
+                          <td className={`${TD} text-right tabular-nums`}>{formatMoney(r.value)}</td>
                           <td className={`${TD} min-w-[160px]`}><PctBar pct={r.pct} /></td>
                         </tr>
                       ))
@@ -135,7 +136,7 @@ export default function ServiceMixPage() {
                       <tr className="border-t-2 border-[var(--ff-border-primary)] bg-slate-50/10">
                         <td className={TF}>Totals</td>
                         <td className={`${TF} text-right tabular-nums`}>{totals.hours.toFixed(2)}</td>
-                        <td className={`${TF} text-right tabular-nums`}>R{totals.value.toFixed(2)}</td>
+                        <td className={`${TF} text-right tabular-nums`}>{formatMoney(totals.value)}</td>
                         <td className={TF}>100%</td>
                       </tr>
                     </tfoot>

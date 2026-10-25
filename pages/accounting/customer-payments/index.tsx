@@ -102,7 +102,7 @@ export default function CustomerPaymentsPage() {
                       <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={() => router.push(`/accounting/customer-payments/${p.id}`)}>
                         <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{p.paymentNumber}</td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{p.clientName || '—'}</td>
-                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(p.paymentDate, '')}</td>
+                        <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs">{formatDisplayDate(p.paymentDate)}</td>
                         <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{fmt(Number(p.totalAmount))}</td>
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 uppercase text-xs">{p.paymentMethod}</td>
                         <td className="px-5 py-3.5">

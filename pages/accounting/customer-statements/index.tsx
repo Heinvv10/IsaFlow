@@ -11,6 +11,7 @@ import { ClipboardList, Loader2, AlertCircle, Download, ChevronRight, Search } f
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface CustomerBalance {
   client_id: string;
@@ -196,7 +197,7 @@ export default function CustomerStatementsPage() {
                       <td className="py-3 px-4 text-right tabular-nums text-amber-400">{formatCurrency(c.total_credits)}</td>
                       <td className="py-3 px-4 text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{formatCurrency(c.balance)}</td>
                       <td className="py-3 px-4 text-center text-[var(--ff-text-secondary)]">{c.invoice_count}</td>
-                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{c.last_payment_date?.split('T')[0] || '-'}</td>
+                      <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{formatDisplayDate(c.last_payment_date)}</td>
                       <td className="py-3 px-4 text-center">
                         <Link href={`/accounting/customer-statements/${c.client_id}?as_at_date=${asAtDate}`}
                           className="inline-flex items-center gap-1 px-4 py-3 rounded-lg text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 text-sm font-medium transition-colors"

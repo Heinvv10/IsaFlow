@@ -35,7 +35,7 @@ interface Props {
 }
 
 function fmtDate(d: string) {
-  return formatDisplayDate(d, '');
+  return formatDisplayDate(d);
 }
 
 export function FeatureFlagRow({

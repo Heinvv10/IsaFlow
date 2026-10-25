@@ -67,7 +67,7 @@ function trialDaysBadge(days: number) {
 }
 
 function fmtTrialDate(iso: string): string {
-  return formatDisplayDate(iso, '');
+  return formatDisplayDate(iso);
 }
 
 export default function AdminDashboard() {

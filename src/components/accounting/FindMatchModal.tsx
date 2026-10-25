@@ -227,7 +227,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
 
                         {/* Date + match reason + score */}
                         <div className="flex items-center gap-3 mt-1.5">
-                          <span className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(c.date, '')}</span>
+                          <span className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(c.date)}</span>
                           {c.matchReason && (
                             <span className="text-xs text-teal-400 truncate">{c.matchReason}</span>
                           )}

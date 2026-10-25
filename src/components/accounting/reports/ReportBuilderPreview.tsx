@@ -5,7 +5,7 @@
 
 import { X, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
-import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatDisplayDate, formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Column {
   field: string;
@@ -32,11 +32,11 @@ interface Props {
 function formatCell(value: unknown, type: string): string {
   if (value === null || value === undefined) return '';
   if (type === 'currency') return formatCurrency(Number(value));
-  if (type === 'number') return Number(value).toLocaleString('en-ZA');
+  if (type === 'number') return formatDisplayDateTime(Number(value));
   if (type === 'date') {
     const d = value instanceof Date ? value : new Date(String(value));
     if (isNaN(d.getTime())) return String(value);
-    return formatDisplayDate(d, '');
+    return formatDisplayDate(d);
   }
   return String(value);
 }

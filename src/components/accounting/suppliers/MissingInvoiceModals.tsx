@@ -28,7 +28,7 @@ type ChaseMethod = 'email' | 'whatsapp';
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatDisplayDate(s, ''); } catch { return String(s); }
+  return formatDisplayDate(s);
 };
 const fmtZAR = (n: number | null) =>
   n == null ? '—' : formatMoney(n);

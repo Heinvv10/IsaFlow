@@ -170,7 +170,7 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
                     ) : (CONSOLIDATION_METHODS.find(cm => cm.value === m.consolidationMethod)?.label ?? m.consolidationMethod)}
                   </td>
                   <td className="py-3 text-[var(--ff-text-tertiary)]">
-                    {formatDisplayDate(m.joinedDate, '')}
+                    {formatDisplayDate(m.joinedDate)}
                   </td>
                   <td className="py-3 text-right">
                     {editingMemberId === m.id ? (

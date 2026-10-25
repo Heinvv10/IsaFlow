@@ -9,13 +9,13 @@ import { useState, useEffect } from 'react';
 import type { ChangesInEquityReport } from '@/modules/accounting/services/afs/changesInEquityService';
 import type { CashFlowDirectReport } from '@/modules/accounting/services/afs/cashFlowDirectService';
 import type { CashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
+import { formatAmount } from '@/lib/money/formatMoney';
 
 interface Props { documentId: string; periodStart: string; periodEnd: string; }
 
 function fmt(amount: number): string {
-  if (amount < 0)
-    return `(${Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })})`;
-  return amount.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (amount < 0) return `(${formatAmount(Math.abs(amount), { decimals: 0 })})`;
+  return formatAmount(amount, { decimals: 0 });
 }
 
 function SectionLoader({ label }: { label: string }) {

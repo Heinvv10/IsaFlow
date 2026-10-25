@@ -34,7 +34,7 @@ function fmtZAR(n: number | null) {
 
 function fmtDate(s: string | null) {
   if (!s) return '—';
-  try { return formatDisplayDate(s, ''); } catch { return String(s); }
+  return formatDisplayDate(s);
 }
 
 function readCompanyId(): string | null {

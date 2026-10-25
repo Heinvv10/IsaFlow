@@ -4,6 +4,7 @@
 
 import dynamic from 'next/dynamic';
 import type { EngagementTrendPoint } from '@/modules/admin/types/admin.types';
+import { formatDisplayDateShort } from '@/utils/dateFormat';
 
 const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
 const LineChart           = dynamic(() => import('recharts').then((m) => m.LineChart),           { ssr: false });
@@ -20,7 +21,7 @@ interface Props {
 
 function fmtShortDate(dateStr: unknown) {
   const d = new Date(String(dateStr ?? ''));
-  return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+  return formatDisplayDateShort(d);
 }
 
 export function EngagementTrendChart({ data }: Props) {

@@ -380,7 +380,7 @@ export function BankTxTable(props: Props) {
                       onChange={() => onToggleSelect(tx.id)} className="accent-teal-500" />
                   </td>
                   <td className="py-2 px-2 font-mono text-xs text-[var(--ff-text-secondary)]">
-                    {formatDisplayDate(tx.transactionDate, '')}
+                    {formatDisplayDate(tx.transactionDate)}
                   </td>
                   <td className="py-2 px-2 text-[var(--ff-text-primary)]">
                     <span className="line-clamp-1 text-xs">{tx.description || '—'}</span>

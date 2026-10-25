@@ -238,7 +238,7 @@ export default function SupplierLedgerPage() {
                         className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50"
                       >
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">
-                          {formatDisplayDate(row.transaction_date, '')}
+                          {formatDisplayDate(row.transaction_date)}
                         </td>
                         <td className="px-4 py-2">
                           <span

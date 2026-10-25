@@ -1,5 +1,5 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
 
 interface MaturityBucket { year: string; outstanding: number }
 
@@ -11,7 +11,7 @@ export default function LoanMaturityChart({ data }: { data: MaturityBucket[] }) 
       <BarChart data={data} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
         <XAxis dataKey="year" tick={{ fontSize: 12, fill: 'var(--ff-text-secondary)' }} />
         <YAxis
-          tickFormatter={(v: number) => `R${(v / 1_000_000).toFixed(1)}M`}
+          tickFormatter={(v: number) => formatMoneyCompact(v, { decimals: 0 })}
           tick={{ fontSize: 12, fill: 'var(--ff-text-secondary)' }}
           width={60}
         />

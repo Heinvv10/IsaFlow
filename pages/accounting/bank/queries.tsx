@@ -16,7 +16,7 @@ import { BankTxAttachmentsModal } from '@/components/accounting/BankTxAttachment
 import { StatusBadge, ExpandableText, QueryRowActions } from '@/components/accounting/bank/QueryRow';
 import type { BankTxQueryRow } from '@/components/accounting/bank/QueryRow';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatDisplayDate, formatDisplayDateTime } from '@/utils/dateFormat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,12 +29,12 @@ const fmtZAR = (n: number) => formatMoney(Math.abs(n));
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatDisplayDate(s, ''); } catch { return String(s); }
+  return formatDisplayDate(s);
 };
 
 const fmtDateTime = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return new Date(s).toLocaleString('en-ZA', { dateStyle: 'short', timeStyle: 'short' }); } catch { return String(s); }
+  try { return formatDisplayDateTime(s); } catch { return String(s); }
 };
 
 // ── Tab config ────────────────────────────────────────────────────────────────

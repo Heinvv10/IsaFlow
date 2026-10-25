@@ -205,7 +205,7 @@ export default function BureauClientsPage() {
                           {c.companyName}
                         </Link>
                       </td>
-                      <td className="py-2 px-4 text-[var(--ff-text-secondary)] text-xs">{formatDisplayDate(c.addedAt, '')}</td>
+                      <td className="py-2 px-4 text-[var(--ff-text-secondary)] text-xs">{formatDisplayDate(c.addedAt)}</td>
                       <td className="py-2 px-4 text-right">
                         {isOwner && (
                           <button

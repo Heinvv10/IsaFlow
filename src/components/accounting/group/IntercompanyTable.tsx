@@ -6,6 +6,7 @@
 import { Loader2, ArrowLeftRight } from 'lucide-react';
 import { fmt, STATUS_STYLES } from './IntercompanyShared';
 import type { IntercompanyTx } from './IntercompanyShared';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Props {
   transactions: IntercompanyTx[];
@@ -70,7 +71,7 @@ export function IntercompanyTable({ transactions, loading, matchSelection, onTog
                     )}
                   </td>
                   <td className="px-4 py-3 text-[var(--ff-text-primary)] whitespace-nowrap">
-                    {tx.date?.split('T')[0]}
+                    {formatDisplayDate(tx.date)}
                   </td>
                   <td className="px-4 py-3 text-[var(--ff-text-primary)]">{tx.sourceCompanyName}</td>
                   <td className="px-4 py-3 text-[var(--ff-text-primary)]">{tx.targetCompanyName}</td>

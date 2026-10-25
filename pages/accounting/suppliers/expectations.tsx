@@ -34,18 +34,16 @@ const fmtZAR = (n: number | null) =>
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return formatDisplayDate(s, ''); } catch { return String(s); }
+  return formatDisplayDate(s);
 };
 
 function nextExpected(exp: SupplierExpectation): string {
   if (exp.cadence === 'irregular' || !exp.lastInvoiceDate) return '—';
   const gap = CADENCE_GAP[exp.cadence];
   if (!gap) return '—';
-  try {
-    const base = new Date(exp.lastInvoiceDate);
-    base.setDate(base.getDate() + gap);
-    return formatDisplayDate(base, '');
-  } catch { return '—'; }
+  const base = new Date(exp.lastInvoiceDate);
+  base.setDate(base.getDate() + gap);
+  return formatDisplayDate(base);
 }
 
 function CadenceBadge({ cadence }: { cadence: SupplierExpectation['cadence'] }) {

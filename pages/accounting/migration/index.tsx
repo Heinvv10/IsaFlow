@@ -212,7 +212,7 @@ function SessionSummary({ session, onReset }: { session: MigrationSession; onRes
           <p className="text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide mb-1">Active Migration</p>
           <p className="font-semibold text-[var(--ff-text-primary)]">From: {sourceLabel}</p>
           <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
-            {completed}/{STEPS.length} steps completed &bull; Started {formatDisplayDate(session.startedAt, '')}
+            {completed}/{STEPS.length} steps completed &bull; Started {formatDisplayDate(session.startedAt)}
           </p>
         </div>
         <div className="flex items-center gap-2">

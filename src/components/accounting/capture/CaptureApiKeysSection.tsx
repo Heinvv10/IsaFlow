@@ -30,11 +30,7 @@ interface Props {
 
 function formatDate(val: string | null): string {
   if (!val) return 'Never';
-  try {
-    return formatDisplayDate(val, '');
-  } catch {
-    return val;
-  }
+  return formatDisplayDate(val);
 }
 
 export function CaptureApiKeysSection({ showToast }: Props) {

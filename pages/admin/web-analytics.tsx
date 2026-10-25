@@ -10,6 +10,7 @@ import { TrafficTimeseriesChart, type TimeseriesPoint } from '@/components/admin
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Activity, Loader2, Globe, Download, Bot } from 'lucide-react';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 type Range = '24h' | '7d' | '30d' | '90d';
 
@@ -102,7 +103,7 @@ function Table({ rows, labelCol, valueCol }: {
           />
           <div className="relative flex justify-between items-center py-1.5 px-2 text-sm">
             <span className="truncate mr-2 text-gray-900 dark:text-gray-100">{r.label}</span>
-            <span className="font-medium text-gray-700 dark:text-gray-300 tabular-nums">{r.value.toLocaleString('en-ZA')}</span>
+            <span className="font-medium text-gray-700 dark:text-gray-300 tabular-nums">{formatDisplayDateTime(r.value)}</span>
           </div>
         </div>
       ))}
@@ -291,9 +292,9 @@ export default function AdminWebAnalytics() {
         {summary && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-              <StatsCard title="Pageviews"  value={summary.overview.pageviews.toLocaleString('en-ZA')} />
-              <StatsCard title="Sessions"   value={summary.overview.sessions.toLocaleString('en-ZA')} />
-              <StatsCard title="Visitors"   value={summary.overview.visitors.toLocaleString('en-ZA')} />
+              <StatsCard title="Pageviews"  value={formatDisplayDateTime(summary.overview.pageviews)} />
+              <StatsCard title="Sessions"   value={formatDisplayDateTime(summary.overview.sessions)} />
+              <StatsCard title="Visitors"   value={formatDisplayDateTime(summary.overview.visitors)} />
               <StatsCard title="Views/visit" value={summary.overview.views_per_session.toFixed(2)} />
               <StatsCard title="Bounce rate" value={`${summary.overview.bounce_rate_percent}%`} />
               <StatsCard title="Avg session" value={fmtDuration(summary.overview.avg_session_secs)} />
@@ -339,7 +340,7 @@ export default function AdminWebAnalytics() {
                           <span className="col-span-4 truncate font-medium text-gray-900 dark:text-gray-100">{r.source}</span>
                           <span className="col-span-3 truncate text-gray-600 dark:text-gray-400">{r.medium ?? '—'}</span>
                           <span className="col-span-3 truncate text-gray-600 dark:text-gray-400">{r.campaign ?? '—'}</span>
-                          <span className="col-span-2 text-right font-medium text-gray-700 dark:text-gray-300 tabular-nums">{r.sessions.toLocaleString('en-ZA')}</span>
+                          <span className="col-span-2 text-right font-medium text-gray-700 dark:text-gray-300 tabular-nums">{formatDisplayDateTime(r.sessions)}</span>
                         </div>
                       </div>
                     ));
