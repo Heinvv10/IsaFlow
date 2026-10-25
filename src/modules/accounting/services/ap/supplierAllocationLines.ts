@@ -266,7 +266,8 @@ export async function applyLineToBill(
 ): Promise<void> {
   // `status`, `payment_matched` and `payment_matched_at` all derive from ONE threshold — `amount_paid >=
   // total_amount - EPS` — and `invoiceStatusRecompute` owns it. A status outside `BALANCE_DERIVED` (`cancelled`,
-  // `draft`, `written_off`) keeps all three: a payment figure is not evidence about any of them.
+  // `draft`, `pending_approval`, `disputed`, NULL — the table's CHECK allows no other) keeps all three: a payment
+  // figure is not evidence about any of them.
   //
   // ONE statement, not the money then a recompute: a second write of the bill re-runs its supplier FK check
   // after the payment this request holds, and crossed a supplier merge (40P01, 2026-10-25).
