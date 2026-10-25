@@ -1,12 +1,16 @@
 // pages/api/accounting/afs/report-templates.ts
 // GET — retrieve rendered report template text for a given report type
 // Query: ?type=compilation|accounting_officer|review|audit&entity_type=pty|cc|trust&framework=ifrs_smes|full_ifrs
+//        [&document_id=<AFS document>]  the period (end date, "14 months ended" for a transition year) is the registry's
+//        for that document's fiscal year, never taken from the caller; without it the wording keeps {periodEnd} placeholders
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
+import { isUuidParam } from '@/lib/validation';
+import { findReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import {
   getPractitionerReport,
   getDirectorResponsibilityStatement,
@@ -58,13 +62,33 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `framework must be one of: ${[...VALID_FRAMEWORKS].join(', ')}`);
   }
 
-  const periodEnd = req.query.period_end as string | undefined;
+  let periodStart = '{periodStart}';
+  let periodEnd = '{periodEnd}';
+  let periodMonths = 12;
+  let period: { start: string; end: string; months: number; phrase: string } | null = null;
+  const documentId = req.query.document_id;
+  if (documentId !== undefined) {
+    if (!isUuidParam(documentId)) return apiResponse.badRequest(res, 'document_id must be an AFS document id');
+    const docs = (await sql`
+      SELECT fiscal_year FROM afs_documents
+      WHERE id = ${documentId}::UUID AND company_id = ${companyId}::UUID AND document_type = 'afs'
+    `) as DbRow[];
+    if (!docs[0]) return apiResponse.notFound(res, 'AFS document', documentId);
+    if (docs[0].fiscal_year != null) {
+      const fiscalYear = Number(docs[0].fiscal_year);
+      const found = await findReportingPeriod(companyId, fiscalYear, 'afs-report-templates-api');
+      if (!found) return apiResponse.notFound(res, 'Financial year', String(fiscalYear));
+      period = found.current;
+      ({ start: periodStart, end: periodEnd, months: periodMonths } = period);
+    }
+  }
 
   const ctx: ReportTemplateContext = {
     companyName: String(company.company_name ?? ''),
     registrationNumber: company.registration_number ? String(company.registration_number) : null,
-    periodEnd: periodEnd ?? '{periodEnd}',
-    periodStart: '{periodStart}',
+    periodEnd,
+    periodStart,
+    periodMonths,
     framework: framework as ReportTemplateContext['framework'],
     entityType: entityType as ReportTemplateContext['entityType'],
     practitionerName: req.query.practitioner as string | undefined,
@@ -83,6 +107,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     reportType,
     entityType,
     framework,
+    // What the wording is for: null when no document was named (the dates stay placeholders).
+    period: period && { start: period.start, end: period.end, months: period.months, phrase: period.phrase },
     templates: {
       practitionerReport: practitionerReport.join('\n'),
       directorsResponsibility: directorsResponsibility.join('\n'),

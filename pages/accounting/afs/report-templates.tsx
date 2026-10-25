@@ -1,7 +1,8 @@
 // pages/accounting/afs/report-templates.tsx
 // AFS Report Template Preview — view SA Companies Act compliant report wording
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
@@ -14,6 +15,8 @@ interface TemplateResponse {
   reportType: string;
   entityType: string;
   framework: string;
+  /** What the wording is for; null when no document was named. */
+  period: { start: string; end: string; months: number; phrase: string } | null;
   templates: {
     practitionerReport: string;
     directorsResponsibility: string;
@@ -55,27 +58,36 @@ export default function ReportTemplatesPage() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
 
-  const fetchTemplates = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const res = await apiFetch(
-        `/api/accounting/afs/report-templates?type=${reportType}&entity_type=${entityType}&framework=${framework}`,
-      );
-      await assertOk(res, 'Could not load report templates - try again');
-      const json = await res.json();
-      setData(json.data);
-    } catch (err: unknown) {
-      setData(null);
-      setError(apiErrorMessage(err, 'Could not load report templates - try again'));
-    } finally {
-      setLoading(false);
-    }
-  }, [reportType, entityType, framework]);
+  // The AFS document this wording is for (linked from the document page): the server derives the period from it.
+  const router = useRouter();
+  const documentParam = router.query.document_id;
+  const documentId = typeof documentParam === 'string' && documentParam !== '' ? documentParam : null;
+  const ready = router.isReady;
 
   useEffect(() => {
-    void fetchTemplates();
-  }, [fetchTemplates]);
+    if (!ready) return;
+    let stale = false;
+    setLoading(true);
+    setError('');
+    setData(null);
+    const url = `/api/accounting/afs/report-templates?type=${reportType}&entity_type=${entityType}&framework=${framework}`
+      + (documentId ? `&document_id=${encodeURIComponent(documentId)}` : '');
+    void (async () => {
+      try {
+        const res = await apiFetch(url);
+        await assertOk(res, 'Could not load report templates - try again');
+        const json = await res.json();
+        if (!stale) setData(json.data);
+      } catch (err: unknown) {
+        if (stale) return;
+        setData(null);
+        setError(apiErrorMessage(err, 'Could not load report templates - try again'));
+      } finally {
+        if (!stale) setLoading(false);
+      }
+    })();
+    return () => { stale = true; };
+  }, [ready, reportType, entityType, framework, documentId]);
 
   const copyToClipboard = async (text: string, key: string) => {
     await navigator.clipboard.writeText(text);
@@ -132,6 +144,15 @@ export default function ReportTemplatesPage() {
           </select>
         </div>
       </div>
+
+      {/* The period the wording is for */}
+      {data && !loading && (
+        <p className="mb-4 text-sm text-slate-600 dark:text-zinc-400" data-testid="template-period">
+          {data.period
+            ? `Wording for the ${data.period.phrase} (${data.period.start} to ${data.period.end}).`
+            : 'No financial year chosen: the period dates are left as {periodEnd} placeholders. Open this page from an AFS document to fill them in.'}
+        </p>
+      )}
 
       {/* Loading / Error */}
       {loading && (
