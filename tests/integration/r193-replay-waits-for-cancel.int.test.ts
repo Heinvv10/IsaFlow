@@ -21,7 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify, verifyAs } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { feeJournals } from './r187-books.helpers';
@@ -206,8 +206,7 @@ describe('R-193: the replay\'s dedupe read locks the receipt it matches', () => 
     const holder = await pool.connect();
     await holder.query('BEGIN');
     await holder.query('SELECT 1 FROM customer_payments WHERE id = $1 FOR UPDATE', [rows[0]!.id]);
-    paystack.verifyTransaction.mockResolvedValue(
-      { status: 'success', id: 1931, amountCents: 11500, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', feesCents: 350 });
+    paystack.verifyTransaction.mockImplementation(verifyAs({ status: 'success', id: 1931, amountCents: 11500, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', feesCents: 350 }));
 
     // Released after 12 s whatever happens, so an unbounded wait answers late instead of hanging.
     const released = new Promise<void>((resolve) => {

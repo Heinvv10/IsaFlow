@@ -29,7 +29,7 @@
 
 import { UsageError, formatField } from './easyFileFields';
 import type { EmployeeInput } from './easyFileExportService';
-import { birthFromIdNumber } from './easyFileEmployeeFacts';
+import { birthFromIdNumber, localCCYYMMDD } from './easyFileEmployeeFacts';
 import { getAge } from './payeEngine';
 
 export interface MedicalCertificateInput {
@@ -102,21 +102,31 @@ const isoDay = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 /**
- * BRS V25.3.0 p. 26: the date of birth (3080) "Must correlate with the identity
- * number". The record carries the ID number (3060) and IsaFlow's age for 4120
- * comes from the payroll date of birth, so when the two put the employee on
- * different sides of 65 on the year's last day, the certificate would pass one
- * rule and break the other: refused, naming both dates (and no age the user
- * never entered). A disagreement that does not cross 65 decides nothing here.
+ * 3080 (CCYYMMDD) for a nature-A certificate. BRS V25.3.0 p. 26: mandatory, "must correlate with the identity
+ * number", not after today. A payroll date of birth must BE the ID number's date (its YYMMDD; it also gives the
+ * century the ID cannot) and not after today, else refused naming both dates: every age the export uses (threshold,
+ * 4120, reason code) reads the payroll date, so emitting the ID's date beside it would file a different person.
+ * With none on file, the ID's date; refused when that puts the employee under 15 at the year's end (the minimum
+ * working age, BCEA s43), where the century is a guess. Refused when the ID's first six digits are no date.
  */
-export function assertBirthCorrelates(emp: EmployeeInput): void {
-  const fromId = birthFromIdNumber(emp.idNumber);
-  if (!emp.dateOfBirth || !fromId) return;
-  const yearEnd = new Date(emp.yearOfAssessment, 2, 0);
-  if ((getAge(emp.dateOfBirth, yearEnd) >= 65) === (getAge(fromId, yearEnd) >= 65)) return;
-  throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): the date of birth on the payroll record (${isoDay(emp.dateOfBirth)}) `
-    + `does not match the ID number (${isoDay(fromId)}), and SARS requires them to correlate (BRS V25.3.0 p. 26, code 3080). They disagree on `
-    + 'whether the employee is 65 or older at the end of the year, which decides 4120. Correct the date of birth or the ID number.');
+export function birthDate3080(emp: EmployeeInput, today = new Date()): string {
+  const who = `${emp.surname} (certificate ${emp.certificateNumber})`;
+  const fromId = birthFromIdNumber(emp.idNumber, today);
+  if (!fromId) {
+    throw new UsageError(`${who}: the ID number (${emp.idNumber}) does not begin with a valid date of birth (YYMMDD), so the mandatory `
+      + 'date of birth (code 3080) cannot correlate with it. Correct the ID number.');
+  }
+  const dob = emp.dateOfBirth;
+  if (dob) {
+    if (localCCYYMMDD(dob).slice(2) === emp.idNumber.slice(0, 6) && dob <= today) return localCCYYMMDD(dob);
+    throw new UsageError(`${who}: the date of birth on the payroll record (${isoDay(dob)}) does not match the ID number `
+      + `(${isoDay(fromId)}), and SARS requires them to correlate (BRS V25.3.0 p. 26, code 3080). Correct the date of birth or the ID number.`);
+  }
+  if (getAge(fromId, new Date(emp.yearOfAssessment, 2, 0)) < 15) {
+    throw new UsageError(`${who}: the ID number (${emp.idNumber}) reads as born ${isoDay(fromId)}, under the minimum working age at the end `
+      + 'of the year, so its century is uncertain. Enter the date of birth on the payroll record (code 3080).');
+  }
+  return localCCYYMMDD(fromId);
 }
 
 /** The date of birth a record states: 3080 (CCYYMMDD), else the RSA ID number 3060; null when neither reads. */
@@ -131,7 +141,7 @@ function recordBirth(field: Map<string, string>): Date | null {
  * 4005 value, 4116 with every 4005; 4120 "validate to Date of Birth (code
  * 3080)": never under 65, mandatory with 4005 for 65 and older (age on the last
  * day of the year of assessment, 3025; the date of birth from 3080, else the
- * ID number, since IsaFlow does not emit 3080); 4150 = 08 only with 4116 or
+ * ID number when a record has no 3080); 4150 = 08 only with 4116 or
  * 4120 above nil (Hein 2026-10-23: a nil credit removed no tax).
  */
 export function medicalFieldRules(field: Map<string, string>, err: (code: string, message: string) => void): void {

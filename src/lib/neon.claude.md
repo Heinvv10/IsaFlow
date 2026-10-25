@@ -16,6 +16,7 @@
 - `withSavepoint<T>(name, fn)` — runs inside a SAVEPOINT on the request-scoped ALS transaction so one failed query doesn't poison the whole request tx; degrades to plain `fn()` when no outer tx
 - `fmtDate(val: unknown): string` — formats a DB date column as `YYYY-MM-DD` robust to Date/string
 - `type TxSql`
+- `buildQuery(strings, values)` — the tagged template to `{ text, values }` with `$N` placeholders (S-07e: `migrationAdminSqlTx` builds its `TxSql` with it; app code uses `sql`/`withTransaction`)
 - default export: `sql`
 
 ## Dependencies

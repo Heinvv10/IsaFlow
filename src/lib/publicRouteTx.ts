@@ -27,9 +27,22 @@ import { als, type RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 
+/**
+ * `migrationAdmin`: a migration_admin transaction beside it, opened by the
+ * first migrationAdminTx inside `fn` and joined by every later one (S-07e: the
+ * billing tables are written only there; an event that writes none takes no
+ * migration_admin connection). A throw rolls back both. On success migration_admin
+ * COMMITs first: if the service pool's COMMIT then fails, the billing writes
+ * stand without the event's `processed` stamp, the gateway redelivers, and
+ * settlement, purchase completion, mandate activation, a charge's failure (it
+ * counts an attempt only on a charge still in flight) and a mandate's revoke
+ * are idempotent. The
+ * other order could stamp an event processed whose billing writes were lost.
+ */
 export async function withPublicRouteTransaction<T>(
   label: string,
   fn: () => Promise<T>,
+  opts: { migrationAdmin?: boolean } = {},
 ): Promise<T> {
   // Nesting this inside a request transaction would als.run over the request's
   // own context — dropping its companyId and RLS GUCs — and COMMIT a transaction
@@ -45,10 +58,15 @@ export async function withPublicRouteTransaction<T>(
   // back cleanly leaves a perfectly reusable connection; destroying it on every
   // failed webhook would churn the pool for nothing.
   let unusable = false;
+  let adminUnusable = false;
+  const ctx: RequestContext = { client, userId: '', claims: {}, afterCommit: [],
+    ...(opts.migrationAdmin ? { migrationAdminOnDemand: true } : {}) };
   try {
     await client.query('BEGIN');
-    const ctx: RequestContext = { client, userId: '', claims: {}, afterCommit: [] };
     const result = await runOwnedContext(ctx, fn);
+    // Opened by the first migrationAdminTx inside `fn`, if any (migrationAdminPool.ts).
+    const admin = ctx.migrationAdminClient;
+    if (admin) await admin.query('COMMIT');
     await client.query('COMMIT');
     drainAfterCommit(ctx);
     return result;
@@ -56,9 +74,13 @@ export async function withPublicRouteTransaction<T>(
     // The connection is in an unknown state when this fails. The release below then
     // DESTROYS it rather than handing an aborted or still-open transaction to the
     // next unrelated request.
+    const admin = ctx.migrationAdminClient;
+    if (admin) adminUnusable = await rollbackFailed(admin, `withPublicRouteTransaction(${label}) migration_admin`);
     unusable = await rollbackFailed(client, `withPublicRouteTransaction(${label})`);
     throw err;
   } finally {
+    const admin = ctx.migrationAdminClient;
+    if (admin) admin.release(adminUnusable);
     client.release(unusable);
   }
 }

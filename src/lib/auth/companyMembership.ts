@@ -15,7 +15,11 @@ export const LIVE_COMPANY_SQL = `c.status IS DISTINCT FROM 'suspended'
         AND c.status IS DISTINCT FROM 'deleted'
         AND c.suspended_at IS NULL`;
 
-/** Recheck tenant standing with membership inside the caller's app_user transaction. */
+/**
+ * Recheck tenant standing with membership inside the caller's app_user
+ * transaction. Schema-qualified (S-07e): an unqualified name finds a temporary
+ * table of the same name first.
+ */
 export function getCompanyMembership(client: PoolClient, userId: string, companyId: string) {
   return client.query<CompanyMembershipRow>(
     `SELECT cu.role,
@@ -23,10 +27,10 @@ export function getCompanyMembership(client: PoolClient, userId: string, company
             u.is_active,
             u.status,
             u.suspended_at
-       FROM company_users cu
-       JOIN companies c ON c.id = cu.company_id
+       FROM public.company_users cu
+       JOIN public.companies c ON c.id = cu.company_id
         AND ${LIVE_COMPANY_SQL}
-       LEFT JOIN users u ON u.id = cu.user_id
+       LEFT JOIN public.users u ON u.id = cu.user_id
       WHERE cu.user_id = $1::text AND cu.company_id = $2::uuid
       LIMIT 1`,
     [userId, companyId],

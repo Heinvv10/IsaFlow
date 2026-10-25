@@ -35,7 +35,7 @@ export const A11Y_SCREENS: ReadonlyArray<A11yScreen> = [
   },
   { name: 'g journal new', path: '/accounting/journal-entries/new', heading: 'Journal Entry' },
   { name: 'h payroll runs', path: '/payroll/runs', heading: 'Payroll Runs' },
-  { name: 'i vat return', path: '/accounting/reports/vat-return', heading: 'VAT201 Return' },
+  { name: 'i vat201 return', path: '/accounting/sars/vat201', heading: 'VAT201 Return' },
   { name: 'j fixed assets', path: '/accounting/assets', heading: 'Fixed Assets' },
   { name: 'k month-end workbench', path: '/accounting/month-end-workbench', heading: 'Month-End Workbench' },
   { name: 'd supplier payment new', path: '/accounting/supplier-payments/new', heading: 'New Supplier Payment' },

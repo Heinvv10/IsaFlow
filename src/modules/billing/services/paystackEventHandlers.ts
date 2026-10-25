@@ -5,18 +5,29 @@
  * check, the idempotency record and the transaction) to keep both files inside
  * the 300-line limit. Every `sql` call below joins the caller's transaction via
  * ALS, so a throw here rolls the whole event back.
+ *
+ * The writes to the billing tables (flow purchases, subscription charges and
+ * mandates) are the exception: no app role may make them (S-07e, migration
+ * 945), so they run on migration_admin, in a transaction the webhook opens
+ * beside its own (publicRouteTx.ts): a throw rolls both back, and on success
+ * migration_admin commits just before the event's stamp. Each is idempotent,
+ * so a redelivery after a lost second COMMIT changes nothing. Before any of
+ * them, the payment request's link is checked against the checkout's Paystack
+ * metadata (paystackLinkBinding.ts); failure events: paystackFailureHandlers.ts.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
-import { completeBundlePurchase, failBundlePurchase } from './flowWalletService';
+import { completePaidBundlePurchase } from './flowWalletService';
 import {
   activateAuthorisedMandate,
   noteAuthorisationNotAttached,
   resolveAuthorisedMandate,
 } from './paystackMandateActivation';
 import { settleSubscriptionCharge } from './subscriptionPeriod';
+import { linkMismatch, logRefusedLink, requestedCents } from './paystackLinkBinding';
+import { handleChargeFailed, handleSubscriptionDisabled } from './paystackFailureHandlers';
 
 export interface PaystackWebhookEvent {
   event: string;
@@ -73,7 +84,7 @@ export async function processEvent(
     eventType === 'charge.failed' ||
     eventType === 'invoice.payment_failed'
   ) {
-    if (reference) await handleChargeFailed(reference, eventType);
+    if (reference) await handleChargeFailed(reference, eventType, data.metadata);
     return;
   }
 
@@ -101,6 +112,10 @@ async function handleChargeSuccess(
     feeCents: event.data.fees,
   };
 
+  // What the checkout asked for: a purchase or a charge is credited or settled
+  // only for at least its own amount (paystackLinkBinding.ts).
+  const paidCents = requestedCents(event.data);
+
   const prRows = await sql<{
     id: string;
     company_id: string;
@@ -116,52 +131,38 @@ async function handleChargeSuccess(
     SET status = 'completed',
         completed_at = COALESCE(completed_at, now()),
         paystack_transaction_id = ${event.data.id ?? null},
-        paystack_authorization_code = COALESCE(${auth.authorization_code ?? null}, paystack_authorization_code),
-        paystack_customer_code = COALESCE(${customer.customer_code ?? null}, paystack_customer_code),
         channel = COALESCE(${event.data.channel ?? null}, channel)
     WHERE paystack_reference = ${reference}
       AND status <> 'completed'
     RETURNING id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, mandate_id, amount_cents, status
   `;
-  const pr = prRows[0];
+  // The guarded UPDATE matches nothing when the request is ALREADY completed:
+  // normally the portal return page's verify route got there first (it banks
+  // the receipt and posts the fee only when its response carried `fees`), but
+  // an app role may also set `status` (945 keeps that column writable), so a
+  // pre-emptive 'completed' must not cost a paid purchase its credit. Re-read
+  // it and take the same path: recordGatewayInvoiceReceipt and every billing
+  // write below are idempotent, so a repeat posts only what is missing.
+  // A redelivery's re-read writes no outcome note: the first delivery's stands.
+  const fresh = prRows.length > 0;
+  const pr = prRows[0] ?? (await sql<(typeof prRows)[number]>`
+    SELECT id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, mandate_id, amount_cents, status
+    FROM paystack_payment_requests
+    WHERE paystack_reference = ${reference} AND status = 'completed'
+    LIMIT 1
+  `)[0];
   if (!pr) {
-    // The guarded UPDATE matched nothing because the request is ALREADY
-    // completed — normally because the portal return page's verify route got
-    // there first. That route banks the receipt and posts the fee only when its
-    // response carried `fees`; this delivery does carry them, and its amount is
-    // compared with the first report's. Re-read the row and let
-    // recordGatewayInvoiceReceipt decide: it is idempotent on the reference and
-    // posts only what is missing.
-    const settled = await sql<{
-      id: string;
-      company_id: string;
-      purpose: string;
-      customer_invoice_id: string | null;
-      amount_cents: string;
-    }>`
-      SELECT id, company_id, purpose, customer_invoice_id, amount_cents
-      FROM paystack_payment_requests
-      WHERE paystack_reference = ${reference} AND status = 'completed'
-      LIMIT 1
-    `;
-    const done = settled[0];
-    if (done && done.purpose === 'customer_invoice' && done.customer_invoice_id) {
-      await recordGatewayInvoiceReceipt({
-        companyId: done.company_id,
-        invoiceId: done.customer_invoice_id,
-        requestedCents: Number(done.amount_cents),
-        reported,
-        reference,
-        paidAt: event.data.paid_at ?? null,
-        feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,
-      });
-      return;
-    }
-    log.info(
-      'charge.success — no matching payment request (possible duplicate or out-of-band)',
-      { reference },
-      'PaystackWebhook',
-    );
+    log.info('charge.success — no matching payment request (possible duplicate or out-of-band)', { reference }, 'PaystackWebhook');
+    return;
+  }
+
+  // Its link is checked against the checkout Paystack signed before any receipt
+  // is booked or billing row touched (S-07e: the request is app-written). The
+  // money stays with the request, marked for review; nothing is applied.
+  const mismatch = linkMismatch(pr, event.data.metadata);
+  if (mismatch) {
+    logRefusedLink(reference, pr, mismatch);
+    await noteAuthorisationNotAttached(pr.id, pr.company_id, `review:${mismatch}`);
     return;
   }
 
@@ -181,7 +182,12 @@ async function handleChargeSuccess(
   }
 
   if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
-    await completeBundlePurchase(pr.flow_purchase_id);
+    const credited = await completePaidBundlePurchase(pr.flow_purchase_id,
+      { companyId: pr.company_id, amountCents: paidCents, currency: reported.currency });
+    if (!credited) {
+      if (fresh) await noteAuthorisationNotAttached(pr.id, pr.company_id, 'review:flow_purchase_not_credited');
+      return;
+    }
     log.info(
       'flow bundle credited via Paystack webhook',
       { purchaseId: pr.flow_purchase_id, companyId: pr.company_id },
@@ -204,7 +210,7 @@ async function handleChargeSuccess(
         { reference, companyId: pr.company_id },
         'PaystackWebhook',
       );
-      await noteAuthorisationNotAttached(pr.id, pr.company_id, 'authorisation_no_mandate_row');
+      if (fresh) await noteAuthorisationNotAttached(pr.id, pr.company_id, 'authorisation_no_mandate_row');
       return;
     }
     const outcome = await activateAuthorisedMandate(pr.company_id, mandate, {
@@ -228,57 +234,12 @@ async function handleChargeSuccess(
       { reference, companyId: pr.company_id, mandateId: mandate.id, status: mandate.status, outcome },
       'PaystackWebhook',
     );
-    await noteAuthorisationNotAttached(pr.id, pr.company_id, `authorisation_${outcome}`);
+    if (fresh) await noteAuthorisationNotAttached(pr.id, pr.company_id, `authorisation_${outcome}`);
     return;
   }
 
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
     // The paid-up period only moves once the money has actually arrived.
-    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id);
+    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id, { cents: paidCents, currency: reported.currency });
   }
-}
-
-async function handleChargeFailed(reference: string, reason: string): Promise<void> {
-  const prRows = await sql<{
-    id: string;
-    purpose: string;
-    flow_purchase_id: string | null;
-    subscription_charge_id: string | null;
-  }>`
-    UPDATE paystack_payment_requests
-    SET status = 'failed',
-        failure_reason = ${reason}
-    WHERE paystack_reference = ${reference}
-      AND status NOT IN ('completed','failed')
-    RETURNING id, purpose, flow_purchase_id, subscription_charge_id
-  `;
-  const pr = prRows[0];
-  if (!pr) return;
-
-  if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
-    await failBundlePurchase(pr.flow_purchase_id, reason);
-  }
-  if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
-    await sql`
-      UPDATE subscription_charges
-      SET status = 'failed',
-          failure_reason = ${reason},
-          attempt_count = attempt_count + 1,
-          last_attempt_at = now(),
-          updated_at = now()
-      WHERE id = ${pr.subscription_charge_id}
-    `;
-  }
-}
-
-async function handleSubscriptionDisabled(subscriptionCode: string): Promise<void> {
-  await sql`
-    UPDATE subscription_mandates
-    SET status = 'revoked',
-        revoked_at = COALESCE(revoked_at, now()),
-        revoked_reason = 'paystack_subscription_disabled',
-        updated_at = now()
-    WHERE paystack_subscription_code = ${subscriptionCode}
-      AND status NOT IN ('revoked','expired')
-  `;
 }

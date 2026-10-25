@@ -44,7 +44,7 @@ import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, 
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
-import { assertBirthCorrelates, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
+import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -99,7 +99,7 @@ export interface EmployeeInput {
   taxThreshold?: number;
   /** Medical scheme fees and credits (4005, 4116, 4120); absent = none reported. */
   medical?: MedicalCertificateInput;
-  /** The payroll record's date of birth, checked against the ID number (assertBirthCorrelates); not emitted. */
+  /** The payroll record's date of birth (local calendar day): 3080, which must be the ID number's date (birthDate3080). */
   dateOfBirth?: Date | null;
 }
 
@@ -191,7 +191,7 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
 
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
-  assertBirthCorrelates(emp);
+  const birth3080 = birthDate3080(emp);
   const lumpSums = emp.lumpSums ?? [];
   const under4115 = lumpSums.filter(l => lumpSumPayeCode(l.sourceCode) === '4115');
   const paye4115 = Math.round(under4115.reduce((t, l) => t + l.paye, 0) * 100) / 100;
@@ -211,6 +211,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(3040, emp.firstNames, 'AN'),
     formatField(3050, emp.initials, 'A'),
     formatField(3060, emp.idNumber, 'N'),
+    formatField(3080, birth3080, 'N'),
     formatField(3150, emp.taxNumber, 'AN'),
     formatField(3200, emp.employmentStartDate, 'N'),
     formatField(3210, emp.employmentEndDate, 'N'),
