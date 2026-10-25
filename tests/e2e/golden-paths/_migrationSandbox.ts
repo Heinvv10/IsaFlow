@@ -114,7 +114,8 @@ export async function listTakeOnPage(api: Api, q: string, page: number): Promise
   )).invoices;
 }
 
-async function staleTakeOns(api: Api): Promise<any[]> {
+/** `capped` is set when the 50-page bound was hit: uncancellable rows stay live forever, so it must not fail a run. */
+async function staleTakeOns(api: Api): Promise<{ rows: any[]; capped: boolean }> {
   const found: any[] = [];
   for (let page = 1; page <= 50; page++) {
     const invoices = await listTakeOnPage(api, 'GP-MIG-AR', page);
@@ -122,15 +123,17 @@ async function staleTakeOns(api: Api): Promise<any[]> {
       throw new Error('customer-invoices-list ignored ?page: a page repeated the previous one');
     }
     found.push(...invoices);
-    if (invoices.length < 100) return found;
+    if (invoices.length < 100) return { rows: found, capped: false };
   }
-  throw new Error('more than 50 pages of live GP-MIG-AR invoices');
+  return { rows: found, capped: true };
 }
 
 /** Cancels take-ons left by a run that died before its cancel; returns a note per row it could not. */
 export async function cancelStaleTakeOns(api: Api): Promise<string[]> {
   const skipped: string[] = [];
-  for (const stale of await staleTakeOns(api)) {
+  const { rows, capped } = await staleTakeOns(api);
+  if (capped) skipped.push('stopped after 50 pages (5000 rows) of live GP-MIG-AR invoices; the rest were not cancelled');
+  for (const stale of rows) {
     try {
       await api.post('/api/accounting/customer-invoices-detail', { id: stale.id, action: 'cancel' });
     } catch (err) {
