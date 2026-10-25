@@ -166,14 +166,18 @@ describe('employees list — medical-aid review banner', () => {
     view.rerender(<EmployeesListPage />);
     expect(await screen.findByText('Bob Ng (E2)')).toBeTruthy();
     const jsonSpy = vi.spyOn(Response.prototype, 'json');
-    company.id = 'co-1';
-    view.rerender(<EmployeesListPage />);
-    // the co-1 answer was really read by the banner before we judge "hidden"
-    await waitFor(() => expect(backOnCo1).not.toBeNull());
-    await waitFor(() => expect(jsonSpy.mock.contexts).toContain(backOnCo1));
-    await new Promise((r) => setTimeout(r, 50));
-    expect(screen.queryByText('Bob Ng (E2)')).toBeNull();
-    expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull();
+    try {
+      company.id = 'co-1';
+      view.rerender(<EmployeesListPage />);
+      // the co-1 answer was really read by the banner before we judge "hidden"
+      await waitFor(() => expect(backOnCo1).not.toBeNull());
+      await waitFor(() => expect(jsonSpy.mock.contexts).toContain(backOnCo1));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.queryByText('Bob Ng (E2)')).toBeNull();
+      expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull();
+    } finally {
+      jsonSpy.mockRestore();
+    }
   });
 
   it("going A -> B -> A before B answers never renders A's dismissed banner", async () => {
