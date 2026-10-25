@@ -16,7 +16,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify, metaFor } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { cancelCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import { books, feeJournals } from './r187-books.helpers';
@@ -86,7 +86,7 @@ describe('R-187: a cancelled receipt blocks re-banking', () => {
       if ((await deliver(ref, 11500)).statusCode !== 200) throw new Error('first settlement failed');
       await cancelReceipt(ref);
       before = await books();
-      return live(11500, { feesCents: 350 });
+      return { ...live(11500, { feesCents: 350 }), metadata: await metaFor(ref) };
     });
 
     expect((await verify(ref)).body.data).toMatchObject({ status: 'completed', amountCents: 11500, appliedToInvoice: false });

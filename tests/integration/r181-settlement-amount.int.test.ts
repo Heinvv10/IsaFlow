@@ -17,7 +17,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, B, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, B, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify, verifyAs } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { log } from '@/lib/logger';
 import { getUnappliedReceipts } from '@/modules/accounting/services/ar/unappliedReceiptService';
@@ -40,8 +40,7 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
   chargeAuthorization: vi.fn(async () => { throw new Error('Paystack must not be charged in this test'); }),
 }));
 
-const paystackSays = (amountCents: number, currency = 'ZAR') => h.verifyTransaction.mockResolvedValue(
-  { status: 'success', id: 1810, amountCents, currency, paidAt: new Date().toISOString(), channel: 'card' });
+const paystackSays = (amountCents: number, currency = 'ZAR') => h.verifyTransaction.mockImplementation(verifyAs({ status: 'success', id: 1810, amountCents, currency, paidAt: new Date().toISOString(), channel: 'card' }));
 const errorLog = vi.spyOn(log, 'error');
 
 beforeAll(async () => {
