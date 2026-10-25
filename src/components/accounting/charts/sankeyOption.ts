@@ -7,7 +7,7 @@
  * DIRECTION carries the sign, which is also how a reader reads it.
  */
 import type { EChartsCoreOption } from 'echarts/core';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import type { ChartPalette } from './chartTypes';
 import { escapeHtml } from './escapeHtml';
 import { roleStyle } from './ibcs';
@@ -70,7 +70,7 @@ export function buildCashFlowSankeyOption(
     tooltip: {
       trigger: 'item',
       formatter: (p: { name: string; value: number }) =>
-        `${escapeHtml(p.name)}<br/>${formatMoney(p.value, { symbol: true })}`,
+        `${escapeHtml(p.name)}<br/>${formatStatementFigure(p.value, { symbol: true })}`,
     },
     series: [
       {

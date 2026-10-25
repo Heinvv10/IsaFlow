@@ -11,7 +11,6 @@
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { toMoney } from '@/lib/money/decimalSum';
-import { DEFAULT_FY_START_MONTH, resolveFiscalYearStartMonth } from '../gl/fiscalYearBasis';
 import { fiscalYearStartsWithin, incomeStatementOpeningFloor } from '../gl/fiscalYearCloseRows';
 import { assertLedgerRange } from '../gl/ledgerDateRange';
 import { LedgerAccountNotFoundError } from '../gl/ledgerErrors';
@@ -51,22 +50,17 @@ export async function getAccountLedger(
   try {
     // 1. Resolve account metadata — scoped to company.
     //    company_id is the FIRST condition in every WHERE.
-    //    The company's financial_year_start rides along (LEFT JOIN: no extra round-trip).
     const acctRows = accountId
       ? (await sql`
-          SELECT ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
-                 c.financial_year_start
+          SELECT ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
           FROM gl_accounts ga
-          LEFT JOIN companies c ON c.id = ga.company_id
           WHERE ga.company_id = ${companyId}::UUID
             AND ga.id         = ${accountId}::UUID
           LIMIT 1
         `) as Row[]
       : (await sql`
-          SELECT ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
-                 c.financial_year_start
+          SELECT ga.id, ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
           FROM gl_accounts ga
-          LEFT JOIN companies c ON c.id = ga.company_id
           WHERE ga.company_id   = ${companyId}::UUID
             AND ga.account_code = ${accountCode as string}
           LIMIT 1
@@ -92,12 +86,9 @@ export async function getAccountLedger(
     //    Income-statement accounts restart each fiscal year (trialBalanceBasis),
     //    so their opening is floored at the start of the fiscal year containing
     //    fromDate — otherwise the drill-down cannot tie to the TB row (LED-01).
-    //    READ PATH: the March fallback is taken here, visibly, as the TB does.
+    //    The year's start is the registry year's, as the TB reads it.
     //    company_id is the FIRST condition in both table scopes.
-    const fyStartMonth = resolveFiscalYearStartMonth(
-      acct.financial_year_start, companyId, { fallback: DEFAULT_FY_START_MONTH },
-    );
-    const openingFloor = incomeStatementOpeningFloor(meta.accountType, fromDate, fyStartMonth);
+    const openingFloor = await incomeStatementOpeningFloor(companyId, meta.accountType, fromDate);
     const obRows = postedOnly
       ? (await sql`
           SELECT
@@ -174,7 +165,7 @@ export async function getAccountLedger(
     const scope: LedgerScope = {
       companyId, accountId: resolvedAccountId, cc, bu, postedOnly, fromDate, toDate, normalBalance,
     };
-    const boundaries = openingFloor ? fiscalYearStartsWithin(fromDate, toDate, fyStartMonth) : [];
+    const boundaries = openingFloor ? await fiscalYearStartsWithin(companyId, fromDate, toDate) : [];
     const closes = openingFloor && boundaries.length > 0
       ? await loadYearEndCloses(scope, openingFloor, boundaries)
       : [];

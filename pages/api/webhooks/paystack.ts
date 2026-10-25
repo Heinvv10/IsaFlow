@@ -156,7 +156,7 @@ async function processEventInTransaction(
       WHERE id = ${eventLogId}
     `;
     return false;
-  });
+  }, { migrationAdmin: true }); // its billing writes commit with the event (S-07e)
 }
 
 export default withErrorHandler(handler);

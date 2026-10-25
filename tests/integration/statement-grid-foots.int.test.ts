@@ -14,7 +14,7 @@ import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSh
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 import { IncomeStatementBlock } from '@/components/accounting/afs/AfsStatementsTab';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 
 /**
  * The plan names Velocity Fibre as a third tenant, and it is the one with the
@@ -63,7 +63,7 @@ describe.each(TENANTS)('$name', ({ id }) => {
     const html = renderToStaticMarkup(IncomeStatementBlock({ report: r, periodStart: PERIOD.start, periodEnd: PERIOD.end }));
     const grandRow = html.match(/<tr[^>]*data-kind="grand"[^>]*>[\s\S]*?<\/tr>/);
     expect(grandRow, 'the statement has a grand-total row').toBeTruthy();
-    expect(grandRow![0]).toContain(formatMoney(r.netProfit, { cents: true }));
+    expect(grandRow![0]).toContain(formatStatementFigure(r.netProfit, { cents: true }));
   });
 
   it('balance sheet: grid figures are service figures and A = L + E', async () => {

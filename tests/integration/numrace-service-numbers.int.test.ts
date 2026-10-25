@@ -66,8 +66,8 @@ describeIfDb('NUMRACE: service-minted numbers under a concurrent create', () => 
     assertLocalFixtureDbUrl('DATABASE_URL', DATABASE_URL, ['isaflow_test', 'isaflow_schema_fixture']);
     fx = await seedFixture('NUMRACE-S', DATABASE_URL!);
     employeeId = String(((await sql`
-      INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
-      VALUES (${fx.companyId}::UUID, 'NR-1', 'Num', 'Race', '2026-01-01') RETURNING id`) as Row[])[0]!.id);
+      INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+      VALUES (${fx.companyId}::UUID, 'NR-1', 'Num', 'Race', '2026-01-01', true) RETURNING id`) as Row[])[0]!.id);
   }, 60000);
 
   afterAll(async () => {

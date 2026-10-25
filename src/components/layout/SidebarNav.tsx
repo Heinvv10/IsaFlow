@@ -13,10 +13,11 @@ import {
   TABS,
   getActiveTabId,
   isFlyout,
-  isLinkActive,
+  activeHrefAmong,
   type Tab,
   type NavItem,
 } from '../accounting/accountingNavConfig';
+import { NavLinksBlock } from './NavLinksBlock';
 import { stripVatNav } from '../accounting/navSections/vatNav';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 
@@ -48,6 +49,7 @@ function SectionFlyout({
   parentRight: number;
   parentTop: number;
 }) {
+  const activeHref = activeHrefAmong(items, asPath);
   const [open, setOpen] = useState(false);
   const [subPos, setSubPos] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -86,7 +88,7 @@ function SectionFlyout({
           {items.map(item => {
             if (!isFlyout(item)) {
               return (
-                <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(isLinkActive(item.href, asPath))}>
+                <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>
                   {item.label}
                 </Link>
               );
@@ -115,9 +117,19 @@ function SectionFlyout({
 
 function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; onNav: () => void }) {
   const hasSections = tab.items?.some(isFlyout) ?? false;
+  const activeHref = activeHrefAmong(tab.items ?? [], asPath);
 
   return (
     <>
+      {/* Plain navigation links */}
+      <NavLinksBlock
+        links={tab.links}
+        asPath={asPath}
+        onNav={onNav}
+        linkClassName={linkCls}
+        separatorClassName="border-t border-[var(--ff-canvas-border)] my-1"
+      />
+
       {/* Quick actions */}
       {tab.topItems?.map(item => (
         <Link key={item.href} href={item.href} onClick={onNav}
@@ -130,7 +142,7 @@ function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; on
       {/* Sections with sub-flyouts */}
       {hasSections && tab.items?.map(item => {
         if (!isFlyout(item)) {
-          return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(isLinkActive(item.href, asPath))}>{item.label}</Link>;
+          return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>{item.label}</Link>;
         }
         return (
           <SectionFlyout
@@ -148,7 +160,7 @@ function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; on
       {/* Flat items */}
       {!hasSections && tab.items?.map(item => {
         if (isFlyout(item)) return null;
-        return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(isLinkActive(item.href, asPath))}>{item.label}</Link>;
+        return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>{item.label}</Link>;
       })}
     </>
   );
@@ -195,6 +207,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
           if (tab.href && !hasItems) {
             return (
               <Link key={tab.id} href={tab.href}
+                data-testid={`sidebar-tab-${tab.id}`}
                 className={`flex items-center px-4 py-2 text-sm font-medium transition-colors border-l-[3px] ${
                   active
                     ? 'text-teal-700 dark:text-teal-300 bg-teal-500/[0.08] border-teal-500 dark:border-teal-400'
@@ -209,6 +222,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
           if (tab.href && hasItems) {
             return (
               <Link key={tab.id} href={tab.href}
+                data-testid={`sidebar-tab-${tab.id}`}
                 onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
                 onMouseLeave={dl}
                 className={`flex items-center justify-between px-4 py-2 text-sm font-medium transition-colors border-l-[3px] ${
@@ -225,6 +239,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
 
           return (
             <div key={tab.id}
+              data-testid={`sidebar-tab-${tab.id}`}
               onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
               onMouseLeave={dl}
               className={`flex items-center justify-between px-4 py-2 text-sm font-medium cursor-pointer transition-colors border-l-[3px] ${

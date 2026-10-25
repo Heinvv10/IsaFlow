@@ -17,6 +17,7 @@
  *   - query.ts       LazyQuery (an awaitable query) and the $N query builder
  *   - sql.ts         `sql`, `sql.transaction`, `transaction()`
  *   - transaction.ts `withTransaction`, `withSavepoint`
+ *   - savepointQueue.ts `SavepointQueueTimeoutError`, `savepointQueueWait` (siblings on one connection queue)
  * Import from '@/lib/neon' only, never from those modules: `vi.mock('@/lib/neon')`
  * intercepts this file, so a direct import of a module would slip past it.
  */
@@ -27,6 +28,8 @@ export type { DbRow } from './neon/query';
 export { getPool, getPoolForTests, getDbPool } from './neon/pool';
 export { sql, transaction } from './neon/sql';
 export { withTransaction, withSavepoint } from './neon/transaction';
+export { buildQuery } from './neon/query';
+export { SavepointQueueTimeoutError, savepointQueueWait } from './neon/savepointQueue';
 export type { TxSql } from './neon/transaction';
 export { assertTxUsable } from '@/lib/als';
 

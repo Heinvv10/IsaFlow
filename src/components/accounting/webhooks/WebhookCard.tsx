@@ -4,6 +4,7 @@
 
 import { ChevronDown, ChevronUp, CheckCircle, XCircle, Loader2, Trash2, Play } from 'lucide-react';
 import type { Webhook, Delivery } from '@/modules/accounting/services/core/webhookService';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 const BTN_GHOST = 'inline-flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--ff-text-secondary)] border border-[var(--ff-border-light)] rounded-lg hover:bg-[var(--ff-bg-primary)] transition-colors';
 
@@ -86,7 +87,7 @@ export function WebhookCard({ webhook: wh, deliveries, expanded, testing, testRe
                   {deliveries.map(d => (
                     <tr key={d.id} className="border-b border-[var(--ff-border-light)] last:border-0">
                       <td className="py-2 pr-4 text-[var(--ff-text-secondary)] whitespace-nowrap">
-                        {new Date(d.deliveredAt).toLocaleString('en-ZA')}
+                        {formatDisplayDateTime(d.deliveredAt)}
                       </td>
                       <td className="py-2 pr-4 font-mono text-xs text-[var(--ff-text-primary)]">{d.event}</td>
                       <td className="py-2 pr-4 text-[var(--ff-text-secondary)]">{d.responseStatus ?? '—'}</td>

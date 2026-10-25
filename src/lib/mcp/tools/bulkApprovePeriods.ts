@@ -23,8 +23,8 @@
  *
  * The obvious implementation is "resolve the covering period; no period → skip".
  * That guard is wrong in the other direction. `createJournalEntry` calls
- * `ensureFiscalPeriodForDate`, which CREATES the fiscal year on demand when the
- * date falls inside a bounded window around today. An invoice dated in an
+ * `ensureFiscalPeriodForDate`, which CREATES the date's period on demand when
+ * its fiscal year falls inside a bounded window around today. An invoice dated in an
  * uncreated-but-creatable year posts perfectly well today; skipping it would
  * refuse work the single tool performs, and a subledger reload of historical
  * books is precisely the caller that hits uncreated years.
@@ -34,8 +34,9 @@
  *   - a period covers the date and is open        → postable
  *   - a period covers the date and is not open    → SKIP (closed/locked)
  *   - no period covers the date                   → postable IF the date's
- *     FISCAL year is inside the auto-create window (it will be created open),
- *     otherwise SKIP
+ *     fiscal-year-registry year is inside the auto-create window and not
+ *     closed or locked (its period will be generated open, a gap inside an
+ *     existing year included), otherwise SKIP
  *
  * That last skip is the NULL-`fiscal_period_id` case. `ensureFiscalPeriodForDate`
  * returns null outside the window, `createJournalEntry` stores NULL, and
@@ -58,10 +59,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { isAutoCreatableYear } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
-import {
-  resolveCompanyPeriodAlignment,
-} from '@/modules/accounting/services/gl/fiscalYearCreateService';
-import { fiscalYearOfDate } from '@/modules/accounting/services/gl/fiscalYearCalendar';
+import { fiscalYearForDate } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { isLedgerDate } from '@/modules/accounting/services/gl/ledgerDateRange';
 import { fmtDate } from '@/lib/fmtDate';
 
 /** A period row, reduced to what the verdict depends on. */
@@ -108,17 +107,6 @@ export async function resolvePeriodSkips(
     status: String(r.status),
   }));
 
-  // Read once for the whole batch, and only when some date actually falls
-  // outside every period — the alignment lookup is a query of its own, and the
-  // common batch (every date inside an existing period) must not pay for it.
-  let startMonth: number | null = null;
-  const fiscalYearStartMonth = async (): Promise<number> => {
-    if (startMonth === null) {
-      startMonth = (await resolveCompanyPeriodAlignment(companyId)).startMonth;
-    }
-    return startMonth;
-  };
-
   for (const raw of dates) {
     const date = fmtDate(raw);
     if (verdicts.has(date)) continue;
@@ -135,19 +123,29 @@ export async function resolvePeriodSkips(
     }
 
     // No period covers the date. That is NOT automatically a skip — see the
-    // header: the year is created on demand inside a bounded window, and a
+    // header: the period is generated on demand inside a bounded window, and a
     // historical reload routinely names years nobody has created yet. The
-    // FISCAL year is what the window is tested against, not the calendar year:
-    // on a March-start company a June 2026 date belongs to FY2027, and testing
-    // the calendar year is wrong for ten months out of twelve.
-    const year = fiscalYearOfDate(date, await fiscalYearStartMonth());
+    // registry's fiscal year is what the window is tested against (its stored
+    // row, else the template year), not the calendar year: on a March-start
+    // company a June 2026 date belongs to FY2027. A closed or locked year
+    // refuses a new period, exactly as ensureFiscalPeriodForDate does.
+    if (!isLedgerDate(date)) {
+      // Not asked of the registry: an unparseable date makes its SQL cast fail and
+      // poisons the request transaction for the whole batch.
+      verdicts.set(date, `no fiscal period can be resolved for '${date}' — it is not a valid date`);
+      continue;
+    }
+    const year = await fiscalYearForDate(companyId, date);
+    const closed = year.status === 'closed' || year.status === 'locked';
     verdicts.set(
       date,
-      isAutoCreatableYear(year)
+      isAutoCreatableYear(year.fiscalYear) && !closed
         ? null
-        : `no fiscal period covers ${date} and fiscal year ${year} is outside the auto-create window `
-          + '— create the year first, or the journal would post with no period and stay outside '
-          + 'the trial balance',
+        : closed
+          ? `no fiscal period covers ${date} and fiscal year ${year.fiscalYear} is ${year.status} — reopen it or re-date the document`
+          : `no fiscal period covers ${date} and fiscal year ${year.fiscalYear} is outside the auto-create window `
+            + '— create the year first, or the journal would post with no period and stay outside '
+            + 'the trial balance',
     );
   }
 

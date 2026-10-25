@@ -66,8 +66,8 @@ describeIfDb('document-line account guard — expense-claim service writers', ()
     acc.inactive = await addAccount('7200', { active: false });
     acc.foreign = await addAccount('7100', { companyId: other.companyId });
     employeeId = String(((await sql`
-      INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status)
-      VALUES (${fx.companyId}::UUID, ${`E-${++seq}`}, 'Test', 'Employee', '2026-01-01', 'active')
+      INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status, medical_aid_main_member)
+      VALUES (${fx.companyId}::UUID, ${`E-${++seq}`}, 'Test', 'Employee', '2026-01-01', 'active', true)
       RETURNING id`) as Row[])[0]!.id);
   }, 120000);
 
@@ -210,8 +210,8 @@ describeIfAuth('document-line account guard — driven through the real routes',
     await pool.query("INSERT INTO company_users (company_id, user_id, role) VALUES ($1, $2, 'admin')", [COMPANY, USER]);
     await pool.query('INSERT INTO suppliers (id, company_id, name) VALUES ($1, $2, $3)', [SUPPLIER, COMPANY, 'DLG Supplier']);
     await pool.query(
-      `INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date, status)
-       VALUES ($1, $2, 'DLG-EMP', 'DLG', 'Employee', '2026-01-01', 'active')`, [EMPLOYEE, COMPANY]);
+      `INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date, status, medical_aid_main_member)
+       VALUES ($1, $2, 'DLG-EMP', 'DLG', 'Employee', '2026-01-01', 'active', true)`, [EMPLOYEE, COMPANY]);
     for (const [key, code, active] of [['active', '7100', true], ['inactive', '7200', false]] as const) {
       const id = randomUUID();
       await pool.query(

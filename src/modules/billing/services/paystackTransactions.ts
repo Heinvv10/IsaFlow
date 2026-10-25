@@ -88,6 +88,8 @@ export interface VerifyTransactionResult {
   channel: string | null;
   paidAt: string | null;
   gatewayResponse: string | null;
+  /** The metadata the checkout was initialised with (S-07e: what a payment request's link is checked against). */
+  metadata: Record<string, unknown> | null;
   customer: {
     email: string;
     customerCode: string;
@@ -116,6 +118,7 @@ interface VerifyRaw {
   channel: string | null;
   paid_at: string | null;
   gateway_response: string | null;
+  metadata?: Record<string, unknown> | string | null;
   customer: {
     email: string;
     customer_code: string;
@@ -152,6 +155,8 @@ export async function verifyTransaction(
     channel: data.channel,
     paidAt: data.paid_at,
     gatewayResponse: data.gateway_response,
+    // Paystack returns the metadata object as sent, or an empty string when there was none.
+    metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata : null,
     customer: data.customer
       ? {
           email: data.customer.email,

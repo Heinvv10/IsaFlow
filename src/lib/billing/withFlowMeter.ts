@@ -14,11 +14,15 @@
  *
  * After a successful response, `recalculateNudge` is fire-and-forget so the
  * next page load sees the new banner level.
+ *
+ * The debit and the refund each COMMIT on their own migration_admin
+ * transaction (S-07e), not with the request's: a request that rolls back no
+ * longer takes the debit with it, so every failure exit refunds here.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { log } from '@/lib/logger';
-import { runAfterCommit } from '@/lib/afterCommit';
+import { runAfterCommit, runAfterRollback } from '@/lib/afterCommit';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   deductFlows,
@@ -72,6 +76,11 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
 
       let balanceAfter: number;
       try {
+        // On its own migration_admin connection (S-07e): a lock this request's
+        // transaction already holds on a row the debit needs (its wallet, or the
+        // company row its foreign keys check) is not seen as a deadlock; the
+        // debit waits out its 5 s lock_timeout and fails. No metered route takes
+        // such a lock before metering today.
         const r = await deductFlows(companyId, flowCost, operationCode, null);
         balanceAfter = r.balanceAfter;
       } catch (err) {
@@ -138,6 +147,9 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
         }
         if (handlerError) throw handlerError;
       } else {
+        // The debit committed on its own (S-07e): if the request it paid for
+        // rolls back after all (a failed COMMIT, rollbackOnly), refund it then.
+        runAfterRollback('flow refund (request rolled back)', () => refundFlows(companyId, flowCost, operationCode, null));
         // Nudge recalc — never blocks the response, and starts only after the
         // request COMMITs, on its own connection (R-075).
         runAfterCommit('recalculateNudge', () => recalculateNudge(companyId).catch((err: unknown) => {

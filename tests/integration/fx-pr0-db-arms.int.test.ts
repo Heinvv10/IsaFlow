@@ -101,11 +101,30 @@ describe('a legacy foreign document cannot be posted once the switch is off', ()
 });
 
 describe('the switch itself', () => {
+  /** `text` as app_user after a rolled-back grant of the switch column: what 871's trigger refuses on its own. */
+  async function withColumnGrant(sub: string, companyId: string, text: string, params: unknown[]): Promise<unknown> {
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query('GRANT UPDATE (fx_documents_enabled), INSERT (id, name, fx_documents_enabled) ON public.companies TO app_user');
+      await db.query('SET LOCAL ROLE app_user');
+      await db.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub })]);
+      await db.query("SELECT set_config('app.current_company_id', $1, true)", [companyId]);
+      return await db.query(text, params);
+    } finally {
+      await db.query('ROLLBACK');
+      db.release();
+    }
+  }
+
   it('app_user cannot move it, though its policy lets it update the row; the owner role can', async () => {
     const c = await newCompany(pool, [[user, 'owner']], companies);
     const renamed = await asAppUser(pool, user, c, (db) => db.query("UPDATE companies SET name = 'fx renamed' WHERE id = $1", [c]));
     expect(renamed.rowCount).toBe(1);
+    // Since 936 app_user holds no privilege on the column; 871's trigger stays the arm for any role that does.
     await expect(asAppUser(pool, user, c, (db: PoolClient) => db.query('UPDATE companies SET fx_documents_enabled = true WHERE id = $1', [c])))
+      .rejects.toThrow(/permission denied for table companies/);
+    await expect(withColumnGrant(user, c, 'UPDATE companies SET fx_documents_enabled = true WHERE id = $1', [c]))
       .rejects.toThrow(/FX_SWITCH_REFUSED/);
     await enableFxDocuments(pool, c);
     expect((await pool.query('SELECT fx_documents_enabled FROM companies WHERE id = $1', [c])).rows[0].fx_documents_enabled).toBe(true);
@@ -116,6 +135,8 @@ describe('the switch itself', () => {
     const id = crypto.randomUUID();
     await expect(asAppUser(pool, user, c, (db) => db.query(
       "INSERT INTO companies(id, name, fx_documents_enabled) VALUES($1, 'fx on at birth', true)", [id])))
+      .rejects.toThrow(/permission denied for table companies/);
+    await expect(withColumnGrant(user, c, "INSERT INTO companies(id, name, fx_documents_enabled) VALUES($1, 'fx on at birth', true)", [id]))
       .rejects.toThrow(/FX_SWITCH_REFUSED/);
     expect((await pool.query('SELECT count(*)::INT AS n FROM companies WHERE id = $1', [id])).rows[0].n).toBe(0);
   });

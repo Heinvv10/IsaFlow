@@ -107,8 +107,8 @@ export function InvoiceTable({
                 <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{inv.supplierName || '—'}</td>
                 <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title={inv.reference}>{inv.reference || '—'}</td>
                 <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">{formatDate(inv.invoiceDate)}</td>
-                <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{formatCurrency(inv.totalAmount)}</td>
-                <td className={`px-5 py-3.5 text-right font-mono font-semibold ${outstanding > 0 ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(inv.totalAmount)}</td>
+                <td className={`px-5 py-3.5 text-right tabular-nums font-semibold ${outstanding > 0 ? 'text-amber-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                   {formatCurrency(outstanding)}
                 </td>
                 <td className="px-5 py-3.5"><StatusPill status={inv.status} /></td>
@@ -171,7 +171,7 @@ function SignalBadges({ inv }: { inv: SupplierInvoice }) {
       {inv.hasPo && (
         <span
           title="Linked to purchase order"
-          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 leading-none"
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 leading-none"
         >
           PO
         </span>
@@ -184,7 +184,7 @@ function SignalBadges({ inv }: { inv: SupplierInvoice }) {
       {inv.paymentRunEligible && (
         <span
           title="Ready for payment run"
-          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 leading-none"
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-semibold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 leading-none"
         >
           <CreditCard className="h-2.5 w-2.5" aria-hidden />
           Pay

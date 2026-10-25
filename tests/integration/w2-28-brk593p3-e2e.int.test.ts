@@ -65,7 +65,14 @@ for (const template of ['isaflow_standard', 'xero_compatible', 'sage_compatible'
       clearSystemAccountCache(CO);
       const steps: Record<string, unknown> = {};
       await fx.query('SELECT seed_company_chart_of_accounts($1)', [CO]);
-      await fx.query('SELECT seed_company_fiscal_periods($1)', [CO]);
+      // What the dropped seed_company_fiscal_periods (migration 942) wrote: January-December of this and next year.
+      await fx.query(
+        `INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+         SELECT $1, TO_CHAR(MAKE_DATE(yr, m, 1), 'FMMonth YYYY'), m, yr, MAKE_DATE(yr, m, 1),
+                (MAKE_DATE(yr, m, 1) + INTERVAL '1 month' - INTERVAL '1 day')::date, 'open'
+           FROM generate_series(EXTRACT(YEAR FROM CURRENT_DATE)::int, EXTRACT(YEAR FROM CURRENT_DATE)::int + 1) yr,
+                generate_series(1, 12) m
+         ON CONFLICT (company_id, fiscal_year, period_number) DO NOTHING`, [CO]);
       steps['1 company-create seed'] = { roles: await roleReport(), tree: await treeReport() };
       steps['2 coa-seed'] = st(await fx.call(coaSeed, 'POST', '/api/accounting/coa-seed', { template }));
       steps['2 after seed'] = { rolesNotOne: await roleReport(), tree: await treeReport() };
@@ -118,7 +125,7 @@ for (const template of ['isaflow_standard', 'xero_compatible', 'sage_compatible'
       // branch (the breaker's own out/p3-e2e.{pr,master}.txt). It says nothing about roles, so it is left out
       // of the pass condition; every other step must succeed.
       const { '9 year-end close': yearEndStep, ...roleSteps } = steps;
-      expect(String(yearEndStep)).toMatch(/financial year starts in month/);
+      expect(String(yearEndStep)).toMatch(/financial year with that label runs/);
       expect(JSON.stringify(roleSteps)).not.toMatch(/"(4\d\d|5\d\d) |ERROR|THROWN/);
     }, 120_000);
   });

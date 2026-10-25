@@ -18,7 +18,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify, verifyAs } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { cancelCustomerPayment, confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
@@ -118,8 +118,7 @@ describe('R-187 round 1: a cancelled receipt the gateway did not write never blo
     const id = await invoice(A);
     const ref = await checkout(A, id);
     await cancelledManualReceipt(ref, id, 'eft');
-    h.verifyTransaction.mockResolvedValue(
-      { status: 'success', id: 1871, amountCents: 11500, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card' });
+    h.verifyTransaction.mockImplementation(verifyAs({ status: 'success', id: 1871, amountCents: 11500, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card' }));
 
     expect((await verify(ref)).body.data).toMatchObject({ status: 'completed', amountCents: 11500, appliedToInvoice: true });
 

@@ -18,6 +18,7 @@ vi.mock('@/components/shared/ExportCSVButton', () => ({ ExportCSVButton: () => n
 vi.mock('@/components/accounting/supplier-invoices/SupplierSelect', () => ({ SupplierSelect: () => null }));
 
 import BudgetsPage from '../../../pages/accounting/budgets/index';
+import { budgetRow, budgetsPayload } from './budgetsApiFixture';
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import SupplierCategoriesPage from '../../../pages/accounting/supplier-categories/index';
 import BusinessUnitsPage from '../../../pages/accounting/business-units/index';
@@ -31,12 +32,12 @@ const click = (el: Element | null) => { expect(el).toBeTruthy(); fireEvent.click
 /** jsdom does not run the browser's constraint validation for a click; submit the form the button belongs to. */
 const submit = (btn: Element) => fireEvent.submit(btn.closest('form')!);
 
-const BUDGET = { id: 'b1', glAccountId: 'g0', accountCode: '4000', accountName: 'D2 Sales Budget', accountType: 'revenue', fiscalYear: 2026, annualAmount: 1200, months: Array(12).fill(100) };
+const BUDGET = budgetRow();
 const GL = [{ id: 'g1', accountCode: '5000', accountName: 'D2 Rent', accountType: 'expense' }];
 const budgetsApi = (write: (url: string, m: string) => Response | undefined, reload?: () => Response) => (u: string, m: string) => {
   if (m !== 'GET') return write(u, m);
   if (u.includes('chart-of-accounts')) return ok(GL);
-  return reload ? reload() : ok({ items: [BUDGET] });
+  return reload ? reload() : ok(budgetsPayload([BUDGET]));
 };
 const budgetsLoaded = async () => { render(<BudgetsPage />); await screen.findByText('D2 Sales Budget'); };
 
@@ -67,7 +68,7 @@ describe('budgets', () => {
 
   it('save 200 then reload 500: still says saved, shows the reload error, rows cleared, no spinner', async () => {
     let saved = false;
-    script(budgetsApi(() => { saved = true; return ok({}); }, () => (saved ? empty500() : ok({ items: [BUDGET] }))));
+    script(budgetsApi(() => { saved = true; return ok({}); }, () => (saved ? empty500() : ok(budgetsPayload([BUDGET])))));
     await addBudget();
     expect(await screen.findByText('Budget saved')).toBeTruthy();
     expect(await screen.findByText('Could not load budgets - try again')).toBeTruthy();

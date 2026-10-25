@@ -67,5 +67,5 @@ it('renders the bill section as not-blocking with its potential VAT, and keeps t
   expect(screen.getByText('Tax code set, zero VAT')).toBeTruthy();
   // The potential input VAT total appears both in the narrative and the row
   // (en-ZA formatting: "R 300,00").
-  expect(screen.getAllByText(/R\s*300,00/).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/R\s*300\.00/).length).toBeGreaterThan(0);
 });

@@ -4,7 +4,7 @@ import {
   buildWaterfallOption, makeWaterfallRenderItem, NARROW_WIDTH,
 } from '@/components/accounting/charts/waterfallOption';
 import { DEFAULT_PALETTE } from '@/components/accounting/charts/chartTypes';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 
 const { steps: STEPS } = buildProfitWaterfall({
   revenue: 1_000_000,
@@ -90,7 +90,7 @@ describe('buildWaterfallOption', () => {
   it('carries the service value on the bar label, never a value it derived', () => {
     STEPS.forEach((s, i) => {
       const group = renderStep(STEPS, i);
-      expect(group.children[1].style.text).toBe(formatMoney(s.value));
+      expect(group.children[1].style.text).toBe(formatStatementFigure(s.value));
     });
   });
 

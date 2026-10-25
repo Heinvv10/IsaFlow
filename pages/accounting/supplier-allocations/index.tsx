@@ -7,8 +7,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ArrowLeftRight, Loader2, AlertCircle, Check } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Payment { id: string; paymentNumber: string; supplierName: string; supplierId: string; date: string; amount: number; allocatedAmount: number; }
 interface Invoice { id: string; invoiceNumber: string; date: string; total: number; outstanding: number; }
@@ -115,7 +117,7 @@ export default function SupplierAllocationsPage() {
           {!loading && payments.length > 0 && (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Total Unallocated</p>
-              <p className="text-xl font-bold text-amber-400 font-mono">{fmt(unallocTotal)}</p>
+              <p className="text-xl font-bold text-amber-400 tabular-nums">{fmt(unallocTotal)}</p>
               <p className="text-xs text-[var(--ff-text-tertiary)]">{payments.length} payment(s)</p>
             </div>
           )}
@@ -136,9 +138,9 @@ export default function SupplierAllocationsPage() {
                       className={`w-full text-left px-4 py-3 hover:bg-[var(--ff-bg-tertiary)] transition-colors ${selected?.id === p.id ? 'bg-orange-500/10 border-l-2 border-orange-500' : ''}`}>
                       <div className="flex justify-between">
                         <span className="text-sm font-medium text-[var(--ff-text-primary)]">{p.paymentNumber}</span>
-                        <span className="text-sm font-mono text-amber-400">{fmt(p.amount - p.allocatedAmount)}</span>
+                        <span className="text-sm tabular-nums text-amber-400">{fmt(p.amount - p.allocatedAmount)}</span>
                       </div>
-                      <div className="text-xs text-[var(--ff-text-tertiary)]">{p.supplierName} &middot; {p.date?.split('T')[0]}</div>
+                      <div className="text-xs text-[var(--ff-text-tertiary)]">{p.supplierName} &middot; {formatDisplayDate(p.date)}</div>
                     </button>
                   ))}
                 </div>
@@ -166,15 +168,15 @@ export default function SupplierAllocationsPage() {
                         <div className="flex-1">
                           <div className="flex justify-between">
                             <span className="text-sm text-[var(--ff-text-primary)]">{inv.invoiceNumber}</span>
-                            <span className="text-sm font-mono text-[var(--ff-text-primary)]">{fmt(inv.outstanding)}</span>
+                            <span className="text-sm tabular-nums text-[var(--ff-text-primary)]">{fmt(inv.outstanding)}</span>
                           </div>
-                          <p className="text-xs text-[var(--ff-text-tertiary)]">{inv.date?.split('T')[0]} &middot; Total: {fmt(inv.total)}</p>
+                          <p className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(inv.date)} &middot; Total: {fmt(inv.total)}</p>
                         </div>
                         {allocs[inv.id] !== undefined && (
                           <input type="number" value={allocs[inv.id]} step="0.01" min="0" max={inv.outstanding}
                             onChange={e => setAllocs(prev => ({ ...prev, [inv.id]: Number(e.target.value) }))}
                             onClick={e => e.stopPropagation()}
-                            className="w-28 px-2 py-1 text-right bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-sm font-mono text-[var(--ff-text-primary)]" />
+                            className="w-28 px-2 py-1 text-right bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] rounded text-sm tabular-nums text-[var(--ff-text-primary)]" />
                         )}
                       </label>
                     ))}

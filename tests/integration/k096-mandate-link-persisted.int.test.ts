@@ -178,6 +178,7 @@ describeIfDb('K-096 reference-to-mandate link', () => {
     verifyTransaction.mockResolvedValueOnce({
       status: 'success',
       id: 515151,
+      metadata: { purpose: 'mandate_authorisation', company_id: COMPANY, mandate_id: olderMandate },
       customer: { customerCode: 'CUS_k096o' },
       authorization: {
         authorizationCode: 'AUTH_k096o',
@@ -218,6 +219,7 @@ describeIfDb('K-096 reference-to-mandate link', () => {
     verifyTransaction.mockResolvedValueOnce({
       status: 'success',
       id: 626262,
+      metadata: { purpose: 'mandate_authorisation', company_id: COMPANY, mandate_id: foreignMandate },
       customer: { customerCode: 'CUS_k096x' },
       authorization: { authorizationCode: 'AUTH_k096x', last4: '2222', brand: 'visa' },
     });

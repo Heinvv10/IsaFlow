@@ -63,7 +63,8 @@ describe('rate curves', () => {
 });
 
 describe('flow wallet', () => {
-  const WALLET = { balance: 5, nudgeLevel: 'none', monthFlowsUsed: 0, autoTopupEnabled: false, autoTopupBundleId: null, paymentMethodToken: 'tok' };
+  // Auto top-up can only be switched OFF here (v1 has no payment gateway), so the wallet starts with it on.
+  const WALLET = { balance: 5, nudgeLevel: 'none', monthFlowsUsed: 0, autoTopupEnabled: true, autoTopupBundleId: null };
   const base = (u: string) => (u.includes('/wallet') ? ok(WALLET) : u.includes('/ledger') ? ok({ entries: [] }) : ok([]));
   const toggle = async () => fireEvent.click(await screen.findByRole('checkbox'));
   it('a refused auto top-up change shows the server message and does not reload', async () => {

@@ -69,7 +69,7 @@ export function DemoBanner() {
     >
       <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-300" aria-hidden />
       <span className="text-center">
-        <span className="font-semibold uppercase tracking-wider mr-2 text-[10px]">Demo</span>
+        <span className="font-semibold uppercase tracking-wider mr-2 text-xs">Demo</span>
         You are viewing <span className="font-medium text-amber-900 dark:text-amber-100">ISAFlow Demo</span>.
         All data is illustrative; nothing posts to real books.
       </span>

@@ -8,8 +8,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Row { clientId: string; clientName: string; invoiceCount: number; totalSales: number; paymentsReceived: number; outstanding: number; }
 
@@ -82,29 +83,29 @@ export default function SalesByCustomerReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoices</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Sales</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Received at {to}</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding at {to}</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoices</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Sales</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Received at {to}</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding at {to}</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
                     <tr key={r.clientId} className="hover:bg-teal-500/[0.04]">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.clientName}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalSales)}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-teal-400">{fmt(r.paymentsReceived)}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-amber-400">{fmt(r.outstanding)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.totalSales)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(r.paymentsReceived)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(r.outstanding)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
                   <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
                   <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{totals.invoiceCount}</td>
-                  <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(totals.totalSales)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(totals.paymentsReceived)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-amber-400">{fmt(totals.outstanding)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(totals.totalSales)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(totals.paymentsReceived)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(totals.outstanding)}</td>
                 </tr></tfoot>
               </table>
             )}

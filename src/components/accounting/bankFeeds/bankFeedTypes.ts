@@ -1,4 +1,5 @@
 /** Shared UI types for the Bank Feeds feature */
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 export type SupportedProvider = 'manual_csv' | 'extension';
 export type ConnectionStatus = 'active' | 'paused' | 'error' | 'disconnected';
@@ -93,5 +94,5 @@ export const SYNC_STATUS_STYLES: Record<SyncStatus, { cls: string; label: string
 };
 
 export function fmtDate(d: string | null): string {
-  return d ? new Date(d).toLocaleString('en-ZA', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+  return d ? formatDisplayDateTime(d) : '—';
 }

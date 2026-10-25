@@ -9,6 +9,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface SupplierReturn {
   id: string; return_number: string; supplier_name: string;
@@ -20,7 +21,7 @@ interface Form { supplierId: string; originalInvoiceNumber: string; amount: stri
 const EMPTY: Form = { supplierId: '', originalInvoiceNumber: '', amount: '', reason: '' };
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export default function SupplierReturnsPage() {
@@ -107,8 +108,8 @@ export default function SupplierReturnsPage() {
                         <td className="px-5 py-3.5 font-mono text-amber-500 font-semibold">{r.return_number}</td>
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{r.supplier_name}</td>
                         <td className="px-5 py-3.5 font-mono text-xs text-slate-500 dark:text-slate-400">{r.original_invoice_number || '—'}</td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{r.return_date?.split('T')[0]}</td>
-                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-red-500 dark:text-red-400">{formatCurrency(r.amount)}</td>
+                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">{formatDisplayDate(r.return_date)}</td>
+                        <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-red-500 dark:text-red-400">{formatCurrency(r.amount)}</td>
                         <td className="px-5 py-3.5 text-slate-500 dark:text-slate-400 text-xs max-w-[200px] truncate">{r.reason}</td>
                         <td className="px-5 py-3.5"><StatusPill status={r.status} /></td>
                       </tr>
@@ -157,7 +158,7 @@ export default function SupplierReturnsPage() {
                 {form.amount && Number(form.amount) > 0 && (
                   <div className={`${card} p-4`}>
                     <div className="flex items-center gap-2 mb-2"><Receipt className="w-4 h-4 text-amber-500" /><span className="text-sm font-semibold text-slate-900 dark:text-white">Return Amount</span></div>
-                    <p className="font-mono font-bold text-lg text-red-500 dark:text-red-400">{formatCurrency(Number(form.amount))}</p>
+                    <p className="tabular-nums font-bold text-lg text-red-500 dark:text-red-400">{formatCurrency(Number(form.amount))}</p>
                   </div>
                 )}
               </div>

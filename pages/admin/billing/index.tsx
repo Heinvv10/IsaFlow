@@ -174,7 +174,7 @@ export default function BillingOverviewPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3 text-gray-600 dark:text-gray-300 capitalize">{sub.billing_cycle}</td>
-                      <td className="px-5 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(sub.monthly_amount_cents / 100)}</td>
+                      <td className="px-5 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(sub.monthly_amount_cents / 100)}</td>
                       <td className="px-5 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(sub.created_at)}</td>
                     </tr>
                   ))}

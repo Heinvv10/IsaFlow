@@ -89,7 +89,8 @@ describe('control-account resolution — real database', async () => {
 
         const [period] = (await sql`
           SELECT id FROM fiscal_periods WHERE company_id = ${companyId}::UUID
-          ORDER BY start_date DESC LIMIT 1
+             AND '2026-01-15'::date BETWEEN start_date AND end_date -- the period holding the journal's date (941)
+          LIMIT 1
         `) as Array<{ id: string }>;
 
         const [je] = (await sql`
@@ -182,7 +183,8 @@ describe('control-account resolution — real database', async () => {
 
         const [period] = (await sql`
           SELECT id FROM fiscal_periods WHERE company_id = ${companyId}::UUID
-          ORDER BY start_date DESC LIMIT 1
+             AND '2026-01-20'::date BETWEEN start_date AND end_date -- the period holding the journal's date (941)
+          LIMIT 1
         `) as Array<{ id: string }>;
 
         const [je] = (await sql`

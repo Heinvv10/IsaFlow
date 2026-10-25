@@ -6,7 +6,7 @@
  */
 import { OPERATING_PROFIT_BAR } from '@/modules/accounting/services/reports/waterfallDataService';
 import { inWords } from './packInWords';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, type MoneyScale } from '@/lib/format/money';
 import type { PackChartSpec, PackFootnote, PackTable } from './packPageModel';
 
 /**
@@ -131,7 +131,7 @@ export function bridgeSignFootnote(
   // sentence for a bar whose table cell agrees with it would be sent to
   // check an agreement.
   const example = diverged !== undefined && cell !== null && cell !== undefined
-    ? `${named.label} of ${formatMoney(cell, { scale })} in the table is labelled with that same `
+    ? `${named.label} of ${formatStatementFigure(cell, { scale })} in the table is labelled with that same `
       + `figure on the bridge, drawn ${step < 0 ? 'DOWNWARDS' : 'UPWARDS'} because that is the `
       + `direction it ${moved} profit, and in ${ink}, because it is ${klass}. The label and the `
       + 'position are the same fact read two ways.'

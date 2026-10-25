@@ -2,6 +2,9 @@
  * Shared types for the Loan Amortisation module.
  */
 
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
+
 export interface Loan {
   id: string;
   companyId: string;
@@ -93,12 +96,11 @@ export const STATUS_COLOURS: Record<string, string> = {
   written_off: 'bg-red-500/10 text-red-400',
 };
 
-export const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+export const fmt = (n: number) => formatMoney(n);
 
 export const fmtPct = (n: number) => `${Number(n).toFixed(4)}%`;
 
 export const fmtDate = (d: string) => {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: '2-digit' });
+  return formatDisplayDate(d);
 };

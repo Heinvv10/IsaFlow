@@ -16,7 +16,8 @@ import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { toMoney } from '@/lib/money/decimalSum';
-import { DEFAULT_FY_START_MONTH, fiscalYearStart, resolveFiscalYearStartMonth } from './fiscalYearBasis';
+import { fiscalYearForDate } from './fiscalYearRegistry';
+import { fiscalYearStartsWithin } from './fiscalYearCloseRows';
 import { broughtForwardLine, getRetainedEarningsBroughtForward, INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 import { withYearEndCloses } from './generalLedgerReportYearEnd';
 import { assertLedgerRange } from './ledgerDateRange';
@@ -76,10 +77,8 @@ export async function getGeneralLedgerReport(
   assertLedgerRange(periodStart, periodEnd);
   try {
     const acctRows = (await sql`
-      SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
-             c.financial_year_start
+      SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance
       FROM gl_accounts ga
-      LEFT JOIN companies c ON c.id = ga.company_id
       WHERE ga.company_id = ${companyId}::UUID
       ORDER BY ga.account_code
     `) as Row[];
@@ -97,11 +96,8 @@ export async function getGeneralLedgerReport(
 
     // Income-statement accounts restart at the fiscal-year start (trialBalanceBasis):
     // their opening is floored at the start of the fiscal year containing periodStart.
-    // READ PATH: March fallback taken visibly, as the trial balance does.
-    const fyStartMonth = resolveFiscalYearStartMonth(
-      acctRows[0]?.financial_year_start, companyId, { fallback: DEFAULT_FY_START_MONTH },
-    );
-    const fyStart = fiscalYearStart(periodStart, fyStartMonth);
+    // The registry year's start, as the trial balance reads it.
+    const fyStart = (await fiscalYearForDate(companyId, periodStart)).startDate;
 
     // Opening balances: everything posted before the window, per account
     // (income-statement accounts: only since fyStart).
@@ -203,7 +199,7 @@ export async function getGeneralLedgerReport(
     // ledger's openings still net to zero. Closes inside the range land there too.
     const retainedBf = await getRetainedEarningsBroughtForward(companyId, fyStart);
     const reports = withYearEndCloses(Array.from(byAccount.values()), {
-      accounts, periodStart, periodEnd, fyStartMonth,
+      accounts, boundaries: await fiscalYearStartsWithin(companyId, periodStart, periodEnd),
       retainedEarnings: { ...broughtForwardLine(fyStart), openingBalance: retainedBf },
     });
     // Money leaves the service rounded to cents, as the sibling listings do (toMoney).

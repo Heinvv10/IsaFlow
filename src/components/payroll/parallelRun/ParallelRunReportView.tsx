@@ -10,13 +10,11 @@ import type {
   ParallelRunComparisonReport,
 } from '@/modules/accounting/services/payroll/payrollParallelRunTypes';
 import { COMPONENT_LABELS } from '@/modules/accounting/services/payroll/payrollParallelRunTypes';
+import { formatAmount } from '@/lib/money/formatMoney';
 
 function rand(cents: number | null): string {
   if (cents === null) return '—';
-  return (cents / 100).toLocaleString('en-ZA', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  return formatAmount(cents / 100);
 }
 
 const STATUS_STYLES: Record<EmployeeComparison['status'], string> = {

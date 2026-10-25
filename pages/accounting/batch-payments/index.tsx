@@ -9,13 +9,15 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Layers, Plus, Check, Zap, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Batch {
   id: string; batchNumber: string; batchDate: string; totalAmount: number;
   paymentCount: number; paymentMethod: string; status: string;
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
@@ -102,7 +104,7 @@ export default function BatchPaymentsPage() {
                         {item.batchNumber}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.batchDate?.split('T')[0]}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(item.batchDate)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.paymentCount}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(item.totalAmount)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] uppercase">{item.paymentMethod}</td>

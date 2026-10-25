@@ -10,7 +10,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { ReportRecipient } from '@/modules/accounting/services/practice/practiceReportRecipientsService';
 
 const INPUT = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-1.5 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40 w-full';
-const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
+const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2.5 px-3 text-sm text-[var(--ff-text-secondary)]';
 
 interface FormState { email: string; name: string; monthlySummary: boolean; }

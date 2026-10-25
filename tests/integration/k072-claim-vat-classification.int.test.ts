@@ -112,8 +112,8 @@ beforeAll(async () => {
     [company, user]);
   await pool.query(
     `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,
-       employment_type,start_date,status)
-     VALUES($1,$2,'K072D-01','Kay','Zeven','permanent',CURRENT_DATE,'active')`,
+       employment_type,start_date,status, medical_aid_main_member)
+     VALUES($1,$2,'K072D-01','Kay','Zeven','permanent',CURRENT_DATE,'active', true)`,
     [employee, company],
   );
   await pool.query(

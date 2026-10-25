@@ -150,7 +150,7 @@ export default function CashFlowPage() {
               <div className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)]">
                 <div className="flex justify-between">
                   <span className="font-medium text-[var(--ff-text-primary)]">Opening Cash Balance</span>
-                  <span className="font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(report.opening_cash)}</span>
+                  <span className="tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(report.opening_cash)}</span>
                 </div>
               </div>
 
@@ -164,7 +164,7 @@ export default function CashFlowPage() {
                     {section.items.map((item, i) => (
                       <div key={i} className="flex justify-between px-4 py-2.5">
                         <span className="text-sm text-[var(--ff-text-secondary)]">{item.label}</span>
-                        <span className={`text-sm font-mono ${item.amount >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                        <span className={`text-sm tabular-nums ${item.amount >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                           {formatCurrency(item.amount)}
                         </span>
                       </div>
@@ -172,7 +172,7 @@ export default function CashFlowPage() {
                   </div>
                   <div className="flex justify-between px-4 py-3 bg-[var(--ff-bg-tertiary)] border-t border-[var(--ff-border-light)]">
                     <span className="font-medium text-[var(--ff-text-primary)]">Net {section.section}</span>
-                    <span className={`font-mono font-bold ${section.total >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                    <span className={`tabular-nums font-bold ${section.total >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                       {formatCurrency(section.total)}
                     </span>
                   </div>
@@ -183,13 +183,13 @@ export default function CashFlowPage() {
               <div className="p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] space-y-3">
                 <div className="flex justify-between">
                   <span className="text-[var(--ff-text-secondary)]">Net Change in Cash</span>
-                  <span className={`font-mono font-bold ${report.net_change >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                  <span className={`tabular-nums font-bold ${report.net_change >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                     {formatCurrency(report.net_change)}
                   </span>
                 </div>
                 <div className="flex justify-between pt-3 border-t border-[var(--ff-border-light)]">
                   <span className="font-medium text-[var(--ff-text-primary)]">Closing Cash Balance</span>
-                  <span className="font-mono font-bold text-lg text-[var(--ff-text-primary)]">{formatCurrency(report.closing_cash)}</span>
+                  <span className="tabular-nums font-bold text-lg text-[var(--ff-text-primary)]">{formatCurrency(report.closing_cash)}</span>
                 </div>
               </div>
             </div>

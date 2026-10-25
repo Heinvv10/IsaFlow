@@ -118,7 +118,7 @@ export default function SupplierPurchaseOrdersPage() {
                         <td className="px-5 py-3.5 text-slate-900 dark:text-slate-100 font-medium">{po.supplier_name || '—'}</td>
                         <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatDate(po.order_date)}</td>
                         <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{po.delivery_date ? formatDate(po.delivery_date) : '—'}</td>
-                        <td className="px-5 py-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white">{formatCurrency(po.total_amount)}</td>
+                        <td className="px-5 py-3.5 text-right tabular-nums font-semibold text-slate-900 dark:text-white">{formatCurrency(po.total_amount)}</td>
                         <td className="px-5 py-3.5 text-center"><StatusPill status={po.status} /></td>
                         <td className="px-4 py-3.5">
                           <div className="flex justify-end items-center gap-1">

@@ -16,8 +16,8 @@
 // Cases:
 //   1. The linked mandate (migration 651) is activated; the abandoned sibling
 //      stays pending and nothing throws.
-//   2. A payment request written before migration 651 has no link and still
-//      resolves to exactly ONE mandate rather than the whole company.
+//   2. A payment request written before migration 651 has no link and binds to
+//      nothing (S-07e): no mandate is activated, the request is flagged.
 //   3. Another tenant's pending mandate is never touched.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -34,6 +34,7 @@ const COMPANY = randomUUID();
 const OTHER_COMPANY = randomUUID();
 const LINKED_REF = `k096w_${randomUUID().slice(0, 8)}`;
 const LEGACY_REF = `k096l_${randomUUID().slice(0, 8)}`;
+const FOREIGN_REF = `k096f_${randomUUID().slice(0, 8)}`;
 
 let abandonedMandate: string;
 let authorisedMandate: string;
@@ -42,13 +43,14 @@ let otherTenantMandate: string;
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
-function chargeSuccess(reference: string) {
+function chargeSuccess(reference: string, metadata: Record<string, unknown>) {
   return {
     event: 'charge.success',
     data: {
       reference,
       status: 'success',
       id: 424242,
+      metadata,
       customer: { customer_code: 'CUS_k096w' },
       authorization: {
         authorization_code: 'AUTH_k096w',
@@ -123,6 +125,14 @@ describeIfDb('K-096 webhook mandate activation is scoped to one mandate', () => 
       [OTHER_COMPANY, LEGACY_REF],
     );
 
+    // A linked request whose Paystack metadata will name another company.
+    await admin.query(
+      `INSERT INTO paystack_payment_requests
+         (company_id, purpose, mandate_id, paystack_reference, amount_cents, currency, status)
+       VALUES ($1, 'authorization', $2, $3, 100, 'ZAR', 'pending')`,
+      [COMPANY, abandonedMandate, FOREIGN_REF],
+    );
+
     ({ processEvent } = (await import(
       '../../src/modules/billing/services/paystackEventHandlers'
     )) as unknown as { processEvent: typeof processEvent });
@@ -154,7 +164,7 @@ describeIfDb('K-096 webhook mandate activation is scoped to one mandate', () => 
   }
 
   it('activates only the linked mandate and does not raise 23505', async () => {
-    await expect(processEvent('charge.success', chargeSuccess(LINKED_REF))).resolves.toBeUndefined();
+    await expect(processEvent('charge.success', chargeSuccess(LINKED_REF, { company_id: COMPANY, mandate_id: authorisedMandate }))).resolves.toBeUndefined();
 
     const s = await statuses(COMPANY);
     expect(s.get(authorisedMandate)!.status).toBe('active');
@@ -171,13 +181,36 @@ describeIfDb('K-096 webhook mandate activation is scoped to one mandate', () => 
     expect(active.rows[0].n).toBe(1);
   });
 
-  it('a pre-651 request with no link still activates exactly one mandate', async () => {
-    await expect(processEvent('charge.success', chargeSuccess(LEGACY_REF))).resolves.toBeUndefined();
+  // S-07e: an unlinked request binds to nothing.
+  it('a pre-651 request with no link activates nothing and is flagged for review', async () => {
+    await expect(
+      processEvent('charge.success', chargeSuccess(LEGACY_REF, { company_id: OTHER_COMPANY })),
+    ).resolves.toBeUndefined();
 
     const s = await statuses(OTHER_COMPANY);
-    // Newest pending wins, which is the old heuristic — but scoped to one row.
-    expect(s.get(otherTenantMandate)!.status).toBe('active');
+    expect(s.get(otherTenantMandate)!.status).toBe('pending');
     expect(s.get(legacyMandate)!.status).toBe('pending');
+    const r = await admin.query(
+      `SELECT failure_reason FROM paystack_payment_requests WHERE paystack_reference = $1`,
+      [LEGACY_REF],
+    );
+    expect(r.rows[0].failure_reason).toBe('review:no_mandate_id');
+  });
+
+  it('metadata naming another company activates nothing and is flagged for review', async () => {
+    await expect(
+      processEvent('charge.success', chargeSuccess(FOREIGN_REF, { company_id: OTHER_COMPANY, mandate_id: abandonedMandate })),
+    ).resolves.toBeUndefined();
+
+    const s = await statuses(COMPANY);
+    expect(s.get(abandonedMandate)!.status).toBe('pending');
+    expect(s.get(abandonedMandate)!.code).toBeNull();
+    expect((await statuses(OTHER_COMPANY)).get(otherTenantMandate)!.status).toBe('pending');
+    const r = await admin.query(
+      `SELECT failure_reason FROM paystack_payment_requests WHERE paystack_reference = $1`,
+      [FOREIGN_REF],
+    );
+    expect(r.rows[0].failure_reason).toBe('review:checkout_company_mismatch');
   });
 
   it('leaves the first tenant untouched when the second tenant authorises', async () => {

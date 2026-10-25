@@ -19,6 +19,7 @@ import { Pool } from 'pg';
 import { SignJWT } from 'jose';
 import afsSummary from '../../pages/api/accounting/assets/afs-summary';
 import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears } from './helpers/fiscalYearSeed';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -171,6 +172,8 @@ it('leaves the neighbouring tenant untouched', async () => {
 });
 
 it('refuses a company with no financial year basis rather than assuming one', async () => {
+  // No stored year covers 2026 for this company and financial_year_start is
+  // NULL: the AFS window would rest on an assumed March, so it refuses (500).
   await pool.query('UPDATE companies SET financial_year_start = NULL WHERE id = $1', [febCompany]);
   try {
     const req = request({ 'sb-access-token': token, active_company_id: febCompany }, 'GET') as never as {
@@ -179,10 +182,28 @@ it('refuses a company with no financial year basis rather than assuming one', as
     req.url = '/api/accounting/assets/afs-summary';
     req.query = { period: '202602' };
     const result = response();
-    // withErrorHandler turns the refusal into a 500 — a loud stop, not a guessed note.
     await afsSummary(req as never, result.res);
     expect(result.state.statusCode).toBe(500);
   } finally {
     await pool.query('UPDATE companies SET financial_year_start = 3 WHERE id = $1', [febCompany]);
+  }
+});
+
+// And a STORED year is never re-derived from the start month: clearing it or
+// moving it changes nothing.
+it('reads the stored financial year, whatever financial_year_start now says', async () => {
+  await seedFiscalYears(febCompany, '2025-03-01', '2026-02-28');
+  try {
+    for (const startMonth of [null, 7]) {
+      await pool.query('UPDATE companies SET financial_year_start = $2 WHERE id = $1', [febCompany, startMonth]);
+      const [group] = await summary(febCompany, '202602');
+      expect(group!.openingCost).toBeCloseTo(OLD_COST, 2);
+      expect(group!.additions).toBeCloseTo(NEW_COST, 2);
+      expect(group!.depreciationCharge).toBeCloseTo(12 * MONTHLY_DEP_OLD + 6 * MONTHLY_DEP_NEW, 2);
+    }
+  } finally {
+    await pool.query('UPDATE companies SET financial_year_start = 3 WHERE id = $1', [febCompany]);
+    await pool.query('DELETE FROM fiscal_periods WHERE company_id = $1', [febCompany]);
+    await pool.query('DELETE FROM fiscal_years WHERE company_id = $1', [febCompany]);
   }
 });

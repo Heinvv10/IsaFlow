@@ -1,6 +1,6 @@
 /**
  * Payroll Employees API (new payroll_employees table)
- * GET  /api/payroll/employees  - List payroll employees
+ * GET  /api/payroll/employees  - List active payroll employees (?include=terminated: leavers too)
  * POST /api/payroll/employees  - Create a payroll employee
  */
 
@@ -29,7 +29,8 @@ async function handler(
   const { companyId, companyRole } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
-    const employees = await listPayrollEmployees(companyId);
+    // ?include=terminated adds leavers (the tax-directive form's employee picker).
+    const employees = await listPayrollEmployees(companyId, { includeTerminated: req.query.include === 'terminated' });
     // Personal data is for write roles; a viewer gets who the employees are, nothing else.
     return apiResponse.success(res, canWrite(companyRole) ? employees : employees.map(employeeNamesOnly));
   }
@@ -59,7 +60,9 @@ async function handler(
       idNumber: idNumber ? String(idNumber) : undefined,
       dateOfBirth: dateOfBirth ? new Date(String(dateOfBirth)) : undefined,
       uifExcluded: Boolean(uifExcluded),
-      medicalAidMainMember: medicalAidMainMember !== false,
+      // Only an explicit true makes a main member: the flag buys a monthly medical tax credit,
+      // so a default of true under-deducts PAYE for everyone captured without medical aid.
+      medicalAidMainMember: medicalAidMainMember === true,
       medicalAidDependantsCount: Number(medicalAidDependantsCount) || 0,
     };
 

@@ -129,7 +129,7 @@ export function ReportBuilderSidebar({ selectedSource, selectedFields, onSourceC
                           <span className="text-xs text-gray-600 dark:text-gray-400 dark:text-slate-500 font-mono truncate">{f.field}</span>
                         </div>
                         <div className="flex items-center gap-1 shrink-0 ml-2">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${TYPE_BADGE[f.type] ?? 'bg-gray-100 text-gray-500'}`}>
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${TYPE_BADGE[f.type] ?? 'bg-gray-100 text-gray-500'}`}>
                             {f.type}
                           </span>
                           {!isAdded && <Plus className="w-3.5 h-3.5 text-teal-500" />}

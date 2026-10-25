@@ -10,7 +10,7 @@ import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { BarChart3, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { localISODate } from '@/lib/dateUtils';
+import { longDate, monthLabel, parseReportPeriod } from '@/components/accounting/budgets/budgetClient';
 
 interface BudgetLine {
   account_code: string;
@@ -22,52 +22,65 @@ interface BudgetLine {
   variance_pct: number;
 }
 
+interface ReportYear { fiscalYear: number; startDate: string; endDate: string; kind: string }
+
 interface BudgetReport {
   period: string;
   lines: BudgetLine[];
   total_budget: number;
   total_actual: number;
   total_variance: number;
+  /** Year to date of a chosen year that has not begun: nothing to show; `starts_on` is its first day. */
+  not_started?: boolean;
+  starts_on?: string;
 }
 
-function getDrillDownDates(period: string): { start: string; end: string } {
-  const now = new Date();
-  const year = now.getFullYear();
-  const todayStr = localISODate(now);
-  if (period === 'ytd') return { start: `${year}-01-01`, end: todayStr };
-  if (period === 'full_year') return { start: `${year}-01-01`, end: `${year}-12-31` };
-  // current period = current month
-  const monthStart = new Date(year, now.getMonth(), 1);
-  const monthStartStr = localISODate(monthStart);
-  return { start: monthStartStr, end: todayStr };
+/** The report's query string: the period, and the financial-year label when one is chosen. */
+function reportQuery(period: string, year: number | null): string {
+  const params = new URLSearchParams({ period });
+  if (year !== null) params.set('fiscal_year', String(year));
+  return params.toString();
 }
 
 export default function BudgetVsActualPage() {
   const [report, setReport] = useState<BudgetReport | null>(null);
   const [fiscalPeriod, setFiscalPeriod] = useState('current');
+  // The financial year picked for year to date / full year; null = the year holding today.
+  const [chosenYear, setChosenYear] = useState<number | null>(null);
+  const [years, setYears] = useState<ReportYear[]>([]);
+  const [shownYear, setShownYear] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
 
-  const drillDates = getDrillDownDates(fiscalPeriod);
+  const selectedYear = chosenYear ?? shownYear;
+  const yearOptions: Array<{ fiscalYear: number; startDate: string; endDate: string }> = years.length > 0
+    ? years : selectedYear !== null ? [{ fiscalYear: selectedYear, startDate: '', endDate: '' }] : [];
+  // The range the report itself covers, so a drill-down foots to its line.
+  const range = parseReportPeriod(report?.period);
 
+  // The current month has no year to choose; the other periods take the chosen one.
+  const yearParam = fiscalPeriod !== 'current' && chosenYear !== null ? chosenYear : null;
   const loadReport = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ period: fiscalPeriod });
-      const res = await apiFetch(`/api/accounting/reports-budget-vs-actual?${params}`);
+      const res = await apiFetch(`/api/accounting/reports-budget-vs-actual?${reportQuery(fiscalPeriod, yearParam)}`);
       await assertOk(res, 'Could not load the budget report - try again');
       const json = await res.json();
       const data = json.data || json;
       setReport(data.report || data);
+      setYears(data.years ?? []);
+      setShownYear(data.fiscal_year ?? null);
     } catch (err) {
       setReport(null);
+      setYears([]);
+      setShownYear(null);
       setError(apiErrorMessage(err, 'Could not load the budget report - try again'));
     } finally {
       setIsLoading(false);
     }
-  }, [fiscalPeriod]);
+  }, [fiscalPeriod, yearParam]);
 
   useEffect(() => { void loadReport(); }, [loadReport]);
 
@@ -86,11 +99,15 @@ export default function BudgetVsActualPage() {
                   <p className="text-sm text-[var(--ff-text-secondary)]">
                     Compare budgeted and actual amounts by GL account
                   </p>
+                  {range && (
+                    <p data-testid="report-period" className="text-xs text-[var(--ff-text-secondary)] mt-1">
+                      {longDate(range.start)} to {longDate(range.end)}
+                    </p>
+                  )}
                 </div>
               </div>
               <button onClick={() => {
-                const params = new URLSearchParams({ period: fiscalPeriod });
-                window.open(`/api/accounting/budget-vs-actual-export?${params}`, '_blank');
+                window.open(`/api/accounting/budget-vs-actual-export?${reportQuery(fiscalPeriod, yearParam)}`, '_blank');
               }} disabled={!report || !report.lines || report.lines.length === 0}
                 className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg flex items-center gap-2 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
@@ -110,6 +127,20 @@ export default function BudgetVsActualPage() {
               <option value="ytd">Year to Date</option>
               <option value="full_year">Full Year</option>
             </select>
+            {fiscalPeriod !== 'current' && (selectedYear !== null) && (
+              <select
+                value={selectedYear}
+                onChange={(e) => setChosenYear(Number(e.target.value))}
+                data-testid="report-year"
+                className="px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm"
+              >
+                {yearOptions.map(y => (
+                  <option key={y.fiscalYear} value={y.fiscalYear}>
+                    {y.startDate ? `${y.fiscalYear}: ${monthLabel(y.startDate.slice(0, 7))} - ${monthLabel(y.endDate.slice(0, 7))}` : y.fiscalYear}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {isLoading ? (
@@ -124,23 +155,36 @@ export default function BudgetVsActualPage() {
           ) : !report || !report.lines || report.lines.length === 0 ? (
             <div className="text-center py-12">
               <BarChart3 className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
-              <p className="text-[var(--ff-text-secondary)]">No budget data available</p>
-              <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">
-                Set budgets per GL account to see variance analysis
-              </p>
+              {report?.not_started && report.starts_on ? (
+                <>
+                  <p data-testid="year-not-started" className="text-[var(--ff-text-secondary)]">
+                    This financial year starts on {longDate(report.starts_on)}
+                  </p>
+                  <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
+                    There is nothing to show for year to date yet; choose Full Year to see its budget.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[var(--ff-text-secondary)]">No budget data available</p>
+                  <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
+                    Set budgets per GL account to see variance analysis
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)]">
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Account</th>
-                    <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
-                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Budget</th>
-                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Actual</th>
-                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Variance</th>
-                    <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">%</th>
-                    <th className="py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase w-32">Bar</th>
+                    <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Account</th>
+                    <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
+                    <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Budget</th>
+                    <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Actual</th>
+                    <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Variance</th>
+                    <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">%</th>
+                    <th className="py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase w-32">Bar</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -178,11 +222,11 @@ export default function BudgetVsActualPage() {
                             </div>
                           </td>
                         </tr>
-                        {expandedAccount === line.account_code && (
+                        {expandedAccount === line.account_code && range && (
                           <AccountDrillDown
                             accountCode={line.account_code}
-                            periodStart={drillDates.start}
-                            periodEnd={drillDates.end}
+                            periodStart={range.start}
+                            periodEnd={range.end}
                             asTableRow
                             colSpan={7}
                           />

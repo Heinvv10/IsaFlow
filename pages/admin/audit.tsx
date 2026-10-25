@@ -8,6 +8,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ChevronLeft, ChevronRight, ScrollText, Download } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface UnifiedAuditEntry {
   id: string;
@@ -182,10 +183,7 @@ export default function AdminAuditPage() {
   useEffect(() => { void load(page); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function fmtDateTime(d: string) {
-    return new Date(d).toLocaleString('en-ZA', {
-      day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
+    return formatDisplayDateTime(d);
   }
 
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
@@ -309,7 +307,7 @@ export default function AdminAuditPage() {
               )}
               {rows.map(row => (
                 <tr key={row.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 align-top">
-                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap font-mono text-xs">
+                  <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap tabular-nums text-xs">
                     {fmtDateTime(row.created_at)}
                   </td>
                   <td className="px-4 py-3">

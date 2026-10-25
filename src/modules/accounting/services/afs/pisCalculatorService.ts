@@ -5,6 +5,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PisScore } from './afsTypes';
+import { getFiscalRange } from './afsFiscalPeriod';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -251,9 +252,8 @@ export async function computePisScoreForDocument(
   documentId: string
 ): Promise<PisScore> {
   const rows = (await sql`
-    SELECT d.fiscal_year, c.financial_year_start
+    SELECT d.fiscal_year
     FROM afs_documents d
-    JOIN companies c ON c.id = d.company_id
     WHERE d.id = ${documentId}::UUID
       AND d.company_id = ${companyId}::UUID
   `) as Record<string, unknown>[];
@@ -262,27 +262,7 @@ export async function computePisScoreForDocument(
     throw new Error(`AFS document ${documentId} not found for company ${companyId}`);
   }
 
-  // rows.length >= 1 is guaranteed by the check above
-  const { fiscal_year, financial_year_start } = rows[0] as Record<string, unknown>;
-  const fyStartMonth = (financial_year_start as number) || 3; // default March if null
-  const year = fiscal_year as number;
-
-  // Fiscal year start: first day of fyStartMonth in the prior year (if fyStartMonth > 1)
-  const startYear = fyStartMonth > 1 ? year - 1 : year;
-  const fiscalYearStart = `${startYear}-${String(fyStartMonth).padStart(2, '0')}-01`;
-
-  // Fiscal year end: last day of month before fyStartMonth in the fiscal year
-  let endMonth: number;
-  let endYear: number;
-  if (fyStartMonth === 1) {
-    endMonth = 12;
-    endYear = year;
-  } else {
-    endMonth = fyStartMonth - 1;
-    endYear = year;
-  }
-  const lastDay = new Date(endYear, endMonth, 0).getDate();
-  const fiscalYearEnd = `${endYear}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-
-  return computePisScore(companyId, fiscalYearStart, fiscalYearEnd);
+  // The year's own dates from the registry, not rebuilt from the current start month.
+  const { start, end } = await getFiscalRange(companyId, Number(rows[0]!.fiscal_year));
+  return computePisScore(companyId, start, end);
 }

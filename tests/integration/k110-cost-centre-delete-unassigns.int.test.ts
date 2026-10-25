@@ -25,8 +25,8 @@ beforeAll(async () => {
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
   await pool.query("INSERT INTO cost_centres(id,company_id,code,name,cc_type) VALUES($1,$2,'CC-K110','Ops',$3)", [centre, company, 'cc1']);
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,cost_centre_id)
-     VALUES($1,$2,'E-K110','Thandi','Mokoena','2026-01-01',$3)`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,cost_centre_id, medical_aid_main_member)
+     VALUES($1,$2,'E-K110','Thandi','Mokoena','2026-01-01',$3, true)`,
     [employee, company, centre],
   );
   token = await new SignJWT({ sub: user, aal: 'aal2' })

@@ -8,6 +8,7 @@ import {
 import SessionIssues from '@/components/accounting/migration/SessionIssues';
 import { useMigrationSession, type MigrationSession, type StepsCompleted } from '@/components/accounting/migration/useMigrationSession';
 import { useAuth } from '@/contexts/AuthContext';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const SOURCE_SYSTEMS = [
   { id: 'sage_cloud', label: 'Sage Business Cloud', icon: '☁️', desc: '3-digit account codes' },
@@ -184,7 +185,7 @@ function SourceSelection({ onSelect, selecting, isSuperAdmin }: { onSelect: (s: 
           <div className="flex items-center gap-3 mb-2">
             <span className="text-lg">⚡</span>
             <h3 className="font-semibold text-[var(--ff-text-primary)]">Auto-Import from Sage</h3>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400">Admin</span>
+            <span className="px-1.5 py-0.5 rounded text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-400">Admin</span>
           </div>
           <p className="text-sm text-[var(--ff-text-secondary)] mb-3">
             Sage auto-import is now a staff tool. Open the admin console to run it for any tenant.
@@ -211,7 +212,7 @@ function SessionSummary({ session, onReset }: { session: MigrationSession; onRes
           <p className="text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide mb-1">Active Migration</p>
           <p className="font-semibold text-[var(--ff-text-primary)]">From: {sourceLabel}</p>
           <p className="text-sm text-[var(--ff-text-secondary)] mt-1">
-            {completed}/{STEPS.length} steps completed &bull; Started {new Date(session.startedAt).toLocaleDateString('en-ZA')}
+            {completed}/{STEPS.length} steps completed &bull; Started {formatDisplayDate(session.startedAt)}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -250,7 +251,7 @@ function StatusBadge({ status }: { status: string }) {
     abandoned: 'bg-red-500/20 text-red-400',
   };
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? 'bg-gray-500/20 text-gray-400'}`}>
+    <span data-testid="migration-status-badge" className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? 'bg-gray-500/20 text-gray-400'}`}>
       {status.replace('_', ' ')}
     </span>
   );
