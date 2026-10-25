@@ -81,8 +81,8 @@ export function BudgetForm({ fiscalYear, monthKeys, accounts, editing, busy, onS
           {accounts.map(a => <option key={a.id} value={a.id}>{a.accountCode} — {a.accountName}</option>)}
         </select>
         <input type="number" step="0.01" value={annual} onChange={e => spread(e.target.value)}
-          className="ff-input" placeholder="Annual Amount *" required />
-        <input value={notes} onChange={e => setNotes(e.target.value)} className="ff-input" placeholder="Notes (optional)" />
+          className="ff-input" placeholder="Annual Amount *" aria-label="Annual amount" required />
+        <input value={notes} onChange={e => setNotes(e.target.value)} className="ff-input" placeholder="Notes (optional)" aria-label="Notes" />
       </div>
       {monthKeys.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
