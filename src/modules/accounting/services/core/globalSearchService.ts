@@ -42,7 +42,8 @@ export async function globalSearch(
   query: string,
   limit: number = 8,
 ): Promise<SearchResult[]> {
-  const pattern = `%${query}%`;
+  // ILIKE's own wildcards in what the user typed match literally (backslash is ILIKE's default escape).
+  const pattern = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
   try {
     const [
@@ -162,6 +163,7 @@ async function searchCustomerInvoices(companyId: string, pattern: string): Promi
     const rows = await sql`
       SELECT ci.id, ci.invoice_number, c.name AS customer_name, ci.total_amount
       FROM customer_invoices ci
+      -- A soft-deleted customer still names its invoices: the invoice stands, so does whose it is.
       LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
       WHERE ci.company_id = ${companyId}
         AND ci.deleted_at IS NULL
@@ -173,7 +175,7 @@ async function searchCustomerInvoices(companyId: string, pattern: string): Promi
       type: 'invoice',
       id: String(r.id),
       title: String(r.invoice_number),
-      subtitle: `${r.customer_name ?? ''} | R ${Number(r.total_amount).toFixed(2)}`,
+      subtitle: `${r.customer_name ? `${r.customer_name} | ` : ''}R ${Number(r.total_amount).toFixed(2)}`,
       url: `/accounting/customer-invoices?id=${r.id}`,
       icon: 'file-text',
     }));
