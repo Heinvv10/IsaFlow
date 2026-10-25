@@ -107,6 +107,12 @@ describe('withSavepoint on one request connection', () => {
 
   // These run on fake timers (Date is faked too): with real timers a 60 ms setTimeout stretched past the
   // 100 ms bound by event-loop jitter on a busy box, and a broken bound hung for the full test timeout.
+  // Known gap (review M1): removing `queue.progressAt = Date.now()` from `finish` in savepointQueue.ts is an
+  // EQUIVALENT mutant through every public path. A savepoint's RELEASE / ROLLBACK TO completes through the
+  // statement wrapper, which stamps `lastActivity` at the same instant `finish` stamps `progressAt`, and the idle
+  // check takes the later of the two. Only a direct `queuedSavepoint` call with no statements tells them apart, and
+  // the R-184 census (neonModuleShape.test.ts) forbids tests from naming src/lib/neon/*, so the barrel is not widened
+  // for it. The `lastActivity` half is pinned by the "ONE long savepoint" test below.
   describe('progress-based bound (fake clock)', () => {
     const bound = async (fn: () => Promise<void>) => {
       const saved = savepointQueueWait.ms;
