@@ -39,10 +39,10 @@ function EvidenceBlock({ p }: { p: CloseProposal }) {
         <Info className="w-3 h-3" /> Evidence
       </div>
       <div>{ev.summary}</div>
-      {ev.query && <div className="mt-1 font-mono text-[11px] text-zinc-500">source: {ev.query}</div>}
+      {ev.query && <div className="mt-1 font-mono text-xs text-zinc-500">source: {ev.query}</div>}
       {Array.isArray(ev.rows) && ev.rows.length > 0 && (
         <div className="mt-2 overflow-x-auto">
-          <table className="text-[11px] border-collapse">
+          <table className="text-xs border-collapse">
             <tbody>
               {ev.rows.map((row, i) => (
                 <tr key={i} className="border-t border-zinc-800">
@@ -73,10 +73,10 @@ function ProposalRow({ p, busy, onDecide }: {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-zinc-100">{p.title}</span>
-            <span className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border ${STATUS_BADGE[p.status] ?? 'border-zinc-700 text-zinc-400'}`}>{p.status}</span>
+            <span className={`text-xs uppercase tracking-wide px-1.5 py-0.5 rounded border ${STATUS_BADGE[p.status] ?? 'border-zinc-700 text-zinc-400'}`}>{p.status}</span>
           </div>
           <p className="text-xs text-zinc-400 mt-1">{p.reasoning}</p>
-          <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300">
+          <button onClick={() => setOpen(o => !o)} aria-expanded={open} className="mt-1.5 inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300">
             {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />} Evidence
           </button>
           {open && <EvidenceBlock p={p} />}
@@ -226,7 +226,7 @@ export function CloseAgentPanel({ period }: { period: string }) {
           <h2 className="text-sm font-semibold text-zinc-100">Close Agent</h2>
         </div>
         {run && (
-          <span className="text-[11px] text-zinc-400">Run status: <span className="text-zinc-200">{run.run.status}</span></span>
+          <span className="text-xs text-zinc-400">Run status: <span className="text-zinc-200">{run.run.status}</span></span>
         )}
       </div>
       <p className="text-xs text-zinc-400 mb-3 flex items-center gap-1.5">
@@ -262,13 +262,13 @@ export function CloseAgentPanel({ period }: { period: string }) {
         <div className="space-y-4">
           {grouped.autoPost.length > 0 && (
             <div>
-              <div className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1.5">Proposed postings ({grouped.autoPost.length})</div>
+              <div className="text-xs uppercase tracking-wide text-zinc-500 mb-1.5">Proposed postings ({grouped.autoPost.length})</div>
               <div className="space-y-2">{grouped.autoPost.map(p => <ProposalRow key={p.id} p={p} busy={locked} onDecide={decide} />)}</div>
             </div>
           )}
           {grouped.advisory.length > 0 && (
             <div>
-              <div className="text-[11px] uppercase tracking-wide text-zinc-500 mb-1.5">Needs your attention ({grouped.advisory.length})</div>
+              <div className="text-xs uppercase tracking-wide text-zinc-500 mb-1.5">Needs your attention ({grouped.advisory.length})</div>
               <div className="space-y-2">{grouped.advisory.map(p => <ProposalRow key={p.id} p={p} busy={locked} onDecide={decide} />)}</div>
             </div>
           )}
@@ -276,7 +276,7 @@ export function CloseAgentPanel({ period }: { period: string }) {
             <div className="text-xs text-emerald-300 py-2">Nothing to propose — this period is clean.</div>
           )}
           <div className="flex items-center justify-between pt-2 border-t border-zinc-800">
-            <span className="text-[11px] text-zinc-500">
+            <span className="text-xs text-zinc-500">
               {grouped.pendingCount > 0 ? `${grouped.pendingCount} item(s) still to decide` : 'All items decided'}
             </span>
             {run.run.status !== 'completed' && (

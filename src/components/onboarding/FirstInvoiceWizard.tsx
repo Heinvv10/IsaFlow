@@ -10,6 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useFirstUseWizard } from '@/hooks/useFirstUseWizard';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface WizardState {
   companyName: string; logoData: string;
@@ -42,13 +43,13 @@ function InvoiceHeaderPreview({ state }: { state: WizardState }) {
         <div>
           {state.logoData
             ? <img src={state.logoData} alt="Logo" className="w-12 h-12 object-contain rounded mb-1" />
-            : <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center text-gray-600 dark:text-gray-400 text-[10px] mb-1">Logo</div>}
+            : <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded flex items-center justify-center text-gray-600 dark:text-gray-400 text-xs mb-1">Logo</div>}
           <p className="font-semibold text-gray-800 dark:text-gray-100">{state.companyName || 'Your Company Name'}</p>
         </div>
         <div className="text-right">
           <p className="text-base font-bold text-teal-600 dark:text-teal-400">INVOICE</p>
           <p className="text-gray-500 dark:text-gray-400">{num}</p>
-          <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500">{new Date().toLocaleDateString('en-ZA')}</p>
+          <p className="text-gray-600 dark:text-gray-400 dark:text-gray-500">{formatDisplayDate(new Date())}</p>
         </div>
       </div>
     </div>

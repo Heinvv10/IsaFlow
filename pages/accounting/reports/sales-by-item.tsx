@@ -8,8 +8,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, Loader2, Download } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Row { id: string; itemCode: string; name: string; category: string; timesSold: number; qtySold: number; totalRevenue: number; avgPrice: number; }
 
@@ -76,13 +77,13 @@ export default function SalesByItemReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Times Sold</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty Sold</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Revenue</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Avg Price</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Times Sold</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty Sold</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Revenue</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Avg Price</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
@@ -92,15 +93,15 @@ export default function SalesByItemReport() {
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.timesSold}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtySold}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-teal-400">{fmt(r.totalRevenue)}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.avgPrice)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(r.totalRevenue)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.avgPrice)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
                   <td className="px-4 py-3" colSpan={4}>TOTAL</td>
                   <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{totals.qtySold}</td>
-                  <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(totals.totalRevenue)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(totals.totalRevenue)}</td>
                   <td className="px-4 py-3"></td>
                 </tr></tfoot>
               </table>

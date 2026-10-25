@@ -3,6 +3,7 @@
  */
 
 import dynamic from 'next/dynamic';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const PieChart = dynamic(() => import('recharts').then(m => m.PieChart), { ssr: false });
 const Pie = dynamic(() => import('recharts').then(m => m.Pie), { ssr: false });
@@ -13,7 +14,7 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.Respons
 const AGING_COLORS = ['#14b8a6', '#fbbf24', '#f97316', '#f43f5e'];
 
 function fmtCurrency(n: number): string {
-  return 'R ' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return formatMoney(n);
 }
 
 interface AgingBucket { name: string; value: number }
@@ -49,7 +50,7 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
                 {topCustomers.map((c, i) => (
                   <tr key={i} className="border-b border-[var(--ff-border-light)]/50 last:border-0">
                     <td className="px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[200px]">{c.name}</td>
-                    <td className="px-5 py-2.5 text-sm text-right font-mono text-teal-500">{fmtCurrency(c.revenue)}</td>
+                    <td className="px-5 py-2.5 text-sm text-right tabular-nums text-teal-500">{fmtCurrency(c.revenue)}</td>
                     <td className="px-5 py-2.5 text-sm text-right text-[var(--ff-text-secondary)]">{c.invoiceCount}</td>
                   </tr>
                 ))}
@@ -77,7 +78,7 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
                 {topExpenses.map((e, i) => (
                   <tr key={i} className="border-b border-[var(--ff-border-light)]/50 last:border-0">
                     <td className="px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[200px]">{e.accountName}</td>
-                    <td className="px-5 py-2.5 text-sm text-right font-mono text-rose-600 dark:text-rose-400">{fmtCurrency(e.total)}</td>
+                    <td className="px-5 py-2.5 text-sm text-right tabular-nums text-rose-600 dark:text-rose-400">{fmtCurrency(e.total)}</td>
                     <td className="px-5 py-2.5 text-sm text-right text-[var(--ff-text-secondary)]">{e.percentOfExpenses.toFixed(1)}%</td>
                   </tr>
                 ))}
@@ -113,7 +114,7 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
                         <div className="w-3 h-3 rounded-full" style={{ backgroundColor: AGING_COLORS[i] }} />
                         <span className="text-xs text-[var(--ff-text-secondary)]">{bucket.name}</span>
                       </div>
-                      <span className="text-xs font-mono text-[var(--ff-text-primary)]">{fmtCurrency(bucket.value)}</span>
+                      <span className="text-xs tabular-nums text-[var(--ff-text-primary)]">{fmtCurrency(bucket.value)}</span>
                     </div>
                   ))}
                 </div>

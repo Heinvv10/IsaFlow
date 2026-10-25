@@ -23,6 +23,7 @@ import { ARFilterBar } from '@/components/accounting/customer-invoices/ARFilterB
 import { CustomerInvoiceTable, type CustomerInvoiceRow } from '@/components/accounting/customer-invoices/CustomerInvoiceTable';
 import { useCustomerInvoiceListState } from '@/components/accounting/customer-invoices/useCustomerInvoiceListState';
 import { arFiltersToApiParams } from '@/components/accounting/customer-invoices/listQuery';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { AROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
 
 const LIMIT = 25;
@@ -94,7 +95,7 @@ export default function CustomerInvoicesPage() {
         <div className="p-6">
           {/* KPI strip: Outstanding and Overdue are company-wide (all invoices, not this page or filter) */}
           {!isLoading && arSummary && (() => {
-            const fmt = (n: number) => 'R ' + new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 }).format(n);
+            const fmt = (n: number) => formatMoney(n, { decimals: 0 });
             const { outstanding, overdueCount, overdueAmount, onDeletedAmount } = arSummary;
             return (
               <KpiStrip items={[

@@ -34,7 +34,7 @@ describe('Paystack portal return page', () => {
     mocked.mockResolvedValue(answer({ status: 'completed', amountCents: 5000, appliedToInvoice: true, invoiceNumber: 'INV-181' }));
     render(<PaystackReturnPage />);
     await waitFor(() => expect(screen.getByText('Payment received')).toBeDefined());
-    expect(screen.getByText(/50,00 has been received against invoice INV-181\./)).toBeDefined();
+    expect(screen.getByText(/50\.00 has been received against invoice INV-181\./)).toBeDefined();
     // Nothing the settlement does emails a receipt, so the page must not say it did.
     expect(screen.queryByText(/emailed/)).toBeNull();
     expect(screen.getByText('You can close this window.')).toBeDefined();
@@ -44,7 +44,7 @@ describe('Paystack portal return page', () => {
     mocked.mockResolvedValue(answer({ status: 'completed', amountCents: 11500, appliedToInvoice: false, invoiceNumber: 'INV-181' }));
     render(<PaystackReturnPage />);
     await waitFor(() => expect(screen.getByText('Payment received')).toBeDefined());
-    expect(screen.getByText(/115,00 has been received\./)).toBeDefined();
+    expect(screen.getByText(/115\.00 has been received\./)).toBeDefined();
     expect(screen.queryByText(/against invoice/)).toBeNull();
   });
 
@@ -53,7 +53,7 @@ describe('Paystack portal return page', () => {
     render(<PaystackReturnPage />);
     await waitFor(() => expect(screen.getByText('Payment received')).toBeDefined());
     expect(screen.getByText(/Your payment has been received\./)).toBeDefined();
-    expect(screen.queryByText(/115,00/)).toBeNull();
+    expect(screen.queryByText(/115\.00/)).toBeNull();
   });
 
   it('pending on every try: stops after 10 polls on a neutral "still confirming" state', async () => {

@@ -255,9 +255,9 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_BADGE[inv.status] ?? 'bg-gray-500/10 text-gray-500'}`}>{inv.status}</span>
                   </td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(inv.subtotal_cents / 100)}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(inv.tax_cents / 100)}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs font-semibold">{formatCurrency(inv.total_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(inv.subtotal_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(inv.tax_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs font-semibold">{formatCurrency(inv.total_cents / 100)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(inv.due_date)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(inv.paid_at)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(inv.created_at)}</td>

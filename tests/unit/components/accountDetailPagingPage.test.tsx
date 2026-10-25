@@ -10,8 +10,9 @@ vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNod
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 
 import AccountDetailPage from '../../../pages/accounting/reports/account-detail/[accountId]';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 const meta = { accountId: 'a', accountCode: '4300', accountName: 'Other Income', accountType: 'revenue', normalBalance: 'credit' };
 const row = (id: string, credit: number, runningBalance: number, extra = {}) => ({
   journalEntryId: id, entryDate: '2026-04-01', entryNumber: id, description: id, reference: '', source: 'manual',

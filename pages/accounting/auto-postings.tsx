@@ -14,6 +14,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { AlertCircle, FileSpreadsheet, Filter, Loader2, Shield } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface AutoEntry {
   id: string;
@@ -58,10 +60,7 @@ const SOURCE_LABELS: Record<string, string> = {
 const sourceLabel = (s: string) => SOURCE_LABELS[s] ?? s;
 const PAGE_SIZE = 100;
 
-function fmtR(n: number) {
-  if (!n) return '—';
-  return 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+const fmtR = (n: number): string => (n ? formatMoney(n) : '—');
 
 export default function AutoPostingsPage() {
   const [data, setData] = useState<AutoResponse | null>(null);
@@ -237,7 +236,7 @@ export default function AutoPostingsPage() {
                             {e.entryNumber}
                           </Link>
                         </td>
-                        <td className="px-4 py-2">{e.entryDate}</td>
+                        <td className="px-4 py-2">{formatDisplayDate(e.entryDate)}</td>
                         <td className="px-4 py-2">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-teal-500/10 text-teal-400 border border-teal-500/20">
                             {sourceLabel(e.source)}
@@ -247,8 +246,8 @@ export default function AutoPostingsPage() {
                           {e.description || '—'}
                         </td>
                         <td className="px-4 py-2 text-right">{e.lineCount}</td>
-                        <td className="px-4 py-2 text-right font-mono">{fmtR(e.totalDebit)}</td>
-                        <td className={`px-4 py-2 text-right font-mono ${balanced ? '' : 'text-red-400'}`}>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmtR(e.totalDebit)}</td>
+                        <td className={`px-4 py-2 text-right tabular-nums ${balanced ? '' : 'text-red-400'}`}>
                           {fmtR(e.totalCredit)}{!balanced && ' ⚠'}
                         </td>
                         <td className="px-4 py-2">

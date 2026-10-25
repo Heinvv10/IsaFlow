@@ -22,6 +22,7 @@ import WriteOffsPage from '../../../pages/accounting/write-offs/index';
 import BusinessUnitsPage from '../../../pages/accounting/business-units/index';
 import OpeningBalancesPage from '../../../pages/accounting/opening-balances/index';
 import DrcVatPage from '../../../pages/accounting/drc-vat/index';
+import { budgetRow, budgetsPayload } from './budgetsApiFixture';
 import FinancialYearsPage from '../../../pages/accounting/financial-years/index';
 
 useApiJsonOverMock();
@@ -46,11 +47,10 @@ interface Case {
 
 const PERIOD = { id: 'p1', periodName: 'D2 January 2026', periodNumber: 1, fiscalYear: 2026, startDate: '2026-01-01',
   endDate: '2026-01-31', status: 'open', createdAt: '2026-01-01', updatedAt: '2026-01-01' };
-const BUDGET = { id: 'b1', glAccountId: 'g1', accountCode: '4000', accountName: 'D2 Sales Budget', accountType: 'revenue',
-  fiscalYear: 2026, annualAmount: 1200, months: Array(12).fill(100) };
+const BUDGET = budgetRow({ glAccountId: 'g1' });
 
 const CASES: Case[] = [
-  { name: 'budgets', page: () => <BudgetsPage />, fails: u => u.includes('/budgets?fiscal_year'), good: { items: [BUDGET] },
+  { name: 'budgets', page: () => <BudgetsPage />, fails: u => /\/api\/accounting\/budgets(\?|$)/.test(u), good: budgetsPayload([BUDGET]),
     shows: /D2 Sales Budget/, plain: /Could not load budgets - try again/ },
   { name: 'budgets: GL account list', page: () => <BudgetsPage />, fails: u => u.includes('chart-of-accounts'), good: [],
     plain: /Could not load GL accounts - try again/ },

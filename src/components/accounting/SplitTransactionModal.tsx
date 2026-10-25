@@ -12,6 +12,7 @@ import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/api
 import type { BankTx, SelectOption } from './BankTxTable';
 import { SplitLineRow, type SplitLineState } from './SplitLineRow';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Props {
   transaction: BankTx;
@@ -27,7 +28,7 @@ interface Props {
 }
 
 function fmtCurrency(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+  return formatMoney(n);
 }
 
 function newLine(amount = ''): SplitLineState {
@@ -134,7 +135,7 @@ export function SplitTransactionModal({
             </p>
           </div>
           <div className="text-right mr-2">
-            <p className={`text-base font-bold font-mono ${transaction.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
+            <p className={`text-base font-bold tabular-nums ${transaction.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
               {fmtCurrency(transaction.amount)}
             </p>
             <p className="text-xs text-[var(--ff-text-tertiary)]">{transaction.amount < 0 ? 'Spent' : 'Received'}</p>
@@ -172,10 +173,10 @@ export function SplitTransactionModal({
         <div className="border-t border-[var(--ff-border-light)] px-5 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-3 text-xs">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[var(--ff-text-secondary)]">
-              <span>Total: <span className="font-mono font-medium text-[var(--ff-text-primary)]">{fmtCurrency(total)}</span></span>
-              <span>Allocated: <span className="font-mono font-medium text-[var(--ff-text-primary)]">{fmtCurrency(allocated)}</span></span>
+              <span>Total: <span className="tabular-nums font-medium text-[var(--ff-text-primary)]">{fmtCurrency(total)}</span></span>
+              <span>Allocated: <span className="tabular-nums font-medium text-[var(--ff-text-primary)]">{fmtCurrency(allocated)}</span></span>
               <span>Remaining:
-                <span className={`font-mono font-medium ml-1 ${
+                <span className={`tabular-nums font-medium ml-1 ${
                   Math.abs(remaining) <= 0.01 ? 'text-teal-400' : 'text-amber-400'
                 }`}>{fmtCurrency(remaining)}</span>
               </span>

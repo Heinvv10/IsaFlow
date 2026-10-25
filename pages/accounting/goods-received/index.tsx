@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { PackageCheck, Plus, Search, Loader2 } from 'lucide-react';
 import { PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface GRN {
   id: string;
@@ -21,8 +22,7 @@ interface GRN {
 
 function dateStr(d: unknown): string {
   if (!d) return '—';
-  const s = d instanceof Date ? (d as Date).toISOString() : String(d);
-  return s.split('T')[0] ?? s;
+  return formatDisplayDate(d instanceof Date ? d : String(d));
 }
 
 export default function GoodsReceivedPage() {

@@ -6,6 +6,8 @@
 
 import { useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export type ImportStatus = 'extracting' | 'extracted' | 'reviewing' | 'committed' | 'rolled_back' | 'failed';
 
@@ -35,12 +37,12 @@ interface Props {
 }
 
 function fmtZAR(n: number) {
-  return 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMoney(n);
 }
 
 function fmtDate(s: string | null) {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  return formatDisplayDate(s);
 }
 
 const TH = 'px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-[var(--ff-text-tertiary)]';
@@ -60,11 +62,11 @@ export function StatementReviewPanel({ imp, committing, rollingBack, onCommit, o
           </div>
           <div>
             <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Opening balance</p>
-            <p className="font-mono text-[var(--ff-text-primary)]">{imp.openingBalance != null ? fmtZAR(imp.openingBalance) : '—'}</p>
+            <p className="tabular-nums text-[var(--ff-text-primary)]">{imp.openingBalance != null ? fmtZAR(imp.openingBalance) : '—'}</p>
           </div>
           <div>
             <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Closing balance</p>
-            <p className="font-mono text-[var(--ff-text-primary)]">{imp.closingBalance != null ? fmtZAR(imp.closingBalance) : '—'}</p>
+            <p className="tabular-nums text-[var(--ff-text-primary)]">{imp.closingBalance != null ? fmtZAR(imp.closingBalance) : '—'}</p>
           </div>
           <div>
             <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Rows / Duplicates</p>
@@ -99,11 +101,11 @@ export function StatementReviewPanel({ imp, committing, rollingBack, onCommit, o
           <tbody>
             {imp.rows.map((row, i) => (
               <tr key={i} className="border-b border-[var(--ff-border-light)] last:border-0 hover:bg-white/5">
-                <td className="px-4 py-2.5 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtDate(row.date)}</td>
+                <td className="px-4 py-2.5 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtDate(row.date)}</td>
                 <td className="px-4 py-2.5 text-xs text-[var(--ff-text-primary)] max-w-[220px] truncate" title={row.description}>{row.description}</td>
                 <td className="px-4 py-2.5 text-xs text-[var(--ff-text-tertiary)]">{row.reference ?? '—'}</td>
-                <td className={`px-4 py-2.5 text-xs font-mono text-right ${row.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>{fmtZAR(row.amount)}</td>
-                <td className="px-4 py-2.5 text-xs font-mono text-right text-[var(--ff-text-secondary)]">{row.runningBalance != null ? fmtZAR(row.runningBalance) : '—'}</td>
+                <td className={`px-4 py-2.5 text-xs tabular-nums text-right ${row.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>{fmtZAR(row.amount)}</td>
+                <td className="px-4 py-2.5 text-xs tabular-nums text-right text-[var(--ff-text-secondary)]">{row.runningBalance != null ? fmtZAR(row.runningBalance) : '—'}</td>
                 <td className="px-4 py-2.5">
                   {row.isDuplicate
                     ? <span className="inline-flex items-center px-2 py-0.5 rounded border text-xs font-medium bg-red-500/15 text-red-400 border-red-500/30">Duplicate</span>

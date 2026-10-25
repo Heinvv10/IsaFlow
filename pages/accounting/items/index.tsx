@@ -10,6 +10,7 @@ import { KpiStrip } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface ItemCategory {
   id: string;
@@ -30,8 +31,7 @@ interface Item {
   unit: string;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export default function ItemsListPage() {
   const { activeCompany: company } = useCompany();

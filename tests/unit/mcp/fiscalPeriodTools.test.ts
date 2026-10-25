@@ -31,6 +31,12 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodCloseService', async () =>
   };
 });
 vi.mock('@/modules/accounting/services/gl/yearEndService', () => ({ closeFiscalYear: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', () => ({
+  listFiscalYears: vi.fn(async () => [{
+    id: 'y1', fiscalYear: 2026, startDate: '2026-01-01', endDate: '2027-02-28', status: 'open',
+    kind: 'transition', stored: true, months: 14,
+  }]),
+}));
 
 import {
   getFiscalPeriods,
@@ -138,6 +144,13 @@ describe('list_fiscal_periods', () => {
     expect(env.alignment).toEqual({
       declared_start_month: 3, observed_start_month: 1, aligned: false,
     });
+  });
+
+  it('lists the stored financial years with their real dates and kind', async () => {
+    const env = body(await listFiscalPeriodsTool.handler({}, ctx));
+    expect(env.financial_years).toEqual([{
+      fiscal_year: 2026, start_date: '2026-01-01', end_date: '2027-02-28', months: 14, kind: 'transition', status: 'open',
+    }]);
   });
 
   it('serves no rows and no truncation on detail summary', async () => {

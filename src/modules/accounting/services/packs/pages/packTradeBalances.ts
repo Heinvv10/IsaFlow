@@ -38,7 +38,7 @@
  * off; a comparative cell the prior figures cannot support states its own
  * reason on that page rather than silencing this pointer.
  */
-import { formatMoney, inProse, inScale, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, inScale, type MoneyScale } from '@/lib/format/money';
 import { readCreditorDays, readDebtorDays } from '../figures/packMetricReads';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { packFiguresToFinancialData } from './packScorecard';
@@ -100,7 +100,7 @@ export function tradeBalancesFootnote(
   scale: MoneyScale,
   number: number,
 ): PackFootnote {
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   const prior = set.prior === null ? '' :
     `, against ${money(set.prior.accountsReceivable)} and ${money(set.prior.accountsPayable)} `
       + 'at the comparative period end';

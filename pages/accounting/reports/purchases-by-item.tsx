@@ -8,8 +8,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Row { id: string; itemCode: string; name: string; category: string; poCount: number; qtyOrdered: number; totalCost: number; avgCost: number; }
 
@@ -76,13 +77,13 @@ export default function PurchasesByItemReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">POs</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty Ordered</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Cost</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Avg Cost</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">POs</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty Ordered</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total Cost</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Avg Cost</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
@@ -92,15 +93,15 @@ export default function PurchasesByItemReport() {
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{r.poCount}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtyOrdered}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-orange-400">{fmt(r.totalCost)}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.avgCost)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-orange-400">{fmt(r.totalCost)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.avgCost)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
                   <td className="px-4 py-3" colSpan={4}>TOTAL</td>
                   <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{totals.qtyOrdered}</td>
-                  <td className="px-4 py-3 text-right font-mono text-orange-400">{fmt(totals.totalCost)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-orange-400">{fmt(totals.totalCost)}</td>
                   <td className="px-4 py-3"></td>
                 </tr></tfoot>
               </table>

@@ -152,8 +152,8 @@ export function EliminationsCreateModal({
             </div>
             <div className="grid grid-cols-[1fr_100px_100px_32px] gap-2 mt-2 pt-2 border-t border-[var(--ff-border-light)] text-xs font-medium text-[var(--ff-text-primary)]">
               <span>Totals</span>
-              <span className="text-right font-mono">{fmt(totalDebit)}</span>
-              <span className="text-right font-mono">{fmt(totalCredit)}</span>
+              <span className="text-right tabular-nums">{fmt(totalDebit)}</span>
+              <span className="text-right tabular-nums">{fmt(totalCredit)}</span>
               <span />
             </div>
           </div>

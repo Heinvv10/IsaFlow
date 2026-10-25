@@ -82,7 +82,7 @@ function Line({ line, strong }: { line: ExplanationLine; strong?: boolean }) {
         <dt className="text-sm font-medium text-gray-900 dark:text-gray-100">
           {line.label}
           {line.status && (
-            <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+            <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200">
               {STATUS_TEXT[line.status]}
             </span>
           )}

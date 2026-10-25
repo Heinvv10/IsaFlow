@@ -80,7 +80,7 @@ export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(fu
     <FieldFrame id={inputId} label={label} required={required} {...frame}>
       <div className="relative flex items-center">
         <span
-          className="pointer-events-none absolute left-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+          className="pointer-events-none absolute left-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-semibold tracking-wide text-gray-700 dark:bg-gray-700 dark:text-gray-200"
         >
           {currency}
         </span>

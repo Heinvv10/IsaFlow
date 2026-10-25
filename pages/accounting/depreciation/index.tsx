@@ -22,6 +22,7 @@ import type {
   DepreciationRunResult,
   DepreciationRunResultRow,
 } from '@/modules/accounting/services/items/depreciationRunService';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type DepRun = Pick<DepreciationRunResult, 'processed' | 'skipped' | 'glFailed' | 'total' | 'results'>;
 
@@ -70,8 +71,7 @@ interface AssetRow {
   category?: string;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 /** The charge the run would post for this asset — its method, not straight line. */
 export function monthlyCharge(a: AssetRow, today: Date = new Date()): number | null {

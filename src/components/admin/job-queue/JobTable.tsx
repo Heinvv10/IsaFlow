@@ -4,13 +4,14 @@
 
 import { Loader2, RotateCcw, CheckSquare, Square } from 'lucide-react';
 import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 export const fmtDate = (d: string | Date | null) => {
   if (!d) return '—';
   const date = d instanceof Date ? d : new Date(d);
-  return date.toLocaleString('en-ZA', { dateStyle: 'short', timeStyle: 'short' });
+  return formatDisplayDateTime(date);
 };
 
 export const fmtDuration = (start: string | Date | null, end: string | Date | null): string => {

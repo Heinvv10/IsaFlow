@@ -26,7 +26,7 @@ export const DEFAULT_PALETTE: ChartPalette = {
   plan: '#8a94a0',
   fav: '#1f7a4d',
   unfav: '#b23a3a',
-  figFont: 'ui-monospace, monospace',
+  figFont: "'IBM Plex Sans', system-ui, sans-serif",
   axisLine: '#e5e7eb',
   axisLabel: '#9ca3af',
 };

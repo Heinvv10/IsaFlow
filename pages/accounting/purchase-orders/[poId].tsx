@@ -24,9 +24,10 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { chartAccountOptions } from '@/lib/chartAccountOptions';
 import type { GLAccount as ChartGLAccount } from '@/modules/accounting/types/gl.types';
 import { SupplierSelect } from '@/components/accounting/supplier-invoices/SupplierSelect';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
@@ -343,12 +344,12 @@ export default function PurchaseOrderDetailPage() {
                 {[
                   { label: 'PO Number', value: po.po_number, highlight: true },
                   { label: 'Reference', value: po.reference || '—' },
-                  { label: 'Order Date', value: po.order_date?.split('T')[0] || '—' },
-                  { label: 'Expected Delivery', value: po.expected_delivery_date?.split('T')[0] || '—' },
+                  { label: 'Order Date', value: formatDisplayDate(po.order_date) },
+                  { label: 'Expected Delivery', value: formatDisplayDate(po.expected_delivery_date) },
                   { label: 'Subtotal', value: fmt(Number(po.subtotal)) },
                   { label: 'VAT', value: fmt(Number(po.tax_amount)) },
                   { label: 'Total', value: fmt(Number(po.total)), highlight: true },
-                  { label: 'Created', value: po.created_at?.split('T')[0] || '—' },
+                  { label: 'Created', value: formatDisplayDate(po.created_at) },
                 ].map((f, i) => (
                   <div key={i} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
                     <p className="text-xs text-[var(--ff-text-tertiary)] uppercase mb-1">{f.label}</p>

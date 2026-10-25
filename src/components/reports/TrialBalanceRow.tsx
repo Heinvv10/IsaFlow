@@ -10,9 +10,9 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { useTableDensity } from '@/contexts/TableDensityContext';
 import { YearEndCloseNote } from './TrialBalanceYearEndNote';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const TYPE_PILL: Record<string, string> = {
   asset:     'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
@@ -102,7 +102,7 @@ export function TrialBalanceRow({
           {derived ? (
             <span className="flex items-center gap-2">
               <span
-                className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                className="px-1.5 py-0.5 rounded text-xs font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
                 title="Computed from the ledger, not posted to any account"
               >
                 Derived

@@ -7,6 +7,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, AlertCircle, RefreshCw, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ─── API shape ────────────────────────────────────────────────────────────────
 
@@ -49,7 +51,7 @@ function fmtPct(val: number): string {
 }
 
 function fmtZAR(val: number): string {
-  return `R ${val.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(val);
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -76,7 +78,7 @@ function MatchStatusBadge({ status }: { status: ThreeWayMatchState['matchStatus'
 
 function PaymentBadge({ matched, matchedAt }: { matched: boolean; matchedAt: string | null }) {
   if (matched) {
-    const when = matchedAt ? new Date(matchedAt).toLocaleDateString('en-ZA') : null;
+    const when = matchedAt ? formatDisplayDate(matchedAt) : null;
     return (
       <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-teal-500/20 text-teal-400">
         <CheckCircle2 className="h-3.5 w-3.5" />
@@ -109,7 +111,7 @@ function VarianceCell({ pct, tolerance }: { pct: number; tolerance: number }) {
   if (pct === 0) {
     return <span className="text-green-400 font-mono">—</span>;
   }
-  return <span className={`font-mono font-medium ${cls}`}>{fmtPct(pct)}</span>;
+  return <span className={`tabular-nums font-medium ${cls}`}>{fmtPct(pct)}</span>;
 }
 
 function LineStatusBadge({ status }: { status: MatchItemResult['lineMatchStatus'] }) {
@@ -260,19 +262,19 @@ export function ThreeWayMatchPanel({ invoiceId }: Props) {
                 <td className="px-4 py-3 text-[var(--ff-text-primary)] max-w-[200px] truncate" title={item.description}>
                   {item.description}
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-secondary)]">
+                <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">
                   {item.poQuantity}
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-secondary)]">
+                <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">
                   {item.invoiceQuantity}
                 </td>
                 <td className="px-4 py-3 text-right">
                   <VarianceCell pct={item.qtyVariancePct} tolerance={tolerancesApplied.qtyTolerancePct} />
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-secondary)]">
+                <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">
                   {fmtZAR(item.poUnitPrice)}
                 </td>
-                <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-secondary)]">
+                <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">
                   {fmtZAR(item.invoiceUnitPrice)}
                 </td>
                 <td className="px-4 py-3 text-right">

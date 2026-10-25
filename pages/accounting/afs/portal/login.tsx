@@ -265,13 +265,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
   successText: {
     color: '#334155',
-    fontSize: '0.9375rem',
+    fontSize: '1rem',
     lineHeight: 1.6,
     margin: '0 0 0.75rem',
   },
   successHint: {
     color: '#94a3b8',
-    fontSize: '0.8125rem',
+    fontSize: '0.875rem',
     margin: 0,
   },
 };

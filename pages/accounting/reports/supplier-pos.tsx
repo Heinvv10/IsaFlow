@@ -1,10 +1,11 @@
 /** Supplier POs by Supplier Report — Sage Parity */
-
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { ShoppingCart, Loader2, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface SupplierPoRow {
   id: string;
@@ -32,8 +33,7 @@ interface SupplierPosReportResponse {
   grandPoCount: number;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
@@ -119,7 +119,7 @@ function SupplierGroup({ group }: { group: SupplierPoGroup }) {
             {group.poCount} {group.poCount === 1 ? 'PO' : 'POs'}
           </span>
         </div>
-        <span className="font-mono font-bold text-[var(--ff-text-primary)]">
+        <span className="tabular-nums font-bold text-[var(--ff-text-primary)]">
           {fmt(group.totalValue)}
         </span>
       </button>
@@ -128,27 +128,27 @@ function SupplierGroup({ group }: { group: SupplierPoGroup }) {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-[var(--ff-bg-tertiary)] border-t border-b border-[var(--ff-border-light)]">
-              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">PO Number</th>
-              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Order Date</th>
-              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Delivery Date</th>
-              <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
-              <th className="px-4 py-2 text-center text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
-              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Subtotal</th>
-              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Tax</th>
-              <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
+              <th className="px-4 py-2 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">PO Number</th>
+              <th className="px-4 py-2 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Order Date</th>
+              <th className="px-4 py-2 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Delivery Date</th>
+              <th className="px-4 py-2 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
+              <th className="px-4 py-2 text-center text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
+              <th className="px-4 py-2 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Subtotal</th>
+              <th className="px-4 py-2 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Tax</th>
+              <th className="px-4 py-2 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--ff-border-light)]">
             {group.pos.map(po => (
               <tr key={po.id} className="hover:bg-teal-500/[0.04] bg-[var(--ff-bg-primary)]">
                 <td className="px-4 py-2 text-[var(--ff-text-primary)] font-mono text-xs">{po.orderNumber}</td>
-                <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{po.orderDate}</td>
+                <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDisplayDate(po.orderDate)}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{po.deliveryDate ?? '—'}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{po.reference ?? '—'}</td>
                 <td className="px-4 py-2 text-center">{statusBadge(po.status)}</td>
-                <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(po.subtotal)}</td>
-                <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(po.taxAmount)}</td>
-                <td className="px-4 py-2 text-right font-mono tabular-nums text-[var(--ff-text-primary)] font-semibold">{fmt(po.totalAmount)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(po.subtotal)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(po.taxAmount)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)] font-semibold">{fmt(po.totalAmount)}</td>
               </tr>
             ))}
           </tbody>
@@ -157,7 +157,7 @@ function SupplierGroup({ group }: { group: SupplierPoGroup }) {
               <td colSpan={7} className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">
                 Supplier Total
               </td>
-              <td className="px-4 py-2 text-right font-mono font-bold text-[var(--ff-text-primary)]">
+              <td className="px-4 py-2 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">
                 {fmt(group.totalValue)}
               </td>
             </tr>
@@ -286,7 +286,7 @@ export default function SupplierPosReport() {
                       {data.suppliers.length} {data.suppliers.length === 1 ? 'supplier' : 'suppliers'}
                     </div>
                   </div>
-                  <div className="text-2xl font-bold font-mono text-[var(--ff-text-primary)]">
+                  <div className="text-2xl font-bold tabular-nums text-[var(--ff-text-primary)]">
                     {fmt(data.grandTotal)}
                   </div>
                 </div>

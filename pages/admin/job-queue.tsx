@@ -12,6 +12,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { Loader2, RefreshCw, Zap, Trash2 } from 'lucide-react';
 import type { BackgroundJob } from '@/modules/accounting/services/core/jobQueueService';
+import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -167,7 +168,7 @@ export default function JobQueuePage() {
                 <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Background Jobs</h1>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   {total} total jobs
-                  {lastRefresh && ` · refreshed ${lastRefresh.toLocaleTimeString('en-ZA')}`}
+                  {lastRefresh && ` · refreshed ${formatDisplayTimeSeconds(lastRefresh)}`}
                 </p>
               </div>
             </div>

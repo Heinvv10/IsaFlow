@@ -79,10 +79,10 @@ export function DebtorInvoicesPanel({ clientId, clientName }: { clientId: string
                 </td>
                 <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDay(inv.invoiceDate)}</td>
                 <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDay(inv.dueDate)}</td>
-                <td className="px-4 py-2 text-sm text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
-                <td className="px-4 py-2 text-sm text-right font-mono text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
-                <td className={`px-4 py-2 text-sm text-right font-mono font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{formatCurrency(inv.outstanding)}</td>
-                <td className={`px-4 py-2 text-sm text-right font-mono ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-teal-500'}`}>
+                <td className="px-4 py-2 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
+                <td className="px-4 py-2 text-sm text-right tabular-nums text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
+                <td className={`px-4 py-2 text-sm text-right tabular-nums font-bold ${BUCKET_COLORS[inv.agingBucket]}`}>{formatCurrency(inv.outstanding)}</td>
+                <td className={`px-4 py-2 text-sm text-right tabular-nums ${inv.daysOverdue > 0 ? 'text-red-400' : 'text-teal-500'}`}>
                   {inv.daysOverdue > 0 ? `${inv.daysOverdue}d` : 'Current'}
                 </td>
               </tr>

@@ -6,6 +6,7 @@
 import { formatDate } from '@/utils/formatters';
 import type { Vat201SarsField, Vat201SarsGroup } from '@/modules/accounting/services/reports/vat201SarsFields';
 import { FormRow } from './VAT201FormSections';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Props {
   data: { periodStart: string; periodEnd: string; sarsFields: Vat201SarsField[] };
@@ -22,8 +23,7 @@ const GROUP_HEADINGS: Partial<Record<Vat201SarsGroup, { title: string; bg: strin
 
 const TOTAL_GROUPS: readonly Vat201SarsGroup[] = ['output-total', 'input-total', 'result'];
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export function VAT201SummaryForm({ data }: Props) {
   const result = data.sarsFields.find((f) => f.field === '20');

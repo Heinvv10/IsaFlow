@@ -9,6 +9,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { countPostedAccounts, derivedAccountNote } from '@/components/reports/generalLedgerRows';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface AccountReport {
   accountCode: string;
@@ -33,8 +35,7 @@ interface AccountReport {
   }[];
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 /**
  * Local calendar components, never toISOString(): on UTC+2 a locally-built Date
@@ -207,7 +208,7 @@ export default function GeneralLedgerPage() {
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-6 text-sm font-mono">
+                      <div className="flex items-center gap-6 text-sm tabular-nums">
                         <span className="text-[var(--ff-text-secondary)]">
                           Dr {fmt(r.totalDebit)}
                         </span>
@@ -235,16 +236,16 @@ export default function GeneralLedgerPage() {
                         <tbody className="divide-y divide-[var(--ff-border-light)]">
                           <tr className="text-xs text-[var(--ff-text-tertiary)]">
                             <td className="px-4 py-2" colSpan={5}>Opening Balance</td>
-                            <td className="px-4 py-2 text-right font-mono">{fmt(r.openingBalance)}</td>
+                            <td className="px-4 py-2 text-right tabular-nums">{fmt(r.openingBalance)}</td>
                           </tr>
                           {r.transactions.map((t, i) => (
                             <tr key={i} className={`hover:bg-[var(--ff-bg-tertiary)]${t.derived ? ' italic' : ''}`}>
-                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.date?.split('T')[0]}</td>
+                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{formatDisplayDate(t.date)}</td>
                               <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{t.entryNumber}</td>
                               <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.description}</td>
-                              <td className="px-4 py-2 text-right font-mono">{t.debit > 0 ? fmt(t.debit) : ''}</td>
-                              <td className="px-4 py-2 text-right font-mono">{t.credit > 0 ? fmt(t.credit) : ''}</td>
-                              <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(t.balance)}</td>
+                              <td className="px-4 py-2 text-right tabular-nums">{t.debit > 0 ? fmt(t.debit) : ''}</td>
+                              <td className="px-4 py-2 text-right tabular-nums">{t.credit > 0 ? fmt(t.credit) : ''}</td>
+                              <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(t.balance)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -256,7 +257,7 @@ export default function GeneralLedgerPage() {
 
               <div className="bg-[var(--ff-bg-secondary)] rounded-lg border-2 border-[var(--ff-border-medium)] px-4 py-3 flex items-center justify-between font-bold text-sm">
                 <span className="text-[var(--ff-text-primary)]">GRAND TOTALS ({postedTotal} accounts{derivedAccountNote(reports)})</span>
-                <div className="flex items-center gap-6 font-mono">
+                <div className="flex items-center gap-6 tabular-nums">
                   <span>Dr {fmt(grandTotalDebit)}</span>
                   <span>Cr {fmt(grandTotalCredit)}</span>
                 </div>

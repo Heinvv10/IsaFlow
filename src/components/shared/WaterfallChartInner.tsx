@@ -1,5 +1,6 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
+import { formatMoneyCompact } from '@/lib/money/formatMoney';
 
 interface Props {
   data: WaterfallStep[];
@@ -14,10 +15,7 @@ const COLORS: Record<string, string> = {
   teal: '#0f766e',
 };
 
-const defaultFormat = (n: number) =>
-  n >= 1_000_000 ? `R ${(n / 1_000_000).toFixed(1)}M`
-  : n >= 1_000 ? `R ${(n / 1_000).toFixed(0)}K`
-  : `R ${n.toFixed(0)}`;
+const defaultFormat = (n: number) => formatMoneyCompact(n, { decimals: 0 });
 
 export default function WaterfallChartInner({ data, height = 300, formatValue = defaultFormat }: Props) {
   const chartData = data.map(step => ({
@@ -33,8 +31,8 @@ export default function WaterfallChartInner({ data, height = 300, formatValue = 
     <ResponsiveContainer width="100%" height={height}>
       <BarChart data={chartData} margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-        <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#888' }} angle={-20} textAnchor="end" height={50} />
-        <YAxis tick={{ fontSize: 11, fill: '#888' }} tickFormatter={formatValue} />
+        <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#888' }} angle={-20} textAnchor="end" height={50} />
+        <YAxis tick={{ fontSize: 12, fill: '#888' }} tickFormatter={formatValue} />
         <Tooltip
           contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }}
           formatter={(_, __, props) => {

@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, ArrowLeft, Send, CheckCircle, XCircle } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface DeliveryNoteLine {
   id: string;
@@ -47,7 +48,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 function formatDate(d: string): string {
   if (!d) return '\u2014';
-  return String(d).split('T')[0] ?? d;
+  return formatDisplayDate(d);
 }
 
 export default function DeliveryNoteDetailPage() {
@@ -257,16 +258,16 @@ export default function DeliveryNoteDetailPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-[var(--ff-border-light)]">
-                      <th className="px-4 py-2.5 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Description</th>
-                      <th className="px-4 py-2.5 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty</th>
-                      <th className="px-4 py-2.5 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unit</th>
+                      <th className="px-4 py-2.5 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Description</th>
+                      <th className="px-4 py-2.5 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty</th>
+                      <th className="px-4 py-2.5 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unit</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--ff-border-light)]">
                     {(note.lines ?? []).map((line) => (
                       <tr key={line.id} className="hover:bg-teal-500/[0.04]">
                         <td className="px-4 py-2.5 text-sm text-[var(--ff-text-primary)]">{line.description}</td>
-                        <td className="px-4 py-2.5 text-sm text-right font-mono tabular-nums text-[var(--ff-text-primary)]">
+                        <td className="px-4 py-2.5 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">
                           {Number(line.quantity).toLocaleString('en-ZA')}
                         </td>
                         <td className="px-4 py-2.5 text-sm text-[var(--ff-text-secondary)]">{line.unit ?? ''}</td>

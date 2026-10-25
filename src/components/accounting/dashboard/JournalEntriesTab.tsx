@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { DisplayModeToggle } from '@/components/accounting/DisplayModeToggle';
 import { useDisplayMode } from '@/hooks/useDisplayMode';
 import type { JournalEntry } from '@/modules/accounting/types/gl.types';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -103,7 +104,7 @@ export function JournalEntriesTab() {
               <thead>
                 <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
                   {['Entry #', 'Date', 'Description', 'Source', 'Status', 'Actions'].map((h, i) => (
-                    <th key={h} className={`px-6 py-3 text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)] ${i === 5 ? 'text-right' : 'text-left'}`}>{h}</th>
+                    <th key={h} className={`px-6 py-3 text-xs tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)] ${i === 5 ? 'text-right' : 'text-left'}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -116,7 +117,7 @@ export function JournalEntriesTab() {
                       </Link>
                     </td>
                     <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)]">
-                      {new Date(entry.entryDate).toLocaleDateString()}
+                      {formatDisplayDate(entry.entryDate)}
                     </td>
                     <td className="px-6 py-3 text-sm text-[var(--ff-text-primary)] max-w-xs truncate">
                       {entry.description || '-'}

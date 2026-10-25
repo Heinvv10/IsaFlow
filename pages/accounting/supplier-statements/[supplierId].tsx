@@ -6,6 +6,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatDateISO } from '@/utils/dateFormat';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { TypeBadge, getTransactionUrl, type SupplierInfo, type Summary } from '@/components/accounting/supplierStatementParts';
@@ -80,7 +81,7 @@ export default function SupplierStatementDetailPage() {
     if (isLoading || error || !supplier || transactions.length === 0) return;
     const header = 'Date,Type,Reference,Description,Debit,Credit,Balance';
     const rows = transactions.map(t =>
-      [formatDate(t.date), t.type, `"${t.reference}"`, `"${(t.description || '').replace(/"/g, '""')}"`,
+      [formatDateISO(t.date), t.type, `"${t.reference}"`, `"${(t.description || '').replace(/"/g, '""')}"`,
        t.debit.toFixed(2), t.credit.toFixed(2), t.balance.toFixed(2)].join(',')
     );
     const csv = [header, ...rows].join('\n');
@@ -261,13 +262,13 @@ export default function SupplierStatementDetailPage() {
                               <td className="px-4 py-3"><TypeBadge type={txn.type} /></td>
                               <td className="px-4 py-3 font-mono text-[var(--ff-text-primary)]">{txn.reference}</td>
                               <td className="px-4 py-3 text-[var(--ff-text-tertiary)] max-w-[240px] truncate">{txn.description || '-'}</td>
-                              <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+                              <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                                 {txn.debit > 0 ? formatCurrency(txn.debit) : ''}
                               </td>
-                              <td className={`px-4 py-3 text-right font-mono ${txn.type === 'payment' ? 'text-teal-400' : 'text-amber-400'}`}>
+                              <td className={`px-4 py-3 text-right tabular-nums ${txn.type === 'payment' ? 'text-teal-400' : 'text-amber-400'}`}>
                                 {txn.credit > 0 ? formatCurrency(txn.credit) : ''}
                               </td>
-                              <td className={`px-4 py-3 text-right font-mono font-medium ${txn.balance > 0 ? 'text-[var(--ff-text-primary)]' : 'text-teal-400'}`}>
+                              <td className={`px-4 py-3 text-right tabular-nums font-medium ${txn.balance > 0 ? 'text-[var(--ff-text-primary)]' : 'text-teal-400'}`}>
                                 {formatCurrency(txn.balance)}
                               </td>
                               <td className="px-2 py-3">

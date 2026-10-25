@@ -7,6 +7,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { RefreshCw, AlertCircle, Loader2, X, CheckCircle2, Clock, Search } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate, parseDateSafe } from '@/utils/dateFormat';
 
 interface SupplierExpectation {
   id: string; companyId: string; supplierId: string;
@@ -28,22 +30,21 @@ type Toast = { msg: string; kind: 'ok' | 'err' | 'warn' } | null;
 const CADENCE_GAP: Record<string, number> = { monthly: 30, quarterly: 91, annual: 365 };
 
 const fmtZAR = (n: number | null) =>
-  n == null ? '—' : 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n == null ? '—' : formatMoney(n);
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  return formatDisplayDate(s);
 };
 
 function nextExpected(exp: SupplierExpectation): string {
   if (exp.cadence === 'irregular' || !exp.lastInvoiceDate) return '—';
   const gap = CADENCE_GAP[exp.cadence];
   if (!gap) return '—';
-  try {
-    const base = new Date(exp.lastInvoiceDate);
-    base.setDate(base.getDate() + gap);
-    return base.toLocaleDateString('en-ZA');
-  } catch { return '—'; }
+  const base = parseDateSafe(exp.lastInvoiceDate);
+  if (!base) return formatDisplayDate(exp.lastInvoiceDate); // not a date: shown as it came
+  base.setDate(base.getDate() + gap);
+  return formatDisplayDate(base);
 }
 
 function CadenceBadge({ cadence }: { cadence: SupplierExpectation['cadence'] }) {
@@ -230,11 +231,11 @@ export default function SupplierExpectationsPage() {
                       </td>
                       <td className="px-4 py-3"><CadenceBadge cadence={r.cadence} /></td>
                       <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{nextExpected(r)}</td>
-                      <td className="px-4 py-3 text-xs font-mono text-[var(--ff-text-secondary)]">{fmtZAR(r.expectedAmount)}</td>
+                      <td className="px-4 py-3 text-xs tabular-nums text-[var(--ff-text-secondary)]">{fmtZAR(r.expectedAmount)}</td>
                       <td className="px-4 py-3 text-xs text-[var(--ff-text-secondary)]">
                         <span className="block">{fmtDate(r.lastInvoiceDate)}</span>
                         {r.lastInvoiceAmount != null && (
-                          <span className="text-[var(--ff-text-tertiary)] font-mono">{fmtZAR(r.lastInvoiceAmount)}</span>
+                          <span className="text-[var(--ff-text-tertiary)] tabular-nums">{fmtZAR(r.lastInvoiceAmount)}</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-center text-[var(--ff-text-secondary)]">{r.sampleSize}</td>

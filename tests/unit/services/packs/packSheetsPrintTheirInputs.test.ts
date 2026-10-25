@@ -27,7 +27,7 @@ import {
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { comparativeLengthClause } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
 import { inclusiveDays } from '@/modules/accounting/services/reports/priorPeriod';
-import { formatMoney, inProse, MONEY_SCALES } from '@/lib/format/money';
+import { formatStatementFigure, inProse, MONEY_SCALES } from '@/lib/format/money';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { ScorecardTable } from '@/components/accounting/packs/primitives/ScorecardTable';
 import { createElement } from 'react';
@@ -38,7 +38,7 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
 import { brightsphereLiveInput, demoInput } from './fixtures/boardPackInputs';
 import { liveDemoRenderedInput } from './fixtures/liveDemoBoardPack';
 
-const money = (n: number): string => formatMoney(n, { scale: PACK_SCALE });
+const money = (n: number): string => formatStatementFigure(n, { scale: PACK_SCALE });
 /** The figure as a SENTENCE states it — `nil`, never the money column's
  *  dash. Brightsphere carries no trade payable at all. */
 const inWords = (n: number): string => inProse(money(n));

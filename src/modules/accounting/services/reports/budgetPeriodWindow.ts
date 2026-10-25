@@ -1,16 +1,15 @@
 /**
- * Which budget months a Budget vs Actual window covers, and what they add up to.
+ * Which budget months a Budget vs Actual window covers.
  *
- * Budgets are stored in `accounting_budgets.period_amounts` keyed by CALENDAR
- * month ('jan'..'dec'), because a company can change its fiscal year-end
- * without its January budget becoming a different number. The report window,
- * by contrast, is a fiscal window. Every company in production currently runs a
- * January–December fiscal year, which is the one case where comparing
- * `Date.getMonth()` bounds happens to work; for a fiscal year starting in any
- * other month the bound goes backwards, the window comes back empty, and an
- * empty window reads on screen as "no budget set". Month ordinals hold for
- * either convention, so the report no longer depends on which one a company
- * uses.
+ * Budgets are stored per CALENDAR month (`budget_month_amounts.month`, the
+ * first of the month; migration 944), so a window's budget is the sum of the
+ * stored months from the window's first month to its last, whatever financial
+ * year(s) they fall in. A financial year can be 1-15 months long after a
+ * change of year end, so nothing here knows a year is twelve months, or
+ * names months: a window of 14 months has 14 keys.
+ *
+ * A month is counted whole. A window that opens or closes mid-month still
+ * takes that month's full budget, as the report always has.
  *
  * Dates arrive as 'YYYY-MM-DD' strings and are treated as strings throughout:
  * constructing a Date to read its month risks a UTC rollback moving a
@@ -19,13 +18,6 @@
 
 import { localISODate } from '@/lib/dateUtils';
 
-/** Calendar month keys, Jan first — the keys the budget writer stores. */
-export const BUDGET_MONTH_KEYS = [
-  'jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec',
-] as const;
-
-export type BudgetMonthKey = typeof BUDGET_MONTH_KEYS[number];
-
 /** Months since year 0 — an orderable scalar that survives a year boundary. */
 function monthOrdinal(isoDate: string): number | null {
   const match = /^(\d{4})-(\d{2})/.exec(isoDate);
@@ -33,55 +25,42 @@ function monthOrdinal(isoDate: string): number | null {
   return Number(match[1]) * 12 + (Number(match[2]) - 1);
 }
 
-/**
- * The calendar month keys from `startDate` to `endDate` inclusive, in window
- * order. Capped at twelve: a budget year has twelve months, and a wider request
- * would double-count them.
- */
-export function budgetMonthKeysInWindow(startDate: string, endDate: string): BudgetMonthKey[] {
+/** 'YYYY-MM' for a month ordinal. */
+function keyOfOrdinal(ordinal: number): string {
+  const year = Math.floor(ordinal / 12);
+  return `${String(year).padStart(4, '0')}-${String((ordinal % 12) + 1).padStart(2, '0')}`;
+}
+
+/** The 'YYYY-MM' months from `startDate` to `endDate` inclusive, in order; empty when the end precedes the start. */
+export function budgetMonthKeysInWindow(startDate: string, endDate: string): string[] {
   const start = monthOrdinal(startDate);
   const end = monthOrdinal(endDate);
   if (start === null || end === null || end < start) return [];
-
-  const span = Math.min(end - start + 1, BUDGET_MONTH_KEYS.length);
-  const keys: BudgetMonthKey[] = [];
-  for (let i = 0; i < span; i++) {
-    keys.push(BUDGET_MONTH_KEYS[(start + i) % 12] as BudgetMonthKey);
-  }
+  const keys: string[] = [];
+  for (let o = start; o <= end; o++) keys.push(keyOfOrdinal(o));
   return keys;
 }
 
-/**
- * Sum a stored `period_amounts` object over the given months.
- *
- * Rows written before the month-name shape used 0-based numeric keys, so both
- * are accepted. The annual amount is pro-rated only when no monthly split was
- * ever stored — gating on key count rather than on a zero total, so a
- * deliberate zero-budget month stays zero instead of resurrecting the annual.
- */
-export function sumBudgetForWindow(
-  periodAmounts: Record<string, unknown>,
-  annualAmount: number,
-  monthKeys: readonly BudgetMonthKey[],
-): number {
-  if (monthKeys.length === 0) return 0;
-
-  if (Object.keys(periodAmounts).length === 0) {
-    if (!annualAmount) return 0;
-    return round2(Number(annualAmount) * (monthKeys.length / BUDGET_MONTH_KEYS.length));
-  }
-
-  let total = 0;
-  for (const key of monthKeys) {
-    const byName = periodAmounts[key];
-    const byIndex = periodAmounts[String(BUDGET_MONTH_KEYS.indexOf(key))];
-    total += Number(byName ?? byIndex ?? 0);
-  }
-  return round2(total);
+/** `key` ('YYYY-MM') moved by `count` months (negative moves back). */
+export function addMonthsToKey(key: string, count: number): string {
+  const ordinal = monthOrdinal(key);
+  if (ordinal === null) throw new Error(`addMonthsToKey: invalid month ${key}`);
+  return keyOfOrdinal(ordinal + count);
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+/** The first-of-month date a 'YYYY-MM' key is stored under in budget_month_amounts. */
+export function monthKeyToDate(key: string): string {
+  return `${key}-01`;
+}
+
+/**
+ * The first and last stored month dates ('YYYY-MM-01') a window covers, for a
+ * `month BETWEEN first AND last` predicate; null when the window is empty.
+ */
+export function budgetMonthBounds(startDate: string, endDate: string): { first: string; last: string } | null {
+  const keys = budgetMonthKeysInWindow(startDate, endDate);
+  if (keys.length === 0) return null;
+  return { first: monthKeyToDate(keys[0]!), last: monthKeyToDate(keys[keys.length - 1]!) };
 }
 
 export interface BudgetWindow {

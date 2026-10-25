@@ -401,7 +401,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           >
             <Search className="w-3.5 h-3.5" />
             <span className="text-xs">Search</span>
-            <kbd className="ml-1 px-1 py-0.5 text-[10px] bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] rounded">
+            <kbd className="ml-1 px-1 py-0.5 text-xs bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] rounded">
               Ctrl+K
             </kbd>
           </button>

@@ -12,7 +12,7 @@
  * ratios use the pack's notation. The numeric `kpis` margins are the engine's
  * too: null on non-positive revenue, with its reason in `kpis.notMeaningful`.
  */
-import { formatMoney, inProse, pctWithWord } from '@/lib/format/money';
+import { formatStatementFigure, inProse, pctWithWord } from '@/lib/format/money';
 import { calculateFinancialRatios } from './ratioCalculations';
 import { formatRatioOf } from './ratioPresentation';
 
@@ -169,7 +169,7 @@ export function generateAlerts(input: ExecutiveSummaryInput): ExecutiveAlert[] {
 
   if (input.netProfit < 0) {
     // The sign is in the word "loss", so the amount is its size.
-    const loss = inProse(formatMoney(Math.abs(input.netProfit), { cents: true, symbol: true, pack: true }));
+    const loss = inProse(formatStatementFigure(Math.abs(input.netProfit), { cents: true, symbol: true, pack: true }));
     alerts.push({ severity: 'danger', message: `Net loss of ${loss} reported this period` });
   }
 

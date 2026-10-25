@@ -23,7 +23,7 @@
  * for page 10's panels.
  */
 import { describe, expect, it } from 'vitest';
-import { formatDays, formatMoney, formatPctLevel, inProse } from '@/lib/format/money';
+import { formatDays, formatStatementFigure, formatPctLevel, inProse } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { buildHighlightTiles } from '@/modules/accounting/services/packs/pages/packHighlights';
 import { buildHighlightsBlocks } from '@/modules/accounting/services/packs/pages/packPageBlocks';
@@ -222,7 +222,7 @@ describe('page 3 states the domain of every line it draws', () => {
   const printed = (value: number, unit: 'money' | 'percentage' | 'days'): string => (
     unit === 'percentage' ? formatPctLevel(value)
       : unit === 'days' ? formatDays(value)
-        : inProse(formatMoney(value, { scale: PACK_SCALE })));
+        : inProse(formatStatementFigure(value, { scale: PACK_SCALE })));
 
   for (const [company, input] of Object.entries(COMPANIES)) {
     it(`names both ends of every sparkline's axis on ${company}`, () => {

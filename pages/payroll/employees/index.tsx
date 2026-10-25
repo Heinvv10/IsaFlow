@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { MedicalAidReviewBanner } from '@/components/payroll/MedicalAidReviewBanner';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface EmployeeListItem {
   id: string;
@@ -165,7 +166,7 @@ export default function EmployeesListPage() {
                         </Link>
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)] capitalize">{e.employmentType}</td>
-                      {mayWrite && <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate?.slice(0, 10) ?? '—'}</td>}
+                      {mayWrite && <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate ? formatDisplayDate(e.startDate) : '—'}</td>}
                       <td className="py-3 px-4"><StatusBadge active={!e.endDate || new Date(e.endDate) > new Date()} /></td>
                       <td className="py-3 px-4">
                         <Link href={`/payroll/employees/${e.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">

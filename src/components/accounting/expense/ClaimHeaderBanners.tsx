@@ -15,6 +15,7 @@
  */
 
 import { AlertCircle } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Props {
   vatAdvice: string[];
@@ -28,7 +29,7 @@ interface Props {
 const TILE = 'bg-[var(--ff-canvas-mid)] border border-[rgba(255,255,255,0.08)] rounded-xl p-4';
 
 function fmtZAR(n: number): string {
-  return `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(n);
 }
 
 export function ClaimToast({ toast }: { toast: Props['toast'] }) {

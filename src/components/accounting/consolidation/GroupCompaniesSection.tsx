@@ -88,7 +88,7 @@ export function GroupCompaniesSection({ items, loading, onRefresh, onAdd }: Prop
                       {RELATIONSHIP_LABELS[c.relationshipType] ?? c.relationshipType}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-gray-800 dark:text-gray-200">
+                  <td className="px-4 py-3 text-right tabular-nums text-gray-800 dark:text-gray-200">
                     {c.ownershipPercent.toFixed(2)}%
                   </td>
                   <td className="px-4 py-3">

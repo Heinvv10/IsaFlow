@@ -134,7 +134,7 @@ export function InvoiceLineItemsTable({
               <td className="px-3 py-2"><input type="number" name="unitPrice" aria-label="Unit price" value={l.unitPrice} step={0.01} onChange={(e) => onUpdate(l.key, 'unitPrice', Number(e.target.value))} className={`${inp} text-right`} /></td>
               {showDiscount && <td className="px-3 py-2"><input type="number" aria-label="Discount %" min={0} max={100} step={0.01} value={l.discount || ''} onChange={(e) => onUpdate(l.key, 'discount', e.target.value === '' ? 0 : discountInput(Number(e.target.value)))} placeholder="0" className={`${inp} text-right`} /></td>}
               <td className="px-4 py-2 text-right">
-                <span className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), currencyCode)}</span>
+                <span className="tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrencyAmount(lineTotal(l), currencyCode)}</span>
                 {showDiscount && l.discount > 0 && <span className="block text-xs text-teal-600 dark:text-teal-400 font-medium">-{l.discount}%</span>}
               </td>
               <td className="px-2 py-2"><button type="button" aria-label="Remove line" onClick={() => onRemove(l.key)} className="p-1.5 rounded-lg text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button></td>

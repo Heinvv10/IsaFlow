@@ -11,6 +11,8 @@ import { TopUpModal } from '@/components/billing/TopUpModal';
 import { useCompany } from '@/contexts/CompanyContext';
 import { UpgradeNudgeBanner, type NudgeLevel } from '@/components/billing/UpgradeNudgeBanner';
 import { Zap, Plus, AlertCircle, Loader2 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Wallet {
   balance: number;
@@ -151,14 +153,14 @@ export default function FlowsSettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
                 <div className="text-xs text-gray-500 uppercase mb-1">Balance</div>
-                <div className="text-3xl font-semibold">{wallet.balance}</div>
+                <div className="text-2xl font-semibold">{wallet.balance}</div>
                 <div className="text-xs text-gray-500">Flows available</div>
               </div>
               <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
                 <div className="text-xs text-gray-500 uppercase mb-1">Used this month</div>
-                <div className="text-3xl font-semibold">{wallet.monthFlowsUsed}</div>
+                <div className="text-2xl font-semibold">{wallet.monthFlowsUsed}</div>
                 <div className="text-xs text-gray-500">
-                  ≈ R{((wallet.monthFlowsUsed * 10) / 100).toFixed(2)}
+                  ≈ {formatMoney((wallet.monthFlowsUsed * 10) / 100)}
                 </div>
               </div>
               <div className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex items-center justify-between">
@@ -210,7 +212,7 @@ export default function FlowsSettingsPage() {
                     <option value="">Select bundle...</option>
                     {bundles.map((b) => (
                       <option key={b.id} value={b.id}>
-                        {b.name} — {b.flows} Flows @ R{(b.priceCents / 100).toFixed(2)}
+                        {b.name} — {b.flows} Flows @ {formatMoney(b.priceCents / 100)}
                       </option>
                     ))}
                   </select>
@@ -238,14 +240,14 @@ export default function FlowsSettingsPage() {
                   ) : ledger.map((l) => (
                     <tr key={l.id} className="border-t border-gray-200 dark:border-gray-700">
                       <td className="px-4 py-2 text-gray-500">
-                        {new Date(l.createdAt).toLocaleString()}
+                        {formatDisplayDateTime(l.createdAt)}
                       </td>
                       <td className="px-4 py-2">{l.type}</td>
                       <td className="px-4 py-2 text-gray-500">{l.operationCode ?? l.reason ?? '—'}</td>
-                      <td className={`px-4 py-2 text-right font-mono ${l.flows > 0 ? 'text-teal-600' : 'text-red-500'}`}>
+                      <td className={`px-4 py-2 text-right tabular-nums ${l.flows > 0 ? 'text-teal-600' : 'text-red-500'}`}>
                         {l.flows > 0 ? `+${l.flows}` : l.flows}
                       </td>
-                      <td className="px-4 py-2 text-right font-mono">{l.balanceAfter}</td>
+                      <td className="px-4 py-2 text-right tabular-nums">{l.balanceAfter}</td>
                     </tr>
                   ))}
                 </tbody>

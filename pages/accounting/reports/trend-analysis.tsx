@@ -10,6 +10,7 @@ import { ArrowLeft, TrendingUp, Loader2, AlertTriangle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { TrendAnalysis as TrendData } from '@/modules/accounting/services/reports/trendAnalysisService';
+import { formatMoneyCompact } from '@/lib/money/formatMoney';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
 const Line = dynamic(() => import('recharts').then(m => m.Line), { ssr: false });
@@ -22,7 +23,7 @@ const ReferenceDot = dynamic(() => import('recharts').then(m => m.ReferenceDot),
 
 type Metric = 'revenue' | 'expenses' | 'netProfit' | 'cash';
 const METRIC_LABELS: Record<Metric, string> = { revenue: 'Revenue', expenses: 'Expenses', netProfit: 'Net Profit', cash: 'Cash Balance' };
-const fmt = (n: number) => n >= 1000000 ? `R ${(n / 1000000).toFixed(1)}M` : n >= 1000 ? `R ${(n / 1000).toFixed(0)}K` : `R ${n.toFixed(0)}`;
+const fmt = (n: number) => formatMoneyCompact(n, { decimals: 0 });
 
 export default function TrendAnalysisPage() {
   const [metric, setMetric] = useState<Metric>('revenue');
@@ -117,8 +118,8 @@ export default function TrendAnalysisPage() {
                 <ResponsiveContainer width="100%" height={350}>
                   <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#888' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#888' }} tickFormatter={fmt} />
+                    <XAxis dataKey="period" tick={{ fontSize: 12, fill: '#888' }} />
+                    <YAxis tick={{ fontSize: 12, fill: '#888' }} tickFormatter={fmt} />
                     <Tooltip
                       contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }}
                       formatter={(val) => [fmt(Number(val || 0)), '']}

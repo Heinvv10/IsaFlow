@@ -30,16 +30,16 @@ export function SupplierInvoiceSummaryCard({
           <div className="space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-slate-500 dark:text-slate-400">Subtotal</span>
-              <span className="font-mono text-slate-900 dark:text-slate-100">{formatCurrency(subtotal)}</span>
+              <span className="tabular-nums text-slate-900 dark:text-slate-100">{formatCurrency(subtotal)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500 dark:text-slate-400">VAT ({taxRate}%)</span>
-              <span className="font-mono text-slate-900 dark:text-slate-100">{formatCurrency(totalTax)}</span>
+              <span className="tabular-nums text-slate-900 dark:text-slate-100">{formatCurrency(totalTax)}</span>
             </div>
             <div className="h-px bg-slate-100 dark:bg-slate-800" />
             <div className="flex justify-between">
               <span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span>
-              <span className="font-mono font-bold text-lg text-amber-500">{formatCurrency(total)}</span>
+              <span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrency(total)}</span>
             </div>
           </div>
           <button type="submit" disabled={isSubmitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2 text-sm">

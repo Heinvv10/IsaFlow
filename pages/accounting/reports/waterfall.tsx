@@ -15,6 +15,7 @@ import { log } from '@/lib/logger';
 import { WaterfallChart } from '@/components/shared/WaterfallChart';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type TabType = 'profit' | 'cashflow';
 
@@ -116,8 +117,8 @@ export default function WaterfallPage() {
                   {steps.map((s, i) => (
                     <tr key={i} className={`border-b border-[var(--ff-border-light)] ${s.isSubtotal ? 'bg-[var(--ff-bg-tertiary)] font-semibold' : ''}`}>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-primary)]">{s.label}</td>
-                      <td className={`px-4 py-2 text-sm text-right font-mono ${s.value >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                        R {Math.abs(s.value).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                      <td className={`px-4 py-2 text-sm text-right tabular-nums ${s.value >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                        {formatMoney(Math.abs(s.value))}
                       </td>
                       <td className="px-4 py-2 text-center">
                         {s.isSubtotal && <span className="text-xs bg-teal-500/20 text-teal-400 px-2 py-0.5 rounded">Subtotal</span>}

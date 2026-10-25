@@ -2,6 +2,8 @@
  * Entity summary table for the Group Dashboard.
  */
 
+import { formatMoney } from '@/lib/money/formatMoney';
+
 interface EntitySummary {
   companyId: string;
   companyName: string;
@@ -18,8 +20,7 @@ interface Totals {
   cashPosition: number;
 }
 
-const fmtCurrency = (n: number) =>
-  'R ' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+const fmtCurrency = (n: number) => formatMoney(n);
 
 interface Props {
   entities: EntitySummary[];

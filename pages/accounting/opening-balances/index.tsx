@@ -120,15 +120,15 @@ export default function OpeningBalancesPage() {
             <div className="flex-1 grid grid-cols-3 gap-4 text-sm">
               <div>
                 <span className="text-[var(--ff-text-secondary)]">Total Debits:</span>
-                <span className="ml-2 font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(totalDebits)}</span>
+                <span className="ml-2 tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(totalDebits)}</span>
               </div>
               <div>
                 <span className="text-[var(--ff-text-secondary)]">Total Credits:</span>
-                <span className="ml-2 font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(totalCredits)}</span>
+                <span className="ml-2 tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(totalCredits)}</span>
               </div>
               <div>
                 <span className="text-[var(--ff-text-secondary)]">Difference:</span>
-                <span className={`ml-2 font-mono font-bold ${isBalanced ? 'text-teal-400' : 'text-red-400'}`}>
+                <span className={`ml-2 tabular-nums font-bold ${isBalanced ? 'text-teal-400' : 'text-red-400'}`}>
                   {formatCurrency(Math.abs(totalDebits - totalCredits))}
                 </span>
               </div>

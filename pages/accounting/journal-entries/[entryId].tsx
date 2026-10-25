@@ -30,6 +30,8 @@ import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/a
 import { JournalLinesTable } from '@/components/accounting/gl/JournalLinesTable';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate, formatDisplayDateLong } from '@/utils/dateFormat';
 
 export default function JournalEntryDetailPage() {
   const router = useRouter();
@@ -92,7 +94,7 @@ export default function JournalEntryDetailPage() {
 
   const formatCurrency = (amount: number | string) => {
     const num = Number(amount);
-    return num === 0 ? '-' : `R ${num.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return num === 0 ? '-' : formatMoney(num);
   };
 
   const statusColors: Record<string, string> = {
@@ -120,7 +122,7 @@ export default function JournalEntryDetailPage() {
                   {entry?.entryNumber || 'Journal Entry'}
                 </h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
-                  {entry ? new Date(entry.entryDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' }) : ''}
+                  {entry ? formatDisplayDateLong(entry.entryDate) : ''}
                 </p>
               </div>
             </div>
@@ -190,7 +192,7 @@ export default function JournalEntryDetailPage() {
                   <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)] mb-4">Entry Details</h3>
                   <div className="space-y-3">
                     <DetailRow icon={Hash} label="Entry Number" value={entry.entryNumber} />
-                    <DetailRow icon={Calendar} label="Entry Date" value={new Date(entry.entryDate).toLocaleDateString()} />
+                    <DetailRow icon={Calendar} label="Entry Date" value={formatDisplayDate(entry.entryDate)} />
                     <DetailRow icon={FileSpreadsheet} label="Source" value={entry.source} />
                     <DetailRow icon={User} label="Created By" value={entry.createdBy} />
                     {entry.description && (

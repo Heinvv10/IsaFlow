@@ -2,7 +2,7 @@
  * THE PACK STATES ONE SCALE, AND EVERY LAYER OF IT OBEYS — R-P52, on the
  * RENDERED page rather than on a formatter's return value.
  *
- * This is the test the previous fix did not have. `formatMoney` learned about
+ * This is the test the previous fix did not have. `formatStatementFigure` learned about
  * `MONEY_SCALES` and its own unit test handed it a scale and checked the
  * string that came back, which it always did correctly. The tables and the
  * KPI tiles were wired to pass the document's scale; the PROSE and the CHART
@@ -30,7 +30,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { demoInput } from '../../services/packs/fixtures/boardPackInputs';
 
@@ -72,7 +72,7 @@ function renderedProseAndChartText(): string {
 describe('the rendered board pack states one scale (R-P52)', () => {
   it('the fixture figures are large enough for this test to be able to fail', () => {
     for (const [name, raw] of Object.entries(RAW_FIGURES)) {
-      expect(formatMoney(raw), name).not.toBe(formatMoney(raw, { scale: PACK_SCALE }));
+      expect(formatStatementFigure(raw), name).not.toBe(formatStatementFigure(raw, { scale: PACK_SCALE }));
     }
   });
 
@@ -80,7 +80,7 @@ describe('the rendered board pack states one scale (R-P52)', () => {
     const text = renderedPackText();
     for (const [name, raw] of Object.entries(RAW_FIGURES)) {
       expect(text, `${name} printed unscaled — the pack states ${PACK_SCALE}`)
-        .not.toContain(formatMoney(raw));
+        .not.toContain(formatStatementFigure(raw));
     }
   });
 
@@ -91,7 +91,7 @@ describe('the rendered board pack states one scale (R-P52)', () => {
     const text = renderedProseAndChartText();
     for (const [name, raw] of Object.entries(RAW_FIGURES)) {
       expect(text, `${name} printed unscaled outside the tables`)
-        .not.toContain(formatMoney(raw));
+        .not.toContain(formatStatementFigure(raw));
     }
   });
 
@@ -106,7 +106,7 @@ describe('the rendered board pack states one scale (R-P52)', () => {
     const proseText = root.textContent ?? '';
 
     // Revenue is the figure the rejected render disagreed with itself over.
-    const scaled = formatMoney(RAW_FIGURES.revenue!, { scale: PACK_SCALE });
+    const scaled = formatStatementFigure(RAW_FIGURES.revenue!, { scale: PACK_SCALE });
     expect(tableText, 'revenue is missing from every table').toContain(scaled);
     expect(proseText, 'revenue is missing from the prose and the charts').toContain(scaled);
   });

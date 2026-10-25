@@ -11,6 +11,7 @@ import {
   CONSOLIDATION_METHODS,
 } from './types';
 import { addMemberBody, updateMemberBody, removeMemberQuery } from './groupRequests';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Props {
   group: CompanyGroup;
@@ -169,7 +170,7 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
                     ) : (CONSOLIDATION_METHODS.find(cm => cm.value === m.consolidationMethod)?.label ?? m.consolidationMethod)}
                   </td>
                   <td className="py-3 text-[var(--ff-text-tertiary)]">
-                    {new Date(m.joinedDate).toLocaleDateString()}
+                    {formatDisplayDate(m.joinedDate)}
                   </td>
                   <td className="py-3 text-right">
                     {editingMemberId === m.id ? (

@@ -11,6 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/api
 import { log } from '@/lib/logger';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface LeaveRequest {
   id: string;
@@ -155,8 +156,8 @@ export default function LeaveDetailPage() {
                 <Field label="Start Date" value={request.startDate} />
                 <Field label="End Date" value={request.endDate} />
                 <Field label="Days" value={String(request.days)} />
-                <Field label="Submitted" value={request.createdAt?.slice(0, 10) ?? ''} />
-                {request.approvedAt && <Field label="Actioned" value={request.approvedAt?.slice(0, 10) ?? ''} />}
+                <Field label="Submitted" value={formatDisplayDate(request.createdAt)} />
+                {request.approvedAt && <Field label="Actioned" value={formatDisplayDate(request.approvedAt)} />}
                 {request.reason && <div className="col-span-2"><Field label="Notes" value={request.reason} /></div>}
               </dl>
 
