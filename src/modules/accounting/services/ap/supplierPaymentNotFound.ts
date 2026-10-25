@@ -6,10 +6,11 @@
  * approve, process, void and cancel BEFORE any write, so a route may answer it 404.
  *
  * Typed rather than matched on the message: the route classified it with
- * `/not found$/`, which also matched 'Bank account not found' — thrown AFTER
- * `processSupplierPayment` has claimed the payment. That answered 404, and
- * `withAuth` COMMITs below 500, so the payment stayed 'processed' with no
- * journal and no path back: every retry hit the claim it had already taken.
+ * `/not found$/`, which also matched 'Bank account not found' — thrown, back
+ * when `processSupplierPayment` claimed the payment in a separate first write
+ * (gone 2026-10-24), AFTER that claim. That answered 404, and `withAuth`
+ * COMMITs below 500, so the payment stayed 'processed' with no journal and no
+ * path back: every retry hit the claim it had already taken.
  */
 export class SupplierPaymentNotFoundError extends Error {
   readonly code = 'SUPPLIER_PAYMENT_NOT_FOUND';

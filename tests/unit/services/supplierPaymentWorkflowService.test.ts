@@ -149,12 +149,9 @@ describe('processSupplierPayment — bank account tenant isolation', () => {
   });
 
   it('scopes the bank-account lookup to companyId', async () => {
-    // The merged path takes BOTH: call 0 = the payment row lock; call 1 = the
-    // status-predicated CLAIM; call 2 = bank account lookup;
-    // call 3 = UPDATE supplier_payments SET gl_journal_entry_id RETURNING *.
-    // A non-empty claim result is what stops the path refusing at that step.
+    // call 0 = the payment row lock; call 1 = bank account lookup;
+    // call 2 = the one UPDATE of the payment (status, journal link) RETURNING *.
     sqlMock
-      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
       .mockResolvedValueOnce([{ id: FOREIGN_BANK_ACCT }])
       .mockResolvedValueOnce([makeProcessedRow()]);
@@ -192,6 +189,12 @@ describe('processSupplierPayment — bank account tenant isolation', () => {
     const invoices = texts.findIndex((t) => /UPDATE supplier_invoices/i.test(t));
     expect(lock).toBeGreaterThanOrEqual(0);
     expect(invoices).toBeGreaterThan(lock);
+    // And the payment row is written ONCE, last: a second write re-runs its supplier FK check (FOR KEY SHARE on
+    // suppliers) after the payment lock, which crossed updateSupplier (40P01).
+    const writes = texts.filter((t) => /UPDATE\s+supplier_payments/i.test(t));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatch(/SET status = 'processed'[\s\S]*gl_journal_entry_id/);
+    expect(texts.findIndex((t) => /UPDATE\s+supplier_payments/i.test(t))).toBeGreaterThan(invoices);
   });
 
   // K-107: the only class `supplier-payments-action` answers 404. The payment
@@ -207,10 +210,9 @@ describe('processSupplierPayment — bank account tenant isolation', () => {
   });
 
   it('fails closed when the bank account does not belong to the company', async () => {
-    // Lock, then claim wins, then the scoped lookup returns no row (foreign
-    // account filtered out by company_id).
+    // Lock, then the scoped lookup returns no row (foreign account filtered
+    // out by company_id).
     sqlMock
-      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
       .mockResolvedValueOnce([]);
 
