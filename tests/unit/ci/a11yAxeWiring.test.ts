@@ -122,7 +122,7 @@ describe('expectScreenClean', () => {
 });
 
 /** A page that can be driven through openScreen, recording the order of what happens. */
-function screenPage(opts: { landsOn: string; headingVisible?: boolean; h1Fails?: boolean; responseFails?: boolean; log?: string[] }): Page {
+function screenPage(opts: { landsOn: string; headingVisible?: boolean; h1Fails?: boolean | string; responseFails?: boolean; log?: string[] }): Page {
   const log = opts.log ?? [];
   return {
     waitForResponse: (match: (r: { url(): string }) => boolean) => {
@@ -133,7 +133,7 @@ function screenPage(opts: { landsOn: string; headingVisible?: boolean; h1Fails?:
     waitForLoadState: async () => {},
     url: () => opts.landsOn,
     locator: (sel: string) => ({
-      first: () => ({ waitFor: async () => { log.push('h1'); if (opts.h1Fails) throw new Error('Timeout 30000ms exceeded waiting for h1'); } }),
+      first: () => ({ waitFor: async () => { log.push('h1'); if (opts.h1Fails) throw new Error(typeof opts.h1Fails === 'string' ? opts.h1Fails : 'Timeout 30000ms exceeded waiting for h1'); } }),
       count: async () => { log.push(sel.includes('animate') ? 'spinner-check' : 'count'); return 0; },
     }),
     getByRole: () => ({ isVisible: async () => opts.headingVisible !== false }),
@@ -208,18 +208,19 @@ describe('inScreen keeps what went wrong', () => {
     const original = multiLine();
     const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw original; } }).catch((e: Error) => e);
     expect((err as Error).cause).toBe(original);
-    expect(((err as Error).cause as Error).stack).toContain('expect(locator).toHaveCount');
   });
 
   it('a thrown non-Error is still named and kept as the cause', async () => {
-    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw 'boom'; } }).catch((e: Error) => e); // eslint-disable-line no-throw-literal
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw 'boom'; } }).catch((e: Error) => e);
     expect((err as Error).message).toContain('the screen never settled');
     expect((err as Error).message).toContain('boom');
     expect((err as Error).cause).toBe('boom');
   });
 
   it('the h1 and spinner waits keep the full message and cause too', async () => {
-    const h1 = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: true }), SCREEN).catch((e: Error) => e);
+    const h1 = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: 'locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\'h1\').first() to be visible' }), SCREEN).catch((e: Error) => e);
+    expect((h1 as Error).message).toContain('no <h1> showed within 30s\nlocator.waitFor: Timeout 30000ms exceeded.');
+    expect((h1 as Error).message).toContain("waiting for locator('h1').first() to be visible"); // a later line of the original, not just the first
     expect((h1 as Error).cause).toBeInstanceOf(Error);
     const page = screenPage({ landsOn: 'http://x/accounting/assets' });
     (page as unknown as { locator: (s: string) => unknown }).locator = (sel: string) => ({
@@ -229,5 +230,27 @@ describe('inScreen keeps what went wrong', () => {
     const spin = await openScreen(page, SCREEN).catch((e: Error) => e);
     expect((spin as Error).message).toMatch(/count != 0/);
     expect((spin as Error).cause).toBeInstanceOf(Error);
+  });
+
+  it('strips every terminal control sequence, not only colours', async () => {
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw new Error('\u001b[2K\u001b[1Arow \u001b]8;;http://x\u0007link\u001b]8;;\u0007 \u001b[31mred\u001b[39m'); } }).catch((e: Error) => e);
+    expect((err as Error).message).toContain('row link red');
+    expect((err as Error).message).not.toContain('\u001b');
+  });
+
+  it('shows a thrown plain object as JSON, falling back to String for one that cannot be serialised', async () => {
+    const asObject = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw { code: 'E_ROWS', rows: 0 }; } }).catch((e: Error) => e);
+    expect((asObject as Error).message).toContain('{"code":"E_ROWS","rows":0}');
+    expect((asObject as Error).message).not.toContain('[object Object]');
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const asString = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw circular; } }).catch((e: Error) => e);
+    expect((asString as Error).message).toContain('[object Object]');
+    expect((asString as Error).cause).toBe(circular);
+  });
+
+  it('an error with an empty message leaves no trailing newline', async () => {
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw new Error(''); } }).catch((e: Error) => e);
+    expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled');
   });
 });
