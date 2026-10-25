@@ -275,4 +275,36 @@ describe('inScreen keeps what went wrong', () => {
     expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled\n[object Object]');
     expect((err as Error).cause).toBe(bare);
   });
+
+  it('is total: a revoked Proxy, or an object whose message getter throws, still gives the named wrapper and keeps the cause', async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {});
+    revoke();
+    const hostile = { get message(): string { throw new Error('getter boom'); } };
+    for (const thrown of [proxy, hostile]) {
+      const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw thrown; } }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled\n[unprintable thrown value]');
+      expect((err as Error).cause).toBe(thrown);
+    }
+  });
+
+  it('reads `message` once (a getter may be expensive or change)', async () => {
+    let reads = 0;
+    const counted = { get message(): string { reads += 1; return `read ${reads}`; } };
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw counted; } }).catch((e: Error) => e);
+    expect(reads).toBe(1);
+    expect((err as Error).message).toContain('\nread 1');
+  });
+
+  it('an object whose JSON is undefined (toJSON returns nothing) falls through to String', async () => {
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw { toJSON: () => undefined }; } }).catch((e: Error) => e);
+    expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled\n[object Object]');
+  });
+
+  it('a thrown function is not read for a message: it is printed, not mined', async () => {
+    const fn = Object.assign(() => 0, { message: 'looks like an Error' });
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw fn; } }).catch((e: Error) => e);
+    expect((err as Error).message).not.toContain('looks like an Error');
+    expect((err as Error).cause).toBe(fn);
+  });
 });
