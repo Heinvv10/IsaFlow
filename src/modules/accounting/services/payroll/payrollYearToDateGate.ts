@@ -8,6 +8,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import type { PayrollJournalNote } from './payrollJournalBuilder';
 
 /** The blocker approval raises (null when current), and advisories it does not refuse for. */
@@ -115,7 +116,7 @@ export async function judgeYearToDate(companyId: string, runId: string): Promise
   const declarable: string[] = [...EMP201_DECLARABLE_STATUSES];
   const rows = (await sql`
     WITH tax_year AS (
-      SELECT make_date(CASE WHEN h.period_month >= 3 THEN h.period_year ELSE h.period_year - 1 END, 3, 1) AS start
+      SELECT make_date(CASE WHEN h.period_month >= ${PAYE_TAX_YEAR_START_MONTH} THEN h.period_year ELSE h.period_year - 1 END, ${PAYE_TAX_YEAR_START_MONTH}, 1) AS start
       FROM payroll_run_headers h WHERE h.id = ${runId}::uuid AND h.company_id = ${companyId}::uuid
     ),
     runs AS (

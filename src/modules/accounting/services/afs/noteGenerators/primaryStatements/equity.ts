@@ -18,7 +18,7 @@ import { fmt } from '../noteHelpers';
 import { fetchSectionLines, type SectionLine } from './_helpers';
 import { ACCUMULATED_PROFIT_CODE, DERIVED_ACCUMULATED_PROFIT_CODE } from './derivedAccumulatedProfit';
 import { fetchDividendsPaid } from './dividendsPaid';
-import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 
 // BSACCPL: the derived accumulated-profit line a taxonomy without BS045 gets (derivedAccumulatedProfit.ts).
 const EQUITY_CODES = new Set(['BS043', 'BS044', 'BS045', 'BS046', 'BS047', 'BS048', DERIVED_ACCUMULATED_PROFIT_CODE]);
@@ -29,7 +29,7 @@ export async function generateChangesInEquity(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateChangesInEquity', { companyId, fiscalYear }, 'AfsPrimary');
-  const { start: fyStart, end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
+  const { current: { start: fyStart, end: fyEnd, phrase } } = await getReportingPeriod(companyId, fiscalYear);
   const [lines, dividendsPaid] = await Promise.all([
     fetchSectionLines(companyId, 'balance_sheet', fiscalYear, true),
     // Paid only: clearing the dividends account into retained earnings is not a distribution.
@@ -63,7 +63,7 @@ export async function generateChangesInEquity(
     content: {
       title: 'Statement of Changes in Equity',
       blocks: [
-        { type: 'paragraph', text: `Movements in equity for the year ended ${fyEnd}.` },
+        { type: 'paragraph', text: `Movements in equity for the ${phrase}.` },
         {
           type: 'table',
           headers: ['Component', 'Opening (R)', ...(showDividends ? ['Dividends (R)'] : []), 'Movement (R)', 'Closing (R)'],

@@ -12,7 +12,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from '../noteHelpers';
-import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type DbRow = Record<string, unknown>;
@@ -23,7 +23,7 @@ export async function generateCashFlow(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateCashFlow', { companyId, fiscalYear }, 'AfsPrimary');
-  const { start, end } = await getFiscalRange(companyId, fiscalYear);
+  const { current: { start, end, phrase, header } } = await getReportingPeriod(companyId, fiscalYear);
   const cashRows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN gje.entry_date < ${start}::date THEN gjl.debit - gjl.credit ELSE 0 END), 0) AS opening,
@@ -64,10 +64,10 @@ export async function generateCashFlow(
     content: {
       title: 'Statement of Cash Flows',
       blocks: [
-        { type: 'paragraph', text: `For the year ended ${end}. Indirect method (v1 skeleton).` },
+        { type: 'paragraph', text: `For the ${phrase}. Indirect method (v1 skeleton).` },
         {
           type: 'table',
-          headers: ['Line', 'Current year (R)'],
+          headers: ['Line', header],
           rows: [
             ['Cash and equivalents at beginning of year', fmt(opening)],
             ['Net movement during year', fmt(netMovement)],
