@@ -42,14 +42,15 @@ describe('AccountTransactionsPage account dropdown', () => {
   it('offers level 1-2 accounts that can carry postings and keeps headers out', async () => {
     script();
     render(<AccountTransactionsPage />);
-    await screen.findByRole('option', { name: '1100 — Bank' });
+    fireEvent.click(await screen.findByRole('combobox', { name: 'Account' }));
+    await screen.findByRole('option', { name: '1100 · Bank' });
     const options = screen.getAllByRole('option').map(o => o.textContent);
-    expect(options).toContain('1010 — Sage leaf at level 1');   // level 1 with postings
-    expect(options).toContain('1020 — Sage leaf at level 2');   // level 2, childless, no postings yet
-    expect(options).toContain('1100 — Bank');
-    expect(options).toContain('1031 — Child of the header');
-    expect(options.join('|')).not.toContain('1000 — Current assets header');
-    expect(options.join('|')).not.toContain('1030 — Header at level 2');
+    expect(options).toContain('1010 · Sage leaf at level 1');   // level 1 with postings
+    expect(options).toContain('1020 · Sage leaf at level 2');   // level 2, childless, no postings yet
+    expect(options).toContain('1100 · Bank');
+    expect(options).toContain('1031 · Child of the header');
+    expect(options.join('|')).not.toContain('1000 · Current assets header');
+    expect(options.join('|')).not.toContain('1030 · Header at level 2');
   });
 });
 
