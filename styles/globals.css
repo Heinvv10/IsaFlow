@@ -232,6 +232,16 @@
     outline-offset: 2px;
     box-shadow: none;
   }
+
+  /*
+   * The ring sits 2 px off the control, so an overflow-hidden parent with less than 5 px of room clips it
+   * (a field flush in a card). Add ff-focus-ring-inset there: the ring is drawn inside the control instead.
+   * Not for solid-teal buttons (an inside teal ring on teal is invisible): give those 5 px of room.
+   */
+  .ff-focus-ring.ff-focus-ring-inset:focus-visible,
+  .dark .ff-focus-ring.ff-focus-ring-inset:focus-visible {
+    outline-offset: calc(var(--ff-focus-ring-width) * -1);
+  }
 }
 
 @layer utilities {
