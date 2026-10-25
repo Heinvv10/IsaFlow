@@ -116,7 +116,8 @@ export function buildVAT201Payload(data: VAT201Data, opts: { expectedNetVat: num
   const totalOutputVAT = Math.round((data.outputVATStandard + data.outputVATZeroRated + data.outputVATExempt + outputOther) * 100) / 100;
   const totalInputVAT = Math.round((data.inputVATCapitalGoods + data.inputVATOther + data.adjustments) * 100) / 100;
   const netVAT = Math.round((totalOutputVAT - totalInputVAT) * 100) / 100;
-  if (Math.abs(netVAT - opts.expectedNetVat) >= 0.005) {
+  // Written so a NaN on either side fails the check: a `>=` comparison with NaN is false and would let it through.
+  if (!(Math.abs(netVAT - opts.expectedNetVat) < 0.005)) {
     throw new Vat201NetMismatchError(netVAT, opts.expectedNetVat);
   }
 
