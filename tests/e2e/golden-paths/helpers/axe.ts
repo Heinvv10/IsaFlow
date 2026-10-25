@@ -88,13 +88,30 @@ async function waitForScreenReady(page: Page, screen: A11yScreen): Promise<void>
     expect(page.locator('.animate-pulse, .animate-spin, [aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 }));
 }
 
-/** What went wrong, as text: an Error's message, a plain object as JSON (String when it cannot be serialised), anything else as String. */
+/**
+ * What went wrong, as text, without ever throwing: anything with a string `message` (an Error, including one from
+ * another realm, which is not `instanceof Error` and would serialise to "{}"), else a plain object as JSON, else
+ * String(), else Object.prototype.toString for a value whose String() throws (e.g. a null-prototype object).
+ */
 function failureText(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'object' && err !== null) {
-    try { return JSON.stringify(err) ?? String(err); } catch { return String(err); }
+  if (err !== null && typeof err === 'object' && typeof (err as { message?: unknown }).message === 'string') return (err as { message: string }).message;
+  if (err !== null && typeof err === 'object') {
+    const json = jsonOrNull(err);
+    if (json !== null) return json;
   }
-  return String(err);
+  try {
+    return String(err);
+  } catch {
+    return Object.prototype.toString.call(err);
+  }
+}
+
+function jsonOrNull(value: object): string | null {
+  try {
+    return JSON.stringify(value) ?? null;
+  } catch {
+    return null; // circular, or a throwing toJSON
+  }
 }
 
 /**
@@ -105,7 +122,7 @@ async function inScreen<T>(screen: A11yScreen, waitingFor: string, fn: () => Pro
   try {
     return await fn();
   } catch (err) {
-    const why = stripVTControlCharacters(failureText(err));
+    const why = stripVTControlCharacters(failureText(err)).trim();
     throw new Error(`a11y screen "${screen.name}" (${screen.path}): ${waitingFor}${why ? `\n${why}` : ''}`, { cause: err });
   }
 }
