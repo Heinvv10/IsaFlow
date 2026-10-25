@@ -117,7 +117,7 @@ async function creditPurchase(purchaseId: string, paid: PaidAmount | null): Prom
     const row = rows[0];
     if (!row) throw new Error(`flow_purchases ${purchaseId} not found`);
     if (paid && (row.company_id !== paid.companyId || Number(row.price_cents) !== Number(paid.amountCents)
-        || (paid.currency !== undefined && paid.currency !== 'ZAR'))) {
+        || paid.currency !== 'ZAR')) { // a payment in no stated currency is not a ZAR payment
       log.error('flow purchase not credited: the payment does not match it', {
         purchaseId, purchaseCompanyId: row.company_id, paidCompanyId: paid.companyId,
         priceCents: row.price_cents, paidCents: paid.amountCents, currency: paid.currency,
