@@ -16,15 +16,16 @@ import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminPool';
 import { createImapConnection } from '@/modules/accounting/services/capture/mirrorConnectionService';
 import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
+import { scanAllDueConnections } from '@/modules/accounting/services/capture/imapMirrorService';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
-const imap = vi.hoisted(() => ({ releaseError: 'mailbox lock release failed after the cursor stamp' }));
+const imap = vi.hoisted(() => ({ releaseError: 'mailbox lock release failed after the cursor stamp', releaseFails: true }));
 vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     async connect() { return undefined; }
-    async getMailboxLock() { return { release: () => { throw new Error(imap.releaseError); } }; }
+    async getMailboxLock() { return { release: () => { if (imap.releaseFails) throw new Error(imap.releaseError); } }; }
     async *fetch() { yield { uid: 9, envelope: { subject: 'newsletter', from: [{ address: 'a@x.test' }] } }; }
     async fetchOne() { return false; }
     async logout() { return undefined; }
@@ -96,5 +97,46 @@ describe('S-07e part B (946): a connection row locked by someone else, outside a
     }
     await markMirrorScanError('imap', { id, companyId: company }, 'boom again');
     expect(await row(id)).toMatchObject({ status: 'error', last_error: 'boom again' });
+  }, 30000);
+});
+
+// The cron's other writes (the scan log, the cursor, the success stamp, the counters) wait for a locked row for
+// 2 s at most, outside a request. A connection whose row is held is skipped for this tick, not marked failed, and
+// the connections behind it are still scanned.
+describe('S-07e part B (946): the cron meets a connection row locked by someone else', () => {
+  it('skips that connection after the bounded wait, leaves it active with its cursor, and scans the next one', async () => {
+    imap.releaseFails = false;
+    try {
+      await q('DELETE FROM imap_mirror_connections WHERE company_id = $1', [company]);
+      const mk = async (name: string) => (await createImapConnection({ companyId: company, displayName: name, accountEmail: `${name}@s07eb.test`,
+        imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'mailbox-pw' })).id;
+      const held = await mk('held-cron');
+      const free = await mk('free-cron');
+      const holder = await fixture.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query('SELECT 1 FROM imap_mirror_connections WHERE id = $1 FOR UPDATE', [held]);
+
+        const started = Date.now();
+        const results = await scanAllDueConnections();
+        const elapsed = Date.now() - started;
+
+        // One 2 s wait (the scan log's key-share lock), not the lock's holding time and not a per-write 2 s.
+        expect(elapsed, `the tick took ${elapsed}ms`).toBeGreaterThan(1800);
+        expect(elapsed, `the tick took ${elapsed}ms`).toBeLessThan(5000);
+        expect(results.find((r) => r.connectionId === held)).toMatchObject({ errors: 0, ingested: 0 });
+        expect(results.find((r) => r.connectionId === free)).toMatchObject({ scanned: 1, errors: 0 });
+        expect(await row(held)).toMatchObject({ status: 'active', last_error: null, scan_cursor: {}, last_scan_at: null });
+        expect(await row(free)).toMatchObject({ status: 'active', last_error: null, scan_cursor: { INBOX: 9 } });
+      } finally {
+        await holder.query('ROLLBACK');
+        holder.release();
+      }
+      // Next tick, the row free: it is scanned.
+      await scanAllDueConnections();
+      expect(await row(held)).toMatchObject({ status: 'active', last_error: null, scan_cursor: { INBOX: 9 } });
+    } finally {
+      imap.releaseFails = true;
+    }
   }, 30000);
 });

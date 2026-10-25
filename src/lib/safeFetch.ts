@@ -28,6 +28,14 @@ export class SsrfError extends Error {
   }
 }
 
+/** The resolver could not answer (as opposed to answering with an address that is not allowed). */
+export class DnsResolutionError extends SsrfError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DnsResolutionError';
+  }
+}
+
 export interface SafeFetchOptions {
   /** Permit http:// (default: https only). */
   allowHttp?: boolean;
@@ -66,6 +74,7 @@ function reasonV4(ip: string): string | null {
   if (inRange('172.16.0.0', 12)) return 'private (172.16.0.0/12)';
   if (inRange('192.0.0.0', 24)) return 'IETF protocol (192.0.0.0/24)';
   if (inRange('192.0.2.0', 24)) return 'TEST-NET-1 (192.0.2.0/24)';
+  if (inRange('192.88.99.0', 24)) return '6to4 relay anycast, deprecated (192.88.99.0/24)';
   if (inRange('192.168.0.0', 16)) return 'private (192.168.0.0/16)';
   if (inRange('198.18.0.0', 15)) return 'benchmarking (198.18.0.0/15)';
   if (inRange('198.51.100.0', 24)) return 'TEST-NET-2 (198.51.100.0/24)';
@@ -133,6 +142,8 @@ function reasonV6(ip: string): string | null {
   if ((h[0]! & 0xff00) === 0xff00) return 'multicast (ff00::/8)';
   if (h[0] === 0x2002) return '6to4 (2002::/16)';
   if (h[0] === 0x2001 && h[1] === 0) return 'Teredo (2001::/32)';
+  if (h[0] === 0x2001 && h[1] === 0x0db8) return 'documentation (2001:db8::/32)';
+  if (h[0] === 0x0100 && h[1] === 0 && h[2] === 0 && h[3] === 0) return 'discard-only (100::/64)';
   return null;
 }
 
@@ -201,9 +212,9 @@ export async function resolvePublicHostname(hostname: string): Promise<string> {
   try {
     addrs = await lookup(hostname, { all: true });
   } catch {
-    throw new SsrfError(`DNS resolution failed for ${hostname}`);
+    throw new DnsResolutionError(`DNS resolution failed for ${hostname}`);
   }
-  if (!addrs.length) throw new SsrfError(`no DNS records for ${hostname}`);
+  if (!addrs.length) throw new DnsResolutionError(`no DNS records for ${hostname}`);
   for (const a of addrs) {
     const r = ipReason(a.address);
     if (r) throw new SsrfError(`${hostname} resolves to blocked address ${a.address}: ${r}`);

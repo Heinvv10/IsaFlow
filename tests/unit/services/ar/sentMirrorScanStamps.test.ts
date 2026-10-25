@@ -29,14 +29,16 @@ vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
 vi.mock('@/lib/documentStorage', () => ({ sha256: () => 'sha', storeCapturedBytes: async () => ({ bucket: 'b', path: 'p' }) }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({ migrationAdminTx: async () => undefined }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/lib/neon', () => ({
-  sql: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+vi.mock('@/lib/neon', () => {
+  const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
     h.sql.push({ text, values });
     if (text.startsWith('SELECT cd.id AS document_id')) return h.existing ? [{ document_id: 'd0', invoice_id: 'i0', document_type: 'x' }] : [];
     return /RETURNING id/.test(text) ? [{ id: crypto.randomUUID() }] : [];
-  }),
-}));
+  });
+  // The scan's bookkeeping writes run in a short transaction (bounded lock wait); here it is the same recorder.
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 
 import { scanSentConnection, type SentMirrorConnection } from '@/modules/accounting/services/ar/sentMirrorService';
 

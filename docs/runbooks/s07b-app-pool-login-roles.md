@@ -317,6 +317,26 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
   - A transient DNS or connect failure marks a connection 'error', as any failed
     scan always has, and `listActiveConnections` skips it from then on. The user
     reconnects the mailbox to resume: `reactivateConnection` has no route.
+  - The cron's other writes to a connection row, its scan log and its counters
+    (cursor, success stamp, counters, log insert) also wait at most 2 s for the
+    row outside a request, each in a short transaction with a transaction-local
+    `lock_timeout`; on 55P03 the scan skips that connection for the tick (a
+    warning, not marked 'error', cursor not advanced; the next tick re-scans and
+    ingestion de-dupes by hash). A locked connection therefore costs a tick about
+    2 s, not the lock's holding time.
+  - An app pool can still stamp a future `last_scan_at` (or an out-of-range
+    `scan_cursor`) on any company's connection. The cron's due check now treats a
+    `last_scan_at` in the future as due, and a cursor outside 1..2^32-1 or at or
+    past the mailbox's UIDNEXT is ignored with a warning (the folder is scanned
+    from the start), so neither silences a mailbox; the forged value is
+    overwritten by the next scan's stamp.
+  - One vetted address is used per scan: a host with several addresses is
+    connected to by the first IPv4 one (else the first address), with no
+    failover to the others, so a host whose first address is down fails the scan
+    and marks the connection 'error'.
+  - A connection on port 143 with TLS off still logs in in plaintext if the
+    server offers no STARTTLS (ImapFlow upgrades opportunistically). Unchanged
+    behaviour; the settings pages default to 993.
   - An audit pack pointer is held to the company prefix (`<company_id>/`), not
     to its exact key (ready packs are pinned by 891).
 - 946's preflight (migration_admin's privileges and BYPASSRLS) is skipped when
@@ -327,9 +347,14 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
   it vetted, with the host name as the TLS servername, so the name is not
   resolved a second time (DNS rebinding). A refusal shows the tenant only "This
   mail server address is not allowed" or "Only ports 143 and 993 are supported"
-  (route 400 and `last_error`); which address a name resolved to is in the log
-  (`IMAP target refused`). A folder's `scan_cursor` is used only if it is a
-  positive safe integer; otherwise the scan warns and starts that folder over.
+  (route 400 and `last_error`), or, when DNS gave no answer at all, "Could not
+  resolve the mail server's address"; which address a name resolved to is in the
+  log (`IMAP target refused`). The guard also refuses 192.88.99.0/24,
+  2001:db8::/32 and 100::/64. A folder's `scan_cursor` is used only if it is an
+  IMAP number (1 to 2^32-1) below the mailbox's UIDNEXT; otherwise the scan
+  warns and starts that folder over. Both scans now send `UID FETCH` (before,
+  the UID cursor was read as a message sequence number: after any expunge a scan
+  skipped new mail and ingested another message's body).
   Before deploying, check the one inactive IMAP connection's host and port against these rules.
 - Break-glass, only if an app pool must write them before a fix ships:
 

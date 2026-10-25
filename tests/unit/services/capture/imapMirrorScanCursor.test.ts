@@ -47,8 +47,8 @@ vi.mock('@/lib/documentStorage', () => ({
 }));
 vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ routeEvent: async () => undefined }));
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: () => undefined }));
-vi.mock('@/lib/neon', () => ({
-  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+vi.mock('@/lib/neon', () => {
+  const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
     h.sql.push({ text, values });
     if (text.startsWith('INSERT INTO captured_documents') && ++h.docInserts === h.docInsertFails) {
@@ -58,8 +58,10 @@ vi.mock('@/lib/neon', () => ({
       return Promise.reject(Object.assign(new Error('connection terminated'), { code: '08006' }));
     }
     return Promise.resolve(/RETURNING id/.test(text) ? [{ id: crypto.randomUUID() }] : []);
-  }),
-}));
+  });
+  // The scan's bookkeeping writes run in a short transaction (bounded lock wait); here it is the same recorder.
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminTx: async (_label: string, fn: (c: unknown) => unknown) => {
     h.upserts += 1;

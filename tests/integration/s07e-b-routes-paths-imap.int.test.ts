@@ -15,6 +15,7 @@ import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminPool';
 import { decrypt } from '@/lib/encryption';
 import { createImapConnection, reactivateConnection } from '@/modules/accounting/services/capture/mirrorConnectionService';
+import { listActiveConnections, scanAllDueConnections } from '@/modules/accounting/services/capture/imapMirrorService';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -137,5 +138,44 @@ describe('S-07e part B (946): another tenant\'s IMAP connection', () => {
     expect((await as(mirrorItem, 'DELETE', { id: theirs })).status).toBe(404);
     expect((await as(scanNowRoute, 'POST', { id: theirs })).status).toBe(404);
     expect(await row(theirs)).toEqual(before);
+  });
+});
+
+// An app login may write last_scan_at (a scan stamp), so it can stamp another tenant's row into the future; the
+// cron's due check used to wait for that time to pass, which silenced the connection for good.
+describe('S-07e part B (946): the cron treats a last_scan_at in the future as due', () => {
+  const make = async (name: string, lastScan: string | null): Promise<string> => {
+    const { id } = await createImapConnection({ companyId: other, displayName: name, accountEmail: `${name}@s07eb.test`,
+      imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'mailbox-pw' });
+    if (lastScan !== null) {
+      // As the app login, the way a forged stamp arrives.
+      await getDbPool().query('UPDATE imap_mirror_connections SET last_scan_at = $2::timestamptz WHERE id = $1', [id, lastScan]);
+    }
+    return id;
+  };
+
+  it('picks never-scanned, due, and future-stamped rows (even \'infinity\'), and leaves a row scanned a minute ago', async () => {
+    await q('DELETE FROM imap_mirror_connections WHERE company_id = ANY($1)', [[company, other]]);
+    const never = await make('never', null);
+    const stale = await make('stale', new Date(Date.now() - 600_000).toISOString());
+    const fresh = await make('fresh', new Date(Date.now() - 60_000).toISOString());
+    const future = await make('future', '9999-01-01T00:00:00Z');
+    const soon = await make('soon', new Date(Date.now() + 60_000).toISOString());
+    const forever = await make('forever', 'infinity');
+    const due = (await listActiveConnections()).map((c) => c.id);
+    expect(due).toEqual(expect.arrayContaining([never, stale, future, soon, forever]));
+    expect(due).not.toContain(fresh);
+    // Never-scanned and future-stamped rows come first, ahead of the row that has merely waited longest.
+    expect(due.indexOf(stale)).toBeGreaterThan(Math.max(due.indexOf(never), due.indexOf(future), due.indexOf(forever)));
+  });
+
+  it('a scan of the cron then stamps it back to now', async () => {
+    await q('DELETE FROM imap_mirror_connections WHERE company_id = ANY($1)', [[company, other]]);
+    const future = await make('future2', '9999-01-01T00:00:00Z');
+    const results = await scanAllDueConnections();
+    expect(results.find((r) => r.connectionId === future)).toMatchObject({ errors: 0 });
+    const r = await row(future);
+    expect(new Date(r!.last_scan_at as string | Date).getTime()).toBeLessThan(Date.now() + 5000);
+    expect(r).toMatchObject({ status: 'active', last_error: null });
   });
 });
