@@ -62,6 +62,8 @@ export default function CustomerInvoicesPage() {
         log.warn('Customer invoice list failed to load', { error: err }, 'customer-invoices');
         setInvoices([]);
         setTotal(0);
+        setArSummary(null);
+        haveSummary.current = false;
         setError(apiErrorMessage(err, 'Could not load the customer invoices - try again'));
       } finally {
         if (live) setIsLoading(false);
