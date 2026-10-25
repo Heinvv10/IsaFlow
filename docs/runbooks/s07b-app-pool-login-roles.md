@@ -358,7 +358,10 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
     the connection's DELETE, update and disconnect routes answer 409 before any
     database call (`isScanActive`), so a burst of them from one tenant cannot queue on
     the pool below holding auth-pool connections (it did: 30 DELETEs stalled every
-    tenant's requests for up to 14 s).
+    tenant's requests for up to 14 s). Two consequences: the 409 is answered before the
+    company check, so a writer of any company can tell that a connection id (an
+    unguessable UUID) is being scanned; and a tenant cannot disconnect or delete its
+    own connection while a scan of it runs (at most the 120 s cron deadline).
   - The route pool is shared by ALL tenants' route writes (settings writes, delivery
     and scan stamps, the cron's due selection): max 3 connections
     (`ROUTE_ADMIN_POOL_MAX`) for the whole process. A write that cannot get one within
@@ -369,7 +372,10 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
     endpoint, each holding a connection for up to the 2 s lock wait) can therefore make
     other tenants' settings writes answer 503 for that time. Raise
     `ROUTE_ADMIN_POOL_MAX` (each is one migration_admin connection) if that shows in
-    the logs ('the route write pool is busy').
+    the logs ('the route write pool is busy'). The 2 s bound also covers opening a new
+    connection, so a cold or loaded database can produce the same 503s and skipped
+    ticks; a lost delivery failure stamp delays that endpoint's auto-disable by one
+    failure, and a lost cursor stamp is a rescan the content-hash de-dupe absorbs.
   - In a scan-now the scan's claim is held until the request's stamps have run (freed
     after the last one; at once if the request does not commit; at the latest 60 s
     after the scan), so a cron tick cannot start a scan of the connection before the
