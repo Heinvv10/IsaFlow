@@ -9,11 +9,18 @@
  *
  * Invariant: the service never DELETEs or marks remote messages read.
  * Access is read-only — invoices stay where the user expects them.
+ *
+ * App-pool writes to imap_mirror_connections are the scan stamps only
+ * (S-07e part B, migration 946): scan_cursor, last_scan_at, last_success_at,
+ * last_error, messages_ingested_total. A write to `status` (markScanError's
+ * flip to 'error') runs on the migration_admin pool, keyed on the connection
+ * and its company.
  */
 
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
@@ -199,13 +206,26 @@ async function updateCursor(conn: MirrorConnection, folder: string, uid: number)
 }
 
 async function markScanError(conn: MirrorConnection, error: string): Promise<void> {
-  await sql`
-    UPDATE imap_mirror_connections
-    SET last_scan_at = NOW(),
-        last_error = ${error},
-        status = CASE WHEN status = 'active' THEN 'error' ELSE status END
-    WHERE id = ${conn.id}::uuid
-  `;
+  try {
+    // status is not a scan stamp: no app role may write it (migration 946).
+    await migrationAdminTx('mark imap mirror scan error', (client) => client.query(
+      `UPDATE imap_mirror_connections
+          SET last_scan_at = NOW(),
+              last_error = $3,
+              status = CASE WHEN status = 'active' THEN 'error' ELSE status END
+        WHERE id = $1::uuid AND company_id = $2::uuid`,
+      [conn.id, conn.companyId, error],
+    ));
+  } catch (adminErr) {
+    // Scan-now's request transaction may hold this row (its cursor stamp), so the
+    // status write can wait out its lock_timeout: record the error alone, keep the status.
+    log.warn('mirror scan error status write failed', { connectionId: conn.id, err: adminErr }, 'imap-mirror');
+    await sql`
+      UPDATE imap_mirror_connections
+      SET last_scan_at = NOW(), last_error = ${error}
+      WHERE id = ${conn.id}::uuid
+    `;
+  }
 }
 
 async function ingestAttachment(

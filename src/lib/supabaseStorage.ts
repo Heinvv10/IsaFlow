@@ -122,6 +122,27 @@ export class CapturedDocumentMissingError extends Error {
   }
 }
 
+/**
+ * A storage pointer that is not under the reading company's prefix (S-07e). Every
+ * object the app stores is keyed `${companyId}/…`, but the pointer columns are
+ * app-writable, and this client uses the service-role key (no storage RLS): a
+ * company's own row pointed at another company's object must not serve it.
+ */
+export class StorageObjectOutsideCompanyError extends Error {
+  constructor(readonly companyId: string, readonly path: string) {
+    super('Storage object is not this company\'s');
+    this.name = 'StorageObjectOutsideCompanyError';
+  }
+}
+
+/** Only this company's own objects: a key under its prefix, with no segment that climbs out of it. */
+function assertCompanyObject(companyId: string, bucket: string, path: string): void {
+  if (!path.startsWith(`${companyId}/`) || path.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) {
+    log.error('Storage read refused: the pointer is not under the company prefix', { companyId, bucket, path }, 'supabase-storage');
+    throw new StorageObjectOutsideCompanyError(companyId, path);
+  }
+}
+
 interface StorageFailure { message?: string; status?: number | string; statusCode?: number | string }
 
 /**
@@ -136,7 +157,9 @@ function isObjectMissing(error: StorageFailure): boolean {
 export async function downloadCapturedDocument(
   bucket: string,
   path: string,
+  companyId: string,
 ): Promise<Buffer> {
+  assertCompanyObject(companyId, bucket, path);
   const { data, error } = await getStorageClient().from(bucket).download(path);
 
   if (error || !data) {
@@ -167,8 +190,10 @@ export async function removeCapturedDocument(
 export async function signedUrlForCapturedDocument(
   bucket: string,
   path: string,
+  companyId: string,
   expiresInSeconds = 3600,
 ): Promise<string> {
+  assertCompanyObject(companyId, bucket, path);
   const { data, error } = await getStorageClient()
     .from(bucket)
     .createSignedUrl(path, expiresInSeconds);

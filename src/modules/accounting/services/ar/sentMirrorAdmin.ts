@@ -4,9 +4,18 @@
  * Tenant-scoped wrappers around sent_mirror_connections for the settings
  * UI. Mirrors the shape of capture/mirrorConnectionService.ts but talks to
  * the outbound table. Credentials encrypted at rest via lib/encryption.ts.
+ *
+ * Every write here runs on the migration_admin pool (S-07e part B, migration
+ * 946): no app role may INSERT or DELETE a sent_mirror_connections row, or
+ * UPDATE more than the scan stamps (sentMirrorService). Re-pointing a victim's
+ * imap_host/port/tls/username makes the scan cron decrypt the victim's stored
+ * mailbox password and send it to the attacker's server. `companyId` is the
+ * verified request's; the role bypasses RLS, so every statement carries
+ * `company_id = $n`.
  */
 
 import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { encrypt } from '@/lib/encryption';
 import { log } from '@/lib/logger';
 
@@ -71,20 +80,19 @@ export interface CreateSentImapInput {
 
 export async function createSentImapConnection(input: CreateSentImapInput): Promise<SentMirrorSummary> {
   const enc = encrypt(input.imapPassword);
-  const [row] = (await sql`
-    INSERT INTO sent_mirror_connections (
-      company_id, created_by, provider, display_name, account_email,
-      imap_host, imap_port, imap_use_tls, imap_username, imap_password_enc,
-      sent_folder, scan_interval_minutes
-    ) VALUES (
-      ${input.companyId}::uuid, ${input.createdBy ?? null},
-      'imap', ${input.displayName}, ${input.accountEmail},
-      ${input.imapHost}, ${input.imapPort}, ${input.imapUseTls ?? true},
-      ${input.imapUsername}, ${enc},
-      ${input.sentFolder ?? 'Sent'}, ${input.scanIntervalMinutes ?? 10}
-    )
-    RETURNING *
-  `) as Row[];
+  const [row] = await migrationAdminTx('create sent mirror connection', async (client) => (await client.query(
+    `INSERT INTO sent_mirror_connections (
+       company_id, created_by, provider, display_name, account_email,
+       imap_host, imap_port, imap_use_tls, imap_username, imap_password_enc,
+       sent_folder, scan_interval_minutes
+     ) VALUES (
+       $1::uuid, $2, 'imap', $3, $4, $5, $6, $7, $8, $9, $10, $11
+     )
+     RETURNING *`,
+    [input.companyId, input.createdBy ?? null, input.displayName, input.accountEmail,
+      input.imapHost, input.imapPort, input.imapUseTls ?? true, input.imapUsername, enc,
+      input.sentFolder ?? 'Sent', input.scanIntervalMinutes ?? 10],
+  )).rows as Row[]);
   log.info('sent mirror connection created (imap)', { id: row!.id, companyId: input.companyId }, 'sent-mirror');
   return mapSummary(row!);
 }
@@ -97,26 +105,28 @@ export interface UpdateSentConnectionInput {
 }
 
 export async function updateSentConnection(input: UpdateSentConnectionInput): Promise<SentMirrorSummary | null> {
-  const rows = (await sql`
-    UPDATE sent_mirror_connections
-    SET sent_folder           = COALESCE(${input.sentFolder ?? null}, sent_folder),
-        scan_interval_minutes = COALESCE(${input.scanIntervalMinutes ?? null}, scan_interval_minutes)
-    WHERE id = ${input.id}::uuid AND company_id = ${input.companyId}::uuid
-    RETURNING *
-  `) as Row[];
+  const rows = await migrationAdminTx('update sent mirror connection', async (client) => (await client.query(
+    `UPDATE sent_mirror_connections
+        SET sent_folder           = COALESCE($3, sent_folder),
+            scan_interval_minutes = COALESCE($4::int, scan_interval_minutes)
+      WHERE id = $1::uuid AND company_id = $2::uuid
+      RETURNING *`,
+    [input.id, input.companyId, input.sentFolder ?? null, input.scanIntervalMinutes ?? null],
+  )).rows as Row[]);
   return rows.length ? mapSummary(rows[0]!) : null;
 }
 
 export async function disconnectSentConnection(id: string, companyId: string): Promise<boolean> {
-  const rows = (await sql`
-    UPDATE sent_mirror_connections
-    SET status = 'disconnected',
-        disconnected_at = NOW(),
-        oauth_refresh_token_enc = NULL,
-        imap_password_enc = NULL
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-    RETURNING id
-  `) as Row[];
+  const rows = await migrationAdminTx('disconnect sent mirror connection', async (client) => (await client.query(
+    `UPDATE sent_mirror_connections
+        SET status = 'disconnected',
+            disconnected_at = NOW(),
+            oauth_refresh_token_enc = NULL,
+            imap_password_enc = NULL
+      WHERE id = $1::uuid AND company_id = $2::uuid
+      RETURNING id`,
+    [id, companyId],
+  )).rows as Row[]);
   if (rows.length > 0) {
     log.info('sent mirror connection disconnected', { id, companyId }, 'sent-mirror');
   }
@@ -124,11 +134,12 @@ export async function disconnectSentConnection(id: string, companyId: string): P
 }
 
 export async function deleteSentConnection(id: string, companyId: string): Promise<boolean> {
-  const rows = (await sql`
-    DELETE FROM sent_mirror_connections
-    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
-    RETURNING id
-  `) as Row[];
+  const rows = await migrationAdminTx('delete sent mirror connection', async (client) => (await client.query(
+    `DELETE FROM sent_mirror_connections
+      WHERE id = $1::uuid AND company_id = $2::uuid
+      RETURNING id`,
+    [id, companyId],
+  )).rows as Row[]);
   return rows.length > 0;
 }
 

@@ -22,7 +22,14 @@
  *   - billing (S-07e, migration 945): the Flows wallet, ledger and purchases,
  *     the subscription and charge crons, the Paystack webhook's settlement,
  *     and mandate create, verify and revoke. No app role writes those tables
- *     or reads the columns a charge is made with (`migrationAdminSqlTx`).
+ *     or reads the columns a charge is made with (`migrationAdminSqlTx`);
+ *   - outbound-feed and mailbox connections (S-07e part B, migration 946):
+ *     webhook_endpoints create, update, delete and the auto-disable, and
+ *     imap_mirror_connections / sent_mirror_connections create, update,
+ *     disconnect, delete and the scan-error status flip. The app pools keep
+ *     only the delivery and scan stamps: a forged claim could otherwise
+ *     re-point an endpoint's url, or a mailbox's IMAP host, at an outside
+ *     server (`migrationAdminTx`).
  */
 import pg from 'pg';
 import { buildQuery, type TxSql } from '@/lib/neon';

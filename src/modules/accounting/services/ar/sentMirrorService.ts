@@ -18,12 +18,19 @@
  *
  * Invariant: link-back is company-scoped. A sha256 hash collision across
  * tenants still yields two separate captured_documents rows.
+ *
+ * App-pool writes to sent_mirror_connections are the scan stamps only
+ * (S-07e part B, migration 946): scan_cursor, last_scan_at, last_success_at,
+ * last_error, messages_captured_total, messages_linked_total. A write to
+ * `status` (markScanError's flip to 'error') runs on the migration_admin pool,
+ * keyed on the connection and its company.
  */
 
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 
 import { sql } from '@/lib/neon';
+import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
@@ -237,13 +244,26 @@ async function advanceCursor(conn: SentMirrorConnection, folder: string, uid: nu
 }
 
 async function markScanError(conn: SentMirrorConnection, error: string): Promise<void> {
-  await sql`
-    UPDATE sent_mirror_connections
-    SET last_scan_at = NOW(),
-        last_error = ${error},
-        status = CASE WHEN status = 'active' THEN 'error' ELSE status END
-    WHERE id = ${conn.id}::uuid
-  `;
+  try {
+    // status is not a scan stamp: no app role may write it (migration 946).
+    await migrationAdminTx('mark sent mirror scan error', (client) => client.query(
+      `UPDATE sent_mirror_connections
+          SET last_scan_at = NOW(),
+              last_error = $3,
+              status = CASE WHEN status = 'active' THEN 'error' ELSE status END
+        WHERE id = $1::uuid AND company_id = $2::uuid`,
+      [conn.id, conn.companyId, error],
+    ));
+  } catch (adminErr) {
+    // Scan-now's request transaction may hold this row (its cursor stamp), so the
+    // status write can wait out its lock_timeout: record the error alone, keep the status.
+    log.warn('sent mirror scan error status write failed', { connectionId: conn.id, err: adminErr }, 'sent-mirror');
+    await sql`
+      UPDATE sent_mirror_connections
+      SET last_scan_at = NOW(), last_error = ${error}
+      WHERE id = ${conn.id}::uuid
+    `;
+  }
 }
 
 // ─── IMAP connection ──────────────────────────────────────────────────────────

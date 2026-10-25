@@ -1,6 +1,11 @@
 /**
  * Webhook Service — WS-8.1
  * Fire-and-forget HMAC-signed webhook delivery with delivery logging.
+ *
+ * Endpoint create, update and delete, and fireWebhook's auto-disable, run on
+ * the migration_admin pool (webhookEndpointWrites.ts; S-07e part B, migration
+ * 946). The app pools keep only the delivery stamps on webhook_endpoints:
+ * last_triggered_at and failure_count. webhook_deliveries stays app-writable.
  */
 
 import { sql } from '@/lib/neon';
@@ -10,7 +15,11 @@ import crypto from 'crypto';
 import { safeFetch } from '@/lib/safeFetch';
 import { encryptToken, decryptToken } from '@/lib/encryption';
 import { WEBHOOK_EVENTS } from '@/modules/accounting/constants/webhookEvents';
+import { insertEndpoint, updateEndpoint, deleteEndpoint, disableFailingEndpoint } from './webhookEndpointWrites';
 type Row = DbRow;
+
+/** Consecutive failures after which fireWebhook switches an endpoint off. */
+const AUTO_DISABLE_AFTER_FAILURES = 10;
 
 export { WEBHOOK_EVENTS };
 export type { WebhookEvent } from '@/modules/accounting/constants/webhookEvents';
@@ -162,12 +171,20 @@ export async function fireWebhook(
           WHERE id = ${endpoint.id}::UUID AND company_id = ${companyId}
         `;
       } else {
-        await sql`
+        const stamped = (await sql`
           UPDATE webhook_endpoints
-          SET failure_count = failure_count + 1,
-              is_active = CASE WHEN failure_count + 1 >= 10 THEN false ELSE is_active END
+          SET failure_count = failure_count + 1
           WHERE id = ${endpoint.id}::UUID AND company_id = ${companyId}
-        `;
+          RETURNING failure_count
+        `) as Row[];
+        if (Number(stamped[0]?.failure_count ?? 0) >= AUTO_DISABLE_AFTER_FAILURES) {
+          try {
+            await disableFailingEndpoint(companyId, endpoint.id, AUTO_DISABLE_AFTER_FAILURES);
+          } catch (disableErr) {
+            // Stays on and is retried by the next failed delivery; the other endpoints still go out.
+            log.error('Webhook auto-disable failed', { endpointId: endpoint.id, error: disableErr }, 'webhook');
+          }
+        }
       }
     }
   } catch (err) {
@@ -189,14 +206,15 @@ export async function createWebhook(companyId: string, input: WebhookInput): Pro
   // M1: encrypt the signing secret at rest (AES-256-GCM). Legacy plaintext rows
   // still decrypt transparently via decryptToken's 3-part-format check.
   const secretAtRest = input.secret ? encryptToken(input.secret) : null;
-  const rows = (await sql`
-    INSERT INTO webhook_endpoints (company_id, name, url, secret, events, is_active)
-    VALUES (${companyId}, ${input.name}, ${input.url}, ${secretAtRest},
-            ${input.events}, ${input.isActive ?? true})
-    RETURNING *
-  `) as Row[];
-  log.info('Webhook created', { id: rows[0]?.id }, 'webhook');
-  return mapWebhook(rows[0]!);
+  const row = await insertEndpoint(companyId, {
+    name: input.name,
+    url: input.url,
+    secretAtRest,
+    events: input.events,
+    isActive: input.isActive ?? true,
+  });
+  log.info('Webhook created', { id: row.id }, 'webhook');
+  return mapWebhook(row);
 }
 
 export async function updateWebhook(
@@ -204,38 +222,20 @@ export async function updateWebhook(
   id: string,
   updates: Partial<WebhookInput>,
 ): Promise<Webhook> {
-  // Build individual field updates to avoid array casting complexity
-  if (updates.name !== undefined) {
-    const r = (await sql`UPDATE webhook_endpoints SET name = ${updates.name} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
-    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
-  }
-  if (updates.url !== undefined) {
-    const r = (await sql`UPDATE webhook_endpoints SET url = ${updates.url} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
-    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
-  }
-  if (updates.secret !== undefined) {
-    const secretAtRest = updates.secret ? encryptToken(updates.secret) : null;
-    const r = (await sql`UPDATE webhook_endpoints SET secret = ${secretAtRest} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
-    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
-  }
-  if (updates.events !== undefined) {
-    const r = (await sql`UPDATE webhook_endpoints SET events = ${updates.events} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
-    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
-  }
-  if (updates.isActive !== undefined) {
-    const r = (await sql`UPDATE webhook_endpoints SET is_active = ${updates.isActive} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Row[];
-    if (r.length === 0) throw new Error(`Webhook not found: ${id}`);
-  }
-  const rows = (await sql`
-    SELECT * FROM webhook_endpoints WHERE id = ${id}::UUID AND company_id = ${companyId}
-  `) as Row[];
-  if (!rows[0]) throw new Error('Webhook not found');
+  const row = await updateEndpoint(companyId, id, {
+    name: updates.name,
+    url: updates.url,
+    secretAtRest: updates.secret === undefined ? undefined : updates.secret ? encryptToken(updates.secret) : null,
+    events: updates.events,
+    isActive: updates.isActive,
+  });
+  if (!row) throw new Error(`Webhook not found: ${id}`);
   log.info('Webhook updated', { id }, 'webhook');
-  return mapWebhook(rows[0]!);
+  return mapWebhook(row);
 }
 
 export async function deleteWebhook(companyId: string, id: string): Promise<void> {
-  await sql`DELETE FROM webhook_endpoints WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+  await deleteEndpoint(companyId, id);
   log.info('Webhook deleted', { id }, 'webhook');
 }
 

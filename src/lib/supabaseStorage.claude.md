@@ -11,9 +11,9 @@ Singleton `@supabase/storage-js` client for the self-hosted Supabase Storage at 
 - `uploadCapturedDocument(companyId, documentId, buffer, contentType): Promise<UploadResult>` — path `${companyId}/${documentId}`, `upsert: false`
 - `uploadCustomerInvoicePdf(companyId, documentId, buffer): Promise<UploadResult>` — PRD-06 sealed invoice snapshot; path `${companyId}/${documentId}.pdf`; auto-provisions bucket on first call
 - `ensureCustomerInvoicesBucket(): Promise<void>` — idempotent lazy provisioner (swallows "already exists"); cached via module-level boolean
-- `downloadCapturedDocument(bucket, path): Promise<Buffer>` — works for either bucket despite the name
+- `downloadCapturedDocument(bucket, path, companyId): Promise<Buffer>` — works for either bucket despite the name. Refuses (`StorageObjectOutsideCompanyError`) a path not under `${companyId}/` (S-07e): the pointer columns are app-writable and this client uses the service-role key, so the prefix is the only thing tying a stored object to the company asking
 - `removeCapturedDocument(bucket, path): Promise<void>` — best-effort; log-warn on failure
-- `signedUrlForCapturedDocument(bucket, path, expiresInSeconds?=3600): Promise<string>` — short-lived signed URL for UI preview
+- `signedUrlForCapturedDocument(bucket, path, companyId, expiresInSeconds?=3600): Promise<string>` — short-lived signed URL for UI preview; same company-prefix refusal
 
 ## Dependencies
 - `@supabase/storage-js@^2` — installed 2026-04-22
