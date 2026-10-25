@@ -26,7 +26,7 @@ export type MoneyProps = React.HTMLAttributes<HTMLSpanElement> & MoneyValue;
 export function Money({ amount, cents, decimals, className, style, ...props }: MoneyProps) {
   return (
     <span className={cn('tabular-nums', className)} style={style} {...props}>
-      {cents !== undefined ? formatCents(cents) : formatMoney(amount, { decimals })}
+      {cents !== undefined ? formatCents(cents) : amount !== undefined ? formatMoney(amount, { decimals }) : '—'}
     </span>
   );
 }

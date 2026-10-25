@@ -4,7 +4,7 @@
  * until opened, so the field can reference it with aria-describedby; the link sits beside it in the same
  * popover, outside the tooltip. Opens on keyboard focus, hover or click; closes on Esc (focus goes back
  * to the button), on focus leaving, and when the pointer leaves (unless focus is still inside, so the
- * link stays reachable by keyboard). The href must pass `safeHref` (http(s) or an in-app path) or no
+ * link stays reachable by keyboard). The href must pass `safeHref` (https or an in-app path) or no
  * link is rendered.
  */
 import * as React from 'react';
@@ -14,7 +14,7 @@ import { isExternalHref, safeHref } from './safeHref';
 
 export interface FieldHelpContent {
   text: string;
-  /** "Learn more" target: http(s) or an in-app path starting with a single /. Anything else renders no link. */
+  /** "Learn more" target: https or an in-app path starting with a single /. Anything else renders no link. */
   href?: string;
 }
 

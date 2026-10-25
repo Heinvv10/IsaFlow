@@ -264,4 +264,33 @@ describe('MoneyField', () => {
     const { container } = render(<Harness />);
     expect(container.querySelector('input[type="hidden"]')).toBeNull();
   });
+
+  it('a form reset clears refused text: the value was null and stays null, so resetKey does it', () => {
+    const spy = vi.fn();
+    const { rerender } = render(
+      <MoneyField label="Amount" value={null} onChange={spy} resetKey={0} />,
+    );
+    fireEvent.change(input(), { target: { value: 'abc' } });
+    fireEvent.blur(input());
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(input().value).toBe('abc');
+    rerender(<MoneyField label="Amount" value={null} onChange={spy} resetKey={0} />);
+    expect(input().value).toBe('abc');
+    rerender(<MoneyField label="Amount" value={null} onChange={spy} resetKey={1} />);
+    expect(input().value).toBe('');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(input().getAttribute('aria-invalid')).toBe('false');
+    // the refusal is forgotten: the same junk is news again
+    spy.mockClear();
+    fireEvent.change(input(), { target: { value: 'abc' } });
+    fireEvent.blur(input());
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('a reset also restores the value the parent passes in the same render', () => {
+    const { rerender } = render(<MoneyField label="Amount" value={500} onChange={() => undefined} resetKey="a" />);
+    fireEvent.change(input(), { target: { value: '99' } });
+    rerender(<MoneyField label="Amount" value={500} onChange={() => undefined} resetKey="b" />);
+    expect(input().value).toBe('5.00');
+  });
 });

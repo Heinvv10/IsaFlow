@@ -6,7 +6,9 @@
  * something we refused", so every report carries a validity: `{ valid: false, reason }` means the text is
  * on screen but was refused, and a form must not submit. onChange fires when the value OR the validity
  * changes (typing "abc" into an empty field is still news). An outside change to `value` replaces the
- * text; the echo of our own commit does not.
+ * text; the echo of our own commit does not. A parent that resets the form while refused text is on screen
+ * cannot do it with `value` alone (it was null before and is null after), so it changes `resetKey`: the text,
+ * the error and the reported validity are cleared and the field follows `value` again.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -25,6 +27,8 @@ interface Options<T> {
   format: (value: T) => string;
   parse: (text: string) => ParseOutcome<T>;
   onChange: (value: T | null, validity: FieldValidity) => void;
+  /** Change it (any value, any change) to discard what is on screen, e.g. a form reset. */
+  resetKey?: string | number;
 }
 
 export interface ParsedField {
@@ -36,7 +40,7 @@ export interface ParsedField {
   commit: (override?: string) => void;
 }
 
-export function useParsedField<T>({ value, format, parse, onChange }: Options<T>): ParsedField {
+export function useParsedField<T>({ value, format, parse, onChange, resetKey }: Options<T>): ParsedField {
   const [text, setText] = useState(value === null ? '' : format(value));
   const [error, setError] = useState<string | null>(null);
   const emitted = useRef<T | null>(value);
@@ -54,6 +58,16 @@ export function useParsedField<T>({ value, format, parse, onChange }: Options<T>
     setText(value === null ? '' : latest.current.format(value));
     setError(null);
   }, [value]);
+
+  const seenResetKey = useRef(resetKey);
+  useEffect(() => {
+    if (Object.is(seenResetKey.current, resetKey)) return;
+    seenResetKey.current = resetKey;
+    emitted.current = value;
+    emittedValidity.current = VALID;
+    setText(value === null ? '' : latest.current.format(value));
+    setError(null);
+  }, [resetKey, value]);
 
   const onTextChange = useCallback((next: string) => {
     setText(next);
