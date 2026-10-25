@@ -25,7 +25,7 @@
     "max": 1,
     "dataDriven": {
      "source": "/api/accounting/bank-accounts",
-     "why": "amount and gap chips on a card per bank account: which accounts have them follows their balances"
+     "why": "amount and gap chips on a card per bank account: which accounts have them follows their balances. maxHint 100 is a sanity bound (2 chips x 50 accounts): neither the page nor /api/accounting/bank-accounts limits the count"
     },
     "maxHint": 100
    },
@@ -354,9 +354,9 @@
     "max": 1,
     "dataDriven": {
      "source": "/api/accounting/reports-vat-return",
-     "why": "count badge renders only for VAT boxes that have transactions"
+     "why": "count badge renders only for VAT boxes that have transactions; vatReturnService defines 12 boxes"
     },
-    "maxHint": 20
+    "maxHint": 12
    },
    {
     "rule": "document-title",

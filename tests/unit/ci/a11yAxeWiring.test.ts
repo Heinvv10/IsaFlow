@@ -145,7 +145,7 @@ describe('openScreen throws on anything but the screen, with its data', () => {
   const failures: Array<[string, Page, RegExp]> = [
     ['a redirect', screenPage({ landsOn: 'http://x/login?reason=session-expired' }), /expected \/accounting\/assets but the browser is on \/login/],
     ['a missing heading', screenPage({ landsOn: 'http://x/accounting/assets', headingVisible: false }), /not visible/],
-    ['a page whose h1 never shows', screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: true }), /Timeout 30000ms/],
+    ['a page whose h1 never shows', screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: true }), /a11y screen "assets" \(\/accounting\/assets\): no <h1> showed within 30s \(Timeout 30000ms/],
   ];
 
   it('resolves on the right screen', async () => {
@@ -177,6 +177,17 @@ describe('openScreen throws on anything but the screen, with its data', () => {
   });
 
   it('a settled-wait that fails fails the screen', async () => {
-    await expect(openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw new Error('rows never rendered'); } })).rejects.toThrow(/rows never rendered/);
+    await expect(openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw new Error('rows never rendered'); } })).rejects.toThrow(/a11y screen "assets" \(\/accounting\/assets\): the screen never settled \(rows never rendered\)/);
+  });
+});
+
+describe('the generic spinner wait names the screen too', () => {
+  it('a page that never stops spinning fails with the screen and what it waited for', async () => {
+    const page = screenPage({ landsOn: 'http://x/accounting/assets' });
+    (page as unknown as { locator: (s: string) => unknown }).locator = (sel: string) => ({
+      first: () => ({ waitFor: async () => {} }),
+      count: async () => (sel.includes('animate') ? 2 : 0),
+    });
+    await expect(openScreen(page, SCREEN)).rejects.toThrow(/a11y screen "assets" \(\/accounting\/assets\): the page still shows a spinner or skeleton after 30s \(.*count != 0/);
   });
 });
