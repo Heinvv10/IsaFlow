@@ -9,6 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { TrendingUp, AlertTriangle, AlertCircle, Loader2, RefreshCw, Info } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
+import { formatDisplayDateTime, formatDisplayMonthYear } from '@/utils/dateFormat';
 
 const ResponsiveContainer = dynamic(
   () => import('recharts').then(m => m.ResponsiveContainer),
@@ -51,10 +53,7 @@ const Legend = dynamic(
   { ssr: false }
 );
 
-function formatCurrency(amount: number): string {
-  const prefix = amount < 0 ? '-R ' : 'R ';
-  return prefix + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+const formatCurrency = (amount: number): string => formatMoney(amount);
 
 interface ForecastPoint {
   date: string;
@@ -115,7 +114,7 @@ export default function CashFlowForecastPage() {
   // Combine historical + forecast for the balance chart
   const balanceChartData = [
     ...(data?.historical ?? []).map(h => ({
-      label: new Date(h.month + '-01').toLocaleDateString('en-ZA', { month: 'short', year: '2-digit' }),
+      label: formatDisplayMonthYear(h.month + '-01'),
       balance: null as number | null,
       projected: null as number | null,
       actual: h.net,
@@ -264,7 +263,7 @@ export default function CashFlowForecastPage() {
                     <XAxis dataKey="label" tick={{ fill: 'var(--ff-text-secondary)', fontSize: 12 }} />
                     <YAxis
                       tick={{ fill: 'var(--ff-text-secondary)', fontSize: 12 }}
-                      tickFormatter={(v: number) => `R ${(v / 1000).toFixed(0)}k`}
+                      tickFormatter={(v: number) => formatMoneyCompact(v, { decimals: 0 })}
                     />
                     <Tooltip
                       contentStyle={{
@@ -310,7 +309,7 @@ export default function CashFlowForecastPage() {
                     <XAxis dataKey="label" tick={{ fill: 'var(--ff-text-secondary)', fontSize: 12 }} />
                     <YAxis
                       tick={{ fill: 'var(--ff-text-secondary)', fontSize: 12 }}
-                      tickFormatter={(v: number) => `R ${(v / 1000).toFixed(0)}k`}
+                      tickFormatter={(v: number) => formatMoneyCompact(v, { decimals: 0 })}
                     />
                     <Tooltip
                       contentStyle={{
@@ -383,7 +382,7 @@ export default function CashFlowForecastPage() {
                 ))}
               </ul>
               <p className="text-xs text-[var(--ff-text-tertiary)] mt-3">
-                Generated at {new Date(data.generatedAt).toLocaleString('en-ZA')}
+                Generated at {formatDisplayDateTime(data.generatedAt)}
               </p>
             </div>
           </>

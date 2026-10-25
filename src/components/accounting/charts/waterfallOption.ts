@@ -31,7 +31,7 @@ import type {
   CustomSeriesRenderItemParams,
 } from 'echarts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import type { ChartPalette } from './chartTypes';
 import { escapeHtml } from './escapeHtml';
 import { axisDomain, roleStyle, varianceColor } from './ibcs';
@@ -93,7 +93,7 @@ export function makeWaterfallRenderItem(
         {
           type: 'text',
           style: {
-            text: formatMoney(step.value, { cents: opts.cents }),
+            text: formatStatementFigure(step.value, { cents: opts.cents }),
             x: x + width / 2,
             y: y - 4,
             fill: palette.ink,
@@ -141,7 +141,7 @@ export function buildWaterfallOption(
       formatter: (p: { dataIndex: number }) => {
         const s = steps[p.dataIndex];
         return s
-          ? `${escapeHtml(s.label)}<br/>${formatMoney(s.value, { cents: opts.cents, symbol: true })}`
+          ? `${escapeHtml(s.label)}<br/>${formatStatementFigure(s.value, { cents: opts.cents, symbol: true })}`
           : '';
       },
     },
@@ -154,7 +154,7 @@ export function buildWaterfallOption(
     yAxis: {
       type: 'value',
       ...axisDomain(steps.flatMap((s) => [s.start, s.end])),
-      axisLabel: { color: palette.axisLabel, formatter: (v: number) => formatMoney(v) },
+      axisLabel: { color: palette.axisLabel, formatter: (v: number) => formatStatementFigure(v) },
       splitLine: { lineStyle: { color: palette.axisLine } },
     },
     series: [

@@ -5,7 +5,7 @@
  * that file under the 300-line cap; the header there states what this
  * sentence may and may not say.
  */
-import { formatMoney, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import type { PackReceivablesRead } from './packReceivablesReconciliation';
 
@@ -104,7 +104,7 @@ export function decomposition(
     .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
   if (named.length === 0) return '';
 
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   // NO AGED REPORT, NO FIRST LEG. Where the pack prints no aged total the
   // headline above is the SUBLEDGER, so there is no report-to-subledger step
   // to bridge and a clause inventing one would put a figure on the page that
@@ -137,7 +137,7 @@ export function decomposition(
   const clauses = named.map((item) => {
     const population = item.documentIds.length;
     // Grouped like every other figure on the sheet: "across 1 012", not "1012".
-    const across = population === 0 ? '' : ` across ${formatMoney(population, { pack: true })}`;
+    const across = population === 0 ? '' : ` across ${formatStatementFigure(population, { pack: true })}`;
     // A BRACKETED FIGURE NEVER OPENS A CLAUSE: "…, (2) across 14 open
     // documents" read as item (2) of a numbered list.
     const amount = money(item.amount);

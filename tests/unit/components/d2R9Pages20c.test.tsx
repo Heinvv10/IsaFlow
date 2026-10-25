@@ -155,7 +155,7 @@ describe('payroll/employees/[id] (routes: employees/:id -> Employee, payroll/com
     expect(await screen.findByRole('heading', { name: 'D2First D2Last' })).toBeDefined();
     expect(screen.getByText('E-D2-9')).toBeDefined();
     const tr = screen.getAllByText('D2 Bonus Comp').map((n) => n.closest('tr')).find(Boolean) as HTMLElement;
-    expect(tr.textContent).toMatch(/321,00/);
+    expect(tr.textContent).toMatch(/321\.00/);
   });
   it('an empty 500 says a sentence and shows no employee', async () => {
     serve(...routes(empty500));

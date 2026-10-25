@@ -5,6 +5,7 @@
 
 import dynamic from 'next/dynamic';
 import type { PlanBreakdownRow } from '@/modules/admin/types/admin.types';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
 const BarChart            = dynamic(() => import('recharts').then((m) => m.BarChart),            { ssr: false });
@@ -22,11 +23,7 @@ interface Props {
 const COLORS = ['#14b8a6', '#3b82f6', '#a855f7', '#f59e0b', '#ef4444', '#10b981'];
 
 function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', {
-    style: 'currency',
-    currency: 'ZAR',
-    maximumFractionDigits: 0,
-  });
+  return formatMoney(cents / 100, { decimals: 0 });
 }
 
 export function PlanBreakdownChart({ data }: Props) {
@@ -56,14 +53,14 @@ export function PlanBreakdownChart({ data }: Props) {
         <XAxis
           type="number"
           tickFormatter={(v: number) => fmtZAR(v)}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
           type="category"
           dataKey="name"
-          tick={{ fill: '#d1d5db', fontSize: 11 }}
+          tick={{ fill: '#d1d5db', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={140}

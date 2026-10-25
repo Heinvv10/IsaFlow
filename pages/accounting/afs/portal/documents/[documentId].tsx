@@ -119,17 +119,17 @@ export default function PortalDocumentPage({
       <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: 'system-ui,sans-serif' }}>
         <header style={{ display:'flex', alignItems:'center', gap:'1.5rem', padding:'0.875rem 2rem', background:'#0f172a', position:'sticky', top:0, zIndex:10 }}>
           <Link href="/accounting/afs/portal/dashboard" style={{ color:'#94a3b8', textDecoration:'none', fontSize:'0.875rem' }}>← Back</Link>
-          <span style={{ fontWeight:600, color:'#f1f5f9', flex:1, fontSize:'0.9375rem' }}>{typeLabel}{doc.fiscal_year ? ` — ${doc.fiscal_year}` : ''}</span>
+          <span style={{ fontWeight:600, color:'#f1f5f9', flex:1, fontSize:'1rem' }}>{typeLabel}{doc.fiscal_year ? ` — ${doc.fiscal_year}` : ''}</span>
           <span style={{ background:'#1e293b', color:'#94a3b8', padding:'0.2rem 0.6rem', borderRadius:'999px', fontSize:'0.75rem' }}>{doc.status.replace(/_/g,' ')}</span>
           <form action="/api/accounting/portal/auth/logout" method="post">
-            <button style={{ background:'transparent', border:'1px solid #334155', color:'#94a3b8', padding:'0.3rem 0.75rem', borderRadius:'0.375rem', fontSize:'0.8125rem', cursor:'pointer' }}>Sign out</button>
+            <button style={{ background:'transparent', border:'1px solid #334155', color:'#94a3b8', padding:'0.3rem 0.75rem', borderRadius:'0.375rem', fontSize:'0.875rem', cursor:'pointer' }}>Sign out</button>
           </form>
         </header>
         <div style={{ display:'flex', maxWidth:'1200px', margin:'0 auto', padding:'2rem 1.5rem', gap:'2rem' }}>
           <aside style={{ width:'200px', flexShrink:0, position:'sticky', top:'60px', alignSelf:'flex-start' }}>
-            <p style={{ fontSize:'0.7rem', fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.5rem' }}>Sections</p>
+            <p style={{ fontSize:'0.75rem', fontWeight:600, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:'0.5rem' }}>Sections</p>
             {sections.map((s) => (
-              <a key={s.id} href={`#s-${s.id}`} style={{ display:'block', padding:'0.3rem 0.4rem', fontSize:'0.8rem', color:'#475569', textDecoration:'none', textTransform:'capitalize', marginBottom:'0.1rem' }}>
+              <a key={s.id} href={`#s-${s.id}`} style={{ display:'block', padding:'0.3rem 0.4rem', fontSize:'0.875rem', color:'#475569', textDecoration:'none', textTransform:'capitalize', marginBottom:'0.1rem' }}>
                 {s.section_type.replace(/_/g,' ')}
               </a>
             ))}
@@ -143,7 +143,7 @@ export default function PortalDocumentPage({
                     {s.content.blocks.map((block, idx) => {
                       if ((block.type === 'paragraph' || block.type === 'heading') && block.text) {
                         return block.type === 'heading'
-                          ? <h3 key={idx} style={{ fontSize: '0.9375rem', fontWeight: 700, margin: '0.75rem 0 0.25rem' }}>{block.text}</h3>
+                          ? <h3 key={idx} style={{ fontSize: '1rem', fontWeight: 700, margin: '0.75rem 0 0.25rem' }}>{block.text}</h3>
                           : <p key={idx} style={{ margin: '0 0 0.5rem' }}>{block.text}</p>;
                       }
                       if (block.type === 'list' && Array.isArray(block.items)) {
@@ -174,7 +174,7 @@ export default function PortalDocumentPage({
                         </div>
                       </div>
                     ) : (
-                      <button onClick={() => { setCommentError(''); setAnnotating(s.id); }} style={{ background:'transparent', color:'#0ea5e9', border:'1px dashed #bae6fd', borderRadius:'0.375rem', padding:'0.375rem 0.75rem', fontSize:'0.8125rem', cursor:'pointer' }}>+ Add comment</button>
+                      <button onClick={() => { setCommentError(''); setAnnotating(s.id); }} style={{ background:'transparent', color:'#0ea5e9', border:'1px dashed #bae6fd', borderRadius:'0.375rem', padding:'0.375rem 0.75rem', fontSize:'0.875rem', cursor:'pointer' }}>+ Add comment</button>
                     )}
                   </div>
                 )}

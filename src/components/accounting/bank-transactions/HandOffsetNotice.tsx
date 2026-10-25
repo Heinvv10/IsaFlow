@@ -12,6 +12,7 @@
 import { useState, type ReactNode } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface HandOffset {
   transactionId: string;
@@ -41,7 +42,7 @@ interface Props {
 }
 
 const rands = (n: number) =>
-  `${n < 0 ? '−' : ''}R${Math.abs(n).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  formatMoney(n);
 
 function Projection({ offset }: { offset: HandOffset }) {
   return (

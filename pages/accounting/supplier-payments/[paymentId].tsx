@@ -235,8 +235,8 @@ export default function SupplierPaymentDetailPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-light)]">
-                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice</th>
-                        <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount Allocated</th>
+                        <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice</th>
+                        <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount Allocated</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -245,14 +245,14 @@ export default function SupplierPaymentDetailPage() {
                           <td className="px-4 py-3 text-[var(--ff-text-primary)] font-mono">
                             {a.invoiceNumber || a.invoiceId}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+                          <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                             {formatCurrency(Number(a.amountAllocated))}
                           </td>
                         </tr>
                       ))}
                       <tr className="bg-[var(--ff-bg-tertiary)] font-bold">
                         <td className="px-4 py-3 text-[var(--ff-text-primary)]">Total</td>
-                        <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(payment.totalAmount)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(payment.totalAmount)}</td>
                       </tr>
                     </tbody>
                   </table>

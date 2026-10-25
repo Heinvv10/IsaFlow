@@ -180,7 +180,7 @@ export default function PracticeTasksPage() {
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                     {['Title', 'Job', 'Assigned To', 'Due Date', 'Priority', 'Status'].map(h => (
-                      <th key={h} className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">{h}</th>
+                      <th key={h} className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">{h}</th>
                     ))}
                   </tr>
                 </thead>

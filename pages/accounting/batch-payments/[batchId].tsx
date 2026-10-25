@@ -15,8 +15,9 @@ import { BatchBankFileNotice } from '@/components/accounting/BatchBankFileNotice
 import { BatchChangedSinceApprovalNotice } from '@/components/accounting/BatchChangedSinceApprovalNotice';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/20 text-gray-400',
@@ -219,11 +220,11 @@ export default function BatchPaymentDetailPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-light)]">
-                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Payment #</th>
-                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
-                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid into</th>
-                        <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount</th>
-                        <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
+                        <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Payment #</th>
+                        <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Supplier</th>
+                        <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Paid into</th>
+                        <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Amount</th>
+                        <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -236,7 +237,7 @@ export default function BatchPaymentDetailPage() {
                           </td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{p.supplierName}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono">{p.payeeBank ?? '—'}</td>
-                          <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(Number(p.amount))}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(p.amount))}</td>
                           <td className="px-4 py-3">
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_BADGE[p.status] || ''}`}>{p.status}</span>
                           </td>

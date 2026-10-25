@@ -11,13 +11,14 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatDate } from '@/utils/formatters';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Invoice {
   id: string; invoiceNumber: string; supplierName: string;
   totalAmount: number; vatAmount: number; invoiceDate: string;
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 // TODO: fetch from /api/accounting/company-settings when dynamic VAT rates are supported
 const DEFAULT_VAT_RATE = 0.15;

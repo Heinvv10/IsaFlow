@@ -238,7 +238,7 @@ export default function RateCurvesPage() {
                           {(points[curve.id] ?? []).map((pt, i) => (
                             <tr key={i} className="hover:bg-[var(--ff-bg-primary)]">
                               <td className="py-2 text-[var(--ff-text-primary)]">{fmtDate(pt.effectiveDate)}</td>
-                              <td className="py-2 text-right font-mono text-[var(--ff-text-primary)]">{Number(pt.rate).toFixed(4)}</td>
+                              <td className="py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{Number(pt.rate).toFixed(4)}</td>
                             </tr>
                           ))}
                           {(points[curve.id] ?? []).length === 0 && (

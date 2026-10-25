@@ -3,9 +3,10 @@
  */
 
 import type { CustomerInvoiceItem } from '@/modules/accounting/types/customerInvoice.types';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Props {
   invoiceDate: string;
@@ -51,12 +52,12 @@ export function CustomerInvoiceSummary({
   taxRate, subtotal, taxAmount, totalAmount, balance, notes, items,
 }: Props) {
   const cards = [
-    { label: 'Invoice Date', value: invoiceDate?.split('T')[0] },
-    { label: 'Due Date', value: dueDate?.split('T')[0] || '—' },
+    { label: 'Invoice Date', value: formatDisplayDate(invoiceDate) },
+    { label: 'Due Date', value: formatDisplayDate(dueDate) },
     {
       label: 'Billing Period',
       value: billingPeriodStart && billingPeriodEnd
-        ? `${String(billingPeriodStart).split('T')[0]} → ${String(billingPeriodEnd).split('T')[0]}`
+        ? `${formatDisplayDate(billingPeriodStart)} → ${formatDisplayDate(billingPeriodEnd)}`
         : '—',
     },
     { label: 'VAT Rate', value: `${taxRate}%` },
@@ -96,10 +97,10 @@ export function CustomerInvoiceSummary({
                   {item.description || '—'}
                   <span className="block text-xs text-[var(--ff-text-secondary)]">{lineCoding(item)}</span>
                 </td>
-                <td className="px-4 py-3 text-sm text-right font-mono">{item.quantity}</td>
-                <td className="px-4 py-3 text-sm text-right font-mono">{fmt(Number(item.unit_price))}</td>
-                <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-secondary)]">{Number(item.tax_rate)}%</td>
-                <td className="px-4 py-3 text-sm text-right font-mono font-medium">{fmt(Number(item.amount))}</td>
+                <td className="px-4 py-3 text-sm text-right tabular-nums">{item.quantity}</td>
+                <td className="px-4 py-3 text-sm text-right tabular-nums">{fmt(Number(item.unit_price))}</td>
+                <td className="px-4 py-3 text-sm text-right tabular-nums text-[var(--ff-text-secondary)]">{Number(item.tax_rate)}%</td>
+                <td className="px-4 py-3 text-sm text-right tabular-nums font-medium">{fmt(Number(item.amount))}</td>
               </tr>
             ))}
           </tbody>
@@ -107,7 +108,7 @@ export function CustomerInvoiceSummary({
             <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
               <td colSpan={3}></td>
               <td className="px-4 py-3 text-sm text-right font-medium text-[var(--ff-text-secondary)]">Total:</td>
-              <td className="px-4 py-3 text-sm text-right font-mono font-bold text-blue-400">{fmt(Number(totalAmount))}</td>
+              <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-blue-400">{fmt(Number(totalAmount))}</td>
             </tr>
           </tfoot>
         </table>

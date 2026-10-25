@@ -16,6 +16,7 @@ import {
   Settings, Scale, FileSpreadsheet, Layers, FileText, RefreshCw,
 } from 'lucide-react';
 import { GroupEntityTable } from '@/components/accounting/group/GroupEntityTable';
+import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
 
 // These shapes are the API's, not this page's. They used to be redeclared here
 // with invented field names — `entities` where the API returns `entitySummaries`,
@@ -28,12 +29,8 @@ import { GroupEntityTable } from '@/components/accounting/group/GroupEntityTable
 type CompanyGroup = ServiceCompanyGroup & { memberCount: number; holdingCompanyName: string | null };
 type GroupDashboardData = GroupDashboardStats;
 
-const fmtCurrency = (n: number) => 'R ' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-const fmtCompact = (n: number) => {
-  if (Math.abs(n) >= 1_000_000) return 'R ' + (n / 1_000_000).toFixed(1) + 'M';
-  if (Math.abs(n) >= 1_000) return 'R ' + (n / 1_000).toFixed(1) + 'K';
-  return fmtCurrency(n);
-};
+const fmtCurrency = (n: number) => formatMoney(n);
+const fmtCompact = (n: number): string => formatMoneyCompact(n);
 
 const QUICK_LINKS = [
   { label: 'Consolidated Trial Balance', href: '/accounting/group/trial-balance', icon: Scale, description: 'Combined trial balance across all entities' },

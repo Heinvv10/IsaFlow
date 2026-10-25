@@ -10,6 +10,8 @@ import { FileText, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import { CreateTaxDirectiveModal } from '@/components/payroll/TaxDirectiveComponents';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type DirectiveType = 'lump_sum' | 'retirement' | 'severance' | 'death';
 type DirectiveStatus = 'pending' | 'approved' | 'expired' | 'cancelled';
@@ -55,11 +57,10 @@ const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
-const fmtCurrency = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmtCurrency = (n: number) => formatMoney(n);
 
-const TH = 'text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase';
-const TH_R = 'text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase';
+const TH = 'text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase';
+const TH_R = 'text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase';
 
 function StatusBadge({ status }: { status: DirectiveStatus }) {
   return (
@@ -246,9 +247,9 @@ export default function TaxDirectivesPage() {
                         {TYPE_LABELS[d.directiveType]}
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">
-                        {d.effectiveDate}
+                        {formatDisplayDate(d.effectiveDate)}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
                         {fmtCurrency(d.amount)}
                       </td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">

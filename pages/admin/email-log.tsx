@@ -9,12 +9,13 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Loader2, RefreshCw, Mail, AlertCircle, CheckCircle, Clock, Send } from 'lucide-react';
 import type { EmailLogItem, EmailLogStats } from '../api/admin/email-log';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmtDate = (d: string) => {
   if (!d) return '—';
-  return new Date(d).toLocaleString('en-ZA', { dateStyle: 'short', timeStyle: 'short' });
+  return formatDisplayDateTime(d);
 };
 
 const EMAIL_TYPES = ['invoice', 'statement', 'quote', 'payment_receipt', 'invite', 'other'] as const;

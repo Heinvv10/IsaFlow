@@ -11,9 +11,10 @@ useApiJsonOverMock();
 
 import { apiFetch } from '@/lib/apiFetch';
 import AccountTransactionsPage from '../../../pages/accounting/reports/account-transactions';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 const json = (data: unknown) => new Response(JSON.stringify({ success: true, data }), { status: 200 });
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 afterEach(() => { vi.mocked(apiFetch).mockReset(); });
 
 // Expense account, FY start 1 March: opening 100, +30 (130), CLOSE 130, +5 (5).

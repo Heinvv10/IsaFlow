@@ -23,7 +23,6 @@
   "pages/accounting/bank-transfers/index.tsx": 4,
   "pages/accounting/bank/statements/import-pdf.tsx": 1,
   "pages/accounting/batch-payments/new.tsx": 2,
-  "pages/accounting/budgets/index.tsx": 2,
   "pages/accounting/business-units/index.tsx": 5,
   "pages/accounting/capture/index.tsx": 2,
   "pages/accounting/capture/settings/mirror.tsx": 7,

@@ -65,7 +65,7 @@ it('an allocation row shows its invoice number and rand amount, not the UUID and
   const { container } = render(<PaymentDetail />);
   expect(await screen.findByText('INV-42')).toBeTruthy();
   expect(container.textContent).not.toContain('NaN');
-  expect(container.textContent).toMatch(/1[\s\u00a0]?234,50/);
+  expect(container.textContent).toMatch(/1[\s\u00a0]?234\.50/);
 });
 
 it('a batch member offers no Process, Void or Cancel, and links to its batch', async () => {

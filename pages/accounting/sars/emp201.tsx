@@ -14,6 +14,7 @@ import {
 import { formatDate } from '@/utils/formatters';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Emp201DirectivePayments, type Emp201DirectivePaymentRow } from '@/components/payroll/Emp201DirectivePayments';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface EMP201PayrollRun {
   id: string;
@@ -42,8 +43,7 @@ interface EMP201Data {
   directivePayments?: Emp201DirectivePaymentRow[];
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 function getDefaultPeriod(): { from: string; to: string } {
   const now = new Date();

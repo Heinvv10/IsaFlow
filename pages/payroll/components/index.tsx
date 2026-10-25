@@ -119,8 +119,8 @@ export default function PayComponentsPage() {
                 <div>
                   <label className={label}>SARS code</label>
                   <input className={field} value={sarsCode} onChange={e => setSarsCode(e.target.value)} />
-                  <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">{SARS_HINTS.join(' · ')}</p>
-                  <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">{SARS_HINTS.join(' · ')}</p>
+                  <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
                     Medical aid: deduct the full scheme contribution under 4005 (it decides the IRP5 4005/4116 and the 65+ credit);
                     an employer share is a separate taxable earning.
                   </p>

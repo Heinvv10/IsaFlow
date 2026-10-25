@@ -15,6 +15,7 @@ import { fetchAllSuppliers, truncatedSuppliersNotice } from '@/lib/fetchAllSuppl
 import { isBankSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
 import { notifyLateClaims } from '@/components/accounting/lateClaimNotice';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type TxType = 'spend' | 'receive';
 type AllocType = 'account' | 'supplier' | 'customer';
@@ -48,7 +49,7 @@ const VAT_OPTIONS: { value: VatCode; label: string }[] = [
   { value: 'zero_rated', label: 'Zero Rated' }, { value: 'exempt', label: 'Exempt' },
 ];
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 const asArray = <T,>(value: unknown): T[] => Array.isArray(value) ? value as T[] : [];
@@ -332,8 +333,8 @@ export default function NewBankTransactionPage() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-slate-500 dark:text-slate-400">Amount</span>
-                      <span className="font-mono font-bold text-amber-500">
-                        {amountNum > 0 ? `R ${amountNum.toFixed(2)}` : '—'}
+                      <span className="tabular-nums font-bold text-amber-500">
+                        {amountNum > 0 ? formatMoney(amountNum) : '—'}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">

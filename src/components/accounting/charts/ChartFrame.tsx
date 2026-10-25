@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import type { EChartsCoreOption } from 'echarts/core';
 import { EChartClient } from '@/components/charts/EChartClient';
 import { buildTheme } from '@/lib/charts/theme';
+import { readThemeVar } from '@/lib/charts/readThemeVar';
 import { DEFAULT_PALETTE, paletteFromTheme, type ChartPalette } from './chartTypes';
 
 /**
@@ -26,7 +27,7 @@ export function useChartPalette(): ChartPalette {
   useEffect(() => {
     const resolve = () => {
       const styles = getComputedStyle(document.documentElement);
-      setResolved(paletteFromTheme(buildTheme((name) => styles.getPropertyValue(name).trim())));
+      setResolved(paletteFromTheme(buildTheme((name) => readThemeVar(styles, name))));
     };
     resolve();
 

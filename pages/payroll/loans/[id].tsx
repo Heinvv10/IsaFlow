@@ -177,11 +177,11 @@ export default function LoanDetailPage() {
                     <tr key={r.id} className={`border-b border-[var(--ff-border-primary)] last:border-0 ${r.paidFlag ? 'opacity-50' : ''}`}>
                       <td className="py-1.5 px-3 font-mono text-[var(--ff-text-secondary)]">{r.sequence}</td>
                       <td className="py-1.5 px-3 text-[var(--ff-text-secondary)]">{MONTHS[r.duePeriodMonth - 1]} {r.duePeriodYear}</td>
-                      <td className="py-1.5 px-3 text-right font-mono">{formatCurrency(r.openingBalance)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono">{formatCurrency(r.interest)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono">{formatCurrency(r.principal)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono font-medium">{formatCurrency(r.installment)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(r.closingBalance)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.openingBalance)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.interest)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.principal)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums font-medium">{formatCurrency(r.installment)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(r.closingBalance)}</td>
                       <td className="py-1.5 px-3">{r.paidFlag && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}</td>
                     </tr>
                   ))}
@@ -209,10 +209,10 @@ export default function LoanDetailPage() {
                   {payments.map(p => (
                     <tr key={p.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
                       <td className="py-1.5 px-3">{MONTHS[p.periodMonth - 1]} {p.periodYear}</td>
-                      <td className="py-1.5 px-3 text-right font-mono">{formatCurrency(p.interestCharged)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono">{formatCurrency(p.principalPaid)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono">{formatCurrency(p.fringeBenefit)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(p.closingBalance)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.interestCharged)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.principalPaid)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(p.fringeBenefit)}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(p.closingBalance)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -229,7 +229,7 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
   return (
     <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
       <div className="text-xs text-[var(--ff-text-secondary)]">{label}</div>
-      <div className={`mt-1 text-lg font-semibold font-mono ${highlight ? 'text-emerald-400' : 'text-[var(--ff-text-primary)]'}`}>{value}</div>
+      <div className={`mt-1 text-lg font-semibold tabular-nums ${highlight ? 'text-emerald-400' : 'text-[var(--ff-text-primary)]'}`}>{value}</div>
     </div>
   );
 }

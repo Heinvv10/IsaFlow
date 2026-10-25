@@ -10,7 +10,7 @@
  * every name here, so existing import paths still resolve.
  */
 
-import { formatMoney, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { creditMonthClause, dominantPoint, moneyPanelScales, type ScaleDominator } from './packTrendScale';
 import { monthLabel, partialMonthOf, wholeMonthsOf } from './packPartialMonth';
@@ -174,8 +174,8 @@ export function buildTrendPanels(series12: PackTrendPoint[], scale: MoneyScale):
     // "a span of 3 529 R'000", the column banner shoved against a figure,
     // which is a third position for a unit the pack otherwise only ever
     // sets above the column it governs.
-    sharedRange: `${inProse(formatMoney(shared.min, { scale }))} to `
-      + `${inProse(formatMoney(shared.max, { scale }))}, a span of `
-      + `${inScale(inProse(formatMoney(sharedSpan * MONEY_SCALES[scale], { scale })), scale)}`,
+    sharedRange: `${inProse(formatStatementFigure(shared.min, { scale }))} to `
+      + `${inProse(formatStatementFigure(shared.max, { scale }))}, a span of `
+      + `${inScale(inProse(formatStatementFigure(sharedSpan * MONEY_SCALES[scale], { scale })), scale)}`,
   };
 }

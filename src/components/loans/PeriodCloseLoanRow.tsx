@@ -42,7 +42,7 @@ export function PeriodCloseLoanRow({ loan, isPosting, isLocked, isBulkPosting, o
           </div>
         )}
       </td>
-      <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
         {fmt(loan.principalBalance)}
       </td>
       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
@@ -51,7 +51,7 @@ export function PeriodCloseLoanRow({ loan, isPosting, isLocked, isBulkPosting, o
       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">
         {loan.nextPaymentDate ? fmtDate(loan.nextPaymentDate) : '—'}
       </td>
-      <td className="px-4 py-3 text-right font-mono">
+      <td className="px-4 py-3 text-right tabular-nums">
         <span className={loan.accruedInterest > 0 ? 'text-amber-400' : 'text-[var(--ff-text-tertiary)]'}>
           {fmt(loan.accruedInterest)}
         </span>

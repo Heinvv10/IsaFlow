@@ -13,7 +13,7 @@
  * it settles in two passes on every bridge the pack draws.
  */
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, type MoneyScale } from '@/lib/format/money';
 import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
 import { axisDomain } from './packChartAxes';
 import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX } from './packChartGutters';
@@ -78,7 +78,7 @@ export function frameOf(
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
   const texts = steps.map((s) => figureText(s, scale));
   // Ticks are figures: in the print face, the face's own advances.
-  const tickText = (value: number) => formatMoney(value, { scale });
+  const tickText = (value: number) => formatStatementFigure(value, { scale });
   const tickWidthPx = (value: number) => {
     const text = tickText(value);
     return measure === packTextMeasure ? packFigureWidthPx(text, TICK_PX) : measure(text, TICK_PX).width;

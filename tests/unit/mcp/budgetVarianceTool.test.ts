@@ -70,7 +70,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getBudgetVariance).mockResolvedValue({
     fiscalYear: 2026,
-    monthKeys: ['mar', 'apr', 'may'],
+    monthKeys: ['2026-03', '2026-04', '2026-05'],
     rows: [line('6000', 30000, 25000)],
     unbudgeted: [line('49784360', 0, 7734785.71)],
     universeTotal: 2,
@@ -112,7 +112,7 @@ describe('budget_variance', () => {
   it('an unbudgeted company returns no rows AND says so in the exclusion total', async () => {
     vi.mocked(getBudgetVariance).mockResolvedValue({
       fiscalYear: 2026,
-      monthKeys: ['mar'],
+      monthKeys: ['2026-03'],
       rows: [],
       unbudgeted: [line('49784360', 0, 7734785.71), line('49784353', 0, 2327887.5)],
       universeTotal: 2,
@@ -134,7 +134,7 @@ describe('budget_variance', () => {
       { period_start: '2026-03-01', period_end: '2026-05-31' }, ctx,
     ));
     expect(env.fiscal_year).toBe(2026);
-    expect(env.months_covered).toEqual(['mar', 'apr', 'may']);
+    expect(env.months_covered).toEqual(['2026-03', '2026-04', '2026-05']);
     expect(env.figureBasis).toBe('budget.actual.v1');
     expect(env.posted_through).toBe('2026-05-29T00:00:00.000Z');
   });

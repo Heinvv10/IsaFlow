@@ -35,6 +35,7 @@ vi.mock('@/modules/accounting/hooks/useStatementEmail', () => ({
 vi.mock('@/modules/accounting/utils/generateStatementsBatch', () => ({ generateStatementsBatch: () => stmt.fail!() }));
 
 import { ApiRequestError } from '@/lib/apiFetch';
+import { budgetRow, budgetsPayload } from './budgetsApiFixture';
 import BudgetsPage from '../../../pages/accounting/budgets/index';
 import AdjustmentsPage from '../../../pages/accounting/adjustments/index';
 import PurchaseOrdersPage from '../../../pages/accounting/purchase-orders/index';
@@ -48,15 +49,14 @@ useApiJsonOverMock();
 afterEach(() => { cleanup(); route.query = {}; });
 
 const dateInput = (c: HTMLElement) => c.querySelector('input[type="date"]')!;
-const OTHER_YEAR = new Date().getFullYear() === 2024 ? 2025 : 2024;
 
 describe('a failed reload clears the previous rows', () => {
   it('budgets: change the fiscal year', async () => {
-    const row = { id: 'b1', glAccountId: 'g0', accountCode: '4000', accountName: 'D2 Sales Budget', accountType: 'revenue', fiscalYear: 2026, annualAmount: 1200, months: Array(12).fill(100) };
-    script(u => (u.includes(`fiscal_year=${OTHER_YEAR}`) ? empty500() : u.includes('/budgets?') ? ok({ items: [row] }) : ok([])));
+    const row = budgetRow();
+    script(u => (u.includes('fiscal_year=2027') ? empty500() : /\/budgets(\?|$)/.test(u) ? ok(budgetsPayload([row])) : ok([])));
     render(<BudgetsPage />);
     await screen.findByText('D2 Sales Budget');
-    fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: String(OTHER_YEAR) } });
+    fireEvent.change(screen.getByTestId('budget-year'), { target: { value: '2027' } });
     expect(await screen.findByText('Could not load budgets - try again')).toBeTruthy();
     await waitFor(() => expect(screen.queryByText('D2 Sales Budget')).toBeNull());
     expect(screen.queryByText(/accounts budgeted/)).toBeNull();

@@ -9,6 +9,7 @@
 import {
   SHARING_CONSENT_COPY as COPY, SHARING_CONSENT_STATUS_LABEL,
 } from '@/modules/bureau/services/sharingConsentCopy';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface SettingChange { id: string; changedAt: string; actorName: string | null; oldValue: boolean | null; newValue: boolean }
 
@@ -89,7 +90,7 @@ export function BureauSharingConsent({ enabled, canEdit, available, saving, hist
           <ul className="text-xs text-[var(--ff-text-tertiary)] space-y-0.5">
             {history.map((h) => (
               <li key={h.id}>
-                {new Date(h.changedAt).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}: switched {onOff(h.oldValue)} to {onOff(h.newValue)} by {h.actorName ?? 'a user no longer on ISAFlow'}
+                {formatDisplayDateTime(h.changedAt)}: switched {onOff(h.oldValue)} to {onOff(h.newValue)} by {h.actorName ?? 'a user no longer on ISAFlow'}
               </li>
             ))}
           </ul>

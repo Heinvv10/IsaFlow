@@ -72,11 +72,11 @@ export function KpiStrip({ items, className }: KpiStripProps) {
             </div>
           )}
           <div className="min-w-0">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 leading-none mb-1.5 truncate">
+            <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 leading-none mb-1.5 truncate">
               {label}
             </p>
             <p className={cn('text-lg font-bold leading-none', TONE_VALUE[tone])}>{value}</p>
-            {sub && <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{sub}</p>}
+            {sub && <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{sub}</p>}
           </div>
         </div>
       ))}

@@ -40,7 +40,7 @@ export const TERMS: PackDefinition[] = [
     // the document, so a director reads it as a figure and goes looking for
     // it. A run of digits cannot be mistaken for a balance.
     // AND THE POSITIVE SIDE, WHICH THIS ENTRY DID NOT STATE. `formatPct`
-    // prefixes a `+` and `formatPctLevel`, `formatMoney` and `formatRatio` do
+    // prefixes a `+` and `formatPctLevel`, `formatStatementFigure` and `formatRatio` do
     // not, so the pack prints "+77.8%" in a change column and "626" in a
     // money column two centimetres apart. It is consistent within every
     // column and unambiguous, and it was the one convention in the pack that
@@ -99,7 +99,7 @@ export const TERMS: PackDefinition[] = [
     definition: 'In brackets — (12 345) — for money, percentages and ratios; a percentage in prose, in words. No minus sign is used in this pack. Only a positive change takes a +.',
   },
   {
-    // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatMoney`
+    // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatStatementFigure`
     // prints a measured zero as an en dash, and `ComparativeTable` printed the
     // same dash in a cell it had no figure for — so sheet 6's "Other expenses
     // – – –" (a real zero, 0.0% of revenue beside it) and sheet 8's prior and

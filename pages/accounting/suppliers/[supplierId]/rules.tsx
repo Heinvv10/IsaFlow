@@ -14,6 +14,7 @@ import {
   NO_DIMENSION_DEFAULTS, SupplierDimensionDefaultsSection, changedDimensionDefaults, dimensionsOfRule,
   type RuleDimensionDefaults,
 } from '@/components/accounting/suppliers/SupplierDimensionDefaultsFields';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Supplier { id: string; name: string; company_name: string | null }
 interface GlAccount { id: string; accountCode: string; accountName: string }
@@ -44,7 +45,7 @@ type VatCode = 'STD_RATE' | 'ZERO_RATED' | 'EXEMPT';
 
 function fmtDate(val: string | Date | null): string {
   if (!val) return '—';
-  try { return new Date(val).toLocaleString('en-ZA'); } catch { return String(val); }
+  return formatDisplayDateTime(val);
 }
 
 export default function SupplierRulesPage() {

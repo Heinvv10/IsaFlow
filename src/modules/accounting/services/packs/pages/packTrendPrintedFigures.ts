@@ -5,7 +5,7 @@
  * under the 300-line cap.
  */
 
-import { formatMoney, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import type { Domain } from './packTrendScale';
 
 /**
@@ -53,8 +53,8 @@ export function printedSharePct(own: Domain, sharedSpan: number, scale: MoneySca
 /** A domain as the sheet prints its two ends — "(1 621) to 59". The same two
  *  numbers the shared range is stated with, through the same formatter. */
 export function printedRange(domain: Domain, scale: MoneyScale): string {
-  return `${inProse(formatMoney(domain.min, { scale }))} to `
-    + `${inProse(formatMoney(domain.max, { scale }))}`;
+  return `${inProse(formatStatementFigure(domain.min, { scale }))} to `
+    + `${inProse(formatStatementFigure(domain.max, { scale }))}`;
 }
 
 /** How much of the printed shared span the printed residual range gives up,

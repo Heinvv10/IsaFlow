@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import { useModalDialog } from '@/components/useModalDialog';
 import type { Annotation } from '@/modules/accounting/services/annotations/annotationService';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
@@ -21,7 +22,7 @@ const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-0.5 text-xs 
  *  display name yet — so the id is the fallback rather than an empty byline. */
 function byline(a: Annotation): string {
   const who = a.authorName ?? a.author;
-  return `${who} · ${new Date(a.createdAt).toLocaleDateString('en-ZA')}`;
+  return `${who} · ${formatDisplayDate(a.createdAt)}`;
 }
 
 export function AnnotationThread({ rowId, rowLabel, annotations, onCreate, onResolve, onClose }: {
@@ -65,11 +66,11 @@ export function AnnotationThread({ rowId, rowLabel, annotations, onCreate, onRes
             <li key={a.id} className="border-t border-[var(--ff-border-light)] pt-2 first:border-t-0 first:pt-0">
               <p className="text-sm leading-relaxed text-[var(--ff-text-secondary)]">{a.body}</p>
               <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="text-[10px] text-[var(--ff-text-tertiary)]">{byline(a)}</span>
+                <span className="text-xs text-[var(--ff-text-tertiary)]">{byline(a)}</span>
                 {a.resolvedAt === null ? (
                   <button type="button" onClick={() => onResolve(a.id)} className={BTN}>Resolve</button>
                 ) : (
-                  <span className="text-[10px] uppercase tracking-wide text-[var(--ff-text-tertiary)]">Resolved</span>
+                  <span className="text-xs uppercase tracking-wide text-[var(--ff-text-tertiary)]">Resolved</span>
                 )}
               </div>
             </li>

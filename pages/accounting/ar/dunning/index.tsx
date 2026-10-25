@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Loader2, Mail, Calendar, ArrowRight, Settings, Pencil, Trash2, X, Save } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface DunningTemplate {
   id: string;
@@ -193,7 +194,7 @@ export default function DunningTemplatesPage() {
               <div className="text-xs text-gray-600 mt-1">
                 When ON, the daily cron walks overdue invoices through the ladder
                 and sends templates automatically (weekdays only, respecting cool-off).
-                Minimum outstanding: R{Number(settings.min_outstanding_zar).toFixed(2)}.
+                Minimum outstanding: {formatMoney(Number(settings.min_outstanding_zar))}.
               </div>
             </div>
             <button

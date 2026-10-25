@@ -219,12 +219,12 @@ const styles: Record<string, React.CSSProperties> = {
   },
   error: {
     color: '#b91c1c',
-    fontSize: '0.9rem',
+    fontSize: '0.875rem',
     marginBottom: '1rem',
   },
   empty: {
     color: '#94a3b8',
-    fontSize: '0.9rem',
+    fontSize: '0.875rem',
   },
   docGrid: {
     display: 'grid',
@@ -249,7 +249,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#0f172a',
   },
   docPeriod: {
-    fontSize: '0.8125rem',
+    fontSize: '0.875rem',
     color: '#64748b',
   },
   statusBadge: {

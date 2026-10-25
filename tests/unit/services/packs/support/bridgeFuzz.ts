@@ -12,7 +12,7 @@ import { axisDomain } from '@/modules/accounting/services/packs/packChartAxes';
 import { svgBoxFor, svgBoxPx } from '@/modules/accounting/services/packs/pages/packChartBox';
 import { BRIDGE_RUNGS, CHART_MEASURE_MM, HALF } from '@/modules/accounting/services/packs/pages/packChartRungs';
 import { intervalsFor, isCompact } from '@/modules/accounting/services/packs/pages/packWaterfallBars';
-import { formatMoney, inProse } from '@/lib/format/money';
+import { formatStatementFigure, inProse } from '@/lib/format/money';
 
 const NAMES = ['Revenue', 'Cost of Sales', 'Operating Expenses', 'Other Income', 'Depreciation', 'Receipts from customers',
   'Payments to suppliers', 'Tax paid', 'Capital expenditure', 'Unexplained movement', 'Loans raised', 'Dividends'];
@@ -103,7 +103,7 @@ export function bridgeFuzz(seedValue: number) {
     const shape = pick(['profit', 'profit', 'cash', 'cash', 'random'] as const);
     const steps = shape === 'profit' ? profit(mag) : shape === 'cash' ? cash(mag) : random(mag);
     const caller = shape === 'random' ? pick(['profit', 'cash'] as const) : shape;
-    const money = (x: number) => inProse(formatMoney(x, { scale: "R'000" }));
+    const money = (x: number) => inProse(formatStatementFigure(x, { scale: "R'000" }));
     const [first, last] = [steps[0]!.end, steps[steps.length - 1]!.end];
     const box = caller === 'profit' ? pick(BRIDGE_RUNGS)
       : rnd() < 0.5 ? HALF : { widthMm: CHART_MEASURE_MM, heightMm: 49 + Math.floor(rnd() * 24) };

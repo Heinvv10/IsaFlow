@@ -8,6 +8,8 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Trash2, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Disposal {
   id: string;
@@ -21,8 +23,7 @@ interface Disposal {
   gain_loss: number;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const methodLabels: Record<string, string> = {
   sale: 'Sale',
@@ -98,7 +99,7 @@ export default function AssetDisposalsPage() {
                   <tr key={d.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 font-medium text-[var(--ff-text-primary)]">{d.asset_number}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{d.asset_name}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{d.disposal_date?.split('T')[0] ?? '—'}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(d.disposal_date)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{methodLabels[d.disposal_method] || d.disposal_method}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(Number(d.disposal_amount))}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{fmt(Number(d.book_value_at_disposal))}</td>

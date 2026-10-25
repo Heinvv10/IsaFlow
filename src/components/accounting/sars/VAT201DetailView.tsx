@@ -1,9 +1,9 @@
 /** VAT201 detail view: the period's invoices behind the SARS totals (fields 13, 19, 20). */
 import { TransactionTable, type VAT201Invoice } from './VAT201FormSections';
+import { formatMoney } from '@/lib/money/formatMoney';
 import type { Vat201SarsField } from '@/modules/accounting/services/reports/vat201SarsFields';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Props {
   data: { sarsFields: Vat201SarsField[]; outputInvoices: VAT201Invoice[]; inputInvoices: VAT201Invoice[] };

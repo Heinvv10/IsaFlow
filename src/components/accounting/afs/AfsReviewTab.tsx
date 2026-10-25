@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   CheckCircle, Clock, Lock, MessageSquare, Send, AlertCircle, Loader2, User,
 } from 'lucide-react';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Props {
   documentId: string;
@@ -21,7 +22,7 @@ interface Props {
 function fmtDate(d: Date | string | null): string {
   if (!d) return '—';
   const dt = typeof d === 'string' ? new Date(d) : d;
-  return dt.toLocaleString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatDisplayDateTime(dt);
 }
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {

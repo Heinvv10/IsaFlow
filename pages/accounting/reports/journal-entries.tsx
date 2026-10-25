@@ -6,6 +6,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { BookOpen, Loader2, Download } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface JournalEntryRow {
   id: string;
@@ -23,8 +25,7 @@ interface ReportResponse {
   total: number;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
@@ -240,12 +241,12 @@ export default function JournalEntriesReport() {
                         className="hover:bg-[var(--ff-bg-tertiary)] bg-[var(--ff-bg-primary)] cursor-pointer"
                       >
                         <td className="px-4 py-2 font-mono text-xs text-[var(--ff-text-primary)]">{entry.entryNumber}</td>
-                        <td className="px-4 py-2 text-[var(--ff-text-secondary)] whitespace-nowrap">{entry.entryDate}</td>
+                        <td className="px-4 py-2 text-[var(--ff-text-secondary)] whitespace-nowrap">{formatDisplayDate(entry.entryDate)}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] max-w-xs truncate">{entry.description || '—'}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{sourceLabel(entry.source)}</td>
                         <td className="px-4 py-2 text-center">{statusBadge(entry.status)}</td>
-                        <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-secondary)]">{fmt(entry.totalDebits)}</td>
-                        <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-secondary)]">{fmt(entry.totalCredits)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(entry.totalDebits)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(entry.totalCredits)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -254,8 +255,8 @@ export default function JournalEntriesReport() {
                       <td colSpan={5} className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase">
                         Totals ({data.entries.length} {data.entries.length === 1 ? 'entry' : 'entries'})
                       </td>
-                      <td className="px-4 py-2 text-right font-mono font-bold text-[var(--ff-text-primary)]">{fmt(totalDebits)}</td>
-                      <td className="px-4 py-2 text-right font-mono font-bold text-[var(--ff-text-primary)]">{fmt(totalCredits)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{fmt(totalDebits)}</td>
+                      <td className="px-4 py-2 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{fmt(totalCredits)}</td>
                     </tr>
                   </tfoot>
                 </table>

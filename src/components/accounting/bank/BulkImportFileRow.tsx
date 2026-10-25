@@ -6,6 +6,7 @@ import type { AccountMatchStatus } from './bulkImportTypes';
 import type { DroppedPickLine } from './commitStatement';
 import { DroppedPicksList } from './DroppedPicksList';
 import { ImportWarningsNote } from './ImportWarningsNote';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export type RowPhase =
   | 'pending'
@@ -52,8 +53,7 @@ function formatSize(bytes: number): string {
 }
 
 function formatDate(iso: string): string {
-  if (!iso) return '';
-  return iso.slice(0, 10).split('-').reverse().join('/');
+  return iso ? formatDisplayDate(iso) : '';
 }
 
 function StatusPill({ row }: { row: BulkImportRowState }) {

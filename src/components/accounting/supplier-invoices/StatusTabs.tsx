@@ -29,7 +29,7 @@ export function StatusTabs({ active, counts, onChange }: Props) {
           >
             <span>{SUPPLIER_INVOICE_TAB_LABEL[t]}</span>
             {typeof count === 'number' && (
-              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${selected ? 'bg-white/25 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
+              <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${selected ? 'bg-white/25 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
                 {count}
               </span>
             )}

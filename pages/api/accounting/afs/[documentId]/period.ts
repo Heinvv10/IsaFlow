@@ -3,7 +3,7 @@
 // fiscal_year or management_pack period column.
 //
 // GET /api/accounting/afs/[documentId]/period
-// Response: { periodStart: string; periodEnd: string }
+// Response: { periodStart: string; periodEnd: string; periodMonths: number }  (whole months; 14 for a transition year)
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -11,6 +11,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fiscalYearForDate, getFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { localISODate } from '@/lib/dateUtils';
 
 type DocRow = { fiscal_year: number | null; period: string | null; document_type: string };
 
@@ -37,24 +39,36 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const doc = rows[0]!;
   let periodStart: string | null = null;
   let periodEnd: string | null = null;
+  let periodMonths = 12;
 
   if (doc.document_type === 'afs' && doc.fiscal_year) {
-    periodStart = `${doc.fiscal_year}-01-01`;
-    periodEnd   = `${doc.fiscal_year}-12-31`;
+    // The financial year's own dates (a 14-month transition year included),
+    // never January-December of the label.
+    const year = await getFiscalYear(companyId, Number(doc.fiscal_year));
+    // A label no financial year carries (a change of year end can skip one) is
+    // said plainly, never answered with some other year's dates.
+    if (!year) return apiResponse.notFound(res, 'Financial year', String(doc.fiscal_year));
+    periodStart = year.startDate;
+    periodEnd = year.endDate;
+    periodMonths = year.months;
   } else if (doc.document_type === 'management_pack' && doc.period) {
     const [y, m] = doc.period.split('-').map(Number);
     if (y && m) {
       const lastDay = new Date(y, m, 0).getDate();
       periodStart = `${doc.period}-01`;
       periodEnd   = `${doc.period}-${String(lastDay).padStart(2, '0')}`;
+      periodMonths = 1;
     }
   }
 
-  const fallbackYear = new Date().getFullYear();
-  const result = {
-    periodStart: periodStart ?? `${fallbackYear}-01-01`,
-    periodEnd:   periodEnd   ?? `${fallbackYear}-12-31`,
-  };
+  if (periodStart === null || periodEnd === null) {
+    // No usable label or period: the financial year holding today.
+    const current = await fiscalYearForDate(companyId, localISODate());
+    periodStart = current.startDate;
+    periodEnd = current.endDate;
+    periodMonths = current.months;
+  }
+  const result = { periodStart, periodEnd, periodMonths };
 
   log.info('AFS period resolved', { companyId, documentId, ...result }, 'afs-period-api');
   return apiResponse.success(res, result);

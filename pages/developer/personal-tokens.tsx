@@ -20,6 +20,7 @@ import {
   ShieldOff,
   X,
 } from 'lucide-react';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface PatItem {
   id: string;
@@ -52,15 +53,7 @@ const EXPIRY_OPTIONS = [
 
 function formatDate(val: string | null): string {
   if (!val) return 'Never';
-  try {
-    return new Date(val).toLocaleDateString('en-ZA', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
-  } catch {
-    return val;
-  }
+  return formatDisplayDate(val);
 }
 
 function isExpired(iso: string): boolean {
@@ -286,7 +279,7 @@ export default function PersonalTokensPage() {
                       >
                         {s.desc}
                       </span>
-                      <span className="block font-mono text-[10px] text-slate-600 mt-0.5">{s.key}</span>
+                      <span className="block font-mono text-xs text-slate-600 mt-0.5">{s.key}</span>
                     </span>
                   </label>
                 );

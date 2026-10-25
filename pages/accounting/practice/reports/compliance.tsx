@@ -19,7 +19,7 @@ import { localISODate, monthStartISO } from '@/lib/dateUtils';
 function firstOfMonth() { return monthStartISO(); }
 function todayIso() { return localISODate(); }
 
-const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
+const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2 px-3 text-sm text-[var(--ff-text-secondary)]';
 
 function ErrBanner({ msg }: { msg: string }) {

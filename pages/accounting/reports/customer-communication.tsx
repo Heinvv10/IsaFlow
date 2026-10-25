@@ -5,6 +5,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Mail, Loader2, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate, monthStartISO } from '@/lib/dateUtils';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface CommRecord {
   id: string;
@@ -49,10 +50,7 @@ function statusBadge(status: string) {
 function fmtSentAt(iso: string): string {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleString('en-ZA', {
-      year: 'numeric', month: 'short', day: '2-digit',
-      hour: '2-digit', minute: '2-digit',
-    });
+    return formatDisplayDateTime(iso);
   } catch {
     return iso;
   }

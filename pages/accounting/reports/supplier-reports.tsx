@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { fmtDate } from '@/lib/fmtDate';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Row {
   supplierId: string;
@@ -19,7 +20,7 @@ interface Row {
   balance: number;
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 function getDefaultDates() {
   const now = new Date();
@@ -118,18 +119,18 @@ export default function SupplierReportsPage() {
                     <tr key={r.supplierId} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.supplierName}</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)]">{r.invoiceCount}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono">{fmt(r.totalInvoiced)}</td>
-                      <td className="px-4 py-3 text-right text-teal-400 font-mono">{fmt(r.totalPaid)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-medium text-[var(--ff-text-primary)]">{fmt(r.balance)}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmt(r.totalInvoiced)}</td>
+                      <td className="px-4 py-3 text-right text-teal-400 tabular-nums">{fmt(r.totalPaid)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-medium text-[var(--ff-text-primary)]">{fmt(r.balance)}</td>
                     </tr>
                   ))}
                   {rows.length > 0 && (
                     <tr className="bg-[var(--ff-bg-primary)] font-medium">
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
                       <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{totals.count}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono">{fmt(totals.invoiced)}</td>
-                      <td className="px-4 py-3 text-right text-teal-400 font-mono">{fmt(totals.paid)}</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono">{fmt(totals.balance)}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmt(totals.invoiced)}</td>
+                      <td className="px-4 py-3 text-right text-teal-400 tabular-nums">{fmt(totals.paid)}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmt(totals.balance)}</td>
                     </tr>
                   )}
                 </tbody>

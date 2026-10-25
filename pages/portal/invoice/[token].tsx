@@ -8,6 +8,8 @@ import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import { useMemo, useState } from 'react';
 import { FileText, Download, CreditCard, CheckCircle2, AlertTriangle, Clock, XCircle, MessageSquareWarning, Loader2 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDateLong } from '@/utils/dateFormat';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,7 +51,7 @@ interface PortalInvoiceProps {
 
 function fmt(amount: number, currency = 'ZAR'): string {
   if (currency === 'ZAR') {
-    return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return formatMoney(Math.abs(amount));
   }
   return new Intl.NumberFormat('en-ZA', { style: 'currency', currency }).format(amount);
 }
@@ -165,14 +167,14 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
               <div>
                 <p className="text-xs uppercase text-gray-500 tracking-wide mb-1">Invoice Date</p>
                 <p className="text-sm font-medium text-gray-900">
-                  {new Date(invoice.invoice_date).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  {formatDisplayDateLong(invoice.invoice_date)}
                 </p>
               </div>
               <div>
                 <p className="text-xs uppercase text-gray-500 tracking-wide mb-1">Due Date</p>
                 <p className={`text-sm font-medium ${isOverdue && !isPaid ? 'text-red-600' : 'text-gray-900'}`}>
                   {invoice.due_date
-                    ? new Date(invoice.due_date).toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })
+                    ? formatDisplayDateLong(invoice.due_date)
                     : 'On receipt'}
                 </p>
               </div>

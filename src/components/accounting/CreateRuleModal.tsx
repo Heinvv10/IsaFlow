@@ -247,7 +247,7 @@ export function CreateRuleModal({ transaction, bankAccountId, glAccounts, suppli
             />
             <span className="text-xs text-[var(--ff-text-secondary)]">
               Auto-post journal entries when this rule matches
-              <span className="mt-0.5 block text-[11px] text-[var(--ff-text-muted)]">
+              <span className="mt-0.5 block text-xs text-[var(--ff-text-muted)]">
                 Off: rule attaches a category for review. On: rule also posts a
                 journal entry — make sure the GL account/supplier/customer is correct.
               </span>

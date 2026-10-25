@@ -13,6 +13,8 @@ import { RevenueIntelligenceSection } from '@/components/admin/RevenueIntelligen
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import type { AnalyticsTrends } from '@/modules/admin/types/admin.types';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface UsageAnalytics {
   dau: number;
@@ -26,12 +28,12 @@ interface UsageAnalytics {
 }
 
 function fmtZAR(cents: number) {
-  return (cents / 100).toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' });
+  return formatMoney(cents / 100);
 }
 
 function fmtDate(dateStr: string | null) {
   if (!dateStr) return 'Never';
-  return new Date(dateStr).toLocaleDateString('en-ZA');
+  return formatDisplayDate(dateStr);
 }
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {

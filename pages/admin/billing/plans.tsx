@@ -243,8 +243,8 @@ export default function PlansPage() {
                 <tr key={p.id} className="border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
                   <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{p.name}</td>
                   <td className="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{p.code}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(p.monthly_price_cents / 100)}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(p.annual_price_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(p.monthly_price_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(p.annual_price_cents / 100)}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${!p.is_active ? 'bg-gray-500/10 text-gray-500' : 'bg-teal-500/10 text-teal-600 dark:text-teal-400'}`}>
                       {p.is_active ? 'Active' : 'Archived'}

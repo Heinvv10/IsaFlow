@@ -9,6 +9,7 @@ import { ClipboardList, ArrowLeft, CheckCircle, FileText, Loader2, AlertCircle }
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { formatDate } from '@/utils/formatters';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface SalesOrderItem {
   id: string;
@@ -35,8 +36,7 @@ interface SalesOrder {
   items?: SalesOrderItem[];
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
@@ -277,16 +277,16 @@ export default function SalesOrderDetailPage() {
                       <td className="px-4 py-3 text-sm text-[var(--ff-text-primary)]">
                         {item.description}
                       </td>
-                      <td className="px-4 py-3 text-sm text-right text-[var(--ff-text-secondary)] font-mono">
+                      <td className="px-4 py-3 text-sm text-right text-[var(--ff-text-secondary)] tabular-nums">
                         {item.quantity}
                       </td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-primary)]">
+                      <td className="px-4 py-3 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">
                         {fmt(item.unitPrice)}
                       </td>
                       <td className="px-4 py-3 text-sm text-right text-[var(--ff-text-secondary)]">
                         {item.taxRate}%
                       </td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-[var(--ff-text-primary)]">
+                      <td className="px-4 py-3 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">
                         {fmt(item.lineTotal)}
                       </td>
                     </tr>
@@ -300,15 +300,15 @@ export default function SalesOrderDetailPage() {
               <div className="flex flex-col items-end gap-1 text-sm">
                 <div className="flex justify-between w-48">
                   <span className="text-[var(--ff-text-secondary)]">Subtotal</span>
-                  <span className="font-mono text-[var(--ff-text-primary)]">{fmt(order.subtotal)}</span>
+                  <span className="tabular-nums text-[var(--ff-text-primary)]">{fmt(order.subtotal)}</span>
                 </div>
                 <div className="flex justify-between w-48">
                   <span className="text-[var(--ff-text-secondary)]">VAT</span>
-                  <span className="font-mono text-[var(--ff-text-primary)]">{fmt(order.taxAmount)}</span>
+                  <span className="tabular-nums text-[var(--ff-text-primary)]">{fmt(order.taxAmount)}</span>
                 </div>
                 <div className="flex justify-between w-48 pt-1 border-t border-[var(--ff-border-light)] font-semibold">
                   <span className="text-[var(--ff-text-primary)]">Total</span>
-                  <span className="font-mono text-[var(--ff-text-primary)]">{fmt(order.totalAmount)}</span>
+                  <span className="tabular-nums text-[var(--ff-text-primary)]">{fmt(order.totalAmount)}</span>
                 </div>
               </div>
             </div>

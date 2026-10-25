@@ -227,13 +227,13 @@ export function BankRuleForm({
               the sweep will post gross regardless — say so here rather than
               letting the user save a rule that will not do what it says. */}
           {vatWarn && (
-            <p className="mt-1 text-[11px] leading-tight text-amber-500">
+            <p className="mt-1 text-xs leading-tight text-amber-500">
               ⚠ Entertainment account — input tax is denied (s17(2)(a)). Rules run
               unattended, so this rule will post the gross amount and report it.
             </p>
           )}
           {nonSupply && (
-            <p className="mt-1 text-[11px] leading-tight text-amber-500">
+            <p className="mt-1 text-xs leading-tight text-amber-500">
               ⚠ {NON_SUPPLY_LABEL[nonSupply]} — {NON_SUPPLY_ADVICE[nonSupply]} Rules
               run unattended, so this rule will post the gross amount and report it.
             </p>
@@ -256,7 +256,7 @@ export function BankRuleForm({
         />
         <span className="text-xs text-[var(--ff-text-secondary)]">
           Auto-post journal entries when this rule matches
-          <span className="mt-0.5 block text-[11px] text-[var(--ff-text-muted)]">
+          <span className="mt-0.5 block text-xs text-[var(--ff-text-muted)]">
             Off (Suggest): rule attaches a category for review only. On (Auto-post): rule also posts a journal entry on every match — confirm the GL account / supplier / customer is correct.
           </span>
         </span>

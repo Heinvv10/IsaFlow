@@ -297,10 +297,10 @@ export default function PracticeClientDetailPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)]">
-                        <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
-                        <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Email</th>
-                        <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Role</th>
-                        <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Primary</th>
+                        <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
+                        <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Email</th>
+                        <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Role</th>
+                        <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Primary</th>
                       </tr>
                     </thead>
                     <tbody>

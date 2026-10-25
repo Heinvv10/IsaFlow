@@ -17,6 +17,7 @@ import {
   ArrowLeft, Download, CheckCircle2, AlertCircle, Loader2,
   Database, Users, Building2, FileText, ShieldCheck, Cable, KeyRound,
 } from 'lucide-react';
+import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
 
 interface Company { id: string; name: string }
 
@@ -317,7 +318,7 @@ export default function AdminSageImportPage() {
             <h2 className="font-semibold text-gray-900 dark:text-white">Step 2: Pulled Data</h2>
             {pulledAt && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Pulled {pulledAt.toLocaleTimeString()}
+                Pulled {formatDisplayTimeSeconds(pulledAt)}
               </p>
             )}
           </div>

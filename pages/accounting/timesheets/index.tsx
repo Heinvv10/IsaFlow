@@ -10,6 +10,7 @@ import { Clock, Plus, ChevronLeft, ChevronRight, FileText, Loader2, X, Check } f
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { TimeEntryModal } from '@/components/accounting/time-tracking/TimeEntryModal';
 import { localISODate } from '@/lib/dateUtils';
+import { formatDisplayDate, formatDisplayDateShort } from '@/utils/dateFormat';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 interface TimeEntry {
@@ -39,7 +40,7 @@ function addDays(d: Date, n: number): Date {
 function fmtISO(d: Date): string { return localISODate(d); }
 function fmtWeekRange(mon: Date): string {
   const sun = addDays(mon, 6);
-  const o = (d: Date, y = false) => d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', ...(y ? { year: 'numeric' } : {}) });
+  const o = (d: Date, y = false) => formatDisplayDate(d);
   return `${o(mon)} – ${o(sun, true)}`;
 }
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -239,7 +240,7 @@ export default function TimesheetsPage() {
                   <div className="text-center">
                     <p className={`text-xs font-semibold ${isToday ? 'text-blue-600 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400'}`}>{DAY_LABELS[i]}</p>
                     <p className={`text-sm ${isToday ? 'text-blue-700 dark:text-blue-300 font-bold' : 'text-gray-700 dark:text-gray-300'}`}>
-                      {date.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' })}
+                      {formatDisplayDateShort(date)}
                     </p>
                     {dayHours > 0 && <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5">{dayHours.toFixed(1)}h</p>}
                   </div>
@@ -258,7 +259,7 @@ export default function TimesheetsPage() {
                         </div>
                         <div className="flex items-center justify-between mt-1">
                           <span className="font-semibold text-gray-700 dark:text-gray-300">{entry.hours}h</span>
-                          <span className={`px-1 rounded text-[10px] ${entry.invoiced ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : entry.billable ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
+                          <span className={`px-1 rounded text-xs ${entry.invoiced ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' : entry.billable ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
                             {entry.invoiced ? 'invoiced' : entry.billable ? 'billable' : 'non-bill'}
                           </span>
                         </div>
