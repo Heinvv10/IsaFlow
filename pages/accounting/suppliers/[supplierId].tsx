@@ -16,6 +16,7 @@ import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { DrcFlagToggle } from '@/components/accounting/suppliers/DrcFlagToggle';
 import { SupplierBankDetailsPanel } from '@/components/accounting/suppliers/SupplierBankDetailsPanel';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Supplier {
   id: string;
@@ -209,7 +210,7 @@ export default function SupplierDetailPage() {
                 </div>
                 {supplier.created_at && (
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-2">
-                    Created: {supplier.created_at.split('T')[0]}
+                    Created: {formatDisplayDate(supplier.created_at)}
                   </p>
                 )}
               </div>

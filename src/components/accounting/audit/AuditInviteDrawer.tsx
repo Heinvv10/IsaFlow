@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { Copy, Check, X } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface PortalSession {
   id: string;
@@ -18,7 +19,7 @@ interface PortalSession {
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
-  try { return new Date(s).toLocaleString('en-ZA'); } catch { return s; }
+  return formatDisplayDateTime(s);
 }
 
 async function fetchSessions(exportId: string): Promise<PortalSession[]> {

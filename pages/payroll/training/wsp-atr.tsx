@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
 import { GraduationCap, Loader2, AlertCircle } from 'lucide-react';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface CategoryRow {
   category: string;
@@ -21,8 +22,7 @@ interface Report {
   totals: { count: number; totalPlanned: number; totalActual: number };
 }
 
-const zar = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 0 }).format(n);
+const zar = (n: number) => formatMoney(n, { decimals: 0 });
 
 const CATEGORY_LABEL: Record<string, string> = {
   aet: 'AET',

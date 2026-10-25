@@ -8,8 +8,10 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Receipt { id: string; paymentNumber: string; clientName: string; date: string; amount: number; allocatedAmount: number; totalAmount?: number; }
 
@@ -67,7 +69,7 @@ export default function UnallocatedReceiptsReport() {
           {!loading && items.length > 0 && (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 inline-block">
               <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">Total Unallocated</p>
-              <p className="text-xl font-bold text-amber-400 font-mono">{fmt(totalUnalloc)}</p>
+              <p className="text-xl font-bold text-amber-400 tabular-nums">{fmt(totalUnalloc)}</p>
             </div>
           )}
 
@@ -79,12 +81,12 @@ export default function UnallocatedReceiptsReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Receipt No</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Allocated</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unallocated</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Receipt No</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Allocated</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unallocated</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {items.map(r => (
@@ -93,10 +95,10 @@ export default function UnallocatedReceiptsReport() {
                         <Link href={`/accounting/customer-payments/${r.id}`} className="hover:text-blue-400">{r.paymentNumber}</Link>
                       </td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.clientName}</td>
-                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.date?.split('T')[0]}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(r.amount))}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-teal-400">{fmt(Number(r.allocatedAmount))}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums font-bold text-amber-400">{fmt(Number(r.amount) - Number(r.allocatedAmount))}</td>
+                      <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(r.date)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(Number(r.amount))}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(Number(r.allocatedAmount))}</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-bold text-amber-400">{fmt(Number(r.amount) - Number(r.allocatedAmount))}</td>
                     </tr>
                   ))}
                 </tbody>

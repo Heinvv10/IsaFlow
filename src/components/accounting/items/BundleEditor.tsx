@@ -7,6 +7,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, Save, Loader2, Search } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface ItemOption {
   id: string;
@@ -32,7 +33,7 @@ interface Props {
 }
 
 const fmt = (n: number | null | undefined) =>
-  n != null ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(Number(n)) : '—';
+  n != null ? formatMoney(Number(n)) : '—';
 
 export function BundleEditor({ itemId, parentDescription, onSaved }: Props) {
   const [lines, setLines] = useState<BundleLine[]>([]);

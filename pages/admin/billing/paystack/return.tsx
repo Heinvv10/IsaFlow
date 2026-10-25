@@ -10,6 +10,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type State = 'verifying' | 'active' | 'failed' | 'cancelled' | 'error';
 
@@ -24,8 +25,7 @@ interface VerifyResponse {
   maxAmountCents?: number;
 }
 
-const fmtZAR = (cents: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(cents / 100);
+const fmtZAR = (cents: number) => formatMoney(cents / 100);
 
 export default function PaystackMandateReturn() {
   const router = useRouter();

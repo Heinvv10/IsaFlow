@@ -397,13 +397,6 @@
     "selector": "html",
     "max": 1
    }
-  ],
-  "shell:setup-guide-badge": [
-   {
-    "rule": "color-contrast",
-    "selector": "header > button[aria-label=\"Setup guide \u2014 # tasks remaining\"] > span",
-    "max": 1
-   }
   ]
  }
 }

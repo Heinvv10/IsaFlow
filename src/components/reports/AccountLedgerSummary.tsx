@@ -4,8 +4,9 @@
  * Uses server-returned period totals (not a client-side reduce over the paginated slice).
  */
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+import { formatMoney } from '@/lib/money/formatMoney';
+
+const fmt = (n: number) => formatMoney(n);
 
 interface Props {
   openingBalance: number;
@@ -33,7 +34,7 @@ export function AccountLedgerSummary({
     <div className="grid grid-cols-3 divide-x divide-[var(--ff-border-light)] border-b border-[var(--ff-border-light)]">
       <div className="px-6 py-3">
         <p className="text-xs text-[var(--ff-text-tertiary)]">Opening Balance</p>
-        <p className="font-mono font-medium text-[var(--ff-text-primary)]">
+        <p className="tabular-nums font-medium text-[var(--ff-text-primary)]">
           {fmt(openingBalance)}
         </p>
       </div>
@@ -41,14 +42,14 @@ export function AccountLedgerSummary({
         <p className="text-xs text-[var(--ff-text-tertiary)]">
           Movement for period ({total.toLocaleString()} rows)
         </p>
-        <p className="font-mono font-medium text-[var(--ff-text-primary)]">
+        <p className="tabular-nums font-medium text-[var(--ff-text-primary)]">
           {fmt(periodNet)}
           <span className="text-xs text-[var(--ff-text-tertiary)] ml-1">net</span>
         </p>
       </div>
       <div className="px-6 py-3">
         <p className="text-xs text-[var(--ff-text-tertiary)]">Closing Balance</p>
-        <p className="font-mono font-medium text-[var(--ff-text-primary)]">
+        <p className="tabular-nums font-medium text-[var(--ff-text-primary)]">
           {fmt(periodClosingBalance)}
         </p>
         {closedYears > 0 && (

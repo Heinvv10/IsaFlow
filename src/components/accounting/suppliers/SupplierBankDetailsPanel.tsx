@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Landmark, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type State = 'not_enforced' | 'no_bank_details' | 'verified' | 'unverified';
 type Method = 'phone_known_number' | 'bank_confirmation_letter' | 'in_person' | 'other';
@@ -47,8 +48,8 @@ const KIND: Record<Entry['kind'], string> = {
   self_verified: 'Self-verified (the only eligible verifier)',
 };
 const NOTE_MAX = 500;
-/** The verification's calendar date in South Africa, not UTC (a 01:00 SAST verify is that day). */
-const sastDate = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Africa/Johannesburg' });
+/** The verification's calendar date in South Africa (SAST), not UTC: a 01:00 SAST verify is that day. */
+const sastDate = (iso: string) => formatDisplayDate(iso);
 
 function StateBadge({ state, neverVerified }: { state: State; neverVerified: boolean }) {
   if (state === 'verified') {

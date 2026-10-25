@@ -75,7 +75,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
                   {adj.status}
                 </span>
               </td>
-              <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+              <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                 {fmt(adj.amount)}
               </td>
               <td className="px-4 py-3 text-right">

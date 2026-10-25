@@ -130,8 +130,8 @@ export function LoanComplianceTab({ loanId }: Props) {
             <div className="text-lg font-semibold">{STAGE_LABELS[String(latest.stage ?? 1)]}</div>
             <div className="mt-2 text-xs space-y-0.5">
               <div>DPD: <span className="font-mono">{latest.daysPastDue}</span></div>
-              <div>ECL: <span className="font-mono">{fmt(latest.eclAmount)}</span> <span className="opacity-60">({latest.eclMethod ?? '—'})</span></div>
-              <div>Outstanding: <span className="font-mono">{latest.outstanding != null ? fmt(latest.outstanding) : '—'}</span></div>
+              <div>ECL: <span className="tabular-nums">{fmt(latest.eclAmount)}</span> <span className="opacity-60">({latest.eclMethod ?? '—'})</span></div>
+              <div>Outstanding: <span className="tabular-nums">{latest.outstanding != null ? fmt(latest.outstanding) : '—'}</span></div>
             </div>
           </div>
         </div>
@@ -170,8 +170,8 @@ export function LoanComplianceTab({ loanId }: Props) {
                       </span>
                     </td>
                     <td className="px-3 py-2 text-[var(--ff-text-primary)] font-mono">{a.daysPastDue}</td>
-                    <td className="px-3 py-2 text-right text-[var(--ff-text-primary)] font-mono">{fmt(a.eclAmount)}</td>
-                    <td className="px-3 py-2 text-right text-[var(--ff-text-primary)] font-mono">{a.outstanding != null ? fmt(a.outstanding) : '—'}</td>
+                    <td className="px-3 py-2 text-right text-[var(--ff-text-primary)] tabular-nums">{fmt(a.eclAmount)}</td>
+                    <td className="px-3 py-2 text-right text-[var(--ff-text-primary)] tabular-nums">{a.outstanding != null ? fmt(a.outstanding) : '—'}</td>
                     <td className="px-3 py-2">
                       {a.ncaFlagged
                         ? <span className="text-red-400 text-xs">⚠ Breach</span>

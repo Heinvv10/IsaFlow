@@ -15,7 +15,7 @@ import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMean
 import type { MoneyScale } from '@/lib/format/money';
 import { FootnoteMarker } from './FootnoteMarker';
 import { scorecardColumnPercents } from '@/modules/accounting/services/packs/pages/packScorecardColumns';
-import { formatDays, formatMoney, formatPctLevel, formatTimes } from '@/lib/format/money';
+import { formatDays, formatStatementFigure, formatPctLevel, formatTimes } from '@/lib/format/money';
 import type {
   PackFigureFormat,
 } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -71,7 +71,7 @@ function formatTarget(target: number | null, format: PackFigureFormat, scale: Mo
     // Scaled with the actual it is a goal for: a target printed in rands
     // beside an actual printed in thousands is the same 1000x contradiction,
     // in the one column a reader uses to judge whether the actual passed.
-    case 'money': return formatMoney(target, { scale });
+    case 'money': return formatStatementFigure(target, { scale });
     // A target is a level, never a change: no "+" — see `formatFigureText`.
     case 'pct': return formatPctLevel(target);
     case 'ratio': return formatTimes(target);

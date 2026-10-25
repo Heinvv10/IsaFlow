@@ -7,7 +7,7 @@
 import { tileCaption } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { disclose, note } from './packBlockBuilders';
 import { inWords } from './packInWords';
-import { formatDays, formatMoney, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatStatementFigure, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
 import { ROUNDING_COMPONENTS_NOTE } from './packBasis';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type {
@@ -79,7 +79,7 @@ function ownRange(tile: PackKpiTile, scale: MoneyScale): string {
   const domain = tile.sparklineScale!;
   const print = (value: number): string => (domain.unit === 'percentage'
     ? formatPctLevel(value)
-    : domain.unit === 'days' ? formatDays(value) : inProse(formatMoney(value, { scale })));
+    : domain.unit === 'days' ? formatDays(value) : inProse(formatStatementFigure(value, { scale })));
   return `${print(domain.min)} to ${print(domain.max)}`;
 }
 
@@ -88,8 +88,8 @@ function sharedScaleClause(tiles: PackKpiTile[], scale: MoneyScale): string {
   const own = tiles.filter((t) => t.sparklineScale !== null && !t.sparklineScale.shared);
   if (shared.length === 0) return '';
   const domain = shared[0]!.sparklineScale!;
-  const range = `${inProse(formatMoney(domain.min, { scale }))} to `
-    + `${inProse(formatMoney(domain.max, { scale }))}`;
+  const range = `${inProse(formatStatementFigure(domain.min, { scale }))} to `
+    + `${inProse(formatStatementFigure(domain.max, { scale }))}`;
   // AND A LINE THAT CANNOT JOIN THAT DOMAIN STATES ITS OWN.
   //
   // It said only that gross margin and debtor days "are in other units, each

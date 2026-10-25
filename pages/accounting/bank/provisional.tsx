@@ -166,7 +166,7 @@ export default function ProvisionalEntriesPage() {
                         <span className="line-clamp-2 text-xs">{e.description || '—'}</span>
                         <span className="block text-[var(--ff-text-tertiary)] text-xs">{e.bankAccountName}</span>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-xs">{formatRandAbs(e.amount)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs">{formatRandAbs(e.amount)}</td>
                       <td className="px-4 py-3">
                         {e.predictedSupplierName
                           ? <div className="flex items-center gap-2 flex-wrap"><Link href={`/accounting/suppliers/${e.predictedSupplierId}`} className="text-xs text-blue-400 hover:underline">{e.predictedSupplierName}</Link><ConfBadge v={e.predictionConfidence} /></div>

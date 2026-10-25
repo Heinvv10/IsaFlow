@@ -4,7 +4,7 @@
  * the 300-line cap; `packReceivablesReconciliation.ts` re-exports both names,
  * so existing import paths still resolve.
  */
-import { formatMoney, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { mustDisclose, note } from './packPageBlocks';
 import type { PackPageBlock } from './packPageModel';
@@ -74,7 +74,7 @@ export function receivablesBaseNote(
   if (subledgerTotal === null) return null;
   if (Math.round(round2(subledgerTotal - tradeReceivables) / MONEY_SCALES[scale]) === 0) return null;
 
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   // THE POINTER EXISTS ONLY WHERE THE PAGE IT POINTS AT CARRIES THE THING.
   //
   // This note fires wherever debtor days is measured and the two readings

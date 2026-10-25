@@ -16,7 +16,7 @@
  * statement as broken.
  */
 
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import type { PackPagesDocument } from '../pages/packPageModel';
 // The CONSTANT, not the string it holds. Two reasons: `packOperatingProfitReading`
 // guards the one-reading rule by scanning these files for reads of the raw
@@ -162,7 +162,7 @@ export function checkStatements(doc: PackPagesDocument): string[] {
 
     const expected = terms.reduce((sum, term) => sum + term.sign * (term.value as number), 0);
     if (Math.abs(target - expected) > MONEY_TOLERANCE) {
-      const money = (n: number) => formatMoney(n, { cents: true, symbol: true, pack: true });
+      const money = (n: number) => formatStatementFigure(n, { cents: true, symbol: true, pack: true });
       const detail = terms
         .map((term, index) => {
           const word = index === 0 ? '' : term.sign === 1 ? 'plus ' : 'less ';

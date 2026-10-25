@@ -10,6 +10,7 @@ import { CalendarCheck, Loader2, AlertCircle, AlertTriangle, CheckCircle2, Lock 
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface FiscalYear {
   year_label: string;
@@ -149,7 +150,7 @@ export default function YearEndPage() {
                         Fiscal Year {fy.year_label}
                       </h3>
                       <p className="text-sm text-[var(--ff-text-secondary)]">
-                        {fy.start_date?.split('T')[0]} to {fy.end_date?.split('T')[0]}
+                        {formatDisplayDate(fy.start_date)} to {formatDisplayDate(fy.end_date)}
                       </p>
                     </div>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${

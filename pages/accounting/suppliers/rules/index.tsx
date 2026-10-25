@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { Loader2, AlertCircle, Search, ChevronRight, Settings2 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface SupplierRule {
   id: string;
@@ -25,12 +27,12 @@ interface SupplierRule {
 
 function fmtDate(val: string | Date | null): string {
   if (!val) return '—';
-  try { return new Date(val).toLocaleDateString('en-ZA'); } catch { return String(val); }
+  return formatDisplayDate(val);
 }
 
 function fmtZAR(val: number | null): string {
   if (val == null) return '—';
-  return `R ${val.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(val);
 }
 
 function VatBadge({ code }: { code: string | null }) {

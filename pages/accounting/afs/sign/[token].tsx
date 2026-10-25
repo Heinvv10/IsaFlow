@@ -154,7 +154,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '50%',
     background: '#f0fdf4',
     color: '#16a34a',
-    fontSize: '1.75rem',
+    fontSize: '1.5rem',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -170,7 +170,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#475569',
     lineHeight: 1.6,
     margin: '0 0 1.5rem',
-    fontSize: '0.9375rem',
+    fontSize: '1rem',
   },
   portalLink: {
     display: 'inline-block',
@@ -180,6 +180,6 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0.625rem 1.5rem',
     borderRadius: '0.5rem',
     fontWeight: 600,
-    fontSize: '0.9375rem',
+    fontSize: '1rem',
   },
 };

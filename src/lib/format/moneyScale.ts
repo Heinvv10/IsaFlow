@@ -25,7 +25,7 @@ export function inScale(formatted: string, scale: MoneyScale): string {
 }
 
 /**
- * The scales a statement may be stated in. `formatMoney` divides by the
+ * The scales a statement may be stated in. `formatStatementFigure` divides by the
  * scale's divisor before formatting, so "R'000" prints 4 200 000 as `4 200`
  * under a thousands header instead of the full rand amount, which a reader
  * takes as a thousand times the real figure.

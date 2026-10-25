@@ -19,6 +19,8 @@ import type {
   WorkbenchCard,
   CardStatus,
 } from '@/modules/accounting/services/workbench/monthEndWorkbenchService';
+import { formatDisplayDateTime, formatDisplayMonthYearLong } from '@/utils/dateFormat';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 function defaultPeriod(): string {
   const now = new Date();
@@ -26,8 +28,7 @@ function defaultPeriod(): string {
 }
 
 function periodLabel(period: string): string {
-  const [y, m] = period.split('-').map(Number) as [number, number];
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return formatDisplayMonthYearLong(period);
 }
 
 // Workflow-card statuses are a sibling vocabulary to record statuses
@@ -53,7 +54,7 @@ function CardTile({ card }: CardProps) {
           <Icon className={`w-4 h-4 ${meta.iconColor}`} aria-hidden />
           <h3 className="text-sm font-medium text-zinc-200">{card.title}</h3>
         </div>
-        <span className={`text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded border ${STATUS_TONE_CLASSES[meta.tone]}`}>
+        <span className={`text-xs uppercase tracking-wide font-semibold px-2 py-0.5 rounded border ${STATUS_TONE_CLASSES[meta.tone]}`}>
           {meta.label}
         </span>
       </div>
@@ -149,7 +150,7 @@ export default function MonthEndWorkbenchPage() {
                 {data.trialBalanceBalanced ? (
                   <span className="text-emerald-300">Trial balance balanced ✓</span>
                 ) : (
-                  <span className="text-red-300">TB out by R{Math.abs(data.trialBalanceDiff).toFixed(2)}</span>
+                  <span className="text-red-300">TB out by {formatMoney(Math.abs(data.trialBalanceDiff))}</span>
                 )}
               </div>
             </div>
@@ -185,7 +186,7 @@ export default function MonthEndWorkbenchPage() {
 
         {data && !loading && (
           <p className="mt-6 text-xs text-zinc-600 text-right">
-            Generated {new Date(data.generatedAt).toLocaleString('en-ZA')}
+            Generated {formatDisplayDateTime(data.generatedAt)}
           </p>
         )}
       </div>

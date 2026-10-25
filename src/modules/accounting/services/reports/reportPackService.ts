@@ -7,7 +7,7 @@
 import { calculateExtendedRatios, type FinancialData } from './reportingEngineService';
 import { buildKPIScorecard, type KPITargetConfig, type ScorableRatios } from './kpiScorecardService';
 import { buildProfitWaterfall } from './waterfallDataService';
-import { formatMoney, inProse, pctWithWord } from '@/lib/format/money';
+import { formatStatementFigure, inProse, pctWithWord } from '@/lib/format/money';
 import { marginPct, marginPct2dp } from './marginPct';
 import type { PackSection, PackType, ReportPack, ReportPackInput } from './reportPackTypes';
 import { getPackTemplate } from './reportPackTemplates';
@@ -204,7 +204,7 @@ function buildSectionData(
       // as in the tables; a percentage in a sentence carries its sign in a
       // word, as the board pack's prose does.
       const margin = marginPct(input.netProfit, input.revenue);
-      const revenue = inProse(formatMoney(input.revenue, { cents: true, symbol: true, pack: true }));
+      const revenue = inProse(formatStatementFigure(input.revenue, { cents: true, symbol: true, pack: true }));
       return {
         period: input.period,
         companyName: input.companyName,

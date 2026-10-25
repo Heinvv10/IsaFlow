@@ -29,7 +29,7 @@
  * They live in `packChartAxes.ts` with the money axis — see the note there.
  *
  * SCALE. Every money string a chart draws — the y-axis ticks, the number
- * printed on a waterfall bar, the tooltip — goes through `formatMoney` with
+ * printed on a waterfall bar, the tooltip — goes through `formatStatementFigure` with
  * the DOCUMENT's scale, and the y-axis carries that scale as its axis name.
  * The data stays raw: `api.coord` needs the real values or the geometry
  * moves. Before this the axis of a chart sitting under an `R'000` table ran
@@ -40,7 +40,7 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, type MoneyScale } from '@/lib/format/money';
 import {
   axisDomain,
   compositionTooltip,
@@ -165,7 +165,7 @@ export function distinctTicksAxis(values: number[], palette: ChartPalette, scale
   };
   if (values.every((v) => v === 0)) return zeroAlone();
   const distinct = (domain: AxisDomain) => {
-    const printed = Array.from({ length: domain.splitNumber + 1 }, (_, i) => formatMoney(domain.min + (i * (domain.max - domain.min)) / domain.splitNumber, { scale }));
+    const printed = Array.from({ length: domain.splitNumber + 1 }, (_, i) => formatStatementFigure(domain.min + (i * (domain.max - domain.min)) / domain.splitNumber, { scale }));
     return new Set(printed).size === printed.length;
   };
   for (let ask = 6; ask >= 1; ask -= 1) {

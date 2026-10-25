@@ -1,8 +1,9 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { AccountLedgerSummary } from '@/components/reports/AccountLedgerSummary';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 const text = (closed: number, years = 1) => render(
   <AccountLedgerSummary openingBalance={0} periodNet={0} closedToRetainedEarnings={closed} periodClosingBalance={0} total={0} closedYears={years} />,
 ).container.textContent ?? '';
