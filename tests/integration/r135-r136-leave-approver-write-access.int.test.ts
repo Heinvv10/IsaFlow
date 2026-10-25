@@ -80,8 +80,8 @@ beforeAll(async () => {
     [otherOwner, `r135-other-${otherOwner}@isaflow.test`]);
   await pool.query("INSERT INTO company_users (company_id, user_id, role, is_default) VALUES ($1, $2, 'owner', true)",
     [OTHER_CO, otherOwner]);
-  await pool.query(`INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date)
-    VALUES($1,$2,'R135','Lee','Ave','2026-01-01'), ($3,$4,'R135X','Kim','Other','2026-01-01')`,
+  await pool.query(`INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date, medical_aid_main_member)
+    VALUES($1,$2,'R135','Lee','Ave','2026-01-01', true), ($3,$4,'R135X','Kim','Other','2026-01-01', true)`,
   [employee, CO, otherEmployee, OTHER_CO]);
   await pool.query('INSERT INTO payroll_leave_types(id,company_id,name) VALUES($1,$2,$3), ($4,$5,$6)',
     [leaveType, CO, 'Annual', otherLeaveType, OTHER_CO, 'Annual']);

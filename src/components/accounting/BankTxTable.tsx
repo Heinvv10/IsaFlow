@@ -310,7 +310,7 @@ export function BankTxTable(props: Props) {
         aria-label={kbdEnabled ? 'Bank transactions — use arrow keys to navigate, Enter to accept, E edit, X exclude, S split' : undefined}
         className="outline-none"
       >
-        <table className="w-full text-sm">
+        <table data-testid="bank-tx-table" className="w-full text-sm">
           <thead>
             <tr className="border-b border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)] text-xs">
               <th className="py-2 px-2 w-8">

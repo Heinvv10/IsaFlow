@@ -64,6 +64,7 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
           return (
             <button
               key={b.id}
+              data-testid="bank-account-card"
               onClick={() => onSelectBank(b.id)}
               className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border-2 transition-all text-left ${
                 active

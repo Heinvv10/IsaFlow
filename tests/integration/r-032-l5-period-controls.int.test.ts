@@ -37,8 +37,8 @@ beforeAll(async () => {
   }
   await pool.query(`INSERT INTO vat_period_locks(id,company_id,period_start,period_end,output_tax,input_tax,net_vat,
       posted_through,locked_by) VALUES($1,$2,'2026-03-01','2026-04-30',0,0,0,now(),$3)`, [vatLock, fx.company, fx.target]);
-  await pool.query(`INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date)
-    VALUES($1,$2,'R032','Lee','Ave','2026-01-01')`, [employee, fx.company]);
+  await pool.query(`INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date, medical_aid_main_member)
+    VALUES($1,$2,'R032','Lee','Ave','2026-01-01', true)`, [employee, fx.company]);
   await pool.query('INSERT INTO payroll_leave_types(id,company_id,name) VALUES($1,$2,$3)', [leaveType, fx.company, 'Annual']);
   await pool.query(`INSERT INTO payroll_leave_requests(id,company_id,employee_id,leave_type_id,start_date,end_date,days,status)
     VALUES($1,$2,$3,$4,'2026-10-01','2026-10-02',2,'pending')`, [leave, fx.company, employee, leaveType]);

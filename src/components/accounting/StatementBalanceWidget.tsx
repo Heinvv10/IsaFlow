@@ -118,7 +118,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
           Statement Balance
         </h3>
         {batch.bankFormat && (
-          <span className="rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-xs font-medium text-[var(--ff-text-tertiary)]">
+          <span data-testid="statement-format-chip" className="rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-xs font-medium text-[var(--ff-text-tertiary)]">
             {batch.bankFormat.toUpperCase()}
           </span>
         )}
