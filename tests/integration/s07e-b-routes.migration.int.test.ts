@@ -25,9 +25,9 @@ const FN_AT = M946.indexOf('CREATE OR REPLACE FUNCTION public.app_pool_reach_vio
 const FN = M946.slice(FN_AT, M946.indexOf('\n$$;', FN_AT) + 4);
 const STAMPS: Record<string, string[]> = {
   webhook_endpoints: ['failure_count', 'last_triggered_at'],
-  imap_mirror_connections: ['last_error', 'last_scan_at', 'last_success_at', 'messages_ingested_total', 'scan_cursor', 'updated_at'],
+  imap_mirror_connections: ['last_error', 'last_scan_at', 'last_success_at', 'messages_ingested_total', 'scan_cursor'],
   sent_mirror_connections: ['last_error', 'last_scan_at', 'last_success_at', 'messages_captured_total', 'messages_linked_total',
-    'scan_cursor', 'updated_at'],
+    'scan_cursor'],
 };
 const TABLES = Object.keys(STAMPS);
 // A column a scan or delivery does not stamp: the one a re-point or a revival would write.

@@ -19,21 +19,20 @@
  * Invariant: link-back is company-scoped. A sha256 hash collision across
  * tenants still yields two separate captured_documents rows.
  *
- * App-pool writes to sent_mirror_connections are the scan stamps only
- * (S-07e part B, migration 946): scan_cursor, last_scan_at, last_success_at,
- * last_error, messages_captured_total, messages_linked_total. A write to
- * `status` (markScanError's flip to 'error') runs on the migration_admin pool,
- * keyed on the connection and its company.
+ * App-pool writes to sent_mirror_connections are the scan stamps only, each
+ * keyed on the connection AND its company (S-07e part B, migration 946). The
+ * flip of `status` to 'error' is mirrorScanError.ts's, on migration_admin.
  */
 
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 
 import { sql } from '@/lib/neon';
-import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
+import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
+import { checkImapTarget } from '@/lib/imapTargetGuard';
 
 type Row = Record<string, unknown>;
 
@@ -239,31 +238,8 @@ async function advanceCursor(conn: SentMirrorConnection, folder: string, uid: nu
     SET scan_cursor = ${JSON.stringify(nextCursor)}::jsonb,
         last_scan_at = NOW(),
         last_success_at = NOW()
-    WHERE id = ${conn.id}::uuid
+    WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
   `;
-}
-
-async function markScanError(conn: SentMirrorConnection, error: string): Promise<void> {
-  try {
-    // status is not a scan stamp: no app role may write it (migration 946).
-    await migrationAdminTx('mark sent mirror scan error', (client) => client.query(
-      `UPDATE sent_mirror_connections
-          SET last_scan_at = NOW(),
-              last_error = $3,
-              status = CASE WHEN status = 'active' THEN 'error' ELSE status END
-        WHERE id = $1::uuid AND company_id = $2::uuid`,
-      [conn.id, conn.companyId, error],
-    ));
-  } catch (adminErr) {
-    // Scan-now's request transaction may hold this row (its cursor stamp), so the
-    // status write can wait out its lock_timeout: record the error alone, keep the status.
-    log.warn('sent mirror scan error status write failed', { connectionId: conn.id, err: adminErr }, 'sent-mirror');
-    await sql`
-      UPDATE sent_mirror_connections
-      SET last_scan_at = NOW(), last_error = ${error}
-      WHERE id = ${conn.id}::uuid
-    `;
-  }
 }
 
 // ─── IMAP connection ──────────────────────────────────────────────────────────
@@ -275,6 +251,9 @@ async function openImapClient(conn: SentMirrorConnection): Promise<ImapFlow> {
   if (!conn.imapHost || !conn.imapPort || !conn.imapUsername || !conn.imapPasswordEnc) {
     throw new Error(`Incomplete IMAP config for sent-mirror connection ${conn.id}`);
   }
+  // Before the password is decrypted: never connect to private space.
+  const refused = await checkImapTarget(conn.imapHost, conn.imapPort);
+  if (refused) throw new Error(refused);
   const password = decrypt(conn.imapPasswordEnc);
   return new ImapFlow({
     host: conn.imapHost,
@@ -317,7 +296,7 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
         await sql`
           UPDATE sent_mirror_connections
           SET last_scan_at = NOW(), last_success_at = NOW()
-          WHERE id = ${conn.id}::uuid
+          WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
         `;
         return result;
       }
@@ -403,7 +382,7 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
         await sql`
           UPDATE sent_mirror_connections
           SET last_scan_at = NOW(), last_success_at = NOW()
-          WHERE id = ${conn.id}::uuid
+          WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
         `;
       }
 
@@ -412,7 +391,7 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
           UPDATE sent_mirror_connections
           SET messages_captured_total = messages_captured_total + ${result.captured},
               messages_linked_total   = messages_linked_total   + ${result.linked}
-          WHERE id = ${conn.id}::uuid
+          WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
         `;
       }
     } finally {
@@ -422,7 +401,7 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
     const msg = err instanceof Error ? err.message : String(err);
     log.error('sent mirror scan failed', { connectionId: conn.id, err: msg }, 'sent-mirror');
     result.errors += 1;
-    await markScanError(conn, msg);
+    await markMirrorScanError('sent', conn, msg);
   } finally {
     if (client) {
       try { await client.logout(); } catch { /* ignore */ }

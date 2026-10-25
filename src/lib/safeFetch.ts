@@ -164,6 +164,15 @@ export async function assertPublicUrl(rawUrl: string, opts: SafeFetchOptions = {
     throw new SsrfError(`host not allowlisted: ${hostname}`);
   }
 
+  await assertPublicHostname(hostname);
+}
+
+/**
+ * Throws SsrfError unless a bare host (a DNS name, or an IPv4/IPv6 literal with no
+ * brackets) is, and resolves only to, public addresses. For callers that connect by
+ * host and port rather than fetch a URL (the IMAP mirrors).
+ */
+export async function assertPublicHostname(hostname: string): Promise<void> {
   // IP literal → validate directly, no DNS.
   if (net.isIP(hostname) !== 0) {
     const r = ipReason(hostname);
@@ -182,6 +191,16 @@ export async function assertPublicUrl(rawUrl: string, opts: SafeFetchOptions = {
   for (const a of addrs) {
     const r = ipReason(a.address);
     if (r) throw new SsrfError(`${hostname} resolves to blocked address ${a.address}: ${r}`);
+  }
+}
+
+/** Non-throwing assertPublicHostname: null when public, else the reason. */
+export async function checkPublicHostname(hostname: string): Promise<string | null> {
+  try {
+    await assertPublicHostname(hostname);
+    return null;
+  } catch (err) {
+    return err instanceof SsrfError ? err.message : 'invalid host';
   }
 }
 

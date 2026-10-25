@@ -4,7 +4,7 @@
 Singleton `@supabase/storage-js` client for the self-hosted Supabase Storage at `${SUPABASE_URL}/storage/v1`, plus typed helpers for captured-documents and sealed customer-invoice PDF snapshots.
 
 ## Key exports
-- `getStorageClient(): StorageClient` — lazily constructs and caches the storage client; throws if `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` missing
+- The `StorageClient` itself is private to the file (lazily built and cached; throws if `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` is missing). Every helper below is the only way in, so each can apply the company-prefix check (S-07e): nothing outside may hold the service-role client
 - `const CAPTURED_DOCS_BUCKET` — `SUPABASE_CAPTURED_DOCS_BUCKET` env or `'captured-documents'`
 - `const CUSTOMER_INVOICES_BUCKET` — `SUPABASE_CUSTOMER_INVOICES_BUCKET` env or `'customer-invoices'`
 - `interface UploadResult` — `{ bucket, path }`
@@ -12,7 +12,7 @@ Singleton `@supabase/storage-js` client for the self-hosted Supabase Storage at 
 - `uploadCustomerInvoicePdf(companyId, documentId, buffer): Promise<UploadResult>` — PRD-06 sealed invoice snapshot; path `${companyId}/${documentId}.pdf`; auto-provisions bucket on first call
 - `ensureCustomerInvoicesBucket(): Promise<void>` — idempotent lazy provisioner (swallows "already exists"); cached via module-level boolean
 - `downloadCapturedDocument(bucket, path, companyId): Promise<Buffer>` — works for either bucket despite the name. Refuses (`StorageObjectOutsideCompanyError`) a bucket other than the two above, and a path not of the form `${companyId}/<name>[/<name>…]` with every name `[A-Za-z0-9_-][A-Za-z0-9._-]*` (no `..`, `%`-escape, backslash, `?`, `#`) (S-07e): the pointer columns are app-writable and this client uses the service-role key, so the prefix is the only thing tying a stored object to the company asking
-- `removeCapturedDocument(bucket, path): Promise<void>` — best-effort; log-warn on failure
+- `removeCapturedDocument(bucket, path, companyId): Promise<void>` — same company-prefix refusal as the reads (`StorageObjectOutsideCompanyError`, thrown, so a caller that treats the delete as best-effort must catch it); otherwise log-warn on a storage failure
 - `signedUrlForCapturedDocument(bucket, path, companyId, expiresInSeconds?=3600): Promise<string>` — short-lived signed URL for UI preview; same company-prefix refusal
 
 ## Dependencies
@@ -30,5 +30,6 @@ Singleton `@supabase/storage-js` client for the self-hosted Supabase Storage at 
 - Captured-docs bucket content is originally scanned slips/PDFs; customer-invoices bucket is sealed PDF snapshots that are legally the sent invoice (PRD-06 evidence chain).
 
 ## Recent changes
+- 2026-10-25: S-07e part B — `removeCapturedDocument` takes the company and refuses a pointer outside its prefix; `getStorageClient` no longer exported; a refusal logs the path cut to 200 characters.
 - 2026-04-23: PRD-06 Phase 1 — added `uploadCustomerInvoicePdf` + `ensureCustomerInvoicesBucket` for invoice-as-evidence sealed snapshots.
 - 2026-04-22: File introduced — capture module migrated from BYTEA columns to Supabase Storage pointers.

@@ -14,6 +14,7 @@ import {
   listSentConnectionSummaries,
   createSentImapConnection,
 } from '@/modules/accounting/services/ar/sentMirrorAdmin';
+import { checkImapTarget } from '@/lib/imapTargetGuard';
 
 const CreateImapSchema = z.object({
   displayName: z.string().min(1).max(200),
@@ -41,6 +42,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
     }
     const body = parsed.data;
+    // The scan cron presents the stored password to this host: public hosts and IMAP ports only.
+    const refused = await checkImapTarget(body.imapHost, body.imapPort);
+    if (refused) return apiResponse.badRequest(res, refused);
+
     const created = await createSentImapConnection({
       companyId,
       createdBy: req.user?.id ?? null,

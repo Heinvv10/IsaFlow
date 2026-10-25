@@ -22,7 +22,7 @@ function requireEnv(key: string): string {
   return value;
 }
 
-export function getStorageClient(): StorageClient {
+function getStorageClient(): StorageClient {
   if (cached) return cached;
 
   const baseUrl = requireEnv('SUPABASE_URL');
@@ -146,7 +146,9 @@ function assertCompanyObject(companyId: string, bucket: string, path: string): v
   const segments = path.split('/');
   if (![CAPTURED_DOCS_BUCKET, CUSTOMER_INVOICES_BUCKET].includes(bucket) || segments[0] !== companyId || segments.length < 2
     || !segments.every((seg) => KEY_SEGMENT.test(seg))) {
-    log.error('Storage read refused: the pointer is not under the company prefix', { companyId, bucket, path }, 'supabase-storage');
+    // The path is a stored (attacker-influenced) string: bound what a refusal writes to the log.
+    log.error('Storage access refused: the pointer is not under the company prefix',
+      { companyId, bucket, path: path.slice(0, 200) }, 'supabase-storage');
     throw new StorageObjectOutsideCompanyError(companyId, path);
   }
 }
@@ -183,7 +185,9 @@ export async function downloadCapturedDocument(
 export async function removeCapturedDocument(
   bucket: string,
   path: string,
+  companyId: string,
 ): Promise<void> {
+  assertCompanyObject(companyId, bucket, path);
   const { error } = await getStorageClient().from(bucket).remove([path]);
   if (error) {
     log.warn('Storage remove failed', { bucket, path, error: error.message }, 'supabase-storage');

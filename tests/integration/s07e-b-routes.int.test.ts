@@ -107,13 +107,23 @@ describe('S-07e part B (946): what the scans and deliveries still stamp', () => 
     ['a delivery stamped on its endpoint', hit(`UPDATE webhook_endpoints SET last_triggered_at = NOW(), failure_count = 0
       WHERE company_id = $1`)],
     ['a mailbox scan stamped', hit(`UPDATE imap_mirror_connections SET scan_cursor = scan_cursor, last_scan_at = NOW(), last_success_at = NOW(),
-      last_error = NULL, messages_ingested_total = messages_ingested_total + 1, updated_at = NOW() WHERE company_id = $1`)],
+      last_error = NULL, messages_ingested_total = messages_ingested_total + 1 WHERE company_id = $1`)],
     ['a sent-mailbox scan stamped', hit(`UPDATE sent_mirror_connections SET scan_cursor = scan_cursor, last_scan_at = NOW(), last_success_at = NOW(),
-      last_error = NULL, messages_captured_total = messages_captured_total + 1, messages_linked_total = messages_linked_total + 1,
-      updated_at = NOW() WHERE company_id = $1`)],
+      last_error = NULL, messages_captured_total = messages_captured_total + 1, messages_linked_total = messages_linked_total + 1
+      WHERE company_id = $1`)],
     ['the scan cron reads its connections', `SELECT 1 / count(*) FROM imap_mirror_connections WHERE company_id = $1
       AND imap_password_enc IS NOT NULL`],
   ])('%s, on the service pool', async (_, text) => {
     expect(await attempt(getDbPool(), [[text, [other]]])).toBeNull();
+  });
+
+  // updated_at is no stamp column (nothing but the touch trigger sets it): the trigger's change to NEW needs no column privilege.
+  it.each(['imap_mirror_connections', 'sent_mirror_connections'])('%s: a scan stamp still bumps updated_at, though no app role may write it', async (table) => {
+    const read = async () => (await fixture.query(`SELECT updated_at FROM ${table} WHERE company_id = $1`, [other])).rows[0]!.updated_at as Date;
+    const before = await read();
+    // attempt() rolls back, so the bump is checked inside the statement: no row newer than before → division_by_zero.
+    expect(await attempt(getDbPool(), [[`WITH w AS (UPDATE ${table} SET last_scan_at = NOW() WHERE company_id = $1 RETURNING updated_at)
+      SELECT 1 / count(*) FROM w WHERE updated_at > $2`, [other, before]]])).toBeNull();
+    expect(await attempt(getDbPool(), [[`UPDATE ${table} SET updated_at = NOW() WHERE company_id = $1`, [other]]])).toEqual(denied(table));
   });
 });
