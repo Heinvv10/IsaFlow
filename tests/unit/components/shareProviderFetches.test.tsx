@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, waitFor, screen, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 
 let pathname = '/accounting/reports/report-packs';
 
@@ -42,6 +42,17 @@ async function mount() {
   );
 }
 
+/**
+ * Yield `n` whole event-loop turns inside act(). Counted, not timed: how many turns the mount effects and their
+ * fetches get is the same on a starved box as on an idle one, where a findBy* / waitFor budget in ms is not.
+ */
+const turns = async (n: number) => {
+  for (let i = 0; i < n; i += 1) await act(async () => { await new Promise<void>(r => setImmediate(r)); });
+};
+const untilAsked = async (needle: string) => {
+  for (let i = 0; i < 500 && !asked().some(u => u.includes(needle)); i += 1) await turns(1);
+};
+
 // The first import of pages/_app is slow under a loaded machine; the 5 s default failed pre-push gates. Timing only.
 const LOAD_TIMEOUT = 60_000;
 
@@ -56,16 +67,17 @@ describe('pages/_app.tsx — provider fetches on the public share page', () => {
   it('fetches the session on an ordinary app page', async () => {
     pathname = '/accounting/reports/report-packs';
     await mount();
-    await waitFor(() => expect(asked().some(u => u.includes('/api/auth/me'))).toBe(true), { timeout: 15_000 });
+    await untilAsked('/api/auth/me');
+    expect(asked().some(u => u.includes('/api/auth/me'))).toBe(true);
   }, LOAD_TIMEOUT);
 
   it('fetches neither the session nor the companies on a share route', async () => {
     pathname = '/share/[token]';
     await mount();
-    // App has mounted (its page text is on screen), and both fetches, which live in mount effects, get
-    // 400 ms to be wrong in: a bare setTimeout(0) after a slow import would pass without checking anything.
-    expect(await screen.findByText('shared pack')).toBeTruthy();
-    await act(async () => { await new Promise(r => setTimeout(r, 400)); });
+    // App has mounted (its page text is on screen), and both fetches, which live in mount effects, get 50 event-loop
+    // turns to be wrong in. The ordinary-page test above shows the session fetch lands within a few turns when asked.
+    expect(screen.getByText('shared pack')).toBeTruthy();
+    await turns(50);
     expect(asked().some(u => u.includes('/api/auth/me'))).toBe(false);
     expect(asked().some(u => u.includes('/api/accounting/companies'))).toBe(false);
   }, LOAD_TIMEOUT);
