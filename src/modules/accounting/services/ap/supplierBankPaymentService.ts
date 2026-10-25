@@ -242,7 +242,7 @@ export async function applyBankLineToSupplierInvoices(
   `)) as DbRow[];
   const paymentId = String(paymentRows[0]!.id);
 
-  const plan = await planSupplierPaymentApplication(companyId, paymentId, allocations);
+  const plan = await planSupplierPaymentApplication(companyId, paymentId, allocations, { paymentCreatedInThisRequest: true });
   await applySupplierPaymentPlan(companyId, plan, userId);
 
   log.info('Allocated bank line to supplier invoices', {

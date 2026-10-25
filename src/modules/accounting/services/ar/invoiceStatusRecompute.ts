@@ -143,3 +143,54 @@ export async function recomputeInvoiceStatus(
       AND status = ANY(${BALANCE_DERIVED})
   `;
 }
+
+/**
+ * Move a supplier bill's `amount_paid` by `delta` AND derive its status, `paid_at` and `payment_matched` from the
+ * new figure, in ONE UPDATE. The AP apply, unapply and back-fill paths use this instead of an `amount_paid` UPDATE
+ * followed by `recomputeInvoiceStatus`.
+ *
+ * ONE WRITE IS THE POINT (2026-10-25). A second UPDATE of a row this transaction already wrote re-runs its FK
+ * checks, so the recompute key-shared the bill's supplier AFTER the payment the caller holds — payment then
+ * supplier, against a supplier merge's suppliers `FOR UPDATE` then payments: 40P01. The thresholds are the
+ * supplier branch above, clause for clause, judged on the post-write figure (`SET` reads the old row); a status
+ * outside `BALANCE_DERIVED` keeps all four derived columns, as the recompute's WHERE kept them.
+ *
+ * `floor`: only write when `amount_paid` is at least this (unapply's guard). Returns false when no row matched.
+ */
+export async function moveSupplierBillPaid(
+  companyId: string,
+  invoiceId: string,
+  delta: number,
+  floor: number | null = null,
+): Promise<boolean> {
+  const rows = (await sql`
+    UPDATE supplier_invoices SET
+      amount_paid = COALESCE(amount_paid, 0) + ${delta},
+      updated_at = NOW(),
+      status = CASE
+        WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN status
+        WHEN COALESCE(amount_paid, 0) + ${delta} >= total_amount - 0.01 THEN 'paid'
+        WHEN COALESCE(amount_paid, 0) + ${delta} > 0.01 THEN 'partially_paid'
+        WHEN status IN ('partially_paid', 'paid') THEN 'approved'
+        ELSE status
+      END,
+      paid_at = CASE
+        WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN paid_at
+        WHEN COALESCE(amount_paid, 0) + ${delta} >= total_amount - 0.01 THEN COALESCE(paid_at, NOW())
+        ELSE NULL
+      END,
+      payment_matched = CASE
+        WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN payment_matched
+        ELSE (COALESCE(amount_paid, 0) + ${delta} >= total_amount - 0.01)
+      END,
+      payment_matched_at = CASE
+        WHEN (status = ANY(${BALANCE_DERIVED})) IS NOT TRUE THEN payment_matched_at
+        WHEN COALESCE(amount_paid, 0) + ${delta} >= total_amount - 0.01 THEN COALESCE(payment_matched_at, NOW())
+        ELSE NULL
+      END
+    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
+      AND (${floor}::NUMERIC IS NULL OR amount_paid >= ${floor}::NUMERIC)
+    RETURNING id
+  `) as unknown[];
+  return rows.length > 0;
+}

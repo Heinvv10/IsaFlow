@@ -37,8 +37,9 @@ import { currentLockTimeout, restoreLockTimeout } from './rowLockBudget';
  */
 export class PaymentLockTimeoutError extends Error {
   readonly code = 'PAYMENT_LOCK_TIMEOUT';
-  constructor(paymentId: string) {
-    super(`Payment ${paymentId} is being processed by another request — retry in a moment.`);
+  /** `subjectId`: the contended row's id — a payment, or the contact for `lockContactForRefund` / the credit key. */
+  constructor(subjectId: string, message?: string) {
+    super(message ?? `Payment ${subjectId} is being processed by another request — retry in a moment.`);
     this.name = 'PaymentLockTimeoutError';
   }
 }
@@ -193,11 +194,13 @@ export async function lockSupplierPaymentForUpdate(
  *
  * ── WHAT IT DOES NOT LOCK ───────────────────────────────────────────────────
  *
- * Not the payments, and deliberately. A concurrent APPLICATION of one of this
- * supplier's payments lowers the credit after this read — but an application
- * cannot raise it, so the figure this returns is a CEILING on what a
- * concurrent transaction can leave available, and refusing on a ceiling is the
- * safe direction. Two REFUNDS are the unsafe pair, and both take this lock.
+ * Not the payments. This lock alone does NOT cover a concurrent APPLICATION of
+ * the supplier's cash: an earlier version of this note called the credit read
+ * a safe "ceiling", but an application in flight has already spent cash the
+ * read still counts, so the refund passed and returned cash already applied.
+ * The supplier refund therefore also tries the supplier's credit key after
+ * this lock (`ap/supplierCreditLock`, 2026-10-25), which every application of
+ * posted cash holds to its COMMIT. Two REFUNDS still serialise here.
  *
  * Mirrors `lockSupplierPaymentForUpdate` exactly: same 5s `lock_timeout`, same
  * `isLockContention` mapping so a timeout and a deadlock victim reach the

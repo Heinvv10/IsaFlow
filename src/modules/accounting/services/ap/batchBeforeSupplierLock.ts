@@ -11,8 +11,10 @@
  * Payments come after their supplier too: updateSupplier takes the supplier and then its payments
  * (`recordBankDetailsSetter`). A payment writer must not reach the supplier after the payment: a second write of a
  * supplier-referencing row re-runs its FK check (KEY SHARE on the supplier), so processSupplierPayment writes the
- * payment once (2026-10-24). Applying and unapplying a payment still do (each bill written twice: OPEN,
- * ap/.claude.md 2026-10-24). Full order: batch -> supplier -> payments -> bills -> gl_accounts.
+ * payment once (2026-10-24), and applying, unapplying and the back-fill write each bill once (2026-10-25,
+ * `moveSupplierBillPaid`; a bill written twice in one transaction elsewhere is still OPEN, ap/.claude.md).
+ * Full order: batch -> supplier -> payments -> bills -> gl_accounts. The supplier credit key
+ * (`supplierCreditLock`) is tried, never waited on, so it has no place in this order.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';

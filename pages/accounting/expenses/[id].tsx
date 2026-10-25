@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -101,10 +102,11 @@ export default function ExpenseClaimDetail() {
   const [postReimbAcct, setPostReimbAcct] = useState('');
   const [postVatAcct, setPostVatAcct] = useState('');
 
+  const afterToast = useTimeoutOnce();
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+    afterToast(() => setToast(null), 3500);
+  }, [afterToast]);
 
   const loadClaim = useCallback(async () => {
     if (!id) return;

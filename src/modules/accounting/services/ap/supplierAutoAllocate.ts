@@ -199,7 +199,7 @@ export async function recordSupplierBankPayment(args: {
   // plan → apply, the split this service pair already enforces: the plan takes
   // the payment's row lock and runs every guard, the apply writes and guards
   // nothing. Both throw rather than return, and are not caught — see header.
-  const plan = await planSupplierPaymentApplication(companyId, paymentId, allocations);
+  const plan = await planSupplierPaymentApplication(companyId, paymentId, allocations, { paymentCreatedInThisRequest: true });
   await applySupplierPaymentPlan(companyId, plan, userId);
 
   log.info('Supplier bank payment auto-applied', {

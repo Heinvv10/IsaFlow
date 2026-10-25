@@ -22,7 +22,7 @@ function requireEnv(key: string): string {
   return value;
 }
 
-export function getStorageClient(): StorageClient {
+function getStorageClient(): StorageClient {
   if (cached) return cached;
 
   const baseUrl = requireEnv('SUPABASE_URL');
@@ -122,6 +122,37 @@ export class CapturedDocumentMissingError extends Error {
   }
 }
 
+/**
+ * A storage pointer that is not under the reading company's prefix (S-07e). Every
+ * object the app stores is keyed `${companyId}/…`, but the pointer columns are
+ * app-writable, and this client uses the service-role key (no storage RLS): a
+ * company's own row pointed at another company's object must not serve it.
+ */
+export class StorageObjectOutsideCompanyError extends Error {
+  constructor(readonly companyId: string, readonly path: string) {
+    super('Storage object is not this company\'s');
+    this.name = 'StorageObjectOutsideCompanyError';
+  }
+}
+
+/** The only characters a key the app writes holds (`${companyId}/${uuid}[.pdf]`): nothing a URL or the storage server could decode into another path. */
+const KEY_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/**
+ * Only this company's own objects, in a bucket the app writes: a key under its prefix whose every segment is a plain
+ * name, so no `..`, `.`, empty segment, `%`-escape, backslash, `?` or `#` can climb out of it.
+ */
+function assertCompanyObject(companyId: string, bucket: string, path: string): void {
+  const segments = path.split('/');
+  if (![CAPTURED_DOCS_BUCKET, CUSTOMER_INVOICES_BUCKET].includes(bucket) || segments[0] !== companyId || segments.length < 2
+    || !segments.every((seg) => KEY_SEGMENT.test(seg))) {
+    // The path is a stored (attacker-influenced) string: bound what a refusal writes to the log.
+    log.error('Storage access refused: the pointer is not under the company prefix',
+      { companyId, bucket, path: path.slice(0, 200) }, 'supabase-storage');
+    throw new StorageObjectOutsideCompanyError(companyId, path);
+  }
+}
+
 interface StorageFailure { message?: string; status?: number | string; statusCode?: number | string }
 
 /**
@@ -136,7 +167,9 @@ function isObjectMissing(error: StorageFailure): boolean {
 export async function downloadCapturedDocument(
   bucket: string,
   path: string,
+  companyId: string,
 ): Promise<Buffer> {
+  assertCompanyObject(companyId, bucket, path);
   const { data, error } = await getStorageClient().from(bucket).download(path);
 
   if (error || !data) {
@@ -152,7 +185,9 @@ export async function downloadCapturedDocument(
 export async function removeCapturedDocument(
   bucket: string,
   path: string,
+  companyId: string,
 ): Promise<void> {
+  assertCompanyObject(companyId, bucket, path);
   const { error } = await getStorageClient().from(bucket).remove([path]);
   if (error) {
     log.warn('Storage remove failed', { bucket, path, error: error.message }, 'supabase-storage');
@@ -167,8 +202,10 @@ export async function removeCapturedDocument(
 export async function signedUrlForCapturedDocument(
   bucket: string,
   path: string,
+  companyId: string,
   expiresInSeconds = 3600,
 ): Promise<string> {
+  assertCompanyObject(companyId, bucket, path);
   const { data, error } = await getStorageClient()
     .from(bucket)
     .createSignedUrl(path, expiresInSeconds);

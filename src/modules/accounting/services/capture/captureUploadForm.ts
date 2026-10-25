@@ -10,8 +10,9 @@ import { Writable } from 'stream';
 import formidable from 'formidable';
 import { extractFromPdf, extractFromImage } from '../core/ocrService';
 import type { ExtractedDocument } from '../../types/documentCapture.types';
+import { MAX_FILE_SIZE } from './captureLimits';
 
-export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+export { MAX_FILE_SIZE };
 
 export const ALLOWED_MIME_TYPES: Record<string, string> = {
   'application/pdf': 'pdf',

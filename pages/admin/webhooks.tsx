@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { WebhookRow } from '@/components/admin/webhooks/WebhookRow';
 import { ConfirmDeleteModal } from '@/components/admin/webhooks/ConfirmDeleteModal';
@@ -39,9 +40,10 @@ export default function AdminWebhooksPage() {
   const [toast, setToast]                 = useState<string | null>(null);
   const [error, setError]                 = useState('');
 
+  const afterToast = useTimeoutOnce();
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3500);
+    afterToast(() => setToast(null), 3500);
   };
 
   // "erroring" filters client-side; API receives 'active' for server query

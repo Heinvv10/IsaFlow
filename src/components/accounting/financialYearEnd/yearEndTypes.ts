@@ -11,16 +11,17 @@ export const BTN_SECONDARY = 'px-4 py-2 rounded-lg border border-[var(--ff-borde
 
 export const MIN_REASON = 10;
 
-/** 'YYYY-MM-DD' for display, built from its parts (no timezone round-trip). */
+/** 'YYYY-MM-DD' for display, built from its parts (no timezone round-trip). Anything else is shown as it came. */
 export function fmtDay(date: string): string {
   const [y, m, d] = date.split('-').map(Number) as [number, number, number];
-  return `${d} ${MONTH_NAMES[m - 1]!.slice(0, 3)} ${y}`;
+  const month = MONTH_NAMES[m - 1];
+  return month === undefined || !Number.isFinite(d) || !Number.isFinite(y) ? date : `${d} ${month.slice(0, 3)} ${y}`;
 }
 
 /** The South African calendar day of a timestamp (an ISO instant), for display. */
 export function fmtInstantDay(iso: string): string {
   const day = sastISODate(iso); // pinned to Africa/Johannesburg, whatever the browser's zone
-  return day ? fmtDay(day) : iso; // not a date: shown as it came (fmtDay would throw on it)
+  return day ? fmtDay(day) : iso; // not a date: shown as it came
 }
 
 /**

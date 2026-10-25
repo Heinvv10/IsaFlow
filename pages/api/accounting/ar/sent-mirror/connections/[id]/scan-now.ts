@@ -1,7 +1,8 @@
 /**
  * POST /api/accounting/ar/sent-mirror/connections/[id]/scan-now
  * Forces a scan of the connection ignoring the interval gate. Returns the
- * per-run summary (scanned / linked / captured / skipped / errors).
+ * per-run summary (scanned / linked / captured / skipped / errors). Runs under a 30 s
+ * deadline; 409 while a scan of this connection or another scan-now of this company is running.
  */
 
 import type { NextApiResponse } from 'next';
@@ -10,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { getSentConnection, scanSentConnection } from '@/modules/accounting/services/ar/sentMirrorService';
+import { runScanNow, ScanNowBusyError } from '@/modules/accounting/services/capture/mirrorScanNow';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -22,8 +24,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const conn = await getSentConnection(id, companyId);
   if (!conn) return apiResponse.notFound(res, 'Sent mirror connection', id);
 
-  const result = await scanSentConnection(conn);
-  return apiResponse.success(res, result);
+  try {
+    return apiResponse.success(res, await runScanNow(conn, (opts) => scanSentConnection(conn, opts)));
+  } catch (err) {
+    if (err instanceof ScanNowBusyError) return apiResponse.conflict(res, err.message, { reason: err.reason });
+    throw err;
+  }
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))));
