@@ -20,6 +20,9 @@ export interface Tab {
   id: string;
   label: string;
   href?: string;
+  /** Quick-create actions; SidebarNav renders them as "+ Label". */
   topItems?: DropdownItem[];
+  /** Plain daily navigation links, shown above `topItems` and the sections. */
+  links?: DropdownItem[];
   items?: NavItem[];
 }

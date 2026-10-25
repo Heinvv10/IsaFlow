@@ -173,6 +173,28 @@ export function getActiveTabId(
   return DEMOTED_MODULE_IDS.has(id) ? 'library' : id;
 }
 
+/**
+ * Of a set of sibling links, the one that is active for `asPath`: the longest
+ * matching path wins, so /bank-reconciliation/import lights only "Import
+ * Statement", not "Reconcile" as well. Null when none match.
+ */
+export function mostSpecificActiveHref(hrefs: string[], asPath: string): string | null {
+  let best: string | null = null;
+  for (const href of hrefs) {
+    if (!isLinkActive(href, asPath)) continue;
+    const len = href.split('?')[0]!.length + (href.includes('?') ? 1 : 0);
+    const bestLen = best === null ? -1 : best.split('?')[0]!.length + (best.includes('?') ? 1 : 0);
+    if (len > bestLen) best = href;
+  }
+  return best;
+}
+
+/** `mostSpecificActiveHref` over the plain links of a mixed link/section list. */
+export function activeHrefAmong(items: Array<{ href: string } | { section: string }>, asPath: string): string | null {
+  const hrefs = items.flatMap(i => ('href' in i ? [i.href] : []));
+  return mostSpecificActiveHref(hrefs, asPath);
+}
+
 export function isLinkActive(href: string, asPath: string): boolean {
   const parts = href.split('?');
   const itemPath = parts[0] as string;
