@@ -44,8 +44,7 @@ import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, 
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
-import { certificateBirthDate } from './easyFileEmployeeFacts';
-import { assertBirthCorrelates, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
+import { birthDate3080, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
 export { splitCertificateIncome } from './payrollLumpSumFiling';
@@ -100,7 +99,7 @@ export interface EmployeeInput {
   taxThreshold?: number;
   /** Medical scheme fees and credits (4005, 4116, 4120); absent = none reported. */
   medical?: MedicalCertificateInput;
-  /** The payroll record's date of birth, checked against the ID number (assertBirthCorrelates); not emitted. */
+  /** The payroll record's date of birth (local calendar day): 3080, which must be the ID number's date (birthDate3080). */
   dateOfBirth?: Date | null;
 }
 
@@ -192,13 +191,7 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
 
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
-  assertBirthCorrelates(emp);
-  // 3080 is mandatory for nature A (BRS V25.3.0 p. 26); validateEmployee has already required a 13-digit ID.
-  const birth3080 = certificateBirthDate(emp.dateOfBirth, emp.idNumber);
-  if (!birth3080) {
-    throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): the ID number (${emp.idNumber}) does not begin with a `
-      + 'valid date of birth (YYMMDD), so the mandatory date of birth (code 3080) cannot correlate with it. Correct the ID number.');
-  }
+  const birth3080 = birthDate3080(emp);
   const lumpSums = emp.lumpSums ?? [];
   const under4115 = lumpSums.filter(l => lumpSumPayeCode(l.sourceCode) === '4115');
   const paye4115 = Math.round(under4115.reduce((t, l) => t + l.paye, 0) * 100) / 100;
