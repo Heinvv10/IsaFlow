@@ -1,6 +1,6 @@
 /** Shared helpers for the change-of-financial-year-end wizard. */
 import { ApiRequestError, apiFetch } from '@/lib/apiFetch';
-import { formatDateISO } from '@/utils/dateFormat';
+import { sastISODate } from '@/utils/dateFormat';
 
 export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
   'September', 'October', 'November', 'December'];
@@ -19,7 +19,8 @@ export function fmtDay(date: string): string {
 
 /** The South African calendar day of a timestamp (an ISO instant), for display. */
 export function fmtInstantDay(iso: string): string {
-  return fmtDay(formatDateISO(iso)); // the Johannesburg day of a zoned timestamp, from the shared reader
+  const day = sastISODate(iso); // pinned to Africa/Johannesburg, whatever the browser's zone
+  return day ? fmtDay(day) : iso; // not a date: shown as it came (fmtDay would throw on it)
 }
 
 /**

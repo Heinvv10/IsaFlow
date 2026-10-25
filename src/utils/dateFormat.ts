@@ -181,6 +181,17 @@ export function formatDisplayTimeSeconds(date: DateInput, fallback = NO_DATE): s
   return p ? `${pad(p.hh)}:${pad(p.mm)}:${pad(p.ss)}` : unparsed(date, fallback);
 }
 
+/**
+ * The Africa/Johannesburg calendar day ("2026-10-21") of an INSTANT, whatever the device zone is. Use it
+ * where a stored moment must show the South African day (a timestamp of a financial-year-end change): a
+ * Date or a zoned ISO string at 22:00Z is already the next day in Johannesburg, and a browser in UTC or the
+ * US would otherwise show the day before. A plain ISO date is that day; anything else is ''.
+ */
+export function sastISODate(instant: Date | string): string {
+  const p = instant instanceof Date ? sastParts(instant) : partsOf(instant);
+  return p ? `${p.y}-${pad(p.m)}-${pad(p.d)}` : '';
+}
+
 // ─── Internal / API / Export Formats ────────────────────────────
 
 /**
