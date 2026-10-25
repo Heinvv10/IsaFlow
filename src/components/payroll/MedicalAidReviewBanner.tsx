@@ -47,37 +47,41 @@ export function MedicalAidReviewBanner() {
   const { companyRole, activeCompany } = useCompany();
   const mayWrite = canWrite(companyRole);
   const key = keyFor(activeCompany?.id);
-  const [flagged, setFlagged] = useState<ReviewEmployee[]>([]);
-  const [dismissed, setDismissed] = useState<string[]>([]);
+  // Each piece of state carries the key it was read for and is used only while that is the current
+  // key, so the render right after a company switch cannot show the previous company's list (an
+  // effect-time reset would still let that one render through), nor a late response for it.
+  const [loaded, setLoaded] = useState<{ key: string; flagged: ReviewEmployee[] } | null>(null);
+  const [dismissedFor, setDismissedFor] = useState<{ key: string; ids: string[] } | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forKey: string) => {
+    let list: ReviewEmployee[] = [];
     try {
       const res = await apiFetch('/api/payroll/employees/medical-aid-review');
       await assertOk(res, 'Could not load the medical-aid review');
       const json = await res.json();
-      const list = (json.data ?? json)?.employees;
-      setFlagged(Array.isArray(list) ? (list as ReviewEmployee[]) : []);
+      const employees = (json.data ?? json)?.employees;
+      if (Array.isArray(employees)) list = employees as ReviewEmployee[];
     } catch (err) {
       // The banner is advisory: a failed load shows nothing rather than an error on the list page.
       log.warn('medical-aid review: could not load', { error: err }, 'MedicalAidReviewBanner');
-      setFlagged([]);
     }
+    setLoaded({ key: forKey, flagged: list });
   }, []);
 
   useEffect(() => {
-    // A company switch must never show the previous company's list while the new one loads.
-    setFlagged([]);
     if (!mayWrite) return;
-    setDismissed(readDismissed(key));
-    void load();
+    setDismissedFor({ key, ids: readDismissed(key) });
+    void load(key);
   }, [mayWrite, key, load]);
 
+  const flagged = loaded?.key === key ? loaded.flagged : [];
+  const dismissed = dismissedFor?.key === key ? dismissedFor.ids : [];
   if (!mayWrite || flagged.length === 0 || flagged.every(e => dismissed.includes(e.id))) return null;
 
   const dismiss = () => {
     const ids = flagged.map(e => e.id);
     writeDismissed(key, ids);
-    setDismissed(ids);
+    setDismissedFor({ key, ids });
   };
 
   return (
