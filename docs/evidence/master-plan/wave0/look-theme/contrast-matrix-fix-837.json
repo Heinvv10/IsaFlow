@@ -1,0 +1,365 @@
+{
+ "method": "axe-core color-contrast (@axe-core/playwright 4.13) + tests/e2e/helpers/themeContrast.ts, 390x844 / 1280x800 / 1920x1080, light and dark, reporting-qa on dev Demo, assertions on (not record-only)",
+ "results": {
+  "balance-sheet.light.390": {
+   "textNodes": 133,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "balance-sheet.dark.390": {
+   "textNodes": 133,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "balance-sheet.light.1280": {
+   "textNodes": 128,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "balance-sheet.dark.1280": {
+   "textNodes": 128,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "balance-sheet.light.1920": {
+   "textNodes": 128,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "balance-sheet.dark.1920": {
+   "textNodes": 128,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "bank-transactions.light.390": {
+   "textNodes": 328,
+   "belowAA": 0,
+   "worstRatio": 4.79,
+   "axeColorContrastViolations": 0
+  },
+  "bank-transactions.dark.390": {
+   "textNodes": 328,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "bank-transactions.light.1280": {
+   "textNodes": 321,
+   "belowAA": 0,
+   "worstRatio": 4.79,
+   "axeColorContrastViolations": 0
+  },
+  "bank-transactions.dark.1280": {
+   "textNodes": 323,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "bank-transactions.light.1920": {
+   "textNodes": 323,
+   "belowAA": 0,
+   "worstRatio": 4.79,
+   "axeColorContrastViolations": 0
+  },
+  "bank-transactions.dark.1920": {
+   "textNodes": 323,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoice-new.light.390": {
+   "textNodes": 56,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoice-new.dark.390": {
+   "textNodes": 56,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoice-new.light.1280": {
+   "textNodes": 62,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoice-new.dark.1280": {
+   "textNodes": 62,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoice-new.light.1920": {
+   "textNodes": 62,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoice-new.dark.1920": {
+   "textNodes": 62,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoices.light.390": {
+   "textNodes": 276,
+   "belowAA": 0,
+   "worstRatio": 4.51,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoices.dark.390": {
+   "textNodes": 276,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoices.light.1280": {
+   "textNodes": 271,
+   "belowAA": 0,
+   "worstRatio": 4.51,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoices.dark.1280": {
+   "textNodes": 271,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoices.light.1920": {
+   "textNodes": 271,
+   "belowAA": 0,
+   "worstRatio": 4.51,
+   "axeColorContrastViolations": 0
+  },
+  "customer-invoices.dark.1920": {
+   "textNodes": 271,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "dashboard.light.390": {
+   "textNodes": 174,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "dashboard.dark.390": {
+   "textNodes": 174,
+   "belowAA": 0,
+   "worstRatio": 5,
+   "axeColorContrastViolations": 0
+  },
+  "dashboard.light.1280": {
+   "textNodes": 175,
+   "belowAA": 0,
+   "worstRatio": 5,
+   "axeColorContrastViolations": 0
+  },
+  "dashboard.dark.1280": {
+   "textNodes": 147,
+   "belowAA": 0,
+   "worstRatio": 5,
+   "axeColorContrastViolations": 0
+  },
+  "dashboard.light.1920": {
+   "textNodes": 175,
+   "belowAA": 0,
+   "worstRatio": 5,
+   "axeColorContrastViolations": 0
+  },
+  "dashboard.dark.1920": {
+   "textNodes": 175,
+   "belowAA": 0,
+   "worstRatio": 5,
+   "axeColorContrastViolations": 0
+  },
+  "general-ledger.light.390": {
+   "textNodes": 191,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "general-ledger.dark.390": {
+   "textNodes": 191,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "general-ledger.light.1280": {
+   "textNodes": 186,
+   "belowAA": 0,
+   "worstRatio": 5.37,
+   "axeColorContrastViolations": 0
+  },
+  "general-ledger.dark.1280": {
+   "textNodes": 186,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "general-ledger.light.1920": {
+   "textNodes": 186,
+   "belowAA": 0,
+   "worstRatio": 5.37,
+   "axeColorContrastViolations": 0
+  },
+  "general-ledger.dark.1920": {
+   "textNodes": 186,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "income-statement.light.390": {
+   "textNodes": 128,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "income-statement.dark.390": {
+   "textNodes": 128,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "income-statement.light.1280": {
+   "textNodes": 123,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "income-statement.dark.1280": {
+   "textNodes": 123,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "income-statement.light.1920": {
+   "textNodes": 123,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "income-statement.dark.1920": {
+   "textNodes": 123,
+   "belowAA": 0,
+   "worstRatio": 5.02,
+   "axeColorContrastViolations": 0
+  },
+  "payroll-employees.light.390": {
+   "textNodes": 92,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "payroll-employees.dark.390": {
+   "textNodes": 92,
+   "belowAA": 0,
+   "worstRatio": 5.07,
+   "axeColorContrastViolations": 0
+  },
+  "payroll-employees.light.1280": {
+   "textNodes": 88,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "payroll-employees.dark.1280": {
+   "textNodes": 88,
+   "belowAA": 0,
+   "worstRatio": 5.07,
+   "axeColorContrastViolations": 0
+  },
+  "payroll-employees.light.1920": {
+   "textNodes": 88,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "payroll-employees.dark.1920": {
+   "textNodes": 88,
+   "belowAA": 0,
+   "worstRatio": 5.07,
+   "axeColorContrastViolations": 0
+  },
+  "trial-balance.light.390": {
+   "textNodes": 202,
+   "belowAA": 0,
+   "worstRatio": 4.51,
+   "axeColorContrastViolations": 0
+  },
+  "trial-balance.dark.390": {
+   "textNodes": 202,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "trial-balance.light.1280": {
+   "textNodes": 197,
+   "belowAA": 0,
+   "worstRatio": 4.51,
+   "axeColorContrastViolations": 0
+  },
+  "trial-balance.dark.1280": {
+   "textNodes": 197,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "trial-balance.light.1920": {
+   "textNodes": 197,
+   "belowAA": 0,
+   "worstRatio": 4.51,
+   "axeColorContrastViolations": 0
+  },
+  "trial-balance.dark.1920": {
+   "textNodes": 197,
+   "belowAA": 0,
+   "worstRatio": 5.04,
+   "axeColorContrastViolations": 0
+  },
+  "vat201.light.390": {
+   "textNodes": 31,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "vat201.dark.390": {
+   "textNodes": 37,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "vat201.light.1280": {
+   "textNodes": 32,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "vat201.dark.1280": {
+   "textNodes": 32,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "vat201.light.1920": {
+   "textNodes": 32,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  },
+  "vat201.dark.1920": {
+   "textNodes": 32,
+   "belowAA": 0,
+   "worstRatio": 5.47,
+   "axeColorContrastViolations": 0
+  }
+ }
+}
