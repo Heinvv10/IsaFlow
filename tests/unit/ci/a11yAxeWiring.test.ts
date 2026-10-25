@@ -301,10 +301,37 @@ describe('inScreen keeps what went wrong', () => {
     expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled\n[object Object]');
   });
 
-  it('a thrown function is not read for a message: it is printed, not mined', async () => {
-    const fn = Object.assign(() => 0, { message: 'looks like an Error' });
+  it('a thrown function is printed as a function, not mined for a message property', async () => {
+    const fn = Object.assign(() => 'fn-body-marker', { message: 'looks like an Error' });
     const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw fn; } }).catch((e: Error) => e);
     expect((err as Error).message).not.toContain('looks like an Error');
+    expect((err as Error).message).toContain('fn-body-marker'); // String(fn) is its source: that is what was printed
     expect((err as Error).cause).toBe(fn);
+  });
+
+  it('a non-string `message` getter is read twice (once by us, once by JSON.stringify): "read once" holds for string messages only', async () => {
+    let reads = 0;
+    const numeric = { get message(): number { reads += 1; return 42; } };
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw numeric; } }).catch((e: Error) => e);
+    expect(reads).toBe(2);
+    expect((err as Error).message).toContain('{"message":42}');
+  });
+
+  it('a throwing toJSON, or a circular object, falls through to String(): the object\'s own text, never the sentinel', async () => {
+    class Named { toString(): string { return 'named-by-string'; } toJSON(): never { throw new Error('toJSON boom'); } }
+    class Loop { self = this; toString(): string { return 'loop-by-string'; } }
+    for (const [thrown, text] of [[new Named(), 'named-by-string'], [new Loop(), 'loop-by-string']] as const) {
+      const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw thrown; } }).catch((e: Error) => e);
+      expect((err as Error).message).toBe(`a11y screen "assets" (/accounting/assets): the screen never settled\n${text}`);
+      expect((err as Error).message).not.toContain('unprintable');
+      expect((err as Error).cause).toBe(thrown);
+    }
+  });
+
+  it('a throwing `message` getter yields only the sentinel: the fallbacks are not tried', async () => {
+    const hostile = { get message(): string { throw new Error('getter boom'); }, toString: () => 'would-be-fallback' };
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw hostile; } }).catch((e: Error) => e);
+    expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled\n[unprintable thrown value]');
+    expect((err as Error).message).not.toContain('would-be-fallback');
   });
 });
