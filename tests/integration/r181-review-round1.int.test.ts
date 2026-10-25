@@ -17,7 +17,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify, verifyAs, metaFor } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { log } from '@/lib/logger';
 
@@ -48,8 +48,7 @@ vi.mock('@/lib/neon', async (importOriginal) => {
   return { ...original, sql };
 });
 
-const paystackSays = (amountCents: number, extra: Record<string, unknown> = {}) => h.verifyTransaction.mockResolvedValue(
-  { status: 'success', id: 1811, amountCents, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', ...extra });
+const paystackSays = (amountCents: number, extra: Record<string, unknown> = {}) => h.verifyTransaction.mockImplementation(verifyAs({ status: 'success', id: 1811, amountCents, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', ...extra }));
 const errorLog = vi.spyOn(log, 'error');
 
 beforeAll(async () => {
@@ -134,7 +133,7 @@ describe('3. the second report is compared with what the first banked', () => {
     const ref = await checkout(A, id);
     h.verifyTransaction.mockImplementation(async () => {
       expect((await deliver(ref, 5000)).statusCode).toBe(200);
-      return { status: 'success', id: 1812, amountCents: 6000, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card' };
+      return { status: 'success', id: 1812, amountCents: 6000, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', metadata: await metaFor(ref) };
     });
     expect((await verify(ref)).body.data?.status).toBe('completed');
     const s = await settlement(A, ref, id);

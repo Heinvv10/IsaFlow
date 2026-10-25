@@ -87,7 +87,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       paymentMethod: 'admin_recorded',
       autoTriggered: false,
     });
-    const completed = await completeBundlePurchase(pending.purchaseId);
+    const completed = await completeBundlePurchase(pending.purchaseId, req.companyId);
     return apiResponse.created(
       res,
       { ...completed, mode: 'admin_recorded' as const },
@@ -106,7 +106,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const payerName = companyRow?.name ?? 'Tenant';
   const payerEmail = req.user?.email;
   if (!payerEmail) {
-    await failBundlePurchase(pending.purchaseId, 'no_payer_email');
+    await failBundlePurchase(pending.purchaseId, req.companyId, 'no_payer_email');
     return apiResponse.badRequest(res, 'Authenticated user has no email');
   }
 
@@ -151,7 +151,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       'Redirecting to Paystack',
     );
   } catch (err) {
-    await failBundlePurchase(pending.purchaseId, 'paystack_init_failed');
+    await failBundlePurchase(pending.purchaseId, req.companyId, 'paystack_init_failed');
     log.error(
       'Paystack transaction init failed',
       { purchaseId: pending.purchaseId, err: err instanceof Error ? err.message : String(err) },

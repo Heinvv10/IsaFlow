@@ -125,8 +125,8 @@ beforeAll(async () => {
   vatInput = await account('1300', 'vat_input', 'asset', 'debit');
   await account('2000', 'payable', 'liability', 'credit');
   clearSystemAccountCache(company);
-  await pool.query(`INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date)
-    VALUES($1,$2,'K072-E1','Ray','Tester','2026-01-01')`, [employee, company]);
+  await pool.query(`INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date, medical_aid_main_member)
+    VALUES($1,$2,'K072-E1','Ray','Tester','2026-01-01', true)`, [employee, company]);
   token = await new SignJWT({ sub: admin, aal: 'aal2' }).setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h').sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });

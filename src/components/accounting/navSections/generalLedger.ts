@@ -44,7 +44,7 @@ export const vatTab: Tab = {
     {
       section: 'Returns',
       items: [
-        { label: 'VAT Return', href: '/accounting/reports/vat-return' },
+        { label: 'VAT201', href: '/accounting/sars/vat201' },
       ],
     },
     {

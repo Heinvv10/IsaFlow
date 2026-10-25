@@ -34,7 +34,7 @@ import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/s
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
 import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
 import {
-  ageAtYearEnd, firstTwoNames, initialsFromName, monthsBetween, taxThresholdFor, toCCYYMMDD,
+  ageAtYearEnd, firstTwoNames, initialsFromName, localDay, monthsBetween, taxThresholdFor, toCCYYMMDD,
 } from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
 import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
 import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
@@ -180,7 +180,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         paye: l.paye,
       })),
       taxThreshold: taxThresholdFor(taxYear, row.date_of_birth, row.id_number),
-      dateOfBirth: row.date_of_birth ? (row.date_of_birth instanceof Date ? row.date_of_birth : new Date(String(row.date_of_birth))) : null,
+      dateOfBirth: localDay(row.date_of_birth),
       medical: medical && {
         fees: medical.fees, credit: medical.credit, additionalCredit: medical.additionalCredit, age65OrOlder: age != null && age >= 65, recorded: medical.recorded,
       },

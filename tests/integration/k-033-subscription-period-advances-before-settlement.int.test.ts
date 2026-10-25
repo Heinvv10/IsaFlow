@@ -315,8 +315,8 @@ describe('K-033 subscription period advances before Paystack settles', () => {
     // Both runs selected the row before either wrote to it: same id, same
     // status, same attempt_count. Only one may claim the attempt.
     const [runA, runB] = await Promise.all([
-      claimChargeAttempt(charge!.id, charge!.status, charge!.attempt_count),
-      claimChargeAttempt(charge!.id, charge!.status, charge!.attempt_count),
+      claimChargeAttempt(charge!.id, companyId, charge!.status, charge!.attempt_count),
+      claimChargeAttempt(charge!.id, companyId, charge!.status, charge!.attempt_count),
     ]);
 
     expect([runA, runB].filter((v) => v !== null)).toEqual([1]);

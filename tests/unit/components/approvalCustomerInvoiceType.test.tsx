@@ -7,7 +7,7 @@
  *  - a recurring run that held invoices for approval says how many.
  */
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ApprovalsPage from '@/../pages/accounting/approvals';
 import RecurringInvoicesPage from '@/../pages/accounting/recurring-invoices';
@@ -45,6 +45,32 @@ function answerApprovals() {
 
 afterEach(() => { cleanup(); });
 
+/**
+ * "Run Due" is disabled until the templates have loaded and one is due, and the count in its label ("Run Due (1)")
+ * appears at that moment. A click on it earlier is a silent no-op (the original findByRole could resolve while it was
+ * still disabled, then the result text never came), so wait for the count, then check it is enabled.
+ */
+const runDueButton = async () => {
+  const label = await turns(() => screen.getByText(/run due \(1\)/i));
+  const button = label.closest('button')!;
+  expect(button.disabled).toBe(false);
+  return button;
+};
+
+/**
+ * Wait for `read` to stop throwing by yielding whole event-loop turns, counted, not timed: a findBy* has a 1 s
+ * budget, and a role query over this page can take longer than that on a starved box. Each turn lets the mocked
+ * fetch -> json() -> setState chain advance, so the chain's order, not the machine's speed, decides the outcome.
+ */
+async function turns<T>(read: () => T): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < 500; i += 1) {
+    try { return read(); } catch (err) { last = err; }
+    await act(async () => { await new Promise<void>((r) => setImmediate(r)); });
+  }
+  throw last;
+}
+
 describe('the Enforce switch', () => {
   it('lists customer invoices with what the switch would hold, and switches that type', async () => {
     answerApprovals();
@@ -79,8 +105,8 @@ describe('the recurring invoices run', () => {
         nextRunDate: '2026-01-01', runCount: 0, status: 'active', totalAmount: 1150 }] } });
     });
     render(<RecurringInvoicesPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /run due/i }));
-    expect(await screen.findByText(/3 invoices generated — 2 held for approval/i)).toBeDefined();
+    fireEvent.click(await runDueButton());
+    await turns(() => screen.getByText(/3 invoices generated — 2 held for approval/i));
   });
 
   it('says nothing about approval when none was held, or the server sent no list', async () => {
@@ -92,8 +118,8 @@ describe('the recurring invoices run', () => {
         nextRunDate: '2026-01-01', runCount: 0, status: 'active', totalAmount: 1150 }] } });
     });
     render(<RecurringInvoicesPage />);
-    fireEvent.click(await screen.findByRole('button', { name: /run due/i }));
-    expect(await screen.findByText(/1 invoice generated/i)).toBeDefined();
+    fireEvent.click(await runDueButton());
+    await turns(() => screen.getByText(/1 invoice generated/i));
     expect(screen.queryByText(/held for approval/i)).toBeNull();
   });
 });

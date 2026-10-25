@@ -26,6 +26,7 @@ import { createHash, createHmac } from 'crypto';
 import { Pool } from 'pg';
 import type { NextApiRequest } from 'next';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
+import { als } from '@/lib/als';
 
 type Seen = { request: string | undefined; mandate: string | undefined };
 type RealSql = (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>;
@@ -78,6 +79,7 @@ const eventBody = JSON.stringify({
     reference,
     status: 'success',
     amount: 10000,
+    metadata: { purpose: 'mandate_authorisation', company_id: companyId, mandate_id: mandateId },
     currency: 'ZAR',
     channel: 'card',
     customer: { email: 'payer@k035.test.local', customer_code: 'CUS_k035' },
@@ -95,12 +97,23 @@ const eventBody = JSON.stringify({
 const bodyHash = createHash('sha256').update(eventBody).digest('hex');
 
 type StatusRows = Array<{ status: string }>;
-hooks.probe = async (q) => ({
-  request: ((await q`SELECT status FROM paystack_payment_requests
-    WHERE id = ${prId} AND company_id = ${companyId}`) as StatusRows)[0]?.status,
-  mandate: ((await q`SELECT status FROM subscription_mandates
-    WHERE id = ${mandateId} AND company_id = ${companyId}`) as StatusRows)[0]?.status,
-});
+// The mandate is written on the migration_admin transaction the webhook opens
+// on demand beside its own (S-07e, 945), so it is read there when that client
+// exists. Before the first billing write (the 'handler' hook) it may not, and
+// the mandate is read through the service query function instead.
+hooks.probe = async (q) => {
+  const adminClient = als.getStore()?.migrationAdminClient;
+  const mandate = adminClient
+    ? (await adminClient.query(`SELECT status FROM subscription_mandates
+        WHERE id = $1 AND company_id = $2`, [mandateId, companyId])).rows as StatusRows
+    : (await q`SELECT status FROM subscription_mandates
+        WHERE id = ${mandateId} AND company_id = ${companyId}`) as StatusRows;
+  return {
+    request: ((await q`SELECT status FROM paystack_payment_requests
+      WHERE id = ${prId} AND company_id = ${companyId}`) as StatusRows)[0]?.status,
+    mandate: mandate[0]?.status,
+  };
+};
 
 function deliver() {
   const req = Readable.from([Buffer.from(eventBody)]) as unknown as NextApiRequest;

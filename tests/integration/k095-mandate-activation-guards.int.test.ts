@@ -63,13 +63,14 @@ let newerActiveMandate: string;
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
-function chargeSuccess(reference: string) {
+function chargeSuccess(reference: string, companyId: string, mandateId: string) {
   return {
     event: 'charge.success',
     data: {
       reference,
       status: 'success',
       id: 515151,
+      metadata: { purpose: 'mandate_authorisation', company_id: companyId, mandate_id: mandateId },
       customer: { customer_code: 'CUS_k095' },
       authorization: {
         authorization_code: 'AUTH_k095_new',
@@ -211,7 +212,7 @@ describeIfDb('K-095 a second active mandate is refused, not thrown', () => {
 
   it('refuses a second active mandate without throwing or poisoning the transaction', async () => {
     const { thrown, txUsable, committed } = await inWebhookTx(() =>
-      processEvent('charge.success', chargeSuccess(BLOCKED_REF)),
+      processEvent('charge.success', chargeSuccess(BLOCKED_REF, BLOCKED_CO, secondCheckout)),
     );
 
     expect(thrown).toBeNull();
@@ -239,7 +240,7 @@ describeIfDb('K-095 a second active mandate is refused, not thrown', () => {
 
   it('never resurrects a revoked mandate from a payment event', async () => {
     const { thrown, txUsable, committed } = await inWebhookTx(() =>
-      processEvent('charge.success', chargeSuccess(REVOKED_REF)),
+      processEvent('charge.success', chargeSuccess(REVOKED_REF, REVOKED_CO, revokedMandate)),
     );
 
     expect(thrown).toBeNull();
@@ -300,6 +301,7 @@ describeIfDb('K-095 a second active mandate is refused, not thrown', () => {
     verifyTransaction.mockResolvedValueOnce({
       status: 'success',
       id: 626262,
+      metadata: { purpose: 'mandate_authorisation', company_id: VERIFY_CO, mandate_id: linkedMandate },
       customer: { customerCode: 'CUS_k095v' },
       authorization: { authorizationCode: 'AUTH_k095v', last4: '4444', brand: 'visa', bank: 'Linked Bank' },
     });

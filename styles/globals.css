@@ -99,6 +99,10 @@
     --ff-prior: #c9d0cc;
     --ff-plan: #8a94a0;
     --ff-fig-font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    /* Keyboard focus ring (kit inputs and buttons): teal-600, 3.7:1 on white, 3 px. */
+    --ff-focus-ring: #0d9488;
+    --ff-focus-ring-width: 3px;
   }
 
   .dark {
@@ -163,6 +167,9 @@
     --ff-unfav: #f08a8a;
     --ff-prior: #3a4752;
     --ff-plan: #7b8792;
+
+    /* teal-400: 10:1 on the dark canvas (#0f172a), 7:1 on the dark input fill (#1e293b). */
+    --ff-focus-ring: #2dd4bf;
   }
 
   /* ── Theme axis: client (Warm) overrides ──────────────────────────── */
@@ -210,6 +217,30 @@
   .dark input[type="time"]::-webkit-calendar-picker-indicator,
   .dark input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     filter: invert(1);
+  }
+}
+
+@layer components {
+  /*
+   * Visible keyboard focus for kit inputs and buttons, both themes. An outline (not a
+   * box-shadow) so it survives forced-colors mode. The doubled .dark selector outranks
+   * `.dark input:focus` above, which would otherwise swap it for a 1 px shadow.
+   */
+  .ff-focus-ring:focus-visible,
+  .dark .ff-focus-ring:focus-visible {
+    outline: var(--ff-focus-ring-width) solid var(--ff-focus-ring);
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+
+  /*
+   * The ring sits 2 px off the control, so an overflow-hidden parent with less than 5 px of room clips it
+   * (a field flush in a card). Add ff-focus-ring-inset there: the ring is drawn inside the control instead.
+   * Not for solid-teal buttons (an inside teal ring on teal is invisible): give those 5 px of room.
+   */
+  .ff-focus-ring.ff-focus-ring-inset:focus-visible,
+  .dark .ff-focus-ring.ff-focus-ring-inset:focus-visible {
+    outline-offset: calc(var(--ff-focus-ring-width) * -1);
   }
 }
 

@@ -29,9 +29,10 @@ const OUTPUT_BOXES: VAT201BoxDef[] = [
 
 const INPUT_BOXES: VAT201BoxDef[] = [
   { box: '14',      label: 'Capital goods/services purchased', accountType: 'asset', vatTypes: ['capital_goods'] },
-  { box: '15',      label: 'Other goods/services purchased',   accountType: 'asset', vatTypes: ['standard'] },
+  // Domestic reverse charge input is an ordinary claim: box 15, as vat201ReportService numbers it
+  // (UNVERIFIED: SARS DRC guide not on file). It was box 16 'Change in use' here.
+  { box: '15',      label: 'Other goods/services purchased',   accountType: 'asset', vatTypes: ['standard', 'reverse_charge'] },
   { box: '14A/15A', label: 'Goods imported',                   accountType: 'asset', vatTypes: ['imported'] },
-  { box: '16',      label: 'Change in use',                    accountType: 'asset', vatTypes: ['reverse_charge'] },
   { box: '17',      label: 'Bad debts',                        accountType: 'asset', vatTypes: ['bad_debt'] },
   { box: '18',      label: 'Other adjustments',                accountType: 'asset', vatTypes: ['exempt', 'no_vat'] },
 ];

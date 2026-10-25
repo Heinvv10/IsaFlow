@@ -49,7 +49,6 @@ const loadOnMount: Array<[string, () => Promise<{ default: () => React.ReactElem
   ['management-accounts', () => import('../../../pages/accounting/reports/management-accounts'), 'reports-management-accounts', 500],
   ['project-profitability', () => import('../../../pages/accounting/reports/project-profitability'), 'reports-project-profitability', 400],
   ['supplier-reports', () => import('../../../pages/accounting/reports/supplier-reports'), 'reports-supplier', 500],
-  ['vat-return', () => import('../../../pages/accounting/reports/vat-return'), 'reports-vat-return', 409],
   ['disclosure-notes', () => import('../../../pages/accounting/reports/disclosure-notes'), '/api/accounting/disclosure-notes', 500],
   ['caseware-export', () => import('../../../pages/accounting/reports/caseware-export'), 'account-mappings', 500],
   ['my-reports', () => import('../../../pages/accounting/reports/my-reports'), 'custom-reports', 500],
@@ -98,7 +97,6 @@ const lineItem = (accountName: string, amount: number) => ({ accountCode: '4000'
 const bucket = (b: string) => ({ bucket: b, count: 1, total: 100 });
 const aged = { invoice_number: 'INV-1', invoice_date: '2026-09-01', due_date: '2026-09-30', total_amount: 100, amount_paid: 0, balance_due: 100, days_overdue: 5, bucket: '1-30' };
 const party = { invoiceCount: 2, totalInvoiced: 100, totalPaid: 40, balance: 60 };
-const box = (label: string, amount: number) => ({ box: '1', label, amount });
 
 describe('report pages render the data they received (success path)', () => {
   const cases: Array<[string, () => Promise<{ default: () => React.ReactElement }>, Record<string, unknown>, string]> = [
@@ -120,8 +118,6 @@ describe('report pages render the data they received (success path)', () => {
       { '/api/accounting/disclosure-notes': { notes: [{ noteNumber: 7, title: 'Axolotl Related Parties', content: 'c', source: 'auto' }] } }, 'Axolotl Related Parties'],
     ['caseware-export', () => import('../../../pages/accounting/reports/caseware-export'),
       { 'account-mappings': { items: [{ glAccountId: 'g1', accountCode: '1234', accountName: 'Tapir Petty Cash', accountType: 'asset', accountSubtype: null, externalCode: '', externalLabel: '' }] } }, 'Tapir Petty Cash'],
-    ['vat-return', () => import('../../../pages/accounting/reports/vat-return'),
-      { 'reports-vat-return': { periodStart: '2026-09-01', periodEnd: '2026-09-30', outputBoxes: [box('Kakapo standard-rated supplies', 100)], totalOutputTax: 100, inputBoxes: [], totalInputTax: 0, netVAT: 100 } }, 'Kakapo standard-rated supplies'],
     ['income-statement', () => import('../../../pages/accounting/reports/income-statement'),
       { 'reports-income-statement': { periodStart: '2026-09-01', periodEnd: '2026-09-30', revenue: [lineItem('Gazelle Sales', 100)], otherIncome: [], costOfSales: [], operatingExpenses: [], otherExpenses: [], totalRevenue: 100, totalOtherIncome: 0, totalCostOfSales: 0, totalOperatingExpenses: 0, totalOtherExpenses: 0, grossProfit: 100, operatingProfit: 100, netProfit: 100 } }, 'Gazelle Sales'],
     ['balance-sheet', () => import('../../../pages/accounting/reports/balance-sheet'),

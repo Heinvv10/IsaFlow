@@ -121,32 +121,43 @@ describe('withSavepoint on one request connection', () => {
     }
   });
 
-  it('a waiter behind siblings that keep finishing is not refused, however long it waits in total', async () => {
-    const pg = pgLikeClient();
-    const saved = savepointQueueWait.ms;
-    savepointQueueWait.ms = 100;
-    const slow = (name: string) => withSavepoint(name, async () => { await new Promise((r) => setTimeout(r, 60)); return name; });
-    try {
-      // The last one waits about 180 ms in total, but something finishes every 60 ms.
-      const out = await inRequest(pg.client, () => Promise.all([slow('s1'), slow('s2'), slow('s3'), withSavepoint('last', read(1))]));
-      expect(out).toEqual(['s1', 's2', 's3', 1]);
-    } finally {
-      savepointQueueWait.ms = saved;
-    }
-  });
+  // The two progress tests run on fake timers (Date is faked too): with real timers a
+  // 60 ms setTimeout stretched past the 100 ms bound by event-loop jitter on a busy box.
+  describe('progress-based bound (fake clock)', () => {
+    const bound = async (fn: () => Promise<void>) => {
+      const saved = savepointQueueWait.ms;
+      savepointQueueWait.ms = 100;
+      vi.useFakeTimers();
+      try { await fn(); } finally { vi.useRealTimers(); savepointQueueWait.ms = saved; }
+    };
+    const sleeper = (name: string, ms: number) =>
+      withSavepoint(name, async () => { await new Promise((r) => setTimeout(r, ms)); return name; });
 
-  it('a waiter behind ONE long savepoint that keeps completing statements is not refused', async () => {
-    const pg = pgLikeClient(40);
-    const saved = savepointQueueWait.ms;
-    savepointQueueWait.ms = 100;
-    try {
-      // About 320 ms inside one savepoint, but a statement completes every 40 ms.
+    it('a waiter behind siblings that keep finishing is not refused, however long it waits in total', () => bound(async () => {
+      const pg = pgLikeClient();
+      // The last one waits 180 ms in total, but something finishes every 60 ms.
+      const run = inRequest(pg.client, () => Promise.all([sleeper('s1', 60), sleeper('s2', 60), sleeper('s3', 60), withSavepoint('last', read(1))]));
+      await vi.advanceTimersByTimeAsync(400);
+      expect(await run).toEqual(['s1', 's2', 's3', 1]);
+    }));
+
+    it('a waiter behind a sibling that makes no progress for the bound IS refused', () => bound(async () => {
+      const pg = pgLikeClient();
+      const run = inRequest(pg.client, () => Promise.all([sleeper('stuck', 150), withSavepoint('waiter', read(1))].map((p) => p.catch((e: unknown) => e))));
+      await vi.advanceTimersByTimeAsync(400);
+      const [stuck, waiter] = await run;
+      expect(stuck).toBe('stuck');
+      expect(waiter).toBeInstanceOf(SavepointQueueTimeoutError);
+    }));
+
+    it('a waiter behind ONE long savepoint that keeps completing statements is not refused', () => bound(async () => {
+      const pg = pgLikeClient(40);
+      // 240+ ms inside one savepoint, but a statement completes every 40 ms.
       const busy = () => withSavepoint('busy', async () => { for (let i = 0; i < 6; i += 1) await sql`SELECT ${i}`; return 'busy'; });
-      const out = await inRequest(pg.client, () => Promise.all([busy(), sql`SELECT after`.then(() => 'after')]));
-      expect(out).toEqual(['busy', 'after']);
-    } finally {
-      savepointQueueWait.ms = saved;
-    }
+      const run = inRequest(pg.client, () => Promise.all([busy(), sql`SELECT after`.then(() => 'after')]));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await run).toEqual(['busy', 'after']);
+    }));
   });
 
   it('a sql.transaction batch queues with sibling savepoints instead of interleaving', async () => {

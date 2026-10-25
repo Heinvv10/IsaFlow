@@ -18,7 +18,6 @@ import {
   listComponents,
   createComponent,
 } from '@/modules/accounting/services/payroll/payrollComponentService';
-import type { PayrollComponent } from '@/modules/accounting/services/payroll/payrollTypes';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 
 async function handler(
@@ -40,12 +39,21 @@ async function handler(
     if (!name || !code || !componentType) {
       return apiResponse.badRequest(res, 'name, sarsSourceCode, componentType are required');
     }
+    // The calculator processes earnings and deductions only: an employer contribution would show on the pay run
+    // and change nothing (no cost, journal line or EMP201/IRP5 figure), so it is refused until it is modelled.
+    if (componentType === 'employer_contribution') {
+      return apiResponse.badRequest(res, 'Employer contributions are not supported yet: payroll does not cost, post or declare them. '
+        + 'Record an employer share as a separate taxable earning.');
+    }
+    if (componentType !== 'earning' && componentType !== 'deduction') {
+      return apiResponse.badRequest(res, "componentType must be 'earning' or 'deduction'");
+    }
 
-    const data: Omit<PayrollComponent, 'id'> = {
+    const data: Parameters<typeof createComponent>[1] = {
       name: String(name),
       // Normalised as PAYE classifies it (normaliseSarsCode), so the stored code is the one every reader sees.
       sarsSourceCode: code,
-      componentType: String(componentType) as PayrollComponent['componentType'],
+      componentType,
       isTaxable: isTaxable !== false,
       isUifApplicable: isUifApplicable !== false,
       isSdlApplicable: isSdlApplicable !== false,

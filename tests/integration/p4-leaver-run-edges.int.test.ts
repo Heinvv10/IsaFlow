@@ -49,8 +49,8 @@ async function addEmployee(
   start: string, end: string | null, status: string,
 ) {
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,end_date,status)
-     VALUES($1,$2,$3,'Edge',$3,$4::date,$5::date,$6)`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,end_date,status, medical_aid_main_member)
+     VALUES($1,$2,$3,'Edge',$3,$4::date,$5::date,$6, true)`,
     [id, companyId, num, start, end, status],
   );
   await pool.query(

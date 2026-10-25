@@ -42,7 +42,7 @@ export function VAT201PeriodSelector({
               onClick={() => onQuickSelect(p.from, p.to)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                 from === p.from && to === p.to
-                  ? 'bg-teal-600 text-white border-teal-600'
+                  ? 'bg-teal-700 text-white border-teal-700'
                   : 'border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:border-teal-500/50 hover:text-[var(--ff-text-primary)]'
               }`}
             >
@@ -54,8 +54,9 @@ export function VAT201PeriodSelector({
 
       <div className="flex flex-wrap items-end gap-4">
         <div>
-          <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period Start</label>
+          <label htmlFor="vat201-period-start" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period Start</label>
           <input
+            id="vat201-period-start"
             type="date"
             value={from}
             onChange={(e) => onFromChange(e.target.value)}
@@ -63,8 +64,9 @@ export function VAT201PeriodSelector({
           />
         </div>
         <div>
-          <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period End</label>
+          <label htmlFor="vat201-period-end" className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Period End</label>
           <input
+            id="vat201-period-end"
             type="date"
             value={to}
             onChange={(e) => onToChange(e.target.value)}
@@ -74,7 +76,7 @@ export function VAT201PeriodSelector({
         <button
           onClick={onGenerate}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-700 text-white text-sm font-medium hover:bg-teal-800 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
           Generate

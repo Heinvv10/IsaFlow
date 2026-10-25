@@ -72,6 +72,11 @@ function boxValue(report: Vat201Report, box: string, field: 'base' | 'tax'): num
   return r2(report.boxes.filter((b) => b.box === box).reduce((s, b) => s + b[field], 0));
 }
 
+/** Tax in every box of `direction` that is NOT one of `named`: whatever the payload has no field of its own for. */
+function taxOutside(report: Vat201Report, direction: 'output' | 'input', named: readonly string[]): number {
+  return r2(report.boxes.filter((b) => b.direction === direction && !named.includes(b.box)).reduce((s, b) => s + b.tax, 0));
+}
+
 function toCsv(report: Vat201Report): string {
   const header = ['box', 'label', 'direction', 'vat_type', 'base', 'tax', 'implied_tax_at_15pct', 'variance'];
   const lines = [header.map(csvVal).join(',')];
@@ -131,6 +136,9 @@ export async function exportVat201(
 
   return {
     ...base,
+    // The payload's net must be the report's net. Output boxes the payload has no field for (12: domestic
+    // reverse charge, imported services; unmapped types) go in `outputVATOther`, and input boxes beyond
+    // 14 / 15 / 14A-15A (16, 17, 18, unmapped) are `adjustments`; a mismatch refuses the export.
     payload: buildVAT201Payload({
       taxPeriod: taxPeriod(periodEnd),
       vatNumber: company?.vatNumber ?? '',
@@ -140,7 +148,8 @@ export async function exportVat201(
       outputVATExempt: boxValue(report, '3', 'tax'),
       inputVATCapitalGoods: boxValue(report, '14', 'tax'),
       inputVATOther: boxValue(report, '15', 'tax') + boxValue(report, '14A/15A', 'tax'),
-      adjustments: boxValue(report, '16', 'tax') + boxValue(report, '17', 'tax') + boxValue(report, '18', 'tax'),
-    }),
+      adjustments: taxOutside(report, 'input', ['14', '15', '14A/15A']),
+      outputVATOther: taxOutside(report, 'output', ['1', '1A', '2', '2A', '3']),
+    }, { expectedNetVat: report.totals.netVat }),
   };
 }
