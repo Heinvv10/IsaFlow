@@ -110,19 +110,19 @@ async function searchGlAccounts(companyId: string, pattern: string): Promise<Sea
 async function searchCustomers(companyId: string, pattern: string): Promise<SearchResult[]> {
   try {
     const rows = await sql`
-      SELECT id, name, account_number
+      SELECT id, name, email
       FROM customers
       WHERE company_id = ${companyId}
-        AND (name ILIKE ${pattern} OR account_number ILIKE ${pattern})
+        AND (name ILIKE ${pattern} OR email ILIKE ${pattern})
         AND deleted_at IS NULL
       LIMIT 3
-    ` as { id: string; name: string; account_number: string | null }[];
+    ` as { id: string; name: string; email: string | null }[];
 
     return rows.map(r => ({
       type: 'customer',
       id: String(r.id),
       title: String(r.name),
-      subtitle: r.account_number ? String(r.account_number) : '',
+      subtitle: r.email ? String(r.email) : '',
       url: `/accounting/customers?id=${r.id}`,
       icon: 'users',
     }));
@@ -135,19 +135,19 @@ async function searchCustomers(companyId: string, pattern: string): Promise<Sear
 async function searchSuppliers(companyId: string, pattern: string): Promise<SearchResult[]> {
   try {
     const rows = await sql`
-      SELECT id, name, account_number
+      SELECT id, name, email
       FROM suppliers
       WHERE company_id = ${companyId}
-        AND (name ILIKE ${pattern} OR account_number ILIKE ${pattern})
+        AND (name ILIKE ${pattern} OR email ILIKE ${pattern})
         AND deleted_at IS NULL
       LIMIT 3
-    ` as { id: string; name: string; account_number: string | null }[];
+    ` as { id: string; name: string; email: string | null }[];
 
     return rows.map(r => ({
       type: 'supplier',
       id: String(r.id),
       title: String(r.name),
-      subtitle: r.account_number ? String(r.account_number) : '',
+      subtitle: r.email ? String(r.email) : '',
       url: `/accounting/suppliers?id=${r.id}`,
       icon: 'truck',
     }));
@@ -160,18 +160,20 @@ async function searchSuppliers(companyId: string, pattern: string): Promise<Sear
 async function searchCustomerInvoices(companyId: string, pattern: string): Promise<SearchResult[]> {
   try {
     const rows = await sql`
-      SELECT id, invoice_number, customer_name, total
-      FROM customer_invoices
-      WHERE company_id = ${companyId}
-        AND (invoice_number ILIKE ${pattern} OR customer_name ILIKE ${pattern})
+      SELECT ci.id, ci.invoice_number, c.name AS customer_name, ci.total_amount
+      FROM customer_invoices ci
+      LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id) AND c.company_id = ci.company_id
+      WHERE ci.company_id = ${companyId}
+        AND ci.deleted_at IS NULL
+        AND (ci.invoice_number ILIKE ${pattern} OR c.name ILIKE ${pattern})
       LIMIT 3
-    ` as { id: string; invoice_number: string; customer_name: string; total: string | number }[];
+    ` as { id: string; invoice_number: string; customer_name: string | null; total_amount: string | number }[];
 
     return rows.map(r => ({
       type: 'invoice',
       id: String(r.id),
       title: String(r.invoice_number),
-      subtitle: `${r.customer_name} | R ${Number(r.total).toFixed(2)}`,
+      subtitle: `${r.customer_name ?? ''} | R ${Number(r.total_amount).toFixed(2)}`,
       url: `/accounting/customer-invoices?id=${r.id}`,
       icon: 'file-text',
     }));
@@ -233,17 +235,18 @@ async function searchBankTransactions(companyId: string, pattern: string): Promi
 async function searchItems(companyId: string, pattern: string): Promise<SearchResult[]> {
   try {
     const rows = await sql`
-      SELECT id, item_code, item_name
+      SELECT id, code, description
       FROM items
       WHERE company_id = ${companyId}
-        AND (item_code ILIKE ${pattern} OR item_name ILIKE ${pattern})
+        AND deleted_at IS NULL
+        AND (code ILIKE ${pattern} OR description ILIKE ${pattern})
       LIMIT 3
-    ` as { id: string; item_code: string; item_name: string }[];
+    ` as { id: string; code: string; description: string }[];
 
     return rows.map(r => ({
       type: 'item',
       id: String(r.id),
-      title: `${r.item_code} — ${r.item_name}`,
+      title: `${r.code} — ${r.description}`,
       subtitle: '',
       url: `/accounting/items?id=${r.id}`,
       icon: 'package',
