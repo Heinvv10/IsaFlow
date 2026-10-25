@@ -137,6 +137,7 @@ describe('what a connect timeout means to each caller', () => {
   it('a delivery stamp throws with the lock code (the caller logs it and counts no failure: the count is in the statement)', async () => {
     h.connectError = poolTimeout();
     await expect(stampDelivery(COMPANY, 'e1', false, 5)).rejects.toMatchObject({ code: '55P03' });
+    expect(h.connects).toBe(2); // the failure stamp is retried once (webhookEndpointWrites.stampDelivery) before it gives up
     expect(h.queries).toEqual([]);
   });
 });

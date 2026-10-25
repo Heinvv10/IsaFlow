@@ -12,7 +12,7 @@ import { Pool } from 'pg';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 
 const { fetchMock, barrier, removeMock } = vi.hoisted(() => {
-  const removeMock = vi.fn(async (_bucket: string, _path: string) => undefined);
+  const removeMock = vi.fn(async (_bucket: string, _path: string, _companyId: string) => undefined);
   const barrier = { parties: 0, arrived: 0, release: () => {}, open: Promise.resolve() };
   const fetchMock = vi.fn(async (url: string) => ({
     buffer: Buffer.from(`%PDF-1.4 k160 race ${url}`),
@@ -38,7 +38,7 @@ vi.mock('@/modules/accounting/services/capture/bankTxQueryReplyService', () => (
   markQueryReplied: vi.fn(async () => undefined),
 }));
 vi.mock('@/lib/supabaseStorage', () => ({
-  removeCapturedDocument: (bucket: string, path: string) => removeMock(bucket, path),
+  removeCapturedDocument: (bucket: string, path: string, companyId: string) => removeMock(bucket, path, companyId),
 }));
 vi.mock('@/lib/documentStorage', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/documentStorage')>();
@@ -133,6 +133,7 @@ it('two concurrent deliveries of one media message ingest it once and both resol
   );
   expect(removeMock).toHaveBeenCalledTimes(1);
   expect(removeMock.mock.calls[0]![0]).toBe('k160-disposable');
+  expect(removeMock.mock.calls[0]![2]).toBe(company); // the delete is scoped to the connection's own company
   expect(removeMock.mock.calls[0]![1]).toMatch(/^k160\/[0-9a-f-]{36}\.pdf$/);
   expect(removeMock.mock.calls[0]![1]).not.toBe(kept.rows[0].storage_path);
   const ids = results.map((r) => ('captureEventIds' in r ? r.captureEventIds.length : -1));

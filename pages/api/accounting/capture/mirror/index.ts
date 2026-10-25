@@ -14,6 +14,7 @@ import {
   createImapConnection,
 } from '@/modules/accounting/services/capture/mirrorConnectionService';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
+import { MirrorConnectionCapError, scanIntervalError } from '@/modules/accounting/services/capture/mirrorLimits';
 
 interface CreateImapBody {
   displayName?: string;
@@ -44,25 +45,34 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'displayName, accountEmail, imapHost, imapPort, imapUsername, imapPassword are required');
     }
 
+    const intervalError = scanIntervalError(body.scanIntervalMinutes);
+    if (intervalError) return apiResponse.badRequest(res, intervalError);
+
     // The scan cron presents the stored password to this host: public hosts and IMAP ports only.
     const target = await checkImapTarget(body.imapHost, body.imapPort);
     if (!target.ok) return apiResponse.badRequest(res, target.message);
 
-    const created = await createImapConnection({
-      companyId,
-      createdBy: req.user?.id ?? null,
-      displayName: body.displayName,
-      accountEmail: body.accountEmail,
-      imapHost: body.imapHost,
-      imapPort: body.imapPort,
-      imapUseTls: body.imapUseTls,
-      imapUsername: body.imapUsername,
-      imapPassword: body.imapPassword,
-      folder: body.folder,
-      scanIntervalMinutes: body.scanIntervalMinutes,
-      allowedSenders: body.allowedSenders,
-      deniedSenders: body.deniedSenders,
-    });
+    let created: Awaited<ReturnType<typeof createImapConnection>>;
+    try {
+      created = await createImapConnection({
+        companyId,
+        createdBy: req.user?.id ?? null,
+        displayName: body.displayName,
+        accountEmail: body.accountEmail,
+        imapHost: body.imapHost,
+        imapPort: body.imapPort,
+        imapUseTls: body.imapUseTls,
+        imapUsername: body.imapUsername,
+        imapPassword: body.imapPassword,
+        folder: body.folder,
+        scanIntervalMinutes: body.scanIntervalMinutes,
+        allowedSenders: body.allowedSenders,
+        deniedSenders: body.deniedSenders,
+      });
+    } catch (err) {
+      if (err instanceof MirrorConnectionCapError) return apiResponse.conflict(res, err.message, { reason: err.reason });
+      throw err;
+    }
 
     return apiResponse.created(res, { connection: created });
   }

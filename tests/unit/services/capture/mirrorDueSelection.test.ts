@@ -13,6 +13,8 @@
  * Round 5: the selection runs on migration_admin (routeAdminQuery: an app role has no UPDATE,
  * which a row lock needs) and locks FOR NO KEY UPDATE, which the key-share lock of an app
  * role's scan-log INSERT does not block. Nothing goes through the app pool.
+ * Round 8: at most ONE connection per company per tick (ROW_NUMBER per company), and a stored
+ * interval below 5 minutes counts as 5 (mirrorDueSql.ts).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -42,15 +44,18 @@ describe.each([
   ['capture mirror', listActiveConnections, 'imap_mirror_connections'],
   ['sent mirror', listActiveSentConnections, 'sent_mirror_connections'],
 ] as const)('%s: the connections the cron picks', (_name, list, table) => {
-  it('active rows never scanned, past their interval, or stamped into the future (last of the due rows); a row another transaction holds is skipped, not counted against the limit', async () => {
+  it('active rows never scanned, past their interval (at least 5 minutes), or stamped into the future (last of the due rows), one per company; a row another transaction holds is skipped, not counted against the limit', async () => {
     await list();
     expect(h.statements).toHaveLength(1);
     const q = h.statements[0]!;
-    expect(q.startsWith('route: SELECT * FROM')).toBe(true);
-    expect(q).toContain(`FROM ${table}`);
+    expect(q.startsWith('route: SELECT c.* FROM')).toBe(true);
+    expect(q).toContain(`FROM ${table} c JOIN`);
     expect(q).toContain("WHERE status = 'active'");
-    expect(q).toMatch(/\(last_scan_at IS NULL OR last_scan_at > NOW\(\) OR last_scan_at < NOW\(\) - \(scan_interval_minutes \|\| ' minutes'\)::INTERVAL\)/);
-    expect(q).toContain("ORDER BY CASE WHEN last_scan_at > NOW() THEN 'infinity'::timestamptz ELSE last_scan_at END ASC NULLS FIRST");
-    expect(q).toMatch(/LIMIT 20 FOR NO KEY UPDATE SKIP LOCKED$/);
+    expect(q).toMatch(/\(last_scan_at IS NULL OR last_scan_at > NOW\(\) OR last_scan_at < NOW\(\) - \(GREATEST\(scan_interval_minutes, 5\) \|\| ' minutes'\)::INTERVAL\)/);
+    // One candidate per company: the company's most overdue due row (a future stamp last), then oldest first across companies.
+    expect(q).toContain("ROW_NUMBER() OVER (PARTITION BY company_id ORDER BY CASE WHEN last_scan_at > NOW() THEN 'infinity'::timestamptz ELSE last_scan_at END ASC NULLS FIRST, id) AS rn");
+    expect(q).toContain('ON d.id = c.id AND d.rn = 1');
+    expect(q).toContain('ORDER BY d.dueness ASC NULLS FIRST');
+    expect(q).toMatch(/LIMIT 20 FOR NO KEY UPDATE OF c SKIP LOCKED$/);
   });
 });

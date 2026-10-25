@@ -8,6 +8,9 @@
 //   UPDATE: no app role can lock these rows any more (no UPDATE), the key-share lock of an app
 //   role's scan-log INSERT does not hide a row, and breaker5's NULL pin is refused 42501 at the
 //   UPDATE (the forged stamps below are therefore set as the owner).
+// - Round 8: the selection takes at most ONE connection per company per tick (the company's most
+//   overdue), so a tenant's many connections cannot fill the serial cron's tick; and a stored
+//   scan_interval_minutes below 5 counts as 5, so a 0 or 1 is not due on every tick.
 // - isFileAlreadyCaptured (the capture mirror's de-dupe) as the cron runs it: no company claim,
 //   scoped by company_id, blind to an unfinished ingest (a 'pending' row with no event), and,
 //   since round 5, to a rejected or failed document, so a re-sent copy of it is captured again.
@@ -38,8 +41,23 @@ const add = async (table: string, co: string, scanned: string | null): Promise<s
    VALUES ($1, 'imap', 'Due', $2, 'active', 'imap.due.test', 993, true, 'u', 'enc:x', ${scanned === null ? 'NULL' : `NOW() - ${scanned}::interval`})
    RETURNING id`, [co, `due-${++seq}-${crypto.randomUUID().slice(0, 6)}@s07eb.test`])).rows[0].id as string;
 
+/** Companies of their own for the selection's per-company cases (the fixture has only `company` and `other`). */
+const extraCompanies: string[] = [];
+const newCompany = async (): Promise<string> => {
+  const id = crypto.randomUUID();
+  await q('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [id, `s07eb-due-${id.slice(0, 8)}`]);
+  extraCompanies.push(id);
+  return id;
+};
+const dropExtraCompanies = async (): Promise<void> => {
+  for (const [, table] of SELECTORS) await q(`DELETE FROM ${table} WHERE company_id = ANY($1)`, [extraCompanies]);
+  await q('DELETE FROM companies WHERE id = ANY($1)', [extraCompanies]);
+  extraCompanies.length = 0;
+};
+
 beforeAll(async () => { await setup(ids); }, 60000);
 afterAll(async () => {
+  await dropExtraCompanies();
   await q('DELETE FROM captured_documents WHERE company_id = ANY($1)', [[company, other]]);
   for (const [, table] of SELECTORS) await q(`DELETE FROM ${table} WHERE company_id = ANY($1)`, [[company, other]]);
   await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool(), billingAdminPool(), routeAdminPool()]);
@@ -48,7 +66,10 @@ afterAll(async () => {
 describe.each(SELECTORS)('S-07e part B (946) round 4: %s, the due selection', (_name, table, list) => {
   const listed = async () => (await list()).map((c) => c.id);
   // The selection takes 20 rows: a test's rows must not crowd the next one's out.
-  afterEach(async () => { await q(`DELETE FROM ${table} WHERE company_id = ANY($1)`, [[company, other]]); });
+  afterEach(async () => {
+    await q(`DELETE FROM ${table} WHERE company_id = ANY($1)`, [[company, other]]);
+    await dropExtraCompanies();
+  });
 
   it('a row another session holds locked is skipped and a bystander is listed; once released, it is listed again', async () => {
     const held = await add(table, other, "'1 day'");
@@ -114,13 +135,56 @@ describe.each(SELECTORS)('S-07e part B (946) round 4: %s, the due selection', (_
     }
   }, 30000);
 
-  it('a future last_scan_at is still due, and sorts after never-scanned and overdue rows', async () => {
-    const future = await add(table, company, null);
+  it('a future last_scan_at is still due, and sorts after never-scanned and overdue rows (one connection per company)', async () => {
+    const [cFuture, cOverdue, cNever] = [await newCompany(), await newCompany(), await newCompany()];
+    const future = await add(table, cFuture, null);
     await q(`UPDATE ${table} SET last_scan_at = NOW() + interval '30 days' WHERE id = $1`, [future]);
-    const overdue = await add(table, company, "'2 days'");
-    const never = await add(table, company, null);
+    const overdue = await add(table, cOverdue, "'2 days'");
+    const never = await add(table, cNever, null);
     const order = (await listed()).filter((id) => [future, overdue, never].includes(id));
     expect(order).toEqual([never, overdue, future]);
+  }, 30000);
+
+  it('round 8: 20 due connections of one company and 1 of another: the other company is selected in the same tick, and the first company by its single most overdue connection', async () => {
+    const heavy = await newCompany();
+    const light = await newCompany();
+    const heavyIds: string[] = [];
+    for (let i = 0; i < 20; i++) heavyIds.push(await add(table, heavy, `'${3 + i} days'`)); // the last is the most overdue
+    const lone = await add(table, light, "'1 hour'");
+    await q(`UPDATE ${table} SET scan_interval_minutes = 5 WHERE id = $1`, [lone]);
+    const picked = await listed();
+    expect(picked).toContain(lone);
+    expect(picked.filter((id) => heavyIds.includes(id))).toEqual([heavyIds[19]]);
+  }, 60000);
+
+  it('round 8: of one company\'s connections the most overdue is the one selected, never-scanned first', async () => {
+    const co = await newCompany();
+    const old = await add(table, co, "'9 days'");
+    const newer = await add(table, co, "'2 days'");
+    let picked = await listed();
+    expect(picked).toContain(old);
+    expect(picked).not.toContain(newer);
+    const never = await add(table, co, null);
+    picked = await listed();
+    expect(picked).toContain(never);
+    expect(picked).not.toContain(old);
+    expect(picked).not.toContain(newer);
+  }, 30000);
+
+  it.each([[0], [1], [-3]])('round 8: a stored interval of %i minutes counts as 5: not due 4 minutes after a scan, due 6 minutes after', async (interval) => {
+    const co = await newCompany();
+    const fresh = await add(table, co, "'4 minutes'");
+    await q(`UPDATE ${table} SET scan_interval_minutes = $2 WHERE id = $1`, [fresh, interval]);
+    expect(await listed()).not.toContain(fresh);
+    await q(`UPDATE ${table} SET last_scan_at = NOW() - interval '6 minutes' WHERE id = $1`, [fresh]);
+    expect(await listed()).toContain(fresh);
+  }, 30000);
+
+  it('round 8: a stored interval above 5 is still honoured (60 minutes: not due after 30)', async () => {
+    const co = await newCompany();
+    const id = await add(table, co, "'30 minutes'");
+    await q(`UPDATE ${table} SET scan_interval_minutes = 60 WHERE id = $1`, [id]);
+    expect(await listed()).not.toContain(id);
   }, 30000);
 });
 

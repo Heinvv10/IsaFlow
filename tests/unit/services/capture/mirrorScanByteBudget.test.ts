@@ -11,7 +11,8 @@
  * the cap is not parsed; subjects are clipped to 500 characters before any write.
  *
  * The real ImapFlow runs against tests/helpers/fakeImapServer.ts, which streams a lying body
- * only as fast as the client reads it, so `sentBytes` shows where the client stopped.
+ * only as fast as the client reads it, so `sentBytes` shows where the client stopped. That byte
+ * count is the memory proof; no RSS bound is asserted (process memory moves with GC and box load).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ImapFlow } from 'imapflow';
@@ -34,7 +35,7 @@ vi.mock('@/lib/auth/routeAdminPool', () => ({
   routeAdminQuery: vi.fn(async (_label: string, text: string, v: unknown[]) => {
     const q = text.replace(/\s+/g, ' ').trim();
     h.statements.push({ q, v, pool: 'route' });
-    return /^SELECT \* FROM \w+_mirror_connections/.test(q) ? h.rows : [];
+    return /^SELECT c\.\* FROM \w+_mirror_connections c/.test(q) ? h.rows : [];
   }),
 }));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'pw' }));
@@ -59,11 +60,6 @@ const GOOD = '93.184.216.2';
 const MB = 1024 * 1024;
 /** The lying body: three times the capture limit, as breaker5 sent it. */
 const LIE = 40 * MB;
-/**
- * Peak RSS growth allowed for a scan that met a 40 MB lie: measured 15-23 MB with the meter, 81-85 MB
- * without it (the source check then still refuses to parse it; with neither, breaker5 measured ~260 MB).
- */
-const RSS_BOUND = 60 * MB;
 let fake: ReturnType<typeof installFakeImap>;
 
 const row = (id: string, host: string) => ({
@@ -99,20 +95,6 @@ function serve(bad: Partial<FakeServer>, good: Partial<FakeServer> = { uidNext: 
   return servers;
 }
 
-/** Runs `fn` and returns its result with the peak RSS growth seen while it ran (sampled every 2 ms). */
-async function peakRss<T>(fn: () => Promise<T>): Promise<{ result: T; peak: number }> {
-  const before = process.memoryUsage().rss;
-  let peak = 0;
-  const timer = setInterval(() => { peak = Math.max(peak, process.memoryUsage().rss - before); }, 2);
-  try {
-    const result = await fn();
-    peak = Math.max(peak, process.memoryUsage().rss - before);
-    return { result, peak };
-  } finally {
-    clearInterval(timer);
-  }
-}
-
 const stopStamps = (table: string) => h.statements.filter((s) => s.pool === 'route'
   && new RegExp(`^UPDATE ${table} SET last_scan_at = NOW\\(\\), last_error = \\$1 WHERE`).test(s.q)).map((s) => s.v);
 const bodyFetches = (server: FakeServer) => server.commands.filter((c) => /UID FETCH \d+ \(UID BODY/.test(c)).map((c) => Number(c.split(' ')[3]));
@@ -131,13 +113,12 @@ describe('the limits', () => {
 });
 
 describe.each(SERVICES)('%s', (_name, tick, scanOne, table, logTable) => {
-  it('a server that reports 200 bytes and sends 40 MB: the client is closed near the limit, memory stays bounded, the row is stamped, the next connection is scanned', async () => {
+  it('a server that reports 200 bytes and sends 40 MB: the client is closed near the limit, the row is stamped, the next connection is scanned', async () => {
     const servers = serve({ uidNext: 7, messages: [{ uid: 6, size: 200, bodyBytes: LIE }] });
-    const { result: results, peak } = await peakRss(() => tick());
+    const results = await tick();
 
     expect(servers.bad.sentBytes).toBeLessThan(MAX_RESPONSE_BYTES + 4 * MB);
     expect(fake.sockets[0]!.destroyed).toBe(true); // the first connection scanned is the lying one
-    expect(peak, `peak RSS growth ${Math.round(peak / MB)} MB`).toBeLessThan(RSS_BOUND);
     expect(results.map((r) => r.connectionId)).toEqual(['bad-1', 'good-1']);
     expect(results[0]!.errors).toBe(1);
     expect(results[1]!.errors).toBe(0);

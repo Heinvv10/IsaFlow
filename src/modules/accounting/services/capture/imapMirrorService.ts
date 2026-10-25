@@ -21,15 +21,13 @@ import { sql } from '@/lib/neon';
 import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
 import { markMirrorScanError } from './mirrorScanError';
 import { readCursor } from './mirrorCursor';
-import { createMirrorClient } from './mirrorImapClient';
+import { openImapClient } from './imapMirrorClient';
 import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from './mirrorScanGuard';
 import { ingestAttachment } from './imapMirrorIngest';
 import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from './mirrorImapFetch';
 import { dueOrSkipTick, isScanLockSkip } from './mirrorScanWrite';
 import { addIngested, logScanEntry, selectDueConnections, stampStopped, stampSuccess, updateCursor } from './imapMirrorWrites';
-import { checkImapTarget } from '@/lib/imapTargetGuard';
 import { log } from '@/lib/logger';
-import { decrypt } from '@/lib/encryption';
 
 type Row = Record<string, unknown>;
 
@@ -139,27 +137,6 @@ function looksLikeInvoiceAttachment(att: Attachment): boolean {
 function subjectHintsInvoice(subject: string | null | undefined): boolean {
   if (!subject) return true; // don't reject on missing subject
   return INVOICE_SUBJECT_HINTS.some(re => re.test(subject));
-}
-
-// ─── IMAP connection ──────────────────────────────────────────────────────────
-
-async function openImapClient(conn: MirrorConnection): Promise<ImapFlow> {
-  if (conn.provider === 'imap') {
-    if (!conn.imapHost || !conn.imapPort || !conn.imapUsername || !conn.imapPasswordEnc) {
-      throw new Error(`Incomplete IMAP config for connection ${conn.id}`);
-    }
-    // Before the password is decrypted: never connect to private space. Connect to the vetted address, not the name.
-    const target = await checkImapTarget(conn.imapHost, conn.imapPort);
-    if (!target.ok) throw new Error(target.message);
-    const password = decrypt(conn.imapPasswordEnc);
-    return createMirrorClient({
-      host: target.address, servername: target.servername, port: conn.imapPort, secure: conn.imapUseTls,
-      user: conn.imapUsername, pass: password,
-    });
-  }
-  // Gmail / M365 use OAuth2 — actual token exchange handled by the provider-
-  // specific service modules. For now, refuse to scan until those ship.
-  throw new Error(`${conn.provider} OAuth flow not yet wired — pending Google/Microsoft app registration`);
 }
 
 // ─── Scanning ─────────────────────────────────────────────────────────────────

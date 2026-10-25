@@ -6,6 +6,7 @@
  * table. The scan log stays on the app pool. In a request (scan-now) the stamps run after its
  * COMMIT, in order (stampScan), so a rolled-back request never moves the cursor. See capture/mirrorScanWrite.ts for both.
  */
+import { dueConnectionsSql } from '@/modules/accounting/services/capture/mirrorDueSql';
 import { clipMirrorText } from '@/modules/accounting/services/capture/mirrorScanLimits';
 import { scanWrite, stampConnection, stampScan } from '@/modules/accounting/services/capture/mirrorScanWrite';
 
@@ -22,15 +23,8 @@ export interface ScanLogEntry {
   capturedDocumentIds?: string[];
 }
 
-/** As the capture mirror's (imapMirrorWrites.ts): oldest first, a future last_scan_at due and last. */
-const DUE = `SELECT * FROM sent_mirror_connections
-  WHERE status = 'active'
-    AND (last_scan_at IS NULL
-         OR last_scan_at > NOW()
-         OR last_scan_at < NOW() - (scan_interval_minutes || ' minutes')::INTERVAL)
-  ORDER BY CASE WHEN last_scan_at > NOW() THEN 'infinity'::timestamptz ELSE last_scan_at END ASC NULLS FIRST
-  LIMIT 20
-  FOR NO KEY UPDATE SKIP LOCKED`;
+/** As the capture mirror's (imapMirrorWrites.ts): at most one connection per company, oldest first. */
+const DUE = dueConnectionsSql('sent_mirror_connections');
 
 const SET_CURSOR = `UPDATE sent_mirror_connections
   SET scan_cursor = $1::jsonb, last_scan_at = NOW(), last_success_at = NOW()

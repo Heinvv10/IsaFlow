@@ -13,6 +13,7 @@ import {
   updateConnectionSenders,
   deleteConnection,
 } from '@/modules/accounting/services/capture/mirrorConnectionService';
+import { scanIntervalError } from '@/modules/accounting/services/capture/mirrorLimits';
 import { SCAN_ACTIVE_MESSAGE, isScanActive } from '@/modules/accounting/services/capture/mirrorScanActive';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,6 +36,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   if (req.method === 'PATCH') {
     const body = (req.body ?? {}) as UpdateBody;
+    const intervalError = scanIntervalError(body.scanIntervalMinutes);
+    if (intervalError) return apiResponse.badRequest(res, intervalError);
     const updated = await updateConnectionSenders({
       id, companyId,
       allowedSenders: body.allowedSenders,

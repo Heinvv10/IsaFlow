@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const h = vi.hoisted(() => ({
   admin: [] as Array<{ label: string; text: string; values: unknown[] }>,
   results: [] as unknown[][],
+  activeCount: 0,
 }));
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
@@ -23,12 +24,23 @@ vi.mock('@/lib/auth/routeAdminPool', () => ({
     h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
     return h.results.shift() ?? [];
   },
+  routeAdminTx: async (label: string, fn: (c: { query: (text: string, values: unknown[]) => Promise<{ rows: unknown[] }> }) => Promise<unknown>) =>
+    fn({
+      query: async (text: string, values: unknown[]) => {
+        const t = text.replace(/\s+/g, ' ').trim();
+        h.admin.push({ label, text: t, values });
+        if (/pg_advisory_xact_lock/.test(t)) return { rows: [] };
+        if (/COUNT\(\*\)/.test(t)) return { rows: [{ n: h.activeCount }] };
+        return { rows: h.results.shift() ?? [] };
+      },
+    }),
 }));
 
 import { sql } from '@/lib/neon';
 import {
   createImapConnection, updateConnectionSenders, disconnectConnection, reactivateConnection, deleteConnection,
 } from '@/modules/accounting/services/capture/mirrorConnectionService';
+import { MAX_ACTIVE_CONNECTIONS_PER_COMPANY, MirrorConnectionCapError } from '@/modules/accounting/services/capture/mirrorLimits';
 
 const COMPANY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -37,22 +49,36 @@ const row = { id: ID, provider: 'imap', display_name: 'AP', account_email: 'ap@x
 beforeEach(() => {
   h.admin.length = 0;
   h.results.length = 0;
+  h.activeCount = 0;
   vi.mocked(sql).mockReset();
 });
 
 describe('mirrorConnectionService writes', () => {
-  it('create inserts the encrypted password for the company, via routeAdminQuery', async () => {
+  const newConnection = {
+    companyId: COMPANY, createdBy: 'u1', displayName: 'AP', accountEmail: 'ap@x.test',
+    imapHost: 'imap.x.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'pw',
+  };
+
+  it('create takes the company lock, counts its active connections, then inserts the encrypted password for the company', async () => {
     h.results.push([row]);
-    const out = await createImapConnection({
-      companyId: COMPANY, createdBy: 'u1', displayName: 'AP', accountEmail: 'ap@x.test',
-      imapHost: 'imap.x.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'pw',
-    });
+    h.activeCount = MAX_ACTIVE_CONNECTIONS_PER_COMPANY - 1;
+    const out = await createImapConnection(newConnection);
     expect(out.id).toBe(ID);
-    expect(h.admin[0]!.text).toMatch(/^INSERT INTO imap_mirror_connections/);
-    expect(h.admin[0]!.values[0]).toBe(COMPANY);
-    expect(h.admin[0]!.values).toContain('enc(pw)');
-    expect(h.admin[0]!.values).not.toContain('pw');
+    expect(h.admin[0]!.text).toContain("pg_advisory_xact_lock(hashtextextended('imap_mirror_connections:'");
+    expect(h.admin[1]!.text).toContain("FROM imap_mirror_connections WHERE company_id = $1::uuid AND status = 'active'");
+    expect(h.admin[2]!.text).toMatch(/^INSERT INTO imap_mirror_connections/);
+    expect(h.admin).toHaveLength(3);
+    expect(h.admin[1]!.text).toContain("company_id = $1::uuid AND status = 'active'");
+    expect(h.admin.map((w) => w.values[0])).toEqual([COMPANY, COMPANY, COMPANY]);
+    expect(h.admin[2]!.values).toContain('enc(pw)');
+    expect(h.admin[2]!.values).not.toContain('pw');
     expect(sql).not.toHaveBeenCalled();
+  });
+
+  it('create refuses a company at its limit of active connections, and inserts nothing', async () => {
+    h.activeCount = MAX_ACTIVE_CONNECTIONS_PER_COMPANY;
+    await expect(createImapConnection(newConnection)).rejects.toBeInstanceOf(MirrorConnectionCapError);
+    expect(h.admin.some((w) => /^INSERT/.test(w.text))).toBe(false);
   });
 
   it('update changes senders, interval and folder only, keyed on id AND company; null when nothing matches', async () => {

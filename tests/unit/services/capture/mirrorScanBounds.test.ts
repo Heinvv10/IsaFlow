@@ -18,9 +18,9 @@ vi.mock('@/lib/neon', () => {
   const tag = vi.fn(async (strings: TemplateStringsArray, ...v: unknown[]) => {
     const q = strings.join('?').replace(/\s+/g, ' ').trim();
     h.statements.push({ q, v });
-    // captured_documents as a table of hashes: the dedupe lookup finds what an INSERT stored.
-    if (/^INSERT INTO captured_documents/.test(q)) h.hashes.add(String(v.find((x) => typeof x === 'string' && x.startsWith('sha-'))));
-    if (/^SELECT 1 FROM captured_documents/.test(q)) return h.hashes.has(String(v[1])) ? [{ '?column?': 1 }] : [];
+    // captured_documents as a table of (company, hash) pairs: the dedupe lookup finds what an INSERT stored, for that company only.
+    if (/^INSERT INTO captured_documents/.test(q)) h.hashes.add(`${v[0]}|${String(v.find((x) => typeof x === 'string' && x.startsWith('sha-')))}`);
+    if (/^SELECT 1 FROM captured_documents/.test(q)) return h.hashes.has(`${v[0]}|${v[1]}`) ? [{ '?column?': 1 }] : [];
     if (/RETURNING id/.test(q)) return [{ id: `00000000-0000-4000-8000-${String(h.nextId++).padStart(12, '0')}` }];
     return [];
   });

@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   results: [] as unknown[][],
   tx: 0,
   route: [] as Array<{ text: string; values: unknown[] }>,
+  refuse: 0,
 }));
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
@@ -31,13 +32,17 @@ vi.mock('@/lib/auth/routeAdminPool', () => ({
     return fn({ query: async (text: string, values: unknown[]) => record(label, text, values) });
   },
   routeAdminQuery: async (label: string, text: string, values: unknown[]) => {
-    if (label.startsWith('webhook delivery')) { h.route.push({ text: text.replace(/\s+/g, ' ').trim(), values }); return []; }
+    if (label.startsWith('webhook delivery')) {
+      h.route.push({ text: text.replace(/\s+/g, ' ').trim(), values });
+      if (h.refuse > 0) { h.refuse -= 1; throw Object.assign(new Error('route write pool is busy'), { code: '55P03' }); }
+      return [];
+    }
     return record(label, text, values).rows;
   },
 }));
 
 import { sql } from '@/lib/neon';
-import { stampDelivery } from '@/modules/accounting/services/core/webhookEndpointWrites';
+import { STAMP_RETRY_DELAY_MS, stampDelivery } from '@/modules/accounting/services/core/webhookEndpointWrites';
 import { createWebhook, updateWebhook, deleteWebhook } from '@/modules/accounting/services/core/webhookService';
 
 const COMPANY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -59,6 +64,7 @@ beforeEach(() => {
   h.results.length = 0;
   h.tx = 0;
   h.route.length = 0;
+  h.refuse = 0;
   vi.mocked(sql).mockReset();
 });
 
@@ -131,5 +137,35 @@ describe('webhook endpoint writes (routeAdminPool)', () => {
     expect(h.route[1]!.text).toContain('is_active = CASE WHEN failure_count + 1 >= $3 THEN false ELSE is_active END');
     expect(h.tx).toBe(0);
     expect(sql).not.toHaveBeenCalled();
+  });
+
+  describe('stampDelivery: a refused failure stamp is retried once', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('a failure stamp refused once is sent again after the delay, and the count lands', async () => {
+      h.refuse = 1;
+      const done = stampDelivery(COMPANY, ID, false, 10);
+      await vi.advanceTimersByTimeAsync(STAMP_RETRY_DELAY_MS - 1);
+      expect(h.route).toHaveLength(1); // not yet: the retry waits out the delay
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(done).resolves.toBeUndefined();
+      expect(h.route.map((w) => w.values)).toEqual([[ID, COMPANY, 10], [ID, COMPANY, 10]]);
+    });
+
+    it('a failure stamp refused twice throws (the residual: that one failure is not counted), after exactly two attempts', async () => {
+      h.refuse = 5;
+      const done = stampDelivery(COMPANY, ID, false, 10);
+      const outcome = expect(done).rejects.toMatchObject({ code: '55P03' });
+      await vi.advanceTimersByTimeAsync(STAMP_RETRY_DELAY_MS * 4);
+      await outcome;
+      expect(h.route).toHaveLength(2);
+    });
+
+    it('a success stamp is not retried', async () => {
+      h.refuse = 1;
+      await expect(stampDelivery(COMPANY, ID, true, 10)).rejects.toMatchObject({ code: '55P03' });
+      expect(h.route).toHaveLength(1);
+    });
   });
 });

@@ -37,7 +37,7 @@ vi.mock('imapflow', () => ({
 }));
 
 const ids = newIds();
-const { owner, company } = ids;
+const { owner, company, other } = ids;
 const q = (text: string, params: unknown[] = []) => fixture.query(text, params);
 const row = async (id: string) => (await q('SELECT * FROM imap_mirror_connections WHERE id = $1', [id])).rows[0] as Record<string, unknown>;
 // A flip that waited on the request's own row lock would give up after 2 s and be lost (status stays 'active',
@@ -116,11 +116,12 @@ describe('S-07e part B (946): the cron meets a connection row locked by someone 
   it('skips that connection after the bounded wait, leaves it active with its cursor, and scans the next one', async () => {
     imap.releaseFails = false;
     try {
-      await q('DELETE FROM imap_mirror_connections WHERE company_id = $1', [company]);
-      const mk = async (name: string) => (await createImapConnection({ companyId: company, displayName: name, accountEmail: `${name}@s07eb.test`,
+      await q('DELETE FROM imap_mirror_connections WHERE company_id = ANY($1)', [[company, other]]);
+      // One connection per company per tick (round 8): the held one is the company's, the free one the other company's.
+      const mk = async (name: string, co: string) => (await createImapConnection({ companyId: co, displayName: name, accountEmail: `${name}@s07eb.test`,
         imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'mailbox-pw' })).id;
-      const held = await mk('held-cron');
-      const free = await mk('free-cron');
+      const held = await mk('held-cron', company);
+      const free = await mk('free-cron', other);
       const holder = await fixture.connect();
       try {
         // Selected before the lock is taken (the selector would skip a locked row), scanned after.

@@ -15,6 +15,7 @@ import {
   createSentImapConnection,
 } from '@/modules/accounting/services/ar/sentMirrorAdmin';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
+import { MIN_SCAN_INTERVAL_MINUTES, MAX_SCAN_INTERVAL_MINUTES, MirrorConnectionCapError, scanIntervalError } from '@/modules/accounting/services/capture/mirrorLimits';
 
 const CreateImapSchema = z.object({
   displayName: z.string().min(1).max(200),
@@ -25,7 +26,7 @@ const CreateImapSchema = z.object({
   imapUsername: z.string().min(1).max(254),
   imapPassword: z.string().min(1).max(500),
   sentFolder: z.string().max(200).optional(),
-  scanIntervalMinutes: z.number().int().min(1).max(1440).optional(),
+  scanIntervalMinutes: z.number().int().min(MIN_SCAN_INTERVAL_MINUTES).max(MAX_SCAN_INTERVAL_MINUTES).optional(),
 }).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -37,6 +38,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
+    const intervalError = scanIntervalError((req.body as { scanIntervalMinutes?: unknown } | null)?.scanIntervalMinutes);
+    if (intervalError) return apiResponse.badRequest(res, intervalError);
     const parsed = CreateImapSchema.safeParse(req.body);
     if (!parsed.success) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);
@@ -46,19 +49,25 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const target = await checkImapTarget(body.imapHost, body.imapPort);
     if (!target.ok) return apiResponse.badRequest(res, target.message);
 
-    const created = await createSentImapConnection({
-      companyId,
-      createdBy: req.user?.id ?? null,
-      displayName: body.displayName,
-      accountEmail: body.accountEmail,
-      imapHost: body.imapHost,
-      imapPort: body.imapPort,
-      imapUseTls: body.imapUseTls,
-      imapUsername: body.imapUsername,
-      imapPassword: body.imapPassword,
-      sentFolder: body.sentFolder,
-      scanIntervalMinutes: body.scanIntervalMinutes,
-    });
+    let created: Awaited<ReturnType<typeof createSentImapConnection>>;
+    try {
+      created = await createSentImapConnection({
+        companyId,
+        createdBy: req.user?.id ?? null,
+        displayName: body.displayName,
+        accountEmail: body.accountEmail,
+        imapHost: body.imapHost,
+        imapPort: body.imapPort,
+        imapUseTls: body.imapUseTls,
+        imapUsername: body.imapUsername,
+        imapPassword: body.imapPassword,
+        sentFolder: body.sentFolder,
+        scanIntervalMinutes: body.scanIntervalMinutes,
+      });
+    } catch (err) {
+      if (err instanceof MirrorConnectionCapError) return apiResponse.conflict(res, err.message, { reason: err.reason });
+      throw err;
+    }
 
     return apiResponse.created(res, { connection: created });
   }
