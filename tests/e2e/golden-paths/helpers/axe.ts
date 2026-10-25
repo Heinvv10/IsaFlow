@@ -89,20 +89,27 @@ async function waitForScreenReady(page: Page, screen: A11yScreen): Promise<void>
 }
 
 /**
- * What went wrong, as text, without ever throwing: anything with a string `message` (an Error, including one from
- * another realm, which is not `instanceof Error` and would serialise to "{}"), else a plain object as JSON, else
- * String(), else Object.prototype.toString for a value whose String() throws (e.g. a null-prototype object).
+ * What went wrong, as text, and TOTAL: nothing in here can throw, whatever was thrown (a revoked Proxy, a `message`
+ * getter that throws, a null-prototype object). Objects only - a function is excluded from the message-first path
+ * and is printed as a function: anything with a string `message` is read once (so an Error from another realm,
+ * which is not `instanceof Error` and would serialise to "{}", keeps its text), else a plain object is JSON
+ * (skipped when that is undefined or throws), else String(), else Object.prototype.toString.
  */
 function failureText(err: unknown): string {
-  if (err !== null && typeof err === 'object' && typeof (err as { message?: unknown }).message === 'string') return (err as { message: string }).message;
-  if (err !== null && typeof err === 'object') {
-    const json = jsonOrNull(err);
-    if (json !== null) return json;
-  }
   try {
-    return String(err);
+    if (err !== null && typeof err === 'object') {
+      const message = (err as { message?: unknown }).message;
+      if (typeof message === 'string') return message;
+      const json = jsonOrNull(err);
+      if (json !== null) return json;
+    }
+    try {
+      return String(err);
+    } catch {
+      return Object.prototype.toString.call(err);
+    }
   } catch {
-    return Object.prototype.toString.call(err);
+    return '[unprintable thrown value]';
   }
 }
 
