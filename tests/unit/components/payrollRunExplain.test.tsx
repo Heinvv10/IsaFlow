@@ -39,7 +39,7 @@ describe('payroll run page — explains its numbers (PAY-06)', () => {
     expect(screen.getByText(/UIF \(employee\)/i)).toBeTruthy();
     expect(screen.getByText(/UIF \(employer\)/i)).toBeTruthy();
     // 75 000 − 19 966.33 − 177.12 − 41 681.55
-    expect(screen.getAllByText(/13[\s ]175,00/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/13[\s ]175\.00/).length).toBeGreaterThan(0);
     expect(screen.getByText(/^Totals$/i)).toBeTruthy();
   });
 
@@ -51,9 +51,9 @@ describe('payroll run page — explains its numbers (PAY-06)', () => {
     render(<PayrollRunDetailPage />);
     await screen.findByText('Riaan Smit');
     // round2(354.25 / 2) = 177.13; 75 000 − 19 966.33 − 177.13 − 41 681.55 = 13 174.99 (the 2175 credit)
-    expect(card('Other deductions').textContent).toMatch(/13[\s ]174,99/);
-    expect(card('UIF (employee)').textContent).toMatch(/177,13/);
-    expect(card('UIF (employer)').textContent).toMatch(/177,12/);
+    expect(card('Other deductions').textContent).toMatch(/13[\s ]174\.99/);
+    expect(card('UIF (employee)').textContent).toMatch(/177\.13/);
+    expect(card('UIF (employer)').textContent).toMatch(/177\.12/);
   });
 });
 

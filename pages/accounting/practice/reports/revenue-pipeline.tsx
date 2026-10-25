@@ -37,7 +37,7 @@ function StatCard({ title, value, colour, footnote }: StatCardProps) {
   return (
     <div className={`flex-1 min-w-[220px] rounded-xl border p-6 ${ring}`}>
       <p className="text-xs font-semibold uppercase tracking-widest text-[var(--ff-text-secondary)] mb-3">{title}</p>
-      <p className={`text-3xl font-bold tabular-nums ${text}`}>{value}</p>
+      <p className={`text-2xl font-bold tabular-nums ${text}`}>{value}</p>
       {footnote && <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">{footnote}</p>}
     </div>
   );

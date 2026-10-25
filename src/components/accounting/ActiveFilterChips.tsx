@@ -4,6 +4,7 @@
  */
 
 import { X } from 'lucide-react';
+import { formatDisplayDate, formatDisplayMonthYear } from '@/utils/dateFormat';
 
 export interface ActiveFilterChip {
   key: string;
@@ -51,11 +52,11 @@ export function ActiveFilterChips({ chips, onClearAll }: Props) {
 export function periodChipLabel(from: string, to: string, month: string | null): string {
   if (month) {
     const [y, m] = month.split('-').map(Number);
-    return new Date(y!, m! - 1, 1).toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' });
+    return formatDisplayMonthYear(new Date(y!, m! - 1, 1));
   }
   const fmt = (d: string) => {
     const [y, m, day] = d.split('-').map(Number);
-    return new Date(y!, m! - 1, day!).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' });
+    return formatDisplayDate(new Date(y!, m! - 1, day!));
   };
   if (from && to) return `${fmt(from)} – ${fmt(to)}`;
   return from ? `From ${fmt(from)}` : `Until ${fmt(to)}`;

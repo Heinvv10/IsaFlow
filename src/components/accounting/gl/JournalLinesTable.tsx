@@ -19,11 +19,11 @@ export function JournalLinesTable({ lines, formatCurrency }: Props) {
         <table className="w-full">
           <thead>
             <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
-              <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">#</th>
-              <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Account</th>
-              <th className="px-6 py-3 text-left text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Description</th>
-              <th className="px-6 py-3 text-right text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Debit</th>
-              <th className="px-6 py-3 text-right text-[10px] tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Credit</th>
+              <th className="px-6 py-3 text-left text-xs tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">#</th>
+              <th className="px-6 py-3 text-left text-xs tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Account</th>
+              <th className="px-6 py-3 text-left text-xs tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Description</th>
+              <th className="px-6 py-3 text-right text-xs tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Debit</th>
+              <th className="px-6 py-3 text-right text-xs tracking-[0.12em] font-semibold uppercase text-[var(--ff-text-secondary)]">Credit</th>
             </tr>
           </thead>
           <tbody>

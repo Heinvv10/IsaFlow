@@ -95,7 +95,7 @@ export function DocumentList({ documents, total, isLoading, error, statusFilter,
                   <td className="px-4 py-3 text-[var(--ff-text-primary)]">{doc.vendorName || '-'}</td>
                   <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDate(doc.documentDate)}</td>
                   <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">{doc.referenceNumber || '-'}</td>
-                  <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(doc.totalAmount ?? 0)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(doc.totalAmount ?? 0)}</td>
                   <td className="px-4 py-3 text-center"><StatusBadge status={doc.status} /><ReadBadge readState={doc.readState} /></td>
                   <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs">{formatDate(doc.createdAt)}</td>
                   <td className="px-4 py-3">

@@ -2,8 +2,9 @@
  * Eliminations Shared — types, helpers, and style constants.
  */
 
-export const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+import { formatMoney } from '@/lib/money/formatMoney';
+
+export const fmt = (n: number) => formatMoney(n);
 
 export const selectClass =
   'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';

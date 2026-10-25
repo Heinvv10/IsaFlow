@@ -4,7 +4,7 @@
  * `packMonthlyResults.ts` for the 300-line cap; that file re-exports every
  * export here, so each caller still imports it there.
  */
-import { formatMoney, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { monthLabel, wholeMonthsOf } from './packPartialMonth';
 import { MEASURES, trendWindowLabel } from './packMonthlyMeasures';
@@ -27,7 +27,7 @@ export function monthlyResultsTitle(series: PackTrendPoint[], scale: MoneyScale)
   // guard) fails a bare label — and the count is the fact anyway: none of the
   // months could be built.
   if (trend.length === 0) return 'No monthly series covers this period, so 0 months are shown.';
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   const best = trend.reduce((a, b) => (b.netProfit > a.netProfit ? b : a));
   const worst = trend.reduce((a, b) => (b.netProfit < a.netProfit ? b : a));
   const months = trend.length === 1 ? `the one ${whole}month` : `the ${trend.length} ${whole}months`;
@@ -78,7 +78,7 @@ export function monthlyResultsCaption(trend: PackTrendPoint[], scale: MoneyScale
   if (trend.length === 0) {
     return 'No monthly series covers this period, so nothing is stated about its shape.';
   }
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   const window = trendWindowLabel(trend);
 
   // A MONTH WITH NOTHING POSTED IN IT IS THE THING TO SAY FIRST. Brightsphere
@@ -185,7 +185,7 @@ export function largestContraryFigureSentence(trend: PackTrendPoint[], scale: Mo
     }
   }
   if (biggest === null) return '';
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   return ` Of the months above, the largest figure on the wrong side of its band is `
     + `${monthLabel(biggest.point)}'s ${biggest.measure.prose} of ${money(biggest.value)}: more `
     + 'was reversed out of those accounts than was posted into them.';

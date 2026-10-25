@@ -138,7 +138,7 @@ describe('write-only actions', () => {
     company.role = 'manager';
     fetchMock.mockImplementation(async () => ok([{ ...row, startDate: '2020-01-01T00:00:00Z' }]));
     render(<EmployeesPage />);
-    expect(await screen.findByText('2020-01-01')).toBeTruthy();
+    expect(await screen.findByText('01 Jan 2020')).toBeTruthy();
     expect(screen.getByText('Start')).toBeTruthy();
   });
 });

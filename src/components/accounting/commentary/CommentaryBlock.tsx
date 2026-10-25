@@ -137,7 +137,7 @@ export function CommentaryBlock(props: CommentaryBlockProps) {
               {approved ? r.approvedText : r.draftText}
             </p>
             {!approved && (
-              <span className="shrink-0 rounded bg-[var(--ff-bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--ff-text-tertiary)]">
+              <span className="shrink-0 rounded bg-[var(--ff-bg-tertiary)] px-1.5 py-0.5 text-xs uppercase tracking-wide text-[var(--ff-text-tertiary)]">
                 Draft — not published
               </span>
             )}

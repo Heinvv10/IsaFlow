@@ -218,7 +218,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       label: 'G then T',
       description: 'Go to Tax',
       category: 'navigation',
-      action: () => { void router.push('/accounting/reports/vat-return'); },
+      action: () => { void router.push('/accounting/sars/vat201'); },
     },
   ], [router]);
 
@@ -403,7 +403,7 @@ export function AppLayout({ children }: AppLayoutProps) {
           >
             <Search className="w-3.5 h-3.5" />
             <span className="text-xs">Search</span>
-            <kbd className="ml-1 px-1 py-0.5 text-[10px] bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] rounded">
+            <kbd className="ml-1 px-1 py-0.5 text-xs bg-[var(--ff-bg-primary)] border border-[var(--ff-border-primary)] rounded">
               Ctrl+K
             </kbd>
           </button>

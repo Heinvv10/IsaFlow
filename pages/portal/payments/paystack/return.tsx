@@ -11,6 +11,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { CheckCircle2, XCircle, Loader2, AlertTriangle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 type VerifyState = 'verifying' | 'completed' | 'failed' | 'cancelled' | 'confirming' | 'error';
 
@@ -35,8 +36,7 @@ const MAX_POLLS = 10;
 const POLL_MS = 3000;
 const RATE_LIMITED = 429;
 
-const fmtZAR = (cents: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(cents / 100);
+const fmtZAR = (cents: number) => formatMoney(cents / 100);
 
 export default function PaystackReturnPage() {
   const router = useRouter();

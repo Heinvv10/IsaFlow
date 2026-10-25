@@ -12,7 +12,7 @@
  * NOTHING IN THIS FILE COMPUTES A FIGURE — packDeckModel.test.ts fails if a
  * number is printed that the pack did not produce.
  */
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { NON_FIGURE_KINDS } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { PackBlock, PackDocument } from './packDocument';
 import { formatPackKv, formatScorecardValue } from './packKvFormat';
@@ -41,7 +41,7 @@ function slidesForBlock(title: string, block: PackBlock): DeckSlide[] {
           .filter((row) => !NON_FIGURE_KINDS.has(row.kind))
           .map((row) => ({
             label: row.label,
-            value: formatMoney(row.actual, { cents: true, pack: true }),
+            value: formatStatementFigure(row.actual, { cents: true, pack: true }),
             emphasis: EMPHASIS_KINDS.has(row.kind),
           })),
       }];

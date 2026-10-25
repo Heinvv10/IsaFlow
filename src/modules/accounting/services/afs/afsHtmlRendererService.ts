@@ -24,6 +24,8 @@ export interface AfsRenderContext {
   entityType?: AfsTemplateKey;
   /** Server-rendered SVG per section type — see serverChartSvg.buildAfsCharts. */
   charts?: Partial<Record<AfsSection['sectionType'], string>>;
+  /** "year ended …" / "14 months ended …" for the cover, from the registry (afsReportingPeriod). */
+  periodPhrase?: string;
 }
 
 // ── Font pairs ────────────────────────────────────────────────────────────────
@@ -180,7 +182,7 @@ export function renderAfsToHtml(
   context: AfsRenderContext,
   options?: RenderOptions,
 ): string {
-  const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl, entityType, charts } = context;
+  const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl, entityType, charts, periodPhrase } = context;
 
   // Entity-aware document title
   const statementsTitle = entityType === 'trust'
@@ -197,6 +199,7 @@ export function renderAfsToHtml(
     companyName,
     registrationNumber,
     periodEnd,
+    periodPhrase,
     coverPhotoUrl,
   });
 

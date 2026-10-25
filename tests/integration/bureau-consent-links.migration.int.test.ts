@@ -92,11 +92,15 @@ describe('932: migration', () => {
 
   it('a temporary table an app session holds is not a TRIGGER violation (breaker round 2)', async () => {
     const c = await getAuthPool().connect();
+    // 945 takes TEMPORARY from the app roles: give it back just long enough to plant the table.
+    await fixture.query(`DO $g$ BEGIN EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO app_user', current_database()); END $g$`);
     try {
       await c.query('SET ROLE app_user');
       await c.query('CREATE TEMP TABLE b932_junk (x int)');
+      await fixture.query(`DO $g$ BEGIN EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM app_user', current_database()); END $g$`);
       await rolledBack(async (q) => { await q(GUARD_932); });
     } finally {
+      await fixture.query(`DO $g$ BEGIN EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM app_user', current_database()); END $g$`);
       c.release(true);
     }
   });

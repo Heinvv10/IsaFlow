@@ -11,7 +11,7 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import type { ChartPalette } from './chartTypes';
 import { escapeHtml } from './escapeHtml';
 import { axisDomain, roleStyle, varianceColor } from './ibcs';
@@ -45,16 +45,16 @@ export function buildBudgetBulletOption(
         if (!l) return '';
         return [
           escapeHtml(l.account_name),
-          `Actual ${formatMoney(l.actual_amount, { symbol: true })}`,
-          `Budget ${formatMoney(l.budget_amount, { symbol: true })}`,
-          `Variance ${formatMoney(l.variance, { symbol: true })}`,
+          `Actual ${formatStatementFigure(l.actual_amount, { symbol: true })}`,
+          `Budget ${formatStatementFigure(l.budget_amount, { symbol: true })}`,
+          `Variance ${formatStatementFigure(l.variance, { symbol: true })}`,
         ].join('<br/>');
       },
     },
     xAxis: {
       type: 'value',
       ...axisDomain(rows.flatMap((l) => [l.actual_amount, l.budget_amount])),
-      axisLabel: { color: palette.axisLabel, formatter: (v: number) => formatMoney(v) },
+      axisLabel: { color: palette.axisLabel, formatter: (v: number) => formatStatementFigure(v) },
       splitLine: { lineStyle: { color: palette.axisLine } },
     },
     yAxis: {
@@ -85,7 +85,7 @@ export function buildBudgetBulletOption(
           fontSize: 10,
           formatter: (p: { dataIndex: number }) => {
             const l = rows[p.dataIndex];
-            return l ? formatMoney(l.variance) : '';
+            return l ? formatStatementFigure(l.variance) : '';
           },
           color: (p: { dataIndex: number }) => {
             const l = rows[p.dataIndex];

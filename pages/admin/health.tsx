@@ -15,6 +15,7 @@ import {
   MetricCard, Stat, StatusBadge, OverallStatusBar,
   type SystemHealthData, type StatusLevel, type RecentError,
 } from '@/components/admin/HealthWidgets';
+import { formatDisplayTimeSeconds } from '@/utils/dateFormat';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -28,7 +29,7 @@ function fmtRelative(dateStr: string): string {
 }
 
 function fmtTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return formatDisplayTimeSeconds(dateStr);
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────

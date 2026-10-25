@@ -7,7 +7,7 @@
  */
 import { EXPOSURE_CLAUSE } from '../pages/packMattersPage';
 import { joinDecision } from '../narrative/derivedCaptions';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, type MoneyScale } from '@/lib/format/money';
 import type { PackPagesDocument } from '../pages/packPageModel';
 
 /**
@@ -169,7 +169,7 @@ export function checkMattersAmounts(doc: PackPagesDocument, scale: MoneyScale): 
     .filter((v): v is number => v !== null);
   const omitted = table.omitted?.quantum.value ?? 0;
   const total = printed.reduce((sum, v) => sum + Math.abs(v), 0) + Math.abs(omitted);
-  const stated = formatMoney(total, { scale });
+  const stated = formatStatementFigure(total, { scale });
   if (page.title.includes(stated)) return [];
   return [
     `Page ${page.number} says "${page.title}" over a table whose printed rows and omitted note `

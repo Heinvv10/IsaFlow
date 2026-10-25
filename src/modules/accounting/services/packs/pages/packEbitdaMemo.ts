@@ -3,7 +3,7 @@
  * of `packMonthlyResults.ts` for the 300-line cap; that file re-exports
  * `ebitdaMemoSentence`, so every caller still imports it there.
  */
-import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, type MoneyScale } from '@/lib/format/money';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
@@ -28,7 +28,7 @@ import { DA_ADD_BACK } from './packDefinitions';
  * non-IFRS measure is identified where it is PRESENTED, so the two travel
  * together or neither moves.
  *
- * The figures go through `inProse`, which says "nil" where `formatMoney`
+ * The figures go through `inProse`, which says "nil" where `formatStatementFigure`
  * prints the en dash a money column uses for a measured zero: a dash is not a
  * word in a sentence, and `checkProse` refuses a pack that puts one there.
  */
@@ -47,10 +47,10 @@ export function ebitdaMemoSentence(
    */
   windowLabel: string | null,
 ): string {
-  const current = inProse(formatMoney(ebitdaOf(set.current), { scale }));
+  const current = inProse(formatStatementFigure(ebitdaOf(set.current), { scale }));
   const comparative = set.prior === null
     ? 'There is no comparative period to state it against.'
-    : `The comparative period's is ${inProse(formatMoney(ebitdaOf(set.prior), { scale }))}.`;
+    : `The comparative period's is ${inProse(formatStatementFigure(ebitdaOf(set.prior), { scale }))}.`;
   // AND IT NO LONGER POINTS AT THE FOOTER. "which the footer of every sheet
   // states" is a description of the sheet's own furniture — the running
   // footer carries the period on all twelve pages — and it cost this note a

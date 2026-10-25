@@ -5,13 +5,11 @@
  * raw per-account GL aggregate rather than on the income statement — see
  * budgetVarianceService for why that distinction is load-bearing here.
  *
- * The completeness statement IS the finding on these books. `accounting_budgets`
- * holds zero rows in production, because the write path had never executed: it
- * INSERTed twelve month columns that do not exist. So this tool answers "how did
- * we do against plan?" with an empty row list on every live company, and an
- * empty list reads as "nothing was over budget". The unbudgeted exclusion —
- * every account with real posted movement and no budget, with its value — is
- * what turns that into "none of your spend is under a budget at all".
+ * The completeness statement IS the finding wherever nobody has set a budget.
+ * Such a company answers "how did we do against plan?" with an empty row list,
+ * and an empty list reads as "nothing was over budget". The unbudgeted
+ * exclusion — every account with real posted movement and no budget, with its
+ * value — is what turns that into "none of your spend is under a budget at all".
  */
 import type { McpTool } from '../types';
 import { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
@@ -36,7 +34,7 @@ export const budgetVarianceTool: McpTool = {
     'READ THE EXCLUSIONS BEFORE THE ROWS. Only accounts that carry a budget appear in rows. An account with real spend and no budget cannot produce a variance, so it appears in excludedRows with reason no_budget_set and its actual value — and on a company where nobody has ever set a budget, rows is EMPTY and looks identical to a company that is perfectly on plan. unbudgeted_movement totals what is sitting outside any budget. ' +
     'The actual is posted journal-line movement per account, signed so revenue and expense are both positive when larger: the same figure the trial balance shows. It is deliberately NOT the income statement, and DO NOT "improve" it into one — no cost-of-sales bucketing, no other-income or finance-cost layer, no tax. incomeStatementService has open defects in exactly the classification layer a variance would inherit, and a variance computed against a net profit already known to be wrong is worse than no variance, because it wears the authority of a reconciliation. The raw per-account aggregate borrows none of it. Draft journals are excluded. ' +
     'Variance is signed so positive is favourable: revenue actual less budget, expense budget less actual. variance_pct is a percentage of budget, and is reported as 0 where there is no budget to be a percentage of. ' +
-    'Budgets are stored per calendar month and matched to the fiscal year given by the YEAR OF period_start. Note the split this system carries: all 13 companies DECLARE companies.financial_year_start = 3, while every fiscal_periods row actually starts 01-01 — so for the data as it stands the year of period_start is the right key, but the declaration disagrees with it. fiscal_year and months_covered are returned so the match can be re-derived rather than assumed. ' +
+    'Budgets are stored per calendar month (budget_month_amounts), not per fiscal year: the budget for a range is the sum of the budgeted months from the month of period_start to the month of period_end, a month counted whole, across as many financial years as the range spans. A financial year can be 1-15 months long (a 14-month transition year after a change of year end), and any window sums exactly its months. fiscal_year is the financial year holding period_start and months_covered lists the YYYY-MM months summed, so the match can be re-derived rather than assumed. ' +
     'detail: "summary" returns totals with no rows; "standard" and "full" return the account lines.',
   scope: 'read:reports',
   write: false,

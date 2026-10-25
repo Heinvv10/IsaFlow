@@ -9,6 +9,11 @@
  *
  * Body: { maxAmountCents: number }  // billing ceiling (display only)
  * Returns: { checkoutUrl: string, reference: string }
+ *
+ * The mandate row is written on the migration_admin pool (S-07e, migration 945:
+ * no app role writes subscription_mandates), for the company and user the
+ * request was verified as. It COMMITs on its own, so a failure after it marks
+ * the row failed rather than relying on the request's rollback.
  */
 
 import type { NextApiResponse } from 'next';
@@ -20,6 +25,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { initializeTransaction } from '@/modules/billing/services/paystackClient';
 
 const Body = z.object({
@@ -65,7 +71,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // Its id is stored on the payment request below (migration 651) so both the
   // webhook and the verify route write to THIS mandate rather than guessing
   // from the company's newest pending row.
-  const mandateRows = await sql<{ id: string }>`
+  const mandateRows = (await migrationAdminSqlTx('mandate_create', (tx) => tx`
     INSERT INTO subscription_mandates (
       company_id, gateway, max_amount_cents, currency,
       authorised_by, status
@@ -74,7 +80,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       ${req.user!.id}, 'pending'
     )
     RETURNING id
-  `;
+  `)) as Array<{ id: string }>;
   const mandateId = mandateRows[0]!.id;
 
   try {
@@ -109,16 +115,29 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       mandateId,
     });
   } catch (err) {
-    // Nothing to mark: this answers 500, and withAuth ROLLBACKs the request
-    // transaction on >= 500 — which discards the INSERT that created the
-    // pending mandate too, so no row survives to be 'failed'. A marking UPDATE
-    // here would be dead work, and on a SQL failure it would raise 25P02 out
-    // of the catch block with no savepoint to absorb it.
+    // This answers 500 and withAuth ROLLBACKs the request transaction, which
+    // discards the payment request but not the mandate row: that COMMITted on
+    // the migration_admin pool, so it is marked failed here. The UPDATE runs on
+    // its own connection, so a failure of it cannot poison the request.
     log.error(
       'Paystack mandate authorisation failed to initialise',
       { mandateId, err: err instanceof Error ? err.message : String(err) },
       'PaystackMandate',
     );
+    try {
+      await migrationAdminSqlTx('mandate_create_failed', (tx) => tx`
+        UPDATE subscription_mandates SET status = 'failed', updated_at = now()
+        WHERE id = ${mandateId}
+          AND company_id = ${req.companyId}
+          AND status = 'pending'
+      `);
+    } catch (markErr) {
+      log.warn(
+        'Could not mark an abandoned pending mandate failed',
+        { mandateId, err: markErr instanceof Error ? markErr.message : String(markErr) },
+        'PaystackMandate',
+      );
+    }
     return apiResponse.internalError(res, 'Failed to initialise mandate authorisation');
   }
 }

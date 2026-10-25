@@ -6,7 +6,7 @@
 
 import { PAGE_WIDTH_MM } from './packTextMetrics';
 import { svgBoxFor } from './packChartBox';
-import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, type MoneyScale } from '@/lib/format/money';
 import { CHART_HEIGHT_MM, PX_PER_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -74,7 +74,7 @@ export function buildCashTrendChart(
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
   const direction = last >= first ? 'rose' : 'fell';
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   // CASH IS A POSITION, NOT A MOVEMENT, so the stub costs it less than it
   // costs a flow panel — a balance at 7 September is a real balance at
   // 7 September. It is still measured to a different date from the eleven
@@ -103,7 +103,7 @@ export function buildCashTrendChart(
     // measure and is the only picture of cash a director gets; bare, it was
     // six gridlines carrying one number.
     svg: renderChartSvg(
-      smallMultipleOption(points, domain, (n) => formatMoney(n, { scale }), undefined, {
+      smallMultipleOption(points, domain, (n) => formatStatementFigure(n, { scale }), undefined, {
         unit: scale,
         boxPx: Math.round(cashPlot.heightMm * PX_PER_MM),
       }),

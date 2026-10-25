@@ -27,6 +27,7 @@ import type { Severity } from '@/modules/bureau/services/bureauWorkTypes';
 import type { ClientTriage } from '@/modules/bureau/services/bureauClientTriageService';
 
 import { notify } from '@/utils/toast';
+import { formatDisplayDate } from '@/utils/dateFormat';
 interface WorkItem {
   bureauId: string;
   bureauName: string;
@@ -244,7 +245,7 @@ export default function BureauDashboardPage() {
                       : it.detail
                   }
                   amount={it.amount ?? null}
-                  meta={it.dueAt ? new Date(it.dueAt).toLocaleDateString() : '—'}
+                  meta={it.dueAt ? formatDisplayDate(it.dueAt) : '—'}
                 />
               );
             })}
@@ -273,7 +274,7 @@ function StatCard({ label, value, color, onClick, active, icon }: {
         : 'border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] ' + (onClick ? 'hover:bg-[var(--ff-bg-tertiary)] cursor-pointer' : 'cursor-default')}`}
     >
       <div className="text-xs text-[var(--ff-text-tertiary)]">{label}</div>
-      <div className={`inline-flex items-center gap-1 text-2xl mt-1 ${color}`} style={{ fontFamily: 'var(--ff-num-font)' }}>
+      <div className={`inline-flex items-center gap-1 text-2xl mt-1 tabular-nums ${color}`}>
         {icon && <span aria-hidden="true">{icon}</span>}
         <span>{value}</span>
       </div>

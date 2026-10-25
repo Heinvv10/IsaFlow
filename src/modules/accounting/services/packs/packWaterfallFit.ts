@@ -19,7 +19,7 @@
  * draws it at, so a figure is not turned out of a bar that holds it.
  */
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, type MoneyScale } from '@/lib/format/money';
 import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
 
 export const LABEL_GAP_PX = 4;
@@ -39,7 +39,7 @@ export const BAR_SHARE_OF_BAND = 0.6;
  * made the chart look like it disagreed with it.
  */
 export function figureText(step: WaterfallStep, scale: MoneyScale): string {
-  return formatMoney(step.labelValue ?? step.value, { scale });
+  return formatStatementFigure(step.labelValue ?? step.value, { scale });
 }
 
 /** The paper kept either side of a figure: inside its bar, and at the

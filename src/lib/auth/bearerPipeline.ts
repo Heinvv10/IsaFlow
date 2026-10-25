@@ -15,7 +15,7 @@ import pg from 'pg';
 // Register the DATE parser independently of neon.ts import order.
 import '@/lib/pgTypes';
 import type { RequestContext } from '@/lib/als';
-import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
+import { runOwnedContext, drainAfterCommit, settleAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { authPoolMax } from '@/lib/limits/poolLimits';
 import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
@@ -128,6 +128,8 @@ export async function runBearerRequest(
   const startedAt = Date.now();
   const client = await connectObserved(getAuthPool(), 'bearerPipeline');
   let deferred: DeferredEnd | null = null;
+  let committed = false; // after-rollback work runs unless this turns true
+  let owned: RequestContext | null = null;
   let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
   try {
     await client.query('BEGIN');
@@ -225,7 +227,8 @@ export async function runBearerRequest(
     const flush = deferEnd(res);
     deferred = flush;
 
-    const txCtx: RequestContext = { client, userId: ctx.userId, companyId: ctx.companyId, claims, afterCommit: [] };
+    const txCtx: RequestContext = { client, userId: ctx.userId, companyId: ctx.companyId, claims, afterCommit: [], afterRollback: [] };
+    owned = txCtx;
     const runHandler = async () => runOwnedContext(txCtx, async () => { await handler(authedReq, res); });
 
     if (process.env.SENTRY_ENABLED === 'true') {
@@ -255,6 +258,7 @@ export async function runBearerRequest(
     } else {
       try {
         await client.query('COMMIT');
+        committed = true;
       } catch (finalizeErr) {
         // The COMMIT failed after the handler "responded": the write did not land, or its
         // outcome is unknown. Roll back, then replace the buffered 2xx with an honest 500.
@@ -276,6 +280,8 @@ export async function runBearerRequest(
     answerThrow(req, res, deferred, err, { source: 'bearerPipeline', companyId: ctx.companyId, userId: ctx.userId, rolledBack: !failed });
   } finally {
     client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
+    // Undo what committed on its own connection for a request that did not (S-07e).
+    settleAfterRollback(owned, committed);
     const ms = Date.now() - startedAt;
     if (ms > 100) log.info('bearerPipeline slow request', { ms, url: req.url }, 'Auth');
   }

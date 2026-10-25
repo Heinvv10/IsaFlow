@@ -16,10 +16,6 @@ import {
 } from '../../src/lib/auth/gotrue';
 import { revokeAllUserAuthorisations } from '../../src/lib/auth/oauth';
 import { revokeAllUserPats } from '../../src/lib/auth/personalAccessTokens';
-import {
-  removeCompanyFeatureOverride,
-  setCompanyFeatureOverride,
-} from '../../src/modules/admin/services/featureFlagService';
 import { logAdminAction } from '../../src/modules/admin/services/auditService';
 import {
   FEATURE_OVERRIDE_REASON,
@@ -141,7 +137,13 @@ async function findGoTrueUser(email: string): Promise<string | null> {
 export async function enableConnector(sql: TaggedSql, operatorUserId: string): Promise<void> {
   const flag = await sql<{ id: string }>`SELECT id FROM feature_flags WHERE code = 'mcp_connector' LIMIT 1`;
   if (!flag[0]) throw new SandboxGuardError('feature flag mcp_connector does not exist');
-  await setCompanyFeatureOverride(COMPANY_ID, flag[0].id, true, FEATURE_OVERRIDE_REASON, operatorUserId);
+  // On this script's own owner connection: no app role may write overrides (945),
+  // and featureFlagService's `sql` would take the service pool.
+  await sql`
+    INSERT INTO company_feature_overrides (company_id, feature_id, enabled, reason, set_by, created_at)
+    VALUES (${COMPANY_ID}::uuid, ${flag[0].id}, true, ${FEATURE_OVERRIDE_REASON}, ${operatorUserId}, NOW())
+    ON CONFLICT (company_id, feature_id) DO UPDATE SET
+      enabled = EXCLUDED.enabled, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, created_at = NOW()`;
   await logAdminAction(operatorUserId, 'company_feature.override_set', 'company', COMPANY_ID, {
     feature_id: flag[0].id, enabled: true, reason: FEATURE_OVERRIDE_REASON, source: 'scripts/sandbox/reviewer-sandbox.ts',
   }, null);
@@ -178,7 +180,7 @@ export async function teardown(sql: TaggedSql, operatorUserId: string, userId: s
   }
   const flag = await sql<{ id: string }>`SELECT id FROM feature_flags WHERE code = 'mcp_connector' LIMIT 1`;
   if (flag[0]) {
-    await removeCompanyFeatureOverride(COMPANY_ID, flag[0].id);
+    await sql`DELETE FROM company_feature_overrides WHERE company_id = ${COMPANY_ID}::uuid AND feature_id = ${flag[0].id}`;
     await logAdminAction(operatorUserId, 'company_feature.override_removed', 'company', COMPANY_ID, {
       feature_id: flag[0].id, source: 'scripts/sandbox/reviewer-sandbox.ts',
     }, null);

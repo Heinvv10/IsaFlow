@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { formatDate } from '@/utils/formatters';
 import { Loader2, CreditCard, XCircle, PlusCircle, RefreshCw } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 // ---------------------------------------------------------------------------
 // Shared types (exported so CompanyBillingTab can import them)
@@ -56,7 +57,7 @@ export interface PaginatedInvoices {
 // ---------------------------------------------------------------------------
 
 export function centsToZar(cents: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(cents / 100);
+  return formatMoney(cents / 100);
 }
 
 export const SUB_STATUS_CLASS: Record<string, string> = {

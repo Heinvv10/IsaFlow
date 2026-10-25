@@ -20,6 +20,9 @@
  * STRICTER than withAuth, never looser, so nothing this module returns can be
  * refused by withAuth. Nothing in the app writes `companies.is_active = false`
  * (the admin soft delete writes `status`), so in practice it excludes nothing.
+ *
+ * Every relation is schema-qualified (S-07e): an unqualified name finds a
+ * temporary table of the same name first.
  */
 import { sql } from '@/lib/neon';
 
@@ -37,8 +40,8 @@ export interface LiveCompanyMembership {
 export async function listLiveCompanyMemberships(userId: string): Promise<LiveCompanyMembership[]> {
   const rows = (await sql`
     SELECT cu.company_id, c.name AS company_name, cu.role, cu.is_default
-    FROM company_users cu
-    JOIN companies c ON c.id = cu.company_id
+    FROM public.company_users cu
+    JOIN public.companies c ON c.id = cu.company_id
      AND c.is_active = true
      AND c.status IS DISTINCT FROM 'suspended'
      AND c.status IS DISTINCT FROM 'deleted'
@@ -74,8 +77,8 @@ export async function pickInitialCompanyId(userId: string): Promise<string | nul
 export async function isLiveCompanyForUser(userId: string, companyId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1 AS ok
-    FROM company_users cu
-    JOIN companies c ON c.id = cu.company_id
+    FROM public.company_users cu
+    JOIN public.companies c ON c.id = cu.company_id
      AND c.is_active = true
      AND c.status IS DISTINCT FROM 'suspended'
      AND c.status IS DISTINCT FROM 'deleted'
@@ -97,7 +100,7 @@ export async function listLiveCompanies(
   if (companyIds.length === 0) return [];
   const rows = (await sql`
     SELECT c.id, c.name
-    FROM companies c
+    FROM public.companies c
     WHERE c.id = ANY(${[...companyIds]}::uuid[])
       AND c.is_active = true
       AND c.status IS DISTINCT FROM 'suspended'

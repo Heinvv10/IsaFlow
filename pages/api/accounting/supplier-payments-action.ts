@@ -104,11 +104,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.conflict(res, err.message);
     }
     // Typed, not matched: `/not found$/` also matched 'Bank account not found',
-    // which processSupplierPayment throws AFTER it has claimed the payment. The
-    // 404 that produced was a 4xx after a write, so withAuth COMMITted the claim
-    // and the payment was stranded 'processed' with no journal and no retry —
-    // every retry hit the claim it had already taken. Anything not typed here
-    // falls through to the 500 below, which rolls the claim back with it.
+    // which processSupplierPayment threw AFTER it had claimed the payment (a
+    // separate claim write it no longer makes, 2026-10-24). The 404 that produced
+    // was a 4xx after a write, so withAuth COMMITted the claim and the payment was
+    // stranded 'processed' with no journal and no retry. Anything not typed here
+    // falls through to the 500 below, which rolls back every write with it.
     if (err instanceof SupplierPaymentNotFoundError) {
       return apiResponse.notFound(res, 'Payment');
     }

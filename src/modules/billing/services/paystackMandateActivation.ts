@@ -17,13 +17,20 @@
  * So the activation is written as a conditional UPDATE and the constraint is
  * left as the arbiter: the NOT EXISTS settles the sequential case, and a
  * concurrent loser (both statements pass NOT EXISTS, the index blocks the
- * second) surfaces as 23505 inside a SAVEPOINT rather than aborting the
- * caller's transaction. Neither zero rows nor that 23505 is read as `blocked`
+ * second) surfaces as 23505 inside the UPDATE's own transaction rather than
+ * aborting the caller's. Neither zero rows nor that 23505 is read as `blocked`
  * on its own: both are ambiguous with "this row was just activated by the
  * other observer", so the outcome is decided by re-reading the row.
+ *
+ * The mandate's writes and its authorization code run on the migration_admin
+ * pool (S-07e, migration 945): no app role may write subscription_mandates or
+ * read the codes a charge is made with. Callers pass the company id from the
+ * verified request or from the payment request row, and every statement is
+ * scoped by it.
  */
 
-import { sql, withSavepoint } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 
 export interface MandateRow {
   id: string;
@@ -76,7 +83,9 @@ function isActiveMandateConflict(err: unknown): boolean {
  * The mandate a successful authorisation belongs to, or null if there is none.
  * Migration 651 records the link on the payment request; rows written before it
  * have none (create.ts passed the id only in Paystack metadata) and fall back
- * to the company's newest paystack mandate, active first. Either way: at most
+ * to the company's newest paystack mandate, active first. Since S-07e the
+ * webhook and verify refuse an unlinked request first (paystackLinkBinding.ts),
+ * so that fallback is no longer reached from either. Either way: at most
  * ONE row, and its status is returned so the caller can refuse to resurrect a
  * revoked one.
  */
@@ -100,22 +109,22 @@ export async function resolveAuthorisedMandate(
   linkedMandateId: string | null,
 ): Promise<MandateRow | null> {
   if (linkedMandateId) {
-    const rows = await sql<ResolvedRow>`
+    const rows = (await migrationAdminSqlTx('mandate_resolve_linked', (tx) => tx`
       SELECT id, status, paystack_authorization_code FROM subscription_mandates
       WHERE id = ${linkedMandateId}
         AND company_id = ${companyId}
       LIMIT 1
-    `;
+    `)) as ResolvedRow[];
     return rows[0] ? toMandateRow(rows[0], true) : null;
   }
-  const rows = await sql<ResolvedRow>`
+  const rows = (await migrationAdminSqlTx('mandate_resolve_newest', (tx) => tx`
     SELECT id, status, paystack_authorization_code FROM subscription_mandates
     WHERE company_id = ${companyId}
       AND gateway = 'paystack'
       AND status IN ('pending','active')
     ORDER BY (status = 'active') DESC, created_at DESC
     LIMIT 1
-  `;
+  `)) as ResolvedRow[];
   return rows[0] ? toMandateRow(rows[0], false) : null;
 }
 
@@ -152,20 +161,19 @@ function classifyActive(
  * webhook had not yet written.
  *
  * Safe on both callers: the zero-row path never errored, and on the 23505 path
- * `withSavepoint` has already rolled back to its savepoint, so the transaction
- * is usable either way.
+ * the UPDATE's own transaction has already rolled back; the caller's is untouched.
  */
 async function reclassifyAfterNoUpdate(
   companyId: string,
   mandate: MandateRow,
   auth: AuthorisationDetails,
 ): Promise<ActivationOutcome> {
-  const rows = await sql<ResolvedRow>`
+  const rows = (await migrationAdminSqlTx('mandate_reclassify', (tx) => tx`
     SELECT id, status, paystack_authorization_code FROM subscription_mandates
     WHERE id = ${mandate.id}
       AND company_id = ${companyId}
     LIMIT 1
-  `;
+  `)) as ResolvedRow[];
   const row = rows[0];
   // Gone (concurrent delete): not activatable, and not "some other row is
   // active" either — the only terminal outcome that fits is not_pending.
@@ -190,7 +198,7 @@ export async function activateAuthorisedMandate(
   if (mandate.status !== 'pending') return 'not_pending';
 
   try {
-    const rows = await withSavepoint('paystack_mandate_activate', () => sql<{ id: string }>`
+    const rows = (await migrationAdminSqlTx('mandate_activate', (tx) => tx`
       UPDATE subscription_mandates
       SET status = 'active',
           gateway = 'paystack',
@@ -213,7 +221,7 @@ export async function activateAuthorisedMandate(
             AND other.id <> ${mandate.id}
         )
       RETURNING id
-    `);
+    `)) as Array<{ id: string }>;
     if (rows[0]) return 'activated';
   } catch (err) {
     if (!isActiveMandateConflict(err)) throw err;

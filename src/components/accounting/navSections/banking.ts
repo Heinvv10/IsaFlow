@@ -2,6 +2,13 @@ import type { Tab } from './types';
 
 export const bankingTab: Tab = {
   id: 'banking', label: 'Banking',
+  // Sections render as hover-only rows; the daily set is surfaced as direct links.
+  links: [
+    { label: 'Transactions', href: '/accounting/bank-transactions' },
+    { label: 'Reconcile', href: '/accounting/bank-reconciliation' },
+    { label: 'Transfers', href: '/accounting/bank-transfers' },
+    { label: 'Import Statement', href: '/accounting/bank-reconciliation/import' },
+  ],
   items: [
     {
       section: 'Lists',

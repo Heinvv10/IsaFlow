@@ -5,7 +5,7 @@
  * under the 300-line cap; `buildTrendPanels` there composes them.
  */
 
-import { formatMoney, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -37,7 +37,7 @@ export function moneyPanel(
   const points = trend.map((point) => ({ label: monthLabel(point), value: panel.pick(point) }));
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
-  const money = (n: number) => formatMoney(n, { scale });
+  const money = (n: number) => formatStatementFigure(n, { scale });
   const prose = (n: number) => inProse(money(n));
   // AND THE SENTENCE SAYS WHICH MONTH ITS LAST FIGURE IS, where that month is
   // a stub. "Revenue rose from nil to 30 over 12 periods" states a current

@@ -28,6 +28,7 @@ export type { DbRow } from './neon/query';
 export { getPool, getPoolForTests, getDbPool } from './neon/pool';
 export { sql, transaction } from './neon/sql';
 export { withTransaction, withSavepoint } from './neon/transaction';
+export { buildQuery } from './neon/query';
 export { SavepointQueueTimeoutError, savepointQueueWait } from './neon/savepointQueue';
 export type { TxSql } from './neon/transaction';
 export { assertTxUsable } from '@/lib/als';

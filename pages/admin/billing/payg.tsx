@@ -140,11 +140,11 @@ export default function PaygCompaniesPage() {
                       {c.companyName}
                     </Link>
                   </td>
-                  <td className="px-4 py-3 text-right font-mono">
+                  <td className="px-4 py-3 text-right tabular-nums">
                     <Zap className="inline w-3 h-3 mr-1" />{c.balance}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono">{c.monthFlowsUsed}</td>
-                  <td className="px-4 py-3 text-right font-mono">{formatCurrency(c.monthDebitedCents / 100)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{c.monthFlowsUsed}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(c.monthDebitedCents / 100)}</td>
                   <td className="px-4 py-3 text-center">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${NUDGE_BADGE[c.nudgeLevel]}`}>
                       {c.nudgeLevel}

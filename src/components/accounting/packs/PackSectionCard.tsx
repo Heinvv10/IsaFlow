@@ -21,10 +21,11 @@ import { ProfitWaterfall } from '@/components/accounting/charts/ProfitWaterfall'
 import { MissingPackFieldError, packToCashFlowUnavailable, packToWaterfallSteps } from '@/modules/accounting/services/packs/packSectionData';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface PackSection { type: string; title: string; data: Record<string, unknown> }
 
-const fmt = (n: unknown) => typeof n === 'number' ? `R ${n.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}` : String(n ?? '—');
+const fmt = (n: unknown) => typeof n === 'number' ? formatMoney(n, { decimals: 0 }) : String(n ?? '—');
 
 export function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen ?? false);

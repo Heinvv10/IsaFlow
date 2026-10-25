@@ -7,10 +7,11 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { BarChart3, Loader2, AlertTriangle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface StockItem { id: string; code: string; name: string; current_stock: number; reorder_level: number; avg_cost: number; selling_price: number; unit: string; category: string; stock_value: number; }
 interface Summary { totalProducts: number; totalStockValue: number; belowReorder: number; }
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export default function StockLevelsPage() {
   const [items, setItems] = useState<StockItem[]>([]);

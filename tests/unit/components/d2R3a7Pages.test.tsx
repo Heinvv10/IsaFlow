@@ -117,33 +117,34 @@ describe('bureau clients: a failed load is not "not a member of any bureau"', ()
 
 describe('financial-years', () => {
   const PERIOD = { id: 'p1', periodName: 'Jan', periodNumber: 1, fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-01-31', status: 'open' };
+  const YEAR = { id: 'y1', fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', status: 'open', kind: 'normal', stored: true, months: 12, periods: [PERIOD] };
   it('journal counts: a refused counts call never parses its body and the page still shows the year', async () => {
     const refused = refuse(); const parse = vi.spyOn(refused, 'json');
-    script(u => (u.includes('jeCounts=true') ? refused : u.includes('/fiscal-periods') ? ok([PERIOD]) : undefined));
+    script(u => (u.includes('jeCounts=true') ? refused : u.includes('/fiscal-years') ? ok([YEAR]) : undefined));
     render(<FinancialYearsPage />);
     expect(await screen.findByText(/year 2026 counts \{\}/)).toBeTruthy();
     expect(parse).not.toHaveBeenCalled();
     expectNoRawError();
   });
   it('journal counts: an empty-body 500 raises no SyntaxError and shows no error banner', async () => {
-    script(u => (u.includes('jeCounts=true') ? empty500() : u.includes('/fiscal-periods') ? ok([PERIOD]) : undefined));
+    script(u => (u.includes('jeCounts=true') ? empty500() : u.includes('/fiscal-years') ? ok([YEAR]) : undefined));
     render(<FinancialYearsPage />);
     await screen.findByText(/year 2026/);
     expectNoRawError();
   });
   it('journal counts: a 200 reaches the card', async () => {
-    script(u => (u.includes('jeCounts=true') ? ok({ p1: 7 }) : u.includes('/fiscal-periods') ? ok([PERIOD]) : undefined));
+    script(u => (u.includes('jeCounts=true') ? ok({ p1: 7 }) : u.includes('/fiscal-years') ? ok([YEAR]) : undefined));
     render(<FinancialYearsPage />);
     expect(await screen.findByText(/counts \{"p1":7\}/)).toBeTruthy();
   });
   it('periods load failing leaves no stale year', async () => {
-    script(u => (u.includes('/fiscal-periods') ? empty500() : undefined)); render(<FinancialYearsPage />);
+    script(u => (u.includes('/fiscal-years') ? empty500() : undefined)); render(<FinancialYearsPage />);
     expect(await screen.findByText('Could not load fiscal periods - try again')).toBeTruthy();
     expect(screen.queryByText(/year 2026/)).toBeNull();
   });
   it('a failing refresh clears the old year instead of leaving it under the error', async () => {
     let calls = 0;
-    script(u => (u.includes('jeCounts=true') ? ok({}) : u.includes('/fiscal-periods') ? (++calls === 1 ? ok([PERIOD]) : empty500()) : undefined));
+    script(u => (u.includes('jeCounts=true') ? ok({}) : u.includes('/fiscal-years') ? (++calls === 1 ? ok([YEAR]) : empty500()) : undefined));
     const { container } = render(<FinancialYearsPage />);
     await screen.findByText(/year 2026/);
     fireEvent.click(container.querySelector('svg.lucide-refresh-cw')!.closest('button')!);
@@ -151,7 +152,7 @@ describe('financial-years', () => {
     expect(screen.queryByText(/year 2026/)).toBeNull();
   });
   const addYear = async (write: () => Response) => {
-    script((u, m) => (m === 'POST' ? write() : u.includes('/fiscal-periods') ? ok([PERIOD]) : undefined));
+    script((u, m) => (m === 'POST' ? write() : u.includes('/fiscal-years') ? ok([YEAR]) : undefined));
     render(<FinancialYearsPage />);
     await screen.findByText(/year 2026/);
     await click(/add new year/i);

@@ -2,6 +2,7 @@
  * Recurring Invoice — Line Items section (shared between new and edit pages)
  */
 import { Plus, Trash2 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface LineItem {
   key: string;
@@ -21,8 +22,7 @@ interface Props {
   inputCls: string;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export function LineItemsSection({
   lines, taxRate, onTaxRateChange, onUpdateLine, onAddLine, onRemoveLine, inputCls,

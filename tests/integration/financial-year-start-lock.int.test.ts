@@ -26,7 +26,7 @@ afterAll(async () => {
   try { await fx.cleanup(); } finally { await pool.end(); }
 }, 60000);
 
-const COMING_SOON = /guided change of year end \(coming soon\).*contact support/;
+const CHANGE_ACTION_NOTE = /use "Change financial year end" \(owner or admin\)/;
 
 describe('PUT /api/accounting/companies: financialYearStart', () => {
   it('before any posting, a change is saved and the periods are rebuilt on the new month', async () => {
@@ -52,7 +52,7 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     const out = await put(u, { id: companyId, financialYearStart: 9, tradingName: 'must not land' });
     expect(out.status, JSON.stringify(out.body)).toBe(409);
     expect(out.body.error?.message).toMatch(/after the first posting/);
-    expect(out.body.error?.message).toMatch(COMING_SOON);
+    expect(out.body.error?.message).toMatch(CHANGE_ACTION_NOTE);
     expect(await stored(companyId)).toEqual(before);
   });
 
@@ -86,7 +86,7 @@ describe('PUT /api/accounting/companies: financialYearStart', () => {
     const out = await put(u, { id: companyId, financialYearStart: 9 });
     expect(out.status, JSON.stringify(out.body)).toBe(409);
     expect(out.body.error?.message).toMatch(/draft journals/);
-    expect(out.body.error?.message).toMatch(COMING_SOON);
+    expect(out.body.error?.message).toMatch(CHANGE_ACTION_NOTE);
     expect(await stored(companyId)).toEqual(before);
   });
 

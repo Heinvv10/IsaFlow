@@ -71,8 +71,8 @@ export function PayrollRunTotals({ run }: { run: RunHeaderTotals }) {
     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
       {stats.map((stat) => (
         <div key={stat.label} className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-3">
-          <p className="text-[10px] uppercase tracking-wide text-[var(--ff-text-tertiary)]">{stat.label}</p>
-          <p className={`mt-1 ${stat.mono ? 'font-mono' : ''} ${stat.accent ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'} text-sm font-semibold`}>
+          <p className="text-xs uppercase tracking-wide text-[var(--ff-text-tertiary)]">{stat.label}</p>
+          <p className={`mt-1 ${stat.mono ? 'tabular-nums' : ''} ${stat.accent ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'} text-sm font-semibold`}>
             {stat.value}
           </p>
         </div>
@@ -82,7 +82,7 @@ export function PayrollRunTotals({ run }: { run: RunHeaderTotals }) {
 }
 
 const th = 'py-2 px-4 text-[var(--ff-text-secondary)] font-medium';
-const num = 'py-2 px-4 text-right font-mono';
+const num = 'py-2 px-4 text-right tabular-nums';
 
 export function PayrollRunLinesTable({ lines }: { lines: RunLineAmounts[] }) {
   const t = sumRunLines(lines);

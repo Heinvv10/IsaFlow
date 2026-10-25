@@ -6,7 +6,7 @@
  * single most common way a small-multiples grid lies.
  */
 import type { EChartsCoreOption } from 'echarts/core';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import type { ChartPalette } from './chartTypes';
 import { escapeHtml } from './escapeHtml';
 import { axisDomain, roleStyle } from './ibcs';
@@ -48,7 +48,7 @@ export function buildSmallMultiplesOption(
       trigger: 'axis',
       formatter: (params: Array<{ name: string; value: number; seriesName: string }>) =>
         params
-          .map((p) => `${escapeHtml(p.seriesName)} ${escapeHtml(p.name)}<br/>${formatMoney(p.value, { symbol: true })}`)
+          .map((p) => `${escapeHtml(p.seriesName)} ${escapeHtml(p.name)}<br/>${formatStatementFigure(p.value, { symbol: true })}`)
           .join('<br/>'),
     },
     xAxis: panels.map((_, i) => ({

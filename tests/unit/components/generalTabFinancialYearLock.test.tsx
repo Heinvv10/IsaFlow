@@ -29,7 +29,7 @@ describe('GeneralTab financial year start', () => {
     expect(fySelect().disabled).toBe(true);
     expect(shownMonth()).toBe('Mar');
     expect(screen.getByText(/Locked because journals have been posted/).textContent)
-      .toMatch(/guided change of year end \(coming soon\); contact support if you need it now/);
+      .toMatch(/use \"Change financial year end\" \(owner or admin\)/);
     expect(screen.queryByText(/declared/i)).toBeNull();
   });
 
@@ -62,7 +62,7 @@ describe('GeneralTab financial year start', () => {
     })} onChange={vi.fn()} />);
     expect(fySelect().disabled).toBe(true);
     expect(screen.getByText(/Locked because this company's fiscal periods are already in use/).textContent)
-      .toMatch(/guided change of year end \(coming soon\); contact support if you need it now/);
+      .toMatch(/use \"Change financial year end\" \(owner or admin\)/);
   });
 
   it('read-only for a company that is not the active one', () => {

@@ -77,7 +77,7 @@ describe('supplier-payment writers', () => {
       `${AP}supplierPaymentAuthors.ts`, // bank-detail edit: content_authors only
       `${AP}supplierPaymentCancel.ts`, // -> cancelled
       `${AP}supplierPaymentUnapply.ts`, // posted payment: reconciled -> processed
-      `${AP}supplierPaymentWorkflowService.ts`, // processSupplierPayment claim, after the gate; void -> cancelled
+      `${AP}supplierPaymentWorkflowService.ts`, // processSupplierPayment: approved -> processed in its one write, after the gate; void -> cancelled
       'src/modules/accounting/services/bank/bankAllocationUnwind.ts', // -> cancelled
       'src/modules/accounting/services/core/duplicateMergeService.ts', // re-points supplier_id: stamps (below)
     ]);
