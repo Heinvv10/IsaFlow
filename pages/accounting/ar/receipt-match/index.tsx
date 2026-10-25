@@ -125,7 +125,8 @@ export default function ReceiptMatchQueuePage() {
 
   return (
     <AppLayout>
-      <div className="p-6 space-y-6">
+      {/* Authored light (white cards, slate text, no dark variants): a light page inside the dark shell, not slate-900 on the dark canvas. */}
+      <div data-surface="light" className="p-6 space-y-6 bg-slate-50 min-h-full">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900 flex items-center gap-2">
             <Banknote className="w-6 h-6 text-emerald-600" />
