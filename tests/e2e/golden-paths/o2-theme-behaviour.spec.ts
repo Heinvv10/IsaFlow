@@ -163,9 +163,11 @@ test.describe('reports pin the header row and the first column to the page scrol
       });
       const mainBox = await main.boundingBox();
       const headBox = await table.locator('thead th').first().boundingBox();
+      const lastHeadBox = await table.locator('thead th').last().boundingBox();
       const cellBox = await table.locator('tbody tr td:first-child').nth(2).boundingBox();
       expect(mainBox && headBox && cellBox).toBeTruthy();
       expect(Math.abs(headBox!.y - mainBox!.y), 'header row pinned to the top of the page scroll').toBeLessThan(3);
+      expect(Math.abs(lastHeadBox!.y - mainBox!.y), 'every header cell is pinned, not just the first').toBeLessThan(3);
       if (report.slug === 'trial-balance') {
         // The pinned Account column sits flush against the pinned Code column, even for a code too long for it.
         await table.locator('tbody tr td:first-child span.truncate').first().evaluate((el) => { el.textContent = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; });
