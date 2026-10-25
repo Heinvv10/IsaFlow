@@ -18,6 +18,7 @@
  */
 
 import { routeAdminQuery, routeAdminTx } from '@/lib/auth/routeAdminPool';
+import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
 
@@ -91,12 +92,28 @@ const STAMP_FAILURE = `UPDATE webhook_endpoints
       is_active = CASE WHEN failure_count + 1 >= $3 THEN false ELSE is_active END
   WHERE id = $1::UUID AND company_id = $2::UUID`;
 
+/** How long a refused failure stamp waits before its one retry (a burst's pool pressure is brief). */
+export const STAMP_RETRY_DELAY_MS = 250;
+
 /**
  * fireWebhook's stamp after one delivery: a success stamps last_triggered_at and resets
  * failure_count; a failure counts up and, in the same statement, switches the endpoint off
- * once the count reaches `disableAfter`. Throws on a refusal (55P03 after a 2 s wait included).
+ * once the count reaches `disableAfter`. A failure stamp that is refused (pool or lock timeout,
+ * 55P03) is retried once after STAMP_RETRY_DELAY_MS: a dropped failure is never counted, so
+ * under steady pool pressure a dead endpoint could otherwise never reach the threshold. Throws
+ * when the retry is refused too (the residual: that one failure is not counted). A success
+ * stamp is not retried: a lost success only leaves an old last_triggered_at and failure_count.
  */
 export async function stampDelivery(companyId: string, id: string, success: boolean, disableAfter: number): Promise<void> {
-  if (success) await routeAdminQuery('webhook delivery stamp', STAMP_SUCCESS, [id, companyId]);
-  else await routeAdminQuery('webhook delivery failure stamp', STAMP_FAILURE, [id, companyId, disableAfter]);
+  if (success) {
+    await routeAdminQuery('webhook delivery stamp', STAMP_SUCCESS, [id, companyId]);
+    return;
+  }
+  try {
+    await routeAdminQuery('webhook delivery failure stamp', STAMP_FAILURE, [id, companyId, disableAfter]);
+  } catch (firstErr) {
+    log.warn('Webhook failure stamp refused; retrying once', { endpointId: id, error: firstErr }, 'webhook');
+    await new Promise<void>((resolve) => setTimeout(resolve, STAMP_RETRY_DELAY_MS));
+    await routeAdminQuery('webhook delivery failure stamp (retry)', STAMP_FAILURE, [id, companyId, disableAfter]);
+  }
 }

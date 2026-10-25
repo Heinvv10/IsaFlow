@@ -6,6 +6,7 @@
  * table. The scan log stays on the app pool. In a request (scan-now) the stamps run after its
  * COMMIT, in order (stampScan), so a rolled-back request never moves the cursor. See mirrorScanWrite.ts for both.
  */
+import { dueConnectionsSql } from './mirrorDueSql';
 import { clipMirrorText } from './mirrorScanLimits';
 import { scanWrite, stampConnection, stampScan } from './mirrorScanWrite';
 
@@ -22,20 +23,8 @@ export interface ScanLogEntry {
   captureEventIds?: string[];
 }
 
-/**
- * The active connections due for a scan, oldest first: never scanned, then the longest
- * waiting; a last_scan_at in the future (only migration_admin can write one now) is due
- * and sorts last. SKIP LOCKED passes over a row another migration_admin write holds; NO KEY
- * UPDATE does not wait for the key-share lock an app role's scan-log INSERT takes.
- */
-const DUE = `SELECT * FROM imap_mirror_connections
-  WHERE status = 'active'
-    AND (last_scan_at IS NULL
-         OR last_scan_at > NOW()
-         OR last_scan_at < NOW() - (scan_interval_minutes || ' minutes')::INTERVAL)
-  ORDER BY CASE WHEN last_scan_at > NOW() THEN 'infinity'::timestamptz ELSE last_scan_at END ASC NULLS FIRST
-  LIMIT 20
-  FOR NO KEY UPDATE SKIP LOCKED`;
+/** The active connections due for a scan: at most one per company, oldest first (mirrorDueSql.ts). */
+const DUE = dueConnectionsSql('imap_mirror_connections');
 
 const SET_CURSOR = `UPDATE imap_mirror_connections
   SET scan_cursor = $1::jsonb, last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL

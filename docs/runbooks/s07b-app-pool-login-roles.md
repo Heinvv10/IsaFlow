@@ -296,17 +296,36 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
   its own (`routeAdminPool`, `ROUTE_ADMIN_POOL_MAX`, default 3), not the credential
   pool (`migrationAdminTx`, 5 s lock wait) that sign-in, invitations and the credential
   writes share, so neither a burst of deliveries nor a delete blocked on a row can hold a
-  sign-in's connection. Each is one fixed statement per transaction keyed on the row's id
-  AND company (an endpoint update is several statements and its re-read in one
-  `routeAdminTx` transaction), waiting at most 2 s for a row lock (a settings write that
+  sign-in's connection. Each is a transaction of its own (it commits at once and never joins
+  a request's transaction) keyed on the row's id AND company: one fixed statement, except an
+  endpoint update, which is up to six statements (one per changed field, then a re-read) in
+  one `routeAdminTx`. Each waits at most 2 s for a row lock (a settings write that
   waits it out answers 503) and running at most 10 s (`statement_timeout`, transaction-local). `updated_at` is set by the mirror
   tables' touch trigger, which needs no column privilege. The admin site's webhook
   page keeps writing on platform_admin. 946 refuses to apply unless migration_admin
   still can. The scan logs, `webhook_deliveries`, `captured_documents` and
   `capture_events` are unchanged (app-writable).
 - Storage reads (invoice PDF, portal PDF, audit export and audit-portal
-  downloads, captured documents, pack verify) refuse a pointer that is not
-  under the reading company's `<company_id>/` prefix (code only, no privilege).
+  downloads, captured documents, pack verify) and `removeCapturedDocument` refuse
+  (code only, no privilege) any pointer that is not exactly: bucket `captured-documents` or
+  `customer-invoices` (the two configured names; any other bucket is refused), then
+  `<company_id>/<name>[/<name>...]` with the reading company's id as the first segment and every
+  segment matching `[A-Za-z0-9_-][A-Za-z0-9._-]*` (so no `..`, `%`, backslash, `?`, `#`, empty
+  segment or leading dot). A read answers the typed refusal; `remove` throws it, so a best-effort
+  caller must catch it. An odd historical key is refused by these rules, not only by the prefix
+  (prod's 2318 keys were all clean on 2026-10-25).
+- What one company can ask of the serial scan cron (review round 8; code only). The due
+  selection takes at most ONE connection per company per tick (its most overdue), then the 20
+  most overdue across companies, and counts a stored `scan_interval_minutes` below 5 as 5.
+  `scanIntervalMinutes` is a whole number from 5 to 1440 on create and PATCH of both mirrors
+  (400 otherwise; the settings pages have no field for it, the API defaults stay 5 and 10), and
+  a company holds at most 5 active connections per mirror (create answers 409,
+  `MIRROR_CONNECTION_CAP`; the count and the insert run behind a per-company advisory lock). A
+  tick can still take up to 20 x 120 s when 20 companies each hold a drip-server connection; a
+  time budget per tick is not built. A webhook failure stamp refused by the 3-connection route
+  pool (or a 2 s lock wait) is retried once after 250 ms. Residual: if the retry is refused
+  too, that one failure is not counted, so a dead endpoint under steady pool pressure can reach
+  the 10-failure auto-disable late or not at all.
 - Deploy window: until the new code is live (and after a code-only rollback)
   every write the old release makes to these tables is refused 42501 and writes
   nothing. Settings writes (webhook and mirror-connection create, edit, delete,
@@ -325,7 +344,10 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
 - What an app pool can still do to these tables: read them. It cannot lock a row
   (`FOR UPDATE`/`FOR SHARE` need UPDATE); the key-share lock its scan-log or
   delivery-log INSERT takes does not block a stamp (an UPDATE of non-key columns)
-  nor the due selection (`FOR NO KEY UPDATE SKIP LOCKED`). It does block a DELETE of
+  nor the due selection (`FOR NO KEY UPDATE OF c SKIP LOCKED`; the clause only skips a row
+  another migration_admin write holds at that instant, and a route write commits at once, so
+  it does not keep two overlapping ticks or processes off one connection: the in-process
+  `claimScan` does, and prod runs one process). It does block a DELETE of
   the parent row (named below). So a forged NULL, past or
   future `last_scan_at`, a forged `scan_cursor` and a forged `failure_count` are
   refused 42501 (s07e-b-routes.int.test.ts), and no tenant can pin the 20 due slots

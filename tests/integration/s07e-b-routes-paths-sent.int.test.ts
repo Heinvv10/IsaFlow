@@ -6,7 +6,7 @@
 // pool (routeAdminQuery, review round 5). Proven through the real
 // routes on the production logins (disconnect has no route: the service is
 // called directly); the IMAP client is stubbed (no network).
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import sentIndex from '../../pages/api/accounting/ar/sent-mirror/connections/index';
 import sentItem from '../../pages/api/accounting/ar/sent-mirror/connections/[id]/index';
 import scanNowRoute from '../../pages/api/accounting/ar/sent-mirror/connections/[id]/scan-now';
@@ -128,7 +128,7 @@ describe('S-07e part B (946): another tenant\'s sent-mirror connection', () => {
     const theirs = (await createSentImapConnection({ companyId: other, displayName: 'Theirs', accountEmail: 'b@theirs.test',
       imapHost: 'imap.theirs.test', imapPort: 993, imapUsername: 'u', imapPassword: 'their-pw' })).id;
     const before = await row(theirs);
-    expect((await as(sentItem, 'PATCH', { id: theirs, body: { sentFolder: 'X', scanIntervalMinutes: 1 } })).status).toBe(404);
+    expect((await as(sentItem, 'PATCH', { id: theirs, body: { sentFolder: 'X', scanIntervalMinutes: 5 } })).status).toBe(404);
     expect((await as(sentItem, 'DELETE', { id: theirs })).status).toBe(404);
     expect((await as(scanNowRoute, 'POST', { id: theirs })).status).toBe(404);
     expect(await disconnectSentConnection(theirs, company)).toBe(false);
@@ -140,8 +140,21 @@ describe('S-07e part B (946): another tenant\'s sent-mirror connection', () => {
 // and the cron's due check used to wait for that time to pass, which silenced the connection for good. Round 5
 // refuses the forgery; a future stamp (an ops write, a clock step) is still due and sorts last.
 describe('S-07e part B (946): the cron treats a last_scan_at in the future as due', () => {
-  const make = async (name: string, lastScan: string | null): Promise<string> => {
-    const { id } = await createSentImapConnection({ companyId: other, displayName: name, accountEmail: `${name}@s07eb.test`,
+    // Round 8: the due selection takes one connection per company, and a company holds at most 5: each row gets a company of its own.
+  const solo: string[] = [];
+  const soloCompany = async (): Promise<string> => {
+    const id = crypto.randomUUID();
+    await q('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [id, `s07eb-solo-${id.slice(0, 8)}`]);
+    solo.push(id);
+    return id;
+  };
+  afterEach(async () => {
+    await q('DELETE FROM sent_mirror_connections WHERE company_id = ANY($1)', [solo]);
+    await q('DELETE FROM companies WHERE id = ANY($1)', [solo]);
+    solo.length = 0;
+  });
+const make = async (name: string, lastScan: string | null): Promise<string> => {
+    const { id } = await createSentImapConnection({ companyId: await soloCompany(), displayName: name, accountEmail: `${name}@s07eb.test`,
       imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'me', imapPassword: 'mailbox-pw' });
     if (lastScan !== null) {
       // The app login's forgery is refused; the stamp is set as the table's owner would.
@@ -185,11 +198,12 @@ describe('S-07e part B (946): the cron treats a last_scan_at in the future as du
 describe('S-07e part B (946): the cron meets a sent-mirror row locked by someone else', () => {
   it('skips that connection after the bounded wait, leaves it active with its cursor, and scans the next one', async () => {
     imap.metas = [{ uid: 9, size: 100, envelope: { subject: 'Invoice', to: [{ address: 'c@x.test' }] } }];
-    await q('DELETE FROM sent_mirror_connections WHERE company_id = $1', [company]);
-    const mk = async (name: string) => (await createSentImapConnection({ companyId: company, displayName: name, accountEmail: `${name}@s07eb.test`,
+    await q('DELETE FROM sent_mirror_connections WHERE company_id = ANY($1)', [[company, other]]);
+    // One connection per company per tick (round 8): the held one is the company's, the free one the other company's.
+    const mk = async (name: string, co: string) => (await createSentImapConnection({ companyId: co, displayName: name, accountEmail: `${name}@s07eb.test`,
       imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'me', imapPassword: 'mailbox-pw' })).id;
-    const held = await mk('held-cron');
-    const free = await mk('free-cron');
+    const held = await mk('held-cron', company);
+    const free = await mk('free-cron', other);
     const holder = await fixture.connect();
     try {
       // The due selection takes FOR NO KEY UPDATE SKIP LOCKED: a row locked before the tick is not selected at all.

@@ -6,7 +6,7 @@
 // last_error, the counter), the status flip and the due selection on the same
 // login's own pool (routeAdminQuery, review round 5). Proven through the real
 // routes on the production logins; the IMAP client is stubbed (no network).
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import mirrorIndex from '../../pages/api/accounting/capture/mirror/index';
 import mirrorItem from '../../pages/api/accounting/capture/mirror/[id]/index';
 import disconnectRoute from '../../pages/api/accounting/capture/mirror/[id]/disconnect';
@@ -140,7 +140,7 @@ describe('S-07e part B (946): another tenant\'s IMAP connection', () => {
     const theirs = (await createImapConnection({ companyId: other, displayName: 'Theirs', accountEmail: 'b@theirs.test',
       imapHost: 'imap.theirs.test', imapPort: 993, imapUsername: 'u', imapPassword: 'their-pw' })).id;
     const before = await row(theirs);
-    expect((await as(mirrorItem, 'PATCH', { id: theirs, body: { folder: 'X', scanIntervalMinutes: 1, allowedSenders: ['evil.test'] } })).status).toBe(404);
+    expect((await as(mirrorItem, 'PATCH', { id: theirs, body: { folder: 'X', scanIntervalMinutes: 5, allowedSenders: ['evil.test'] } })).status).toBe(404);
     expect((await as(disconnectRoute, 'POST', { id: theirs })).status).toBe(404);
     expect((await as(mirrorItem, 'DELETE', { id: theirs })).status).toBe(404);
     expect((await as(scanNowRoute, 'POST', { id: theirs })).status).toBe(404);
@@ -152,8 +152,21 @@ describe('S-07e part B (946): another tenant\'s IMAP connection', () => {
 // and the cron's due check used to wait for that time to pass, which silenced the connection for good. Round 5
 // refuses the forgery; a future stamp (an ops write, a clock step) is still due and sorts last.
 describe('S-07e part B (946): the cron treats a last_scan_at in the future as due', () => {
-  const make = async (name: string, lastScan: string | null): Promise<string> => {
-    const { id } = await createImapConnection({ companyId: other, displayName: name, accountEmail: `${name}@s07eb.test`,
+    // Round 8: the due selection takes one connection per company, and a company holds at most 5: each row gets a company of its own.
+  const solo: string[] = [];
+  const soloCompany = async (): Promise<string> => {
+    const id = crypto.randomUUID();
+    await q('INSERT INTO companies (id, name, is_active) VALUES ($1, $2, true)', [id, `s07eb-solo-${id.slice(0, 8)}`]);
+    solo.push(id);
+    return id;
+  };
+  afterEach(async () => {
+    await q('DELETE FROM imap_mirror_connections WHERE company_id = ANY($1)', [solo]);
+    await q('DELETE FROM companies WHERE id = ANY($1)', [solo]);
+    solo.length = 0;
+  });
+const make = async (name: string, lastScan: string | null): Promise<string> => {
+    const { id } = await createImapConnection({ companyId: await soloCompany(), displayName: name, accountEmail: `${name}@s07eb.test`,
       imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'mailbox-pw' });
     if (lastScan !== null) {
       // The app login's forgery is refused; the stamp is set as the table's owner would.

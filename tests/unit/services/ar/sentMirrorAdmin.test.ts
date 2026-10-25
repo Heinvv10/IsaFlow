@@ -26,6 +26,7 @@ vi.mock('@/lib/neon', () => {
 const h = vi.hoisted(() => ({
   admin: [] as Array<{ label: string; text: string; values: unknown[] }>,
   adminRows: [] as unknown[][],
+  activeCount: 0,
 }));
 
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
@@ -37,6 +38,16 @@ vi.mock('@/lib/auth/routeAdminPool', () => ({
     h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
     return h.adminRows.shift() ?? [];
   },
+  routeAdminTx: async (label: string, fn: (c: { query: (text: string, values: unknown[]) => Promise<{ rows: unknown[] }> }) => Promise<unknown>) =>
+    fn({
+      query: async (text: string, values: unknown[]) => {
+        const t = text.replace(/\s+/g, ' ').trim();
+        h.admin.push({ label, text: t, values });
+        if (/pg_advisory_xact_lock/.test(t)) return { rows: [] };
+        if (/COUNT\(\*\)/.test(t)) return { rows: [{ n: h.activeCount }] };
+        return { rows: h.adminRows.shift() ?? [] };
+      },
+    }),
 }));
 
 vi.mock('@/lib/encryption', () => ({
@@ -54,6 +65,7 @@ import {
   deleteSentConnection,
   listSentScanLog,
 } from '@/modules/accounting/services/ar/sentMirrorAdmin';
+import { MAX_ACTIVE_CONNECTIONS_PER_COMPANY, MirrorConnectionCapError } from '@/modules/accounting/services/capture/mirrorLimits';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockEncrypt = encrypt as unknown as MockedFunction<typeof encrypt>;
@@ -84,6 +96,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.admin.length = 0;
   h.adminRows.length = 0;
+  h.activeCount = 0;
 });
 
 describe('listSentConnectionSummaries', () => {
@@ -100,23 +113,34 @@ describe('listSentConnectionSummaries', () => {
 });
 
 describe('createSentImapConnection', () => {
-  it('encrypts the password and inserts the connection', async () => {
+  const input = {
+    companyId: COMPANY_ID,
+    displayName: 'Billing Outbound',
+    accountEmail: 'billing@acme.co.za',
+    imapHost: 'imap.gmail.com',
+    imapPort: 993,
+    imapUsername: 'billing@acme.co.za',
+    imapPassword: 'app-password-123',
+  };
+
+  it('takes the company lock, counts its active connections, then encrypts the password and inserts the connection', async () => {
     h.adminRows.push([rowFixture()]);
-    await createSentImapConnection({
-      companyId: COMPANY_ID,
-      displayName: 'Billing Outbound',
-      accountEmail: 'billing@acme.co.za',
-      imapHost: 'imap.gmail.com',
-      imapPort: 993,
-      imapUsername: 'billing@acme.co.za',
-      imapPassword: 'app-password-123',
-    });
+    h.activeCount = MAX_ACTIVE_CONNECTIONS_PER_COMPANY - 1;
+    await createSentImapConnection(input);
     expect(mockEncrypt).toHaveBeenCalledWith('app-password-123');
-    expect(h.admin).toHaveLength(1);
-    expect(h.admin[0]!.text).toContain('INSERT INTO sent_mirror_connections');
-    expect(h.admin[0]!.values).toContain('enc(app-password-123)');
-    expect(h.admin[0]!.values[0]).toBe(COMPANY_ID);
+    expect(h.admin).toHaveLength(3);
+    expect(h.admin[0]!.text).toContain("pg_advisory_xact_lock(hashtextextended('sent_mirror_connections:'");
+    expect(h.admin[1]!.text).toContain("FROM sent_mirror_connections WHERE company_id = $1::uuid AND status = 'active'");
+    expect(h.admin[2]!.text).toContain('INSERT INTO sent_mirror_connections');
+    expect(h.admin[2]!.values).toContain('enc(app-password-123)');
+    expect(h.admin.map((w) => w.values[0])).toEqual([COMPANY_ID, COMPANY_ID, COMPANY_ID]);
     expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('refuses a company at its limit of active connections, and inserts nothing', async () => {
+    h.activeCount = MAX_ACTIVE_CONNECTIONS_PER_COMPANY;
+    await expect(createSentImapConnection(input)).rejects.toBeInstanceOf(MirrorConnectionCapError);
+    expect(h.admin.some((w) => /^INSERT/.test(w.text))).toBe(false);
   });
 });
 

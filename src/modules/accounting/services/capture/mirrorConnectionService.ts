@@ -18,9 +18,10 @@
  */
 
 import { sql } from '@/lib/neon';
-import { routeAdminQuery } from '@/lib/auth/routeAdminPool';
+import { routeAdminQuery, routeAdminTx } from '@/lib/auth/routeAdminPool';
 import { encrypt } from '@/lib/encryption';
 import { log } from '@/lib/logger';
+import { assertUnderConnectionCap } from './mirrorLimits';
 
 type Row = Record<string, unknown>;
 
@@ -87,22 +88,27 @@ export interface CreateImapConnectionInput {
 
 export async function createImapConnection(input: CreateImapConnectionInput): Promise<MirrorConnectionSummary> {
   const enc = encrypt(input.imapPassword);
-  const [row] = await routeAdminQuery('create imap mirror connection',
-    `INSERT INTO imap_mirror_connections (
-       company_id, created_by, provider, display_name, account_email,
-       imap_host, imap_port, imap_use_tls, imap_username, imap_password_enc,
-       folder, scan_interval_minutes, allowed_senders, denied_senders
-     ) VALUES (
-       $1::uuid, $2, 'imap', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13::text[]
-     )
-     RETURNING *`,
-    [input.companyId, input.createdBy ?? null, input.displayName, input.accountEmail,
-      input.imapHost, input.imapPort, input.imapUseTls ?? true, input.imapUsername, enc,
-      input.folder ?? 'INBOX', input.scanIntervalMinutes ?? 5,
-      input.allowedSenders ?? [], input.deniedSenders ?? []],
-  );
-  log.info('mirror connection created (imap)', { id: row!.id, companyId: input.companyId }, 'imap-mirror');
-  return mapSummary(row!);
+  // Under the company's cap (mirrorLimits.ts): the count and the INSERT are one transaction behind a per-company lock.
+  const row = await routeAdminTx('create imap mirror connection', async (client) => {
+    await assertUnderConnectionCap(client, 'imap', input.companyId);
+    const { rows } = await client.query(
+      `INSERT INTO imap_mirror_connections (
+         company_id, created_by, provider, display_name, account_email,
+         imap_host, imap_port, imap_use_tls, imap_username, imap_password_enc,
+         folder, scan_interval_minutes, allowed_senders, denied_senders
+       ) VALUES (
+         $1::uuid, $2, 'imap', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::text[], $13::text[]
+       )
+       RETURNING *`,
+      [input.companyId, input.createdBy ?? null, input.displayName, input.accountEmail,
+        input.imapHost, input.imapPort, input.imapUseTls ?? true, input.imapUsername, enc,
+        input.folder ?? 'INBOX', input.scanIntervalMinutes ?? 5,
+        input.allowedSenders ?? [], input.deniedSenders ?? []],
+    );
+    return rows[0] as Row;
+  });
+  log.info('mirror connection created (imap)', { id: row.id, companyId: input.companyId }, 'imap-mirror');
+  return mapSummary(row);
 }
 
 export interface UpdateSendersInput {

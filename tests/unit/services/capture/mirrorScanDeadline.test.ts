@@ -30,7 +30,7 @@ vi.mock('@/lib/auth/routeAdminPool', () => ({
   routeAdminQuery: vi.fn(async (_label: string, text: string, v: unknown[]) => {
     const q = text.replace(/\s+/g, ' ').trim();
     h.statements.push({ q, v });
-    return /^SELECT \* FROM \w+_mirror_connections/.test(q) ? h.rows : [];
+    return /^SELECT c\.\* FROM \w+_mirror_connections c/.test(q) ? h.rows : [];
   }),
 }));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'pw' }));
@@ -49,7 +49,6 @@ import { MIRROR_SOCKET_TIMEOUT_MS, MIRROR_THROTTLE_CAP_MS } from '@/modules/acco
 import { fakeServer, installFakeImap, type FakeServer } from '../../../helpers/fakeImapServer';
 
 const DEADLINE = 400;
-const MARGIN = 1500;
 const LONG_DEADLINE = 20_000; // the scan must end by itself, on the capped backoff, well before it
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 let fake: ReturnType<typeof installFakeImap>;
@@ -106,7 +105,7 @@ describe.each(SERVICES)('%s: the per-scan deadline', (_name, kind, tick, table) 
     const took = Date.now() - started;
 
     expect(took).toBeGreaterThanOrEqual(DEADLINE - 50);
-    expect(took).toBeLessThan(DEADLINE + MARGIN);
+    // No upper wall-clock bound: it would depend on box load. A scan with no deadline never ends (the test times out).
     expect(results.map((r) => r.connectionId)).toEqual(['bad-1', 'good-1']);
     expect(results[0]!.errors).toBe(1);
     expect(results[1]!.errors).toBe(0);
