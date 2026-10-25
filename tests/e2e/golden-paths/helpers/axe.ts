@@ -1,7 +1,8 @@
 /**
- * Accessibility gate for golden-path specs.
+ * Accessibility gate for the n-a11y-main-screens golden spec.
  *
- *   await openScreen(page, A11Y_SCREENS[0]);            // goto, wait for data, assert it IS that screen
+ *   await openScreen(page, screen);                       // goto, wait for its data, assert it IS that screen
+ *   await expectScreenClean(page, screen);                // page scan (+ the screen's data table, scanned apart)
  *   await expectNoSeriousA11yViolations(page, { exclude: ['#chart'] });
  *
  * Runs axe-core over the page and fails on any 'serious' or 'critical' violation not in ../a11y-baseline.json,
@@ -9,10 +10,8 @@
  * (page + rule + context selector + max node count). The baseline may only shrink: fix a violation and delete its
  * entry - an entry that no longer occurs fails the run too. Never add an entry to make a red run green.
  *
- * A11Y_GATE=report (default: enforce) turns every failure into a test annotation, INCLUDING the ones openScreen
- * raises (wrong path, missing heading, a page that never settles) and an axe run that itself errors: in report mode
- * the a11y checks can never fail a run. scripts/verify-deploy.sh sets it: that run is against production data the
- * dev-recorded baseline knows nothing about, and a red run there rolls the deploy back.
+ * This is a dev/CI gate and nothing else: it is keyed to dev data, so scripts/verify-deploy.sh (a post-deploy run
+ * against production whose failure rolls the code back) excludes the whole spec.
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
@@ -20,9 +19,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { describeTargets } from './a11yDescribe';
 import type { A11yScreen } from './a11yScreens';
-import {
-  evaluateGate, gateMode, pageKeyOf, screenMismatch, seriousViolations, type BaselineFile, type Violation,
-} from './a11yBaseline';
+import { evaluateGate, pageKeyOf, screenMismatch, seriousViolations, type BaselineFile, type Violation } from './a11yBaseline';
 
 export interface A11yOptions {
   /** Limit the scan to these selectors (AxeBuilder.include). */
@@ -41,7 +38,7 @@ export interface A11yOptions {
  * Shell controls whose presence depends on data and async state, so they cannot be a stable part of every page's
  * baseline. The Setup-guide button's count badge renders only after /api/accounting/setup-guide and
  * /api/auth/preferences resolve, and disappears once nothing remains to set up. Its violation is covered by one
- * dedicated test (n-a11y-main-screens: "setup guide badge") that waits for the badge.
+ * dedicated test (n-a11y-main-screens: "setup guide badge") that waits for the button.
  */
 export const SETUP_GUIDE_BUTTON = 'header button[aria-label^="Setup guide"]';
 const SHELL_EXCLUDES = [SETUP_GUIDE_BUTTON];
@@ -65,22 +62,21 @@ async function collectViolations(page: Page, opts: A11yOptions): Promise<Violati
 }
 
 export async function expectNoSeriousA11yViolations(page: Page, opts: A11yOptions = {}): Promise<void> {
-  const mode = gateMode(process.env.A11Y_GATE);
   const key = opts.key ?? pageKeyOf(page.url());
-  let found: Violation[];
-  try {
-    found = await collectViolations(page, opts);
-  } catch (err) {
-    if (mode === 'enforce') throw err;
-    test.info().annotations.push({ type: 'a11y-gate-report', description: `${key}: axe could not run: ${errorText(err)}` });
-    return;
-  }
-  const verdict = evaluateGate(mode, key, found, opts.baseline ?? loadBaseline());
+  const verdict = evaluateGate(key, await collectViolations(page, opts), opts.baseline ?? loadBaseline());
   for (const a of verdict.annotations) test.info().annotations.push(a);
   if (verdict.failure) throw new Error(verdict.failure);
 }
 
-const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err)).split('\n')[0]!.slice(0, 300);
+/**
+ * The scan of one opened screen. A screen with a `rowsTable` is scanned twice: the page without the table, then the
+ * table alone under `<page>#rows`, so that row-driven counts never decide the page's own entries.
+ */
+export async function expectScreenClean(page: Page, screen: A11yScreen, baseline?: BaselineFile): Promise<void> {
+  if (!screen.rowsTable) return expectNoSeriousA11yViolations(page, { baseline });
+  await expectNoSeriousA11yViolations(page, { exclude: [screen.rowsTable], baseline });
+  await expectNoSeriousA11yViolations(page, { include: [screen.rowsTable], key: `${pageKeyOf(page.url())}#rows`, baseline });
+}
 
 /**
  * Wait until a page has rendered its data, so axe scans the real screen and not a skeleton.
@@ -93,21 +89,20 @@ async function waitForScreenReady(page: Page): Promise<void> {
 }
 
 /**
- * Go to a screen and prove we are on it: the path (a redirect fails here) and its own heading. In report mode a
- * failure is an annotation and the result is false (the caller's functional steps carry on); in enforce it throws.
+ * Go to a screen and prove we are on it, with its data: the screen's own responses arrived (registered BEFORE the
+ * navigation, so none is missed), the path is right (a redirect fails here) and so is its heading, and the screen's
+ * own settled-state wait - or the generic spinner wait - has passed.
  */
-export async function openScreen(page: Page, screen: A11yScreen): Promise<boolean> {
-  const mode = gateMode(process.env.A11Y_GATE);
-  try {
-    await page.goto(screen.path);
-    await waitForScreenReady(page);
-    const mismatch = screenMismatch(page.url(), screen.path);
-    expect(mismatch, `a11y screen "${screen.name}"`).toBeNull();
-    await expect(page.getByRole('heading', { name: screen.heading, exact: true }), `a11y screen "${screen.name}" heading`).toBeVisible();
-    return true;
-  } catch (err) {
-    if (mode === 'enforce') throw err;
-    test.info().annotations.push({ type: 'a11y-gate-report', description: `${screen.name}: could not open ${screen.path}: ${errorText(err)}` });
-    return false;
-  }
+export async function openScreen(page: Page, screen: A11yScreen): Promise<void> {
+  const loaded = Promise.all((screen.responses ?? []).map((re) => page.waitForResponse((r) => re.test(r.url()), { timeout: 30_000 })));
+  loaded.catch(() => undefined); // surfaced below, once the navigation has happened
+  await page.goto(screen.path);
+  await loaded;
+  await page.waitForLoadState('load');
+  await page.locator('h1').first().waitFor({ state: 'visible', timeout: 30_000 });
+  if (screen.settled) await screen.settled(page);
+  else await waitForScreenReady(page);
+  const mismatch = screenMismatch(page.url(), screen.path);
+  expect(mismatch, `a11y screen "${screen.name}"`).toBeNull();
+  await expect(page.getByRole('heading', { name: screen.heading, exact: true }), `a11y screen "${screen.name}" heading`).toBeVisible();
 }

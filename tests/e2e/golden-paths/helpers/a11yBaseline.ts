@@ -4,8 +4,11 @@
  *
  * A violation is identified by (page, rule id, context selector) - see a11yDescribe.ts for what a context selector
  * is - and counted: the baseline records the MOST nodes allowed for each such triple. A new triple fails, so does
- * a higher count than recorded, and (in enforce mode) so does a recorded triple that no longer occurs: fix a
- * violation and delete its entry, so the baseline only ever shrinks.
+ * a higher count than recorded, and so does a recorded triple that no longer occurs: fix a violation and delete
+ * its entry, so the baseline only ever shrinks.
+ *
+ * This is a dev/CI gate. scripts/verify-deploy.sh does not run it (n-a11y-main-screens is excluded there): the
+ * baseline is keyed to dev data, and a post-deploy failure rolls the code back.
  */
 
 export interface AxeViolationLike {
@@ -30,19 +33,20 @@ export interface BaselineEntry {
   /** The most nodes allowed to match this rule + selector on this page. */
   max: number;
   /**
-   * Why how many nodes match (including none) is decided by the company's data or the page's async state, not by
-   * the markup: a table row, a status badge that renders only for some records, a filter that exists only when a
-   * dimension is configured. Any number is allowed and the entry is never stale. Say what drives it; every entry
-   * is a place a NEW violation of the same rule + selector would go unnoticed, so use it sparingly.
+   * Set when how many nodes match (including none) is decided by the company's data, not by the markup: a table
+   * row, a card per bank account, a badge that renders only for some records. Up to `maxHint` (default: any) is
+   * allowed and the entry is never stale. `source` is the API route whose data decides it (checked to exist);
+   * the selector must be anchored on a data-testid, a stable id or an aria-label, never on bare tags. Every such
+   * entry is a place a NEW violation of the same rule + selector goes unnoticed, so use it sparingly.
    */
-  dataDriven?: string;
+  dataDriven?: { source: string; why: string };
+  /** A hard upper bound for a dataDriven entry where the UI has one (rows per page x controls per row). */
+  maxHint?: number;
 }
 
 export interface BaselineFile {
   pages: Record<string, BaselineEntry[]>;
 }
-
-export type GateMode = 'enforce' | 'report';
 
 export interface Annotation {
   type: string;
@@ -50,13 +54,6 @@ export interface Annotation {
 }
 
 const BLOCKING = new Set(['serious', 'critical']);
-
-/** `A11Y_GATE`: unset or "enforce" fails the run; "report" only annotates it. Anything else is a typo and throws. */
-export function gateMode(value: string | undefined): GateMode {
-  if (value === undefined || value === '' || value === 'enforce') return 'enforce';
-  if (value === 'report') return 'report';
-  throw new Error(`A11Y_GATE must be "enforce" or "report", got "${value}"`);
-}
 
 /**
  * Serious/critical violations, one entry per (rule, selector) with a node count. `selectorOf` names the node
@@ -113,8 +110,7 @@ export function diffAgainstBaseline(key: string, found: Violation[], baseline: B
   const foundById = new Map(found.map((f) => [id(f), f]));
   const added = found.flatMap((f) => {
     const entry = knownById.get(id(f));
-    if (entry?.dataDriven) return [];
-    const max = entry?.max ?? 0;
+    const max = entry?.dataDriven ? (entry.maxHint ?? Infinity) : (entry?.max ?? 0);
     return f.count > max ? [{ ...f, max }] : [];
   });
   const stale = known.filter((k) => !k.dataDriven && !foundById.has(id(k)));
@@ -139,12 +135,8 @@ export interface Verdict {
   annotations: Annotation[];
 }
 
-/**
- * The decision. enforce: a new/higher violation or a stale baseline entry fails. report: nothing fails (the
- * post-deploy check runs against production data the dev-recorded baseline knows nothing about); the same
- * findings become annotations, and every violation found is attached as `a11y-observed` for re-recording.
- */
-export function evaluateGate(mode: GateMode, key: string, found: Violation[], baseline: BaselineFile): Verdict {
+/** The decision: a new or higher violation, or a stale baseline entry, fails; a shrunk entry is only annotated. */
+export function evaluateGate(key: string, found: Violation[], baseline: BaselineFile): Verdict {
   const { added, stale, shrunk } = diffAgainstBaseline(key, found, baseline);
   const annotations: Annotation[] = shrunk.map((s) => ({
     type: 'a11y-baseline-shrunk',
@@ -155,11 +147,6 @@ export function evaluateGate(mode: GateMode, key: string, found: Violation[], ba
   if (stale.length > 0) {
     problems.push(`${stale.length} baseline entr${stale.length === 1 ? 'y' : 'ies'} on ${key} no longer occur - delete from a11y-baseline.json:\n` +
       stale.map((s) => `  ${s.rule}: ${s.selector}`).join('\n'));
-  }
-  if (mode === 'report') {
-    if (problems.length > 0) annotations.push({ type: 'a11y-gate-report', description: problems.join('\n') });
-    annotations.push({ type: 'a11y-observed', description: JSON.stringify({ key, found: found.map(({ rule, selector, count }) => ({ rule, selector, count })) }) });
-    return { failure: null, annotations };
   }
   return { failure: problems.length > 0 ? problems.join('\n') : null, annotations };
 }

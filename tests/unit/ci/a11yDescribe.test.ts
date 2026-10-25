@@ -39,6 +39,13 @@ describe('describeTargets', () => {
     ]);
   });
 
+  it('anchors on a labelled container (a named list), but not on a control\'s own aria-label', () => {
+    page('<main><section><div><ul aria-label="Auto-post runs"><li><button type="button">Undo</button></li></ul></div></section></main>'
+      + '<div><div><button aria-label="Close" type="button"><b>x</b></button></div></div>');
+    expect(one('li > button')).toBe('ul[aria-label="Auto-post runs"] > li > button[type="button"]'); // no copy: it is a list row
+    expect(one('b')).toBe('body > div > div > button[type="button"][aria-label="Close"] > b');
+  });
+
   it('collapses ids in hrefs and drops the query string', () => {
     page('<nav><a href="/accounting/customers/0b2f3c4d-1111-4222-8333-444455556666?tab=a">x</a><a href="/invoices/1234">y</a></nav>');
     expect(describeTargets([['nav > a:nth-child(1)'], ['nav > a:nth-child(2)']])).toEqual([

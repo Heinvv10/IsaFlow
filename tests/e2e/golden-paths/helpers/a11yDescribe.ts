@@ -45,9 +45,13 @@ export function describeTargets(targets: string[][]): string[] {
     if (TEXT_TAGS.includes(tag) && e.children.length === 0 && text.length > 0 && text.length <= 30 && !e.closest(DATA_REGION)) s += `{${text}}`;
     return s;
   };
+  // A named container (a list, a section, a div with an aria-label) is as good an anchor as a landmark; a named
+  // control (a button's own aria-label) is the node itself, not a place to stop climbing.
+  const NAMEABLE_CONTAINERS = ['ul', 'ol', 'section', 'div', 'table', 'fieldset'];
   const isAnchor = (e: Element): boolean =>
     e.tagName.toLowerCase() === 'html' || idOf(e) !== '' || e.hasAttribute('data-testid') || LANDMARKS.includes(e.tagName.toLowerCase())
-    || ROLE_ANCHORS.includes(e.getAttribute('role') ?? '');
+    || ROLE_ANCHORS.includes(e.getAttribute('role') ?? '')
+    || (e.hasAttribute('aria-label') && NAMEABLE_CONTAINERS.includes(e.tagName.toLowerCase()));
 
   return targets.map((target) => {
     const fallback = target.join(' >> ');
