@@ -1,3 +1,5 @@
+import animate from 'tailwindcss-animate';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -145,6 +147,7 @@ export default {
         brand: {
           '600': 'rgb(var(--ff-brand-600-rgb) / <alpha-value>)',
           '700': 'rgb(var(--ff-brand-700-rgb) / <alpha-value>)',
+          '800': 'rgb(var(--ff-brand-800-rgb) / <alpha-value>)',
         },
         // Semantic theme tokens (values in styles/globals.css, light and dark). Prefer these to
         // a fixed palette stop: they flip with the theme, so nothing stays dark on a white page.
@@ -248,6 +251,6 @@ export default {
     },
   },
   plugins: [
-    require('tailwindcss-animate'),
+    animate,
   ],
 };

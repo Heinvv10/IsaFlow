@@ -86,7 +86,7 @@ function ProposalRow({ p, busy, onDecide }: {
             {p.actionType === 'auto_post' ? (
               <>
                 <button disabled={busy} onClick={() => onDecide(p.id, 'approve')}
-                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-success-700 hover:bg-emerald-500 text-white disabled:opacity-50">
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-success-700 hover:bg-success-800 text-white disabled:opacity-50">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Approve &amp; post
                 </button>
                 <button disabled={busy} onClick={() => onDecide(p.id, 'reject')}

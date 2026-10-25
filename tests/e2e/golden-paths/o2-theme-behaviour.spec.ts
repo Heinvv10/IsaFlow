@@ -99,6 +99,45 @@ test.describe('panels and surfaces', () => {
     }
   });
 
+  test('in the dark theme, raw greys inside a data-surface="light" panel are remapped to AA on white; outside they are left alone', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await seedTheme(page, 'dark');
+    await page.goto('/accounting/customer-invoices', { waitUntil: 'domcontentloaded' });
+    await settle(page);
+    const c = await page.evaluate(() => {
+      const host = document.createElement('div');
+      host.innerHTML =
+        '<div data-surface="light" style="background:#fff"><span id="in" class="text-slate-400">x</span><span id="inb" class="text-teal-400">x</span></div><div><span id="out" class="text-slate-400">x</span></div>';
+      document.body.appendChild(host);
+      const col = (id: string) => getComputedStyle(document.getElementById(id)!).color;
+      return { inside: col('in'), insideTeal: col('inb'), outside: col('out') };
+    });
+    expect(c.inside, 'slate-400 on the white panel').toBe('rgb(91, 101, 115)');
+    expect(c.insideTeal, 'teal-400 on the white panel').toBe('rgb(17, 94, 89)');
+    expect(c.outside, 'slate-400 on the dark page is untouched').toBe('rgb(148, 163, 184)');
+  });
+
+  test('chart legend labels are forced to the text token in light only', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const colours: Record<string, string> = {};
+    for (const theme of ['light', 'dark'] as const) {
+      await seedTheme(page, theme);
+      await page.goto('/accounting/customer-invoices', { waitUntil: 'domcontentloaded' });
+      await settle(page);
+      await page.waitForSelector(`html[data-theme-applied="${theme}"]`);
+      colours[theme] = await page.evaluate(() => {
+        const host = document.createElement('div');
+        host.innerHTML = '<span id="lg" class="recharts-legend-item-text" style="color:rgb(244, 63, 94)">x</span>';
+        document.body.appendChild(host);
+        const out = getComputedStyle(document.getElementById('lg')!).color;
+        host.remove();
+        return out;
+      });
+    }
+    expect(colours.light, 'light: the token wins over the series colour').toBe('rgb(75, 85, 99)');
+    expect(colours.dark, 'dark: the series colour is kept').toBe('rgb(244, 63, 94)');
+  });
+
   test('data-surface="light" keeps light tokens, color-scheme and form controls in the dark theme', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await seedTheme(page, 'dark');

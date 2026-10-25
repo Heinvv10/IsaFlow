@@ -13,7 +13,8 @@
  * loads after globals.css, and hover: / focus: / group-hover: / dark: variants still outrank it.
  */
 
-:where(html:not(.dark)) {
+:where(html:not(.dark)),
+:where(html.dark [data-surface="light"]) {
   --tx-teal-300: #115e59;
   --tx-teal-400: #115e59;
   --tx-teal-500: #115e59;
@@ -150,206 +151,272 @@
   --tx-stone-500: #78716c;
 }
 
-:where(html:not(.dark)) .text-teal-300 {
+:where(html:not(.dark)) .text-teal-300,
+:where(html.dark [data-surface="light"]) .text-teal-300 {
   color: var(--tx-teal-300);
 }
-:where(html:not(.dark)) .text-teal-400 {
+:where(html:not(.dark)) .text-teal-400,
+:where(html.dark [data-surface="light"]) .text-teal-400 {
   color: var(--tx-teal-400);
 }
-:where(html:not(.dark)) .text-teal-500 {
+:where(html:not(.dark)) .text-teal-500,
+:where(html.dark [data-surface="light"]) .text-teal-500 {
   color: var(--tx-teal-500);
 }
-:where(html:not(.dark)) .text-cyan-300 {
+:where(html:not(.dark)) .text-cyan-300,
+:where(html.dark [data-surface="light"]) .text-cyan-300 {
   color: var(--tx-cyan-300);
 }
-:where(html:not(.dark)) .text-cyan-400 {
+:where(html:not(.dark)) .text-cyan-400,
+:where(html.dark [data-surface="light"]) .text-cyan-400 {
   color: var(--tx-cyan-400);
 }
-:where(html:not(.dark)) .text-cyan-500 {
+:where(html:not(.dark)) .text-cyan-500,
+:where(html.dark [data-surface="light"]) .text-cyan-500 {
   color: var(--tx-cyan-500);
 }
-:where(html:not(.dark)) .text-sky-300 {
+:where(html:not(.dark)) .text-sky-300,
+:where(html.dark [data-surface="light"]) .text-sky-300 {
   color: var(--tx-sky-300);
 }
-:where(html:not(.dark)) .text-sky-400 {
+:where(html:not(.dark)) .text-sky-400,
+:where(html.dark [data-surface="light"]) .text-sky-400 {
   color: var(--tx-sky-400);
 }
-:where(html:not(.dark)) .text-sky-500 {
+:where(html:not(.dark)) .text-sky-500,
+:where(html.dark [data-surface="light"]) .text-sky-500 {
   color: var(--tx-sky-500);
 }
-:where(html:not(.dark)) .text-blue-300 {
+:where(html:not(.dark)) .text-blue-300,
+:where(html.dark [data-surface="light"]) .text-blue-300 {
   color: var(--tx-blue-300);
 }
-:where(html:not(.dark)) .text-blue-400 {
+:where(html:not(.dark)) .text-blue-400,
+:where(html.dark [data-surface="light"]) .text-blue-400 {
   color: var(--tx-blue-400);
 }
-:where(html:not(.dark)) .text-blue-500 {
+:where(html:not(.dark)) .text-blue-500,
+:where(html.dark [data-surface="light"]) .text-blue-500 {
   color: var(--tx-blue-500);
 }
-:where(html:not(.dark)) .text-indigo-300 {
+:where(html:not(.dark)) .text-indigo-300,
+:where(html.dark [data-surface="light"]) .text-indigo-300 {
   color: var(--tx-indigo-300);
 }
-:where(html:not(.dark)) .text-indigo-400 {
+:where(html:not(.dark)) .text-indigo-400,
+:where(html.dark [data-surface="light"]) .text-indigo-400 {
   color: var(--tx-indigo-400);
 }
-:where(html:not(.dark)) .text-indigo-500 {
+:where(html:not(.dark)) .text-indigo-500,
+:where(html.dark [data-surface="light"]) .text-indigo-500 {
   color: var(--tx-indigo-500);
 }
-:where(html:not(.dark)) .text-violet-300 {
+:where(html:not(.dark)) .text-violet-300,
+:where(html.dark [data-surface="light"]) .text-violet-300 {
   color: var(--tx-violet-300);
 }
-:where(html:not(.dark)) .text-violet-400 {
+:where(html:not(.dark)) .text-violet-400,
+:where(html.dark [data-surface="light"]) .text-violet-400 {
   color: var(--tx-violet-400);
 }
-:where(html:not(.dark)) .text-violet-500 {
+:where(html:not(.dark)) .text-violet-500,
+:where(html.dark [data-surface="light"]) .text-violet-500 {
   color: var(--tx-violet-500);
 }
-:where(html:not(.dark)) .text-purple-300 {
+:where(html:not(.dark)) .text-purple-300,
+:where(html.dark [data-surface="light"]) .text-purple-300 {
   color: var(--tx-purple-300);
 }
-:where(html:not(.dark)) .text-purple-400 {
+:where(html:not(.dark)) .text-purple-400,
+:where(html.dark [data-surface="light"]) .text-purple-400 {
   color: var(--tx-purple-400);
 }
-:where(html:not(.dark)) .text-purple-500 {
+:where(html:not(.dark)) .text-purple-500,
+:where(html.dark [data-surface="light"]) .text-purple-500 {
   color: var(--tx-purple-500);
 }
-:where(html:not(.dark)) .text-pink-300 {
+:where(html:not(.dark)) .text-pink-300,
+:where(html.dark [data-surface="light"]) .text-pink-300 {
   color: var(--tx-pink-300);
 }
-:where(html:not(.dark)) .text-pink-400 {
+:where(html:not(.dark)) .text-pink-400,
+:where(html.dark [data-surface="light"]) .text-pink-400 {
   color: var(--tx-pink-400);
 }
-:where(html:not(.dark)) .text-pink-500 {
+:where(html:not(.dark)) .text-pink-500,
+:where(html.dark [data-surface="light"]) .text-pink-500 {
   color: var(--tx-pink-500);
 }
-:where(html:not(.dark)) .text-rose-300 {
+:where(html:not(.dark)) .text-rose-300,
+:where(html.dark [data-surface="light"]) .text-rose-300 {
   color: var(--tx-rose-300);
 }
-:where(html:not(.dark)) .text-rose-400 {
+:where(html:not(.dark)) .text-rose-400,
+:where(html.dark [data-surface="light"]) .text-rose-400 {
   color: var(--tx-rose-400);
 }
-:where(html:not(.dark)) .text-rose-500 {
+:where(html:not(.dark)) .text-rose-500,
+:where(html.dark [data-surface="light"]) .text-rose-500 {
   color: var(--tx-rose-500);
 }
-:where(html:not(.dark)) .text-rose-600 {
+:where(html:not(.dark)) .text-rose-600,
+:where(html.dark [data-surface="light"]) .text-rose-600 {
   color: var(--tx-rose-600);
 }
-:where(html:not(.dark)) .text-red-300 {
+:where(html:not(.dark)) .text-red-300,
+:where(html.dark [data-surface="light"]) .text-red-300 {
   color: var(--tx-red-300);
 }
-:where(html:not(.dark)) .text-red-400 {
+:where(html:not(.dark)) .text-red-400,
+:where(html.dark [data-surface="light"]) .text-red-400 {
   color: var(--tx-red-400);
 }
-:where(html:not(.dark)) .text-red-500 {
+:where(html:not(.dark)) .text-red-500,
+:where(html.dark [data-surface="light"]) .text-red-500 {
   color: var(--tx-red-500);
 }
-:where(html:not(.dark)) .text-orange-300 {
+:where(html:not(.dark)) .text-orange-300,
+:where(html.dark [data-surface="light"]) .text-orange-300 {
   color: var(--tx-orange-300);
 }
-:where(html:not(.dark)) .text-orange-400 {
+:where(html:not(.dark)) .text-orange-400,
+:where(html.dark [data-surface="light"]) .text-orange-400 {
   color: var(--tx-orange-400);
 }
-:where(html:not(.dark)) .text-orange-500 {
+:where(html:not(.dark)) .text-orange-500,
+:where(html.dark [data-surface="light"]) .text-orange-500 {
   color: var(--tx-orange-500);
 }
-:where(html:not(.dark)) .text-orange-600 {
+:where(html:not(.dark)) .text-orange-600,
+:where(html.dark [data-surface="light"]) .text-orange-600 {
   color: var(--tx-orange-600);
 }
-:where(html:not(.dark)) .text-amber-300 {
+:where(html:not(.dark)) .text-amber-300,
+:where(html.dark [data-surface="light"]) .text-amber-300 {
   color: var(--tx-amber-300);
 }
-:where(html:not(.dark)) .text-amber-400 {
+:where(html:not(.dark)) .text-amber-400,
+:where(html.dark [data-surface="light"]) .text-amber-400 {
   color: var(--tx-amber-400);
 }
-:where(html:not(.dark)) .text-amber-500 {
+:where(html:not(.dark)) .text-amber-500,
+:where(html.dark [data-surface="light"]) .text-amber-500 {
   color: var(--tx-amber-500);
 }
-:where(html:not(.dark)) .text-amber-600 {
+:where(html:not(.dark)) .text-amber-600,
+:where(html.dark [data-surface="light"]) .text-amber-600 {
   color: var(--tx-amber-600);
 }
-:where(html:not(.dark)) .text-yellow-300 {
+:where(html:not(.dark)) .text-yellow-300,
+:where(html.dark [data-surface="light"]) .text-yellow-300 {
   color: var(--tx-yellow-300);
 }
-:where(html:not(.dark)) .text-yellow-400 {
+:where(html:not(.dark)) .text-yellow-400,
+:where(html.dark [data-surface="light"]) .text-yellow-400 {
   color: var(--tx-yellow-400);
 }
-:where(html:not(.dark)) .text-yellow-500 {
+:where(html:not(.dark)) .text-yellow-500,
+:where(html.dark [data-surface="light"]) .text-yellow-500 {
   color: var(--tx-yellow-500);
 }
-:where(html:not(.dark)) .text-yellow-600 {
+:where(html:not(.dark)) .text-yellow-600,
+:where(html.dark [data-surface="light"]) .text-yellow-600 {
   color: var(--tx-yellow-600);
 }
-:where(html:not(.dark)) .text-lime-300 {
+:where(html:not(.dark)) .text-lime-300,
+:where(html.dark [data-surface="light"]) .text-lime-300 {
   color: var(--tx-lime-300);
 }
-:where(html:not(.dark)) .text-lime-400 {
+:where(html:not(.dark)) .text-lime-400,
+:where(html.dark [data-surface="light"]) .text-lime-400 {
   color: var(--tx-lime-400);
 }
-:where(html:not(.dark)) .text-lime-500 {
+:where(html:not(.dark)) .text-lime-500,
+:where(html.dark [data-surface="light"]) .text-lime-500 {
   color: var(--tx-lime-500);
 }
-:where(html:not(.dark)) .text-lime-600 {
+:where(html:not(.dark)) .text-lime-600,
+:where(html.dark [data-surface="light"]) .text-lime-600 {
   color: var(--tx-lime-600);
 }
-:where(html:not(.dark)) .text-green-300 {
+:where(html:not(.dark)) .text-green-300,
+:where(html.dark [data-surface="light"]) .text-green-300 {
   color: var(--tx-green-300);
 }
-:where(html:not(.dark)) .text-green-400 {
+:where(html:not(.dark)) .text-green-400,
+:where(html.dark [data-surface="light"]) .text-green-400 {
   color: var(--tx-green-400);
 }
-:where(html:not(.dark)) .text-green-500 {
+:where(html:not(.dark)) .text-green-500,
+:where(html.dark [data-surface="light"]) .text-green-500 {
   color: var(--tx-green-500);
 }
-:where(html:not(.dark)) .text-green-600 {
+:where(html:not(.dark)) .text-green-600,
+:where(html.dark [data-surface="light"]) .text-green-600 {
   color: var(--tx-green-600);
 }
-:where(html:not(.dark)) .text-emerald-300 {
+:where(html:not(.dark)) .text-emerald-300,
+:where(html.dark [data-surface="light"]) .text-emerald-300 {
   color: var(--tx-emerald-300);
 }
-:where(html:not(.dark)) .text-emerald-400 {
+:where(html:not(.dark)) .text-emerald-400,
+:where(html.dark [data-surface="light"]) .text-emerald-400 {
   color: var(--tx-emerald-400);
 }
-:where(html:not(.dark)) .text-emerald-500 {
+:where(html:not(.dark)) .text-emerald-500,
+:where(html.dark [data-surface="light"]) .text-emerald-500 {
   color: var(--tx-emerald-500);
 }
-:where(html:not(.dark)) .text-emerald-600 {
+:where(html:not(.dark)) .text-emerald-600,
+:where(html.dark [data-surface="light"]) .text-emerald-600 {
   color: var(--tx-emerald-600);
 }
-:where(html:not(.dark)) .text-slate-400 {
+:where(html:not(.dark)) .text-slate-400,
+:where(html.dark [data-surface="light"]) .text-slate-400 {
   color: var(--tx-slate-400);
 }
-:where(html:not(.dark)) .text-slate-500 {
+:where(html:not(.dark)) .text-slate-500,
+:where(html.dark [data-surface="light"]) .text-slate-500 {
   color: var(--tx-slate-500);
 }
-:where(html:not(.dark)) .text-gray-400 {
+:where(html:not(.dark)) .text-gray-400,
+:where(html.dark [data-surface="light"]) .text-gray-400 {
   color: var(--tx-gray-400);
 }
-:where(html:not(.dark)) .text-gray-500 {
+:where(html:not(.dark)) .text-gray-500,
+:where(html.dark [data-surface="light"]) .text-gray-500 {
   color: var(--tx-gray-500);
 }
-:where(html:not(.dark)) .text-zinc-400 {
+:where(html:not(.dark)) .text-zinc-400,
+:where(html.dark [data-surface="light"]) .text-zinc-400 {
   color: var(--tx-zinc-400);
 }
-:where(html:not(.dark)) .text-zinc-500 {
+:where(html:not(.dark)) .text-zinc-500,
+:where(html.dark [data-surface="light"]) .text-zinc-500 {
   color: var(--tx-zinc-500);
 }
-:where(html:not(.dark)) .text-neutral-400 {
+:where(html:not(.dark)) .text-neutral-400,
+:where(html.dark [data-surface="light"]) .text-neutral-400 {
   color: var(--tx-neutral-400);
 }
-:where(html:not(.dark)) .text-neutral-500 {
+:where(html:not(.dark)) .text-neutral-500,
+:where(html.dark [data-surface="light"]) .text-neutral-500 {
   color: var(--tx-neutral-500);
 }
-:where(html:not(.dark)) .text-stone-400 {
+:where(html:not(.dark)) .text-stone-400,
+:where(html.dark [data-surface="light"]) .text-stone-400 {
   color: var(--tx-stone-400);
 }
-:where(html:not(.dark)) .text-stone-500 {
+:where(html:not(.dark)) .text-stone-500,
+:where(html.dark [data-surface="light"]) .text-stone-500 {
   color: var(--tx-stone-500);
 }
 
 /*
- * Chart legends: recharts colours each label with its series (teal, orange, rose), which is
- * 1.8-3.5:1 on a light card. The swatch beside the label still carries the series colour.
+ * Chart legends (LIGHT theme only; in dark the series colours read fine): recharts colours each label with
+ * its series (teal, orange, rose), which is 1.8-3.5:1 on a light card. The swatch beside the label still
+ * carries the series colour.
  */
-.recharts-legend-item-text {
+:where(html:not(.dark)) .recharts-legend-item-text {
   color: var(--ff-text-secondary) !important;
 }

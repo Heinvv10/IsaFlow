@@ -48,6 +48,7 @@
     /* Channels, so Tailwind can apply an opacity (bg-brand-600/50). Same in both themes. */
     --ff-brand-600-rgb: 15 118 110;
     --ff-brand-700-rgb: 17 94 89;
+    --ff-brand-800-rgb: 19 78 74; /* hover under brand-700: 10.9:1 under white */
     --ff-brand-subtle:  rgba(20, 184, 166, 0.08);
 
     /* Canvas — light mode surfaces (overridden in .dark below) */

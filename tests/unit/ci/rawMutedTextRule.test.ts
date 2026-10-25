@@ -16,7 +16,17 @@ describe('countRawMutedTextStops', () => {
   it('does not count a variant (the intended dark-theme grey) or another stop', () => {
     expect(countRawMutedTextStops('dark:text-slate-400 hover:text-slate-500 group-hover:text-gray-400')).toBe(0);
     expect(countRawMutedTextStops('text-slate-600 text-gray-300 text-slate-50 text-slate-5000')).toBe(0);
-    expect(countRawMutedTextStops('text-slate-500/80')).toBe(0);
+  });
+
+  it('counts responsive forms and opacity forms, which themeContrast.css cannot remap', () => {
+    expect(countRawMutedTextStops('sm:text-slate-500 md:text-gray-400')).toBe(2);
+    expect(countRawMutedTextStops('lg:xl:text-slate-500')).toBe(1);
+    expect(countRawMutedTextStops('text-slate-500/80 text-gray-400/60')).toBe(2);
+    expect(countRawMutedTextStops('sm:text-slate-500/80')).toBe(1);
+  });
+
+  it('does not count a theme/state variant, even behind a responsive one', () => {
+    expect(countRawMutedTextStops('dark:sm:text-slate-400 sm:dark:text-slate-400 sm:hover:text-slate-500')).toBe(0);
   });
 
   it('counts the bare token beside its dark twin', () => {
@@ -30,12 +40,12 @@ describe('judge', () => {
   });
 
   it('refuses a new file and a larger count', () => {
-    expect(judge({ 'new.tsx': 1 }, {}).grew).toEqual(['new.tsx: 1 > 0']);
-    expect(judge({ 'a.tsx': 3 }, { 'a.tsx': 2 }).grew).toEqual(['a.tsx: 3 > 2']);
+    expect(judge({ 'new.tsx': 1 }, {}).grew).toEqual(['new.tsx: 1 raw stop(s) in a file with none allowed']);
+    expect(judge({ 'a.tsx': 3 }, { 'a.tsx': 2 }).grew).toEqual(['a.tsx: 3 raw stops, 2 allowed']);
   });
 
   it('makes a fall lower the baseline, so it cannot be spent again', () => {
-    expect(judge({ 'a.tsx': 1 }, { 'a.tsx': 2 }).shrank).toEqual(['a.tsx: 1 < 2']);
-    expect(judge({}, { 'gone.tsx': 2 }).shrank).toEqual(['gone.tsx: 0 < 2']);
+    expect(judge({ 'a.tsx': 1 }, { 'a.tsx': 2 }).shrank).toEqual(['a.tsx: 1 raw stops, baseline still says 2']);
+    expect(judge({}, { 'gone.tsx': 2 }).shrank).toEqual(['gone.tsx: 0 raw stops, baseline still says 2']);
   });
 });
