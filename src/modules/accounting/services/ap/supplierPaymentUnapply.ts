@@ -11,8 +11,8 @@
  * reconcile_subledger already explain, and apply_payment_to_supplier_invoice
  * already clears.
  *
- * The bill's status, paid_at and payment_matched are set by
- * `recomputeInvoiceStatus`, the guarded single writer — never inline here.
+ * The bill's status, paid_at and payment_matched are set with its amount_paid, in
+ * one write, by `moveSupplierBillPaid` — never inline here.
  *
  * Every refusal is decided by `buildPlan` from reads; the live path plans on
  * rows it holds (payment first, then bills by id — the order void takes).
@@ -22,7 +22,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { withSupplierInvoiceLock } from './supplierInvoiceLock';
-import { FIFO_ELIGIBLE_STATUSES, recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { FIFO_ELIGIBLE_STATUSES, moveSupplierBillPaid } from '../ar/invoiceStatusRecompute';
 import { UnapplyRefusal, assertSourceJournalLive } from '../shared/unapplyRefusal';
 
 export { UnapplyRefusal };
@@ -82,18 +82,14 @@ export async function unapplySupplierPayment(
   const plan = await buildPlan(companyId, input);
 
   for (const line of plan.lines) {
-    const done = (await sql`
-      UPDATE supplier_invoices
-      SET amount_paid = amount_paid - ${line.amount}, updated_at = NOW()
-      WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-        AND amount_paid >= ${line.amount}
-      RETURNING id`) as DbRow[];
+    // Money and status in ONE write: a second write of the bill key-shared its supplier after the payment and
+    // crossed a supplier merge (40P01, 2026-10-25).
+    const done = await moveSupplierBillPaid(companyId, line.invoiceId, -line.amount, line.amount);
     // The plan read amount_paid >= amount under the same lock; a miss here is a
     // defect, not the caller's problem — thrown, so the registry unwinds.
-    if (done.length === 0) {
+    if (!done) {
       throw new Error(`unapplySupplierPayment: bill ${line.invoiceId} holds less than the ${line.amount} planned`);
     }
-    await recomputeInvoiceStatus(companyId, 'supplier', line.invoiceId);
     await sql`
       DELETE FROM payment_allocations
       WHERE payment_id = ${plan.paymentId}::UUID AND invoice_id = ${line.invoiceId}::UUID`;

@@ -30,9 +30,10 @@ import { creditNoteForeignCurrencySql } from './documentCurrency';
 import { fetchOpenSupplierBills } from '../ap/openSupplierBills';
 import { fetchOpenCustomerInvoices } from '../ar/openCustomerInvoices';
 import { journalsInAPeriod } from './journalPeriodVisibility';
+import { getSupplierOnAccountCredits } from '../ap/supplierOnAccountCredit';
 import { EPS } from './autoAllocateStrategy';
 import {
-  basisSources, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
+  basisSources, markCreditCeilingSkips, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
 } from './autoApplyBackfillSkips';
 import type { SimulationDocument } from './autoApplySimulation';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
@@ -146,7 +147,23 @@ export async function readBackfillSources(
     ))
     .slice(0, limit);
 
-  return markJournalPeriodSkips(companyId, ordered);
+  // The credit ceiling AFTER the period skip: a withheld source consumes no credit.
+  const periodChecked = await markJournalPeriodSkips(companyId, ordered);
+  return markCreditCeilingSkips(subledger, await creditOfSources(companyId, subledger, periodChecked), periodChecked);
+}
+
+/** AP: each supplier's on-account credit over every date, for the suppliers whose payments this run may apply. */
+async function creditOfSources(
+  companyId: string,
+  subledger: Subledger,
+  sources: readonly BackfillSource[],
+): Promise<Map<string, number>> {
+  if (subledger !== 'ap') return new Map();
+  const ids = [...new Set(sources
+    .filter((s) => s.kind === 'payment' && !s.skippedReason && s.entityId)
+    .map((s) => s.entityId!.toLowerCase()))];
+  const credits = await getSupplierOnAccountCredits(companyId, ids, null);
+  return new Map([...credits].map(([id, c]) => [id, c.creditAllDates]));
 }
 
 /**

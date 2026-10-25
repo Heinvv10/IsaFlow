@@ -38,7 +38,11 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
+import { lockSupplierCredit } from './supplierCreditLock';
+import { getSupplierOnAccountCredit } from './supplierOnAccountCredit';
+import { toCents } from './billAllocatable';
 import {
   EPS,
   applyLineToBill,
@@ -83,6 +87,7 @@ export async function planSupplierPaymentApplication(
   companyId: string,
   paymentId: string,
   allocations: readonly SupplierAllocationInput[],
+  opts: { paymentCreatedInThisRequest?: boolean } = {},
 ): Promise<SupplierPaymentApplicationPlan> {
   // The request's own faults first (empty, non-numeric, not whole cents, duplicate bill): `round2` below is
   // `toCents`, which throws on a non-finite figure, so a malformed body must be refused before any arithmetic.
@@ -123,6 +128,16 @@ export async function planSupplierPaymentApplication(
     supplierId,
   });
 
+  // POSTED cash lowers the supplier's on-account credit: take the credit key (tried, never waited on —
+  // `supplierCreditLock`), then check the ceiling. AFTER the bill locks, so the key is held only while this request
+  // writes, never while it waits on a row: a rule sweep that holds the bill and then plans a refund would otherwise
+  // find the key taken by an application queued behind it. A payment this request created lands with its
+  // allocation and lowers nothing, so it does neither: a supplier already below zero must still be payable.
+  if (opts.paymentCreatedInThisRequest !== true) {
+    await lockSupplierCredit(companyId, supplierId);
+    await assertWithinOnAccountCredit(companyId, supplierId, requested);
+  }
+
   const allocatedAfter = round2(allocatedBefore + requested);
   const unappliedAfter = round2(paymentTotal - allocatedAfter);
 
@@ -144,6 +159,24 @@ export async function planSupplierPaymentApplication(
     lines,
     postsJournal: false,
   };
+}
+
+/**
+ * The ceiling a refund already respects, from the other direction (Hein, 2026-10-25: refuse). The supplier's
+ * on-account credit counts every posted payment's remainder and every refund; applying cash lowers it, and a figure
+ * below zero is the supplier owing the company — a receivable, not something Accounts Payable can hold. Checking
+ * only this payment's own remainder let a refund taken first, then the application, leave exactly that.
+ * Read under the credit key (`supplierCreditLock`), so a refund or another application in flight has committed.
+ */
+async function assertWithinOnAccountCredit(companyId: string, supplierId: string, requested: number): Promise<void> {
+  const { creditAllDates: credit, supplierName } = await getSupplierOnAccountCredit(companyId, supplierId, null);
+  if (toCents(requested) <= toCents(credit)) return;
+  const onAccount = Math.max(credit, 0);
+  throw new SupplierPaymentRefusal(
+    `Applying ${formatMoney(requested)} would leave ${supplierName} owing the company: only `
+    + `${formatMoney(onAccount)} of its cash is still on account (a refund has already returned the rest). `
+    + (onAccount > 0 ? `Apply at most ${formatMoney(onAccount)}.` : 'Nothing more can be applied from it.'),
+  );
 }
 
 /**
