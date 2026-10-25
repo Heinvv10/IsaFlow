@@ -3,8 +3,10 @@
  * the connection row. The flip of `status` runs on migration_admin, keyed on id
  * AND company_id; inside a request (scan-now) it is deferred until the request
  * has committed, so it never waits on the row lock its own request holds; a
- * refused flip falls back to a status-free stamp on the app pool; nothing here
- * ever throws, because the cron scans many connections.
+ * refused flip falls back to a status-free stamp on the app pool, which outside
+ * a request waits at most 2 s for the row (an app role can lock a connection row,
+ * and the cron scans its connections one after another); nothing here ever
+ * throws, because the cron scans many connections.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RequestContext } from '@/lib/als';
@@ -12,8 +14,11 @@ import type { RequestContext } from '@/lib/als';
 const h = vi.hoisted(() => ({
   admin: [] as Array<{ label: string; text: string; values: unknown[]; inRequest: boolean }>,
   app: [] as Array<{ text: string; values: unknown[] }>,
+  tx: [] as Array<{ text: string; values: unknown[] }>,
+  txOpened: 0,
   adminError: null as unknown,
   appError: null as unknown,
+  txError: null as unknown,
 }));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
@@ -22,6 +27,16 @@ vi.mock('@/lib/neon', () => ({
     h.app.push({ text: strings.join('?').replace(/\s+/g, ' ').trim(), values });
     if (h.appError) throw h.appError;
     return [];
+  }),
+  // A transaction of its own (outside a request): the stamp's UPDATE is the statement that waits on the row lock.
+  withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+    h.txOpened += 1;
+    return fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?').replace(/\s+/g, ' ').trim();
+      h.tx.push({ text, values });
+      if (h.txError && text.startsWith('UPDATE')) throw h.txError;
+      return [];
+    });
   }),
 }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
@@ -51,8 +66,11 @@ const requestCtx = (extra: Partial<RequestContext> = {}): RequestContext =>
 beforeEach(() => {
   h.admin.length = 0;
   h.app.length = 0;
+  h.tx.length = 0;
+  h.txOpened = 0;
   h.adminError = null;
   h.appError = null;
+  h.txError = null;
   vi.mocked(log.warn).mockClear();
   vi.mocked(log.error).mockClear();
 });
@@ -67,6 +85,7 @@ describe.each(KINDS)('%s mirror, outside a request (the cron)', (kind, table) =>
     expect(w.text).toContain('WHERE id = $1::uuid AND company_id = $2::uuid');
     expect(w.values).toEqual([conn.id, COMPANY, 'boom']);
     expect(h.app).toHaveLength(0);
+    expect(h.txOpened).toBe(0);
   });
 
   it('lock_not_available (55P03) is a warning, then a status-free stamp keyed on id AND company_id', async () => {
@@ -75,12 +94,27 @@ describe.each(KINDS)('%s mirror, outside a request (the cron)', (kind, table) =>
     expect(log.warn).toHaveBeenCalledTimes(1);
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ connectionId: conn.id, code: '55P03' });
     expect(log.error).not.toHaveBeenCalled();
-    expect(h.app).toHaveLength(1);
-    const stamp = h.app[0]!;
+    // A short transaction of its own: lock_timeout 2 s (transaction-local) first, then the stamp.
+    expect(h.app).toHaveLength(0);
+    expect(h.txOpened).toBe(1);
+    expect(h.tx).toHaveLength(2);
+    expect(h.tx[0]!.text).toContain("set_config('lock_timeout', ?, true)");
+    expect(h.tx[0]!.values).toEqual(['2s']);
+    const stamp = h.tx[1]!;
     expect(stamp.text).toContain(`UPDATE ${table} SET last_scan_at = NOW(), last_error = ?`);
     expect(stamp.text).toContain('WHERE id = ?::uuid AND company_id = ?::uuid');
     expect(stamp.text).not.toContain('status');
     expect(stamp.values).toEqual(['boom', conn.id, COMPANY]);
+  });
+
+  it('a fallback stamp that waits out its own 2 s on a row an app role holds warns and moves on: no throw, no second try', async () => {
+    h.adminError = lockTimeout();
+    h.txError = lockTimeout();
+    await expect(markMirrorScanError(kind, conn, 'boom')).resolves.toBeUndefined();
+    expect(log.warn).toHaveBeenCalledTimes(2); // the flip's, then the stamp's
+    expect(vi.mocked(log.warn).mock.calls[1]![1]).toMatchObject({ connectionId: conn.id, kind, code: '55P03' });
+    expect(log.error).not.toHaveBeenCalled();
+    expect(h.tx.filter((q) => q.text.startsWith('UPDATE'))).toHaveLength(1);
   });
 
   it('any other failure is logged as an error with its code, then the same stamp', async () => {
@@ -89,20 +123,19 @@ describe.each(KINDS)('%s mirror, outside a request (the cron)', (kind, table) =>
     expect(log.error).toHaveBeenCalledTimes(1);
     expect(vi.mocked(log.error).mock.calls[0]![1]).toMatchObject({ connectionId: conn.id, code: '42501' });
     expect(log.warn).not.toHaveBeenCalled();
-    expect(h.app).toHaveLength(1);
-    expect(h.app[0]!.values).toEqual(['boom', conn.id, COMPANY]);
+    expect(h.tx.at(-1)!.values).toEqual(['boom', conn.id, COMPANY]);
   });
 
   it('a failure without a SQLSTATE (a dead pool) is an error too', async () => {
     h.adminError = new Error('connection terminated');
     await markMirrorScanError(kind, conn, 'boom');
     expect(log.error).toHaveBeenCalledTimes(1);
-    expect(h.app).toHaveLength(1);
+    expect(h.txOpened).toBe(1);
   });
 
   it('never throws, even when the fallback stamp is refused too', async () => {
     h.adminError = lockTimeout();
-    h.appError = new Error('connection terminated');
+    h.txError = new Error('connection terminated');
     await expect(markMirrorScanError(kind, conn, 'boom')).resolves.toBeUndefined();
     expect(log.error).toHaveBeenCalledTimes(1);
   });
@@ -139,10 +172,13 @@ describe.each(KINDS)('%s mirror, inside a request (scan-now)', (kind, table) => 
     h.app.length = 0;
     h.adminError = lockTimeout();
     drainAfterCommit(ctx);
-    await vi.waitFor(() => expect(h.app).toHaveLength(1));
+    // Run after the commit, outside the request: the bounded transaction, not the request's connection.
+    await vi.waitFor(() => expect(h.tx).toHaveLength(2));
     expect(log.warn).toHaveBeenCalledTimes(1);
-    expect(h.app[0]!.text).toContain('AND company_id = ?::uuid');
-    expect(h.app[0]!.values).toEqual(['boom', conn.id, COMPANY]);
+    expect(h.tx[0]!.values).toEqual(['2s']);
+    expect(h.tx[1]!.text).toContain('AND company_id = ?::uuid');
+    expect(h.tx[1]!.values).toEqual(['boom', conn.id, COMPANY]);
+    expect(h.app).toHaveLength(0);
   });
 
   it('a request that cannot run after-commit work (no queue) flips now rather than dropping the status', async () => {

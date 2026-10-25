@@ -43,8 +43,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     }
     const body = parsed.data;
     // The scan cron presents the stored password to this host: public hosts and IMAP ports only.
-    const refused = await checkImapTarget(body.imapHost, body.imapPort);
-    if (refused) return apiResponse.badRequest(res, refused);
+    const target = await checkImapTarget(body.imapHost, body.imapPort);
+    if (!target.ok) return apiResponse.badRequest(res, target.message);
 
     const created = await createSentImapConnection({
       companyId,

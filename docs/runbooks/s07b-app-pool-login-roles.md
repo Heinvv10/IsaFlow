@@ -307,13 +307,30 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
   injected request can reset or raise a webhook endpoint's `failure_count`
   (delay or hasten its auto-disable) and move a mailbox's `scan_cursor` (skip a
   mailbox's mail, or re-ingest it; ingestion de-dupes by hash). Integrity only:
-  no route changes and no credential is exposed.
+  no route changes and no credential is exposed. Also:
+  - An app pool can still lock a connection row (`FOR UPDATE` needs only the
+    column UPDATE it holds), so it can delay or drop one error-status flip: the
+    flip waits migration_admin's 5 s `lock_timeout`, falls back to a status-free
+    stamp that waits 2 s (outside a request), and on 55P03 warns and moves on, so
+    a cron tick is never stalled behind the lock. That failure's flip is lost;
+    the next failing scan flips again.
+  - A transient DNS or connect failure marks a connection 'error', as any failed
+    scan always has, and `listActiveConnections` skips it from then on. The user
+    reconnects the mailbox to resume: `reactivateConnection` has no route.
+  - An audit pack pointer is held to the company prefix (`<company_id>/`), not
+    to its exact key (ready packs are pinned by 891).
 - 946's preflight (migration_admin's privileges and BYPASSRLS) is skipped when
   the `migration_admin` role does not exist, as in 936, 937 and 945.
 - New in the same release, code only: a mirror connection's IMAP host must be,
   and resolve only to, public addresses and its port 143 or 993 (checked at
-  create and again before each scan connects; a refused scan marks the
-  connection errored with the reason in `last_error`).
+  create and again before each scan connects). The scan connects to the address
+  it vetted, with the host name as the TLS servername, so the name is not
+  resolved a second time (DNS rebinding). A refusal shows the tenant only "This
+  mail server address is not allowed" or "Only ports 143 and 993 are supported"
+  (route 400 and `last_error`); which address a name resolved to is in the log
+  (`IMAP target refused`). A folder's `scan_cursor` is used only if it is a
+  positive safe integer; otherwise the scan warns and starts that folder over.
+  Before deploying, check the one inactive IMAP connection's host and port against these rules.
 - Break-glass, only if an app pool must write them before a fix ships:
 
   ```sql

@@ -19,7 +19,7 @@
 import { als } from '@/lib/als';
 import { runAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
 
 export type MirrorKind = 'imap' | 'sent';
@@ -43,24 +43,55 @@ const FLIP_STATUS = {
 
 const SCOPE = { imap: 'imap-mirror', sent: 'sent-mirror' } as const;
 
-/** The stamp alone, on the app pool: the error is recorded, the status is not touched. */
+/** How long the fallback stamp waits for a row lock outside a request. */
+const STAMP_LOCK_TIMEOUT = '2s';
+
+type Tag = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown>;
+
+/** The stamp statement, run through `run` (the request's `sql`, or a transaction's tag). */
+async function writeStamp(run: Tag, kind: MirrorKind, conn: MirrorRef, error: string): Promise<void> {
+  if (kind === 'imap') {
+    await run`
+      UPDATE imap_mirror_connections
+      SET last_scan_at = NOW(), last_error = ${error}
+      WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
+    `;
+  } else {
+    await run`
+      UPDATE sent_mirror_connections
+      SET last_scan_at = NOW(), last_error = ${error}
+      WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
+    `;
+  }
+}
+
+/**
+ * The stamp alone, on the app pool: the error is recorded, the status is not touched.
+ *
+ * Outside a request (the cron) it runs in a short transaction of its own that waits at most
+ * STAMP_LOCK_TIMEOUT for the row: an app role can lock a connection row (FOR UPDATE needs only
+ * the column UPDATE it has), and the cron's connections are scanned one after another, so an
+ * unbounded wait here would stall the whole tick. On 55P03 it warns and moves on; the next
+ * failing scan stamps again. Inside a request it runs on the request's own transaction, which
+ * must not have its lock_timeout changed for the rest of the request.
+ */
 async function stampError(kind: MirrorKind, conn: MirrorRef, error: string): Promise<void> {
   try {
-    if (kind === 'imap') {
-      await sql`
-        UPDATE imap_mirror_connections
-        SET last_scan_at = NOW(), last_error = ${error}
-        WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
-      `;
-    } else {
-      await sql`
-        UPDATE sent_mirror_connections
-        SET last_scan_at = NOW(), last_error = ${error}
-        WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
-      `;
+    if (als.getStore()?.client) {
+      await writeStamp(sql, kind, conn, error);
+      return;
     }
+    await withTransaction(async (tx) => {
+      await tx`SELECT set_config('lock_timeout', ${STAMP_LOCK_TIMEOUT}, true)`;
+      await writeStamp(tx, kind, conn, error);
+    });
   } catch (err) {
-    log.error('mirror scan error stamp failed', { connectionId: conn.id, kind, err }, SCOPE[kind]);
+    const code = (err as { code?: unknown } | null)?.code;
+    if (code === LOCK_NOT_AVAILABLE) {
+      log.warn('mirror scan error stamp timed out on a row lock; skipped', { connectionId: conn.id, kind, code }, SCOPE[kind]);
+    } else {
+      log.error('mirror scan error stamp failed', { connectionId: conn.id, kind, err }, SCOPE[kind]);
+    }
   }
 }
 

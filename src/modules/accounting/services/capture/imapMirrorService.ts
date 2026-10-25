@@ -20,6 +20,7 @@ import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
 import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
 import { markMirrorScanError } from './mirrorScanError';
+import { readCursorUid } from './mirrorCursor';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
@@ -152,16 +153,13 @@ async function openImapClient(conn: MirrorConnection): Promise<ImapFlow> {
     if (!conn.imapHost || !conn.imapPort || !conn.imapUsername || !conn.imapPasswordEnc) {
       throw new Error(`Incomplete IMAP config for connection ${conn.id}`);
     }
-    // Before the password is decrypted: never connect to private space.
-    const refused = await checkImapTarget(conn.imapHost, conn.imapPort);
-    if (refused) throw new Error(refused);
+    // Before the password is decrypted: never connect to private space. Connect to the vetted address, not the name.
+    const target = await checkImapTarget(conn.imapHost, conn.imapPort);
+    if (!target.ok) throw new Error(target.message);
     const password = decrypt(conn.imapPasswordEnc);
     return new ImapFlow({
-      host: conn.imapHost,
-      port: conn.imapPort,
-      secure: conn.imapUseTls,
-      auth: { user: conn.imapUsername, pass: password },
-      logger: false,
+      host: target.address, servername: target.servername, port: conn.imapPort, secure: conn.imapUseTls,
+      auth: { user: conn.imapUsername, pass: password }, logger: false,
     });
   }
   // Gmail / M365 use OAuth2 — actual token exchange handled by the provider-
@@ -280,7 +278,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
 
     const lock = await client.getMailboxLock(conn.folder);
     try {
-      const cursorUid = Number(conn.scanCursor[conn.folder] ?? 0);
+      const cursorUid = readCursorUid(conn.scanCursor, conn.folder, { id: conn.id, kind: 'imap-mirror' });
       const searchRange = cursorUid > 0 ? `${cursorUid + 1}:*` : '1:*';
 
       // Fetch UIDs + minimal metadata first — don't pull bodies we don't want
