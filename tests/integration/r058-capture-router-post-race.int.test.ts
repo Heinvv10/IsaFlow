@@ -218,8 +218,8 @@ beforeAll(async () => {
   clearSystemAccountCache(company);
 
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date)
-     VALUES($1,$2,'R058d-E1','Ray','Tester','2026-01-01')`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date, medical_aid_main_member)
+     VALUES($1,$2,'R058d-E1','Ray','Tester','2026-01-01', true)`,
     [employee, company],
   );
 

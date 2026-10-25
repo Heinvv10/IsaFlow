@@ -55,8 +55,8 @@ beforeAll(async () => {
   // A second employee sharing the ID number makes `duplicates` return it; a history row gives `history` a body.
   await pool.query("UPDATE payroll_employees SET id_number = $2, department = 'Ops' WHERE id = $1", [employeeId, SA_ID]);
   await pool.query(
-    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number)
-     VALUES ($1, 'D3-2', 'Dup', 'Licate', '2021-01-01', '1985-05-05', $2)`, [company, SA_ID]);
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, id_number, medical_aid_main_member)
+     VALUES ($1, 'D3-2', 'Dup', 'Licate', '2021-01-01', '1985-05-05', $2, true)`, [company, SA_ID]);
   await pool.query(
     `INSERT INTO payroll_employee_history (company_id, employee_id, field_name, old_value, new_value, effective_from)
      VALUES ($1, $2, 'department', 'Sales', 'Ops', '2026-01-01')`, [company, employeeId]);

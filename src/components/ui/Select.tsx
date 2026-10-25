@@ -26,7 +26,30 @@ interface SelectBaseProps {
   clearable?: boolean;
   className?: string;
   id?: string;
+  /**
+   * Server-driven search: called with every keystroke in the search box. When set, `options` is NOT filtered
+   * locally - the caller owns the result set (see pickers/useRemoteOptions). Implies `searchable`.
+   */
+  onSearch?: (query: string) => void;
+  /** Called when the dropdown opens (true) or closes (false). */
+  onOpenChange?: (open: boolean) => void;
+  /** A request for `options` is in flight. */
+  loading?: boolean;
+  /** `options` could not be loaded: shown instead of the list, and no create action is offered. */
+  loadError?: string | null;
+  /** Adds a trailing "+ <createLabel> "<query>"" row; picking it calls this with the trimmed search text. */
+  onCreateNew?: (query: string) => void;
+  createLabel?: string;
+  /** Single select only: how to show `value` when it is not among `options` (e.g. outside the loaded page). */
+  valueOption?: SelectOption | null;
+  emptyText?: string;
+  /** A note under the list, e.g. "Showing the first 20 - type to narrow". */
+  hint?: string;
+  /** Replaces the default label classes (merged, so a later size/spacing class wins) to match a neighbouring form's labels. */
+  labelClassName?: string;
 }
+
+const CREATE_VALUE = '__select_create_new__';
 
 interface SingleSelectProps extends SelectBaseProps {
   multiple?: false;
@@ -44,7 +67,9 @@ export type SelectProps = SingleSelectProps | MultiSelectProps;
 
 // WORKING: Select component (single and multi-select)
 export function Select(props: SelectProps) {
-  const { options, placeholder = 'Select…', searchable = false, label, error, disabled = false, clearable = false, className, id: externalId } = props;
+  const { options, placeholder = 'Select…', label, error, disabled = false, clearable = false, className, id: externalId } = props;
+  const { onSearch, onOpenChange, loading = false, loadError = null, onCreateNew, createLabel = 'Create new', valueOption, emptyText, hint, labelClassName } = props;
+  const searchable = props.searchable === true || onSearch !== undefined;
 
   const autoId = useId();
   const inputId = externalId ?? autoId;
@@ -62,7 +87,11 @@ export function Select(props: SelectProps) {
 
   const isMulti = props.multiple === true;
   const selectedValues: string[] = isMulti ? (props.value as string[]) : props.value ? [props.value as string] : [];
-  const filteredOptions = searchable && search.trim() ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase())) : options;
+  const matching = searchable && !onSearch && search.trim() ? options.filter((o) => o.label.toLowerCase().includes(search.toLowerCase())) : options;
+  const canCreate = onCreateNew !== undefined && !loading && !loadError;
+  const filteredOptions: SelectOption[] = canCreate
+    ? [...matching, { value: CREATE_VALUE, label: search.trim() ? `+ ${createLabel} "${search.trim()}"` : `+ ${createLabel}…` }]
+    : matching;
 
   const recalculate = useCallback(() => {
     if (!triggerRef.current) return;
@@ -73,14 +102,17 @@ export function Select(props: SelectProps) {
   const closeDropdown = useCallback(() => { setOpen(false); setSearch(''); setActiveIndex(-1); }, []);
   const openDropdown = useCallback(() => { if (disabled) return; recalculate(); setOpen(true); setActiveIndex(-1); }, [disabled, recalculate]);
 
+  function closeAndRefocus() { closeDropdown(); triggerRef.current?.focus(); }
+
   function selectOption(option: SelectOption) {
     if (option.disabled) return;
+    if (option.value === CREATE_VALUE) { onCreateNew?.(search.trim()); closeAndRefocus(); return; }
     if (isMulti) {
       const cur = props.value as string[];
       (props as MultiSelectProps).onChange(cur.includes(option.value) ? cur.filter((v) => v !== option.value) : [...cur, option.value]);
     } else {
       (props as SingleSelectProps).onChange(option.value);
-      closeDropdown();
+      closeAndRefocus();
     }
   }
 
@@ -95,17 +127,21 @@ export function Select(props: SelectProps) {
     else if (e.key === 'Escape') closeDropdown();
   }
 
-  function handleListKeyDown(e: KeyboardEvent<HTMLUListElement>) {
+  function handleListKeyDown(e: KeyboardEvent<HTMLElement>) {
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIndex((i) => Math.min(i + 1, filteredOptions.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); }
     else if (e.key === 'Enter') { e.preventDefault(); if (activeIndex >= 0 && filteredOptions[activeIndex]) selectOption(filteredOptions[activeIndex]); }
-    else if (e.key === 'Escape') closeDropdown();
+    else if (e.key === 'Escape') closeAndRefocus();
   }
 
   useEffect(() => {
     if (!listRef.current || activeIndex < 0) return;
     (listRef.current.children[activeIndex] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex]);
+
+  const onOpenChangeRef = useRef(onOpenChange);
+  useEffect(() => { onOpenChangeRef.current = onOpenChange; });
+  useEffect(() => { onOpenChangeRef.current?.(open); }, [open]);
 
   useEffect(() => { if (open && searchable && searchRef.current) searchRef.current.focus(); }, [open, searchable]);
 
@@ -123,13 +159,18 @@ export function Select(props: SelectProps) {
     return () => { window.removeEventListener('scroll', recalculate, true); window.removeEventListener('resize', recalculate); };
   }, [open, recalculate]);
 
-  const selectedLabels = selectedValues.map((v) => options.find((o) => o.value === v)?.label).filter(Boolean) as string[];
+  // The panel is positioned from the trigger's box: results arriving, an error line or a hint can move the trigger.
+  useEffect(() => { if (open) recalculate(); }, [open, options, loading, loadError, error, recalculate]);
+
+  const selectedLabels = selectedValues
+    .map((v) => options.find((o) => o.value === v)?.label ?? (valueOption?.value === v ? valueOption.label : undefined))
+    .filter(Boolean) as string[];
   const hasClear = clearable && selectedValues.length > 0;
 
   return (
     <div className={cn('w-full', className)}>
       {label && (
-        <label id={labelId} htmlFor={inputId} className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label id={labelId} htmlFor={inputId} className={cn('mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300', labelClassName)}>
           {label}
         </label>
       )}
@@ -139,7 +180,7 @@ export function Select(props: SelectProps) {
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-owns={listboxId}
+        aria-controls={open ? listboxId : undefined}
         aria-labelledby={label ? labelId : undefined}
         aria-disabled={disabled}
         tabIndex={disabled ? -1 : 0}
@@ -190,7 +231,12 @@ export function Select(props: SelectProps) {
               pos={pos}
               searchRef={searchRef}
               listRef={listRef}
-              onSearchChange={(v) => { setSearch(v); setActiveIndex(-1); }}
+              onSearchChange={(v) => { setSearch(v); setActiveIndex(-1); onSearch?.(v); }}
+              searchLabel={label ? `Search ${label}` : undefined}
+              emptyText={emptyText}
+              hint={hint}
+              loading={loading}
+              loadError={loadError}
               onSelect={selectOption}
               onActiveChange={setActiveIndex}
               onKeyDown={handleListKeyDown}

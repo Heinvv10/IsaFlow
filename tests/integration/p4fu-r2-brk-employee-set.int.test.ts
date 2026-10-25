@@ -48,8 +48,8 @@ const warningCodes = async (runId: string, employee: string) =>
 /** A second employee of f's company, same salary component and amount as f's. */
 async function secondEmployee(f: SeveranceFixture): Promise<string> {
   const y = String((await pool.query(
-    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)
-     SELECT company_id, 'BRK-Y', 'Yusuf', 'Second', start_date, date_of_birth, '0123456788'
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, medical_aid_main_member)
+     SELECT company_id, 'BRK-Y', 'Yusuf', 'Second', start_date, date_of_birth, '0123456788', medical_aid_main_member
        FROM payroll_employees WHERE id = $1 RETURNING id`, [f.employee])).rows[0]!.id);
   await pool.query(
     `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from, effective_to)
@@ -128,8 +128,8 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
   it('an employee paid only an untaxed allowance on both runs carries no warning and is not required to: January is approved', async () => {
     const f = await seedEmployee(pool, fixtures, 'R1 untaxed employee', 20_000);
     const z = String((await pool.query(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)
-       VALUES ($1, 'R1-Z', 'Zola', 'Untaxed', '2020-01-01', '1980-01-01', '0123456787') RETURNING id`, [f.company])).rows[0]!.id);
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, medical_aid_main_member)
+       VALUES ($1, 'R1-Z', 'Zola', 'Untaxed', '2020-01-01', '1980-01-01', '0123456787', true) RETURNING id`, [f.company])).rows[0]!.id);
     const allowance = String((await pool.query(
       `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
        VALUES ($1, 'Untaxed allowance', '3702', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id);
@@ -208,8 +208,8 @@ describe('R1 breaker 1: the later-month warning is per employee and per month', 
   it('an employee untaxed in January (no warning written) but taxed in February: January\'s untaxed line added nothing February missed, so January is approved', async () => {
     const f = await seedEmployee(pool, fixtures, 'R1 untaxed this month only', 20_000);
     const z = String((await pool.query(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)
-       VALUES ($1, 'R1-Z2', 'Zane', 'Starter', '2027-01-01', '1980-01-01', '0123456786') RETURNING id`, [f.company])).rows[0]!.id);
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, medical_aid_main_member)
+       VALUES ($1, 'R1-Z2', 'Zane', 'Starter', '2027-01-01', '1980-01-01', '0123456786', true) RETURNING id`, [f.company])).rows[0]!.id);
     const allowance = String((await pool.query(
       `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type, is_taxable)
        VALUES ($1, 'Untaxed allowance', '3702', 'earning', false) RETURNING id`, [f.company])).rows[0]!.id);

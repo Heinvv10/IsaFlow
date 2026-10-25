@@ -250,7 +250,7 @@ function StatusBadge({ status }: { status: string }) {
     abandoned: 'bg-red-500/20 text-red-400',
   };
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? 'bg-gray-500/20 text-gray-400'}`}>
+    <span data-testid="migration-status-badge" className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? 'bg-gray-500/20 text-gray-400'}`}>
       {status.replace('_', ' ')}
     </span>
   );

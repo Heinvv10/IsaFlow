@@ -68,8 +68,8 @@ describeIfDb('pre-filing exceptions: input-VAT support', () => {
     const sales = await account('4000', 'Sales', 'revenue', 'default_revenue', 'credit');
     const reimburse = await account('2300', 'Employee reimbursements', 'liability', 'other_current_liability', 'credit');
     const employee = randomUUID();
-    await sql`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date)
-      VALUES (${employee}::UUID, ${fx.companyId}::UUID, ${`E-${fx.tag}`.slice(0, 20)}, 'Vat', 'Support', '2026-01-01')`;
+    await sql`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+      VALUES (${employee}::UUID, ${fx.companyId}::UUID, ${`E-${fx.tag}`.slice(0, 20)}, 'Vat', 'Support', '2026-01-01', true)`;
     await lockPeriod(fx, P.start, P.end);
 
     // A bill, and a late claim (a bill dated in the filed period P).

@@ -70,8 +70,8 @@ describe('RLS M12 — parent-join isolation for untenanted child tables', () => 
     // payroll_batches + payroll_employees -> payroll_batch_lines
     await q(`INSERT INTO payroll_batches (id, company_id, batch_type, description, period_year, period_month, created_by)
              VALUES ($1,$3,'reimbursive_travel','M12 A',2026,1,$5),($2,$4,'reimbursive_travel','M12 B',2026,1,$6) ON CONFLICT (id) DO NOTHING`, [PB_A, PB_B, CA, CB, UA, UB]);
-    await q(`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date)
-             VALUES ($1,$3,'E-A','A','A','2026-01-01'),($2,$4,'E-B','B','B','2026-01-01') ON CONFLICT (id) DO NOTHING`, [EMP_A, EMP_B, CA, CB]);
+    await q(`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+             VALUES ($1,$3,'E-A','A','A','2026-01-01', true),($2,$4,'E-B','B','B','2026-01-01', true) ON CONFLICT (id) DO NOTHING`, [EMP_A, EMP_B, CA, CB]);
     await q(`INSERT INTO payroll_batch_lines (id, batch_id, employee_id, value, effective_from)
              VALUES ($1,$3,$5,5,'2026-01-01'),($2,$4,$6,5,'2026-01-01') ON CONFLICT (id) DO NOTHING`, [PBL_A, PBL_B, PB_A, PB_B, EMP_A, EMP_B]);
   });

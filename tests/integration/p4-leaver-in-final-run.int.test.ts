@@ -46,8 +46,8 @@ const NOTICE_PAY = 20 * 1000; // 30 days' notice, 10 served
 
 async function addEmployee(id: string, companyId: string, num: string, status: string, endDate: string | null) {
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,end_date,status)
-     VALUES($1,$2,$3,'Leaver',$3,DATE '2020-01-01',$4::date,$5)`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,end_date,status, medical_aid_main_member)
+     VALUES($1,$2,$3,'Leaver',$3,DATE '2020-01-01',$4::date,$5, true)`,
     [id, companyId, num, endDate, status],
   );
   await pool.query(
