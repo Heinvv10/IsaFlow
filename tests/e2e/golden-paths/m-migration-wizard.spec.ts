@@ -179,10 +179,19 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
     const isoDay = `${y}-${m}-${dd}`;
     // The sandbox's own fixture customer; the trial balance above has no AR control row (R-020).
     const customerId = await api.fixtureCustomer();
-    const arTakeOns = async () => (await api.get<{ invoices: any[] }>(
-      '/api/accounting/customer-invoices-list?q=GP-MIG-AR&limit=100',
-    )).invoices.filter((i) => i.status !== 'cancelled');
-    for (const stale of await arTakeOns()) { // left by a run that died before its cancel
+    // The sandbox accumulates cancelled GP-MIG-AR invoices (148 vs a 100 page cap), so a single
+    // page can miss a row; walk every page of the search.
+    const arTakeOns = async (q: string) => {
+      const found: any[] = [];
+      for (let page = 1; ; page++) {
+        const { invoices } = await api.get<{ invoices: any[] }>(
+          `/api/accounting/customer-invoices-list?q=${encodeURIComponent(q)}&limit=100&page=${page}`,
+        );
+        found.push(...invoices);
+        if (invoices.length < 100) return found.filter((i) => i.status !== 'cancelled');
+      }
+    };
+    for (const stale of await arTakeOns('GP-MIG-AR')) { // left by a run that died before its cancel
       await api.post('/api/accounting/customer-invoices-detail', { id: stale.id, action: 'cancel' });
     }
     const arNumber = gpRef('MIG-AR');
@@ -194,7 +203,7 @@ test('migration wizard: CSV + xlsx parse, row errors, opening balances, AR take-
       }],
     });
     expect(ar.imported, JSON.stringify(ar.errors)).toBe(1);
-    arInvoiceId = (await arTakeOns()).find((i) => i.invoice_number === arNumber)?.id;
+    arInvoiceId = (await arTakeOns(arNumber)).find((i) => i.invoice_number === arNumber)?.id;
     expect(arInvoiceId, 'the take-on invoice must be listed').toBeTruthy();
     const arLine = await findLedgerRow(api, '1120', effectiveDate, period.endDate,
       (r) => r.description === `Take-on AR invoice ${arNumber}`);
