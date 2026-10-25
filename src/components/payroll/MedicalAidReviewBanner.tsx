@@ -81,8 +81,10 @@ export function MedicalAidReviewBanner() {
   }, [mayWrite, key, load]);
 
   const flagged = loaded?.key === key ? loaded.flagged : [];
+  if (!mayWrite || flagged.length === 0) return null;
+  // Read only once there is something to show: a viewer or an empty list never touches storage.
   const dismissed = dismissedByKey[key] ?? readDismissed(key);
-  if (!mayWrite || flagged.length === 0 || flagged.every(e => dismissed.includes(e.id))) return null;
+  if (flagged.every(e => dismissed.includes(e.id))) return null;
 
   const dismiss = () => {
     const ids = flagged.map(e => e.id);

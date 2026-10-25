@@ -151,10 +151,13 @@ describe('employees list — medical-aid review banner', () => {
   });
 
   it('dismissal is per company: dismiss under co-1, co-2 shows, back to co-1 stays hidden', async () => {
-    vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
-      (String(url).includes(REVIEW_URL)
-        ? ok({ count: 1, employees: [company.id === 'co-1' ? E1 : E2] })
-        : ok([])));
+    let backOnCo1: Response | null = null;
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) => {
+      if (!String(url).includes(REVIEW_URL)) return ok([]);
+      if (company.id === 'co-2') return ok({ count: 1, employees: [E2] });
+      if (reviewCalls() >= 3) { backOnCo1 = ok({ count: 1, employees: [E1] }); return backOnCo1; }
+      return ok({ count: 1, employees: [E1] });
+    });
     const view = render(<EmployeesListPage />);
     await screen.findByText('Ann Lee (E1)');
     fireEvent.click(screen.getByLabelText('Dismiss medical-aid review'));
@@ -162,10 +165,14 @@ describe('employees list — medical-aid review banner', () => {
     company.id = 'co-2';
     view.rerender(<EmployeesListPage />);
     expect(await screen.findByText('Bob Ng (E2)')).toBeTruthy();
+    const jsonSpy = vi.spyOn(Response.prototype, 'json');
     company.id = 'co-1';
     view.rerender(<EmployeesListPage />);
-    await waitFor(() => expect(reviewCalls()).toBe(3));
+    // the co-1 answer was really read by the banner before we judge "hidden"
+    await waitFor(() => expect(backOnCo1).not.toBeNull());
+    await waitFor(() => expect(jsonSpy.mock.contexts).toContain(backOnCo1));
     await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Bob Ng (E2)')).toBeNull();
     expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull();
   });
 
@@ -186,6 +193,21 @@ describe('employees list — medical-aid review banner', () => {
     await waitFor(() => expect(reviewCalls()).toBe(3));
     await new Promise((r) => setTimeout(r, 50));
     expect(linkRenders.filter(h => h === '/payroll/employees/e1')).toEqual([]);
+  });
+
+  it('a viewer, or an empty list, never reads (or warns about) storage', async () => {
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+    company.role = 'viewer';
+    serveReview([E1]);
+    const viewer = render(<EmployeesListPage />);
+    await screen.findByText('No employees yet');
+    viewer.unmount();
+    company.role = 'owner';
+    serveReview([]);
+    render(<EmployeesListPage />);
+    await waitFor(() => expect(reviewCalls()).toBe(1));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(getItem).not.toHaveBeenCalled();
   });
 
   it('the banner is a status region, not an alert', async () => {
