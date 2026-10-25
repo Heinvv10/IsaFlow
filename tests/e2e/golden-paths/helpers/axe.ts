@@ -82,10 +82,18 @@ export async function expectScreenClean(page: Page, screen: A11yScreen, baseline
  * Wait until a page has rendered its data, so axe scans the real screen and not a skeleton.
  * `networkidle` is not usable here: the app keeps polling and posting page-visit events, so it never settles.
  */
-async function waitForScreenReady(page: Page): Promise<void> {
-  await page.waitForLoadState('load');
-  await page.locator('h1').first().waitFor({ state: 'visible', timeout: 30_000 });
-  await expect(page.locator('.animate-pulse, .animate-spin, [aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 });
+async function waitForScreenReady(page: Page, screen: A11yScreen): Promise<void> {
+  await inScreen(screen, 'the page still shows a spinner or skeleton after 30s', () =>
+    expect(page.locator('.animate-pulse, .animate-spin, [aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 }));
+}
+
+/** Runs a wait; when it fails the error names the screen and what was being waited for, not just a bare Playwright timeout. */
+async function inScreen<T>(screen: A11yScreen, waitingFor: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw new Error(`a11y screen "${screen.name}" (${screen.path}): ${waitingFor} (${err instanceof Error ? err.message.split('\n')[0] : String(err)})`);
+  }
 }
 
 /**
@@ -102,9 +110,9 @@ export async function openScreen(page: Page, screen: A11yScreen): Promise<void> 
   await page.goto(screen.path);
   await loaded;
   await page.waitForLoadState('load');
-  await page.locator('h1').first().waitFor({ state: 'visible', timeout: 30_000 });
-  if (screen.settled) await screen.settled(page);
-  else await waitForScreenReady(page);
+  await inScreen(screen, 'no <h1> showed within 30s', () => page.locator('h1').first().waitFor({ state: 'visible', timeout: 30_000 }));
+  if (screen.settled) await inScreen(screen, 'the screen never settled', () => screen.settled!(page));
+  else await waitForScreenReady(page, screen);
   const mismatch = screenMismatch(page.url(), screen.path);
   expect(mismatch, `a11y screen "${screen.name}"`).toBeNull();
   await expect(page.getByRole('heading', { name: screen.heading, exact: true }), `a11y screen "${screen.name}" heading`).toBeVisible();

@@ -5,9 +5,10 @@
  * the shared golden session and runs axe-core: any serious/critical violation not listed in a11y-baseline.json
  * fails. Read-only (navigation only); it writes nothing to the company.
  *
- * A dev/CI gate only: scripts/verify-deploy.sh runs the golden suite against production after a deploy and
- * excludes this file (--grep-invert), because the baseline is keyed to dev data and a red post-deploy run rolls the
- * code back. tests/unit/scripts/verifyDeployA11yGate.test.ts proves the exclusion against the real script.
+ * A dev/CI gate only: scripts/verify-deploy.sh runs the golden suite against production after a deploy with
+ * GOLDEN_SKIP_A11Y=1, which makes playwright-golden.config.ts testIgnore this file (it is never even loaded), because
+ * the baseline is keyed to dev data and a red post-deploy run rolls the code back.
+ * tests/unit/scripts/verifyDeployA11yGate.test.ts proves it against the real script.
  */
 import { expect, test } from '@playwright/test';
 import { expectNoSeriousA11yViolations, expectScreenClean, openScreen, SETUP_GUIDE_BUTTON } from './helpers/axe';
