@@ -28,6 +28,12 @@ export interface AROutstandingSummary {
   outstanding: number;
   overdueCount: number;
   overdueAmount: number;
+  /**
+   * Part of `outstanding` held on soft-deleted invoices whose journal was never
+   * reversed (K-053 legacy deletes). The control account still carries it, so the
+   * figure must too, but no list row can show it: the tile says so.
+   */
+  onDeletedAmount: number;
 }
 
 export interface OverdueInvoiceRow {
@@ -62,17 +68,20 @@ export async function getAROutstandingSummary(companyId: string): Promise<AROuts
       COALESCE(SUM(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0)), 0) AS outstanding,
       COUNT(*) FILTER (WHERE ${overdue}) AS overdue_count,
       COALESCE(SUM(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))
-        FILTER (WHERE ${overdue}), 0) AS overdue_amount
+        FILTER (WHERE ${overdue}), 0) AS overdue_amount,
+      COALESCE(SUM(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))
+        FILTER (WHERE ci.deleted_at IS NOT NULL), 0) AS on_deleted_amount
     FROM customer_invoices ci
     WHERE ci.company_id = ${companyId}
       AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
       AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-  `) as { outstanding: string; overdue_count: string; overdue_amount: string }[];
+  `) as { outstanding: string; overdue_count: string; overdue_amount: string; on_deleted_amount: string }[];
   const r = rows[0];
   return {
     outstanding: Number(r?.outstanding ?? 0),
     overdueCount: Number(r?.overdue_count ?? 0),
     overdueAmount: Number(r?.overdue_amount ?? 0),
+    onDeletedAmount: Number(r?.on_deleted_amount ?? 0),
   };
 }
 
