@@ -43,6 +43,7 @@ export async function generateNote1AccountingPolicies(
 
   const dataSnapshot: Record<string, unknown> = {
     depreciation_methods: facts.depMethods,
+    inventory_cost_methods: facts.invMethods,
     holds_inventory: facts.holdsInventory,
     default_currency: currency,
     vat_system_type: vatRegistered ? vatType : 'none',

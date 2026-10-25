@@ -7,9 +7,10 @@
  * passed. The policy text now comes from the company's own records:
  *   - the depreciation methods of the assets it held during the year
  *     (bought on or before the year end, not disposed of before it began);
- *   - an inventories policy only when inventory accounts carry a balance at the
- *     year end (the same test note 9 uses).
- * Two companies, FY2026 = 2025-03-01..2026-02-28. All data synthetic.
+ *   - the cost methods of its active inventory products;
+ *   - an inventories policy only when it held inventory in the year: a balance
+ *     at the prior year end, or a posted inventory movement in the year.
+ * Three companies, FY2026 = 2025-03-01..2026-02-28. All data synthetic.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';
@@ -25,9 +26,10 @@ import { seedFiscalYears } from './helpers/fiscalYearSeed';
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
-const STOCKED = randomUUID(), BARE = randomUUID(), USER = randomUUID();
+const STOCKED = randomUUID(), SOLDOUT = randomUUID(), BARE = randomUUID(), USER = randomUUID();
+const ALL = [STOCKED, SOLDOUT, BARE];
 const TAG = STOCKED.slice(0, 8);
-const inventory = randomUUID(), bank = randomUUID();
+const inventory = randomUUID(), bank = randomUUID(), soldInventory = randomUUID(), soldBank = randomUUID();
 
 async function inTx<T>(companyId: string, fn: () => Promise<T>): Promise<T> {
   const client: PoolClient = await getPoolForTests().connect();
@@ -50,12 +52,21 @@ async function asset(companyId: string, n: number, method: string, bought: strin
       ${method}, ${disposed}::DATE, ${disposed ? 'disposed' : 'available'})`;
 }
 
-async function stockJournal(entryDate: string, amount: number) {
-  const je = await createJournalEntry(STOCKED, {
-    entryDate, description: 'stock purchase', source: 'manual',
-    lines: [{ glAccountId: inventory, debit: amount, credit: 0 }, { glAccountId: bank, debit: 0, credit: amount }],
+/** Positive amount: stock bought for cash; negative: stock sold out of the account. */
+async function stockJournal(companyId: string, stock: string, cash: string, entryDate: string, amount: number) {
+  const a = Math.abs(amount);
+  const je = await createJournalEntry(companyId, {
+    entryDate, description: amount > 0 ? 'stock purchase' : 'stock sold', source: 'manual',
+    lines: amount > 0
+      ? [{ glAccountId: stock, debit: a, credit: 0 }, { glAccountId: cash, debit: 0, credit: a }]
+      : [{ glAccountId: cash, debit: a, credit: 0 }, { glAccountId: stock, debit: 0, credit: a }],
   }, USER);
-  await inTx(STOCKED, () => postJournalEntry(STOCKED, je.id, USER));
+  await inTx(companyId, () => postJournalEntry(companyId, je.id, USER));
+}
+
+async function product(companyId: string, n: number, costMethod: string, type: string, active: boolean) {
+  await sql`INSERT INTO products (company_id, code, name, product_type, cost_method, is_active)
+            VALUES (${companyId}::UUID, ${`${TAG}-P${n}`}, ${`Product ${n}`}, ${type}, ${costMethod}, ${active})`;
 }
 
 type Para = { type: 'paragraph'; text: string };
@@ -77,32 +88,43 @@ describeIfDb('AFS note 1 accounting policies from the company records', () => {
     assertDisposable();
     await sql`INSERT INTO users (id, email, role, is_active) VALUES (${USER}, ${USER + '@test.local'}, 'admin', true)`;
     await sql`INSERT INTO companies (id, name, financial_year_start, default_currency)
-              VALUES (${STOCKED}::UUID, ${'N1 stocked ' + TAG}, 3, 'ZAR'), (${BARE}::UUID, ${'N1 bare ' + TAG}, 3, 'ZAR')`;
-    await sql`INSERT INTO company_users (company_id, user_id, role)
-              VALUES (${STOCKED}::UUID, ${USER}, 'admin'), (${BARE}::UUID, ${USER}, 'admin')`;
-    await seedFiscalYears(STOCKED, '2024-03-01', '2026-12-31');
-    await seedFiscalYears(BARE, '2024-03-01', '2026-12-31');
+              VALUES (${STOCKED}::UUID, ${'N1 stocked ' + TAG}, 3, 'ZAR'), (${SOLDOUT}::UUID, ${'N1 soldout ' + TAG}, 3, 'ZAR'),
+                     (${BARE}::UUID, ${'N1 bare ' + TAG}, 3, 'ZAR')`;
+    for (const c of ALL) {
+      await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${c}::UUID, ${USER}, 'admin')`;
+      await seedFiscalYears(c, '2024-03-01', '2027-02-28');
+    }
     await sql`
       INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, normal_balance, level, is_active, account_subtype)
       VALUES (${inventory}::UUID, ${STOCKED}::UUID, '1400', 'Inventory', 'asset', 'debit', 3, true, 'inventory'),
-             (${bank}::UUID, ${STOCKED}::UUID, '1000', 'Bank', 'asset', 'debit', 3, true, 'bank')`;
+             (${bank}::UUID, ${STOCKED}::UUID, '1000', 'Bank', 'asset', 'debit', 3, true, 'bank'),
+             (${soldInventory}::UUID, ${SOLDOUT}::UUID, '1400', 'Inventory', 'asset', 'debit', 3, true, 'inventory'),
+             (${soldBank}::UUID, ${SOLDOUT}::UUID, '1000', 'Bank', 'asset', 'debit', 3, true, 'bank')`;
     await asset(STOCKED, 1, 'straight_line', '2024-06-01', null); // held all year
     await asset(STOCKED, 2, 'reducing_balance', '2025-09-01', null); // bought in the year
     await asset(STOCKED, 3, 'sum_of_years', '2023-01-01', '2025-01-31'); // gone before the year began
     await asset(STOCKED, 4, 'sum_of_years', '2026-04-01', null); // bought after the year end
-    await stockJournal('2025-10-15', 500);
+    await stockJournal(STOCKED, inventory, bank, '2025-10-15', 500); // still held at 2026-02-28 and after
+    await stockJournal(SOLDOUT, soldInventory, soldBank, '2025-05-10', 100);
+    await stockJournal(SOLDOUT, soldInventory, soldBank, '2025-08-20', -100); // nil at the FY2026 year end
+    await product(STOCKED, 1, 'weighted_average', 'inventory', true);
+    await product(STOCKED, 2, 'fifo', 'inventory', true);
+    await product(SOLDOUT, 3, 'fifo', 'inventory', true);
+    await product(SOLDOUT, 4, 'weighted_average', 'inventory', false); // inactive: not a method in use
+    await product(BARE, 5, 'fifo', 'service', true); // a service is not inventory
   }, 120000);
 
   afterAll(async () => {
     try {
-      await sql`DELETE FROM gl_journal_lines WHERE company_id = ANY(${[STOCKED, BARE]}::UUID[])`;
-      await sql`DELETE FROM gl_journal_entries WHERE company_id = ANY(${[STOCKED, BARE]}::UUID[])`;
-      await sql`DELETE FROM gl_account_balances WHERE gl_account_id = ANY(${[inventory, bank]}::UUID[])`;
-      await sql`DELETE FROM gl_accounts WHERE company_id = ANY(${[STOCKED, BARE]}::UUID[])`;
-      await sql`DELETE FROM assets WHERE company_id = ANY(${[STOCKED, BARE]}::UUID[])`;
-      await sql`DELETE FROM fiscal_periods WHERE company_id = ANY(${[STOCKED, BARE]}::UUID[])`;
+      await sql`DELETE FROM gl_journal_lines WHERE company_id = ANY(${ALL}::UUID[])`;
+      await sql`DELETE FROM gl_journal_entries WHERE company_id = ANY(${ALL}::UUID[])`;
+      await sql`DELETE FROM gl_account_balances WHERE gl_account_id = ANY(${[inventory, bank, soldInventory, soldBank]}::UUID[])`;
+      await sql`DELETE FROM gl_accounts WHERE company_id = ANY(${ALL}::UUID[])`;
+      await sql`DELETE FROM assets WHERE company_id = ANY(${ALL}::UUID[])`;
+      await sql`DELETE FROM products WHERE company_id = ANY(${ALL}::UUID[])`;
+      await sql`DELETE FROM fiscal_periods WHERE company_id = ANY(${ALL}::UUID[])`;
       await sql`DELETE FROM company_users WHERE user_id = ${USER}`;
-      await sql`DELETE FROM companies WHERE id = ANY(${[STOCKED, BARE]}::UUID[])`;
+      await sql`DELETE FROM companies WHERE id = ANY(${ALL}::UUID[])`;
       await sql`DELETE FROM users WHERE id = ${USER}`;
     } finally { await getPoolForTests().end(); }
   });
@@ -115,10 +137,16 @@ describeIfDb('AFS note 1 accounting policies from the company records', () => {
     expect(snapshot.depreciation_methods).toEqual(['straight_line', 'reducing_balance']);
   });
 
-  it('states an inventories policy when inventory carries a balance at the year end', async () => {
-    const { headings, snapshot } = await note1(STOCKED);
+  it('states the inventories policy, naming the cost methods of the active inventory products', async () => {
+    const { headings, policy, snapshot } = await note1(STOCKED);
     expect(headings).toContain('Inventories');
-    expect(snapshot.holds_inventory).toBe(true);
+    expect(policy('Inventories')).toContain('the weighted average cost or first-in, first-out (FIFO) method, as set for each item.');
+    expect(snapshot).toMatchObject({ holds_inventory: true, inventory_cost_methods: ['weighted_average', 'fifo'] });
+  });
+
+  it('a year that opens with stock keeps the policy (the comparative still shows it)', async () => {
+    const { headings } = await note1(STOCKED, 2027); // no movement in FY2027; 500 held at 2026-02-28
+    expect(headings).toContain('Inventories');
   });
 
   it('leaves the inventories policy out when the stock was bought after the year end', async () => {
@@ -127,11 +155,19 @@ describeIfDb('AFS note 1 accounting policies from the company records', () => {
     expect(snapshot.holds_inventory).toBe(false);
   });
 
+  it('stock bought and sold out within the year: the policy stays that year, the next year drops it', async () => {
+    const sold = await note1(SOLDOUT);
+    expect(sold.headings).toContain('Inventories');
+    expect(sold.policy('Inventories')).toContain('Cost is determined using the first-in, first-out (FIFO) method.');
+    expect(sold.policy('Inventories')).not.toMatch(/weighted average/);
+    expect((await note1(SOLDOUT, 2027)).headings).not.toContain('Inventories');
+  });
+
   it('a company with no assets and no stock: default depreciation text, no inventories policy, no other company\'s methods', async () => {
     const { headings, policy, snapshot } = await note1(BARE);
     expect(policy('Property, Plant and Equipment')).toContain('the straight-line method');
     expect(policy('Property, Plant and Equipment')).not.toMatch(/reducing-balance/);
     expect(headings).not.toContain('Inventories');
-    expect(snapshot).toMatchObject({ depreciation_methods: [], holds_inventory: false, default_currency: 'ZAR' });
+    expect(snapshot).toMatchObject({ depreciation_methods: [], inventory_cost_methods: [], holds_inventory: false, default_currency: 'ZAR' });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 import { mockUnsafe } from '../../../helpers/sqlFragmentMock';
 
 vi.mock('@/lib/neon', () => ({ sql: Object.assign(vi.fn(), { unsafe: mockUnsafe }) }));
@@ -57,16 +57,23 @@ describe('notes1to10 generators', () => {
   // ── Note 1 ────────────────────────────────────────────────────────────────
 
   describe('generateNote1AccountingPolicies', () => {
-    // Note 1 reads the company row, then the asset methods held in the year, then the
-    // inventory balances at the year end (note1PolicyFacts). Only columns the schema has:
-    // the real-PG suite afs-note1-accounting-policies proves the queries run.
+    // Note 1 reads the company row and, through note1PolicyFacts, the asset and product
+    // methods and the inventory movements / opening balance. Each query is answered by what
+    // it reads, not by call order. Only columns the schema has: the real-PG suite
+    // afs-note1-accounting-policies proves the queries run.
     const company = { default_currency: 'ZAR', vat_system_type: 'invoice', vat_period: 'monthly' };
     function queue(companyRows: unknown[], assetMethods: string[], inventoryRows: unknown[]) {
-      mockSql
-        .mockResolvedValueOnce(companyRows)
-        .mockResolvedValueOnce(assetMethods.map((m) => ({ depreciation_method: m })))
-        .mockResolvedValueOnce(inventoryRows);
+      mockSql.mockImplementation((async (strings: TemplateStringsArray) => {
+        const q = strings.join('?');
+        if (q.includes('FROM companies')) return companyRows;
+        if (q.includes('FROM assets')) return assetMethods.map((m) => ({ depreciation_method: m }));
+        if (q.includes('FROM products')) return [];
+        if (q.includes('SELECT EXISTS')) return [{ moved: false }];
+        if (q.includes('FROM gl_accounts')) return inventoryRows;
+        throw new Error(`unexpected query: ${q.slice(0, 80)}`);
+      }) as never);
     }
+    afterEach(() => mockSql.mockReset()); // clearAllMocks keeps an implementation; later notes queue their own
 
     it('returns dataSnapshot and content', async () => {
       queue([company], ['straight_line'], []);
@@ -90,7 +97,7 @@ describe('notes1to10 generators', () => {
       expect(content.blocks.some((b) => b.type === 'heading' && b.text === 'Inventories')).toBe(false);
     });
 
-    it('states the inventories policy when an inventory account has a balance', async () => {
+    it('states the inventories policy when an inventory account has an opening balance', async () => {
       queue([company], [], [{ account_name: 'Stock', balance: 10 }]);
       const { content, dataSnapshot } = await generateNote1AccountingPolicies(COMPANY_ID, FISCAL_YEAR);
       expect(content.blocks.some((b) => b.type === 'heading' && b.text === 'Inventories')).toBe(true);
