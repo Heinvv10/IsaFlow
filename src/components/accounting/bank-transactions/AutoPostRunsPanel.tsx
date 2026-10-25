@@ -134,7 +134,7 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
           ))}
         </ul>
       )}
-      <ul className="space-y-1">
+      <ul aria-label="Auto-post runs" className="space-y-1">
         {active.map((r) => (
           <li
             key={r.id}

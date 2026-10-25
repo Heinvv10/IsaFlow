@@ -23,8 +23,8 @@ export async function seedPayrollCompany(pool: Pool, company: string, salary = 2
        VALUES ($1,$2,$3,$4,$5,1)`, [company, code, `W301 ${code}`, type, type === 'liability' ? 'credit' : 'debit']);
   }
   const emp = (await pool.query<{ id: string }>(
-    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)
-     VALUES ($1, 'W301-1', 'Wanda', 'Test', '2020-01-01', '1980-01-01', '0123456789') RETURNING id`, [company])).rows[0]!.id;
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, medical_aid_main_member)
+     VALUES ($1, 'W301-1', 'Wanda', 'Test', '2020-01-01', '1980-01-01', '0123456789', true) RETURNING id`, [company])).rows[0]!.id;
   const comp = (await pool.query<{ id: string }>(
     `INSERT INTO payroll_components (company_id, name, sars_source_code, component_type)
      VALUES ($1, 'Basic Salary', '3601', 'earning') RETURNING id`, [company])).rows[0]!.id;

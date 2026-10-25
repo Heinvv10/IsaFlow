@@ -13,6 +13,8 @@ import { postedTotals } from '@/components/reports/generalLedgerRows';
 import { postableAccounts } from '@/components/reports/postableAccounts';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
+import { AccountPicker } from '@/components/ui';
+import { REPORT_FILTER_LABEL_CLASS } from '@/components/reports/reportFilterLabel';
 
 interface Txn {
   date: string;
@@ -33,10 +35,6 @@ interface Report {
   closingBalance: number;
   transactions: Txn[];
 }
-interface GLAccount {
-  id: string; accountCode: string; accountName: string;
-  parentAccountId: string | null; level: number | null; hasTransactions: boolean;
-}
 interface CostCentre { id: string; code: string; name: string }
 
 const fmt = (n: number) => formatMoney(n);
@@ -52,7 +50,6 @@ export default function AccountTransactionsPage() {
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
   const [accountCode, setAccountCode] = useState('1110');
-  const [accounts, setAccounts] = useState<GLAccount[]>([]);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreFilter, setCostCentreFilter] = useState('');
   const [report, setReport] = useState<Report | null>(null);
@@ -65,19 +62,6 @@ export default function AccountTransactionsPage() {
       const list = res.data?.items || [];
       setCostCentres(list.map((c: Record<string, unknown>) => ({ id: String(c.id), code: String(c.code), name: String(c.name) })));
     }).catch(err => setError(apiErrorMessage(err, ccFailure)));
-    const coaFailure = 'Could not load the chart of accounts - try again';
-    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' }).then(async r => { await assertOk(r, coaFailure); return r.json(); }).then(res => {
-      const d = res.data || res;
-      const list = Array.isArray(d) ? d : d.accounts || d.items || [];
-      setAccounts(postableAccounts(list.map((a: Record<string, unknown>) => ({
-        id: String(a.id),
-        accountCode: String(a.accountCode || a.account_code || ''),
-        accountName: String(a.accountName || a.account_name || ''),
-        parentAccountId: (a.parentAccountId ?? a.parent_account_id ?? null) as string | null,
-        level: a.level == null ? null : Number(a.level),
-        hasTransactions: a.hasTransactions === true || a.has_transactions === true,
-      }))));
-    }).catch(err => setError(apiErrorMessage(err, coaFailure)));
   }, []);
 
   const requestRef = useRef(0);
@@ -142,12 +126,8 @@ export default function AccountTransactionsPage() {
 
         <div className="p-6 max-w-5xl space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <div>
-              <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Account</label>
-              <select value={accountCode} onChange={e => setAccountCode(e.target.value)} className="ff-select text-sm">
-                {accounts.map(a => <option key={a.id} value={a.accountCode}>{a.accountCode} — {a.accountName}</option>)}
-              </select>
-            </div>
+            <AccountPicker label="Account" valueKey="code" refine={postableAccounts} value={accountCode} onChange={code => setAccountCode(code ?? '')}
+              className="w-72" labelClassName={REPORT_FILTER_LABEL_CLASS} />
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">From</label>
               <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="ff-input text-sm" />
@@ -159,7 +139,7 @@ export default function AccountTransactionsPage() {
             {costCentres.length > 0 && (
               <div>
                 <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
-                <select value={costCentreFilter} onChange={e => setCostCentreFilter(e.target.value)} className="ff-select text-sm">
+                <select data-testid="cost-centre-filter" value={costCentreFilter} onChange={e => setCostCentreFilter(e.target.value)} className="ff-select text-sm">
                   <option value="">All Cost Centres</option>
                   {costCentres.map(cc => <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>)}
                 </select>

@@ -114,8 +114,8 @@ describe('REPRO 2/3: directive create', () => {
   it('an inactive employee (never offered by the picker) is refused', async () => {
     const f = fx[0]!;
     const inactive = (await pool.query<{ id: string }>(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status)
-       VALUES ($1, 'BRK-I', 'Not', 'Paid', '2021-01-01', 'inactive') RETURNING id`, [f.company])).rows[0]!.id;
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status, medical_aid_main_member)
+       VALUES ($1, 'BRK-I', 'Not', 'Paid', '2021-01-01', 'inactive', true) RETURNING id`, [f.company])).rows[0]!.id;
     const r = await f.call(directives as Route, 'POST', '/api/accounting/tax-directives', undefined,
       { body: { ...BODY, employee_id: inactive, employee_name: 'Not Paid' } });
     expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
