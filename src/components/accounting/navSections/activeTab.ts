@@ -180,12 +180,21 @@ export function getActiveTabId(
  * Statement", not "Reconcile" as well. Null when none match.
  */
 export function mostSpecificActiveHref(hrefs: string[], asPath: string): string | null {
+  const asPathOnly = asPath.split('?')[0]!;
   let best: string | null = null;
+  let bestScore: [number, number] = [-1, -1];
   for (const href of hrefs) {
     if (!isLinkActive(href, asPath)) continue;
-    const len = href.split('?')[0]!.length + (href.includes('?') ? 1 : 0);
-    const bestLen = best === null ? -1 : best.split('?')[0]!.length + (best.includes('?') ? 1 : 0);
-    if (len > bestLen) best = href;
+    const [itemPath, qs] = href.split('?') as [string, string | undefined];
+    // A link is a sibling candidate only on a segment boundary: /a/b must not claim /a/bc.
+    if (asPathOnly !== itemPath && !asPathOnly.startsWith(`${itemPath}/`)) continue;
+    // More path segments win; among equals the longer query wins. A link with
+    // no query scores 0 (an empty `?` is falsy), so any `?tab=` link on the same path beats it.
+    const score: [number, number] = [itemPath.split('/').length, qs ? qs.length : 0];
+    if (score[0] > bestScore[0] || (score[0] === bestScore[0] && score[1] > bestScore[1])) {
+      best = href;
+      bestScore = score;
+    }
   }
   return best;
 }
