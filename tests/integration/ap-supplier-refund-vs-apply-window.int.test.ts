@@ -264,6 +264,17 @@ describe('one credit figure across dates (adversarial review, 2026-10-25)', () =
       .toEqual({ first: 'passed', second: 'SUPPLIER_REFUND_REFUSED', credit: 0 });
   }, 60_000);
 
+  it('a back-dated refund may not push the credit below zero at a later document date', async () => {
+    const { supplier } = await supplierWithBill();
+    await posted(supplier, 1000, dayOffset(DAY, -20));
+    const a = verdictOf(await outcomeOf(refund(supplier, 1000, DAY)));
+    await posted(supplier, 1000, dayOffset(DAY, 10)); // all-dates R1,000, but R0 as at the first refund's date
+    const b = verdictOf(await outcomeOf(refund(supplier, 1000, dayOffset(DAY, -10))));
+    const atA = (await inTx(() => getSupplierOnAccountCredit(fx.company, supplier, DAY))).credit;
+    expect({ a, b, atA, all: await creditAllDates(supplier) })
+      .toEqual({ a: 'passed', b: 'SUPPLIER_REFUND_REFUSED', atA: 0, all: 1000 });
+  }, 60_000);
+
   it('a refund dated after today: the back-fill dry run and live run agree, and nothing is applied', async () => {
     const { supplier, bill } = await supplierWithBill();
     const pay = await posted(supplier, 500);

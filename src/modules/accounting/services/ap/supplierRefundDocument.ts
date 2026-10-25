@@ -162,14 +162,15 @@ export async function planSupplierRefund(
   // Then the credit key, which every application of posted cash holds from its plan to its COMMIT: held by
   // another request, this refuses (retryable) instead of counting cash an application is spending.
   await lockSupplierCredit(companyId, supplierId);
-  const { credit: asAtDate, creditAllDates, supplierName } = await getSupplierOnAccountCredit(
+  const { credit: asAtDate, lowestFromDate, supplierName } = await getSupplierOnAccountCredit(
     companyId, supplierId, paymentDate,
   );
-  // BOTH figures: as at the refund's date (it cannot return more than was on account then) and over every date
-  // (a refund dated later, already recorded, has taken its share — statement lines allocated out of date order
-  // refunded the same cash twice against the as-at figure alone).
-  const credit = Math.min(asAtDate, creditAllDates);
-  const basis = asAtDate <= creditAllDates
+  // The LOWEST running credit from the refund's date on, not only as at it: a document dated later, already
+  // recorded (a refund, or an application of a payment dated before it), has taken its share at its own date, and a
+  // back-dated refund must not push that point below zero (statement lines allocated out of date order refunded
+  // the same cash twice against the as-at figure alone).
+  const credit = lowestFromDate;
+  const basis = lowestFromDate >= asAtDate
     ? `as at ${paymentDate}`
     : 'once documents dated after this one are counted';
 
