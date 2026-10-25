@@ -59,6 +59,10 @@ import type { getOrCreateEmailInbox } from '@/modules/accounting/services/captur
 import type { CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 import type { VlmJobView } from '@/modules/accounting/services/bank/vlmExtractJobs';
 import type { FuelRecord, ServiceRecord } from '@/modules/accounting/services/items/fleetRecordsService';
+import type { listYearsWithPeriods } from '@/modules/accounting/services/gl/yearsWithPeriodsService';
+import type { YearEndChangeAssessment } from '@/modules/accounting/services/gl/financialYearEndChangeService';
+import type { FiscalYearRecord } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import type { YearEndChangeRecord } from '@/modules/accounting/services/gl/financialYearEndChangeUndo';
 import type { listAssetBankLinks } from '@/modules/accounting/services/items/assetBankLinksService';
 
 /**
@@ -92,6 +96,14 @@ import type { listAssetBankLinks } from '@/modules/accounting/services/items/ass
  * cases 15-17 rather than by this comment.
  */
 interface StaticRoutes {
+  // GET; `preview` only when `?newYearEndMonth=` is sent. `undo.changeId` is the latest live change, null when none.
+  '/api/accounting/financial-year-end-change': {
+    currentYear: FiscalYearRecord;
+    history: YearEndChangeRecord[];
+    undo: { changeId: string | null; refusals: string[] };
+    preview?: YearEndChangeAssessment;
+  };
+  '/api/accounting/fiscal-years': Awaited<ReturnType<typeof listYearsWithPeriods>>;
   '/api/accounting/currencies': Currency[];
   '/api/accounting/customer-merge': Awaited<ReturnType<typeof mergeCustomers>>;
   // W1-02. GET lists accounts, PUT returns `{ updated }` — disjoint on Array.isArray.
