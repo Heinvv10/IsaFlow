@@ -13,7 +13,7 @@ import {
   TABS,
   getActiveTabId,
   isFlyout,
-  isLinkActive,
+  activeHrefAmong,
   type Tab,
   type NavItem,
 } from '../accounting/accountingNavConfig';
@@ -49,6 +49,7 @@ function SectionFlyout({
   parentRight: number;
   parentTop: number;
 }) {
+  const activeHref = activeHrefAmong(items, asPath);
   const [open, setOpen] = useState(false);
   const [subPos, setSubPos] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -87,7 +88,7 @@ function SectionFlyout({
           {items.map(item => {
             if (!isFlyout(item)) {
               return (
-                <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(isLinkActive(item.href, asPath))}>
+                <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>
                   {item.label}
                 </Link>
               );
@@ -116,6 +117,7 @@ function SectionFlyout({
 
 function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; onNav: () => void }) {
   const hasSections = tab.items?.some(isFlyout) ?? false;
+  const activeHref = activeHrefAmong(tab.items ?? [], asPath);
 
   return (
     <>
@@ -140,7 +142,7 @@ function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; on
       {/* Sections with sub-flyouts */}
       {hasSections && tab.items?.map(item => {
         if (!isFlyout(item)) {
-          return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(isLinkActive(item.href, asPath))}>{item.label}</Link>;
+          return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>{item.label}</Link>;
         }
         return (
           <SectionFlyout
@@ -158,7 +160,7 @@ function TabFlyoutContent({ tab, asPath, onNav }: { tab: Tab; asPath: string; on
       {/* Flat items */}
       {!hasSections && tab.items?.map(item => {
         if (isFlyout(item)) return null;
-        return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(isLinkActive(item.href, asPath))}>{item.label}</Link>;
+        return <Link key={item.href} href={item.href} onClick={onNav} className={linkCls(item.href === activeHref)}>{item.label}</Link>;
       })}
     </>
   );

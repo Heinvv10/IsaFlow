@@ -190,6 +190,12 @@ export function mostSpecificActiveHref(hrefs: string[], asPath: string): string 
   return best;
 }
 
+/** `mostSpecificActiveHref` over the plain links of a mixed link/section list. */
+export function activeHrefAmong(items: Array<{ href: string } | { section: string }>, asPath: string): string | null {
+  const hrefs = items.flatMap(i => ('href' in i ? [i.href] : []));
+  return mostSpecificActiveHref(hrefs, asPath);
+}
+
 export function isLinkActive(href: string, asPath: string): boolean {
   const parts = href.split('?');
   const itemPath = parts[0] as string;
