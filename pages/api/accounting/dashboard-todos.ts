@@ -3,14 +3,12 @@
  * GET /api/accounting/dashboard-todos
  * Returns overdue invoices, pending supplier payments, uncategorized bank txns, and draft invoices.
  *
- * K-053: soft-delete sets `deleted_at` and leaves `status` alone
- * (`softDeleteRowOps`), so without a `deleted_at` filter a deleted approved
- * invoice came back here as an overdue to-do and a deleted draft was still
- * counted. The predicate is UNDATED, exactly as it is on the chase siblings
- * `dunningService`, `dunningCronService` and `smart-reminder`: this is a
- * workflow queue asked as at NOW, never an as-at balance that has to tie to a
- * control account, so the dated `documentInLedgerAsAtFragment` the ageing and
- * statement surfaces carry would be the wrong question here.
+ * Overdue customer invoices (rows AND count) come from arOutstandingService, the
+ * one definition of overdue shared with the dashboard figure and the invoice
+ * list tiles. The rest of this queue (supplier bills, drafts) keeps the
+ * UNDATED `deleted_at IS NULL` predicate of K-053: a workflow queue asked as
+ * at NOW, as on the chase siblings `dunningService`, `dunningCronService` and
+ * `smart-reminder`.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -19,14 +17,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-
-interface OverdueInvoice {
-  id: string;
-  invoiceNumber: string;
-  clientName: string;
-  amount: number;
-  daysOverdue: number;
-}
+import { getAROutstandingSummary, listOverdueInvoices, type OverdueInvoiceRow } from '@/modules/accounting/services/ar/arOutstandingService';
 
 interface PendingSupplierPayment {
   id: string;
@@ -37,7 +28,9 @@ interface PendingSupplierPayment {
 }
 
 interface TodoData {
-  overdueInvoices: OverdueInvoice[];
+  overdueInvoices: OverdueInvoiceRow[];
+  /** True company-wide count (shared AR service); overdueInvoices is only the top 10 rows. */
+  overdueInvoiceCount: number;
   pendingSupplierPayments: PendingSupplierPayment[];
   uncategorizedBankTxns: number;
   draftInvoices: number;
@@ -51,23 +44,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   try {
-    const [overdueRows, supplierRows, bankCountRows, draftCountRows] = await Promise.all([
-      sql`
-        SELECT
-          ci.id::text,
-          COALESCE(ci.invoice_number, '') AS "invoiceNumber",
-          COALESCE(c.name, '') AS "clientName",
-          ci.total_amount::numeric AS amount,
-          EXTRACT(DAY FROM NOW() - ci.due_date)::int AS "daysOverdue"
-        FROM customer_invoices ci
-        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-        WHERE ci.company_id = ${companyId}
-          AND ci.deleted_at IS NULL
-          AND ci.status IN ('sent', 'approved', 'partially_paid')
-          AND ci.due_date < NOW()
-        ORDER BY ci.due_date ASC
-        LIMIT 10
-      `,
+    const [overdueRows, supplierRows, bankCountRows, draftCountRows, arSummary] = await Promise.all([
+      listOverdueInvoices(companyId, 10),
       sql`
         SELECT
           si.id::text,
@@ -99,15 +77,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND deleted_at IS NULL
           AND status = 'draft'
       `,
+      getAROutstandingSummary(companyId),
     ]);
-
-    const overdueInvoices: OverdueInvoice[] = overdueRows.map((r) => ({
-      id: String(r.id),
-      invoiceNumber: String(r.invoiceNumber),
-      clientName: String(r.clientName),
-      amount: Number(r.amount),
-      daysOverdue: Number(r.daysOverdue),
-    }));
 
     const pendingSupplierPayments: PendingSupplierPayment[] = supplierRows.map((r) => ({
       id: String(r.id),
@@ -121,7 +92,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const draftInvoices = Number(draftCountRows[0]?.cnt ?? 0);
 
     const data: TodoData = {
-      overdueInvoices,
+      overdueInvoices: overdueRows,
+      overdueInvoiceCount: arSummary.overdueCount,
       pendingSupplierPayments,
       uncategorizedBankTxns,
       draftInvoices,
