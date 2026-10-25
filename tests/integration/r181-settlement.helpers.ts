@@ -31,6 +31,20 @@ export async function verify(ref: string): Promise<{ statusCode: number; body: {
 }
 
 /**
+ * What a real portal checkout stamps into Paystack's metadata for `ref`'s request: its invoice and
+ * company (create.ts). Paystack echoes it on the webhook and on verify; the binding refuses without it.
+ */
+export async function metaFor(ref: string): Promise<{ invoice_id: string | null; company_id: string } | undefined> {
+  const { rows } = await pool.query<{ invoice_id: string | null; company_id: string }>(
+    'SELECT customer_invoice_id AS invoice_id, company_id FROM paystack_payment_requests WHERE paystack_reference = $1', [ref]);
+  return rows[0];
+}
+
+/** A verifyTransaction stub answering `result` plus the checkout metadata of whichever reference is asked. */
+export const verifyAs = (result: Record<string, unknown>) =>
+  async (ref: string): Promise<Record<string, unknown>> => ({ ...result, metadata: await metaFor(ref) });
+
+/**
  * A signed charge.success carrying what Paystack says it received (`null`: no amount at all).
  * `extra` adds charge fields such as `requested_amount` and `fees` (cents).
  */
@@ -39,7 +53,7 @@ export async function deliver(reference: string, cents: number | null, currency 
   const webhook = await route('../../pages/api/webhooks/paystack');
   const body = JSON.stringify({ event: 'charge.success', data: {
     id: 181, reference, status: 'success', ...(cents === null ? {} : { amount: cents }), currency, channel: 'card',
-    customer: { email: 'payer@r181.test', customer_code: 'CUS_r181' }, ...extra } });
+    customer: { email: 'payer@r181.test', customer_code: 'CUS_r181' }, metadata: await metaFor(reference), ...extra } });
   const req = Readable.from([Buffer.from(body)]) as unknown as NextApiRequest;
   Object.assign(req, { method: 'POST', headers: { 'content-type': 'application/json',
     'x-paystack-signature': createHmac('sha512', SECRET).update(body).digest('hex') } });

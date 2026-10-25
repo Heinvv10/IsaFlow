@@ -62,7 +62,8 @@ describe('Flows page: auto top-up has no payment method in v1', () => {
   it('still lets an owner switch an existing setting off', async () => {
     render(<FlowsPage />);
     expect((await topUp()).disabled).toBe(false);
-    expect(screen.getByText(/no payment method on file/i)).toBeTruthy();
+    // Switched on, it says it cannot buy anything (no payment method can be stored in v1).
+    expect(screen.getByText(/cannot buy anything: no payment method can be stored yet/i)).toBeTruthy();
     expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(false);
   });
 });
