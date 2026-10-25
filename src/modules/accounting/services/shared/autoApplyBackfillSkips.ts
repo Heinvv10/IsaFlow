@@ -47,6 +47,12 @@ export const SKIP_NO_JOURNAL = 'no journal entry behind this cash';
  * beside it, by exactly the amount nobody can account for.
  */
 export const SKIP_REFUND = 'a refund is a negative on-account entry and is never applied';
+/**
+ * AP: applying this cash would take the supplier's on-account credit below zero — a refund has already returned
+ * it (Hein, 2026-10-25: refuse). `planSupplierPaymentApplication` refuses the same application at write time; the
+ * population decides it first so a dry run and a live run report it identically.
+ */
+export const SKIP_CREDIT_CEILING = 'a refund has already returned this cash; applying it would leave the supplier owing the company';
 export const skipUnapplicableStatus = (status: string): string =>
   `status "${status}" cannot take an application`;
 
@@ -110,4 +116,33 @@ function skipReasonFor(side: UnappliedSide, row: UnappliedPaymentBasisRow): stri
     return skipUnapplicableStatus(row.status);
   }
   return null;
+}
+
+/**
+ * The credit-ceiling skip, for every AP source at once. Each supplier's credit is the sum of ALL its basis rows'
+ * remainders — refunds are rows of the other sign — not only the ones this run pages in. Walking the sources in
+ * run order, every source not already skipped is assumed to consume its WHOLE remainder: conservative (a source
+ * with nothing open consumed nothing), so the live run's own check, made on what was actually applied, never
+ * refuses a source this one let through. A skipped source consumes nothing. A supplier with no refund is never
+ * skipped here: its credit is at least the sum of its sources.
+ */
+export function markCreditCeilingSkips(
+  side: UnappliedSide,
+  rows: readonly UnappliedPaymentBasisRow[],
+  sources: readonly BackfillSource[],
+): BackfillSource[] {
+  if (side !== 'ap') return [...sources];
+  const credit = new Map<string, number>();
+  for (const r of rows) {
+    if (r.attributed && r.entityId) credit.set(r.entityId, (credit.get(r.entityId) ?? 0) + r.unappliedAmount);
+  }
+  return sources.map((source) => {
+    if (source.kind !== 'payment' || source.skippedReason || !source.entityId) return source;
+    const left = credit.get(source.entityId) ?? 0;
+    if (Math.round(source.remainder * 100) > Math.round(left * 100)) {
+      return { ...source, skippedReason: SKIP_CREDIT_CEILING };
+    }
+    credit.set(source.entityId, left - source.remainder);
+    return source;
+  });
 }
