@@ -90,7 +90,6 @@ describe('buildVat201SarsFields values', () => {
       box('14', 'input', 'capital_goods', 4000, 600),
       box('15', 'input', 'standard', 6000, 900),
       box('14A/15A', 'input', 'imported', 800, 120),
-      box('16', 'input', 'reverse_charge', 0, 10),
       box('17', 'input', 'bad_debt', 0, 20),
     ]);
     const a = amounts(buildVat201SarsFields(r, { ...NIL, zeroRated: 1200, exported: 700, exempt: 300 }));
@@ -98,8 +97,8 @@ describe('buildVat201SarsFields values', () => {
       '1': 11500, '4': 1500, '1A': 2300, '4A': 300,
       '2': 500, '2A': 700, '3': 300,
       '12': 15, '13': 1815,
-      '14': 600, '15': 910, '15A': 120, '17': 20, '18': 0,
-      '19': 1650, '20': 165,
+      '14': 600, '15': 900, '15A': 120, '17': 20, '18': 0,
+      '19': 1640, '20': 175,
     });
   });
 
@@ -160,11 +159,11 @@ describe('buildVat201SarsFields values', () => {
   it('books domestic reverse charge INPUT tax in field 15 with the other claims, never field 16', () => {
     const r = report([
       box('15', 'input', 'standard', 1000, 150),
-      box('16', 'input', 'reverse_charge', 400, 60),
+      box('15', 'input', 'reverse_charge', 400, 60),
     ]);
     const fields = buildVat201SarsFields(r, NIL);
     const a = amounts(fields);
-    expect(a['15']).toBe(210);
+    expect(a['15']).toBe(210);  // the report numbers DRC input 15, so it is in the box sum once
     expect(a['16']).toBeNull();
     expect(a['19']).toBe(210);
     expect(fields.find((f) => f.field === '15')?.note).toMatch(/domestic reverse charge input tax/);

@@ -149,6 +149,10 @@ describe('the ISV payload is refused until it is mapped to SARS field numbers', 
   });
 
   it('keeps the SARS form out of the payload once it is mapped to the legacy keys', async () => {
+    m.getEfilingSubmission.mockResolvedValue({
+      id: SID, companyId: CID, formType: 'VAT201', periodStart: '2026-03-01', periodEnd: '2026-03-31', status: 'draft',
+      efilingCorrelationId: null, efilingLastStatus: null, formData: { ...FILED_FIELDS, sarsFields: [] },
+    });
     m.getVat201Return.mockResolvedValue({
       ...FILED_FIELDS, rateCheck: tiedRateCheck(), sarsFields: [], warnings: [], filability: { filable: true, reason: null },
     });
@@ -379,8 +383,17 @@ describe('draftDrift — the SARS form', () => {
     expect(draftDrift(saved(form({ '14A': 10 })), now(form({ '14A': null })))).toEqual(['SARS field 14A 10.00 -> none']);
   });
 
-  it('does not compare the SARS form when the draft predates it', () => {
-    expect(draftDrift({ ...FILED_FIELDS }, now(form()))).toEqual([]);
+  it('treats a draft saved without the SARS form as drift (re-save needed), never as a pass', () => {
+    const drift = draftDrift({ ...FILED_FIELDS }, now(form()));
+    expect(drift).toEqual(['draft predates SARS field mapping — re-save the draft and review it']);
+  });
+
+  it('blocks filing such a draft, naming the reason', async () => {
+    m.getVat201Return.mockResolvedValue({ ...FILED_FIELDS, rateCheck: tiedRateCheck(), sarsFields: form(), warnings: [], filability: { filable: true, reason: null } });
+    const err = await submitVAT201ToSars(CID, SID, UID).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(EfilingBlockedError);
+    expect((err as EfilingBlockedError).reason).toMatch(/draft predates SARS field mapping/);
+    expect(m.submitVAT201).not.toHaveBeenCalled();
   });
 });
 
