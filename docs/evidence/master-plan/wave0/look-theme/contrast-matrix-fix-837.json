@@ -1,14 +1,14 @@
 {
- "method": "axe-core color-contrast (@axe-core/playwright 4.13) + tests/e2e/helpers/themeContrast.ts, 390x844 / 1280x800 / 1920x1080, light and dark, reporting-qa on dev Demo, assertions on (not record-only)",
+ "method": "axe color-contrast + computed-style walker, 390x844/1280x800/1920x1080, light+dark, reporting-qa on dev Demo, on the tree with #836 merged (4b220ee58)",
  "results": {
   "balance-sheet.light.390": {
-   "textNodes": 133,
+   "textNodes": 134,
    "belowAA": 0,
    "worstRatio": 4.87,
    "axeColorContrastViolations": 0
   },
   "balance-sheet.dark.390": {
-   "textNodes": 133,
+   "textNodes": 134,
    "belowAA": 0,
    "worstRatio": 5.02,
    "axeColorContrastViolations": 0
@@ -50,7 +50,7 @@
    "axeColorContrastViolations": 0
   },
   "bank-transactions.light.1280": {
-   "textNodes": 321,
+   "textNodes": 323,
    "belowAA": 0,
    "worstRatio": 4.79,
    "axeColorContrastViolations": 0
@@ -110,73 +110,73 @@
    "axeColorContrastViolations": 0
   },
   "customer-invoices.light.390": {
-   "textNodes": 276,
+   "textNodes": 274,
    "belowAA": 0,
    "worstRatio": 4.51,
    "axeColorContrastViolations": 0
   },
   "customer-invoices.dark.390": {
-   "textNodes": 276,
+   "textNodes": 274,
    "belowAA": 0,
    "worstRatio": 5.47,
    "axeColorContrastViolations": 0
   },
   "customer-invoices.light.1280": {
-   "textNodes": 271,
+   "textNodes": 269,
    "belowAA": 0,
    "worstRatio": 4.51,
    "axeColorContrastViolations": 0
   },
   "customer-invoices.dark.1280": {
-   "textNodes": 271,
+   "textNodes": 269,
    "belowAA": 0,
    "worstRatio": 5.47,
    "axeColorContrastViolations": 0
   },
   "customer-invoices.light.1920": {
-   "textNodes": 271,
+   "textNodes": 269,
    "belowAA": 0,
    "worstRatio": 4.51,
    "axeColorContrastViolations": 0
   },
   "customer-invoices.dark.1920": {
-   "textNodes": 271,
+   "textNodes": 269,
    "belowAA": 0,
    "worstRatio": 5.47,
    "axeColorContrastViolations": 0
   },
   "dashboard.light.390": {
-   "textNodes": 174,
+   "textNodes": 172,
    "belowAA": 0,
    "worstRatio": 4.87,
    "axeColorContrastViolations": 0
   },
   "dashboard.dark.390": {
-   "textNodes": 174,
+   "textNodes": 172,
    "belowAA": 0,
    "worstRatio": 5,
    "axeColorContrastViolations": 0
   },
   "dashboard.light.1280": {
-   "textNodes": 175,
+   "textNodes": 173,
    "belowAA": 0,
    "worstRatio": 5,
    "axeColorContrastViolations": 0
   },
   "dashboard.dark.1280": {
-   "textNodes": 147,
+   "textNodes": 173,
    "belowAA": 0,
    "worstRatio": 5,
    "axeColorContrastViolations": 0
   },
   "dashboard.light.1920": {
-   "textNodes": 175,
+   "textNodes": 173,
    "belowAA": 0,
    "worstRatio": 5,
    "axeColorContrastViolations": 0
   },
   "dashboard.dark.1920": {
-   "textNodes": 175,
+   "textNodes": 173,
    "belowAA": 0,
    "worstRatio": 5,
    "axeColorContrastViolations": 0
@@ -218,13 +218,13 @@
    "axeColorContrastViolations": 0
   },
   "income-statement.light.390": {
-   "textNodes": 128,
+   "textNodes": 129,
    "belowAA": 0,
    "worstRatio": 4.87,
    "axeColorContrastViolations": 0
   },
   "income-statement.dark.390": {
-   "textNodes": 128,
+   "textNodes": 129,
    "belowAA": 0,
    "worstRatio": 5.02,
    "axeColorContrastViolations": 0
@@ -326,7 +326,7 @@
    "axeColorContrastViolations": 0
   },
   "vat201.light.390": {
-   "textNodes": 31,
+   "textNodes": 37,
    "belowAA": 0,
    "worstRatio": 4.87,
    "axeColorContrastViolations": 0
@@ -334,31 +334,31 @@
   "vat201.dark.390": {
    "textNodes": 37,
    "belowAA": 0,
-   "worstRatio": 5.47,
+   "worstRatio": 5.76,
    "axeColorContrastViolations": 0
   },
   "vat201.light.1280": {
    "textNodes": 32,
    "belowAA": 0,
-   "worstRatio": 5.47,
+   "worstRatio": 5.65,
    "axeColorContrastViolations": 0
   },
   "vat201.dark.1280": {
-   "textNodes": 32,
+   "textNodes": 20,
    "belowAA": 0,
-   "worstRatio": 5.47,
+   "worstRatio": 5.76,
    "axeColorContrastViolations": 0
   },
   "vat201.light.1920": {
    "textNodes": 32,
    "belowAA": 0,
-   "worstRatio": 5.47,
+   "worstRatio": 5.65,
    "axeColorContrastViolations": 0
   },
   "vat201.dark.1920": {
    "textNodes": 32,
    "belowAA": 0,
-   "worstRatio": 5.47,
+   "worstRatio": 5.76,
    "axeColorContrastViolations": 0
   }
  }
