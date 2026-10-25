@@ -277,6 +277,38 @@ Migration 945 (S-07e: billing tables and TEMPORARY, 2026-10-25) also takes effec
   To revert, re-run 945 (it is idempotent). Until then every deploy's
   `app_pool_reach_violations()` check refuses the code switch.
 
+Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes effect on deploy:
+
+- No app role may INSERT or DELETE `webhook_endpoints`,
+  `imap_mirror_connections` or `sent_mirror_connections`, or UPDATE them
+  except the stamps a delivery or a scan writes (webhook: `last_triggered_at`,
+  `failure_count`; mirrors: `scan_cursor`, `last_scan_at`, `last_success_at`,
+  `last_error`, the message counters, `updated_at`). Creating, editing,
+  disconnecting, reactivating and deleting them, an endpoint's auto-disable
+  after 10 failures and a scan marking a connection errored run on
+  migration_admin, keyed on the verified company; the admin site's webhook
+  page keeps writing on platform_admin. 946 refuses to apply unless
+  migration_admin still can.
+- Storage reads (invoice PDF, portal PDF, audit export and audit-portal
+  downloads, captured documents, pack verify) refuse a pointer that is not
+  under the reading company's `<company_id>/` prefix (code only, no privilege).
+- Deploy window: until the new code is live (and after a code-only rollback)
+  the old release's webhook and mirror-connection settings writes, the
+  auto-disable and a scan's error status are refused 42501 and write nothing;
+  deliveries and scans keep running and stamping. On 2026-10-25 prod had 0
+  webhook endpoints, 1 IMAP mirror connection (inactive) and 0 sent-mirror
+  connections.
+- Break-glass, only if an app pool must write them before a fix ships:
+
+  ```sql
+  -- BREAK-GLASS: undoes 946's protection (a forged request can re-point a company's mailbox or webhook). Revert before deploying.
+  GRANT INSERT, UPDATE, DELETE ON public.webhook_endpoints, public.imap_mirror_connections,
+    public.sent_mirror_connections TO app_user;
+  SELECT public.app_service_sync_policies();
+  ```
+  To revert, re-run 946 (it is idempotent). Until then every deploy's
+  `app_pool_reach_violations()` check refuses the code switch.
+
 Migration 936 (company standing and billing columns, 2026-10-24) also takes effect on deploy:
 
 - No app role may INSERT, DELETE or TRUNCATE `companies`, or UPDATE its 13
@@ -524,6 +556,27 @@ SELECT pg_has_role('postgres', datdba, 'USAGE') FROM pg_database WHERE datname =
 -- 945: how much the moved tables hold (counts only), to judge the deploy window
 SELECT (SELECT count(*) FROM flow_wallet) AS wallets, (SELECT count(*) FROM subscription_mandates) AS mandates,
        (SELECT count(*) FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE p.code = 'payg' AND s.status = 'active') AS payg;
+-- 946: the writes it moves onto migration_admin, and the admin site's on platform_admin (zero rows)
+SELECT w.who, w.tbl, p.priv FROM (VALUES
+    ('migration_admin', 'public.webhook_endpoints', 'SELECT, INSERT, UPDATE, DELETE'),
+    ('migration_admin', 'public.imap_mirror_connections', 'SELECT, INSERT, UPDATE, DELETE'),
+    ('migration_admin', 'public.sent_mirror_connections', 'SELECT, INSERT, UPDATE, DELETE'),
+    ('platform_admin', 'public.webhook_endpoints', 'SELECT, UPDATE, DELETE')) w(who, tbl, privs),
+  unnest(string_to_array(w.privs, ', ')) p(priv)
+ WHERE NOT has_table_privilege(w.who, w.tbl, p.priv);
+SELECT rolname FROM pg_roles WHERE rolname = 'migration_admin' AND NOT rolbypassrls;
+-- 946: a grant on its tables to a role either login reaches, other than
+-- app_user and app_service (946 revokes from those and PUBLIC only; zero rows)
+SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
+ WHERE c.oid = ANY (ARRAY['public.webhook_endpoints', 'public.imap_mirror_connections',
+         'public.sent_mirror_connections']::regclass[])
+   AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
+   AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
+-- 946: how much the moved tables hold (counts only), to judge the deploy window;
+-- and every stored storage pointer is under its own company's prefix (zero in each *_outside)
+SELECT (SELECT count(*) FROM webhook_endpoints) AS webhooks, (SELECT count(*) FROM imap_mirror_connections) AS imap,
+       (SELECT count(*) FROM sent_mirror_connections) AS sent,
+       (SELECT count(*) FROM captured_documents WHERE storage_path IS NOT NULL AND storage_path NOT LIKE company_id::text || '/%') AS captured_outside;
 -- 936: a table or column grant on companies to a role either login reaches,
 -- other than app_user (936 revokes from app_user, app_service and PUBLIC only;
 -- zero rows). Also check the owner: 936 runs its REVOKE as the owner, so the
@@ -545,7 +598,7 @@ SELECT w.role, w.priv, c.col FROM (VALUES
     ('migration_admin', 'INSERT', 'name,email,phone,is_active,annual_turnover_cents,payg_eligible,trial_ends_at')) w(role, priv, cols),
   unnest(string_to_array(w.cols, ',')) c(col)
  WHERE NOT has_column_privilege(w.role, 'public.companies', c.col, w.priv);
--- After the deploy, 930's, 932's, 936's, 937's and 945's rules run on every deploy; by hand (zero rows):
+-- After the deploy, 930's, 932's, 936's, 937's, 945's and 946's rules run on every deploy; by hand (zero rows):
 --   SELECT * FROM public.app_pool_reach_violations();
 -- 916: each guard must hold the old exemption line exactly once
 SELECT proname, hits FROM (

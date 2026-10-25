@@ -135,9 +135,17 @@ export class StorageObjectOutsideCompanyError extends Error {
   }
 }
 
-/** Only this company's own objects: a key under its prefix, with no segment that climbs out of it. */
+/** The only characters a key the app writes holds (`${companyId}/${uuid}[.pdf]`): nothing a URL or the storage server could decode into another path. */
+const KEY_SEGMENT = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
+
+/**
+ * Only this company's own objects, in a bucket the app writes: a key under its prefix whose every segment is a plain
+ * name, so no `..`, `.`, empty segment, `%`-escape, backslash, `?` or `#` can climb out of it.
+ */
 function assertCompanyObject(companyId: string, bucket: string, path: string): void {
-  if (!path.startsWith(`${companyId}/`) || path.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) {
+  const segments = path.split('/');
+  if (![CAPTURED_DOCS_BUCKET, CUSTOMER_INVOICES_BUCKET].includes(bucket) || segments[0] !== companyId || segments.length < 2
+    || !segments.every((seg) => KEY_SEGMENT.test(seg))) {
     log.error('Storage read refused: the pointer is not under the company prefix', { companyId, bucket, path }, 'supabase-storage');
     throw new StorageObjectOutsideCompanyError(companyId, path);
   }
