@@ -17,7 +17,7 @@ export type ExplanationStatus = 'verified' | 'unverified' | 'estimate';
 
 export interface ExplanationSource {
   label: string;
-  /** Rendered as a link only when it is http(s) or an in-app path (see safeHref). */
+  /** Rendered as a link only when it is https or an in-app path (see safeHref). */
   href?: string;
   /** Tax year the rule or table belongs to, e.g. "2026/27". */
   taxYear?: string;
