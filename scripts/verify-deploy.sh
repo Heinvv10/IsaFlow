@@ -65,9 +65,10 @@ fi
 cd "$REPO_DIR"
 "$BUN"x playwright install chromium >/dev/null 2>&1 || true
 # The a11y spec is a dev/CI gate: its baseline is recorded on dev data, and a red run here rolls the deploy back
-# (code only; migrations stay). Leave it out of the post-deploy run. tests/unit/scripts/verifyDeployA11yGate.test.ts
-# lists what this run selects and fails if the spec is in it.
-if ! BASE_URL="$BASE_URL" "$BUN" run test:e2e:golden --grep-invert "n-a11y-main-screens"; then
+# (code only; migrations stay). GOLDEN_SKIP_A11Y=1 makes playwright-golden.config.ts ignore the file, so it is not
+# even loaded (a missing @axe-core/playwright cannot break this run). tests/unit/scripts/verifyDeployA11yGate.test.ts
+# lists this run's tests with the axe package made unresolvable, and fails if the spec is loaded.
+if ! GOLDEN_SKIP_A11Y=1 BASE_URL="$BASE_URL" "$BUN" run test:e2e:golden; then
   echo "FAIL: golden-paths suite red against $BASE_URL"
   exit 1
 fi
