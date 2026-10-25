@@ -9,15 +9,21 @@ import { cn } from '@/utils/cn';
 import { inputVariants } from './Input';
 import { FieldFrame, describedBy } from './FieldFrame';
 import type { FieldHelpContent } from './FieldHelp';
-import { useParsedField, type ParseOutcome } from './useParsedField';
-import { formatCentsEcho, formatCentsPlain, parseSaAmount } from '@/lib/money/saAmountParser';
+import { useParsedField, type FieldValidity, type ParseOutcome } from './useParsedField';
+import { formatCents } from '@/lib/money/formatMoney';
+import { parseSaAmount } from '@/lib/money/saAmountParser';
 
 export interface MoneyFieldProps {
   label: string;
   /** Integer cents, or null when empty / not understood. */
   value: number | null;
-  onChange: (cents: number | null) => void;
+  /**
+   * Fires on blur / Enter when the value or its validity changed. `validity.valid` is false when the text
+   * was refused: the value is then null but the field is NOT empty, so block submit on it.
+   */
+  onChange: (cents: number | null, validity: FieldValidity) => void;
   id?: string;
+  /** Names a hidden input that posts the canonical value (integer cents) in a native form submit. */
   name?: string;
   /** Shown as a badge; the echo is "R ..." for ZAR and "<code> ..." otherwise. */
   currency?: string;
@@ -48,11 +54,11 @@ export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(fu
   const generatedId = React.useId();
   const inputId = id ?? generatedId;
   const echoOf = (cents: number): string =>
-    currency === 'ZAR' ? formatCentsEcho(cents) : `${currency} ${formatCentsPlain(cents)}`;
+    currency === 'ZAR' ? formatCents(cents) : `${currency} ${formatCents(cents, { symbol: false })}`;
 
   const parse = (text: string): ParseOutcome<number> => {
     if (text.trim() === '') return required ? { ok: false, reason: 'Enter an amount.' } : { ok: true, value: null };
-    const r = parseSaAmount(text);
+    const r = parseSaAmount(text, { currency });
     if (!r.ok) return { ok: false, reason: r.reason };
     if (r.cents < 0 && !allowNegative) return { ok: false, reason: 'A negative amount is not allowed here.' };
     if (min !== undefined && r.cents < min) return { ok: false, reason: `The amount must be at least ${echoOf(min)}.` };
@@ -60,9 +66,11 @@ export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(fu
     return { ok: true, value: r.cents };
   };
 
-  const field = useParsedField<number>({ value, format: formatCentsPlain, parse, onChange });
+  const field = useParsedField<number>({
+    value, format: (cents) => formatCents(cents, { symbol: false }), parse, onChange,
+  });
   const error = externalError ?? field.error;
-  const understood = field.text.trim() === '' ? null : parseSaAmount(field.text);
+  const understood = field.text.trim() === '' ? null : parseSaAmount(field.text, { currency });
   const echo = understood?.ok && (allowNegative || understood.cents >= 0) ? echoOf(understood.cents) : null;
   const frame = { error, helperText, echo, help };
 
@@ -77,7 +85,6 @@ export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(fu
         <input
           ref={ref}
           id={inputId}
-          name={name}
           type="text"
           inputMode="decimal"
           autoComplete="off"
@@ -102,6 +109,7 @@ export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(fu
             className,
           )}
         />
+        {name && <input type="hidden" name={name} value={value === null ? '' : String(value)} />}
       </div>
     </FieldFrame>
   );
