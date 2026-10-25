@@ -11,7 +11,8 @@ import type { CashFlowDirectReport } from '@/modules/accounting/services/afs/cas
 import type { CashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
 import { formatAmount } from '@/lib/money/formatMoney';
 
-interface Props { documentId: string; periodStart: string; periodEnd: string; }
+/** periodMonths: whole months the period covers; undefined means twelve, null that the period's length is not known. */
+interface Props { documentId: string; periodStart: string; periodEnd: string; periodMonths?: number | null; }
 
 function fmt(amount: number): string {
   if (amount < 0) return `(${formatAmount(Math.abs(amount), { decimals: 0 })})`;
@@ -45,11 +46,12 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
+function ChangesInEquitySection({ report, periodMonths }: { report: ChangesInEquityReport; periodMonths: number | null }) {
   type ColKey = keyof typeof report.columns[0];
   const rows: Array<{ label: string; key: ColKey }> = [
     { label: 'Opening balance', key: 'opening' },
-    { label: 'Profit for year', key: 'profitForYear' },
+    // Only a twelve-month period is a year; a transition year or an unknown length is the period.
+    { label: periodMonths === 12 ? 'Profit for year' : 'Profit for the period', key: 'profitForYear' },
     { label: 'Dividends paid',  key: 'dividends' },
     { label: 'Share issue',     key: 'shareIssue' },
     { label: 'Revaluation',     key: 'revaluation' },
@@ -210,7 +212,7 @@ function useRemote<T>(url: string): RemoteState<T> {
   return state;
 }
 
-export function AfsOverviewTab({ documentId, periodStart, periodEnd }: Props) {
+export function AfsOverviewTab({ documentId, periodStart, periodEnd, periodMonths = 12 }: Props) {
   const params = `period_start=${periodStart}&period_end=${periodEnd}`;
   const base = `/api/accounting/afs/${documentId}/statements`;
 
@@ -240,7 +242,7 @@ export function AfsOverviewTab({ documentId, periodStart, periodEnd }: Props) {
         ? <SectionError label="Statement of Changes in Equity" message={equity.error} />
         : equity.loading || !equity.data
           ? <SectionLoader label="Statement of Changes in Equity" />
-          : <ChangesInEquitySection report={equity.data.report} />}
+          : <ChangesInEquitySection report={equity.data.report} periodMonths={periodMonths} />}
 
       {direct.error
         ? <SectionError label="Statement of Cash Flows (Direct)" message={direct.error} />

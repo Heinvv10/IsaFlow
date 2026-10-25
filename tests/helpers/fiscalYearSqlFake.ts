@@ -149,7 +149,7 @@ export async function registryMock() {
     getFiscalYear: vi.fn(forLabel),
     requireFiscalYear: vi.fn(async (companyId: string, label: number) => {
       const y = await forLabel(companyId, label);
-      if (!y) throw new Error(`Company ${companyId} has no financial year labelled ${label}`);
+      if (!y) throw new actual.FiscalYearLabelUnknownError(companyId, label);
       return y;
     }),
     priorFiscalYear: vi.fn(async (companyId: string, year: { startDate: string }) =>

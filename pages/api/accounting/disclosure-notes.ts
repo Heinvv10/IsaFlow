@@ -15,6 +15,7 @@ import {
   getManualNotes,
   type DisclosureNote,
 } from '@/modules/accounting/services/reports/disclosureNoteService';
+import { mergeDisclosureNotes } from '@/modules/accounting/services/reports/disclosureNoteMerge';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -40,9 +41,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const autoNotes = await generateDisclosureNotes(companyId, year);
     const manualNotes = await getManualNotes(companyId, year);
 
-    // Merge: auto notes first, then manual notes appended
-    const allNotes: DisclosureNote[] = [...autoNotes, ...manualNotes];
-    allNotes.sort((a, b) => a.noteNumber - b.noteNumber);
+    // Merge: generated notes first, manual notes after them (numbers never collide)
+    const allNotes: DisclosureNote[] = mergeDisclosureNotes(autoNotes, manualNotes);
 
     if (exportMode) {
       const lines: string[] = [
