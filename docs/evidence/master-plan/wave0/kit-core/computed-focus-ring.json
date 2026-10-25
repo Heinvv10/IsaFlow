@@ -1,0 +1,169 @@
+[
+  {
+    "theme": "light",
+    "el": "DateField",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px",
+      "shadow": "none"
+    },
+    "echo": "Monday, 23 November 2026"
+  },
+  {
+    "theme": "light",
+    "el": "MoneyField (ambiguous error)",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px",
+      "shadow": "none"
+    },
+    "error": "\"31/02/2026\" is not a real calendar date."
+  },
+  {
+    "theme": "light",
+    "el": "help button via Tab",
+    "focused": "Help: Amount",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px",
+      "shadow": "none"
+    },
+    "tooltipVisible": true
+  },
+  {
+    "theme": "light",
+    "el": "after Esc",
+    "tooltipVisible": false,
+    "stillFocused": "Help: Amount"
+  },
+  {
+    "theme": "light",
+    "el": "button via keyboard",
+    "ring": {
+      "text": "Save draft",
+      "width": "3px",
+      "color": "rgb(13, 148, 136)"
+    }
+  },
+  {
+    "theme": "dark",
+    "el": "DateField",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px",
+      "shadow": "none"
+    },
+    "echo": "Monday, 23 November 2026"
+  },
+  {
+    "theme": "dark",
+    "el": "MoneyField (ambiguous error)",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px",
+      "shadow": "none"
+    },
+    "error": "\"31/02/2026\" is not a real calendar date."
+  },
+  {
+    "theme": "dark",
+    "el": "help button via Tab",
+    "focused": "Help: Amount",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px",
+      "shadow": "none"
+    },
+    "tooltipVisible": true
+  },
+  {
+    "theme": "dark",
+    "el": "after Esc",
+    "tooltipVisible": false,
+    "stillFocused": "Help: Amount"
+  },
+  {
+    "theme": "dark",
+    "el": "button via keyboard",
+    "ring": {
+      "text": "Save draft",
+      "width": "3px",
+      "color": "rgb(45, 212, 191)"
+    }
+  },
+  {
+    "el": "drawer opened",
+    "focus": "Close"
+  },
+  {
+    "el": "drawer closed",
+    "focusReturnedTo": "How was this calculated?"
+  },
+  {
+    "page": "http://localhost:3215/accounting/customer-invoices",
+    "kitInputs": 0,
+    "allInputs": 2
+  },
+  {
+    "theme": "light",
+    "real": true,
+    "cls": "raw input",
+    "ring": {
+      "width": "1px",
+      "style": "auto",
+      "color": "rgb(16, 16, 16)",
+      "offset": "0px",
+      "shadow": "none"
+    }
+  },
+  {
+    "theme": "dark",
+    "real": true,
+    "cls": "raw input",
+    "ring": {
+      "width": "0px",
+      "style": "none",
+      "color": "rgb(241, 245, 249)",
+      "offset": "0px",
+      "shadow": "rgb(20, 184, 166) 0px 0px 0px 1px"
+    }
+  },
+  {
+    "setupGuideButtons": 1
+  },
+  {
+    "kitButtonsInDrawer": 1
+  },
+  {
+    "theme": "light",
+    "real": "setup guide",
+    "button": {
+      "text": "Close guide",
+      "width": "3px",
+      "color": "rgb(13, 148, 136)",
+      "style": "solid"
+    }
+  },
+  {
+    "theme": "dark",
+    "real": "setup guide",
+    "button": {
+      "text": "Close guide",
+      "width": "3px",
+      "color": "rgb(45, 212, 191)",
+      "style": "solid"
+    }
+  }
+]

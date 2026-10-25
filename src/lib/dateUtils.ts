@@ -30,6 +30,21 @@ export function localISODate(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * A real LOCAL calendar date from a strict 'YYYY-MM-DD', or null when malformed or not a real date
+ * (2026-02-30). The safe way to hand an ISO value to a display formatter: `new Date('2026-10-01')` is UTC
+ * midnight and shows the previous day west of UTC.
+ */
+export function localDateFromISO(iso: string): Date | null {
+  try {
+    const [y, m, d] = parseISOParts(iso);
+    return new Date(y, m - 1, d);
+  } catch (err) {
+    if (err instanceof RangeError) return null;
+    throw err;
+  }
+}
+
 /** First day of `d`'s LOCAL month as 'YYYY-MM-DD'. */
 export function monthStartISO(d: Date = new Date()): string {
   return localISODate(new Date(d.getFullYear(), d.getMonth(), 1));
