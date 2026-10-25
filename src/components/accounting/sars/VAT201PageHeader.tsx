@@ -7,7 +7,7 @@ export function VAT201PageHeader({ canExport, onExport }: { canExport: boolean; 
   <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
-        <Link href="/accounting/sars" className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">
+        <Link href="/accounting/sars" aria-label="Back to SARS compliance" className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]">
           <ChevronLeft className="h-5 w-5" />
         </Link>
         <div className="p-2 rounded-lg bg-teal-500/10"><FileText className="h-6 w-6 text-teal-500" /></div>
