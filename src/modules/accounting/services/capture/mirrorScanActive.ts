@@ -16,18 +16,22 @@
  * In-process only. Production runs one process; with more, two scans of one
  * connection can still overlap across them (named in the S-07e part B runbook).
  */
-const active = new Set<string>();
+const active = new Map<string, symbol>();
 
 /** True while a scan of this connection (either mirror: ids are UUIDs) holds its claim. */
 export function isScanActive(connectionId: string): boolean {
   return active.has(connectionId);
 }
 
-/** Claims the connection for one scan; null when another scan already holds it. The release is idempotent. */
+/**
+ * Claims the connection for one scan; null when another scan already holds it. The release is idempotent and frees
+ * only its own claim: a late release (after the backstop freed it and a later scan claimed the id) leaves that scan's.
+ */
 export function claimScan(connectionId: string): (() => void) | null {
   if (active.has(connectionId)) return null;
-  active.add(connectionId);
-  return () => { active.delete(connectionId); };
+  const token = Symbol(connectionId);
+  active.set(connectionId, token);
+  return () => { if (active.get(connectionId) === token) active.delete(connectionId); };
 }
 
 /**
