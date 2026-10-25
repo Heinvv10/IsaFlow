@@ -49,7 +49,7 @@ export default function ProductsListPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10"><Box className="h-6 w-6 text-blue-500" /></div>
+              <div className="p-2 rounded-lg bg-blue-500/10"><Box className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Products & Inventory</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">Manage products, stock levels, and valuations</p>
@@ -57,7 +57,7 @@ export default function ProductsListPage() {
             </div>
             <div className="flex items-center gap-2">
               <ExportCSVButton endpoint="/api/accounting/products?format=csv" filenamePrefix="products" label="Export CSV" />
-              <Link href="/accounting/products/new" className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium">
+              <Link href="/accounting/products/new" className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
                 <Plus className="h-4 w-4" /> Add Product
               </Link>
             </div>

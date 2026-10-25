@@ -216,7 +216,7 @@ export default function AdminUserDetailPage() {
 
   const btnBase  = 'inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-50';
   const btnGray  = `${btnBase} border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800`;
-  const btnBlue  = `${btnBase} border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10`;
+  const btnBlue  = `${btnBase} border-blue-400 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10`;
   const btnRed   = `${btnBase} border-red-400 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10`;
   const btnOrange = `${btnBase} border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-500/10`;
 
@@ -239,7 +239,7 @@ export default function AdminUserDetailPage() {
         <>
           <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-teal-600 flex items-center justify-center flex-shrink-0">
+              <div className="w-12 h-12 rounded-full bg-brand-600 flex items-center justify-center flex-shrink-0">
                 <User className="w-6 h-6 text-slate-900 dark:text-white" />
               </div>
               <div>
@@ -280,7 +280,7 @@ export default function AdminUserDetailPage() {
                 <LogIn className="w-4 h-4" /> Login As
               </button>
               <button onClick={() => confirmAndRun('reset-password', () => void doAction('reset-password').then(ok => ok && showToast('Password reset sent')))} disabled={actionLoading}
-                className={`${btnBase} ${confirmAction === 'reset-password' ? 'border-red-500 bg-red-500 text-white' : 'border-blue-400 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
+                className={`${btnBase} ${confirmAction === 'reset-password' ? 'border-red-500 bg-red-500 text-white' : 'border-blue-400 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
                 <KeyRound className="w-4 h-4" /> {confirmAction === 'reset-password' ? 'Click to confirm' : 'Reset Password'}
               </button>
               <button onClick={() => confirmAndRun('suspend', () => void handleToggleSuspend())} disabled={actionLoading}
@@ -340,7 +340,7 @@ export default function AdminUserDetailPage() {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg bg-teal-600 text-white text-sm font-medium shadow-lg animate-[fadeIn_0.2s_ease-out]">
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-lg bg-brand-600 text-white text-sm font-medium shadow-lg animate-[fadeIn_0.2s_ease-out]">
           <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> {toast}
         </div>
       )}

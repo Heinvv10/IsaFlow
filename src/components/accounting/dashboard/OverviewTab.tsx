@@ -211,7 +211,7 @@ export function OverviewTab() {
             <TrendingUp className="h-4 w-4 text-teal-500" />
           </div>
           <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.revenue.total ?? 0)}</p>
-          <p className={`text-xs mt-1 ${(kpis?.revenue.changePercent ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-500'}`}>
+          <p className={`text-xs mt-1 ${(kpis?.revenue.changePercent ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
             {(kpis?.revenue.changePercent ?? 0) >= 0 ? '+' : ''}{(kpis?.revenue.changePercent ?? 0).toFixed(1)}% vs prior period
           </p>
         </div>
@@ -232,7 +232,7 @@ export function OverviewTab() {
             {(kpis?.cash.total ?? 0) < 0 && <ArrowDown className="h-5 w-5" aria-label="Negative" />}
             {fmtCompact(kpis?.cash.total ?? 0)}
           </p>
-          <p className={`text-xs mt-1 ${(kpis?.cash.change ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-500'}`}>
+          <p className={`text-xs mt-1 ${(kpis?.cash.change ?? 0) >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
             {(kpis?.cash.change ?? 0) >= 0 ? '+' : ''}{fmtCompact(kpis?.cash.change ?? 0)} change
           </p>
         </div>
@@ -243,7 +243,7 @@ export function OverviewTab() {
           </div>
           <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{fmtCompact(kpis?.receivables.total ?? 0)}</p>
           {(kpis?.receivables.overdue ?? 0) > 0
-            ? <p className="text-xs mt-1 text-rose-500">{fmtCompact(kpis?.receivables.overdue ?? 0)} overdue</p>
+            ? <p className="text-xs mt-1 text-rose-600 dark:text-rose-400">{fmtCompact(kpis?.receivables.overdue ?? 0)} overdue</p>
             : <p className="text-xs mt-1 text-teal-500">No overdue</p>}
         </div>
       </div>

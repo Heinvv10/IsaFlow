@@ -40,7 +40,7 @@ export function InlineReasonForm({ label, placeholder, busy = false, confirmLabe
           type="button"
           disabled={busy || trimmed === ''}
           onClick={() => onConfirm(trimmed)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
         >
           {busy && <Loader2 className="h-3 w-3 animate-spin" />} {confirmLabel}
         </button>

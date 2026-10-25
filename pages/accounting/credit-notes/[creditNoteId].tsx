@@ -122,7 +122,7 @@ export default function CreditNoteDetailPage() {
     finally { setActionLoading(''); }
   };
 
-  if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div></AppLayout>;
+  if (loading) return <AppLayout><div className="flex items-center justify-center min-h-[60vh]"><Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" /></div></AppLayout>;
   if (!note) return <AppLayout><div className="flex items-center justify-center min-h-[60vh] flex-col"><AlertCircle className="h-8 w-8 text-red-400 mb-2" /><p className="text-[var(--ff-text-secondary)]">{error || 'Not found'}</p></div></AppLayout>;
 
   const entityName = note.type === 'customer' ? note.clientName : note.supplierName;
@@ -150,7 +150,7 @@ export default function CreditNoteDetailPage() {
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => window.open(`/api/accounting/credit-note-pdf?creditNoteId=${creditNoteId}`, '_blank')}
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500">
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700">
                 <Download className="h-4 w-4" />Download PDF
               </button>
               {canApply && (
@@ -161,7 +161,7 @@ export default function CreditNoteDetailPage() {
               )}
               {canApprove && (
                 <button onClick={() => handleAction('approve')} disabled={!!actionLoading}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm hover:bg-teal-500 disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700 disabled:opacity-50">
                   <CheckCircle2 className="h-4 w-4" />{actionLoading === 'approve' ? 'Approving...' : 'Approve & Post GL'}
                 </button>
               )}

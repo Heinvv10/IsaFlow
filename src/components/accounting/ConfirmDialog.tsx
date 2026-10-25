@@ -53,7 +53,7 @@ export function ConfirmDialog({
 
   const confirmCls = confirmTone === 'danger'
     ? 'bg-red-600 hover:bg-red-700 text-white'
-    : 'bg-teal-600 hover:bg-teal-700 text-white';
+    : 'bg-brand-600 hover:bg-brand-700 text-white';
 
   return (
     <div

@@ -18,7 +18,7 @@ export function ImportWarningsNote({ warnings }: { warnings: readonly string[] }
   if (warnings.length === 0) return null;
   const heading = 'Imported with problems';
   return (
-    <div className="ml-6 rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-500">
+    <div className="ml-6 rounded border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-xs text-rose-600 dark:text-rose-400">
       {warnings.length > OPEN_UP_TO ? (
         <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open} className="inline-flex items-center gap-1 font-medium">
           {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}

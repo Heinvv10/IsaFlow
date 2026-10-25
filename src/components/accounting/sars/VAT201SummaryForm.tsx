@@ -46,7 +46,7 @@ export function VAT201SummaryForm({ data }: Props) {
         <FormRow field="4" label="Total imports" amount={data.field4_totalImports} />
         <FormRow field="5" label="Output VAT (Field 1 x 15%)" amount={data.field5_outputVAT} highlight />
         <div className="px-4 py-2 bg-blue-500/5">
-          <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Input VAT (Purchases)</p>
+          <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">Input VAT (Purchases)</p>
         </div>
         <FormRow field="6" label="Capital goods" amount={data.field6_capitalGoods} />
         <FormRow field="7" label="Other goods" amount={data.field7_otherGoods} />

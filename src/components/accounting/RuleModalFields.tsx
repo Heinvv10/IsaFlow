@@ -55,7 +55,7 @@ export function AllocTypeField({ allocType, onChange }: { allocType: AllocType; 
             onClick={() => onChange(t)}
             className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
               allocType === t
-                ? 'bg-teal-600 text-white'
+                ? 'bg-brand-600 text-white'
                 : 'bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] border border-[var(--ff-border-light)]'
             }`}
           >

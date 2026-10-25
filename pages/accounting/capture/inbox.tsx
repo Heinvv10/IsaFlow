@@ -201,7 +201,7 @@ export default function CaptureInboxPage() {
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           {ev.status === 'extracted' && (
                             <button onClick={e => { e.stopPropagation(); void handlePost(ev.eventId); }}
-                              className="px-2.5 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded text-xs font-medium">
+                              className="px-2.5 py-1 bg-brand-700 hover:bg-brand-600 text-white rounded text-xs font-medium">
                               Post
                             </button>
                           )}

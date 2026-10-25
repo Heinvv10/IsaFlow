@@ -124,7 +124,7 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
             <span className="text-xs font-medium text-[var(--ff-text-secondary)]">Weekdays</span>
             <div className="flex gap-1.5">
               {WEEKDAY_LABELS.map((label, d) => (
-                <button key={d} type="button" onClick={() => toggleDay(d)} className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${weekdays.includes(d) ? 'bg-teal-600 text-white' : 'border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]'}`}>
+                <button key={d} type="button" onClick={() => toggleDay(d)} className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${weekdays.includes(d) ? 'bg-brand-600 text-white' : 'border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]'}`}>
                   {label}
                 </button>
               ))}
@@ -143,7 +143,7 @@ export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
         </div>
         <div className="px-6 py-4 border-t border-[var(--ff-border-primary)] flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-[var(--ff-border-primary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] text-sm transition-colors">Cancel</button>
-          <button onClick={() => void handleConfirm()} disabled={loading || !templateId} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+          <button onClick={() => void handleConfirm()} disabled={loading || !templateId} className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors">
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarRange className="h-4 w-4" />}
             {loading ? 'Creating…' : 'Fill Range'}
           </button>

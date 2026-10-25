@@ -54,7 +54,7 @@ export default function MigrationHubPage() {
           <div className="px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
-                <Building2 className="h-6 w-6 text-blue-500" />
+                <Building2 className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Migration Wizard</h1>
@@ -73,7 +73,7 @@ export default function MigrationHubPage() {
 
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
             </div>
           ) : loadFailed ? (
             <button

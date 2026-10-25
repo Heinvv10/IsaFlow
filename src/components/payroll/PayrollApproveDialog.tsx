@@ -152,7 +152,7 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
       <Modal.Footer>
         <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg border border-gray-300 dark:border-white/20 text-sm">Cancel</button>
         <button type="button" onClick={approve} disabled={!canApprove}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium">
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium">
           {approving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
           {posted && !blocker ? 'Approve (no new journal)' : 'Approve and post journal'}
         </button>

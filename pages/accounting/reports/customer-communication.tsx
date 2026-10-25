@@ -138,7 +138,7 @@ export default function CustomerCommunicationReport() {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
-                <Mail className="h-6 w-6 text-blue-500" />
+                <Mail className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">
@@ -182,7 +182,7 @@ export default function CustomerCommunicationReport() {
               />
               <button
                 onClick={handleExportCsv}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors"
               >
                 <Download className="h-4 w-4" /> CSV
               </button>

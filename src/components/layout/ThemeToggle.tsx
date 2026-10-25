@@ -14,7 +14,7 @@ const OPTIONS: { value: ThemePreference; label: string; icon: LucideIcon }[] = [
 ];
 
 export function ThemeToggle() {
-  const { preference, setPreference } = useTheme();
+  const { preference, ready, setPreference } = useTheme();
 
   return (
     <div
@@ -23,7 +23,9 @@ export function ThemeToggle() {
       aria-label="Colour theme"
     >
       {OPTIONS.map(({ value, label, icon: Icon }) => {
-        const active = value === preference;
+        // Nothing is shown selected until the saved choice has been read: before then `preference`
+        // is only the default, and showing it would flash Dark for a Light or System user.
+        const active = ready === true && value === preference;
         return (
           <button
             key={value}
@@ -35,7 +37,7 @@ export function ThemeToggle() {
             className={[
               'flex items-center justify-center w-7 h-7 rounded transition-colors',
               active
-                ? 'bg-teal-700 text-white dark:bg-teal-500 dark:text-gray-900'
+                ? 'bg-brand-700 text-white dark:bg-teal-500 dark:text-gray-900'
                 : 'text-ink-muted hover:text-ink hover:bg-surface-sunken',
             ].join(' ')}
           >

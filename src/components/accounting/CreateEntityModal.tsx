@@ -203,7 +203,7 @@ export function CreateEntityModal({ type, transactionDescription, existingAccoun
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving || !canSave}
-            className="px-4 py-1.5 rounded bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-1.5">
+            className="px-4 py-1.5 rounded bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium flex items-center gap-1.5">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             Create
           </button>

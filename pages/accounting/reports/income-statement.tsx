@@ -187,11 +187,11 @@ export default function IncomeStatementPage() {
             <>
               <PresentLink from={periodStart} to={periodEnd} />
               <button onClick={handleXlsxExport} disabled={!report}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
                 <FileSpreadsheet className="h-4 w-4" /> Export Excel
               </button>
               <button onClick={handleExport} disabled={!report}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
             </>
@@ -250,7 +250,7 @@ export default function IncomeStatementPage() {
               <Loader2 className="h-6 w-6 animate-spin text-teal-500" />
             </div>
           ) : report ? (
-            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
               <div className="px-6 py-4 border-b border-[var(--ff-border-light)]">
                 <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">
                   Profit &amp; Loss — {formatDisplayDate(periodStart)} to {formatDisplayDate(periodEnd)}

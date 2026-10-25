@@ -232,7 +232,7 @@ export default function EmailLogPage() {
               </div>
               <button
                 onClick={handleFilter}
-                className="px-4 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg transition-colors"
+                className="px-4 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors"
               >
                 Apply
               </button>

@@ -238,7 +238,7 @@ export default function NewPracticeJobPage() {
             </div>
             <div className="flex items-center gap-3 pt-2">
               <button type="submit" disabled={isSubmitting}
-                className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+                className="inline-flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {isSubmitting ? 'Saving…' : 'Save Job'}
               </button>

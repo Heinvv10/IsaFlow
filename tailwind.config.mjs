@@ -1,5 +1,3 @@
-const colors = require('tailwindcss/colors');
-
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -122,11 +120,12 @@ export default {
           '950': '#083344',
           DEFAULT: '#06b6d4',
         },
-        // White text on teal-600 / emerald-600 is 3.7:1, under AA for body text. The 600-800
-        // stops move one step darker (so `bg-teal-600 text-white` clears 5:1 and hover:bg-teal-700
-        // still darkens); 900 and the lighter stops are unchanged.
-        teal: { ...colors.teal, 600: colors.teal[700], 700: colors.teal[800], 800: colors.teal[900] },
-        emerald: { ...colors.emerald, 600: colors.emerald[700], 700: colors.emerald[800], 800: colors.emerald[900] },
+        // Brand fills that carry white text: 5.5:1 (600) and 7.6:1 (700). Use these for filled buttons,
+        // badges and active tabs; teal-600 under white is 3.7:1. Values: styles/globals.css.
+        brand: {
+          '600': 'rgb(var(--ff-brand-600-rgb) / <alpha-value>)',
+          '700': 'rgb(var(--ff-brand-700-rgb) / <alpha-value>)',
+        },
         // Semantic theme tokens (values in styles/globals.css, light and dark). Prefer these to
         // a fixed palette stop: they flip with the theme, so nothing stays dark on a white page.
         surface: {

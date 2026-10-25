@@ -152,7 +152,7 @@ export default function CustomerLedgerPage() {
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
-                <BookOpen className="h-6 w-6 text-blue-500" />
+                <BookOpen className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               </div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">
                 Customer Transaction Ledger
@@ -223,7 +223,7 @@ export default function CustomerLedgerPage() {
 
           {loading && (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
             </div>
           )}
 

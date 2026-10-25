@@ -122,7 +122,7 @@ export default function FraudSignalsPage() {
               <RefreshCw className="h-4 w-4" />
             </button>
             <button onClick={() => void runScan()} disabled={scanning}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium disabled:opacity-60">
+              className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-60">
               {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
               Run scan
             </button>
@@ -130,7 +130,7 @@ export default function FraudSignalsPage() {
         </div>
 
         {toast && (
-          <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${toast.ok ? 'bg-teal-600 text-white' : 'bg-red-700 text-white'}`}>
+          <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${toast.ok ? 'bg-brand-600 text-white' : 'bg-red-700 text-white'}`}>
             {toast.msg}
           </div>
         )}

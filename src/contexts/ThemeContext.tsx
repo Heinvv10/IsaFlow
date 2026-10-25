@@ -16,6 +16,8 @@ interface ThemeContextType {
   theme: Theme;
   /** What the user chose: Light, Dark or System. */
   preference: ThemePreference;
+  /** False until the saved choice has been read; a control should show no selection before then. */
+  ready: boolean;
   setPreference: (next: ThemePreference) => void;
   /** Flips the resolved theme into an explicit Light or Dark preference. */
   toggleTheme: () => void;
@@ -23,7 +25,11 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
+/**
+ * `lightOnly` is true on public / customer-facing routes (isLightOnlyPath, decided by _app from the
+ * route): the theme is light there whatever the saved preference says, and the preference is not touched.
+ */
+export function ThemeProvider({ children, lightOnly = false }: { children: ReactNode; lightOnly?: boolean }) {
   const [preference, setPreferenceState] = useState<ThemePreference>(DEFAULT_THEME_PREFERENCE);
   const [systemDark, setSystemDark] = useState(false);
   // Nothing touches <html> until the saved choice has been read: public/theme-init.js already
@@ -49,7 +55,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => query.removeEventListener('change', onChange);
   }, []);
 
-  const theme = resolveTheme(preference, systemDark);
+  const theme = resolveTheme(preference, systemDark, lightOnly);
 
   useEffect(() => {
     if (hydrated) applyTheme(document.documentElement, theme);
@@ -69,8 +75,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [setPreference, theme]);
 
   const value = useMemo(
-    () => ({ theme, preference, setPreference, toggleTheme }),
-    [theme, preference, setPreference, toggleTheme],
+    () => ({ theme, preference, ready: hydrated, setPreference, toggleTheme }),
+    [theme, preference, hydrated, setPreference, toggleTheme],
   );
 
   return (

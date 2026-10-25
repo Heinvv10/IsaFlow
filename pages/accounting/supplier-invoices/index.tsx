@@ -239,7 +239,7 @@ function Header({ total, filtersActive, onExport }: { total: number; filtersActi
           </button>
           <Link
             href="/accounting/supplier-invoices/new"
-            className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25"
+            className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25"
           >
             <Plus className="w-4 h-4" /> New Invoice
           </Link>

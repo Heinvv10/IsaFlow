@@ -143,7 +143,7 @@ export function ClientRateOverrides({ clientId }: Props) {
         </p>
         <button
           onClick={() => { setShowForm(true); setFormError(''); }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
         >
           <Plus className="h-3.5 w-3.5" />
           Add Override
@@ -215,7 +215,7 @@ export function ClientRateOverrides({ clientId }: Props) {
             <button
               onClick={() => void handleAdd()}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
               Save

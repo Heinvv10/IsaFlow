@@ -57,8 +57,8 @@ function StepIndicator({ current }: { current: Step }) {
               done ? 'text-teal-500' : 'text-[var(--ff-text-secondary)]'
             }`}>
               <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                done ? 'bg-teal-600 text-white' :
-                active ? 'bg-teal-500 text-white' : 'bg-[var(--ff-border-light)] text-[var(--ff-text-secondary)]'
+                done ? 'bg-brand-600 text-white' :
+                active ? 'bg-brand-600 text-white' : 'bg-[var(--ff-border-light)] text-[var(--ff-text-secondary)]'
               }`}>
                 {done ? <CheckCircle2 className="h-4 w-4" /> : num}
               </span>
@@ -374,7 +374,7 @@ export default function GlImportPage() {
                 <button
                   onClick={() => void handleValidate()}
                   disabled={!isMappingComplete || validating}
-                  className="inline-flex items-center gap-2 px-5 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
                 >
                   {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   {validating ? 'Validating...' : 'Validate'}

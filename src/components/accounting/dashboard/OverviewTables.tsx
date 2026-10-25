@@ -77,7 +77,7 @@ export function OverviewTables({ topCustomers, topExpenses, arAging, apAging }: 
                 {topExpenses.map((e, i) => (
                   <tr key={i} className="border-b border-[var(--ff-border-light)]/50 last:border-0">
                     <td className="px-5 py-2.5 text-sm text-[var(--ff-text-primary)] truncate max-w-[200px]">{e.accountName}</td>
-                    <td className="px-5 py-2.5 text-sm text-right font-mono text-rose-500">{fmtCurrency(e.total)}</td>
+                    <td className="px-5 py-2.5 text-sm text-right font-mono text-rose-600 dark:text-rose-400">{fmtCurrency(e.total)}</td>
                     <td className="px-5 py-2.5 text-sm text-right text-[var(--ff-text-secondary)]">{e.percentOfExpenses.toFixed(1)}%</td>
                   </tr>
                 ))}

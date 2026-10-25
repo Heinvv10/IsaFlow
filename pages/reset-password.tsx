@@ -131,7 +131,7 @@ export default function ResetPasswordPage() {
             </p>
             <Link
               href="/login"
-              className="inline-block w-full text-center bg-teal-600 hover:bg-teal-500 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+              className="inline-block w-full text-center bg-brand-600 hover:bg-brand-700 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
             >
               Sign in
             </Link>
@@ -225,7 +225,7 @@ export default function ResetPasswordPage() {
               <button
                 type="submit"
                 disabled={submitting || !password || !confirmPassword}
-                className="w-full flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+                className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
               >
                 {submitting ? (
                   <>

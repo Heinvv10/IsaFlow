@@ -114,7 +114,7 @@ export default function PortalInvoicePage({ invoice, token, isOverdue }: PortalI
   const canDispute = !isPaid && ['sent', 'approved', 'partially_paid', 'overdue'].includes(invoice.status);
 
   const headerName = invoice.portal_display_name ?? invoice.company_name;
-  const accentColor = invoice.portal_primary_color ?? '#0d9488';
+  const accentColor = invoice.portal_primary_color ?? '#0f766e';
 
   return (
     <>

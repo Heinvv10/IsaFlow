@@ -47,7 +47,7 @@ export function BankEmptyState({ context, onAddBankAccount }: Props) {
           {isTransactionsPage ? (
             <Link
               href="/accounting/bank-accounts"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm font-medium transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
             >
               Add Bank Account
               <ArrowRight className="h-4 w-4" />
@@ -56,7 +56,7 @@ export function BankEmptyState({ context, onAddBankAccount }: Props) {
             <button
               type="button"
               onClick={onAddBankAccount}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm font-medium transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors"
             >
               Add Bank Account
               <ArrowRight className="h-4 w-4" />

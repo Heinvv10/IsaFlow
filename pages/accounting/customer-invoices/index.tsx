@@ -76,7 +76,7 @@ export default function CustomerInvoicesPage() {
           actions={
             <>
               <ExportCSVButton endpoint="/api/accounting/customer-invoices-export" filenamePrefix="customer-invoices" params={arFiltersToApiParams(filters)} label="Export CSV" />
-              <Link href="/accounting/customer-invoices/new" className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm">
+              <Link href="/accounting/customer-invoices/new" className="flex items-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm">
                 <Plus className="h-4 w-4" /> New Invoice
               </Link>
             </>
@@ -105,7 +105,7 @@ export default function CustomerInvoicesPage() {
           {/* Content */}
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" />
             </div>
           ) : error ? (
             <div className="flex items-center gap-2 text-red-400 py-8 justify-center">

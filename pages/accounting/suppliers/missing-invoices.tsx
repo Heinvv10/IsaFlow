@@ -123,7 +123,7 @@ export default function MissingInvoicesPage() {
               </p>
             </div>
             <button onClick={detectGaps} disabled={detectingGaps}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white transition-colors shrink-0">
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white transition-colors shrink-0">
               <Search className={`h-4 w-4 ${detectingGaps ? 'animate-spin' : ''}`} />
               Run gap detection now
             </button>

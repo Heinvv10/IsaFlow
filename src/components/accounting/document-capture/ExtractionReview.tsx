@@ -175,7 +175,7 @@ export function ExtractionReview({ uploadResult, form, onChange, onDismiss, onRe
       )}
 
       <div className="px-6 py-4 border-t border-[var(--ff-border-light)] flex items-center gap-3 flex-wrap">
-        <button onClick={handleConfirm} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium">
+        <button onClick={handleConfirm} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium">
           <CheckCircle2 className="h-4 w-4" /> Confirm & Save
         </button>
         <button onClick={handleReject} className="inline-flex items-center gap-2 px-4 py-2 bg-red-600/20 text-red-400 rounded-lg hover:bg-red-600/30 transition-colors text-sm font-medium">

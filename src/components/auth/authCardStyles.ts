@@ -24,5 +24,5 @@ export const AUTH_ICON_CLASS =
   'pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400';
 
 export const AUTH_PRIMARY_BUTTON_CLASS =
-  'flex w-full items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-3 text-sm ' +
-  'font-semibold text-white shadow-lg shadow-teal-600/25 transition hover:bg-teal-700 disabled:opacity-60';
+  'flex w-full items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 py-3 text-sm ' +
+  'font-semibold text-white shadow-lg shadow-teal-600/25 transition hover:bg-brand-700 disabled:opacity-60';

@@ -114,7 +114,7 @@ export function PaystackMandateCard() {
   }, [load]);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6">
+    <div data-surface="light" className="bg-white rounded-xl border border-slate-200 p-6">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <CreditCard className="w-5 h-5 text-emerald-600" />
@@ -152,7 +152,7 @@ export function PaystackMandateCard() {
             type="button"
             onClick={authorise}
             disabled={busy}
-            className="rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-medium hover:bg-emerald-700 disabled:opacity-60"
+            className="rounded-lg bg-success-700 text-white px-4 py-2 text-sm font-medium hover:bg-success-800 disabled:opacity-60"
           >
             {busy ? 'Starting…' : 'Authorise debit order'}
           </button>

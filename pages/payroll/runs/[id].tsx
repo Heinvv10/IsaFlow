@@ -230,7 +230,7 @@ export default function PayrollRunDetailPage() {
               {/* The calculate route is withWriteAccess: a viewer would only get a 403. */}
               {canWrite(companyRole) && (
                 <button onClick={calculate} disabled={calculating || !canCalculate}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium"
                   title={locked ? 'Run is locked — reopen first to edit' : ''}>
                   {calculating ? <Loader2 className="h-4 w-4 animate-spin" /> : locked ? <Lock className="h-4 w-4" /> : <Calculator className="h-4 w-4" />}
                   {locked ? 'Locked' : run.status === 'draft' ? 'Calculate' : 'Recalculate'}
@@ -238,7 +238,7 @@ export default function PayrollRunDetailPage() {
               )}
               {canApprove && (
                 <button onClick={() => setApproveOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium"
                   title="Review the journal this run will post, then approve it">
                   <ShieldCheck className="h-4 w-4" /> Review &amp; approve
                 </button>

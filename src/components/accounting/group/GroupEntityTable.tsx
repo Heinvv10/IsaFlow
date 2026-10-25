@@ -61,7 +61,7 @@ export function GroupEntityTable({ entities, totals }: Props) {
                     <td className="px-5 py-3 font-medium text-[var(--ff-text-primary)]">{entity.companyName}</td>
                     <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.revenue)}</td>
                     <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.expenses)}</td>
-                    <td className={`px-5 py-3 text-right font-medium tabular-nums ${entity.netProfit >= 0 ? 'text-teal-500' : 'text-rose-500'}`}>
+                    <td className={`px-5 py-3 text-right font-medium tabular-nums ${entity.netProfit >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
                       {fmtCurrency(entity.netProfit)}
                     </td>
                     <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(entity.cashPosition)}</td>
@@ -71,7 +71,7 @@ export function GroupEntityTable({ entities, totals }: Props) {
                   <td className="px-5 py-3 text-[var(--ff-text-primary)]">Total</td>
                   <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.revenue)}</td>
                   <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.expenses)}</td>
-                  <td className={`px-5 py-3 text-right tabular-nums ${totals.netProfit >= 0 ? 'text-teal-500' : 'text-rose-500'}`}>
+                  <td className={`px-5 py-3 text-right tabular-nums ${totals.netProfit >= 0 ? 'text-teal-500' : 'text-rose-600 dark:text-rose-400'}`}>
                     {fmtCurrency(totals.netProfit)}
                   </td>
                   <td className="px-5 py-3 text-right text-[var(--ff-text-primary)] tabular-nums">{fmtCurrency(totals.cashPosition)}</td>

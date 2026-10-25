@@ -238,7 +238,7 @@ export default function ApprovalsPage() {
                     <button
                       onClick={() => void handleDecision(req, 'approve')}
                       disabled={deciding === req.id}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                      className="flex items-center gap-1 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                     >
                       <CheckCircle2 className="h-4 w-4" /> Approve
                     </button>

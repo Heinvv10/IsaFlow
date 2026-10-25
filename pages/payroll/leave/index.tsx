@@ -87,7 +87,7 @@ export default function LeaveIndexPage() {
                 Balances
               </Link>
               <WriteOnly>
-                <Link href="/payroll/leave/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+                <Link href="/payroll/leave/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
                   <Plus className="h-4 w-4" /> New Request
                 </Link>
               </WriteOnly>
@@ -137,7 +137,7 @@ export default function LeaveIndexPage() {
               <CalendarOff className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No leave requests</p>
               <WriteOnly>
-                <Link href="/payroll/leave/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+                <Link href="/payroll/leave/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
                   <Plus className="h-4 w-4" /> New Request
                 </Link>
               </WriteOnly>

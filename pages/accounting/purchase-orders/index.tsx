@@ -66,7 +66,7 @@ export default function PurchaseOrdersPage() {
             </div>
             <div className="flex items-center gap-2">
               <ExportCSVButton endpoint="/api/accounting/purchase-orders?format=csv" filenamePrefix="purchase-orders" label="Export" />
-              <Link href="/accounting/purchase-orders/new" className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25">
+              <Link href="/accounting/purchase-orders/new" className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25">
                 <Plus className="w-4 h-4" /> New PO
               </Link>
             </div>
@@ -104,7 +104,7 @@ export default function PurchaseOrdersPage() {
                 </div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No orders found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first purchase order</p>
-                <Link href="/accounting/purchase-orders/new" className="mt-5 inline-block px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors">New PO</Link>
+                <Link href="/accounting/purchase-orders/new" className="mt-5 inline-block px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">New PO</Link>
               </div>
             ) : (
               <table className="w-full text-sm">

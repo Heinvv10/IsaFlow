@@ -179,7 +179,7 @@ export default function AuthorizePage(props: Props | ErrorProps) {
             <button
               type="submit"
               disabled={submitting}
-              className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-teal-700 hover:bg-teal-600 text-white disabled:opacity-50 transition flex items-center justify-center gap-2"
+              className="flex-1 px-4 py-2.5 rounded-lg text-sm font-medium bg-brand-700 hover:bg-brand-600 text-white disabled:opacity-50 transition flex items-center justify-center gap-2"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Authorise

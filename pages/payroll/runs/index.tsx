@@ -81,7 +81,7 @@ export default function PayrollRunsListPage() {
               </div>
             </div>
             {mayWrite && (
-              <Link href="/payroll/runs/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+              <Link href="/payroll/runs/new" className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
                 <Plus className="h-4 w-4" /> New Payroll Run
               </Link>
             )}
@@ -102,7 +102,7 @@ export default function PayrollRunsListPage() {
               <CalendarDays className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)] font-medium">No payroll runs yet</p>
               {mayWrite && (
-                <Link href="/payroll/runs/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium">
+                <Link href="/payroll/runs/new" className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
                   <Plus className="h-4 w-4" /> New Payroll Run
                 </Link>
               )}

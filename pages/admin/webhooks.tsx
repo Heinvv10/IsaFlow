@@ -173,7 +173,7 @@ export default function AdminWebhooksPage() {
                 className={[
                   'px-3 py-1.5 rounded text-xs font-medium transition-colors',
                   activeTab === tab.id
-                    ? 'bg-teal-600 text-white'
+                    ? 'bg-brand-600 text-white'
                     : 'text-gray-400 hover:text-gray-200',
                 ].join(' ')}
               >

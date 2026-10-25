@@ -203,7 +203,7 @@ export default function SubscriptionsPage() {
           <Download className="w-4 h-4" /> Export CSV
         </a>
         <button onClick={() => { setShowForm(true); setFormError(''); setForm(EMPTY_FORM); }}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg transition-colors">
+          className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors">
           <Plus className="w-4 h-4" /> Add Subscription
         </button>
       </div>
@@ -264,7 +264,7 @@ export default function SubscriptionsPage() {
             <div className="px-5 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
               <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors">Cancel</button>
               <button onClick={() => void handleAdd()} disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Create
               </button>
             </div>

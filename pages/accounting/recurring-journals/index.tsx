@@ -166,7 +166,7 @@ export default function RecurringJournalsPage() {
                   <Download className="h-4 w-4" /> CSV
                 </button>
               )}
-              <button onClick={() => { resetForm(); setShowForm(true); }} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium">
+              <button onClick={() => { resetForm(); setShowForm(true); }} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium">
                 <Plus className="h-4 w-4" /> New Template
               </button>
             </div>
@@ -229,7 +229,7 @@ export default function RecurringJournalsPage() {
               )}
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={resetForm} className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">Cancel</button>
-                <button type="submit" disabled={busy === 'new'} className="px-6 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+                <button type="submit" disabled={busy === 'new'} className="px-6 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50">
                   {busy === 'new' ? <Loader2 className="h-4 w-4 animate-spin" /> : editId ? <><Save className="h-4 w-4 inline mr-1" />Save</> : 'Create'}
                 </button>
               </div>

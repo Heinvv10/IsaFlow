@@ -108,7 +108,7 @@ export default function FlowsReturnPage() {
             </p>
             <Link
               href="/accounting/settings/billing/flows"
-              className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded-lg"
+              className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg"
             >
               Back to Flows <ArrowRight className="w-4 h-4" />
             </Link>

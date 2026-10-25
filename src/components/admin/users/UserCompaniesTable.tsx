@@ -65,7 +65,7 @@ export function UserCompaniesTable({
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Linked Companies</h3>
         <button onClick={() => setShowLinkForm(f => !f)} disabled={actionLoading}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:opacity-50">
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50">
           <Plus className="w-3.5 h-3.5" /> Link Company
         </button>
       </div>
@@ -89,7 +89,7 @@ export function UserCompaniesTable({
           </div>
           <div className="flex gap-2">
             <button onClick={() => void handleLink()} disabled={actionLoading || !linkCompanyId}
-              className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium bg-teal-600 hover:bg-teal-700 text-white rounded-lg disabled:opacity-50 transition-colors">
+              className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium bg-brand-600 hover:bg-brand-700 text-white rounded-lg disabled:opacity-50 transition-colors">
               {actionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Add
             </button>
             <button onClick={() => setShowLinkForm(false)}
@@ -132,7 +132,7 @@ export function UserCompaniesTable({
                     {changed && (
                       <button disabled={actionLoading}
                         onClick={() => void onChangeRole(c.company_id, draft)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-50">
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
                         <Check className="w-3.5 h-3.5" /> Save role
                       </button>
                     )}

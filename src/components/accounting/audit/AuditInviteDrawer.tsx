@@ -95,7 +95,7 @@ export function AuditInviteDrawer({ exportId, onClose, notify }: Props) {
                 className="w-full px-3 py-2 rounded bg-white/5 border border-[rgba(255,255,255,0.1)] text-slate-200" />
             </div>
             <button onClick={() => void handleInvite()}
-              className="w-full mt-1 px-4 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium">
+              className="w-full mt-1 px-4 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
               Create portal link
             </button>
           </div>

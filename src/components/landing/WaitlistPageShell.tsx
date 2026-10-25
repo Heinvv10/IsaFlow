@@ -39,7 +39,7 @@ export function WaitlistPageShell({ children }: { children: ReactNode }) {
 
           <Link
             href="/login"
-            className="inline-flex items-center justify-center rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-teal-950/30 transition-colors hover:bg-teal-500"
+            className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-teal-950/30 transition-colors hover:bg-brand-700"
           >
             Sign in
           </Link>

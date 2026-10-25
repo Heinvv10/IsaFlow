@@ -9,7 +9,9 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { renderToString } from 'react-dom/server';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
+import { isLightOnlyPath } from '@/lib/theme/themePreference';
 
 const STORAGE_KEY = 'accounting-theme';
 
@@ -42,6 +44,7 @@ function Probe() {
 }
 
 beforeEach(() => {
+  window.history.pushState({}, '', '/accounting');
   window.localStorage.clear();
   root().classList.remove('dark');
   root().style.removeProperty('color-scheme');
@@ -126,7 +129,55 @@ describe('ThemeProvider', () => {
   });
 });
 
+const PUBLIC_PATHS = ['/portal', '/portal/invoice/abc', '/portal/pay/abc', '/share/tok', '/audit-portal/s1', '/accounting/afs/sign/tok', '/accounting/afs/portal/dashboard'];
+const APP_PATHS = ['/accounting', '/accounting/customer-invoices', '/accounting/afs', '/accounting/afs/sign-off', '/payroll/employees', '/portalish', '/login', '/'];
+
+describe('public and customer-facing surfaces are always light', () => {
+  it('knows which paths those are', () => {
+    for (const p of PUBLIC_PATHS) expect(isLightOnlyPath(p), p).toBe(true);
+    for (const p of APP_PATHS) expect(isLightOnlyPath(p), p).toBe(false);
+  });
+
+  it('renders light when the route is public, with Dark saved, and leaves the saved choice alone', () => {
+    window.localStorage.setItem(STORAGE_KEY, 'dark');
+    render(<ThemeProvider lightOnly><Probe /></ThemeProvider>);
+    expect(screen.getByTestId('probe')).toHaveTextContent('dark:light');
+    expect(root().classList.contains('dark')).toBe(false);
+    expect(scheme()).toBe('light');
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBe('dark');
+  });
+
+  it('follows a client-side navigation into and out of a public route', () => {
+    window.localStorage.setItem(STORAGE_KEY, 'dark');
+    const { rerender } = render(<ThemeProvider><Probe /></ThemeProvider>);
+    expect(root().classList.contains('dark')).toBe(true);
+    rerender(<ThemeProvider lightOnly><Probe /></ThemeProvider>);
+    expect(root().classList.contains('dark')).toBe(false);
+    expect(scheme()).toBe('light');
+    rerender(<ThemeProvider><Probe /></ThemeProvider>);
+    expect(root().classList.contains('dark')).toBe(true);
+    expect(scheme()).toBe('dark');
+  });
+
+  it('theme-init.js agrees with isLightOnlyPath on every path', () => {
+    const script = readFileSync(join(process.cwd(), 'public/theme-init.js'), 'utf8');
+    window.localStorage.setItem(STORAGE_KEY, 'dark');
+    for (const p of [...PUBLIC_PATHS, ...APP_PATHS]) {
+      window.history.pushState({}, '', p);
+      new Function(script)();
+      expect(root().classList.contains('dark'), p).toBe(!isLightOnlyPath(p));
+    }
+  });
+});
+
 describe('ThemeToggle', () => {
+  it('shows nothing selected before the saved choice has been read', () => {
+    window.localStorage.setItem(STORAGE_KEY, 'light');
+    const html = renderToString(<ThemeProvider><ThemeToggle /></ThemeProvider>);
+    expect(html.match(/aria-pressed="true"/g)).toBeNull();
+    expect(html.match(/aria-pressed="false"/g)).toHaveLength(3);
+  });
+
   it('offers Light, Dark and System, marks the saved one, and switches on click', () => {
     window.localStorage.setItem(STORAGE_KEY, 'dark');
     render(<ThemeProvider><ThemeToggle /><Probe /></ThemeProvider>);

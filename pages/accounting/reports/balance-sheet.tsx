@@ -147,7 +147,7 @@ export default function BalanceSheetPage() {
                   surfaces cannot disagree about what "this period" means. */}
               <PresentLink from={drillDownStart} to={drillDownEnd} />
               <button onClick={handleXlsxExport} disabled={!report}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 text-sm font-medium disabled:opacity-50">
                 <FileSpreadsheet className="h-4 w-4" /> Export Excel
               </button>
               <button onClick={handleExport} disabled={!report}
@@ -206,7 +206,7 @@ export default function BalanceSheetPage() {
 
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
             </div>
           ) : report ? (
             <BalanceSheetBody

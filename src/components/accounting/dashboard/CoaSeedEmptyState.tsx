@@ -120,7 +120,7 @@ export function CoaSeedEmptyState({ onSeeded }: { onSeeded: () => void }) {
             <button
               onClick={() => void seed()}
               disabled={seeding}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white rounded-lg text-sm font-semibold transition-colors"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 text-white rounded-lg text-sm font-semibold transition-colors"
             >
               {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {seeding ? 'Seeding…' : 'Seed chart of accounts'}

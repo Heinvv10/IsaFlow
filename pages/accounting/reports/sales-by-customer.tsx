@@ -54,7 +54,7 @@ export default function SalesByCustomerReport() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10"><TrendingUp className="h-6 w-6 text-blue-500" /></div>
+              <div className="p-2 rounded-lg bg-blue-500/10"><TrendingUp className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Sales by Customer</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">Revenue breakdown per customer</p>
@@ -65,7 +65,7 @@ export default function SalesByCustomerReport() {
               <span className="text-[var(--ff-text-tertiary)]">to</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
               <button onClick={() => window.open(`/api/accounting/reports/sales-by-customer?from=${from}&to=${to}&format=csv`, '_blank')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg">
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-lg">
                 <Download className="h-4 w-4" /> CSV
               </button>
             </div>

@@ -63,7 +63,7 @@ export function VAT201SubmitModal({
           <button
             onClick={onConfirm}
             disabled={submitting || !sarsRef.trim() || (blocked && !isOwnerOrAdmin) || needsReason}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-success-700 text-white text-sm font-medium hover:bg-success-800 disabled:opacity-50">
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             {blocked && isOwnerOrAdmin ? 'Override and confirm' : 'Confirm'}
           </button>

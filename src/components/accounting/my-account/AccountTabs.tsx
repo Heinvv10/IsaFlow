@@ -3,6 +3,7 @@
  */
 
 import { Loader2, Save, Lock, Eye, EyeOff } from 'lucide-react';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
@@ -77,7 +78,7 @@ export function ProfileTab({ profile, loading, saving, onChange, onSave }: {
       </div>
       <div className="mt-6 flex justify-end">
         <button onClick={onSave} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Save Profile
         </button>
@@ -134,7 +135,7 @@ export function SecurityTab({ form, saving, showOld, showNew, showConfirm, setSh
       </div>
       <div className="mt-6 flex justify-end">
         <button onClick={onSave} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
           Change Password
         </button>
@@ -145,11 +146,9 @@ export function SecurityTab({ form, saving, showOld, showNew, showConfirm, setSh
 
 // ── Preferences Tab ───────────────────────────────────────────────────────────
 
-export function PreferencesTab({ prefs, saving, theme, onToggleTheme, onChange, onSave }: {
+export function PreferencesTab({ prefs, saving, onChange, onSave }: {
   prefs: Preferences;
   saving: boolean;
-  theme: 'dark' | 'light';
-  onToggleTheme: () => void;
   onChange: (p: Preferences) => void;
   onSave: () => void;
 }) {
@@ -174,12 +173,9 @@ export function PreferencesTab({ prefs, saving, theme, onToggleTheme, onChange, 
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-[var(--ff-text-primary)]">Theme</p>
-            <p className="text-xs text-[var(--ff-text-secondary)]">Currently: {theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</p>
+            <p className="text-xs text-[var(--ff-text-secondary)]">Light, Dark, or follow your device</p>
           </div>
-          <button type="button" role="switch" aria-checked={theme === 'dark'} onClick={onToggleTheme}
-            className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors ${theme === 'dark' ? 'bg-teal-600' : 'bg-gray-600'}`}>
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform mt-0.5 ${theme === 'dark' ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'}`} />
-          </button>
+          <ThemeToggle />
         </div>
 
         <hr className="border-[var(--ff-border-primary)]" />
@@ -199,7 +195,7 @@ export function PreferencesTab({ prefs, saving, theme, onToggleTheme, onChange, 
       </div>
       <div className="mt-6 flex justify-end">
         <button onClick={onSave} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           Save Preferences
         </button>

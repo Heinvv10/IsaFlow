@@ -268,7 +268,7 @@ export function CaptureInboxPanel({ event, onClose, onPost, onDiscard, posting, 
               </button>
             ) : gate.status === 'auto' ? (
               <button onClick={() => void onPost(event.eventId)} disabled={posting || event.status !== 'extracted'}
-                className="flex-1 px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors">
+                className="flex-1 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors">
                 {posting ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Auto-post'}
               </button>
             ) : (

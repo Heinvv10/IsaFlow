@@ -160,7 +160,7 @@ export default function AdminSarsCodesPage() {
           </div>
           <button
             onClick={() => setImporterOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
           >
             <Upload className="h-4 w-4" /> Import XLSX
           </button>
@@ -360,7 +360,7 @@ function CodeDrawer({ code, onClose, onToggleStatus }: {
         <div className="mt-6 pt-4 border-t border-[var(--ff-border-primary)]">
           <button
             onClick={onToggleStatus}
-            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${code.status === 'deprecated' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}
+            className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${code.status === 'deprecated' ? 'bg-success-700 hover:bg-success-800 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}
           >
             {code.status === 'deprecated' ? <><BadgeCheck className="h-4 w-4" /> Restore to active</> : <><Ban className="h-4 w-4" /> Mark deprecated</>}
           </button>
@@ -465,7 +465,7 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
                 <button onClick={() => submit(true)} disabled={working || !file} className="px-3 py-2 rounded-lg text-sm bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-primary)] disabled:opacity-50">
                   {working ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Preview diff'}
                 </button>
-                <button onClick={() => submit(false)} disabled={working || !file} className="px-3 py-2 rounded-lg text-sm bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-50">
+                <button onClick={() => submit(false)} disabled={working || !file} className="px-3 py-2 rounded-lg text-sm bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
                   {working ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Import now'}
                 </button>
               </div>
@@ -496,7 +496,7 @@ function ImportWizard({ onClose, onComplete }: { onClose: () => void; onComplete
               )}
               <div className="flex justify-end gap-2 pt-2">
                 <button onClick={() => { setStep('pick'); setPreview(null); }} className="px-3 py-2 rounded-lg text-sm text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]">Back</button>
-                <button onClick={() => submit(false)} disabled={working} className="px-3 py-2 rounded-lg text-sm bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-50">
+                <button onClick={() => submit(false)} disabled={working} className="px-3 py-2 rounded-lg text-sm bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
                   {working ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Confirm import'}
                 </button>
               </div>

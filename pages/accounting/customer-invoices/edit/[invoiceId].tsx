@@ -274,7 +274,7 @@ export default function EditCustomerInvoicePage() {
                     <div className="h-px bg-slate-100 dark:bg-slate-800" />
                     <div className="flex justify-between"><span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span><span className="font-mono font-bold text-lg text-amber-500">{formatCurrencyAmount(total, form.currencyCode)}</span></div>
                   </div>
-                  <button onClick={handleSubmit} disabled={submitting} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button onClick={handleSubmit} disabled={submitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><FileText className="h-4 w-4" />Save Changes</>}
                   </button>
                   <Link href={`/accounting/customer-invoices/${String(invoiceId)}`} className="block w-full mt-2 py-2.5 text-center border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold rounded-xl transition-colors text-sm">Cancel</Link>

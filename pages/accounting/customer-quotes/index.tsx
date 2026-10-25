@@ -113,7 +113,7 @@ function CreateQuoteModal({ customers, onClose, onCreated }: ModalProps) {
         )}
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-800/20">
           <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-          <button onClick={handleCreate} disabled={saving || !form.clientId || lines.every(l => !l.desc)} className="px-5 py-2 text-sm font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
+          <button onClick={handleCreate} disabled={saving || !form.clientId || lines.every(l => !l.desc)} className="px-5 py-2 text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-40 flex items-center gap-2">
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
             {saving ? 'Creating…' : 'Create Quote'}
           </button>
@@ -204,7 +204,7 @@ export default function CustomerQuotesPage() {
           title="Customer Quotes"
           subtitle={`${total} ${total === 1 ? 'quote' : 'quotes'}`}
           actions={
-            <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors">
+            <button onClick={() => setShowNew(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
               <Plus className="w-4 h-4" /> New Quote
             </button>
           }
@@ -243,7 +243,7 @@ export default function CustomerQuotesPage() {
                 <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><FileText className="w-7 h-7 text-slate-500 dark:text-slate-400" /></div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No quotes found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first quote to get started</p>
-                <button onClick={() => setShowNew(true)} className="mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors">Create Quote</button>
+                <button onClick={() => setShowNew(true)} className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">Create Quote</button>
               </div>
             ) : (
               <table className="w-full text-sm">

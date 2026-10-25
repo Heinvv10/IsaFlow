@@ -37,7 +37,7 @@ function Toggle({ label, checked, onChange, disabled }: {
         onClick={() => onChange?.(!checked)}
         className={[
           'relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2',
-          checked ? 'bg-teal-600' : 'bg-gray-300 dark:bg-gray-600',
+          checked ? 'bg-brand-600' : 'bg-gray-300 dark:bg-gray-600',
           disabled ? 'cursor-not-allowed' : 'cursor-pointer',
         ].join(' ')}
       >
@@ -241,7 +241,7 @@ export default function AdminSettings() {
             <button
               onClick={() => void save()}
               disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saving ? 'Saving...' : 'Save Settings'}
@@ -284,7 +284,7 @@ export default function AdminSettings() {
                 <button
                   onClick={() => void saveAlerts()}
                   disabled={savingAlerts}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
                 >
                   {savingAlerts ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   {savingAlerts ? 'Saving...' : 'Save Alert Settings'}

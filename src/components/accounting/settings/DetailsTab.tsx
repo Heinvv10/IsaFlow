@@ -255,7 +255,7 @@ export function DetailsTab({ company, onChange, onCompanyChange, documents, onDo
               {Object.entries(DOC_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>
-          <label className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer">
+          <label className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors cursor-pointer">
             {uploadingDoc ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Upload Document
             <input type="file" accept="image/*,application/pdf" className="hidden" onChange={e => void handleDocUpload(e)} disabled={uploadingDoc} />
           </label>

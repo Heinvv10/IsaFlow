@@ -255,7 +255,7 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
               type="button"
               onClick={() => void save()}
               disabled={saving || !endDate || !loaded}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-sm text-white font-medium"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-sm text-white font-medium"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save Termination Details

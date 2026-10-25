@@ -6,7 +6,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { STICKY_WRAP } from '@/components/accounting/statement/stickyTable';
 import { BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import { countPostedAccounts, derivedAccountNote } from '@/components/reports/generalLedgerRows';
@@ -185,7 +184,7 @@ export default function GeneralLedgerPage() {
                 return (
                   <div
                     key={r.accountCode}
-                    className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden"
+                    className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-clip"
                   >
                     <button
                       onClick={() => toggleExpand(r.accountCode)}
@@ -222,36 +221,34 @@ export default function GeneralLedgerPage() {
                     </button>
 
                     {isOpen && r.transactions.length > 0 && (
-                      <div data-sticky-frame className={`border-t border-[var(--ff-border-light)] ${STICKY_WRAP}`}>
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="bg-[var(--ff-bg-tertiary)]">
-                              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky left-0 top-0 z-30 bg-[var(--ff-bg-tertiary)] print:static">Date</th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Entry #</th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Description</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Debit</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Credit</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Balance</th>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-[var(--ff-bg-tertiary)]">
+                            <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Date</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Entry #</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Description</th>
+                            <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Debit</th>
+                            <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Credit</th>
+                            <th className="px-4 py-2 text-right text-xs font-medium text-[var(--ff-text-secondary)] uppercase sticky top-0 z-20 bg-[var(--ff-bg-tertiary)] print:static">Balance</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[var(--ff-border-light)]">
+                          <tr className="text-xs text-[var(--ff-text-tertiary)]">
+                            <td className="px-4 py-2" colSpan={5}>Opening Balance</td>
+                            <td className="px-4 py-2 text-right font-mono">{fmt(r.openingBalance)}</td>
+                          </tr>
+                          {r.transactions.map((t, i) => (
+                            <tr key={i} className={`hover:bg-[var(--ff-bg-tertiary)]${t.derived ? ' italic' : ''}`}>
+                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.date?.split('T')[0]}</td>
+                              <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{t.entryNumber}</td>
+                              <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.description}</td>
+                              <td className="px-4 py-2 text-right font-mono">{t.debit > 0 ? fmt(t.debit) : ''}</td>
+                              <td className="px-4 py-2 text-right font-mono">{t.credit > 0 ? fmt(t.credit) : ''}</td>
+                              <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(t.balance)}</td>
                             </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[var(--ff-border-light)]">
-                            <tr className="text-xs text-[var(--ff-text-tertiary)]">
-                              <td className="px-4 py-2 sticky left-0 bg-[var(--ff-bg-secondary)] print:static" colSpan={5}>Opening Balance</td>
-                              <td className="px-4 py-2 text-right font-mono">{fmt(r.openingBalance)}</td>
-                            </tr>
-                            {r.transactions.map((t, i) => (
-                              <tr key={i} className={`group hover:bg-[var(--ff-bg-tertiary)]${t.derived ? ' italic' : ''}`}>
-                                <td className="px-4 py-2 text-[var(--ff-text-primary)] sticky left-0 z-10 bg-[var(--ff-bg-secondary)] group-hover:bg-[var(--ff-bg-tertiary)] print:static">{t.date?.split('T')[0]}</td>
-                                <td className="px-4 py-2 font-mono text-[var(--ff-text-secondary)]">{t.entryNumber}</td>
-                                <td className="px-4 py-2 text-[var(--ff-text-primary)]">{t.description}</td>
-                                <td className="px-4 py-2 text-right font-mono">{t.debit > 0 ? fmt(t.debit) : ''}</td>
-                                <td className="px-4 py-2 text-right font-mono">{t.credit > 0 ? fmt(t.credit) : ''}</td>
-                                <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(t.balance)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                          ))}
+                        </tbody>
+                      </table>
                     )}
                   </div>
                 );

@@ -146,7 +146,7 @@ export default function TaxDirectivesPage() {
                 <p className="text-xs text-[var(--ff-text-tertiary)]">SARS lump sum, retirement, severance &amp; death directives</p>
               </div>
             </div>
-            <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors">
+            <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors">
               <Plus className="h-4 w-4" />New Directive
             </button>
           </div>
@@ -205,7 +205,7 @@ export default function TaxDirectivesPage() {
               {!search && statusFilter === 'all' && (
                 <button
                   onClick={() => setShowModal(true)}
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
                 >
                   <Plus className="h-4 w-4" />
                   New Directive
