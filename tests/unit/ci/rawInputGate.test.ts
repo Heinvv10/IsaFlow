@@ -71,10 +71,12 @@ describe('runGate --write in CI', () => {
     expect(out.written).toEqual([]);
   });
 
-  it('locally --write ignores the override and prunes', async () => {
-    const { d, out } = deps({ writing: true, env: { RAW_INPUT_BASE_REF: 'HEAD' }, readList: () => '{"a.tsx": 3}' });
+  it('locally --write ignores the override: it prunes and makes no git call at all', async () => {
+    const g = git('{"a.tsx": 1}');
+    const { d, out } = deps({ writing: true, env: { RAW_INPUT_BASE_REF: 'HEAD' }, git: g, readList: () => '{"a.tsx": 3}' });
     expect(await runGate(d)).toBe(0);
     expect(out.written).toEqual([{ 'a.tsx': 2 }]);
+    expect(g.calls).toEqual([]);
   });
 });
 
