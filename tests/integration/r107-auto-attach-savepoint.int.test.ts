@@ -57,7 +57,7 @@ describe('R-107 / K-157: the automatic evidence attach cannot poison the posting
       await manual.query('BEGIN');
       const manualPid = (await manual.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
       await manual.query("SET LOCAL deadlock_timeout = '20s'");
-      await post.query("SET LOCAL deadlock_timeout = '1s'"); // explicit: do not lean on the cluster default
+      await post.query("SET LOCAL deadlock_timeout = '1s'"); // inside the BEGIN above; = the default, set so the 20 s vs 1 s gap does not rest on it
       // The manual attach's first lock: the bank line.
       await manual.query('SELECT 1 FROM bank_transactions WHERE id=$1 FOR UPDATE', [bt]);
       // The post: slip locked and claimed.

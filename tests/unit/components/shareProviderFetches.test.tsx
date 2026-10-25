@@ -15,7 +15,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
-import { render, screen, act } from '@testing-library/react';
+import { cleanup, render, screen, act } from '@testing-library/react';
 
 let pathname = '/accounting/reports/report-packs';
 
@@ -49,14 +49,24 @@ async function mount() {
 const turns = async (n: number) => {
   for (let i = 0; i < n; i += 1) await act(async () => { await new Promise<void>(r => setImmediate(r)); });
 };
-/** Turns until `needle` was asked for (the budget is 500). */
+/** Turns until `needle` was asked for; throws when 500 turns pass without it. */
 const untilAsked = async (needle: string): Promise<number> => {
-  let n = 0;
-  for (; n < 500 && !asked().some(u => u.includes(needle)); n += 1) await turns(1);
-  return n;
+  for (let n = 0; n < 500; n += 1) {
+    if (asked().some(u => u.includes(needle))) return n;
+    await turns(1);
+  }
+  throw new Error(`${needle} was never asked for in 500 turns`);
 };
-/** How many turns the ordinary-page control needed for its provider fetches: the share test's budget scales from it. */
-let controlTurns = 0;
+
+/** Mount an ordinary app page and return how many turns its session fetch took. */
+async function controlTurnsOnOrdinaryPage(): Promise<number> {
+  pathname = '/accounting/reports/report-packs';
+  fetchMock.mockClear();
+  await mount();
+  const n = await untilAsked('/api/auth/me');
+  cleanup();
+  return n;
+}
 
 // The first import of pages/_app is slow under a loaded machine; the 5 s default failed pre-push gates. Timing only.
 const LOAD_TIMEOUT = 60_000;
@@ -72,18 +82,21 @@ describe('pages/_app.tsx — provider fetches on the public share page', () => {
   it('fetches the session on an ordinary app page', async () => {
     pathname = '/accounting/reports/report-packs';
     await mount();
-    controlTurns = Math.max(await untilAsked('/api/auth/me'), await untilAsked('/api/accounting/companies'));
+    // Only the session fetch is required of the control: CompanyProvider loads companies only for an authenticated
+    // user, and this mock's /api/auth/me answer carries none, so a companies fetch is not expected here.
+    await untilAsked('/api/auth/me');
     expect(asked().some(u => u.includes('/api/auth/me'))).toBe(true);
-    expect(asked().some(u => u.includes('/api/accounting/companies'))).toBe(true);
   }, LOAD_TIMEOUT);
 
   it('fetches neither the session nor the companies on a share route', async () => {
+    // Measure how many turns the session fetch takes on an ordinary page, in this same test (so `-t` runs keep it),
+    // then give the share route at least 5x that (and never fewer than 50) to be wrong in.
+    const control = await controlTurnsOnOrdinaryPage();
     pathname = '/share/[token]';
+    fetchMock.mockClear();
     await mount();
-    // App has mounted (its page text is on screen), and both fetches, which live in mount effects, get at least 5x the
-    // turns the ordinary-page control needed for the same fetches (and never fewer than 50) to be wrong in.
     expect(screen.getByText('shared pack')).toBeTruthy();
-    await turns(Math.max(50, controlTurns * 5));
+    await turns(Math.max(50, control * 5));
     expect(asked().some(u => u.includes('/api/auth/me'))).toBe(false);
     expect(asked().some(u => u.includes('/api/accounting/companies'))).toBe(false);
   }, LOAD_TIMEOUT);
