@@ -2,6 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import {
   formatDisplayDate, formatDisplayDateTime, formatDisplayDateLong, formatDisplayDateShort,
   formatDisplayMonthYear, formatDisplayTime, formatDateISO, formatDateTimeISO, getTodayISO,
+  formatDisplayDateWeekday, formatDisplayMonthYearLong, formatDisplayTimeSeconds,
 } from '@/utils/dateFormat';
 
 // The rule is "the calendar day in Africa/Johannesburg", whatever the device zone is. Pin the device
@@ -77,5 +78,23 @@ describe('ISO forms (files and APIs) use the same SAST day', () => {
     expect(formatDateTimeISO('2026-10-20T22:05:00Z')).toBe('2026-10-21 00:05');
     expect(formatDateISO(null)).toBe('');
     expect(getTodayISO()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('weekday, long month and seconds forms', () => {
+  it('computes the weekday from the calendar date, in any device zone', () => {
+    expect(formatDisplayDateWeekday('2026-10-21')).toBe('Wed, 21 Oct 2026');
+    expect(formatDisplayDateWeekday('2024-02-29')).toBe('Thu, 29 Feb 2024');
+    expect(formatDisplayDateWeekday('2026-01-01')).toBe('Thu, 01 Jan 2026');
+    expect(formatDisplayDateWeekday('2026-02-29')).toBe('—');
+  });
+  it('shows a long month heading and a time with seconds', () => {
+    expect(formatDisplayMonthYearLong('2026-10-21')).toBe('October 2026');
+    expect(formatDisplayTimeSeconds('2026-10-20T22:00:05Z')).toBe('00:00:05');
+  });
+  it('knows leap years', () => {
+    expect(formatDisplayDate('2024-02-29')).toBe('29 Feb 2024');
+    expect(formatDisplayDate('2100-02-29')).toBe('2100-02-29');
+    expect(formatDisplayDate('2000-02-29')).toBe('29 Feb 2000');
   });
 });

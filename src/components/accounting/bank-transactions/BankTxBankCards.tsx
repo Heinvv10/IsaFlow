@@ -91,10 +91,10 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
                   </span>
                   {hasGap && (
                     <span
-                      className="text-xs text-amber-400 font-mono"
+                      className="text-xs text-amber-400 tabular-nums"
                       title={`${b.unreconciledCount} unallocated transaction${b.unreconciledCount !== 1 ? 's' : ''}`}
                     >
-                      Δ {fmtCurrency(Math.abs(gap))}
+                      Δ&nbsp;{fmtCurrency(Math.abs(gap))}
                     </span>
                   )}
                 </div>
@@ -114,9 +114,9 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
         ))}
 
         {bank && (
-          <div className="ml-auto flex items-center gap-4">
+          <div className="ml-auto flex flex-wrap items-center gap-4">
             <StatementBalanceWidget bankAccountId={selectedBank} glBalance={bank.balance} />
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
                 <p className="text-2xl font-bold text-teal-400">{bank.allocatedCount}</p>
                 <p className="text-xs text-[var(--ff-text-tertiary)]">Allocated</p>
