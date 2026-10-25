@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import {
   FileCheck, Plus, RefreshCw, Loader2, AlertCircle, Download, Link as LinkIcon,
   ShieldCheck,
@@ -56,10 +57,11 @@ export default function AuditTrailPage() {
 
   const [inviteId, setInviteId] = useState<string | null>(null);
 
+  const afterToast = useTimeoutOnce();
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+    afterToast(() => setToast(null), 3500);
+  }, [afterToast]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');

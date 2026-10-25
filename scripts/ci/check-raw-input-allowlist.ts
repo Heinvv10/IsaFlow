@@ -1,37 +1,54 @@
 /**
  * check-raw-input-allowlist — the raw-input allowlist may only shrink.
  *
- * eslint/raw-input-allowlist.json lists the files that still use a raw <input type="date"> or an
- * unlabelled <input> (rule isaflow/no-raw-form-input). `bun run lint` stops NEW violators; this
- * gate stops the list going stale. It lints src/ and pages/ with the allowlist emptied and fails when
- *   - an allowlisted file no longer violates (or no longer exists): remove it from the list; or
- *   - a file violates and is not on the list (lint says the same, with the line).
- * Fixing a form therefore forces its entry out of the list in the same PR.
+ * eslint/raw-input-allowlist.json maps each file that still uses a raw <input type="date"> or an unlabelled
+ * <input> (rule isaflow/no-raw-form-input) to how many reports it has. `bun run lint` fails a file that goes
+ * past its count; this gate lints src/ and pages/ with the allowlist emptied and fails when
+ *   - a file is not on the list but violates (NEW), or has more than its count (GROWN);
+ *   - a file has fewer than its count (SHRUNK) or none or is gone (STALE): lower or remove the entry, so
+ *     fixing a form forces the list down in the same PR;
+ *   - against the list on origin/master (RAW_INPUT_BASE_REF overrides the ref locally; in CI the gate
+ *     refuses the override) an entry was ADDED or a count RAISED. The base ref is resolved before the ESLint
+ *     run, so a refusal is instant. When master has no list at that path (the PR that introduces it) the
+ *     comparison is skipped and says so; any other git failure, or a base list that does not parse, fails
+ *     the gate. With the ref itself missing the gate fails in CI (fetch-depth 0 provides it) and warns
+ *     locally.
  *
- * Syntax-only parse (no type information), so it takes seconds, unlike `bun run lint`.
+ * The whole flow is `runGate` in ./rawInputAllowlist.ts; this file only wires ESLint, git and the file system.
+ *
+ * Inline `eslint-disable` comments are switched off here (noInlineConfig), so a disable cannot hide a
+ * violating file from this gate: it has to be on the list. The comparison logic is in ./rawInputAllowlist.ts.
+ *
+ * Syntax-only parse (no type information), so it takes seconds, unlike `bun run lint`. scripts/ is outside
+ * `bun run lint` (which covers src and pages), and this CLI reports through the console: that is its output.
  *
  * Run:   bun scripts/ci/check-raw-input-allowlist.ts
- * Prune: bun scripts/ci/check-raw-input-allowlist.ts --write   (drops stale entries; never adds one.
- *        Delete the file first to regenerate it from the tree, which is a reviewable decision.)
+ * Prune: bun scripts/ci/check-raw-input-allowlist.ts --write   (lowers counts and drops fixed files; never
+ *        adds a file or raises a count. Delete the file first to regenerate it from the tree, which is a
+ *        reviewable decision.)
  */
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ESLint } from 'eslint';
 import tsParser from '@typescript-eslint/parser';
 import isaflow from '../../eslint/isaflow-plugin.mjs';
 import { ALLOWLIST_FILE } from '../../eslint/rules/no-raw-form-input.mjs';
+import { runGate, type Counts } from './rawInputAllowlist';
 
 const RULE = 'isaflow/no-raw-form-input';
 
-async function violatingFiles(): Promise<string[]> {
+/** Reports per file with the allowlist emptied (files with none are absent). */
+async function actualCounts(): Promise<Counts> {
   const eslint = new ESLint({
     overrideConfigFile: true,
     overrideConfig: [
       {
         files: ['**/*.tsx'],
+        linterOptions: { noInlineConfig: true },
         languageOptions: { parser: tsParser, parserOptions: { ecmaFeatures: { jsx: true } } },
         plugins: { isaflow },
-        rules: { [RULE]: ['error', { allowlist: [] }] },
+        rules: { [RULE]: ['error', { allowlist: {} }] },
       },
     ],
   });
@@ -40,50 +57,26 @@ async function violatingFiles(): Promise<string[]> {
     r.messages.filter((m) => m.fatal).map((m) => `${path.relative(process.cwd(), r.filePath)}: ${m.message}`),
   );
   if (parseErrors.length > 0) throw new Error(`could not parse:\n${parseErrors.join('\n')}`);
-  return results
-    .filter((r) => r.messages.some((m) => m.ruleId === RULE))
-    .map((r) => path.relative(process.cwd(), r.filePath).split(path.sep).join('/'))
-    .sort();
+  const counts: Counts = {};
+  for (const r of results) {
+    const n = r.messages.filter((m) => m.ruleId === RULE).length;
+    if (n > 0) counts[path.relative(process.cwd(), r.filePath).split(path.sep).join('/')] = n;
+  }
+  return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : 1)));
 }
 
-async function main(): Promise<number> {
-  const write = process.argv.includes('--write');
-  const violating = await violatingFiles();
-  const exists = existsSync(ALLOWLIST_FILE);
-  const listed: string[] = exists ? JSON.parse(readFileSync(ALLOWLIST_FILE, 'utf8')) : [];
+const git = (args: string[]): string => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 
-  if (!exists) {
-    if (!write) {
-      console.error(`[raw-input-allowlist] ${path.relative(process.cwd(), ALLOWLIST_FILE)} is missing`);
-      return 1;
-    }
-    writeFileSync(ALLOWLIST_FILE, `${JSON.stringify(violating, null, 2)}\n`);
-    console.log(`[raw-input-allowlist] wrote ${violating.length} entries`);
-    return 0;
-  }
-
-  const now = new Set(violating);
-  const stale = listed.filter((f) => !now.has(f));
-  const unlisted = violating.filter((f) => !listed.includes(f));
-
-  if (write) {
-    writeFileSync(ALLOWLIST_FILE, `${JSON.stringify(listed.filter((f) => now.has(f)), null, 2)}\n`);
-    console.log(`[raw-input-allowlist] pruned ${stale.length} stale entries`);
-    return unlisted.length > 0 ? 1 : 0;
-  }
-
-  for (const f of stale) {
-    console.error(`[raw-input-allowlist] STALE: ${f} no longer violates (or is gone). Remove it from eslint/raw-input-allowlist.json (bun scripts/ci/check-raw-input-allowlist.ts --write).`);
-  }
-  for (const f of unlisted) {
-    console.error(`[raw-input-allowlist] NEW: ${f} has a raw date input or an unlabelled <input>. Use the kit (Input, MoneyField, DateField) or label it; do not add it to the allowlist.`);
-  }
-  if (stale.length + unlisted.length > 0) return 1;
-  console.log(`[raw-input-allowlist] ok: ${listed.length} files still to migrate, none new, none stale`);
-  return 0;
-}
-
-main().then(
+runGate({
+  env: process.env,
+  writing: process.argv.includes('--write'),
+  git,
+  actualCounts,
+  readList: () => (existsSync(ALLOWLIST_FILE) ? readFileSync(ALLOWLIST_FILE, 'utf8') : null),
+  writeList: (counts) => writeFileSync(ALLOWLIST_FILE, `${JSON.stringify(counts, null, 2)}\n`),
+  log: (line) => console.log(line),
+  error: (line) => console.error(line),
+}).then(
   (code) => process.exit(code),
   (err: unknown) => {
     console.error(err);

@@ -9,6 +9,11 @@
  * the UI doesn't have to wait. Always scoped by company_id, and always
  * reported for the mandate THIS reference is linked to — never the company's
  * newest row.
+ *
+ * Mandate writes and the authorization code read run on the migration_admin
+ * pool (S-07e, migration 945), COMMITting on their own, scoped to the verified
+ * request's company. They are idempotent, so the savepoint below rolling the
+ * payment request back leaves a retry able to finish.
  */
 
 import type { NextApiResponse } from 'next';
@@ -20,7 +25,9 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { verifyTransaction } from '@/modules/billing/services/paystackClient';
+import { linkMismatch, logRefusedLink } from '@/modules/billing/services/paystackLinkBinding';
 import {
   activateAuthorisedMandate,
   noteAuthorisationNotAttached,
@@ -33,6 +40,10 @@ const Body = z.object({ ref: z.string().min(1).refine((r) => !r.includes('\u0000
 
 interface PrRow {
   id: string;
+  company_id: string;
+  purpose: string;
+  flow_purchase_id: string | null;
+  subscription_charge_id: string | null;
   status: string;
   paystack_reference: string;
   mandate_id: string | null;
@@ -57,7 +68,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { ref } = parsed.data;
 
   const prRows = await sql<PrRow>`
-    SELECT id, status, paystack_reference, mandate_id, failure_reason
+    SELECT id, company_id, purpose, flow_purchase_id, subscription_charge_id, status, paystack_reference, mandate_id, failure_reason
     FROM paystack_payment_requests
     WHERE paystack_reference = ${ref}
       AND company_id = ${req.companyId}
@@ -91,12 +102,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
             UPDATE paystack_payment_requests
             SET status = 'completed',
                 completed_at = COALESCE(completed_at, now()),
-                paystack_transaction_id = ${live.id ?? null},
-                paystack_authorization_code = ${live.authorization.authorizationCode},
-                paystack_customer_code = ${live.customer?.customerCode ?? null}
+                paystack_transaction_id = ${live.id ?? null}
             WHERE id = ${pr.id}
               AND company_id = ${req.companyId}
           `;
+          // The checkout Paystack ran must be this company's, for this mandate
+          // (S-07e): the request row is app-written, Paystack's metadata is not.
+          const mismatch = linkMismatch(pr, live.metadata);
+          if (mismatch) {
+            logRefusedLink(pr.paystack_reference, pr, mismatch);
+            failureReason = `review:${mismatch}`;
+            await noteAuthorisationNotAttached(pr.id, req.companyId, failureReason);
+            return;
+          }
           if (!mandate) {
             // The reference is now spent — pr.status is no longer 'pending', so
             // this block never runs again — and nothing was activated. Record
@@ -134,12 +152,12 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
             WHERE id = ${pr.id} AND company_id = ${req.companyId}
           `;
           if (mandate) {
-            await sql`
+            await migrationAdminSqlTx('mandate_verify_failed', (tx) => tx`
               UPDATE subscription_mandates SET status = 'failed', updated_at = now()
               WHERE id = ${mandate.id}
                 AND company_id = ${req.companyId}
                 AND status = 'pending'
-            `;
+            `);
           }
         }
       });

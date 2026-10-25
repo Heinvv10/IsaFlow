@@ -105,20 +105,23 @@ describe('dashboard-stats handler — BL-03 bank balance from GL', () => {
         // [1] apTotal
         case 1:
           return Promise.resolve([{ total: '0' }]);
-        // [2] arTotal
+        // [2] the AR overdue fragment is a sql call of its own, built before the AR query
         case 2:
-          return Promise.resolve([{ total: '0' }]);
-        // [3] monthRevenue
+          return Promise.resolve([]);
+        // [3] arTotal
         case 3:
           return Promise.resolve([{ total: '0' }]);
-        // [4] monthExpenses
+        // [4] monthRevenue
         case 4:
           return Promise.resolve([{ total: '0' }]);
-        // [5] unallocatedCount
+        // [5] monthExpenses
         case 5:
-          return Promise.resolve([{ count: '0' }]);
-        // [6] recentJournals
+          return Promise.resolve([{ total: '0' }]);
+        // [6] unallocatedCount
         case 6:
+          return Promise.resolve([{ count: '0' }]);
+        // [7] recentJournals
+        case 7:
           return Promise.resolve([]);
         default:
           return Promise.resolve([]);
@@ -151,8 +154,8 @@ describe('dashboard-stats handler — BL-03 bank balance from GL', () => {
     sqlMock.mockImplementation(() => {
       const idx = callIndex++;
       if (idx === 0) return Promise.resolve([{ account_code: '1010', account_name: 'Bank', balance: '975880.61' }]);
-      if (idx === 5) return Promise.resolve([{ count: '0' }]);
-      if (idx === 6) return Promise.resolve([]);
+      if (idx === 6) return Promise.resolve([{ count: '0' }]);
+      if (idx === 7) return Promise.resolve([]);
       return Promise.resolve([{ total: '0' }]);
     });
 
@@ -213,20 +216,23 @@ describe('dashboard-stats handler — BL-04 AR/AP exclude drafts', () => {
         // [1] apTotal — zero for this test
         case 1:
           return Promise.resolve([{ total: '0' }]);
-        // [2] arTotal — DB returns 500 (only 'approved' invoice matches open filter)
+        // [2] the AR overdue fragment is a sql call of its own, built before the AR query
         case 2:
-          return Promise.resolve([{ total: '500' }]);
-        // [3] monthRevenue
+          return Promise.resolve([]);
+        // [3] arTotal — DB returns 500 (only 'approved' invoice matches open filter)
         case 3:
-          return Promise.resolve([{ total: '0' }]);
-        // [4] monthExpenses
+          return Promise.resolve([{ outstanding: '500', overdue_count: '0', overdue_amount: '0' }]);
+        // [4] monthRevenue
         case 4:
           return Promise.resolve([{ total: '0' }]);
-        // [5] unallocatedCount
+        // [5] monthExpenses
         case 5:
-          return Promise.resolve([{ count: '0' }]);
-        // [6] recentJournals
+          return Promise.resolve([{ total: '0' }]);
+        // [6] unallocatedCount
         case 6:
+          return Promise.resolve([{ count: '0' }]);
+        // [7] recentJournals
+        case 7:
           return Promise.resolve([]);
         default:
           return Promise.resolve([]);
@@ -259,8 +265,8 @@ describe('dashboard-stats handler — BL-04 AR/AP exclude drafts', () => {
     let callIndex = 0;
     sqlMock.mockImplementation(() => {
       const idx = callIndex++;
-      if (idx === 5) return Promise.resolve([{ count: '0' }]);
-      if (idx === 6) return Promise.resolve([]);
+      if (idx === 6) return Promise.resolve([{ count: '0' }]);
+      if (idx === 7) return Promise.resolve([]);
       return Promise.resolve([{ total: '0', balance: '0', account_code: '', account_name: '' }]);
     });
 
@@ -273,8 +279,8 @@ describe('dashboard-stats handler — BL-04 AR/AP exclude drafts', () => {
     const res = makeRes();
     await handler(req as NextApiRequest, res as unknown as NextApiResponse);
 
-    // AR query is the 3rd call (index 2)
-    const arCallArgs = sqlMock.mock.calls[2];
+    // AR query is the 4th call (index 3), after the overdue fragment
+    const arCallArgs = sqlMock.mock.calls[3];
     const arTemplateStrings: string[] = arCallArgs[0];
     const arQuery = arTemplateStrings.join(' ');
 
@@ -302,11 +308,12 @@ describe('dashboard-stats handler — BL-04 AR/AP exclude drafts', () => {
         case 0: return Promise.resolve([]);
         // [1] apTotal — DB returns 1000 (approved 600 + partially_paid balance 400)
         case 1: return Promise.resolve([{ total: '1000' }]);
-        case 2: return Promise.resolve([{ total: '0' }]);
+        case 2: return Promise.resolve([]);
         case 3: return Promise.resolve([{ total: '0' }]);
         case 4: return Promise.resolve([{ total: '0' }]);
-        case 5: return Promise.resolve([{ count: '0' }]);
-        case 6: return Promise.resolve([]);
+        case 5: return Promise.resolve([{ total: '0' }]);
+        case 6: return Promise.resolve([{ count: '0' }]);
+        case 7: return Promise.resolve([]);
         default: return Promise.resolve([]);
       }
     });

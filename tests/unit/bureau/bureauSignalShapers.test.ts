@@ -124,7 +124,7 @@ describe('shapeVatDue', () => {
     const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd' }], [], meta, today);
     expect(items[0]).toMatchObject({
       task: 'VAT return due', detail: 'Apr–May 2026', dueAt: '2026-06-25',
-      href: '/accounting/reports/vat-return', severity: 'due_soon',
+      href: '/accounting/sars/vat201', severity: 'due_soon',
     });
   });
 

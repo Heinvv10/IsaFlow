@@ -40,8 +40,8 @@ beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,employment_type,start_date,status)
-     VALUES($1,$2,'R105P-01','Par','Tial','permanent',CURRENT_DATE,'active')`, [employee, company]);
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,employment_type,start_date,status, medical_aid_main_member)
+     VALUES($1,$2,'R105P-01','Par','Tial','permanent',CURRENT_DATE,'active', true)`, [employee, company]);
   await pool.query(
     `INSERT INTO expense_claims (id, company_id, employee_id, claim_number, claim_date, status)
      VALUES ($1, $2, $3, 'R105P-1', CURRENT_DATE, 'draft')`, [claim, company, employee]);

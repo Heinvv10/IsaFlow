@@ -45,8 +45,8 @@ beforeAll(async () => {
   }
   for (const [id, num] of [[paidTwice, 'E-TWICE'], [paidOnce, 'E-ONCE']] as const) {
     await pool.query(
-      `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,end_date,status)
-       VALUES($1,$2,$3,'Gate',$3,DATE '2020-01-01',DATE '2026-03-10','terminated')`,
+      `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,end_date,status, medical_aid_main_member)
+       VALUES($1,$2,$3,'Gate',$3,DATE '2020-01-01',DATE '2026-03-10','terminated', true)`,
       [id, company, num],
     );
   }

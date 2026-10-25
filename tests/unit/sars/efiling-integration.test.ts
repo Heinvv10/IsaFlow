@@ -62,27 +62,29 @@ describe('VAT201 Payload Building', () => {
     inputVATCapitalGoods: 20000,
     inputVATOther: 80000,
     adjustments: 0,
+    outputVATOther: 0,
   };
+  const NET = 50000; // 150000 - (20000 + 80000)
 
   it('builds valid payload structure', () => {
-    const payload = buildVAT201Payload(sampleVAT);
+    const payload = buildVAT201Payload(sampleVAT, { expectedNetVat: NET });
     expect(payload).toBeDefined();
     expect(payload.taxType).toBe('VAT201');
     expect(payload.taxPeriod).toBe('2026-03');
   });
 
   it('calculates total output VAT', () => {
-    const payload = buildVAT201Payload(sampleVAT);
+    const payload = buildVAT201Payload(sampleVAT, { expectedNetVat: NET });
     expect(payload.totalOutputVAT).toBe(150000);
   });
 
   it('calculates total input VAT', () => {
-    const payload = buildVAT201Payload(sampleVAT);
+    const payload = buildVAT201Payload(sampleVAT, { expectedNetVat: NET });
     expect(payload.totalInputVAT).toBe(100000); // 20000 + 80000
   });
 
   it('calculates net VAT payable', () => {
-    const payload = buildVAT201Payload(sampleVAT);
+    const payload = buildVAT201Payload(sampleVAT, { expectedNetVat: NET });
     expect(payload.netVAT).toBe(50000); // 150000 - 100000
   });
 
@@ -91,12 +93,12 @@ describe('VAT201 Payload Building', () => {
       ...sampleVAT,
       outputVATStandard: 50000,
       inputVATOther: 80000,
-    });
+    }, { expectedNetVat: -50000 });
     expect(refund.netVAT).toBe(-50000); // 50000 - (20000 + 80000) = -50000 refund
   });
 
   it('includes all field values', () => {
-    const payload = buildVAT201Payload(sampleVAT);
+    const payload = buildVAT201Payload(sampleVAT, { expectedNetVat: NET });
     expect(payload.fields).toBeDefined();
     expect(payload.fields.length).toBeGreaterThan(0);
   });

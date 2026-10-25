@@ -15,6 +15,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { mockUnsafe } from '../helpers/sqlFragmentMock';
 
 // ── Mocks must be hoisted before any imports that use them ────────────────────
 
@@ -31,7 +32,7 @@ vi.mock('@/lib/neon', () => {
     return Promise.resolve([]);
   });
   return {
-    sql: mockSql,
+    sql: Object.assign(mockSql, { unsafe: mockUnsafe }),
     withTransaction: vi.fn(),
     fmtDate: vi.fn((d: unknown) => String(d)),
   };
@@ -71,6 +72,7 @@ vi.mock('@/modules/accounting/services/ar/invoicePdfSnapshotService', () => ({
 }));
 
 // ── Import handlers after mocks ───────────────────────────────────────────────
+
 
 import listHandler from '../../../pages/api/accounting/customer-invoices-list';
 import detailHandler from '../../../pages/api/accounting/customer-invoices-detail';

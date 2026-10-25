@@ -5,6 +5,7 @@ import { useState, useCallback } from 'react';
 import { ChevronDown, ChevronRight, Calendar, Lock, AlertTriangle, Loader2 } from 'lucide-react';
 import type { FiscalYearGroup } from './types';
 import { PeriodRow } from './PeriodRow';
+import { formatDate } from './types';
 
 interface Props {
   group: FiscalYearGroup;
@@ -32,7 +33,7 @@ export function YearCard({ group, jeCounts, loadingId, onPeriodAction, onCloseYe
   const canCloseYear = group.status !== 'closed' && group.periods.some(p => p.status === 'open' || p.status === 'closing');
 
   return (
-    <div className="border border-[var(--ff-border-primary)] rounded-xl overflow-hidden">
+    <div className="border border-[var(--ff-border-primary)] rounded-xl overflow-hidden" data-testid={`fy-card-${group.year}`}>
       {/* Year header */}
       <div className="bg-[var(--ff-bg-secondary)] px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -44,12 +45,24 @@ export function YearCard({ group, jeCounts, loadingId, onPeriodAction, onCloseYe
           <div>
             <h3 className="font-semibold text-[var(--ff-text-primary)]">{group.label}</h3>
             <p className="text-xs text-[var(--ff-text-secondary)]">
-              {group.periods.length} periods &middot; {group.lockedCount} locked &middot; {group.closedCount} closed
+              <span data-testid={`fy-periods-${group.year}`}>{group.periods.length}</span> periods &middot; {group.lockedCount} locked &middot; {group.closedCount} closed
             </p>
+            {group.info && (
+              <p className="text-xs text-[var(--ff-text-secondary)]">
+                <span data-testid={`fy-start-${group.year}`}>{formatDate(group.info.startDate)}</span> to{' '}
+                <span data-testid={`fy-end-${group.year}`}>{formatDate(group.info.endDate)}</span> &middot; {group.info.months} months
+              </p>
+            )}
           </div>
           <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${YEAR_STATUS_STYLES[group.status]}`}>
             {group.status}
           </span>
+          {group.info?.kind === 'transition' && (
+            <span data-testid={`fy-transition-${group.year}`}
+              className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30">
+              Transition year
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">

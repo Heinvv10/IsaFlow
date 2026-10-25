@@ -95,10 +95,11 @@ describe('PATCH /api/billing/flows/auto-topup — owner and admin only', () => {
     expect(setAutoTopup).not.toHaveBeenCalled();
   });
 
+  // Switching off: since S-07e switching on is refused for every role (no payment method in v1).
   it.each(['owner', 'admin'])('%s reaches the update', async (role) => {
-    const res = await call(autoTopup, 'PATCH', role, { enabled: true, bundleId: BUNDLE });
+    const res = await call(autoTopup, 'PATCH', role, { enabled: false });
     expect(res.statusCode, JSON.stringify(res.body)).toBe(200);
-    expect(setAutoTopup).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', true, BUNDLE);
+    expect(setAutoTopup).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111', false, null);
   });
 });
 

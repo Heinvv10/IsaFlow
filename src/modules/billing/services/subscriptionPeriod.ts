@@ -9,10 +9,15 @@
  *
  * DATE columns are cast through `AT TIME ZONE 'UTC'` so a period boundary does
  * not shift with the database session's TimeZone.
+ *
+ * No app role may write subscriptions or subscription_charges (S-07e, migration
+ * 945): each function below is ONE migration_admin transaction, keyed on ids the
+ * cron or the webhook took from the rows it read.
  */
 
-import { sql } from '@/lib/neon';
+import type { TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 
 export const MAX_ATTEMPTS = 3;
 /** How long a 'submitted' charge may wait for a webhook before it is verified. */
@@ -24,11 +29,8 @@ export const STALE_SUBMITTED_HOURS = 24;
  * under READ COMMITTED, so the cron and the webhook racing on one charge
  * advance the period exactly once. Settling also clears an earlier past_due.
  */
-export async function advancePeriodForSettledCharge(
-  chargeId: string,
-  companyId: string,
-): Promise<void> {
-  await sql`
+async function advancePeriod(tx: TxSql, chargeId: string, companyId: string): Promise<void> {
+  await tx`
     UPDATE subscriptions s
     SET current_period_start = c.period_start::timestamp AT TIME ZONE 'UTC',
         current_period_end = c.period_end::timestamp AT TIME ZONE 'UTC',
@@ -45,6 +47,13 @@ export async function advancePeriodForSettledCharge(
   `;
 }
 
+export async function advancePeriodForSettledCharge(
+  chargeId: string,
+  companyId: string,
+): Promise<void> {
+  await migrationAdminSqlTx('subscription_advance_period', (tx) => advancePeriod(tx, chargeId, companyId));
+}
+
 /**
  * Settle the charge and grant the period it paid for. Used by the webhook and
  * by the stale-charge resolver. A charge voided because the customer cancelled
@@ -54,26 +63,41 @@ export async function advancePeriodForSettledCharge(
 export async function settleSubscriptionCharge(
   chargeId: string,
   companyId: string,
+  // The webhook's: what the checkout asked for, and its currency. A charge
+  // settles only for at least its own amount, in rand (S-07e); the verify cron
+  // passes none, having asked Paystack about the charge's own reference.
+  paid?: { cents: number | null; currency?: string },
 ): Promise<void> {
-  const settled = await sql<{ id: string }>`
-    UPDATE subscription_charges
-    SET status = 'settled',
-        settled_at = COALESCE(settled_at, now()),
-        updated_at = now()
-    WHERE id = ${chargeId}
-      AND company_id = ${companyId}
-      AND status <> 'cancelled'
-    RETURNING id
-  `;
-  if (!settled[0]) {
-    log.warn(
-      'Settlement arrived for a charge that is no longer settleable',
-      { chargeId, companyId },
-      'BillingCron',
-    );
+  if (paid && (paid.cents === null || paid.currency !== 'ZAR')) {
+    log.warn('Settlement refused: the payment reported no usable amount, or not in ZAR',
+      { chargeId, companyId, paid }, 'BillingCron');
     return;
   }
-  await advancePeriodForSettledCharge(chargeId, companyId);
+  const paidCents = paid?.cents ?? null;
+  // The charge and its period move together: one transaction.
+  const done = await migrationAdminSqlTx('subscription_settle_charge', async (tx) => {
+    const settled = (await tx`
+      UPDATE subscription_charges
+      SET status = 'settled',
+          settled_at = COALESCE(settled_at, now()),
+          updated_at = now()
+      WHERE id = ${chargeId}
+        AND company_id = ${companyId}
+        AND status <> 'cancelled'
+        AND (${paidCents}::bigint IS NULL OR amount_cents <= ${paidCents}::bigint)
+      RETURNING id
+    `) as Array<{ id: string }>;
+    if (!settled[0]) return false;
+    await advancePeriod(tx, chargeId, companyId);
+    return true;
+  });
+  if (!done) {
+    log.warn(
+      'Settlement arrived for a charge that is no longer settleable',
+      { chargeId, companyId, paidCents },
+      'BillingCron',
+    );
+  }
 }
 
 /**
@@ -84,19 +108,21 @@ export async function settleSubscriptionCharge(
  */
 export async function claimChargeAttempt(
   chargeId: string,
+  companyId: string,
   status: string,
   attemptCount: number,
 ): Promise<number | null> {
-  const claimed = await sql<{ attempt_count: number }>`
+  const claimed = (await migrationAdminSqlTx('subscription_claim_attempt', (tx) => tx`
     UPDATE subscription_charges
     SET attempt_count = attempt_count + 1,
         last_attempt_at = now(),
         updated_at = now()
     WHERE id = ${chargeId}
+      AND company_id = ${companyId}
       AND status = ${status}
       AND attempt_count = ${attemptCount}
     RETURNING attempt_count
-  `;
+  `)) as Array<{ attempt_count: number }>;
   return claimed[0]?.attempt_count ?? null;
 }
 
@@ -113,7 +139,7 @@ export async function markPastDueIfExhausted(
   attemptCount: number,
 ): Promise<void> {
   if (attemptCount < MAX_ATTEMPTS) return;
-  await sql`
+  await migrationAdminSqlTx('subscription_past_due', (tx) => tx`
     UPDATE subscriptions s
     SET status = 'past_due',
         updated_at = now()
@@ -124,7 +150,7 @@ export async function markPastDueIfExhausted(
       AND s.company_id = ${companyId}
       AND s.status IN ('active','trial')
       AND s.current_period_end < c.period_end::timestamp AT TIME ZONE 'UTC'
-  `;
+  `);
 }
 
 /**
@@ -136,7 +162,7 @@ export async function markPastDueIfExhausted(
  * owes for service taken; cancelling does not write that off.
  */
 export async function voidChargesForCancellingSubscriptions(): Promise<number> {
-  const voided = await sql<{ id: string }>`
+  const voided = (await migrationAdminSqlTx('subscription_void_charges', (tx) => tx`
     UPDATE subscription_charges c
     SET status = 'cancelled',
         failure_reason = COALESCE(c.failure_reason, 'subscription_cancelled_at_period_end'),
@@ -149,7 +175,7 @@ export async function voidChargesForCancellingSubscriptions(): Promise<number> {
       AND (s.current_period_end IS NULL
            OR c.period_start >= (s.current_period_end AT TIME ZONE 'UTC')::date)
     RETURNING c.id
-  `;
+  `)) as Array<{ id: string }>;
   return voided.length;
 }
 
@@ -160,7 +186,7 @@ export async function voidChargesForCancellingSubscriptions(): Promise<number> {
  * `advancePeriodForSettledCharge` would then refuse to grant.
  */
 export async function closeOutCancelledSubscriptions(now: Date): Promise<number> {
-  const closed = await sql<{ id: string }>`
+  const closed = (await migrationAdminSqlTx('subscription_close_out', (tx) => tx`
     UPDATE subscriptions s
     SET status = 'cancelled',
         cancelled_at = COALESCE(s.cancelled_at, now()),
@@ -176,6 +202,6 @@ export async function closeOutCancelledSubscriptions(now: Date): Promise<number>
           AND c.status IN ('queued','submitted')
       )
     RETURNING s.id
-  `;
+  `)) as Array<{ id: string }>;
   return closed.length;
 }

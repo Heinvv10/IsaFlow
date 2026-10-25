@@ -252,7 +252,7 @@ export function CloseAgentPanel({ period }: { period: string }) {
       )}
 
       {!loading && periodInfo && !run && (
-        <button disabled={locked} onClick={start}
+        <button data-testid="start-close-run" disabled={locked} onClick={start}
           className="inline-flex items-center gap-2 text-sm px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-50">
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} Start close run
         </button>

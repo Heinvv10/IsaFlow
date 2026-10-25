@@ -314,7 +314,7 @@ export default function BankTransactionsPage() {
           ) : error ? (
             <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
           ) : transactions.length === 0 ? (
-            <div className="text-center py-12 text-[var(--ff-text-secondary)]">
+            <div data-testid="bank-tx-empty" className="text-center py-12 text-[var(--ff-text-secondary)]">
               No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : 'reviewed'} transactions for this account
             </div>
           ) : (

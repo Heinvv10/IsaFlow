@@ -59,6 +59,10 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
   },
   'src/lib/neon/sql.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
   'src/lib/neon/transaction.ts': { rollbacks: 0, unreadable: 2, reason: PASSES_TEXT_ON },
+  'src/lib/auth/migrationAdminPool.ts': {
+    rollbacks: 0, unreadable: 1,
+    reason: `migrationAdminSqlTx (S-07e): ${PASSES_TEXT_ON}; the BEGIN and the rollback are migrationAdminTx's, which rolls back through rollbackFailed`,
+  },
 };
 /** Files counted as transaction owners although no readable BEGIN is in them (R-184). */
 const COUNTED_ANYWAY = new Set(['src/lib/neon/query.ts', 'src/lib/neon/sql.ts']);

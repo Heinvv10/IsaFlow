@@ -47,6 +47,15 @@ export type { ToastType, ToastOptions, ToastItem } from './Toast';
 export { Select } from './Select';
 export type { SelectProps, SelectOption } from './Select';
 
+export { ContactPicker } from './pickers/ContactPicker';
+export type { ContactPickerProps } from './pickers/ContactPicker';
+export { AccountPicker } from './pickers/AccountPicker';
+export type { AccountPickerProps } from './pickers/AccountPicker';
+export { ItemPicker } from './pickers/ItemPicker';
+export { VatCodePicker } from './pickers/VatCodePicker';
+export type { VatCodePickerProps } from './pickers/VatCodePicker';
+export type { PickerProps } from './pickers/RemotePicker';
+
 export { Breadcrumb } from './Breadcrumb';
 export type { BreadcrumbItem, BreadcrumbSeparator } from './Breadcrumb';
 
@@ -81,7 +90,8 @@ export { AutosaveStatus, formatSavedAgo } from './AutosaveStatus';
 export type { AutosaveState, AutosaveStatusProps } from './AutosaveStatus';
 
 export { ExplainDrawer } from './ExplainDrawer';
-export type { Explanation, ExplanationLine, ExplainDrawerProps } from './ExplainDrawer';
+export type { FieldValidity } from './useParsedField';
+export type { Explanation, ExplanationLine, ExplanationSource, ExplanationStatus, ExplainDrawerProps } from './ExplainDrawer';
 
 export { FieldHelp } from './FieldHelp';
 export type { FieldHelpContent, FieldHelpProps } from './FieldHelp';
