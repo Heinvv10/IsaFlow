@@ -16,11 +16,19 @@
  * subscription 'past_due'. All writes are company-scoped and keyed on the
  * charge's subscription_id. The mandate must be 'active' AND have a
  * paystack_authorization_code, or the charge fails with 'no_mandate'.
+ *
+ * Every write to subscription_charges, and the one read of the mandate's card
+ * codes, runs on the migration_admin pool (S-07e, migration 945): app roles
+ * can neither write those tables nor read the codes a charge is made with. A
+ * migration_admin transaction is held for a single statement, never across the
+ * Paystack call.
  */
 
 import { randomBytes } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
+import { recordChargePaymentRequest } from './subscriptionChargeRequest';
 import { chargeAuthorization } from './paystackClient';
 import { warnUnattributedLiveCharges } from './subscriptionChargeVerify';
 import {
@@ -124,21 +132,22 @@ export async function generateDueCharges(now = new Date()): Promise<GenerateResu
       continue;
     }
 
+    const mandateId = mandate[0].id;
     const reference = `sub_${sub.company_id.replace(/-/g, '').slice(0, 12)}_${nextStart.toISOString().slice(0, 7)}_${randomBytes(4).toString('hex')}`;
 
-    await sql`
+    await migrationAdminSqlTx('subscription_queue_charge', (tx) => tx`
       INSERT INTO subscription_charges (
         company_id, subscription_id, mandate_id, period_start, period_end,
         amount_cents, currency, gateway,
         external_reference, paystack_reference, status
       ) VALUES (
-        ${sub.company_id}, ${sub.subscription_id}, ${mandate[0].id},
+        ${sub.company_id}, ${sub.subscription_id}, ${mandateId},
         ${nextStart.toISOString().slice(0, 10)},
         ${nextEnd.toISOString().slice(0, 10)},
         ${amountCents}, 'ZAR', 'paystack',
         ${reference}, ${reference}, 'queued'
       )
-    `;
+    `);
 
     created++;
   }
@@ -161,7 +170,26 @@ export interface RunChargesResult {
 export async function runQueuedCharges(now = new Date()): Promise<RunChargesResult> {
   const cutoff = new Date(now.getTime() - RETRY_BACKOFF_HOURS * 3600_000);
 
-  const charges = await sql<{
+  const charges = (await migrationAdminSqlTx('subscription_due_charges', (tx) => tx`
+    SELECT c.id, c.company_id, c.mandate_id, c.amount_cents,
+           c.paystack_reference, c.external_reference, c.attempt_count, c.status,
+           c.period_start, c.period_end,
+           m.paystack_authorization_code,
+           m.status AS mandate_status,
+           u.email AS user_email
+    FROM subscription_charges c
+    JOIN subscription_mandates m ON m.id = c.mandate_id
+    JOIN companies co ON co.id = c.company_id AND co.status IS DISTINCT FROM 'deleted'
+    LEFT JOIN users u ON u.id = m.authorised_by::text
+    WHERE c.gateway = 'paystack'
+      -- Unattributed charges cannot be settled (624's CHECK) and the rejection
+      -- would land after the money moved — skip them before Paystack, not after.
+      AND c.subscription_id IS NOT NULL
+      AND (c.status = 'queued'
+           OR (c.status = 'failed' AND c.last_attempt_at < ${cutoff.toISOString()}))
+      AND c.attempt_count < ${MAX_ATTEMPTS}
+    LIMIT 100
+  `)) as Array<{
     id: string;
     company_id: string;
     mandate_id: string;
@@ -171,31 +199,11 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     attempt_count: number;
     status: 'queued' | 'failed';
     paystack_authorization_code: string | null;
-    paystack_customer_code: string | null;
     mandate_status: string;
     user_email: string | null;
     period_start: Date | string;
     period_end: Date | string;
-  }>`
-    SELECT c.id, c.company_id, c.mandate_id, c.amount_cents,
-           c.paystack_reference, c.external_reference, c.attempt_count, c.status,
-           c.period_start, c.period_end,
-           m.paystack_authorization_code, m.paystack_customer_code,
-           m.status AS mandate_status,
-           u.email AS user_email
-    FROM subscription_charges c
-    JOIN subscription_mandates m ON m.id = c.mandate_id
-    JOIN companies co ON co.id = c.company_id AND co.status IS DISTINCT FROM 'deleted'
-    LEFT JOIN users u ON u.id = m.authorised_by
-    WHERE c.gateway = 'paystack'
-      -- Unattributed charges cannot be settled (624's CHECK) and the rejection
-      -- would land after the money moved — skip them before Paystack, not after.
-      AND c.subscription_id IS NOT NULL
-      AND (c.status = 'queued'
-           OR (c.status = 'failed' AND c.last_attempt_at < ${cutoff.toISOString()}))
-      AND c.attempt_count < ${MAX_ATTEMPTS}
-    LIMIT 100
-  `;
+  }>;
 
   await warnUnattributedLiveCharges();
 
@@ -206,7 +214,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
   for (const c of charges) {
     // Claim the attempt before spending it, so a concurrent run that read the
     // same snapshot cannot also charge this card.
-    const attemptCount = await claimChargeAttempt(c.id, c.status, c.attempt_count);
+    const attemptCount = await claimChargeAttempt(c.id, c.company_id, c.status, c.attempt_count);
     if (attemptCount === null) {
       skipped++;
       continue;
@@ -217,13 +225,14 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
       !c.paystack_authorization_code ||
       !c.user_email
     ) {
-      await sql`
+      await migrationAdminSqlTx('subscription_charge_no_mandate', (tx) => tx`
         UPDATE subscription_charges
         SET status = 'failed',
             failure_reason = 'mandate_not_active_or_missing_authorization',
             updated_at = now()
         WHERE id = ${c.id}
-      `;
+          AND company_id = ${c.company_id}
+      `);
       await markPastDueIfExhausted(c.id, c.company_id, attemptCount);
       skipped++;
       continue;
@@ -245,34 +254,19 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
         },
       });
 
-      // Record a paystack_payment_requests row so the webhook can finalise.
-      await sql`
-        INSERT INTO paystack_payment_requests (
-          company_id, purpose, subscription_charge_id,
-          paystack_reference, paystack_authorization_code,
-          paystack_customer_code,
-          amount_cents, currency,
-          status
-        ) VALUES (
-          ${c.company_id}, 'subscription_charge', ${c.id},
-          ${result.reference}, ${c.paystack_authorization_code},
-          ${c.paystack_customer_code},
-          ${Number(c.amount_cents)}, 'ZAR',
-          ${result.status === 'success' ? 'completed' : 'pending'}
-        )
-        ON CONFLICT (paystack_reference) DO NOTHING
-      `;
+      await recordChargePaymentRequest(c.company_id, c.id, result.reference, Number(c.amount_cents), result.status === 'success');
 
       // Optimistically reflect immediate success — the webhook is still
       // authoritative and will overwrite if the bank reverses.
       const localStatus = result.status === 'success' ? 'settled' : 'submitted';
-      await sql`
+      await migrationAdminSqlTx('subscription_charge_submitted', (tx) => tx`
         UPDATE subscription_charges
         SET status = ${localStatus},
             settled_at = CASE WHEN ${localStatus} = 'settled' THEN now() ELSE settled_at END,
             updated_at = now()
         WHERE id = ${c.id}
-      `;
+          AND company_id = ${c.company_id}
+      `);
 
       if (localStatus === 'settled') {
         await advancePeriodForSettledCharge(c.id, c.company_id);
@@ -281,13 +275,14 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
       submitted++;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await sql`
+      await migrationAdminSqlTx('subscription_charge_failed', (tx) => tx`
         UPDATE subscription_charges
         SET status = 'failed',
             failure_reason = ${msg.slice(0, 500)},
             updated_at = now()
         WHERE id = ${c.id}
-      `;
+          AND company_id = ${c.company_id}
+      `);
       await markPastDueIfExhausted(c.id, c.company_id, attemptCount);
       failed++;
       log.error(

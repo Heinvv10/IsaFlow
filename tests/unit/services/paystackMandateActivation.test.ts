@@ -16,14 +16,25 @@
 // WHICH row holds the active slot. Both are re-read before being called
 // `blocked`, so the webhook activating THIS row mid-request is reported as the
 // success it is rather than as a durable, payer-visible failure.
+//
+// S-07e (migration 945): the mandate UPDATE and every read of the
+// authorization code run on the migration_admin pool (`sqlMock` below is its
+// tx), each scoped by the company; the app-pool `sql` is never used for them.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
+const appSqlMock = vi.fn();
+const labels: string[] = [];
 
 vi.mock('@/lib/neon', () => ({
-  sql: (...args: unknown[]) => sqlMock(...args),
-  withSavepoint: <T>(_name: string, fn: () => Promise<T>) => fn(),
+  sql: (...args: unknown[]) => appSqlMock(...args),
+}));
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminSqlTx: async <T>(label: string, fn: (tx: typeof sqlMock) => Promise<T>) => {
+    labels.push(label);
+    return fn(sqlMock);
+  },
 }));
 
 const { activateAuthorisedMandate } = await import(
@@ -50,6 +61,8 @@ function pgError(code: string, constraint?: string) {
 describe('activateAuthorisedMandate', () => {
   beforeEach(() => {
     sqlMock.mockReset();
+    appSqlMock.mockReset();
+    labels.length = 0;
   });
 
   it('reports an unlinked already-active mandate carrying a DIFFERENT code, instead of success', async () => {
@@ -71,6 +84,7 @@ describe('activateAuthorisedMandate', () => {
     );
 
     expect(outcome).toBe('already_active');
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('does not second-guess a mandate the payment request explicitly linked', async () => {
@@ -97,6 +111,27 @@ describe('activateAuthorisedMandate', () => {
     );
 
     expect(outcome).toBe('blocked');
+    expect(labels).toEqual(['mandate_activate', 'mandate_reclassify']);
+    expect(appSqlMock).not.toHaveBeenCalled();
+  });
+
+  it('activates a pending mandate with the UPDATE scoped to the company and the mandate', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: 'm-1' }]);
+
+    const outcome = await activateAuthorisedMandate(
+      'co-1',
+      { id: 'm-1', status: 'pending', authorizationCode: null, linked: true },
+      AUTH,
+    );
+
+    expect(outcome).toBe('activated');
+    expect(labels).toEqual(['mandate_activate']);
+    const [strings, ...values] = sqlMock.mock.calls[0] as [string[], ...unknown[]];
+    expect(strings.join('?')).toMatch(/UPDATE subscription_mandates[\s\S]*company_id = \?[\s\S]*status = 'pending'/);
+    expect(values).toContain('co-1');
+    expect(values).toContain('m-1');
+    expect(values).toContain(AUTH.authorizationCode);
+    expect(appSqlMock).not.toHaveBeenCalled();
   });
 
   it('reports already_active when the re-read shows the OTHER observer activated this row', async () => {
