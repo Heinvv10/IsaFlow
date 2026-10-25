@@ -32,40 +32,12 @@ import { saTaxYearBounds } from '@/modules/accounting/services/payroll/irp5DataS
 import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { issuedDateWarning, listRunAnnualPayments } from '@/modules/accounting/services/payroll/payrollLumpSumFiling';
 import { listCertificateLumpSums } from '@/modules/accounting/services/payroll/directivePaymentFiling';
-import { taxThresholdFor } from '@/modules/accounting/services/payroll/easyFileTaxThreshold';
 import { capWarningsForHeader } from '@/modules/accounting/services/payroll/easyFileWarnings';
-
-function firstTwoNames(fullFirst: string): string {
-  return fullFirst.trim().split(/\s+/).slice(0, 2).join(' ');
-}
-
-function initialsFromName(fullFirst: string): string {
-  return fullFirst
-    .trim()
-    .split(/\s+/)
-    .map((w) => w.charAt(0).toUpperCase())
-    .join('')
-    .slice(0, 5);
-}
-
-function toCCYYMMDD(value: unknown): string | null {
-  if (!value) return null;
-  const d = value instanceof Date ? value : new Date(String(value));
-  if (Number.isNaN(d.getTime())) return null;
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${day}`;
-}
-
-function monthsBetween(start: string, endInclusive: string): number {
-  // Inputs are CCYYMMDD. Count full months the employee was active within
-  // the year-of-assessment window, max 12.
-  const s = new Date(`${start.slice(0, 4)}-${start.slice(4, 6)}-${start.slice(6, 8)}`);
-  const e = new Date(`${endInclusive.slice(0, 4)}-${endInclusive.slice(4, 6)}-${endInclusive.slice(6, 8)}`);
-  const months = (e.getUTCFullYear() - s.getUTCFullYear()) * 12 + (e.getUTCMonth() - s.getUTCMonth()) + 1;
-  return Math.min(12, Math.max(0, months));
-}
+import {
+  ageAtYearEnd, firstTwoNames, initialsFromName, monthsBetween, taxThresholdFor, toCCYYMMDD,
+} from '@/modules/accounting/services/payroll/easyFileEmployeeFacts';
+import { loadMedicalRecord } from '@/modules/accounting/services/payroll/payrollMedicalRecord';
+import { medicalCertificateWarnings } from '@/modules/accounting/services/payroll/easyFileMedicalFields';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'GET') {
@@ -89,7 +61,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // follow-ups G1). The stand-alone payments are in no run line, so their
   // gross and PAYE are added to the run totals.
   const bounds = saTaxYearBounds(taxYear);
-  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee] = await Promise.all([
+  const [companyRows, empRows, aggRows, lumpSums, annualByEmployee, medicalByEmployee] = await Promise.all([
     sql`
       SELECT
         COALESCE(registered_name, name) AS trading_name,
@@ -128,6 +100,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     ` as Promise<DbRow[]>,
     listCertificateLumpSums(companyId, bounds),
     listRunAnnualPayments(companyId, bounds),
+    loadMedicalRecord(companyId, bounds),
   ]);
 
   const company = companyRows[0];
@@ -177,6 +150,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     });
     const who = `${String(row.first_name ?? '')} ${String(row.last_name ?? '')}`.trim();
     warnings.push(...employeeLumpSums.filter(l => l.issuedDateFallback).map(l => issuedDateWarning(who, l)));
+    // 4005/4116/4120 (easyFileMedicalFields) and what the file cannot carry about them.
+    const medical = medicalByEmployee.get(String(row.id));
+    const age = ageAtYearEnd(taxYear, row.date_of_birth, row.id_number);
+    warnings.push(...medicalCertificateWarnings(who, medical, { age, dateOfBirthMissing: !row.date_of_birth }));
     seq += 1;
     const certStartDate = toCCYYMMDD(row.start_date) ?? yoaStart;
     const certEndDate = toCCYYMMDD(row.end_date);
@@ -203,6 +180,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         paye: l.paye,
       })),
       taxThreshold: taxThresholdFor(taxYear, row.date_of_birth, row.id_number),
+      dateOfBirth: row.date_of_birth ? (row.date_of_birth instanceof Date ? row.date_of_birth : new Date(String(row.date_of_birth))) : null,
+      medical: medical && {
+        fees: medical.fees, credit: medical.credit, additionalCredit: medical.additionalCredit, age65OrOlder: age != null && age >= 65, recorded: medical.recorded,
+      },
       uifEmployee: Number(agg.total_uif_emp ?? 0),
       uifEmployer: Number(agg.total_uif_empr ?? 0),
       sdl4142: Number(agg.total_sdl ?? 0),
