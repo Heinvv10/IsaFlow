@@ -32,6 +32,8 @@ export interface RequestContext {
    * it above, so an event that writes no billing row never takes a connection.
    */
   migrationAdminOnDemand?: boolean;
+  /** True while a migrationAdminTx is running on this context's migration_admin client (they must be sequenced). */
+  migrationAdminBusy?: boolean;
   /**
    * Set by withSavepoint when its ROLLBACK TO SAVEPOINT itself fails, carrying
    * the ORIGINAL error's message. The connection is aborted at that point, so

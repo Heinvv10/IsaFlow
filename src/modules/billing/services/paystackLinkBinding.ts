@@ -1,5 +1,6 @@
 /**
- * Does a Paystack payment belong to the billing row its payment request names?
+ * Does a Paystack payment belong to the billing row (or invoice) its payment
+ * request names?
  *
  * `paystack_payment_requests` is the link between a payment and what it pays
  * for (a Flow purchase, a subscription charge, a mandate), and its rows are
@@ -16,30 +17,36 @@ import { log } from '@/lib/logger';
 export interface PaymentLink {
   company_id: string;
   purpose: string;
-  flow_purchase_id: string | null;
-  subscription_charge_id: string | null;
-  mandate_id: string | null;
+  flow_purchase_id?: string | null;
+  subscription_charge_id?: string | null;
+  mandate_id?: string | null;
+  customer_invoice_id?: string | null;
 }
 
-const LINK_KEY: Record<string, keyof PaymentLink | undefined> = {
-  flow_bundle: 'flow_purchase_id',
-  subscription_charge: 'subscription_charge_id',
-  authorization: 'mandate_id',
+/** Per purpose: the request's link column, and the metadata key its checkout carries it under. */
+const LINK: Record<string, [keyof PaymentLink, string]> = {
+  flow_bundle: ['flow_purchase_id', 'flow_purchase_id'],
+  subscription_charge: ['subscription_charge_id', 'subscription_charge_id'],
+  authorization: ['mandate_id', 'mandate_id'],
+  customer_invoice: ['customer_invoice_id', 'invoice_id'],
 };
 
 /**
- * Null when the payment's metadata names this request's company and, for a
- * billing purpose, the same purchase, charge or mandate; otherwise why not. A
- * pre-651 mandate checkout has no mandate_id on its row, so only its company is
- * compared (activation then resolves the company's own pending mandate).
+ * Null when the payment's metadata names this request's company and the same
+ * purchase, charge, mandate or invoice; otherwise why not. A request with no
+ * link (a pre-651 mandate checkout, whose activation used to fall back to "the
+ * company's pending mandate") binds to nothing: anyone can start a Paystack
+ * checkout with any metadata, so a company match alone proves nothing.
  */
 export function linkMismatch(pr: PaymentLink, metadata: Record<string, unknown> | null | undefined): string | null {
-  const key = LINK_KEY[pr.purpose];
-  if (!key) return null;
+  const link = LINK[pr.purpose];
+  if (!link) return 'unknown_purpose';
+  const [column, key] = link;
   if (!metadata || typeof metadata !== 'object') return 'no_checkout_metadata';
   if (metadata.company_id !== pr.company_id) return 'checkout_company_mismatch';
-  const linked = pr[key];
-  if (linked !== null && metadata[key] !== linked) return `checkout_${key}_mismatch`;
+  const linked = pr[column];
+  if (!linked) return `no_${column}`;
+  if (metadata[key] !== linked) return `checkout_${column}_mismatch`;
   return null;
 }
 
