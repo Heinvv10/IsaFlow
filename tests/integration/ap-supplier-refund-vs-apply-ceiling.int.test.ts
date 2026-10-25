@@ -3,11 +3,11 @@
  * supplier's cash in flight.
  *
  * On-account credit (getSupplierOnAccountCredit) = processed payments' total - allocated. Applying a payment INSERTs
- * payment_allocations and LOWERS it. The refund plan (lockContactForRefund, supplier FOR UPDATE) must wait for an
- * application in flight (which reaches the supplier through its bills' FK check), read credit 0 and refuse.
- * A refund lock that let the application through would read the R500 being spent and refund it. This parks the
- * application AFTER its bill writes; an application caught between its allocation INSERT and the bill's status write
- * is not yet covered (OPEN HIGH, ap/.claude.md 2026-10-24).
+ * payment_allocations and LOWERS it. A refund planned while the application is in flight must not read the R500
+ * being spent as still on account. Since 2026-10-25 both hold the supplier's credit key (ap/supplierCreditLock,
+ * tried, never waited on): the refund is refused as in flight (retryable, nothing written), and its retry reads the
+ * committed credit and is refused on the ceiling. This parks the application AFTER its bill writes; the window
+ * between its allocation INSERT and the bill write is ap-supplier-refund-vs-apply-window.int.test.ts.
  *
  * Deterministic: the application is held open after its writes; the refund's wait is found by pid (or it finishes,
  * which is the defect). Disposable fixture DB only.
@@ -40,7 +40,7 @@ async function inTx<T>(fn: () => Promise<T>, beforeCommit: () => Promise<void> =
   } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 }
 
-it('a refund planned while an application of the same cash is in flight waits for it and is refused', async () => {
+it('a refund planned while an application of the same cash is in flight is refused, and refused again on retry', async () => {
   const bill = await seedBill(pool, fx, 1000);
   const { rows: [pay] } = await pool.query(
     `INSERT INTO supplier_payments(company_id,supplier_id,payment_date,total_amount,payment_method,bank_account_id,reference,status,created_by)
@@ -57,13 +57,16 @@ it('a refund planned while an application of the same cash is in flight waits fo
   await appliedP; // Y has applied all R500 and holds its locks, uncommitted
 
   const refund = startWriter(fx.company, () => planSupplierRefund(fx.company, fx.supplier, 500, DAY));
-  // The refund either waits on the application (by pid) or finishes beside it (the defect).
+  // The refund is refused at once, waits on the application (by pid), or finishes beside it (the defect).
   const waited = blockedStatement(await refund.pid).then(() => true, () => false);
   await Promise.race([refund.outcome, waited]);
   release();
   await applying;
   const outcome = await refund.outcome;
   const verdict = outcome.ok ? 'passed' : outcome.code;
+  const retry = await inTx(() => planSupplierRefund(fx.company, fx.supplier, 500, DAY))
+    .then(() => 'passed', (e: { code?: string }) => e.code);
   const credit = (await inTx(() => getSupplierOnAccountCredit(fx.company, fx.supplier, DAY))).credit;
-  expect({ verdict, creditAfterApply: credit }).toEqual({ verdict: 'SUPPLIER_REFUND_REFUSED', creditAfterApply: 0 });
+  expect({ verdict, retry, creditAfterApply: credit })
+    .toEqual({ verdict: 'PAYMENT_LOCK_TIMEOUT', retry: 'SUPPLIER_REFUND_REFUSED', creditAfterApply: 0 });
 }, 60_000);
