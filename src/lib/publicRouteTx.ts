@@ -22,14 +22,26 @@
  * `company_id` predicates in the services called from `fn` — every query they
  * issue must carry one.
  */
+import type { PoolClient } from 'pg';
 import { getDbPool } from '@/lib/neon';
 import { als, type RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { rollbackFailed } from '@/lib/rollbackFailed';
+import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 
+/**
+ * `migrationAdmin`: also open a migration_admin transaction beside it, which
+ * every migrationAdminTx inside `fn` joins (S-07e: the billing tables are
+ * written only there). A throw rolls back both. On success migration_admin
+ * COMMITs first: if the service pool's COMMIT then fails, the billing writes
+ * stand without the event's `processed` stamp, the gateway redelivers, and
+ * settlement, purchase completion and mandate activation are idempotent. The
+ * other order could stamp an event processed whose billing writes were lost.
+ */
 export async function withPublicRouteTransaction<T>(
   label: string,
   fn: () => Promise<T>,
+  opts: { migrationAdmin?: boolean } = {},
 ): Promise<T> {
   // Nesting this inside a request transaction would als.run over the request's
   // own context — dropping its companyId and RLS GUCs — and COMMIT a transaction
@@ -41,14 +53,27 @@ export async function withPublicRouteTransaction<T>(
     );
   }
   const client = await getDbPool().connect();
+  let admin: PoolClient | null = null;
   // Set ONLY when the ROLLBACK itself fails. A business-logic throw that rolls
   // back cleanly leaves a perfectly reusable connection; destroying it on every
   // failed webhook would churn the pool for nothing.
   let unusable = false;
+  let adminUnusable = false;
+  let adminOpen = false;
   try {
     await client.query('BEGIN');
-    const ctx: RequestContext = { client, userId: '', claims: {}, afterCommit: [] };
+    if (opts.migrationAdmin) {
+      admin = await migrationAdminPool().connect();
+      adminOpen = true;
+      await admin.query('BEGIN');
+      await admin.query(`SET LOCAL lock_timeout = '5s'`);
+    }
+    const ctx: RequestContext = { client, userId: '', claims: {}, afterCommit: [], ...(admin ? { migrationAdminClient: admin } : {}) };
     const result = await runOwnedContext(ctx, fn);
+    if (admin) {
+      await admin.query('COMMIT');
+      adminOpen = false;
+    }
     await client.query('COMMIT');
     drainAfterCommit(ctx);
     return result;
@@ -56,9 +81,11 @@ export async function withPublicRouteTransaction<T>(
     // The connection is in an unknown state when this fails. The release below then
     // DESTROYS it rather than handing an aborted or still-open transaction to the
     // next unrelated request.
+    if (admin && adminOpen) adminUnusable = await rollbackFailed(admin, `withPublicRouteTransaction(${label}) migration_admin`);
     unusable = await rollbackFailed(client, `withPublicRouteTransaction(${label})`);
     throw err;
   } finally {
+    admin?.release(adminUnusable);
     client.release(unusable);
   }
 }

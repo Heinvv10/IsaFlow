@@ -26,6 +26,7 @@ import { createHash, createHmac } from 'crypto';
 import { Pool } from 'pg';
 import type { NextApiRequest } from 'next';
 import { assertDisposable, response } from './mfa-impersonation-postgres.helpers';
+import { als } from '@/lib/als';
 
 type Seen = { request: string | undefined; mandate: string | undefined };
 type RealSql = (s: TemplateStringsArray, ...v: unknown[]) => Promise<unknown>;
@@ -95,11 +96,13 @@ const eventBody = JSON.stringify({
 const bodyHash = createHash('sha256').update(eventBody).digest('hex');
 
 type StatusRows = Array<{ status: string }>;
+// The mandate is written on the migration_admin transaction the webhook opens
+// beside its own (S-07e, 945), so it is read there.
 hooks.probe = async (q) => ({
   request: ((await q`SELECT status FROM paystack_payment_requests
     WHERE id = ${prId} AND company_id = ${companyId}`) as StatusRows)[0]?.status,
-  mandate: ((await q`SELECT status FROM subscription_mandates
-    WHERE id = ${mandateId} AND company_id = ${companyId}`) as StatusRows)[0]?.status,
+  mandate: ((await als.getStore()!.migrationAdminClient!.query(`SELECT status FROM subscription_mandates
+    WHERE id = $1 AND company_id = $2`, [mandateId, companyId])).rows as StatusRows)[0]?.status,
 });
 
 function deliver() {

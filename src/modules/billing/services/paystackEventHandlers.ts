@@ -17,7 +17,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
-import { completeBundlePurchase, failBundlePurchase } from './flowWalletService';
+import { completePaidBundlePurchase, failBundlePurchase } from './flowWalletService';
 import {
   activateAuthorisedMandate,
   noteAuthorisationNotAttached,
@@ -108,6 +108,10 @@ async function handleChargeSuccess(
     feeCents: event.data.fees,
   };
 
+  // What the checkout asked for (Paystack adds any fee the payer bears on top):
+  // the amount a purchase or a charge must equal before it is credited or settled.
+  const paidCents = Number(event.data.requested_amount ?? event.data.amount);
+
   const prRows = await sql<{
     id: string;
     company_id: string;
@@ -188,7 +192,9 @@ async function handleChargeSuccess(
   }
 
   if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
-    await completeBundlePurchase(pr.flow_purchase_id);
+    const credited = await completePaidBundlePurchase(pr.flow_purchase_id,
+      { companyId: pr.company_id, amountCents: paidCents, currency: reported.currency });
+    if (!credited) return;
     log.info(
       'flow bundle credited via Paystack webhook',
       { purchaseId: pr.flow_purchase_id, companyId: pr.company_id },
@@ -241,13 +247,14 @@ async function handleChargeSuccess(
 
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
     // The paid-up period only moves once the money has actually arrived.
-    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id);
+    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id, paidCents);
   }
 }
 
 async function handleChargeFailed(reference: string, reason: string): Promise<void> {
   const prRows = await sql<{
     id: string;
+    company_id: string;
     purpose: string;
     flow_purchase_id: string | null;
     subscription_charge_id: string | null;
@@ -257,13 +264,13 @@ async function handleChargeFailed(reference: string, reason: string): Promise<vo
         failure_reason = ${reason}
     WHERE paystack_reference = ${reference}
       AND status NOT IN ('completed','failed')
-    RETURNING id, purpose, flow_purchase_id, subscription_charge_id
+    RETURNING id, company_id, purpose, flow_purchase_id, subscription_charge_id
   `;
   const pr = prRows[0];
   if (!pr) return;
 
   if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
-    await failBundlePurchase(pr.flow_purchase_id, reason);
+    await failBundlePurchase(pr.flow_purchase_id, reason, pr.company_id);
   }
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
     await migrationAdminSqlTx('paystack_charge_failed', (tx) => tx`
@@ -274,6 +281,7 @@ async function handleChargeFailed(reference: string, reason: string): Promise<vo
           last_attempt_at = now(),
           updated_at = now()
       WHERE id = ${pr.subscription_charge_id}
+        AND company_id = ${pr.company_id}
     `);
   }
 }

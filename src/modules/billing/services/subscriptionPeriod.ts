@@ -63,6 +63,9 @@ export async function advancePeriodForSettledCharge(
 export async function settleSubscriptionCharge(
   chargeId: string,
   companyId: string,
+  // The webhook's: what Paystack received. The payment request that links it is
+  // app-writable (S-07e), so a charge settles only for its own amount.
+  paidCents?: number,
 ): Promise<void> {
   // The charge and its period move together: one transaction.
   const done = await migrationAdminSqlTx('subscription_settle_charge', async (tx) => {
@@ -74,6 +77,7 @@ export async function settleSubscriptionCharge(
       WHERE id = ${chargeId}
         AND company_id = ${companyId}
         AND status <> 'cancelled'
+        AND (${paidCents ?? null}::bigint IS NULL OR amount_cents = ${paidCents ?? null}::bigint)
       RETURNING id
     `) as Array<{ id: string }>;
     if (!settled[0]) return false;
@@ -83,7 +87,7 @@ export async function settleSubscriptionCharge(
   if (!done) {
     log.warn(
       'Settlement arrived for a charge that is no longer settleable',
-      { chargeId, companyId },
+      { chargeId, companyId, paidCents },
       'BillingCron',
     );
   }

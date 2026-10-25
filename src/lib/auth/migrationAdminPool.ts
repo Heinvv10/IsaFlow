@@ -79,7 +79,29 @@ export function migrationAdminPool(): pg.Pool {
  * the session (impersonation included). This role bypasses RLS and the member
  * guards, so nothing here is decided by them.
  */
+let joinedSeq = 0;
+
 export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  // Inside a transaction that already holds a migration_admin client (the
+  // Paystack webhook's, publicRouteTx.ts): run in a savepoint on it, so this
+  // commits or rolls back with the event. Sequence such calls: savepoints on
+  // one connection nest LIFO, as with withTransaction.
+  const joined = als.getStore()?.migrationAdminClient;
+  if (joined) {
+    joinedSeq = (joinedSeq + 1) % 1_000_000;
+    const sp = `migration_admin_${joinedSeq}`;
+    await joined.query(`SAVEPOINT ${sp}`);
+    try {
+      const result = await fn(joined);
+      await joined.query(`RELEASE SAVEPOINT ${sp}`);
+      return result;
+    } catch (err) {
+      // A failed ROLLBACK TO leaves the outer transaction aborted; it rolls back as a whole.
+      await joined.query(`ROLLBACK TO SAVEPOINT ${sp}`).catch((rbErr: unknown) => log.warn(`${label}: ROLLBACK TO SAVEPOINT failed`,
+        { message: rbErr instanceof Error ? rbErr.message : String(rbErr) }, 'Auth'));
+      throw err;
+    }
+  }
   const claims = als.getStore()?.claims;
   const client = await migrationAdminPool().connect();
   let opened = false;
