@@ -23,9 +23,10 @@
 import type { ReactNode } from 'react';
 import type { InputVatSupportLine, VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import { LinkTaxInvoiceButton } from '@/components/accounting/gl/LinkTaxInvoiceButton';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const th = 'px-2 py-1.5 text-left text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider';
 const td = 'px-2 py-1.5 text-xs text-[var(--ff-text-primary)] whitespace-nowrap';
@@ -64,7 +65,7 @@ function SupportTable({ lines, linkable }: { lines: InputVatSupportLine[]; linka
         {lines.map((l) => (
           <tr key={l.journalEntryId}>
             <td className={td}>{l.entryNumber}</td>
-            <td className={td}>{l.entryDate}</td>
+            <td className={td}>{formatDisplayDate(l.entryDate)}</td>
             {/* An unlinked chain had a document; "Nothing" would read as never evidenced. */}
             <td className={td}>{l.reason === 'document_unlinked' ? 'Document removed' : SUPPORT_LABEL[l.supportKind]}</td>
             <td className={`${td} text-amber-400`}>{REASON_LABEL[l.reason]}</td>

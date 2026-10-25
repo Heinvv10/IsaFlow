@@ -81,6 +81,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@eslint/eslintrc": "^2.1.4",
     "@neondatabase/serverless": "^1.0.1",
     "@playwright/test": "^1.58.2",

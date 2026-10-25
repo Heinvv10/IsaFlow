@@ -9,13 +9,14 @@ import { useState, useEffect } from 'react';
 import type { ChangesInEquityReport } from '@/modules/accounting/services/afs/changesInEquityService';
 import type { CashFlowDirectReport } from '@/modules/accounting/services/afs/cashFlowDirectService';
 import type { CashFlowReconciliation } from '@/modules/accounting/services/afs/cashFlowReconciliationService';
+import { formatAmount } from '@/lib/money/formatMoney';
 
-interface Props { documentId: string; periodStart: string; periodEnd: string; }
+/** periodMonths: whole months the period covers; undefined means twelve, null that the period's length is not known. */
+interface Props { documentId: string; periodStart: string; periodEnd: string; periodMonths?: number | null; }
 
 function fmt(amount: number): string {
-  if (amount < 0)
-    return `(${Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })})`;
-  return amount.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (amount < 0) return `(${formatAmount(Math.abs(amount), { decimals: 0 })})`;
+  return formatAmount(amount, { decimals: 0 });
 }
 
 function SectionLoader({ label }: { label: string }) {
@@ -45,11 +46,12 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
+function ChangesInEquitySection({ report, periodMonths }: { report: ChangesInEquityReport; periodMonths: number | null }) {
   type ColKey = keyof typeof report.columns[0];
   const rows: Array<{ label: string; key: ColKey }> = [
     { label: 'Opening balance', key: 'opening' },
-    { label: 'Profit for year', key: 'profitForYear' },
+    // Only a twelve-month period is a year; a transition year or an unknown length is the period.
+    { label: periodMonths === 12 ? 'Profit for year' : 'Profit for the period', key: 'profitForYear' },
     { label: 'Dividends paid',  key: 'dividends' },
     { label: 'Share issue',     key: 'shareIssue' },
     { label: 'Revaluation',     key: 'revaluation' },
@@ -91,11 +93,11 @@ function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
                 >
                   <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{row.label}</td>
                   {report.columns.map(c => (
-                    <td key={c.subtype} className="text-right px-4 py-3 font-mono text-slate-800 dark:text-slate-200">
+                    <td key={c.subtype} className="text-right px-4 py-3 tabular-nums text-slate-800 dark:text-slate-200">
                       {fmt(c[row.key] as number)}
                     </td>
                   ))}
-                  <td className="text-right px-4 py-3 font-mono font-semibold text-slate-900 dark:text-white">
+                  <td className="text-right px-4 py-3 tabular-nums font-semibold text-slate-900 dark:text-white">
                     {fmt(totalByRow[row.key] ?? 0)}
                   </td>
                 </tr>
@@ -133,22 +135,22 @@ function DirectCashFlowSection({ report }: { report: CashFlowDirectReport }) {
                 {activity.items.map((item, i) => (
                   <tr key={item.cashGroup} className={i % 2 === 0 ? 'bg-slate-100 dark:bg-slate-800' : 'bg-slate-50 dark:bg-slate-800/50'}>
                     <td className="px-4 py-3 pl-8 text-slate-500 dark:text-slate-400">{item.label}</td>
-                    <td className="text-right px-4 py-3 font-mono text-slate-800 dark:text-slate-200">{fmt(item.amount)}</td>
+                    <td className="text-right px-4 py-3 tabular-nums text-slate-800 dark:text-slate-200">{fmt(item.amount)}</td>
                   </tr>
                 ))}
                 <tr className="bg-slate-200 dark:bg-slate-700/60 font-semibold border-t border-slate-300 dark:border-slate-600">
                   <td className="px-4 py-3 text-slate-800 dark:text-slate-200">Net cash from {activity.label.toLowerCase()} activities</td>
-                  <td className="text-right px-4 py-3 font-mono text-slate-900 dark:text-white">{fmt(activity.total)}</td>
+                  <td className="text-right px-4 py-3 tabular-nums text-slate-900 dark:text-white">{fmt(activity.total)}</td>
                 </tr>
               </React.Fragment>
             ))}
             <tr className="bg-slate-100 dark:bg-slate-800 border-t border-slate-600">
               <td className="px-4 py-3 text-slate-500 dark:text-slate-400">Opening cash balance</td>
-              <td className="text-right px-4 py-3 font-mono text-slate-800 dark:text-slate-200">{fmt(report.openingCash)}</td>
+              <td className="text-right px-4 py-3 tabular-nums text-slate-800 dark:text-slate-200">{fmt(report.openingCash)}</td>
             </tr>
             <tr className="bg-slate-200 dark:bg-slate-700 font-bold">
               <td className="px-4 py-3 text-slate-900 dark:text-white">Closing cash balance</td>
-              <td className="text-right px-4 py-3 font-mono text-slate-900 dark:text-white">{fmt(report.closingCash)}</td>
+              <td className="text-right px-4 py-3 tabular-nums text-slate-900 dark:text-white">{fmt(report.closingCash)}</td>
             </tr>
           </tbody>
         </table>
@@ -172,12 +174,12 @@ function ReconciliationSection({ rec }: { rec: CashFlowReconciliation }) {
             ].map(row => (
               <tr key={row.label}>
                 <td className="py-1 text-slate-500 dark:text-slate-400">{row.label}</td>
-                <td className="text-right font-mono text-slate-800 dark:text-slate-200">R {fmt(row.val)}</td>
+                <td className="text-right tabular-nums text-slate-800 dark:text-slate-200">R {fmt(row.val)}</td>
               </tr>
             ))}
             <tr className="border-t border-slate-600 font-semibold">
               <td className="py-2 text-slate-700 dark:text-slate-300">Variance</td>
-              <td className="text-right font-mono text-slate-900 dark:text-white">R {fmt(rec.variance)}</td>
+              <td className="text-right tabular-nums text-slate-900 dark:text-white">R {fmt(rec.variance)}</td>
             </tr>
           </tbody>
         </table>
@@ -210,7 +212,7 @@ function useRemote<T>(url: string): RemoteState<T> {
   return state;
 }
 
-export function AfsOverviewTab({ documentId, periodStart, periodEnd }: Props) {
+export function AfsOverviewTab({ documentId, periodStart, periodEnd, periodMonths = 12 }: Props) {
   const params = `period_start=${periodStart}&period_end=${periodEnd}`;
   const base = `/api/accounting/afs/${documentId}/statements`;
 
@@ -240,7 +242,7 @@ export function AfsOverviewTab({ documentId, periodStart, periodEnd }: Props) {
         ? <SectionError label="Statement of Changes in Equity" message={equity.error} />
         : equity.loading || !equity.data
           ? <SectionLoader label="Statement of Changes in Equity" />
-          : <ChangesInEquitySection report={equity.data.report} />}
+          : <ChangesInEquitySection report={equity.data.report} periodMonths={periodMonths} />}
 
       {direct.error
         ? <SectionError label="Statement of Cash Flows (Direct)" message={direct.error} />

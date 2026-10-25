@@ -5,17 +5,17 @@
  * is exactly how this pack once ended up with four competing margin
  * definitions.
  *
- * `formatMoney`/`formatPct` (src/lib/format/money.ts) are the only money/pct
+ * `formatStatementFigure`/`formatPct` (src/lib/format/money.ts) are the only money/pct
  * formatters in this codebase and are used as-is. `formatRatio`/`formatDays` are
  * theirs, added to that same module when a scorecard printed `-0.14` from a
  * bare `toFixed(2)` on a sheet whose money column read `(1 546)` — an ASCII
  * hyphen and an accounting bracket for the same idea, two rows apart.
  */
-import { formatDays, formatMoney, formatPct, formatPctLevel, formatTimes, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatStatementFigure, formatPct, formatPctLevel, formatTimes, type MoneyScale } from '@/lib/format/money';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 
 /** The pack's one glyph for a figure measured and nil — page 12 defines it,
- *  and `formatMoney` already returns it. Stated here so a percentage, a ratio
+ *  and `formatStatementFigure` already returns it. Stated here so a percentage, a ratio
  *  and a day count of nil print the SAME character rather than each unit's
  *  own idea of zero. */
 const ZERO_FIGURE = '\u2013';
@@ -53,7 +53,7 @@ export function formatFigureText(
   }
   // ONE GLYPH FOR A MEASURED NIL, WHATEVER UNIT IT IS MEASURED IN.
   //
-  // `formatMoney` prints the en dash for a figure measured and nil — which is
+  // `formatStatementFigure` prints the en dash for a figure measured and nil — which is
   // what page 12 defines it as — and `formatPct` prints "0.0%". So the demo
   // pack's page-6 "Other expenses" row printed a dash under Actual, Prior and
   // Change and `0.0%` under % of Revenue: four measured zeros on one line,
@@ -78,7 +78,7 @@ export function formatFigureText(
   // small figure that is not nil.
   if (figure.value === 0 && figure.format !== 'money') return ZERO_FIGURE;
   switch (figure.format) {
-    case 'money': return formatMoney(figure.value, { scale });
+    case 'money': return formatStatementFigure(figure.value, { scale });
     case 'pct': return reads === 'change' ? formatPct(figure.value, 1, { pack: true }) : formatPctLevel(figure.value);
     case 'ratio': return formatTimes(figure.value);
     case 'days': return formatDays(figure.value);

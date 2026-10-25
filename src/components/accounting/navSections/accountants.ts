@@ -10,7 +10,7 @@ export const accountantsTab: Tab = {
     {
       section: 'VAT',
       items: [
-        { label: 'VAT Return', href: '/accounting/reports/vat-return' },
+        { label: 'VAT201', href: '/accounting/sars/vat201' },
         { label: 'VAT Adjustments', href: '/accounting/vat-adjustments' },
         { label: 'DRC VAT', href: '/accounting/drc-vat' },
       ],

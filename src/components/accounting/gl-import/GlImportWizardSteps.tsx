@@ -5,6 +5,7 @@
 
 import { ArrowLeft, ArrowRight, CheckCircle2, XCircle, AlertTriangle, Upload, Loader2 } from 'lucide-react';
 import type { ValidationSummary, ImportRow } from '@/modules/accounting/services/gl/glImportService';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 // ---- Step 3: Validation Results ---------------------------------------------
 
@@ -43,8 +44,8 @@ export function ValidationStep({ summary, onBack, onNext }: Step3Props) {
           : <XCircle className="h-5 w-5 flex-shrink-0" />}
         <span className="text-sm font-medium">
           {summary.isBalanced
-            ? `Balanced — Debit: R${summary.totalDebit.toLocaleString('en-ZA', { minimumFractionDigits: 2 })} / Credit: R${summary.totalCredit.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`
-            : `Out of balance — Debit: R${summary.totalDebit.toLocaleString('en-ZA', { minimumFractionDigits: 2 })} / Credit: R${summary.totalCredit.toLocaleString('en-ZA', { minimumFractionDigits: 2 })} (difference: R${Math.abs(summary.totalDebit - summary.totalCredit).toLocaleString('en-ZA', { minimumFractionDigits: 2 })})`}
+            ? `Balanced — Debit: ${formatMoney(summary.totalDebit)} / Credit: ${formatMoney(summary.totalCredit)}`
+            : `Out of balance — Debit: ${formatMoney(summary.totalDebit)} / Credit: ${formatMoney(summary.totalCredit)} (difference: ${formatMoney(Math.abs(summary.totalDebit - summary.totalCredit))})`}
         </span>
       </div>
 
@@ -147,7 +148,7 @@ export function ImportStep({
           <p className="text-[var(--ff-text-secondary)]">
             {importResult.entriesCreated} journal {importResult.entriesCreated === 1 ? 'entry' : 'entries'} created
             with {importResult.linesCreated} lines
-            totalling R{importResult.totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}.
+            totalling {formatMoney(importResult.totalValue)}.
           </p>
           {(importResult.heldForApproval?.length ?? 0) > 0 && (
             <p className="mt-2 text-amber-500">
@@ -184,7 +185,7 @@ export function ImportStep({
           </div>
           <div>
             <div className="text-2xl font-bold text-teal-400">
-              R{summary.totalDebit.toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+              {formatMoney(summary.totalDebit)}
             </div>
             <div className="text-xs text-[var(--ff-text-secondary)]">Total debit value</div>
           </div>

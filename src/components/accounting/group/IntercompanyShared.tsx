@@ -56,7 +56,7 @@ export function StatCard({
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
       <p className="text-xs text-[var(--ff-text-tertiary)] uppercase">{label}</p>
-      <p className={`text-xl font-bold font-mono ${color}`}>{value}</p>
+      <p className={`text-xl font-bold tabular-nums ${color}`}>{value}</p>
       <p className="text-xs text-[var(--ff-text-tertiary)]">{sub}</p>
     </div>
   );

@@ -72,7 +72,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/acceptance/entity-onboarding-seed.ts', // seeds a throwaway acceptance DB (psql), never a shared one
     'scripts/provision-isademo2.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
-    'scripts/stress-test.ts', `${S}core/userAccessService.ts`,
+    'scripts/stress-test.ts', `${S}core/memberWrites.ts`,
     'src/modules/admin/services/adminUserActionsService.ts',
     'src/modules/admin/services/companyMembershipService.ts',
     'src/modules/onboarding/services/tenantProvisioningService.ts',
@@ -90,6 +90,7 @@ const WRITERS: Record<string, string[]> = {
     'scripts/qa-cleanup-run.ts',
     'scripts/sandbox/reviewerSandboxIdentity.ts', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
     'scripts/stress-test.ts', `${S}capture/bankTxQueryService.ts`, `${S}core/companyService.ts`,
+    `${S}gl/financialYearEndChangeApply.ts`, `${S}gl/financialYearEndChangeUndo.ts`, // financial_year_start on a change of year end / its undo
     'src/modules/admin/services/adminCompanyService.ts', 'src/modules/admin/services/companyLifecycleService.ts',
     'src/modules/admin/services/trialService.ts',
     // complete-setup's UPDATE of the company it has just created (entity_type, onboarding_request_key), as its new owner (withAuth).

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 type ActivityType =
   | 'note'
@@ -91,7 +92,7 @@ function relativeTime(raw: string | Date): string {
   if (diffHr  < 24)  return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`;
   const diffDay = Math.floor(diffHr  / 24);
   if (diffDay < 30)  return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
-  return date.toLocaleDateString('en-ZA');
+  return formatDisplayDate(date);
 }
 
 function creatorName(activity: SupplierActivity): string {

@@ -14,6 +14,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { BundleEditor } from '@/components/accounting/items/BundleEditor';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Item {
   id: string;
@@ -32,7 +33,7 @@ interface Item {
 
 const fmtCurrency = (v: number | null | undefined) =>
   v != null
-    ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(Number(v))
+    ? formatMoney(Number(v))
     : null;
 
 export default function ItemDetailPage() {

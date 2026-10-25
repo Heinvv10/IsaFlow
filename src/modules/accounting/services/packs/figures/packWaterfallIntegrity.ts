@@ -26,7 +26,7 @@
  * nothing about the gap.
  */
 
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, type MoneyScale } from '@/lib/format/money';
 import type { PackChartSpec, PackWaterfallBar, PlugReason } from '../pages/packPageModel';
 
 /** One cent. Money figures are raw rands (R-P52), so this is absolute. */
@@ -178,7 +178,7 @@ export function disproportionatePlugSentence(chart: PackChartSpec, scale: MoneyS
 
   const plug = bars.filter((bar) => bar.uncaptured !== undefined);
   const labels = plug.map((bar) => `'${bar.label}'`).join(' and ');
-  // `formatMoney`, not the raw `money` above: this sentence is printed on the
+  // `formatStatementFigure`, not the raw `money` above: this sentence is printed on the
   // page, where a director reads it, while the failure messages in this file
   // are read by whoever is fixing the pack and want the unrounded figure.
   // At the DOCUMENT's scale, like every other figure a reader sees. It printed
@@ -190,7 +190,7 @@ export function disproportionatePlugSentence(chart: PackChartSpec, scale: MoneyS
   // its word, and it was the only place in the pack a currency mark appeared
   // at all. The scale is the page's, stated once, in the table header and on
   // the basis page.
-  const amount = formatMoney(
+  const amount = formatStatementFigure(
     plug.reduce((sum, bar) => sum + Math.abs(bar.end - bar.start), 0),
     { scale },
   );

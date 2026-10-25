@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest';
 import { buildProfitWaterfall } from '@/modules/accounting/services/reports/waterfallDataService';
 import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 
 /** Two real ledgers, one of each shape the pack is rendered against. */
@@ -56,19 +56,19 @@ describe('a profit bridge beside its own income statement', () => {
       // the table cell. Each must print exactly as the table prints it.
       for (const cell of [f.costOfSales, f.operatingExpenses, f.otherExpenses]) {
         if (cell === 0) continue;
-        const asTable = formatMoney(cell, { scale: PACK_SCALE });
-        const asEffect = formatMoney(-cell, { scale: PACK_SCALE });
+        const asTable = formatStatementFigure(cell, { scale: PACK_SCALE });
+        const asEffect = formatStatementFigure(-cell, { scale: PACK_SCALE });
         expect(drawn, `the bridge does not print ${asTable}, which the table does`)
           .toContain(asTable);
-        // AND NOT the negation. Restore `formatMoney(step.value)` in
+        // AND NOT the negation. Restore `formatStatementFigure(step.value)` in
         // `makeWaterfallRenderItem` and this is the assertion that goes red.
         expect(drawn, `the bridge prints ${asEffect} for a table cell of ${asTable}`)
           .not.toContain(asEffect);
       }
       // The income lines and the subtotals were never in dispute and must not
       // move: their bar already carried the table's sign.
-      expect(drawn).toContain(formatMoney(f.revenue, { scale: PACK_SCALE }));
-      expect(drawn).toContain(formatMoney(f.netProfit, { scale: PACK_SCALE }));
+      expect(drawn).toContain(formatStatementFigure(f.revenue, { scale: PACK_SCALE }));
+      expect(drawn).toContain(formatStatementFigure(f.netProfit, { scale: PACK_SCALE }));
     });
   }
 });

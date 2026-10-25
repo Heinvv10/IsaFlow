@@ -12,6 +12,7 @@ import { KpiStrip } from '@/components/ui';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Asset {
   id: string;
@@ -34,8 +35,7 @@ interface Asset {
   sars_rate: number;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const statusColors: Record<string, string> = {
   available: 'bg-teal-500/10 text-teal-400',
@@ -188,7 +188,7 @@ export default function AssetsListPage() {
                       <Link href={`/accounting/assets/${a.id}`} className="hover:text-teal-400">
                         {a.asset_number}
                       </Link>
-                      {a.below_threshold && <span className="ml-1 text-amber-400 text-[10px]">⚠</span>}
+                      {a.below_threshold && <span className="ml-1 text-amber-400 text-xs">⚠</span>}
                     </td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] truncate max-w-[160px]">{a.name}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{a.category_name || a.category || '—'}</td>
@@ -196,8 +196,8 @@ export default function AssetsListPage() {
                     <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs">{a.custodian || '—'}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-tertiary)] text-xs">{a.location || '—'}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-tertiary)] font-mono text-xs">{a.production_code || '—'}</td>
-                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono text-xs">{fmt(Number(a.purchase_price))}</td>
-                    <td className="px-4 py-3 text-right text-teal-400 font-mono text-xs">{fmt(Number(a.current_book_value || a.purchase_price))}</td>
+                    <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] tabular-nums text-xs">{fmt(Number(a.purchase_price))}</td>
+                    <td className="px-4 py-3 text-right text-teal-400 tabular-nums text-xs">{fmt(Number(a.current_book_value || a.purchase_price))}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${statusColors[a.status] ?? ''}`}>
                         {(a.status || '').replace(/_/g, ' ')}

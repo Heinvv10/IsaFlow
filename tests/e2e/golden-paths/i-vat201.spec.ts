@@ -34,6 +34,12 @@ test('VAT201 computes box structure and exceptions panel responds', async ({ bas
     ]) {
       expect(typeof vat[field], `${field} must be numeric`).toBe('number');
     }
+    // The page renders the SARS form (1, 1A ... 20): all 25 fields, totals tying to the storage keys.
+    const sars = Object.fromEntries(vat.sarsFields.map((f: any) => [f.field, f.amount]));
+    expect(vat.sarsFields.map((f: any) => f.field)).toHaveLength(25);
+    expect(sars['13']).toBeCloseTo(vat.field5_outputVAT, 2);
+    expect(sars['19']).toBeCloseTo(vat.field10_totalInputVAT, 2);
+    expect(sars['20']).toBeCloseTo(sars['13'] - sars['19'], 2);
     expect(vat.periodStart).toBe(from);
     expect(vat.periodEnd).toBe(to);
 

@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { AlertCircle, CheckCircle2, Loader2, ChevronRight } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface OverdueInvoice {
   id: string;
@@ -27,13 +28,14 @@ interface PendingSupplierPayment {
 
 interface TodoData {
   overdueInvoices: OverdueInvoice[];
+  overdueInvoiceCount: number;
   pendingSupplierPayments: PendingSupplierPayment[];
   uncategorizedBankTxns: number;
   draftInvoices: number;
 }
 
 function fmtZAR(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+  return formatMoney(n);
 }
 
 function ActionRow({
@@ -121,7 +123,7 @@ export function TodoWidget() {
     !loading &&
     !error &&
     data !== null &&
-    data.overdueInvoices.length === 0 &&
+    data.overdueInvoiceCount === 0 &&
     data.pendingSupplierPayments.length === 0 &&
     data.uncategorizedBankTxns === 0 &&
     data.draftInvoices === 0;
@@ -153,12 +155,12 @@ export function TodoWidget() {
       {!loading && !error && !isAllClear && data && (
         <div className="space-y-0.5">
           {/* Overdue customer invoices */}
-          {data.overdueInvoices.length > 0 && (
+          {data.overdueInvoiceCount > 0 && (
             <>
               <ActionRow
-                label={`${data.overdueInvoices.length} overdue invoice${data.overdueInvoices.length !== 1 ? 's' : ''}`}
+                label={`${data.overdueInvoiceCount} overdue invoice${data.overdueInvoiceCount !== 1 ? 's' : ''}`}
                 href="/accounting/customer-invoices?filter=overdue"
-                badge={data.overdueInvoices.length}
+                badge={data.overdueInvoiceCount}
                 badgeColor="rose"
               />
               {data.overdueInvoices.slice(0, 3).map((inv) => (

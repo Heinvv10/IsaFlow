@@ -9,6 +9,7 @@ import { GraduationCap, Loader2, AlertCircle, Plus, X } from 'lucide-react';
 import { localISODate } from '@/lib/dateUtils';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
 import { payrollLoadMessage } from '@/lib/payrollDetailAccess';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Employee { id: string; employeeNumber: string; firstName: string; lastName: string }
 interface Event {
@@ -45,8 +46,7 @@ const STATUSES = [
   { v: 'cancelled', cls: 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]' },
 ];
 
-const zar = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 0 }).format(n);
+const zar = (n: number) => formatMoney(n, { decimals: 0 });
 
 export default function TrainingPage() {
   const [events, setEvents] = useState<Event[]>([]);

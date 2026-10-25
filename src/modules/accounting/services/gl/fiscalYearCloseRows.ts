@@ -16,12 +16,14 @@
  * whatever `fromDate` was. Balance-sheet accounts get neither.
  *
  * "When does the fiscal year start" is NOT decided here: every date comes from
- * `fiscalYearBasis.fiscalYearStart` (owner of `fiscalyear.start.v1`). Dates are
- * 'YYYY-MM-DD' strings, compared as strings, never round-tripped through a
- * local-time `Date`.
+ * the fiscal-year registry (`fiscalYearRegistry`), so the boundaries are the
+ * REAL years' edges: a 14-month transition year is one year, and a year before
+ * a change of year end keeps the dates it had. Dates are 'YYYY-MM-DD' strings,
+ * compared as strings, never round-tripped through a local-time `Date`.
  */
 
-import { fiscalYearStart } from './fiscalYearBasis';
+import { fmtDate } from '@/lib/fmtDate';
+import { dayBefore, fiscalYearForDate, priorFiscalYear } from './fiscalYearRegistry';
 import { isLedgerDate, LEDGER_MAX_YEAR, LEDGER_MIN_YEAR } from './ledgerDateRange';
 import { INCOME_STATEMENT_TYPES } from './trialBalanceBasis';
 
@@ -30,12 +32,13 @@ export function isIncomeStatementType(accountType: string): boolean {
 }
 
 /** First day of the fiscal year containing `fromDate` for revenue/expense; null (no floor) otherwise. */
-export function incomeStatementOpeningFloor(
+export async function incomeStatementOpeningFloor(
+  companyId: string,
   accountType: string,
   fromDate: string,
-  fyStartMonth: number,
-): string | null {
-  return isIncomeStatementType(accountType) ? fiscalYearStart(fromDate, fyStartMonth) : null;
+): Promise<string | null> {
+  if (!isIncomeStatementType(accountType)) return null;
+  return (await fiscalYearForDate(companyId, fromDate)).startDate;
 }
 
 /** More boundaries than the legal year range can hold; a walk that reaches it is a bug. */
@@ -45,35 +48,38 @@ const MAX_BOUNDARIES = LEDGER_MAX_YEAR - LEDGER_MIN_YEAR + 2;
  * Fiscal-year start dates strictly after `fromDate` and on or before `toDate`, ascending.
  * Both must be real 'YYYY-MM-DD' dates (ledgerDateRange): the walk compares strings, so an
  * odd one (a leading space sorts below every digit) used to never end. Bounded three ways:
- * validated input, integer years stepping down, and an iteration cap that throws.
+ * validated input, a walk back one registry year at a time (each strictly earlier), and an
+ * iteration cap that throws.
  */
-export function fiscalYearStartsWithin(fromDate: string, toDate: string, fyStartMonth: number): string[] {
+export async function fiscalYearStartsWithin(
+  companyId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<string[]> {
   for (const d of [fromDate, toDate]) {
     if (!isLedgerDate(d)) throw new Error(`fiscalYearStartsWithin: invalid date '${String(d)}'`);
   }
   const out: string[] = [];
-  let boundary = fiscalYearStart(toDate, fyStartMonth);
-  let year = Number(boundary.slice(0, 4));
-  while (boundary > fromDate) {
-    if (out.length >= MAX_BOUNDARIES || !Number.isInteger(year)) {
+  let year = await fiscalYearForDate(companyId, toDate);
+  while (year.startDate > fromDate) {
+    if (out.length >= MAX_BOUNDARIES) {
       throw new Error('fiscalYearStartsWithin: fiscal-year walk did not terminate');
     }
-    out.unshift(boundary);
-    year -= 1;
-    boundary = `${String(year).padStart(4, '0')}${boundary.slice(4)}`;
+    out.unshift(year.startDate);
+    year = await priorFiscalYear(companyId, year);
   }
   return out;
 }
 
-/** Last day of the fiscal year that ends immediately before `nextFyStart` ('YYYY-MM-01'). */
+/** The day after a 'YYYY-MM-DD' date, by integer components (no Date round-trip through UTC). */
+export function dayAfter(date: string): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  return fmtDate(new Date(y, m - 1, d + 1));
+}
+
+/** Last day of the fiscal year that ends immediately before `nextFyStart`. */
 export function fiscalYearEndBefore(nextFyStart: string): string {
-  const year = Number(nextFyStart.slice(0, 4));
-  const month = Number(nextFyStart.slice(5, 7));
-  const endYear = month === 1 ? year - 1 : year;
-  const endMonth = month === 1 ? 12 : month - 1;
-  // Date.UTC(y, m, 0) is the last day of 1-based month m — UTC, so no host-offset shift.
-  const lastDay = new Date(Date.UTC(endYear, endMonth, 0)).getUTCDate();
-  return `${String(endYear).padStart(4, '0')}-${String(endMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  return dayBefore(nextFyStart);
 }
 
 export function yearEndCloseDescription(fyEnd: string): string {

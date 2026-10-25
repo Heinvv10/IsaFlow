@@ -6,6 +6,8 @@
  * uses the codes valid at the time, not today's set.
  */
 
+import { medicalFieldRules } from './easyFileMedicalFields';
+import { birthDateRules } from './easyFileEmployeeFacts';
 import {
   getSarsCode,
   isKnownSarsCode,
@@ -237,7 +239,9 @@ export async function validateEmployeeIrp5(
  * (Jun-26): p. 17 (3015) an IRP5 needs 4101, 4102 or 4115 above nil and no
  * 4150, an IT3(a) needs 4150 and none of 4101/4102/4115; p. 57 (4115) it is
  * mandatory beside 3901/3915/3920-3924; p. 58 (4150) only 2-10, and 04 needs
- * the directive information. buildIrp5File refuses a file that breaks them.
+ * the directive information; p. 59-61 the medical rules (medicalFieldRules:
+ * 4005/4116/4120, 4120 against the age, 08 only with a credit above nil).
+ * buildIrp5File refuses a file that breaks them.
  */
 export function validateCertificateTaxFields(lines: string[]): ValidationMessage[] {
   const field = new Map<string, string>();
@@ -249,6 +253,8 @@ export function validateCertificateTaxFields(lines: string[]): ValidationMessage
   const err = (code: string, message: string) => msgs.push({ severity: 'error', code, message, field: code });
   const tax = ['4101', '4102', '4115'].filter(c => field.has(c));
   const reason = field.get('4150');
+  medicalFieldRules(field, err);
+  birthDateRules(field, err);
   if (field.get('3015') === 'IT3(a)') {
     if (reason == null) err('IT3A_WITHOUT_REASON_CODE', 'An IT3(a) needs a reason code for non-deduction of tax (4150).');
     else if (!/^(0?[2-9]|10)$/.test(reason)) err('IT3A_INVALID_REASON_CODE', `Reason code 4150 must be 02 to 10, not ${reason}.`);

@@ -23,7 +23,7 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
-import { formatMoney, pctWithWord, toMoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, pctWithWord, toMoneyScale } from '@/lib/format/money';
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
@@ -382,7 +382,7 @@ describe('buildBoardPackPages', () => {
     }
   });
 
-  // The 1000x defect: `PackTable.scale` said "R'000" while `formatMoney` had
+  // The 1000x defect: `PackTable.scale` said "R'000" while `formatStatementFigure` had
   // no scale handling at all, so R4 200 000 printed as `4 200 000` under a
   // thousands header. Eighteen tests passed because not one read a formatted
   // cell against the header above it. This is that assertion.
@@ -545,8 +545,8 @@ describe('buildBoardPackPages', () => {
     // end-labelled small multiple), so the figure itself is checkable in the
     // SVG, not just in the title string — AT THE DOCUMENT'S SCALE, which is
     // what an end label on a chart under an R'000 header must print (R-P52).
-    expect(chart.svg).toContain(formatMoney(trend[trend.length - 1]!.cash, { scale: PACK_SCALE }));
-    expect(chart.svg).not.toContain(formatMoney(trend[trend.length - 1]!.cash));
+    expect(chart.svg).toContain(formatStatementFigure(trend[trend.length - 1]!.cash, { scale: PACK_SCALE }));
+    expect(chart.svg).not.toContain(formatStatementFigure(trend[trend.length - 1]!.cash));
     expect(disclosureHeadings(doc.pages.find((p) => p.number === 8)!)).not.toContain('No closing-cash series');
   });
 

@@ -155,10 +155,7 @@ const EnhancedStatCardComponent = ({
 
         <div className="space-y-2">
           <div className="flex items-baseline">
-            <span className={cn(
-              'font-bold text-white',
-              variant === 'compact' ? 'text-2xl' : 'text-3xl'
-            )}>
+            <span className="font-bold text-white text-2xl">
               {displayValue}
             </span>
           </div>

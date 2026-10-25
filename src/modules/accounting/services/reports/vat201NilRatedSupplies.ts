@@ -31,13 +31,16 @@ import type { DbRow } from '@/lib/neon';
 /** Both spellings of a killed document are in use across AR and the credit notes. */
 const CANCELLED_STATUSES: readonly string[] = ['cancelled', 'void', 'voided'];
 
-const ZERO_RATED_TYPES: readonly string[] = ['zero_rated', 'export'];
+const EXPORT_TYPE = 'export';
+const ZERO_RATED_TYPES: readonly string[] = ['zero_rated', EXPORT_TYPE];
 const EXEMPT_TYPES: readonly string[] = ['exempt', 'no_vat'];
 const NIL_RATED_TYPES: readonly string[] = [...ZERO_RATED_TYPES, ...EXEMPT_TYPES];
 
 export interface NilRatedSupplies {
-  /** Field 2 — zero-rated supplies, net of zero-rated credit notes. */
+  /** Zero-rated supplies, exports included, net of zero-rated credit notes. */
   zeroRated: number;
+  /** The `export` part of `zeroRated` — SARS field 2A; field 2 is `zeroRated` less this. */
+  exported: number;
   /** Field 3 — exempt supplies, net of exempt credit notes. */
   exempt: number;
   /**
@@ -46,6 +49,12 @@ export interface NilRatedSupplies {
    * raised on their own journals.
    */
   onTaxedJournals: number;
+  /** Part of `onTaxedJournals` on journals whose taxed output legs are ALL capital goods: it comes off field 1A, not field 1. */
+  onTaxedCapital: number;
+  /** Part of `onTaxedJournals` on journals mixing capital and other taxed legs: not attributable to 1 or 1A, so the page warns. */
+  onTaxedAmbiguous: number;
+  /** Part of `zeroRated` from revenue lines with NO vat code on wholly untaxed documents: assumed zero-rated, for the user to confirm. */
+  uncodedAssumedZeroRated: number;
 }
 
 function r2(n: number): number {
@@ -82,12 +91,17 @@ export async function getNilRatedSupplies(
       --   * a mixed journal's nil-rated type takes a pro-rata share of nil, so
       --     its base sits on box 1 whatever the nil-rated leg is worth.
       -- A leg with no code at all defaults to standard there, so it is taxed.
-      SELECT DISTINCT jl.journal_entry_id AS id
+      -- has_capital / has_other: which taxed types the journal's output legs name,
+      -- so the nil-rated share is given back by the box it was apportioned into.
+      SELECT jl.journal_entry_id AS id,
+             bool_or(jl.vat_type = 'capital_goods') AS has_capital,
+             bool_or(jl.vat_type IS DISTINCT FROM 'capital_goods') AS has_other
       FROM gl_journal_lines jl
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE jl.company_id = ${companyId}::UUID
         AND COALESCE(ga.account_subtype, '') = 'vat_output'
         AND (jl.vat_type IS NULL OR jl.vat_type <> ALL(${NIL_RATED_TYPES as string[]}::TEXT[]))
+      GROUP BY jl.journal_entry_id
     ),
     cancelled_entries AS (
       SELECT ci.gl_journal_entry_id AS id FROM customer_invoices ci
@@ -115,9 +129,12 @@ export async function getNilRatedSupplies(
           AND cn.gl_journal_entry_id IS NOT NULL
     )
     SELECT
+      jl.vat_type AS raw_vat_type,
       COALESCE(jl.vat_type, 'zero_rated') AS vat_type,
       COALESCE(SUM(jl.credit - jl.debit), 0) AS base,
-      COALESCE(SUM(CASE WHEN te.id IS NOT NULL THEN jl.credit - jl.debit ELSE 0 END), 0) AS base_on_taxed
+      COALESCE(SUM(CASE WHEN te.id IS NOT NULL THEN jl.credit - jl.debit ELSE 0 END), 0) AS base_on_taxed,
+      COALESCE(SUM(CASE WHEN te.has_capital AND NOT te.has_other THEN jl.credit - jl.debit ELSE 0 END), 0) AS base_on_capital,
+      COALESCE(SUM(CASE WHEN te.has_capital AND te.has_other THEN jl.credit - jl.debit ELSE 0 END), 0) AS base_on_mixed
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN gl_accounts ga ON ga.id = jl.gl_account_id
@@ -134,20 +151,33 @@ export async function getNilRatedSupplies(
         jl.vat_type = ANY(${NIL_RATED_TYPES as string[]}::TEXT[])
         OR (jl.vat_type IS NULL AND je.id IN (SELECT id FROM untaxed_documents))
       )
-    GROUP BY COALESCE(jl.vat_type, 'zero_rated')
+    GROUP BY jl.vat_type
   `) as DbRow[];
 
   let zeroRated = 0;
+  let exported = 0;
   let exempt = 0;
   let onTaxedJournals = 0;
+  let onTaxedCapital = 0;
+  let onTaxedAmbiguous = 0;
+  let uncodedAssumedZeroRated = 0;
   for (const row of rows) {
     const vatType = String(row.vat_type ?? '');
     const base = Number(row.base) || 0;
-    if (ZERO_RATED_TYPES.includes(vatType)) zeroRated += base;
-    else if (EXEMPT_TYPES.includes(vatType)) exempt += base;
+    if (ZERO_RATED_TYPES.includes(vatType)) {
+      zeroRated += base;
+      if (vatType === EXPORT_TYPE) exported += base;
+    } else if (EXEMPT_TYPES.includes(vatType)) exempt += base;
     else continue;
     onTaxedJournals += Number(row.base_on_taxed) || 0;
+    onTaxedCapital += Number(row.base_on_capital) || 0;
+    onTaxedAmbiguous += Number(row.base_on_mixed) || 0;
+    if (row.raw_vat_type == null) uncodedAssumedZeroRated += base;
   }
 
-  return { zeroRated: r2(zeroRated), exempt: r2(exempt), onTaxedJournals: r2(onTaxedJournals) };
+  return {
+    zeroRated: r2(zeroRated), exported: r2(exported), exempt: r2(exempt), onTaxedJournals: r2(onTaxedJournals),
+    onTaxedCapital: r2(onTaxedCapital), onTaxedAmbiguous: r2(onTaxedAmbiguous),
+    uncodedAssumedZeroRated: r2(uncodedAssumedZeroRated),
+  };
 }

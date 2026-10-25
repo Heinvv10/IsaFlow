@@ -9,15 +9,14 @@
 import { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, CheckCircle2, CalendarDays, Hash } from 'lucide-react';
 import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
+
+// Every state is the loaded card's height (~200 px), so the strip does not jump when the statement arrives.
+const BOX = 'min-h-[200px] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
 
 // 🟢 WORKING: ZAR currency formatter (2 decimal places for reconciliation context)
-const fmt = (amount: number): string =>
-  new Intl.NumberFormat('en-ZA', {
-    style: 'currency',
-    currency: 'ZAR',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+const fmt = (amount: number): string => formatMoney(amount);
 
 interface ImportBatch {
   id: string;
@@ -73,10 +72,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
 
   if (loading) {
     return (
-      <div
-        className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4"
-        style={{ minHeight: 100 }}
-      >
+      <div className={`${BOX} p-4`}>
         <div className="flex items-center gap-2 text-xs text-[var(--ff-text-tertiary)]">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Loading statement balances…
@@ -87,7 +83,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4">
+      <div className={`${BOX} p-4`}>
         <div className="flex items-center gap-2 text-xs text-red-400">
           <AlertCircle className="h-3.5 w-3.5" />
           {error}
@@ -98,7 +94,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
 
   if (!batch) {
     return (
-      <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4">
+      <div className={`${BOX} p-4`}>
         <p className="text-xs text-[var(--ff-text-tertiary)]">No statement imports found.</p>
       </div>
     );
@@ -112,21 +108,17 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
   const isReconciled = difference !== null && Math.abs(difference) < 0.01;
 
   // Format the import date for display
-  const importedOn = new Date(batch.createdAt).toLocaleDateString('en-ZA', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
+  const importedOn = formatDisplayDate(batch.createdAt);
 
   return (
-    <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
+    <div className={BOX}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--ff-border-light)] px-4 py-2.5">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">
           Statement Balance
         </h3>
         {batch.bankFormat && (
-          <span className="rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-[10px] font-medium text-[var(--ff-text-tertiary)]">
+          <span data-testid="statement-format-chip" className="rounded-full bg-[var(--ff-bg-tertiary)] px-2 py-0.5 text-xs font-medium text-[var(--ff-text-tertiary)]">
             {batch.bankFormat.toUpperCase()}
           </span>
         )}
@@ -137,7 +129,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
         {/* Opening Balance */}
         <div className="flex items-center justify-between px-4 py-2.5">
           <span className="text-xs text-[var(--ff-text-tertiary)]">Opening Balance</span>
-          <span className="font-mono text-sm text-[var(--ff-text-primary)]">
+          <span className="tabular-nums text-sm text-[var(--ff-text-primary)]">
             {batch.openingBalance !== null ? fmt(batch.openingBalance) : '—'}
           </span>
         </div>
@@ -145,7 +137,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
         {/* Closing Balance */}
         <div className="flex items-center justify-between px-4 py-2.5">
           <span className="text-xs text-[var(--ff-text-tertiary)]">Closing Balance</span>
-          <span className="font-mono text-sm font-medium text-[var(--ff-text-primary)]">
+          <span className="tabular-nums text-sm font-medium text-[var(--ff-text-primary)]">
             {batch.closingBalance !== null ? fmt(batch.closingBalance) : '—'}
           </span>
         </div>
@@ -154,7 +146,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
         {glBalance !== undefined && (
           <div className="flex items-center justify-between px-4 py-2.5">
             <span className="text-xs text-[var(--ff-text-tertiary)]">GL Balance</span>
-            <span className="font-mono text-sm text-[var(--ff-text-primary)]">
+            <span className="tabular-nums text-sm text-[var(--ff-text-primary)]">
               {fmt(glBalance)}
             </span>
           </div>
@@ -170,7 +162,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
               Difference
             </span>
             <span
-              className={`font-mono text-sm font-semibold ${
+              className={`tabular-nums text-sm font-semibold ${
                 isReconciled ? 'text-teal-500' : 'text-amber-400'
               }`}
             >
@@ -181,10 +173,10 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
       </div>
 
       {/* Footer: import metadata */}
-      <div className="flex items-center gap-4 border-t border-[var(--ff-border-light)] px-4 py-2 text-[10px] text-[var(--ff-text-tertiary)]">
+      <div className="flex items-center gap-4 border-t border-[var(--ff-border-light)] px-4 py-2 text-xs text-[var(--ff-text-tertiary)]">
         <span className="flex items-center gap-1">
           <CalendarDays className="h-3 w-3" />
-          {batch.statementDate}
+          {formatDisplayDate(batch.statementDate)}
         </span>
         <span className="flex items-center gap-1">
           <Hash className="h-3 w-3" />

@@ -18,16 +18,18 @@ import { DebtorInvoicesPanel } from '@/components/accounting/DebtorInvoicesPanel
 import { buildInvoiceHref } from '@/components/accounting/invoiceReturnContext';
 import { useAgingReturn } from '@/components/accounting/useAgingReturn';
 import { INVOICE_LINK } from '@/components/accounting/agingPanelFormat';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(amount: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(amount);
+  return formatMoney(amount);
 }
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-ZA');
+  return formatDisplayDate(iso);
 }
 
 // ── Stat Card ─────────────────────────────────────────────────────────────────
@@ -40,7 +42,7 @@ function StatCard({ label, value, sub, icon: Icon, color }: StatCardProps) {
         <div className={`p-1.5 rounded ${color}/10`}><Icon className={`h-4 w-4 ${color}`} /></div>
         <p className="text-xs text-[var(--ff-text-secondary)] uppercase">{label}</p>
       </div>
-      <p className={`text-xl font-bold font-mono ${color}`}>{value}</p>
+      <p className={`text-xl font-bold tabular-nums ${color}`}>{value}</p>
       {sub && <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">{sub}</p>}
     </div>
   );
@@ -141,14 +143,14 @@ export default function DebtorsManagerPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                    <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase w-6"></th>
-                    <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-teal-500 uppercase">Current</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-amber-500 uppercase">1–30 Days</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-orange-500 uppercase">31–60 Days</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-400 uppercase">61–90 Days</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-red-600 uppercase">90+ Days</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase w-6"></th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-teal-500 uppercase">Current</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-amber-500 uppercase">1–30 Days</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-orange-500 uppercase">31–60 Days</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-red-400 uppercase">61–90 Days</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-red-600 uppercase">90+ Days</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
@@ -169,12 +171,12 @@ export default function DebtorsManagerPage() {
                           </Link>
                           <span className="ml-2 text-xs text-[var(--ff-text-tertiary)]">({d.invoiceCount} inv.)</span>
                         </td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-teal-500">{d.current > 0 ? fmt(d.current) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-amber-500">{d.days30 > 0 ? fmt(d.days30) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-orange-500">{d.days60 > 0 ? fmt(d.days60) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-red-400">{d.days90 > 0 ? fmt(d.days90) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-red-600">{d.days90Plus > 0 ? fmt(d.days90Plus) : '—'}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">{fmt(d.totalOutstanding)}</td>
+                        <td className="px-4 py-3 text-sm text-right tabular-nums text-teal-500">{d.current > 0 ? fmt(d.current) : '—'}</td>
+                        <td className="px-4 py-3 text-sm text-right tabular-nums text-amber-500">{d.days30 > 0 ? fmt(d.days30) : '—'}</td>
+                        <td className="px-4 py-3 text-sm text-right tabular-nums text-orange-500">{d.days60 > 0 ? fmt(d.days60) : '—'}</td>
+                        <td className="px-4 py-3 text-sm text-right tabular-nums text-red-400">{d.days90 > 0 ? fmt(d.days90) : '—'}</td>
+                        <td className="px-4 py-3 text-sm text-right tabular-nums text-red-600">{d.days90Plus > 0 ? fmt(d.days90Plus) : '—'}</td>
+                        <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{fmt(d.totalOutstanding)}</td>
                       </tr>
                       {expandedId === d.clientId && (
                         <DebtorInvoicesPanel clientId={d.clientId} clientName={d.clientName} />
@@ -186,12 +188,12 @@ export default function DebtorsManagerPage() {
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)]">
                     <td className="px-4 py-3"></td>
                     <td className="px-4 py-3 text-sm font-bold text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-teal-500">{fmt(filtered.reduce((s, d) => s + d.current, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-amber-500">{fmt(filtered.reduce((s, d) => s + d.days30, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-orange-500">{fmt(filtered.reduce((s, d) => s + d.days60, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-red-400">{fmt(filtered.reduce((s, d) => s + d.days90, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-red-600">{fmt(filtered.reduce((s, d) => s + d.days90Plus, 0))}</td>
-                    <td className="px-4 py-3 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">{fmt(filtered.reduce((s, d) => s + d.totalOutstanding, 0))}</td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-teal-500">{fmt(filtered.reduce((s, d) => s + d.current, 0))}</td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-amber-500">{fmt(filtered.reduce((s, d) => s + d.days30, 0))}</td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-orange-500">{fmt(filtered.reduce((s, d) => s + d.days60, 0))}</td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-red-400">{fmt(filtered.reduce((s, d) => s + d.days90, 0))}</td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-red-600">{fmt(filtered.reduce((s, d) => s + d.days90Plus, 0))}</td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{fmt(filtered.reduce((s, d) => s + d.totalOutstanding, 0))}</td>
                   </tr>
                 </tfoot>
               </table>
@@ -209,11 +211,11 @@ export default function DebtorsManagerPage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-[var(--ff-bg-tertiary)] border-b border-[var(--ff-border-light)]">
-                    <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
-                    <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
-                    <th className="px-4 py-2 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Due Date</th>
-                    <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Days Overdue</th>
-                    <th className="px-4 py-2 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
+                    <th className="px-4 py-2 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Invoice #</th>
+                    <th className="px-4 py-2 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+                    <th className="px-4 py-2 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Due Date</th>
+                    <th className="px-4 py-2 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Days Overdue</th>
+                    <th className="px-4 py-2 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Outstanding</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
@@ -226,8 +228,8 @@ export default function DebtorsManagerPage() {
                       </td>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{inv.clientName}</td>
                       <td className="px-4 py-2 text-sm text-[var(--ff-text-secondary)]">{fmtDate(inv.dueDate)}</td>
-                      <td className="px-4 py-2 text-sm text-right font-mono tabular-nums text-red-400">{inv.daysOverdue}d</td>
-                      <td className="px-4 py-2 text-sm text-right font-mono tabular-nums font-bold text-red-500">{fmt(inv.outstanding)}</td>
+                      <td className="px-4 py-2 text-sm text-right tabular-nums text-red-400">{inv.daysOverdue}d</td>
+                      <td className="px-4 py-2 text-sm text-right tabular-nums font-bold text-red-500">{fmt(inv.outstanding)}</td>
                     </tr>
                   ))}
                 </tbody>

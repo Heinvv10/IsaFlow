@@ -10,6 +10,8 @@ import { X, Search, CheckCircle, FileText, ShoppingCart, BookOpen, Loader2, User
 import { notify } from '@/utils/toast';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import type { MatchCandidate, CandidateType } from '@/modules/accounting/types/bank-match.types';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Transaction {
   id: string;
@@ -26,7 +28,7 @@ interface Props {
 }
 
 function fmtCurrency(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+  return formatMoney(n);
 }
 
 const TYPE_META: Record<CandidateType, { label: string; icon: typeof FileText; colour: string }> = {
@@ -139,7 +141,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
             </p>
           </div>
           <div className="text-right mr-2">
-            <p className={`text-base font-bold font-mono ${transaction.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
+            <p className={`text-base font-bold tabular-nums ${transaction.amount < 0 ? 'text-red-400' : 'text-teal-400'}`}>
               {fmtCurrency(transaction.amount)}
             </p>
           </div>
@@ -189,7 +191,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
             const Icon = meta.icon;
             return (
               <div key={type}>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--ff-text-tertiary)] mb-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ff-text-tertiary)] mb-1.5">
                   {GROUP_TITLES[type]}
                 </p>
                 <div className="space-y-1">
@@ -208,7 +210,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
                       >
                         <div className="flex items-center gap-2">
                           {/* Type badge */}
-                          <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded ${meta.colour}`}>
+                          <span className={`inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded ${meta.colour}`}>
                             <Icon className="h-2.5 w-2.5" />
                             {meta.label}
                           </span>
@@ -217,17 +219,17 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
                           <span className="flex-1 text-xs text-[var(--ff-text-primary)] truncate">{c.label}</span>
 
                           {/* Amount */}
-                          <span className={`text-xs font-mono font-semibold ${exact ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
+                          <span className={`text-xs tabular-nums font-semibold ${exact ? 'text-teal-400' : 'text-[var(--ff-text-primary)]'}`}>
                             {fmtCurrency(c.amount)}
-                            {exact && <span className="ml-1 text-[10px] text-teal-400">exact</span>}
+                            {exact && <span className="ml-1 text-xs text-teal-400">exact</span>}
                           </span>
                         </div>
 
                         {/* Date + match reason + score */}
                         <div className="flex items-center gap-3 mt-1.5">
-                          <span className="text-[10px] text-[var(--ff-text-tertiary)]">{c.date}</span>
+                          <span className="text-xs text-[var(--ff-text-tertiary)]">{formatDisplayDate(c.date)}</span>
                           {c.matchReason && (
-                            <span className="text-[10px] text-teal-400 truncate">{c.matchReason}</span>
+                            <span className="text-xs text-teal-400 truncate">{c.matchReason}</span>
                           )}
                           <div className="flex-1 h-1 rounded-full bg-[var(--ff-bg-secondary)] overflow-hidden">
                             <div
@@ -235,7 +237,7 @@ export function FindMatchModal({ transaction, onClose, onMatch }: Props) {
                               style={{ width: `${Math.min(100, c.score)}%` }}
                             />
                           </div>
-                          <span className="text-[10px] text-[var(--ff-text-tertiary)] w-8 text-right">{c.score}pt</span>
+                          <span className="text-xs text-[var(--ff-text-tertiary)] w-8 text-right">{c.score}pt</span>
                         </div>
                       </button>
                     );

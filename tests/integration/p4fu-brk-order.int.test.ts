@@ -57,8 +57,8 @@ describe('G4: months approved out of order', () => {
     await setSalary(pool, f, 2027, 1, 60_000);
     // A second employee who leaves at the end of January has no line in February: no warning for them.
     const leaver = (await pool.query(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, end_date, date_of_birth, tax_number)
-       VALUES ($1, 'W301-2', 'Lee', 'Leaver', '2020-01-01', '2027-01-31', '1980-01-01', '0123456780') RETURNING id`, [f.company])).rows[0]!.id;
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, end_date, date_of_birth, tax_number, medical_aid_main_member)
+       VALUES ($1, 'W301-2', 'Lee', 'Leaver', '2020-01-01', '2027-01-31', '1980-01-01', '0123456780', true) RETURNING id`, [f.company])).rows[0]!.id;
     await pool.query(
       `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from)
        SELECT $1, c.id, 20000, '2020-01-01' FROM payroll_components c WHERE c.company_id = $2 AND c.sars_source_code = '3601'`,

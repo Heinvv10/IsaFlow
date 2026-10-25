@@ -4,6 +4,8 @@
  */
 
 import dynamic from 'next/dynamic';
+import { formatDisplayDateShort } from '@/utils/dateFormat';
+import { formatMoney, formatMoneyCompact } from '@/lib/money/formatMoney';
 
 // Dynamic Recharts imports — no SSR
 const ResponsiveContainer = dynamic(
@@ -74,13 +76,12 @@ export interface CashFlowForecast {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function fmtCurrency(n: number): string {
-  const abs = Math.abs(n).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  return (n < 0 ? '-' : '') + 'R ' + abs;
+  return formatMoney(n, { decimals: 0 });
 }
 
 export function fmtShortDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+  return formatDisplayDateShort(d);
 }
 
 type ChartPoint = {
@@ -178,12 +179,12 @@ export function CashFlowForecastChart({ data }: CashFlowChartProps) {
             <CartesianGrid strokeDasharray="3 3" stroke="var(--ff-border-primary)" />
             <XAxis
               dataKey="label"
-              tick={{ fill: 'var(--ff-text-secondary)', fontSize: 11 }}
+              tick={{ fill: 'var(--ff-text-secondary)', fontSize: 12 }}
               interval="preserveStartEnd"
             />
             <YAxis
-              tick={{ fill: 'var(--ff-text-secondary)', fontSize: 11 }}
-              tickFormatter={(v: number) => `R${Math.round(v / 1000)}k`}
+              tick={{ fill: 'var(--ff-text-secondary)', fontSize: 12 }}
+              tickFormatter={(v: number) => formatMoneyCompact(v, { decimals: 0 })}
               width={60}
             />
             <Tooltip

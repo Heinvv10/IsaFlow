@@ -98,7 +98,7 @@ describe('practice/approvals', () => {
     expect(within(row).getByText('D2 Client Pty')).toBeDefined();
     expect(within(row).getByText(/D2 Bookkeeping/)).toBeDefined();
     expect(within(row).getByText('3.50h')).toBeDefined();
-    expect(row.textContent).toMatch(/1[\s  ]400,00/);
+    expect(row.textContent).toMatch(/1[\s  ]400\.00/);
     expect(screen.getByText('1 entry found')).toBeDefined();
   });
   it('load: a 400 refusal shows the server message; an empty 500 shows the sentence; no rows', async () => {

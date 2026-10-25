@@ -63,7 +63,7 @@ describe('payroll run page — approve (PAY-01)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /review & approve/i }));
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByText('Other Employee Deductions Payable')).toBeTruthy();
-    expect(within(dialog).getAllByText(/75[\s ]927,12/).length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText(/75[\s ]927\.12/).length).toBeGreaterThan(0);
     fireEvent.click(within(dialog).getByRole('button', { name: /approve and post journal/i }));
 
     await waitFor(() => expect(calls(APPROVE_URL)).toHaveLength(1));

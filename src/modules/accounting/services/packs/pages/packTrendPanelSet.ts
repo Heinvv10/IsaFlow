@@ -104,7 +104,7 @@ export interface RatioPanel {
   name: string;
   pick: (p: PackTrendPoint) => number | null;
   /** How the panel's own end-label formats a value — a percentage and a day
-   *  count are not printed through `formatMoney`. */
+   *  count are not printed through `formatStatementFigure`. */
   format: (n: number) => string;
   /** The unit in words, for the panel's own "Own scale" clause — "a
    *  percentage", "a day count". Named rather than derived from `format`,

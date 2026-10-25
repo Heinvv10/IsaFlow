@@ -8,6 +8,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   Scale, Loader2, AlertCircle, Save, RefreshCw, AlertTriangle, CheckCircle, Info,
 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -89,8 +90,7 @@ export default function PisScorePage() {
     }
   };
 
-  const fmtR = (n: number) =>
-    new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 0 }).format(n);
+  const fmtR = (n: number) => formatMoney(n, { decimals: 0 });
 
   return (
     <AppLayout>
@@ -124,7 +124,7 @@ export default function PisScorePage() {
           <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-6">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-4xl font-bold text-white">{data.totalScore}</div>
+                <div className="text-2xl font-bold text-white">{data.totalScore}</div>
                 <div className="text-sm text-zinc-400">Public Interest Score</div>
               </div>
               <div className="text-right">
@@ -185,28 +185,28 @@ export default function PisScorePage() {
               <tbody className="text-zinc-300">
                 <tr className="border-b border-zinc-700/50">
                   <td className="px-4 py-2">Employees (average of beginning + end)</td>
-                  <td className="px-4 py-2 text-right font-mono">{data.employees.average}</td>
-                  <td className="px-4 py-2 text-right font-mono">{data.employees.points}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{data.employees.average}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{data.employees.points}</td>
                 </tr>
                 <tr className="border-b border-zinc-700/50">
                   <td className="px-4 py-2">Annual turnover / R1 million</td>
-                  <td className="px-4 py-2 text-right font-mono">{fmtR(data.turnover.amount)}</td>
-                  <td className="px-4 py-2 text-right font-mono">{data.turnover.points}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{fmtR(data.turnover.amount)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{data.turnover.points}</td>
                 </tr>
                 <tr className="border-b border-zinc-700/50">
                   <td className="px-4 py-2">Third-party liabilities / R1 million</td>
-                  <td className="px-4 py-2 text-right font-mono">{fmtR(data.thirdPartyLiabilities.amount)}</td>
-                  <td className="px-4 py-2 text-right font-mono">{data.thirdPartyLiabilities.points}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{fmtR(data.thirdPartyLiabilities.amount)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{data.thirdPartyLiabilities.points}</td>
                 </tr>
                 <tr className="border-b border-zinc-700/50">
                   <td className="px-4 py-2">Number of shareholders / members</td>
-                  <td className="px-4 py-2 text-right font-mono">{data.shareholders.count}</td>
-                  <td className="px-4 py-2 text-right font-mono">{data.shareholders.points}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{data.shareholders.count}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{data.shareholders.points}</td>
                 </tr>
                 <tr className="bg-zinc-700/30 font-bold text-white">
                   <td className="px-4 py-2">Total Public Interest Score</td>
                   <td className="px-4 py-2 text-right" />
-                  <td className="px-4 py-2 text-right font-mono">{data.totalScore}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{data.totalScore}</td>
                 </tr>
               </tbody>
             </table>

@@ -193,7 +193,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                   </select>
                   {nonSupplyReason(line, glAccounts) && (
                     <span
-                      className="mt-0.5 block text-[10px] leading-tight text-amber-500"
+                      className="mt-0.5 block text-xs leading-tight text-amber-500"
                       title={NON_SUPPLY_ADVICE[nonSupplyReason(line, glAccounts)!]}
                     >
                       ⚠ {NON_SUPPLY_LABEL[nonSupplyReason(line, glAccounts)!]} — no supply, so no VAT
@@ -234,7 +234,7 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                     className={`${inp} text-right`}
                   />
                 </td>
-                <td className="px-4 py-2 text-right font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">
+                <td className="px-4 py-2 text-right tabular-nums text-sm font-semibold text-slate-800 dark:text-slate-200">
                   {formatCurrency(line.quantity * line.unitPrice)}
                 </td>
                 <td className="px-2 py-2">

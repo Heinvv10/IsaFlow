@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch, apiErrorMessage, assertOk, ApiEnvelopeError } from '@/lib/apiFetch';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 type Active = { address: string; isActive: boolean };
 type Pending = { address: string; expiresAt: string; verificationUrl?: string };
@@ -81,7 +82,7 @@ export function WhatsAppVerificationSection() {
           <code className="flex-1 break-all text-xs text-slate-300">{state.pending.verificationUrl}</code>
           <button onClick={copy} className="text-sm text-teal-400">{copied ? 'Copied' : 'Copy verification URL'}</button>
         </div>
-        <p className="text-xs text-slate-500">Keep this URL private. Verification expires {new Date(state.pending.expiresAt).toLocaleString()}.</p>
+        <p className="text-xs text-slate-500">Keep this URL private. Verification expires {formatDisplayDateTime(state.pending.expiresAt)}.</p>
       </> : <p className="text-sm text-slate-400">The verification URL is shown only when you start. If it is already configured in Twilio, check status; otherwise restart to get a new URL.</p>}
       <p className="text-xs text-slate-400">Your previously verified number stays connected during verification. A number reserved by another company requires support review.</p>
     </div>}

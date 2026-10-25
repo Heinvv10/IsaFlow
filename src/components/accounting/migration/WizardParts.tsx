@@ -126,9 +126,9 @@ export function VerifyTable({ results }: { results: VerifyEntry[] }) {
               <td className="px-3 py-2 text-[var(--ff-text-primary)]">
                 <span className="font-mono text-xs mr-2">{r.accountCode}</span>{r.sourceName}
               </td>
-              <td className="px-3 py-2 text-right font-mono text-xs">{r.sourceBalance.toFixed(2)}</td>
-              <td className="px-3 py-2 text-right font-mono text-xs">{r.isaflowBalance.toFixed(2)}</td>
-              <td className={`px-3 py-2 text-right font-mono text-xs ${r.matched ? 'text-teal-400' : 'text-red-400'}`}>
+              <td className="px-3 py-2 text-right tabular-nums text-xs">{r.sourceBalance.toFixed(2)}</td>
+              <td className="px-3 py-2 text-right tabular-nums text-xs">{r.isaflowBalance.toFixed(2)}</td>
+              <td className={`px-3 py-2 text-right tabular-nums text-xs ${r.matched ? 'text-teal-400' : 'text-red-400'}`}>
                 {r.difference.toFixed(2)}
               </td>
             </tr>

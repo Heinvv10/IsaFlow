@@ -1,4 +1,5 @@
 import { Clock, CheckCircle, BarChart3 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface TimeSummary {
   totalHours: number;
@@ -9,8 +10,7 @@ interface TimeSummary {
   byCustomer: { customerId: string; customerName: string; hours: number; value: number }[];
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const fmtHours = (n: number) => n.toFixed(2);
 

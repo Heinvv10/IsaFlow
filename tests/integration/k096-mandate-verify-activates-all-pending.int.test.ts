@@ -37,6 +37,7 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
   verifyTransaction: vi.fn(async () => ({
     status: 'success',
     id: 987654,
+    metadata: { purpose: 'mandate_authorisation', company_id: COMPANY },
     authorization: {
       authorizationCode: 'AUTH_k096',
       last4: '4242',
@@ -108,7 +109,8 @@ describeIfDb('K-096 mandate verify must activate only the mandate it authorised'
     await admin.end();
   });
 
-  it('activates one mandate and commits the request transaction', async () => {
+  // S-07e: an unlinked request binds to nothing.
+  it('activates no mandate for an unlinked request, flags it for review, and commits the request transaction', async () => {
     const res = mockRes();
     const client: PoolClient = await admin.connect();
     let committed = false;
@@ -148,7 +150,7 @@ describeIfDb('K-096 mandate verify must activate only the mandate it authorised'
     // The route must not blow up on the poisoned transaction.
     expect(handlerError).toBeNull();
     expect(res.statusCode).toBe(200);
-    expect((res.body as { data: { status: string } }).data.status).toBe('active');
+    expect((res.body as { data: { status: string } }).data.status).not.toBe('active');
 
     const { rows } = await admin.query(
       `SELECT id, status FROM subscription_mandates WHERE company_id = $1 ORDER BY created_at`,
@@ -156,16 +158,15 @@ describeIfDb('K-096 mandate verify must activate only the mandate it authorised'
     );
     const byId = new Map(rows.map((r) => [r.id as string, r.status as string]));
 
-    // Exactly the mandate this reference authorised.
-    expect(byId.get(currentMandate)).toBe('active');
-    // The abandoned one is untouched, not swept into the same promotion.
+    // Neither pending mandate is promoted: the request names no mandate.
+    expect(byId.get(currentMandate)).toBe('pending');
     expect(byId.get(abandonedMandate)).toBe('pending');
 
     const pr = await admin.query(
-      `SELECT status FROM paystack_payment_requests WHERE paystack_reference = $1`,
+      `SELECT status, failure_reason FROM paystack_payment_requests WHERE paystack_reference = $1`,
       [REF],
     );
-    expect(pr.rows[0].status).toBe('completed');
+    expect(pr.rows[0].failure_reason).toBe('review:no_mandate_id');
   });
 });
 

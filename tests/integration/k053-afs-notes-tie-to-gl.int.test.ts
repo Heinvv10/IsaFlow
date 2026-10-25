@@ -9,12 +9,17 @@
  * parameter but a FISCAL YEAR END (`getFiscalRange`, resolved from
  * `companies.financial_year_start`).
  *
- * The fixture drives the year end from BOTH sides of the delete's reversal by
- * moving `financial_year_start`: one fiscal year ends on the last day of the
- * PREVIOUS month — before the reversal, so the GL still carries the document
- * and the note must too — and one ends on the last day of the CURRENT month,
- * on or after the reversal, so both have dropped it. A note that asked the
- * undated question would report the same figure at both year ends.
+ * The fixture asks for the notes at a year end on BOTH sides of the delete's
+ * reversal: one fiscal year ends on the last day of the PREVIOUS month — before
+ * the reversal, so the GL still carries the document and the note must too —
+ * and the next one ends a year later, after the reversal, so both have dropped
+ * it. A note that asked the undated question would report the same figure at
+ * both year ends.
+ *
+ * (Before migration 940 the second year end was made by moving
+ * `financial_year_start` to end a year on the last day of the CURRENT month.
+ * Years are stored rows now and keep their dates when the start month changes,
+ * which is that migration's point, so the next stored year is used instead.)
  *
  * The legacy document (deleted_at set, approval journal never reversed — the
  * pre-branch population) must be KEPT at both year ends, because the GL keeps
@@ -33,6 +38,7 @@ import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/custom
 import { postSupplierInvoiceToGL } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { seedFiscalYears, setPeriodsEndingBy } from './helpers/fiscalYearSeed';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -48,7 +54,6 @@ function shift(days: number): string {
 }
 const TODAY = fmtDate(new Date());
 const CLOSED_END = shift(-60);
-const OPEN_START = shift(-59);
 const OPEN_END = shift(400);
 const DOC_DATE = shift(-120);
 const DUE_DATE = shift(-100);
@@ -70,8 +75,8 @@ const CUR_M = now.getMonth() + 1;
 const FY_BEFORE = CUR_M === 1
   ? fiscalYearEndingAtMonthEnd(CUR_Y - 1, 12)
   : fiscalYearEndingAtMonthEnd(CUR_Y, CUR_M - 1);
-/** Ends on the last day of this month — on or after the delete's reversal. */
-const FY_AFTER = fiscalYearEndingAtMonthEnd(CUR_Y, CUR_M);
+/** The year after FY_BEFORE — it holds the delete's reversal and ends after it. */
+const FY_AFTER = { startMonth: FY_BEFORE.startMonth, fiscalYear: FY_BEFORE.fiscalYear + 1 };
 
 const SUB = 1000;
 const VAT = 150;
@@ -129,11 +134,6 @@ function yearEndOf(fy: { startMonth: number; fiscalYear: number }): string {
   return `${fy.fiscalYear}-${String(endMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-async function useFiscalYear(fy: { startMonth: number; fiscalYear: number }): Promise<void> {
-  await sql`UPDATE companies SET financial_year_start = ${fy.startMonth}
-            WHERE id = ${COMPANY}::UUID`;
-}
-
 /** The same formatter the note generators use, so only the FIGURE is asserted. */
 function fmt(n: number): string {
   return new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
@@ -155,9 +155,7 @@ describeIfDb('K-053 the AFS notes and the disclosure notes tie to the GL at thei
               VALUES (${USER}, ${USER + '@test.local'}, 'admin', true)`;
     await sql`INSERT INTO company_users (company_id, user_id, role)
               VALUES (${COMPANY}::UUID, ${USER}, 'admin')`;
-    await sql`INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
-              VALUES (${COMPANY}::UUID, ${'K053AFS prior ' + TAG}, 1, 2026, '2020-01-01', ${CLOSED_END}::date, 'open'),
-                     (${COMPANY}::UUID, ${'K053AFS current ' + TAG}, 2, 2026, ${OPEN_START}::date, ${OPEN_END}::date, 'open')`;
+    await seedFiscalYears(COMPANY, shift(-400), OPEN_END);
     await account(receivable, '1120', 'Trade Debtors', 'asset', 'debit', 'receivable');
     await account(payable, '2100', 'Trade Creditors', 'liability', 'credit', 'payable');
     await account(revenue, '4000', 'Sales', 'revenue', 'credit', 'default_revenue');
@@ -204,8 +202,7 @@ describeIfDb('K-053 the AFS notes and the disclosure notes tie to the GL at thei
     await inTx(() => postCustomerInvoiceToGL(COMPANY, legacyArInvoice, USER));
     await inTx(() => postSupplierInvoiceToGL(COMPANY, apInvoice, USER));
     await inTx(() => postSupplierInvoiceToGL(COMPANY, legacyApInvoice, USER));
-    await sql`UPDATE fiscal_periods SET status = 'closed'
-              WHERE company_id = ${COMPANY}::UUID AND end_date = ${CLOSED_END}::date`;
+    await setPeriodsEndingBy(COMPANY, CLOSED_END, 'closed');
 
     await inTx(() => softDelete(COMPANY, 'customer_invoice', arInvoice, USER));
     await inTx(() => softDelete(COMPANY, 'supplier_invoice', apInvoice, USER));
@@ -250,12 +247,10 @@ describeIfDb('K-053 the AFS notes and the disclosure notes tie to the GL at thei
   it('AFS note 10 shows the receivables the GL carried at its own year end', async () => {
     type Snapshot = { receivables: { gross_receivables: string | number | null }[] };
 
-    await useFiscalYear(FY_BEFORE);
     const before = await generateNote10TradeReceivables(COMPANY, FY_BEFORE.fiscalYear);
     const grossBefore = Number((before.dataSnapshot as Snapshot).receivables[0]!.gross_receivables);
     expect(grossBefore).toBeCloseTo(await controlBalance(receivable, yearEndOf(FY_BEFORE)), 2);
 
-    await useFiscalYear(FY_AFTER);
     const after = await generateNote10TradeReceivables(COMPANY, FY_AFTER.fiscalYear);
     const grossAfter = Number((after.dataSnapshot as Snapshot).receivables[0]!.gross_receivables);
     expect(grossAfter).toBeCloseTo(await controlBalance(receivable, yearEndOf(FY_AFTER)), 2);
@@ -266,12 +261,10 @@ describeIfDb('K-053 the AFS notes and the disclosure notes tie to the GL at thei
   it('AFS note 16 shows the payables the GL carried at its own year end', async () => {
     type Snapshot = { payables: { gross_payables: string | number | null }[] };
 
-    await useFiscalYear(FY_BEFORE);
     const before = await generateNote16TradePayables(COMPANY, FY_BEFORE.fiscalYear);
     const grossBefore = Number((before.dataSnapshot as Snapshot).payables[0]!.gross_payables);
     expect(grossBefore).toBeCloseTo(-(await controlBalance(payable, yearEndOf(FY_BEFORE))), 2);
 
-    await useFiscalYear(FY_AFTER);
     const after = await generateNote16TradePayables(COMPANY, FY_AFTER.fiscalYear);
     const grossAfter = Number((after.dataSnapshot as Snapshot).payables[0]!.gross_payables);
     expect(grossAfter).toBeCloseTo(-(await controlBalance(payable, yearEndOf(FY_AFTER))), 2);
@@ -279,13 +272,11 @@ describeIfDb('K-053 the AFS notes and the disclosure notes tie to the GL at thei
   });
 
   it('the disclosure notes show the receivables and payables of their own year end', async () => {
-    await useFiscalYear(FY_BEFORE);
     const recBefore = await noteReceivables(COMPANY, FY_BEFORE.fiscalYear);
     const payBefore = await notePayables(COMPANY, FY_BEFORE.fiscalYear);
     expect(recBefore.tables[0]!.rows[0]![1]).toBe(fmt(GROSS + LEG_GROSS));
     expect(payBefore.tables[0]!.rows[0]![1]).toBe(fmt(GROSS + LEG_GROSS));
 
-    await useFiscalYear(FY_AFTER);
     const recAfter = await noteReceivables(COMPANY, FY_AFTER.fiscalYear);
     const payAfter = await notePayables(COMPANY, FY_AFTER.fiscalYear);
     expect(recAfter.tables[0]!.rows[0]![1]).toBe(fmt(LEG_GROSS));

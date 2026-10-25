@@ -7,18 +7,18 @@
  * before `fromDate`, never everything since inception. Balance-sheet accounts
  * keep their cumulative opening.
  *
- * Connection-local temp tables in a rolled-back transaction — no persistent
- * writes. The temp `companies` / `fiscal_periods` shadow the real tables on
- * this connection only.
+ * Real rows (company, period and its financial year, accounts, journals) in a
+ * transaction that is always rolled back — no persistent writes.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { als } from '@/lib/als';
-import { getPoolForTests, sql } from '@/lib/neon';
+import { getPoolForTests } from '@/lib/neon';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
 import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import type { TrialBalanceRow } from '@/modules/accounting/types/gl.types';
 import { isDbReachable } from '../../helpers/dbReachable';
 import { assertNotProductionDb } from '../../../helpers/assertNotProductionDb';
+import { insertAccount, insertCompany, insertJournal, insertPeriod } from '../../helpers/realLedgerRows';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
@@ -46,50 +46,31 @@ const journals: Array<[string, Array<[string, number, number]>]> = [
 const drafts: Array<[string, number]> = [['2025-07-01', 5], ['2026-05-05', 11]];
 
 async function withLedger(run: () => Promise<void>) {
-  assertNotProductionDb('Temporary-table account-ledger fiscal-year regression');
+  assertNotProductionDb('Rolled-back account-ledger fiscal-year regression');
   const client = await getPoolForTests().connect();
   try {
     await client.query('BEGIN');
     await als.run({ client, companyId: company, userId: '', claims: {} }, async () => {
-      await sql`CREATE TEMP TABLE IF NOT EXISTS companies (id uuid, financial_year_start int) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE IF NOT EXISTS fiscal_periods (id uuid, company_id uuid, start_date date,
-        end_date date) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE IF NOT EXISTS gl_accounts (id uuid, company_id uuid, account_code text,
-        account_name text, account_type text, normal_balance text) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_entries (id uuid, company_id uuid, status text, entry_date date,
-        entry_number text, description text, reference text, source text,
-        created_at timestamptz DEFAULT now()) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE IF NOT EXISTS gl_journal_lines (company_id uuid, journal_entry_id uuid, gl_account_id uuid,
-        debit numeric, credit numeric, cost_center_id uuid, cc1_id uuid, cc2_id uuid, bu_id uuid,
-        id uuid DEFAULT gen_random_uuid()) ON COMMIT DROP`;
-      await sql`INSERT INTO companies VALUES (${company}::uuid, 3)`;
-      await sql`INSERT INTO fiscal_periods VALUES (${period}::uuid, ${company}::uuid, '2026-09-01', '2026-09-30')`;
+      await insertCompany(company, 3);
+      await insertPeriod(period, company, '2026-09-01', '2026-09-30');
       for (const [id, code, name, type, normal] of [
         [acct.bank, '1100', 'Bank', 'asset', 'debit'],
         [acct.equity, '3000', 'Capital', 'equity', 'credit'],
         [acct.labour, '5200', 'Labour Costs', 'expense', 'debit'],
         [acct.income, '4300', 'Other Income', 'revenue', 'credit'],
       ] as const) {
-        await sql`INSERT INTO gl_accounts VALUES (${id}::uuid, ${company}::uuid, ${code}, ${name}, ${type}, ${normal})`;
+        await insertAccount(id, company, code, name, type, normal);
       }
       let n = 0;
       for (const [date, lines] of journals) {
         n += 1;
-        const je = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-        await sql`INSERT INTO gl_journal_entries VALUES (${je}::uuid, ${company}::uuid, 'posted', ${date}::date,
-          ${String(n)}, 'Fixture', '', 'manual')`;
-        for (const [account, debit, credit] of lines) {
-          await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${je}::uuid, ${account}::uuid,
-            ${debit}, ${credit}, NULL, NULL, NULL, NULL)`;
-        }
+        await insertJournal({ id: `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`, companyId: company,
+          date, lines, entryNumber: String(n) });
       }
       for (const [date, debit] of drafts) {
         n += 1;
-        const je = `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-        await sql`INSERT INTO gl_journal_entries VALUES (${je}::uuid, ${company}::uuid, 'draft', ${date}::date,
-          ${String(n)}, 'Draft', '', 'manual')`;
-        await sql`INSERT INTO gl_journal_lines VALUES (${company}::uuid, ${je}::uuid, ${acct.labour}::uuid,
-          ${debit}, 0, NULL, NULL, NULL, NULL)`;
+        await insertJournal({ id: `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`, companyId: company,
+          date, lines: [[acct.labour, debit, 0]], entryNumber: String(n), status: 'draft', description: 'Draft' });
       }
       await run();
     });

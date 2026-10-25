@@ -5,6 +5,7 @@
  * tab components can share it (300-line ceiling).
  */
 import { isRuleAmount } from '@/modules/accounting/services/gl/approvalRuleOptions';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface ApprovalRuleRow {
   id: string;
@@ -39,7 +40,7 @@ export const OPERATOR_LABELS: Record<string, string> = {
 };
 
 export function formatCurrency(amount: number): string {
-  return 'R ' + Math.abs(amount).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatMoney(Math.abs(amount));
 }
 
 /** MAX_RULE_AMOUNT (approval_rules.condition_value is NUMERIC(15,2)) as a person reads it. */

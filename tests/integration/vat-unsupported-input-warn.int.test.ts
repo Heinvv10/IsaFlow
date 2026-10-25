@@ -68,8 +68,8 @@ describeIfDb('unsupported input VAT: warning vs blocking (Hein, 2026-09-26)', ()
     fx = await seedLateFixture('VUW', DATABASE_URL!);
     reimburseId = await account('2300', 'Employee reimbursements', 'liability', 'other_current_liability', 'credit');
     employeeId = randomUUID();
-    await sql`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date)
-      VALUES (${employeeId}::UUID, ${fx.companyId}::UUID, ${`E-${fx.tag}`.slice(0, 20)}, 'Vat', 'Warn', '2026-01-01')`;
+    await sql`INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+      VALUES (${employeeId}::UUID, ${fx.companyId}::UUID, ${`E-${fx.tag}`.slice(0, 20)}, 'Vat', 'Warn', '2026-01-01', true)`;
   }, 240000);
 
   afterAll(async () => {

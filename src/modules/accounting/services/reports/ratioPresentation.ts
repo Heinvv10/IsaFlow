@@ -13,7 +13,7 @@
  * name and a unit here is a compile error, not a row that quietly prints a
  * raw key in the wrong unit.
  */
-import { formatDays, formatMoney, formatPctLevel, formatRatio } from '@/lib/format/money';
+import { formatDays, formatStatementFigure, formatPctLevel, formatRatio } from '@/lib/format/money';
 import type { ExtendedRatioResult } from './ratioTypes';
 
 export type RatioKey = Exclude<keyof ExtendedRatioResult, 'notMeaningful'>;
@@ -139,8 +139,8 @@ export function formatRatioFigure(format: RatioFormat, value: number): string {
     case 'times': return `${formatRatio(value)}×`;
     case 'ratio': return formatRatio(value);
     case 'days': return formatDays(value);
-    case 'money': return formatMoney(value, { cents: true, pack: true });
-    case 'currency': return formatMoney(value, { cents: true, pack: true, symbol: true });
+    case 'money': return formatStatementFigure(value, { cents: true, pack: true });
+    case 'currency': return formatStatementFigure(value, { cents: true, pack: true, symbol: true });
   }
 }
 
