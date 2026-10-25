@@ -28,11 +28,12 @@ function line(over: Record<string, unknown>) {
   };
 }
 
-// DRC: a R400 supply with R60 input tax self-assessed.
+// DRC: a R1000 supply, R150 self-assessed: input tax 150 AND output tax 150, so the return's net is nil.
 const DRC_LINES = [
-  line({ lineId: 'l1', accountType: 'expense', accountSubtype: 'operating_expense', vatType: 'reverse_charge', debit: 400 }),
-  line({ lineId: 'l2', accountType: 'asset', accountSubtype: 'vat_input', vatType: 'reverse_charge', debit: 60 }),
-  line({ lineId: 'l3', accountType: 'liability', accountSubtype: 'payable', credit: 460 }),
+  line({ lineId: 'l1', accountType: 'expense', accountSubtype: 'operating_expense', vatType: 'reverse_charge', debit: 1000 }),
+  line({ lineId: 'l2', accountType: 'asset', accountSubtype: 'vat_input', vatType: 'reverse_charge', debit: 150 }),
+  line({ lineId: 'l3', accountType: 'liability', accountSubtype: 'vat_output', vatType: 'reverse_charge', credit: 150 }),
+  line({ lineId: 'l4', accountType: 'liability', accountSubtype: 'payable', credit: 1000 }),
 ];
 
 beforeEach(() => {
@@ -51,19 +52,23 @@ describe('domestic reverse charge input tax is box 15, not "change in use"', () 
   it('the report numbers and labels it 15', async () => {
     const report = await getVat201Report('c1', '2026-07-01', '2026-07-31', { detail: 'summary' });
     const drc = report.boxes.find((b) => b.direction === 'input' && b.vatType === 'reverse_charge');
-    expect(drc).toMatchObject({ box: '15', tax: 60 });
+    expect(drc).toMatchObject({ box: '15', tax: 150 });
     expect(drc?.label).toMatch(/domestic reverse charge/i);
     expect(report.boxes.map((b) => b.label).join('|')).not.toMatch(/change in use/i);
   });
 
-  it('the export (MCP vat201_export) carries it as other input tax, not as an adjustment', async () => {
+  it('the export (MCP vat201_export) carries input as other input tax and output in F12, and nets to the report', async () => {
+    const report = await getVat201Report('c1', '2026-07-01', '2026-07-31', { detail: 'summary' });
     const out = await exportVat201('c1', '2026-07-01', '2026-07-31');
-    const payload = out.payload as { totalInputVAT: number; netVAT: number; fields: Array<{ code: string; value: number }> };
+    const payload = out.payload as { totalOutputVAT: number; totalInputVAT: number; netVAT: number; fields: Array<{ code: string; value: number }> };
     const field = (code: string) => payload.fields.find((f) => f.code === code)?.value;
-    expect(field('F11')).toBe(60); // Input VAT - Other
-    expect(field('F13')).toBe(0); // Adjustments
-    expect(payload.totalInputVAT).toBe(60);
-    expect(payload.netVAT).toBe(-60);
+    expect(report.totals.netVat).toBe(0);
+    expect(field('F11')).toBe(150); // Input VAT - Other
+    expect(field('F12')).toBe(150); // Output VAT - Other and imported services (box 12)
+    expect(field('F13')).toBe(0); // input adjustments
+    expect(payload.totalOutputVAT).toBe(150);
+    expect(payload.totalInputVAT).toBe(150);
+    expect(payload.netVAT).toBe(report.totals.netVat);
   });
 
   it('the csv lists it under box 15', async () => {

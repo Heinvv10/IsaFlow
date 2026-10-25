@@ -15,7 +15,7 @@ import { getVatExceptions } from './vatExceptionsService';
 import type { VatExceptionsReport } from './vatExceptionsTypes';
 import { evaluateVat201Filability } from './vat201LedgerFields';
 import { getVat201Return } from './vat201Return';
-import { draftDrift } from './sarsEfilingDraftDrift';
+import { draftBlockReason, draftDrift } from './sarsEfilingDraftDrift';
 import { isvPayloadMappedToSarsFields, ISV_PAYLOAD_UNMAPPED_REASON } from './sarsEfilingPayloadGuard';
 import { authenticate, submitVAT201, pollStatus } from './sarsEfilingClient';
 import {
@@ -173,7 +173,7 @@ export async function submitVAT201ToSars(
   // `exportVat201` guards with its period lock, and this path had neither.
   const drift = draftDrift(submission.formData, vat201);
   if (drift.length > 0) {
-    const reason = `The ledger has moved since this draft was saved (${drift.join('; ')}) — re-save the draft and review it before filing`;
+    const reason = draftBlockReason(drift);
     await insertEfilingEvent({
       companyId, submissionId, eventType: 'blocked', message: reason,
       detail: { drift }, createdBy: userId,

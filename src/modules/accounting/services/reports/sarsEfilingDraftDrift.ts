@@ -9,21 +9,26 @@ const VAT201_FIELDS = [
   'field8_services', 'field9_imports', 'field10_totalInputVAT', 'field11_vatPayableOrRefundable',
 ] as const;
 
+export const DRAFT_NO_FIGURES_REASON = 'this draft holds no saved VAT201 figures to compare against';
+export const DRAFT_PREDATES_REASON = 'draft predates SARS field mapping';
+
 /**
  * Which of the reviewed draft's figures the regenerated return no longer
  * matches. A draft saved before `form_data` carried the fields (or with none of
  * them) cannot be compared, and is reported as such rather than passed.
  *
- * The SARS form is compared too, and a draft that does not hold it is drift
- * (re-save it), never a pass: a reclassification that moves tax between SARS boxes (1 <-> 1A <-> 12, 15 <-> 17/18, 2 <-> 2A)
- * can leave every legacy total unchanged, and the reviewer approved the boxes.
+ * The SARS form is compared too. A reclassification can move tax between SARS
+ * boxes (1, 1A and 12; 15, 17 and 18; 2 and 2A) and leave every legacy total
+ * unchanged, and the reviewer approved the boxes. A draft that does not hold
+ * the SARS form was never reviewed that way, so it counts as drift (re-save
+ * it), never as a pass.
  */
 export function draftDrift(
   saved: Record<string, unknown> | null,
   regenerated: LedgerVAT201 & { sarsFields?: Vat201SarsField[] },
 ): string[] {
   if (!saved || VAT201_FIELDS.every((f) => saved[f] === undefined)) {
-    return ['this draft holds no saved VAT201 figures to compare against'];
+    return [DRAFT_NO_FIGURES_REASON];
   }
   const drift: string[] = [];
   for (const field of VAT201_FIELDS) {
@@ -36,7 +41,7 @@ export function draftDrift(
   if (regenerated.sarsFields && !Array.isArray(saved.sarsFields)) {
     // Approved before the SARS form existed: its boxes were never reviewed, so a
     // reclassification between them could pass unseen. Re-save to re-review.
-    drift.push('draft predates SARS field mapping — re-save the draft and review it');
+    drift.push(DRAFT_PREDATES_REASON);
   }
   if (Array.isArray(saved.sarsFields) && regenerated.sarsFields) {
     const before = new Map((saved.sarsFields as Vat201SarsField[]).map((f) => [f.field, f.amount]));
@@ -52,4 +57,16 @@ export function draftDrift(
     }
   }
   return drift;
+}
+
+/**
+ * The refusal text for a non-empty drift. "The ledger has moved" is only true of a figure that moved; a draft
+ * that cannot be compared says so in its own words.
+ */
+export function draftBlockReason(drift: string[]): string {
+  const uncomparable = drift.filter((d) => d === DRAFT_NO_FIGURES_REASON || d === DRAFT_PREDATES_REASON);
+  if (uncomparable.length > 0) {
+    return `This ${uncomparable[0] === DRAFT_PREDATES_REASON ? 'draft predates SARS field mapping' : 'draft holds no saved VAT201 figures to compare against'} — re-save the draft and review it before filing`;
+  }
+  return `The ledger has moved since this draft was saved (${drift.join('; ')}) — re-save the draft and review it before filing`;
 }
