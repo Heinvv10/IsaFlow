@@ -284,6 +284,10 @@
   font-family: 'IsaFlow Figures Fallback';
   src: local('Arial'), local('Helvetica'), local('Liberation Sans');
   size-adjust: 107.91%;
+  /* Plex's hhea metrics (1025 / -275 / 0 per 1000 em) divided by the size-adjust, so line boxes match the real face. */
+  ascent-override: 94.99%;
+  descent-override: 25.48%;
+  line-gap-override: 0%;
   unicode-range: U+0030-0039;
 }
 

@@ -8,7 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Loader2, ArrowLeft, Send, CheckCircle, XCircle } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import { formatDisplayDate, formatDisplayDateTime } from '@/utils/dateFormat';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface DeliveryNoteLine {
   id: string;
@@ -268,7 +268,7 @@ export default function DeliveryNoteDetailPage() {
                       <tr key={line.id} className="hover:bg-teal-500/[0.04]">
                         <td className="px-4 py-2.5 text-sm text-[var(--ff-text-primary)]">{line.description}</td>
                         <td className="px-4 py-2.5 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">
-                          {formatDisplayDateTime(Number(line.quantity))}
+                          {Number(line.quantity).toLocaleString('en-ZA')}
                         </td>
                         <td className="px-4 py-2.5 text-sm text-[var(--ff-text-secondary)]">{line.unit ?? ''}</td>
                       </tr>

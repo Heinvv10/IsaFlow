@@ -309,35 +309,40 @@ export default function BankTransactionsPage() {
               <Loader2 className="h-3 w-3 animate-spin" /> AI is categorizing {aiPolling} transaction{aiPolling === 1 ? '' : 's'}…
             </div>
           )}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-blue-500" /></div>
-          ) : error ? (
-            <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
-          ) : transactions.length === 0 ? (
-            <div className="text-center py-12 text-[var(--ff-text-secondary)]">
-              No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : 'reviewed'} transactions for this account
-            </div>
-          ) : (
-            <BankTxTable
-              transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
-              customers={customers} transferTargets={transferTargets}
-              cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
-              showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
-              allSelected={allSelected} tab={tab}
-              onToggleSelect={toggleSelect}
-              onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
-              onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
-              onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
-              onAccept={actions.handleAccept} onExclude={actions.handleExclude}
-              onUnmatch={actions.handleUnmatch} onSplit={id => setSplitTxId(id)}
-              onUpdateNotes={actions.handleUpdateNotes} onFindMatch={id => setFindMatchTxId(id)}
-              onReverse={actions.handleReverse} onAttachments={id => setAttachmentsTxId(id)}
-              onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
-              onCreateRule={tx => setCreateRuleTx(tx)}
-              onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
-              onLink={tx => setLinkTx(tx)}
-            />
-          )}
+          {/* One container for every state: its height is held while the rows load, so the swap shifts nothing. */}
+          <div className="min-h-[480px]">
+            {isLoading ? (
+              <div className="space-y-2 py-2" role="status" aria-busy="true" aria-label="Loading transactions">
+                {Array.from({ length: 8 }, (_, i) => <div key={i} className="h-12 animate-pulse rounded bg-[var(--ff-bg-tertiary)]" />)}
+              </div>
+            ) : error ? (
+              <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
+            ) : transactions.length === 0 ? (
+              <div className="text-center py-12 text-[var(--ff-text-secondary)]">
+                No {tab === 'new' ? 'new' : tab === 'excluded' ? 'excluded' : 'reviewed'} transactions for this account
+              </div>
+            ) : (
+              <BankTxTable
+                transactions={transactions} glAccounts={glAccounts} suppliers={suppliers} suppliersLoading={suppliersStatus === 'loading'}
+                customers={customers} transferTargets={transferTargets}
+                cc1Options={cc1Options} cc2Options={cc2Options} buOptions={buOptions}
+                showCC={showCC} showBU={showBU} selectedIds={selectedIds} rowSelections={rowSelections}
+                allSelected={allSelected} tab={tab}
+                onToggleSelect={toggleSelect}
+                onSelectAll={() => setSelectedIds(allSelected ? new Set() : new Set(selectableTxIds))}
+                onRowTypeChange={actions.handleRowTypeChange} onRowEntityChange={actions.handleRowEntityChange}
+                onRowVatChange={actions.handleRowVatChange} onRowDimensionChange={actions.handleRowDimensionChange}
+                onAccept={actions.handleAccept} onExclude={actions.handleExclude}
+                onUnmatch={actions.handleUnmatch} onSplit={id => setSplitTxId(id)}
+                onUpdateNotes={actions.handleUpdateNotes} onFindMatch={id => setFindMatchTxId(id)}
+                onReverse={actions.handleReverse} onAttachments={id => setAttachmentsTxId(id)}
+                onAskClient={id => setQueryTx(transactions.find(t => t.id === id) ?? null)}
+                onCreateRule={tx => setCreateRuleTx(tx)}
+                onCreateEntity={(txId, type) => { setCreateEntityTxId(txId); setCreateEntityType(type); }}
+                onLink={tx => setLinkTx(tx)}
+              />
+            )}
+          </div>
         </div>
 
         {/* Pagination */}

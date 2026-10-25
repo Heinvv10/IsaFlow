@@ -10,7 +10,7 @@ export function formatCurrency(amount: number): string {
   return formatMoney(amount);
 }
 
-/** Format a date for display (21 Oct 2026); '—' when there is none or it is not a date */
+/** A date for display (21 Oct 2026): from a Date, an ISO date or an ISO timestamp; '—' when there is none; text that is not a date comes back unchanged */
 export function formatDate(dateStr: string | Date | null | undefined): string {
   return formatDisplayDate(dateStr);
 }

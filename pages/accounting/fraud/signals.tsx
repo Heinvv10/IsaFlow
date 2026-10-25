@@ -40,7 +40,7 @@ const SEVERITY_STYLES: Record<Alert['severity'], { icon: typeof Info; text: stri
 };
 
 function fmtDate(s: string): string {
-  try { return formatDisplayDateTime(s); } catch { return s; }
+  return formatDisplayDateTime(s);
 }
 
 export default function FraudSignalsPage() {

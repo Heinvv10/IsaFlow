@@ -45,7 +45,7 @@ type VatCode = 'STD_RATE' | 'ZERO_RATED' | 'EXEMPT';
 
 function fmtDate(val: string | Date | null): string {
   if (!val) return '—';
-  try { return formatDisplayDateTime(val); } catch { return String(val); }
+  return formatDisplayDateTime(val);
 }
 
 export default function SupplierRulesPage() {

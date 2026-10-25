@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { formatAmount, formatMoney, formatMoneyCompact, formatRate } from '@/lib/money/formatMoney';
+import { formatAmount, formatCents, formatMoney, formatMoneyCompact, formatRate } from '@/lib/money/formatMoney';
+import { parseSaAmount } from '@/lib/money/saAmountParser';
 
 const NB = '\xa0';
 
@@ -20,8 +21,8 @@ describe('formatMoney', () => {
   });
 
   it('formats negatives with a leading minus before the symbol', () => {
-    expect(formatMoney(-2300)).toBe(`-R\xa02${NB}300.00`);
-    expect(formatMoney(-0.01)).toBe('-R\xa00.01');
+    expect(formatMoney(-2300)).toBe(`\u2212R\xa02${NB}300.00`);
+    expect(formatMoney(-0.01)).toBe('\u2212R\xa00.01');
   });
 
   it('renders zero cleanly, and never prints a negative zero', () => {
@@ -34,7 +35,7 @@ describe('formatMoney', () => {
     expect(formatMoney(42100.5)).toBe(`R\xa042${NB}100.50`);
     expect(formatMoney(1.005)).toBe('R\xa01.01');
     expect(formatMoney(2.675)).toBe('R\xa02.68');
-    expect(formatMoney(-1.005)).toBe('-R\xa01.01');
+    expect(formatMoney(-1.005)).toBe('\u2212R\xa01.01');
     expect(formatMoney(0.994)).toBe('R\xa00.99');
     expect(formatMoney(999.995)).toBe(`R\xa01${NB}000.00`);
   });
@@ -66,7 +67,7 @@ describe('formatMoney', () => {
 describe('formatAmount', () => {
   it('is the same figure without the R symbol', () => {
     expect(formatAmount(25000)).toBe(`25${NB}000.00`);
-    expect(formatAmount(-2300.5)).toBe(`-2${NB}300.50`);
+    expect(formatAmount(-2300.5)).toBe(`\u22122${NB}300.50`);
     expect(formatAmount(-0.004)).toBe('0.00');
     expect(formatAmount(1234.5, { decimals: 0 })).toBe(`1${NB}235`);
   });
@@ -75,14 +76,14 @@ describe('formatAmount', () => {
 describe('formatMoneyCompact', () => {
   it('abbreviates millions and thousands, one decimal, sign before the symbol', () => {
     expect(formatMoneyCompact(5_500_000)).toBe('R\xa05.5M');
-    expect(formatMoneyCompact(-5_532_100)).toBe('-R\xa05.5M');
-    expect(formatMoneyCompact(-895_040)).toBe('-R\xa0895.0K');
+    expect(formatMoneyCompact(-5_532_100)).toBe('\u2212R\xa05.5M');
+    expect(formatMoneyCompact(-895_040)).toBe('\u2212R\xa0895.0K');
     expect(formatMoneyCompact(1000)).toBe('R\xa01.0K');
   });
 
   it('prints the full figure below R 1 000, with the requested decimals', () => {
     expect(formatMoneyCompact(172.5)).toBe('R\xa0172.50');
-    expect(formatMoneyCompact(-172.5, { decimals: 0 })).toBe('-R\xa0173');
+    expect(formatMoneyCompact(-172.5, { decimals: 0 })).toBe('\u2212R\xa0173');
     expect(formatMoneyCompact(0)).toBe('R\xa00.00');
   });
 });
@@ -95,5 +96,21 @@ describe('formatRate', () => {
     expect(formatRate(1)).toBe('1.0000');
     expect(formatRate(1234.5)).toBe(`1${NB}234.5000`);
     expect(formatRate(18.1234567)).toBe('18.123457');
+  });
+});
+
+describe('the display minus is U+2212 and still parses', () => {
+  it('never prints an ASCII hyphen, which is a line-break opportunity between "-" and "R"', () => {
+    for (const text of [formatMoney(-2450), formatAmount(-2450), formatMoneyCompact(-9_900_000), formatMoneyCompact(-9_900)]) {
+      expect(text.startsWith('−')).toBe(true);
+      expect(text).not.toContain('-');
+    }
+  });
+
+  it('is accepted back by parseSaAmount, echo and plain, so typing over a shown negative round-trips', () => {
+    expect(parseSaAmount(formatMoney(-2450))).toEqual({ ok: true, cents: -245_000 });
+    expect(parseSaAmount(formatAmount(-1234567.89))).toEqual({ ok: true, cents: -123_456_789 });
+    expect(parseSaAmount(formatCents(-12_345))).toEqual({ ok: true, cents: -12_345 });
+    expect(parseSaAmount(formatCents(-12_345, { symbol: false }))).toEqual({ ok: true, cents: -12_345 });
   });
 });

@@ -10,13 +10,11 @@ import { StatusPill, PageHeader } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatMoney as fmt } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Quote { id: string; quoteNumber: string; customerName: string; quoteDate: string; expiryDate: string | null; status: string; total: number; invoiceId?: string }
 interface CustomerOption { id: string; name: string }
-
-const fmt = (n: number) => formatMoney(n);
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const TABS = ['all', 'draft', 'sent', 'accepted', 'declined', 'expired', 'converted'] as const;

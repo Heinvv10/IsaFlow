@@ -61,7 +61,7 @@ export function SnapshotJournals({ snapshotId }: { snapshotId: string }) {
                 <td className="px-4 py-2 text-slate-400">{j.row.source}</td>
                 <td className="px-4 py-2 text-slate-300 max-w-[320px] truncate" title={j.row.description ?? ''}>{j.row.description ?? '—'}</td>
                 <td className="px-4 py-2 text-slate-400 text-xs">{fmtAt(j.row.posted_at)}{j.row.reversed_at && <span className="block text-amber-300">reversed {fmtAt(j.row.reversed_at)}</span>}</td>
-                <td className="px-4 py-2 font-mono text-xs text-slate-500" title={j.materialHash}>{formatDisplayDate(j.materialHash)}…</td>
+                <td className="px-4 py-2 font-mono text-xs text-slate-500" title={j.materialHash}>{j.materialHash.slice(0, 10)}…</td>
               </tr>
               {open[j.id] === 'loading' && <tr><td colSpan={7} className="px-10 py-2"><Loader2 className="h-4 w-4 animate-spin text-teal-500" /></td></tr>}
               {Array.isArray(open[j.id]) && (open[j.id] as Stored[]).map((l) => (
@@ -69,7 +69,7 @@ export function SnapshotJournals({ snapshotId }: { snapshotId: string }) {
                   <td /><td className="px-4 py-1 text-slate-300" colSpan={2}>{l.account?.code} {l.account?.name} <span className="text-slate-500">{l.account?.type}</span></td>
                   <td className="px-4 py-1 text-right text-slate-300">{l.row.debit !== '0.00' ? `DR ${fmtAmount(l.row.debit)}` : ''}</td>
                   <td className="px-4 py-1 text-slate-300">{l.row.credit !== '0.00' ? `CR ${fmtAmount(l.row.credit)}` : ''} <span className="text-slate-500">{l.row.description}</span></td>
-                  <td /><td className="px-4 py-1 font-mono text-slate-600">{formatDisplayDate(l.materialHash)}…</td>
+                  <td /><td className="px-4 py-1 font-mono text-slate-600">{l.materialHash.slice(0, 10)}…</td>
                 </tr>
               ))}
             </Fragment>

@@ -12,6 +12,9 @@ import { assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatMoney } from '@/lib/money/formatMoney';
 import { formatDisplayDate } from '@/utils/dateFormat';
 
+// Every state is the loaded card's height (~200 px), so the strip does not jump when the statement arrives.
+const BOX = 'min-h-[200px] rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
+
 // 🟢 WORKING: ZAR currency formatter (2 decimal places for reconciliation context)
 const fmt = (amount: number): string => formatMoney(amount);
 
@@ -69,10 +72,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
 
   if (loading) {
     return (
-      <div
-        className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4"
-        style={{ minHeight: 100 }}
-      >
+      <div className={`${BOX} p-4`}>
         <div className="flex items-center gap-2 text-xs text-[var(--ff-text-tertiary)]">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Loading statement balances…
@@ -83,7 +83,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4">
+      <div className={`${BOX} p-4`}>
         <div className="flex items-center gap-2 text-xs text-red-400">
           <AlertCircle className="h-3.5 w-3.5" />
           {error}
@@ -94,7 +94,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
 
   if (!batch) {
     return (
-      <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4">
+      <div className={`${BOX} p-4`}>
         <p className="text-xs text-[var(--ff-text-tertiary)]">No statement imports found.</p>
       </div>
     );
@@ -111,7 +111,7 @@ export function StatementBalanceWidget({ bankAccountId, glBalance }: Props) {
   const importedOn = formatDisplayDate(batch.createdAt);
 
   return (
-    <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
+    <div className={BOX}>
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--ff-border-light)] px-4 py-2.5">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-secondary)]">
