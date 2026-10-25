@@ -110,10 +110,10 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
           return apiResponse.badRequest(
             res,
             `The periods labelled this fiscal year run ${result.actual.startDate} to ` +
-              `${result.actual.endDate}, but this company's financial year starts in month ` +
-              `${result.startMonth}, so the year is ${result.expected.startDate} to ` +
-              `${result.expected.endDate}. Closing the labelled span would roll the wrong ` +
-              `twelve months into equity and lock them. Fix the period dates, then close again.`
+              `${result.actual.endDate}, but this company's financial year with that label runs ` +
+              `${result.expected.startDate} to ${result.expected.endDate}. Closing the labelled ` +
+              `span would roll the wrong months into equity and lock them. To move the year end, ` +
+              `use Change financial year end; otherwise fix the period dates, then close again.`
           );
         case 'closing_journal_not_posted':
           return apiResponse.conflict(
