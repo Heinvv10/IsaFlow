@@ -10,7 +10,7 @@ import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
-import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatDateISO, formatDisplayDate } from '@/utils/dateFormat';
 
 const TABS = ['all', 'draft', 'approved', 'partially_applied', 'applied', 'cancelled'] as const;
 type Tab = typeof TABS[number];
@@ -52,7 +52,7 @@ export default function CreditNotesPage() {
     const rows = creditNotes.map(cn => [
       cn.creditNoteNumber, cn.type,
       cn.type === 'customer' ? cn.clientName : cn.supplierName || '',
-      cn.invoiceNumber || '', formatDisplayDate(cn.creditDate, ''),
+      cn.invoiceNumber || '', formatDateISO(cn.creditDate),
       cn.totalAmount, cn.status,
     ]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');

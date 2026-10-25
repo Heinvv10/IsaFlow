@@ -5,7 +5,7 @@
  * export here, so each caller still imports it there.
  */
 import { svgBoxFor, svgBoxPx } from './packChartBox';
-import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, type MoneyScale } from '@/lib/format/money';
 import { buildProfitWaterfall, OPERATING_PROFIT_BAR, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
@@ -154,8 +154,8 @@ function bridgeWalk(f: PackFigureSet['current']): { bridged: WaterfallStep[]; om
 }
 
 const titleOf = (f: PackFigureSet['current'], scale: MoneyScale): string =>
-  `Revenue of ${inProse(formatMoney(f.revenue, { scale }))} bridges to net `
-  + `profit of ${inProse(formatMoney(f.netProfit, { scale }))}.`;
+  `Revenue of ${inProse(formatStatementFigure(f.revenue, { scale }))} bridges to net `
+  + `profit of ${inProse(formatStatementFigure(f.netProfit, { scale }))}.`;
 
 /** How large the bridge is drawn in `box` — see `waterfallDrawnSize`. */
 function drawnSizeAt(set: PackFigureSet, scale: MoneyScale, box: ChartBox): { plotPx: number; tallestBarPx: number } {

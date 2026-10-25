@@ -12,7 +12,7 @@ import {
   Download, Mail, TrendingUp, Scale, Banknote,
 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/components/accounting/ManagementPandLRows';
 import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
 import { ManagementSection } from '@/components/accounting/ManagementSection';
@@ -257,12 +257,12 @@ export default function ManagementAccountsPage() {
 
               {/* Cash Flow Section */}
               <ManagementSection title="Cash Flow" icon={Banknote} color="amber" defaultOpen>
-                <KVRow label="Opening Cash" value={formatMoney(cf?.openingCash ?? 0, { cents: true, symbol: true })} />
-                <KVRow label="Operating Activities" value={formatMoney(cf?.operatingCashFlow ?? 0, { cents: true, symbol: true })} />
-                <KVRow label="Investing Activities" value={formatMoney(cf?.investingCashFlow ?? 0, { cents: true, symbol: true })} />
-                <KVRow label="Financing Activities" value={formatMoney(cf?.financingCashFlow ?? 0, { cents: true, symbol: true })} />
-                <KVRow label="Net Cash Flow" value={formatMoney(cf?.netCashFlow ?? 0, { cents: true, symbol: true })} bold />
-                <KVRow label="Closing Cash" value={formatMoney(cf?.closingCash ?? 0, { cents: true, symbol: true })} bold />
+                <KVRow label="Opening Cash" value={formatStatementFigure(cf?.openingCash ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Operating Activities" value={formatStatementFigure(cf?.operatingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Investing Activities" value={formatStatementFigure(cf?.investingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Financing Activities" value={formatStatementFigure(cf?.financingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Net Cash Flow" value={formatStatementFigure(cf?.netCashFlow ?? 0, { cents: true, symbol: true })} bold />
+                <KVRow label="Closing Cash" value={formatStatementFigure(cf?.closingCash ?? 0, { cents: true, symbol: true })} bold />
               </ManagementSection>
 
               <p className="text-xs text-[var(--ff-text-tertiary)] text-right">

@@ -4,7 +4,7 @@
  * `toLocaleString('en-ZA')` — under a table whose figures read "2 700.00".
  */
 import { describe, expect, it } from 'vitest';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { buildDataQualityNotices } from '@/modules/accounting/services/reports/dataQualityNotices';
 
 const unclassified = (amount: number) => ({ accounts: 3, amount, message: 'm' });
@@ -20,7 +20,7 @@ describe('the amount in a data-quality notice', () => {
   it('is the very string the screen\'s tables print for the same amount', () => {
     const amount = 114_177_043.06;
     const [notice] = buildDataQualityNotices({ unclassifiedAccounts: unclassified(amount) });
-    expect(notice).toContain(formatMoney(amount, { cents: true, symbol: true }));
+    expect(notice).toContain(formatStatementFigure(amount, { cents: true, symbol: true }));
   });
 
   it('prints a per-type amount and the exposure ceilings the same way', () => {

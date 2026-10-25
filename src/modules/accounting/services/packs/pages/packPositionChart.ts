@@ -5,7 +5,7 @@
  * export here, so each caller still imports it there.
  */
 import { svgBoxFor } from './packChartBox';
-import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, type MoneyScale } from '@/lib/format/money';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import {
   COMPOSITION_CHROME_PX,
@@ -38,7 +38,7 @@ function positionCompositionTitle(current: PackFigureSet['current'], scale: Mone
   // `inProse`: this is a SENTENCE, and a nil asset side or nil equity is
   // ordinary. A raw dash here refuses the whole pack — see `money` in
   // `derivedSentences.ts`.
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   const funding = `liabilities of ${money(current.totalLiabilities)} and equity of ${money(current.totalEquity)}`;
   const structural = current.totalAssets >= 0
     && current.totalLiabilities >= 0

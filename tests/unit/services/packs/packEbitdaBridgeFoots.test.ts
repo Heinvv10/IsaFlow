@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { bridgeRoundingNote } from '@/modules/accounting/services/packs/pages/packDefinitions';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { demoInput } from './fixtures/boardPackInputs';
 import { liveDemoBridgeInput, liveDemoInput } from './fixtures/liveDemoBoardPack';
@@ -31,7 +31,7 @@ function ebitda(input: BoardPackInput): PackDefinition {
 
 /** What the cell PRINTS, read back as a number — the unit a reader adds. */
 function printed(value: number): number {
-  const text = formatMoney(value, { scale: PACK_SCALE });
+  const text = formatStatementFigure(value, { scale: PACK_SCALE });
   const digits = Number(text.replace(/[^0-9]/g, ''));
   return text.startsWith('(') ? -digits : digits;
 }
@@ -70,8 +70,8 @@ describe('the EBITDA reconciliation', () => {
       // It does not add as printed, so the page has to say so ON THE LINE,
       // and say it in figures a reader can check rather than in the abstract.
       expect(entry.reconciliationNote).toBeDefined();
-      expect(entry.reconciliationNote).toContain(formatMoney(steps[0]!.figure.value as number, { cents: true, pack: true }));
-      expect(entry.reconciliationNote).toContain(formatMoney(steps[2]!.figure.value as number, { cents: true, pack: true }));
+      expect(entry.reconciliationNote).toContain(formatStatementFigure(steps[0]!.figure.value as number, { cents: true, pack: true }));
+      expect(entry.reconciliationNote).toContain(formatStatementFigure(steps[2]!.figure.value as number, { cents: true, pack: true }));
     });
   }
 

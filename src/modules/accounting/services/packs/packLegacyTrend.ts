@@ -15,7 +15,7 @@
  *    words the board pack uses (`packPartialMonth`).
  */
 import type { EChartsCoreOption } from 'echarts/core';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, type MoneyScale } from '@/lib/format/money';
 import { packFigureWidthPx } from '@/lib/charts/packFigureWidth';
 import type { PackTrendPoint } from './packTrendService';
 import { distinctTicksAxis, trendOption } from './packChartOptions';
@@ -73,7 +73,7 @@ export function legacyTrendChartOption(points: readonly PackTrendPoint[], scale:
   // so the whole figure and its halo are kept beyond it. Neither counts the
   // half band inside the plot: that depends on the width drawn at.
   const last = drawn[drawn.length - 1];
-  const lastWidth = last === undefined ? 0 : packFigureWidthPx(formatMoney(last.revenue, { scale }), FIGURE_PX) + 2 * GROUND_HALO_PX;
+  const lastWidth = last === undefined ? 0 : packFigureWidthPx(formatStatementFigure(last.revenue, { scale }), FIGURE_PX) + 2 * GROUND_HALO_PX;
   const reach = Math.ceil(every ? lastWidth / 2 : lastWidth);
   return {
     ...base,
@@ -93,7 +93,7 @@ export function legacyTrendChartOption(points: readonly PackTrendPoint[], scale:
         value: p.revenue,
         label: !labelled(index) ? { show: false } : {
           // The face's own advances: zrender's ruler is short on digits.
-          width: Math.ceil(packFigureWidthPx(formatMoney(p.revenue, { scale }), FIGURE_PX)),
+          width: Math.ceil(packFigureWidthPx(formatStatementFigure(p.revenue, { scale }), FIGURE_PX)),
           ...(every
             ? { position: p.revenue < 0 ? 'bottom' : 'top' }
             : { position: p.revenue < 0 ? ['0%', '100%'] : ['0%', 0], align: 'left', verticalAlign: p.revenue < 0 ? 'top' : 'bottom', offset: [0, p.revenue < 0 ? 5 : -5] }),
@@ -105,7 +105,7 @@ export function legacyTrendChartOption(points: readonly PackTrendPoint[], scale:
         show: true,
         position: 'top',
         fontSize: FIGURE_PX,
-        formatter: (param: { value: number }) => groundable(formatMoney(param.value, { scale })),
+        formatter: (param: { value: number }) => groundable(formatStatementFigure(param.value, { scale })),
       },
     })),
   };
