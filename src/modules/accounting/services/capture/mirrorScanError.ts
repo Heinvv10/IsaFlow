@@ -10,9 +10,9 @@
  *     'error' (the connection is not scanned again until it is reconnected);
  *   - stampScanStopped: last_scan_at and last_error only, status untouched (a
  *     scan stopped by its deadline or its byte meter: retried next interval).
- * Inside a request (scan-now) the write needs no deferral: the request holds
- * only the key-share lock its scan-log INSERT takes on the row, which an UPDATE
- * of these columns does not wait for.
+ * Inside a request (scan-now) the write is queued with the scan's other stamps and
+ * runs after the request COMMITs (mirrorScanWrite.ts afterRequestCommit), in order:
+ * a cursor stamp made earlier in the scan must not land after, and clear, this error.
  *
  * Never throws: the cron scans many connections and one connection's
  * bookkeeping must not stop the tick. A write that waited 2 s in vain (55P03)
@@ -21,7 +21,7 @@
 
 import { log } from '@/lib/logger';
 import { routeAdminQuery } from '@/lib/auth/routeAdminPool';
-import { LOCK_NOT_AVAILABLE } from './mirrorScanWrite';
+import { LOCK_NOT_AVAILABLE, afterRequestCommit } from './mirrorScanWrite';
 
 export type MirrorKind = 'imap' | 'sent';
 export interface MirrorRef { id: string; companyId: string }
@@ -53,6 +53,10 @@ export const MESSAGE_TOO_LARGE = 'A message was larger than its server said; the
 const SCOPE = { imap: 'imap-mirror', sent: 'sent-mirror' } as const;
 
 async function write(kind: MirrorKind, conn: MirrorRef, text: string, error: string, what: string): Promise<void> {
+  await afterRequestCommit(SCOPE[kind], `${what} (${kind} mirror)`, () => writeNow(kind, conn, text, error, what));
+}
+
+async function writeNow(kind: MirrorKind, conn: MirrorRef, text: string, error: string, what: string): Promise<void> {
   try {
     await routeAdminQuery(`${what} (${kind} mirror)`, text, [error, conn.id, conn.companyId]);
   } catch (err) {

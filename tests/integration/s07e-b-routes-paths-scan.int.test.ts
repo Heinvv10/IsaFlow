@@ -1,16 +1,15 @@
 // tests/integration/s07e-b-routes-paths-scan.int.test.ts
 //
-// S-07e part B (migration 946), review round 5: no app role may write a
-// connection row, so the scan's stamps, cursor included, and the error flip all
-// run on migration_admin (routeAdminQuery), each committing on its own. Scan-now's
-// request transaction then holds only the key-share lock its scan-log INSERT
-// takes on the row, which those UPDATEs do not wait for: the after-commit
-// deferral of the error flip (rounds 1-4, when the request's own cursor stamp
-// held the row) is gone, and the request still answers promptly with the flip
-// already written. Proven through the real scan-now route on the production
-// logins; the IMAP client is stubbed so the scan fails AFTER the cursor stamp
-// (the mailbox lock's release throws; the finally block that runs it sits after
-// updateCursor).
+// S-07e part B (migration 946): no app role may write a connection row, so the scan's
+// stamps, cursor included, and the error flip all run on migration_admin (routeAdminQuery),
+// each committing on its own. Round 6: made inside a request (scan-now) they are queued and
+// run once the request has COMMITTED, in order, so a request that rolls back never moves the
+// cursor; scan-now's request holds only the key-share lock its scan-log INSERT takes on the
+// row, which those UPDATEs do not wait for, so the request still answers promptly and the
+// stamps (the status flip included) land just behind the response. Proven through the real
+// scan-now route on the production logins; the IMAP client is stubbed so the scan fails AFTER
+// the cursor stamp (the mailbox lock's release throws; the finally block that runs it sits
+// after updateCursor).
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import scanNowRoute from '../../pages/api/accounting/capture/mirror/[id]/scan-now';
 import { getAuthPool } from '@/lib/auth/authPool';
@@ -58,7 +57,7 @@ afterAll(async () => {
 });
 
 describe('S-07e part B (946): scan-now fails after its cursor stamp', () => {
-  it('answers promptly with the error and the status flip already written on migration_admin (no deferral, no wait on its own row)', async () => {
+  it('answers promptly; the cursor stamp and then the error flip land on migration_admin right behind the response (no wait on its own row)', async () => {
     const { id } = await createImapConnection({ companyId: company, displayName: 'Lock', accountEmail: 'lock@s07eb.test',
       imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'mailbox-pw' });
     expect(await row(id)).toMatchObject({ status: 'active', scan_cursor: {} });
@@ -70,8 +69,9 @@ describe('S-07e part B (946): scan-now fails after its cursor stamp', () => {
     expect(res.status).toBe(200);
     expect((res.body as { data: Record<string, number> }).data).toMatchObject({ scanned: 1, errors: 1 });
     expect(elapsed, `scan-now took ${elapsed}ms`).toBeLessThan(PROMPT_MS);
-    // The cursor stamp committed on its own, so the failure came after it; the flip is there when the response is.
-    expect(await row(id)).toMatchObject({ scan_cursor: { INBOX: 9 }, status: 'error', last_error: imap.releaseError });
+    // The cursor stamp was queued first and the error flip behind it: the cursor is there AND the flip is the last word
+    // (a flip that ran first would have its last_error cleared by the cursor stamp).
+    await vi.waitFor(async () => expect(await row(id)).toMatchObject({ scan_cursor: { INBOX: 9 }, status: 'error', last_error: imap.releaseError }));
   });
 });
 

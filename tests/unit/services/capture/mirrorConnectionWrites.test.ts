@@ -1,6 +1,7 @@
 /**
  * S-07e part B (migration 946): every write to imap_mirror_connections made by
- * mirrorConnectionService runs on the migration_admin pool, bound to the verified
+ * mirrorConnectionService runs on routeAdminPool's pool (routeAdminQuery: 2 s lock wait), never
+ * on the credential pool sign-in shares (migrationAdminTx, which here refuses), bound to the verified
  * company. Re-pointing imap_host/port/tls/username would make the scan cron send
  * the stored mailbox password to an attacker's server, so no app role may.
  */
@@ -15,12 +16,13 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/encryption', () => ({ encrypt: (p: string) => `enc(${p})` }));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
-  migrationAdminTx: async (label: string, fn: (c: unknown) => Promise<unknown>) => fn({
-    query: async (text: string, values: unknown[]) => {
-      h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
-      return { rows: h.results.shift() ?? [] };
-    },
-  }),
+  migrationAdminTx: async (label: string) => { throw new Error(`${label}: a mirror connection write ran on the credential pool`); },
+}));
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: async (label: string, text: string, values: unknown[]) => {
+    h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
+    return h.results.shift() ?? [];
+  },
 }));
 
 import { sql } from '@/lib/neon';
@@ -39,7 +41,7 @@ beforeEach(() => {
 });
 
 describe('mirrorConnectionService writes', () => {
-  it('create inserts the encrypted password for the company, via migrationAdminTx', async () => {
+  it('create inserts the encrypted password for the company, via routeAdminQuery', async () => {
     h.results.push([row]);
     const out = await createImapConnection({
       companyId: COMPANY, createdBy: 'u1', displayName: 'AP', accountEmail: 'ap@x.test',

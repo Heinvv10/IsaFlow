@@ -3,10 +3,11 @@
  * cron's due selection. The connection row's stamps (cursor, last_scan_at,
  * last_success_at, the counters) and the selection run on migration_admin, one fixed
  * statement each, keyed on the connection AND its company: no app role may write the
- * table. The scan log stays on the app pool. See capture/mirrorScanWrite.ts for both.
+ * table. The scan log stays on the app pool. In a request (scan-now) the stamps run after its
+ * COMMIT, in order (stampScan), so a rolled-back request never moves the cursor. See capture/mirrorScanWrite.ts for both.
  */
 import { clipMirrorText } from '@/modules/accounting/services/capture/mirrorScanLimits';
-import { scanWrite, stampConnection } from '@/modules/accounting/services/capture/mirrorScanWrite';
+import { scanWrite, stampConnection, stampScan } from '@/modules/accounting/services/capture/mirrorScanWrite';
 
 interface Ref { id: string; companyId: string }
 
@@ -61,14 +62,14 @@ export async function logScanEntry(conn: Ref, entry: ScanLogEntry): Promise<void
 
 export async function advanceCursor(conn: Ref & { scanCursor: Record<string, number> }, folder: string, uid: number): Promise<void> {
   const nextCursor = { ...conn.scanCursor, [folder]: uid };
-  await stampConnection('sent mirror cursor', SET_CURSOR, [JSON.stringify(nextCursor), conn.id, conn.companyId]);
+  await stampScan('sent-mirror', 'sent mirror cursor', SET_CURSOR, [JSON.stringify(nextCursor), conn.id, conn.companyId]);
 }
 
 /** A scan with nothing past the cursor: bump last_scan_at so the poll interval kicks in. */
 export async function stampSuccess(conn: Ref): Promise<void> {
-  await stampConnection('sent mirror success stamp', SET_SUCCESS, [conn.id, conn.companyId]);
+  await stampScan('sent-mirror', 'sent mirror success stamp', SET_SUCCESS, [conn.id, conn.companyId]);
 }
 
 export async function addCounters(conn: Ref, captured: number, linked: number): Promise<void> {
-  await stampConnection('sent mirror counters', ADD_COUNTERS, [captured, linked, conn.id, conn.companyId]);
+  await stampScan('sent-mirror', 'sent mirror counters', ADD_COUNTERS, [captured, linked, conn.id, conn.companyId]);
 }

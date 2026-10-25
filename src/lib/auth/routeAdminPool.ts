@@ -1,11 +1,14 @@
 /**
- * Every write a delivery or a mirror scan makes to a company's route rows
- * (webhook_endpoints, imap_mirror_connections, sent_mirror_connections: S-07e
- * part B, migration 946), and the scan cron's due selection, on the
- * migration_admin login (BYPASSRLS, not the table owner). No app role may write
- * those tables at all: while their stamps (failure_count, scan_cursor,
- * last_scan_at, last_error, the counters) were app-writable, SQL injected on an
- * app pool forged them on any company's rows.
+ * Every write to a company's route rows (webhook_endpoints,
+ * imap_mirror_connections, sent_mirror_connections: S-07e part B, migration 946)
+ * and the scan cron's due selection, on the migration_admin login (BYPASSRLS, not
+ * the table owner). No app role may write those tables at all: while their stamps
+ * (failure_count, scan_cursor, last_scan_at, last_error, the counters) and the
+ * columns a scan or a delivery acts on (url, events, imap_host, ...) were
+ * app-writable, SQL injected on an app pool forged them on any company's rows.
+ * That is the settings screens' create, update, disconnect and delete too
+ * (mirrorConnectionService, sentMirrorAdmin, webhookEndpointWrites), and the
+ * scans' and deliveries' stamps.
  *
  * A pool of its own, not migrationAdminPool() (sign-in, invitations and the
  * credential writes; max 4). The scan crons are serial and hold one connection
@@ -13,18 +16,20 @@
  * bound on how many at once, and every delivery to one endpoint stamps the same
  * row: a burst queues on that row lock, holding a connection per waiter for up to
  * ROUTE_LOCK_WAIT. On the credential pool that queue would hold up sign-ins; here
- * it holds up only other stamps, which are bookkeeping. Default 3 (one per scan
- * cron, one for deliveries); ROUTE_ADMIN_POOL_MAX overrides it.
+ * it holds up only other route writes. Default 3 (one per scan cron, one for
+ * deliveries); ROUTE_ADMIN_POOL_MAX overrides it.
  *
- * Each call is one fixed, parameterised statement in a transaction of its own
- * that waits at most ROUTE_LOCK_WAIT for a row lock (55P03 past it: the caller
- * decides; a scan skips its connection for the tick, a delivery loses one stamp).
- * Only migration_admin sessions can hold a conflicting lock now: an app role has
- * no UPDATE, so it cannot SELECT ... FOR UPDATE these rows, and the key-share
- * lock its scan-log or delivery-log INSERT takes does not conflict with an
- * UPDATE of non-key columns. It never joins a request's transaction: a stamp
- * commits on its own. This role bypasses RLS, so every statement names its
- * row by id AND company_id.
+ * Each call is a short transaction of its own that waits at most ROUTE_LOCK_WAIT
+ * for a row lock (55P03 past it: the caller decides; a scan skips its connection
+ * for the tick, a delivery loses one stamp, a settings write answers 503) and runs
+ * at most ROUTE_STATEMENT_TIMEOUT per statement. routeAdminQuery is one fixed,
+ * parameterised statement; routeAdminTx is for the few writes that must be atomic
+ * across several (an endpoint update and its re-read). Only migration_admin
+ * sessions can hold a conflicting lock now: an app role has no UPDATE, so it cannot
+ * SELECT ... FOR UPDATE these rows, and the key-share lock its scan-log or
+ * delivery-log INSERT takes blocks only a DELETE (bounded at ROUTE_LOCK_WAIT). It
+ * never joins a request's transaction: a write commits on its own. This role
+ * bypasses RLS, so every statement names its row by id AND company_id.
  */
 import pg from 'pg';
 // Side-effect import: registers the DATE (OID 1082) parser for every pg Pool in this process.
@@ -35,6 +40,9 @@ import { rollbackFailed } from '@/lib/rollbackFailed';
 
 /** The longest a route-row write waits for a row another transaction holds. */
 export const ROUTE_LOCK_WAIT = '2s';
+
+/** The longest one statement runs; these are single-row writes and a due selection of 20 rows. */
+export const ROUTE_STATEMENT_TIMEOUT = '10s';
 
 let _pool: pg.Pool | null = null;
 
@@ -58,8 +66,11 @@ export function routeAdminPool(): pg.Pool {
   return _pool;
 }
 
-/** Runs `text` with `params` in a short transaction of its own on routeAdminPool(); returns its rows. */
-export async function routeAdminQuery(label: string, text: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+/**
+ * Runs `fn` in one transaction of its own on routeAdminPool(): BEGIN, the bounded lock wait and statement
+ * time, COMMIT, a ROLLBACK on any throw, and a client whose ROLLBACK failed destroyed rather than pooled (R-176).
+ */
+export async function routeAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   const client = await routeAdminPool().connect();
   let opened = false;
   let unusable = false;
@@ -67,14 +78,20 @@ export async function routeAdminQuery(label: string, text: string, params: unkno
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
     await client.query(`SET LOCAL lock_timeout = '${ROUTE_LOCK_WAIT}'`);
-    const { rows } = await client.query(text, params);
+    await client.query(`SET LOCAL statement_timeout = '${ROUTE_STATEMENT_TIMEOUT}'`);
+    const result = await fn(client);
     await client.query('COMMIT');
     opened = false;
-    return rows as Record<string, unknown>[];
+    return result;
   } catch (err) {
     if (opened) unusable = await rollbackFailed(client, label);
     throw err;
   } finally {
     client.release(unusable);
   }
+}
+
+/** Runs `text` with `params` in a short transaction of its own on routeAdminPool(); returns its rows. */
+export async function routeAdminQuery(label: string, text: string, params: unknown[]): Promise<Record<string, unknown>[]> {
+  return routeAdminTx(label, async (client) => (await client.query(text, params)).rows as Record<string, unknown>[]);
 }

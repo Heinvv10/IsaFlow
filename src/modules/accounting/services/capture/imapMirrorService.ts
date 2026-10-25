@@ -179,7 +179,6 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
     const lock = await client.getMailboxLock(conn.folder);
     try {
       const { uid: cursorUid, clamped } = readCursor(conn.scanCursor, conn.folder, { id: conn.id, kind: 'imap-mirror' }, mailboxUidNext(client));
-
       // Fetch UIDs + minimal metadata first — don't pull bodies we don't want
       const msgs = await fetchNewMessages(client, cursorUid);
 
@@ -240,6 +239,7 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
           // Once per message, before any attachment: a failure here leaves nothing half-ingested.
           const inboxId = await ensureMirrorInbox(conn.companyId, conn.accountEmail);
           for (const att of attachments) {
+            guard.check(); // an abandoned scan ingests nothing more
             const eventId = await ingestAttachment(conn, inboxId, parsed, att);
             if (eventId) eventIds.push(eventId); // null: the tenant already holds this file
           }
@@ -249,7 +249,7 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
             subject, attachmentCount: attachments.length,
             outcome: eventIds.length > 0 ? 'ingested' : 'skipped_duplicate', captureEventIds: eventIds });
         } catch (ingestErr) {
-          if (isScanLockSkip(ingestErr)) throw ingestErr;
+          if (guard.expired || isScanLockSkip(ingestErr)) throw ingestErr;
           const msg = ingestErr instanceof Error ? ingestErr.message : String(ingestErr);
           result.errors += 1;
           log.warn('mirror ingest failed', { connectionId: conn.id, uid, err: msg }, 'imap-mirror');

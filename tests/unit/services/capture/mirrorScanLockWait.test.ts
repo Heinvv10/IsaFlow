@@ -5,8 +5,8 @@
  * scan-log write waits at most 2 s for the row outside a request (a short
  * transaction with a transaction-local lock_timeout). Round 5: the writes to the
  * connection row itself (cursor, success stamp, counters) run on migration_admin
- * (routeAdminQuery, whose own transaction waits 2 s: routeAdminPool.test.ts), in
- * a request too, and never on the app pool. A write that gives up (55P03) makes
+ * (routeAdminQuery, whose own transaction waits 2 s: routeAdminPool.test.ts), never on
+ * the app pool; inside a request they are queued for after its COMMIT (mirrorScanRequestStamps.test.ts). A write that gives up (55P03) makes
  * the scan skip the connection for this tick: warned, not marked failed, cursor
  * not advanced. Inside a request (scan-now) the scan-log write is the request's
  * own and its failure is handled as before. Both mirror services; mailbox,
@@ -86,6 +86,7 @@ vi.mock('@/lib/neon', () => {
 });
 
 import { als } from '@/lib/als';
+import { runAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { scanConnection, type MirrorConnection } from '@/modules/accounting/services/capture/imapMirrorService';
 import { scanSentConnection, type SentMirrorConnection } from '@/modules/accounting/services/ar/sentMirrorService';
@@ -101,6 +102,12 @@ const sentConn = (): SentMirrorConnection => ({
   imapHost: 'imap.test', imapPort: 993, imapUseTls: true, imapUsername: 'u', imapPasswordEnc: 'enc', oauthRefreshTokenEnc: null,
 });
 const requestCtx = (): RequestContext => ({ client: {} as RequestContext['client'], userId: 'u1', claims: {}, afterCommit: [] });
+/** Runs the stamps a scan queued for after its request's COMMIT, as the owner's drain does. */
+const commit = async () => {
+  const queued = vi.mocked(runAfterCommit).mock.calls.filter((c) => c[0] === 'mirror scan stamps');
+  expect(queued).toHaveLength(1);
+  await queued[0]![1]();
+};
 
 /** [service, scan, connection table, the writes that can lock: [what, mailbox UIDs, UIDNEXT, statement]] */
 const SERVICES = [
@@ -128,6 +135,7 @@ beforeEach(() => {
   h.txs.length = 0;
   h.route.length = 0;
   h.markError.mockClear();
+  vi.mocked(runAfterCommit).mockClear();
   vi.mocked(log.warn).mockClear();
   vi.mocked(log.error).mockClear();
 });
@@ -182,9 +190,11 @@ describe.each(SERVICES)('%s, outside a request (the cron)', (_name, scan, table,
 });
 
 describe.each(SERVICES)('%s, inside a request (scan-now)', (_name, scan, table, scope) => {
-  it('logs on the request\'s own transaction (no transaction of its own, no lock_timeout change); stamps on migration_admin', async () => {
+  it('logs on the request\'s own transaction (no transaction of its own, no lock_timeout change); stamps on migration_admin once it has committed', async () => {
     h.uids = [11];
     await als.run(requestCtx(), () => scan());
+    expect(h.route).toEqual([]); // nothing stamped while the request can still roll back
+    await commit();
     expect(h.txs).toEqual([]);
     expect(h.direct.some((t) => /set_config/.test(t))).toBe(false);
     expect(h.direct.some((t) => /_scan_log/.test(t))).toBe(true);
@@ -192,13 +202,15 @@ describe.each(SERVICES)('%s, inside a request (scan-now)', (_name, scan, table, 
     expect(h.route.some((t) => t.startsWith(`UPDATE ${table} SET scan_cursor`))).toBe(true);
   });
 
-  it('a stamp that waits out its 2 s there is a skip too (its transaction is its own, not the request\'s)', async () => {
+  it('a stamp that waits out its 2 s after the commit is warned and lost (its transaction is its own); the scan was not failed', async () => {
     h.uids = [11];
     h.failOn = new RegExp(`UPDATE ${table} SET scan_cursor`);
     const r = await als.run(requestCtx(), () => scan());
+    await expect(commit()).resolves.toBeUndefined();
     expect(r.errors).toBe(0);
     expect(h.markError).not.toHaveBeenCalled();
-    expect(vi.mocked(log.warn).mock.calls.filter((c) => c[2] === scope && /skipped this tick/.test(String(c[0])))).toHaveLength(1);
+    expect(log.error).not.toHaveBeenCalled();
+    expect(vi.mocked(log.warn).mock.calls.filter((c) => c[2] === scope && /stamp skipped: the connection row is locked/.test(String(c[0])))).toHaveLength(1);
   });
 
   it('a 55P03 there is the scan\'s failure as before, not a skip', async () => {

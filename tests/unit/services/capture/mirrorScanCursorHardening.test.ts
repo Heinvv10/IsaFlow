@@ -100,8 +100,10 @@ describe('readCursor', () => {
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ connectionId: 'c1', folder: 'INBOX', uidNext: 100 });
   });
 
-  it('a mailbox with UIDNEXT 1 (nothing ever delivered) clamps to 0', () => {
-    expect(readCursor({ INBOX: 7 }, 'INBOX', ref, 1)).toEqual({ uid: 0, clamped: true });
+  it('a mailbox with UIDNEXT 1 (empty) writes nothing and logs nothing: no clamp, no warning on every tick', () => {
+    expect(readCursor({ INBOX: 7 }, 'INBOX', ref, 1)).toEqual({ uid: 0, clamped: false });
+    expect(readCursor({ INBOX: 1 }, 'INBOX', ref, 1)).toEqual({ uid: 0, clamped: false });
+    expect(log.warn).not.toHaveBeenCalled();
   });
 
   it('a cursor that is used as it is, or is invalid, is not flagged to be stored', () => {
@@ -173,6 +175,15 @@ describe.each([
     const write = h.statements.find((s) => /scan_cursor =/.test(s.q));
     expect(write).toBeDefined();
     expect(JSON.parse(String(write!.v[0]))).toEqual({ [folder]: 99 });
+  });
+
+  it('an empty mailbox (UIDNEXT 1) with a stored cursor writes no cursor and logs nothing, every tick: only the success stamp', async () => {
+    h.uidNext = 1;
+    for (let tick = 0; tick < 2; tick += 1) await scan({ [folder]: 7 });
+    expect(h.statements.filter((s) => /scan_cursor =/.test(s.q))).toEqual([]);
+    expect(h.statements.filter((s) => /SET last_scan_at = NOW\(\), last_success_at = NOW\(\)/.test(s.q))).toHaveLength(2);
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(h.markError).not.toHaveBeenCalled();
   });
 
   it('with UIDNEXT 100, a cursor of 99 (the newest message already seen) is a good cursor', async () => {
