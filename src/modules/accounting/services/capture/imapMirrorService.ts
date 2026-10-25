@@ -25,7 +25,7 @@ import { createMirrorClient } from './mirrorImapClient';
 import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from './mirrorScanGuard';
 import { ingestAttachment } from './imapMirrorIngest';
 import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from './mirrorImapFetch';
-import { isScanLockSkip } from './mirrorScanWrite';
+import { dueOrSkipTick, isScanLockSkip } from './mirrorScanWrite';
 import { addIngested, logScanEntry, selectDueConnections, stampStopped, stampSuccess, updateCursor } from './imapMirrorWrites';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
 import { log } from '@/lib/logger';
@@ -294,7 +294,7 @@ async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanG
 }
 
 export async function scanAllDueConnections(opts: ScanOptions = {}): Promise<ScanResult[]> {
-  const connections = await listActiveConnections();
+  const connections = await dueOrSkipTick(listActiveConnections, 'imap-mirror');
   const results: ScanResult[] = [];
   for (const conn of connections) {
     results.push(await scanConnection(conn, opts));

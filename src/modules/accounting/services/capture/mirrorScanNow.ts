@@ -35,6 +35,9 @@ export async function runScanNow<T>(
   conn: { id: string; companyId: string },
   scan: (opts: ScanOptions) => Promise<T>,
 ): Promise<T> {
+  // The checks below and the scan's claimScan (the first statement of runGuardedScan, reached through `scan` with no
+  // await in between) must stay in one synchronous run: an await before claimScan lets a cron tick claim the connection
+  // in the gap, and this scan-now then answers 200 with zeros instead of 409. mirrorScanClaimOrder.test.ts pins it.
   if (isScanActive(conn.id)) throw new ScanNowBusyError('connection');
   if (busyCompanies.has(conn.companyId)) throw new ScanNowBusyError('company');
   busyCompanies.add(conn.companyId);

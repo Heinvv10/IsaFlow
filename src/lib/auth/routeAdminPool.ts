@@ -20,8 +20,11 @@
  * deliveries); ROUTE_ADMIN_POOL_MAX overrides it.
  *
  * Each call is a short transaction of its own that waits at most ROUTE_LOCK_WAIT
- * for a row lock (55P03 past it: the caller decides; a scan skips its connection
- * for the tick, a delivery loses one stamp, a settings write answers 503) and runs
+ * for a row lock, and at most ROUTE_CONNECT_TIMEOUT_MS for a free connection (55P03
+ * past either, the second as RouteAdminPoolTimeoutError: the caller decides; a scan
+ * skips its connection for the tick, a delivery loses one stamp, a settings write
+ * answers 503). The pool is shared by every tenant's route writes (max 3), so a write
+ * that queues behind them fails in 2 s rather than holding its request open. Runs
  * at most ROUTE_STATEMENT_TIMEOUT per statement. routeAdminQuery is one fixed,
  * parameterised statement; routeAdminTx is for the few writes that must be atomic
  * across several (an endpoint update and its re-read). Only migration_admin
@@ -44,6 +47,33 @@ export const ROUTE_LOCK_WAIT = '2s';
 /** The longest one statement runs; these are single-row writes and a due selection of 20 rows. */
 export const ROUTE_STATEMENT_TIMEOUT = '10s';
 
+/**
+ * The longest a write waits for one of the pool's few connections. A request holds its auth-pool connection and
+ * transaction while it waits here, so the wait is the lock wait's size: a queued write answers 503 in 2 s instead of
+ * stalling every tenant's requests behind it (a burst of DELETEs on a row a scan holds queued up to 22 s).
+ */
+export const ROUTE_CONNECT_TIMEOUT_MS = 2_000;
+
+/**
+ * The pool had no free connection within ROUTE_CONNECT_TIMEOUT_MS. It carries the lock timeout's SQLSTATE (55P03) on
+ * purpose: everything that already handles "the row is held, try again" handles this the same way. A request answers
+ * 503 (respondIfLockTimeout), a scan skips its connection for the tick (isScanLockSkip), and no caller reads it as the
+ * scan or the delivery having failed (the connection is not flipped to 'error', no webhook failure is counted).
+ */
+const LOCK_NOT_AVAILABLE = '55P03';
+
+export class RouteAdminPoolTimeoutError extends Error {
+  readonly code = LOCK_NOT_AVAILABLE; // a SQLSTATE, not a refusal code for a caller to show (as ScanStampLockSkip's)
+  constructor(label: string, cause: unknown) {
+    super(`${label}: the route write pool is busy`, { cause });
+    this.name = 'RouteAdminPoolTimeoutError';
+  }
+}
+
+/** pg-pool's own messages for a connect that ran past connectionTimeoutMillis (waiting for a slot, or opening one). */
+const isConnectTimeout = (err: unknown): boolean =>
+  err instanceof Error && /timeout exceeded when trying to connect|connection timeout/i.test(err.message);
+
 let _pool: pg.Pool | null = null;
 
 export function routeAdminPool(): pg.Pool {
@@ -53,7 +83,7 @@ export function routeAdminPool(): pg.Pool {
   _pool = new pg.Pool({
     connectionString: url,
     max: poolSizeFromEnv('ROUTE_ADMIN_POOL_MAX', 3),
-    connectionTimeoutMillis: 15_000,
+    connectionTimeoutMillis: ROUTE_CONNECT_TIMEOUT_MS,
     ssl:
       process.env.DATABASE_SSL === 'strict'
         ? { rejectUnauthorized: true }
@@ -71,7 +101,12 @@ export function routeAdminPool(): pg.Pool {
  * time, COMMIT, a ROLLBACK on any throw, and a client whose ROLLBACK failed destroyed rather than pooled (R-176).
  */
 export async function routeAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
-  const client = await routeAdminPool().connect();
+  let client: pg.PoolClient;
+  try {
+    client = await routeAdminPool().connect();
+  } catch (err) {
+    throw isConnectTimeout(err) ? new RouteAdminPoolTimeoutError(label, err) : err;
+  }
   let opened = false;
   let unusable = false;
   try {
