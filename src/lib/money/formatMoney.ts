@@ -38,7 +38,7 @@ interface Parts {
 
 function parts(amount: number, decimals: number): Parts {
   const fixed = toFixedHalfUp(Math.abs(amount), decimals); // e.g. "318400.00" (or "1200000" when decimals: 0)
-  // "-R 0.00" is never printed: a sign only goes on a figure that survives rounding.
+  // "−R 0.00" is never printed: a sign only goes on a figure that survives rounding.
   const negative = amount < 0 && Number(fixed) !== 0;
   const [intPart = '', fracPart] = fixed.split('.');
   const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, GROUP);
@@ -46,20 +46,20 @@ function parts(amount: number, decimals: number): Parts {
   return { negative, body: fracPart !== undefined ? `${grouped}.${fracPart}` : grouped };
 }
 
-/** "R 25 000.00" / "-R 2 300.00". Non-finite inputs (NaN/Infinity) are the caller's responsibility; they pass through verbatim. */
+/** "R 25 000.00" / "−R 2 300.00". Non-finite inputs (NaN/Infinity) are the caller's responsibility; they pass through verbatim. */
 export function formatMoney(amount: number, options: FormatMoneyOptions = {}): string {
   const { negative, body } = parts(amount, options.decimals ?? 2);
   return `${negative ? MINUS : ''}R${GROUP}${body}`;
 }
 
-/** The same figure without the symbol, for a column whose header says it is rand: "25 000.00" / "-2 300.00". */
+/** The same figure without the symbol, for a column whose header says it is rand: "25 000.00" / "−2 300.00". */
 export function formatAmount(amount: number, options: FormatMoneyOptions = {}): string {
   const { negative, body } = parts(amount, options.decimals ?? 2);
   return `${negative ? MINUS : ''}${body}`;
 }
 
 /**
- * Tile form: "R 5.5M", "-R 895.0K", and below R 1 000 the full figure ("R 172.50"). The sign leads the
+ * Tile form: "R 5.5M", "−R 895.0K", and below R 1 000 the full figure ("R 172.50"). The sign leads the
  * symbol, as in formatMoney; the page-local copies this replaces printed "R -5.5M".
  */
 export function formatMoneyCompact(amount: number, options: FormatMoneyOptions = {}): string {

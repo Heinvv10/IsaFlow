@@ -100,13 +100,59 @@ describe('the other display forms are fixed strings, not ICU', () => {
   });
 });
 
-describe('ISO forms (files and APIs) keep master semantics', () => {
-  it('passes a plain ISO date through and reads a Date in local fields', () => {
+describe('formatDateISO / formatDateTimeISO read dates exactly as the display forms do', () => {
+  it('passes a plain ISO date through, and never turns a non-date into a day', () => {
     expect(formatDateISO('2026-10-21')).toBe('2026-10-21');
-    expect(formatDateISO(new Date(2026, 9, 21, 0, 0))).toBe('2026-10-21');
-    expect(formatDateTimeISO(new Date(2026, 9, 21, 7, 5))).toBe('2026-10-21 07:05');
+    for (const text of ['INV-001', '123', '2026-02', '2026', '2026-02-30', 'garbage', '1/2/2026', '']) {
+      expect(formatDateISO(text)).toBe('');
+    }
     expect(formatDateISO(null)).toBe('');
-    expect(formatDateISO('garbage')).toBe('');
+    expect(formatDateISO(undefined)).toBe('');
+    expect(formatDateISO(new Date(NaN))).toBe('');
+  });
+
+  it('turns a zoned ISO timestamp into its Johannesburg calendar date, so a CSV shows the screen day', () => {
+    expect(formatDateISO('2026-10-20T22:00:00Z')).toBe('2026-10-21');
+    expect(formatDateISO('2026-10-20T21:59:59Z')).toBe('2026-10-20');
+    expect(formatDateISO('2026-10-21T23:30:00+02:00')).toBe('2026-10-21');
+    expect(formatDateISO('2026-10-20 22:00:00+00')).toBe('2026-10-21');
+    expect(formatDateTimeISO('2026-10-20T22:05:00Z')).toBe('2026-10-21 00:05');
+  });
+
+  it('keeps the day a zone-less timestamp names, and a Date from its local fields', () => {
+    expect(formatDateISO('2026-10-21T23:59:59')).toBe('2026-10-21');
+    expect(formatDateISO(new Date(2026, 9, 21, 0, 0))).toBe('2026-10-21');
+    expect(formatDateISO(new Date(2026, 9, 21, 23, 59))).toBe('2026-10-21');
+    expect(formatDateTimeISO(new Date(2026, 9, 21, 7, 5))).toBe('2026-10-21 07:05');
+    expect(formatDateTimeISO('garbage')).toBe('');
+  });
+
+  it('agrees with the display form on the day, for every kind of input', () => {
+    const inputs = ['2026-10-21', '2026-10-20T22:00:00Z', '2026-10-21T23:30:00+02:00', '2026-10-21 08:00:00+00', '2026-10-21T00:00:00', new Date(2026, 9, 21, 12, 0)];
+    for (const input of inputs) {
+      const iso = formatDateISO(input);
+      expect(formatDisplayDate(input)).toBe(formatDisplayDate(iso));
+    }
+  });
+
+  it('getTodayISO is a plain ISO date', () => {
     expect(getTodayISO()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('what Postgres and bad times look like', () => {
+  it('reads a two-digit offset ("+00") and a four-digit one ("+0200")', () => {
+    expect(formatDisplayDate('2026-10-20 22:00:00+00')).toBe('21 Oct 2026');
+    expect(formatDisplayDateTime('2026-10-20 22:00:00+00')).toBe('21 Oct 2026, 00:00');
+    expect(formatDisplayDate('2026-10-21 00:30:00+0200')).toBe('21 Oct 2026');
+    expect(formatDisplayDate('2026-10-20T22:00:00.123456+00')).toBe('21 Oct 2026');
+  });
+
+  it('shows a time that cannot exist exactly as it came', () => {
+    for (const text of ['2026-10-21T25:99:00', '2026-10-21 24:00', '2026-10-21T10:61', '2026-10-21T10:30:75Z']) {
+      expect(formatDisplayDate(text)).toBe(text);
+      expect(formatDisplayDateTime(text)).toBe(text);
+      expect(formatDateISO(text)).toBe('');
+    }
   });
 });

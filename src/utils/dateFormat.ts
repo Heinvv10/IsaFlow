@@ -27,8 +27,6 @@
  * its own day. A `Date` is read from its own local calendar fields (a Date built as
  * `new Date(y, m - 1, d)` is that day on any device); it is never converted through UTC.
  */
-import { localISODate } from '@/lib/dateUtils';
-
 type DateInput = Date | string | null | undefined;
 
 const NO_DATE = '—';
@@ -41,7 +39,7 @@ const LONG_MONTHS = [
 ];
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const ISO_MONTH = /^(\d{4})-(\d{2})$/;
-const TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
 
 interface Parts { y: number; m: number; d: number; hh: number; mm: number; ss: number }
 
@@ -75,13 +73,18 @@ function weekdayOf(year: number, month: number, day: number): number {
 }
 
 /** Parts of a strict ISO date (it names its own day); null for 2026-02-30. */
-function isoParts(iso: string, time = ''): Parts | null {
+function isoParts(iso: string, hh = 0, mm = 0, ss = 0): Parts | null {
   const m = ISO_DATE.exec(iso);
   if (!m) return null;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
   if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
-  const [hh = 0, mm = 0, ss = 0] = time.split(':').map((n) => Number.parseInt(n, 10) || 0);
+  if (hh > 23 || mm > 59 || ss > 59) return null;
   return { y, m: mo, d, hh, mm, ss };
+}
+
+/** "...+00" (Postgres) and "...+0200" become "...+00:00" / "...+02:00", which Date.parse reads. */
+function withColonOffset(text: string): string {
+  return text.replace(' ', 'T').replace(/([+-]\d{2})(\d{2})?$/, (_all, h: string, m?: string) => `${h}:${m ?? '00'}`);
 }
 
 /** The day (and time) a date input names, or null when it is not a date. */
@@ -91,9 +94,11 @@ function partsOf(date: DateInput): Parts | null {
   const text = date.trim();
   if (ISO_DATE.test(text)) return isoParts(text);
   const stamp = TIMESTAMP.exec(text);
-  if (!stamp || !isoParts(text.slice(0, 10))) return null;
-  if (stamp[1]) return sastParts(new Date(text.replace(' ', 'T')));
-  return isoParts(text.slice(0, 10), text.slice(11));
+  if (!stamp) return null;
+  const [hh, mm, ss] = [Number(stamp[1]), Number(stamp[2]), Number(stamp[3] ?? 0)];
+  const day = isoParts(text.slice(0, 10), hh, mm, ss); // refuses 2026-02-30 and a time like 25:99
+  if (!day) return null;
+  return stamp[4] ? sastParts(new Date(withColonOffset(text))) : day;
 }
 
 /** "YYYY-MM" as a month, for the month/year forms only (it is not a day, so it never renders as day 01). */
@@ -178,37 +183,33 @@ export function formatDisplayTimeSeconds(date: DateInput, fallback = NO_DATE): s
 
 // ─── Internal / API / Export Formats ────────────────────────────
 
-/** A Date or ISO string as a Date, or null. The machine formats below keep this (device-local) reading. */
-function toDate(date: DateInput): Date | null {
-  if (!date) return null;
-  const d = date instanceof Date ? date : new Date(date);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
 /**
- * "2026-02-25" — ISO date for APIs, exports, form values
+ * "2026-02-25" — ISO date for APIs, exports, form values. The same reading as the display forms: a
+ * plain ISO date passes through, a zoned ISO timestamp becomes its Africa/Johannesburg calendar date,
+ * a zone-less one its own date, a Date its local fields. Anything else is '' (never a guessed day:
+ * "INV-001", "123" and "2026-02" are not dates).
  */
 export function formatDateISO(date: DateInput): string {
-  if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  const d = toDate(date);
-  return d ? localISODate(d) : '';
+  const p = partsOf(date);
+  return p ? `${p.y}-${pad(p.m)}-${pad(p.d)}` : '';
 }
 
 /**
- * "2026-02-25 14:30" — ISO datetime for APIs, exports
+ * "2026-02-25 14:30" — ISO datetime for APIs, exports (read as formatDateISO is)
  */
 export function formatDateTimeISO(date: DateInput): string {
-  const d = toDate(date);
-  return d ? `${localISODate(d)} ${d.toTimeString().slice(0, 5)}` : '';
+  const p = partsOf(date);
+  return p ? `${p.y}-${pad(p.m)}-${pad(p.d)} ${pad(p.hh)}:${pad(p.mm)}` : '';
 }
 
 // ─── Utility ────────────────────────────────────────────────────
 
 /**
- * Parse a date string to Date object safely
+ * A Date (local fields) for a date input, or null when it is not one.
  */
 export function parseDateSafe(date: DateInput): Date | null {
-  return toDate(date);
+  const p = partsOf(date);
+  return p ? new Date(p.y, p.m - 1, p.d, p.hh, p.mm, p.ss) : null;
 }
 
 /**
