@@ -253,6 +253,15 @@ async function cleanExisting(): Promise<void> {
 
 // ── 1. Employees ──────────────────────────────────────────────────────────────
 
+/**
+ * Every demo employee is a medical-aid main member AND gets the 4005 "Medical Aid"
+ * deduction component. One constant drives both the medical_aid_main_member flag
+ * and the component rows (seedEmployees / seedEmployeeComponents), so a seeded
+ * main member can never lack the deduction GET /api/payroll/employees/medical-aid-review
+ * looks for. Change it and both follow.
+ */
+const ALL_DEMO_EMPLOYEES_ON_MEDICAL_AID = true;
+
 async function seedEmployees(): Promise<void> {
   if (!(await tableExists('payroll_employees'))) {
     console.log('[employees] Table missing — skipped.');
@@ -275,7 +284,7 @@ async function seedEmployees(): Promise<void> {
     equity_gender: e.equity_gender,
     equity_disability: false,
     uif_excluded: e.uif_excluded,
-    medical_aid_main_member: true,
+    medical_aid_main_member: ALL_DEMO_EMPLOYEES_ON_MEDICAL_AID,
     medical_aid_dependants_count: e.employment_type === 'director' ? 2 : 0,
   }));
 
@@ -357,12 +366,14 @@ async function seedEmployeeComponents(): Promise<void> {
     // Medical aid: directors R3 800, seniors R2 800, others R1 800
     const medAid = emp.employment_type === 'director' ? 3800
       : g >= 35000 ? 2800 : 1800;
-    rows.push({
-      id: randomUUID(), employee_id: emp.id,
-      component_id: COMP_IDS.medical,
-      amount: medAid,
-      effective_from: emp.start_date,
-    });
+    if (ALL_DEMO_EMPLOYEES_ON_MEDICAL_AID) {
+      rows.push({
+        id: randomUUID(), employee_id: emp.id,
+        component_id: COMP_IDS.medical,
+        amount: medAid,
+        effective_from: emp.start_date,
+      });
+    }
     // Provident fund: 7.5% of gross
     rows.push({
       id: randomUUID(), employee_id: emp.id,

@@ -187,7 +187,7 @@ export function Select(props: SelectProps) {
         onClick={() => (open ? closeDropdown() : openDropdown())}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
-          'flex min-h-[40px] w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors focus:outline-none',
+          'flex min-h-[40px] w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ff-focus-ring',
           'bg-white text-gray-900 dark:bg-gray-800 dark:text-gray-100',
           error ? 'border-red-400 dark:border-red-500' : 'border-gray-300 dark:border-gray-600',
           !disabled && 'hover:border-teal-400 dark:hover:border-teal-500',

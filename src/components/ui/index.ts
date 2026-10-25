@@ -76,3 +76,22 @@ export { SplitButton } from './SplitButton';
 export type { SplitButtonProps, SplitButtonOption } from './SplitButton';
 
 export { TableDensityToggle } from './TableDensityToggle';
+
+export { MoneyField } from './MoneyField';
+export type { MoneyFieldProps } from './MoneyField';
+
+export { DateField } from './DateField';
+export type { DateFieldProps } from './DateField';
+
+export { FormSection } from './FormSection';
+export type { FormSectionProps } from './FormSection';
+
+export { AutosaveStatus, formatSavedAgo } from './AutosaveStatus';
+export type { AutosaveState, AutosaveStatusProps } from './AutosaveStatus';
+
+export { ExplainDrawer } from './ExplainDrawer';
+export type { FieldValidity } from './useParsedField';
+export type { Explanation, ExplanationLine, ExplanationSource, ExplanationStatus, ExplainDrawerProps } from './ExplainDrawer';
+
+export { FieldHelp } from './FieldHelp';
+export type { FieldHelpContent, FieldHelpProps } from './FieldHelp';
