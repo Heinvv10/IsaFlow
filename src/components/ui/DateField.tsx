@@ -12,20 +12,27 @@ import { cn } from '@/utils/cn';
 import { inputVariants } from './Input';
 import { FieldFrame, describedBy } from './FieldFrame';
 import type { FieldHelpContent } from './FieldHelp';
-import { useParsedField, type ParseOutcome } from './useParsedField';
-import { addDaysISO, localISODate } from '@/lib/dateUtils';
-import { formatSaDate, formatSaDateLong, parseSaDate } from '@/lib/saDateParser';
+import { useParsedField, type FieldValidity, type ParseOutcome } from './useParsedField';
+import { addDaysISO, localDateFromISO } from '@/lib/dateUtils';
+import { assertISODate, parseSaDate, todayInSast } from '@/lib/saDateParser';
+import { formatDisplayDate, formatDisplayDateWeekday } from '@/utils/dateFormat';
 
 export interface DateFieldProps {
   label: string;
   /** ISO 'YYYY-MM-DD', or null when empty / not understood. */
   value: string | null;
-  onChange: (iso: string | null) => void;
+  /**
+   * Fires on blur / Enter when the value or its validity changed. `validity.valid` is false when the text
+   * was refused (unreadable, or outside minDate / maxDate): the value is then null but the field is NOT
+   * empty, so block submit on it.
+   */
+  onChange: (iso: string | null, validity: FieldValidity) => void;
   id?: string;
+  /** Names a hidden input that posts the canonical ISO date in a native form submit. */
   name?: string;
-  /** Inclusive lower bound, ISO. */
+  /** Inclusive lower bound, ISO. Must be a real 'YYYY-MM-DD' or the field throws a RangeError. */
   minDate?: string;
-  /** Inclusive upper bound, ISO. */
+  /** Inclusive upper bound, ISO. Must be a real 'YYYY-MM-DD' or the field throws a RangeError. */
   maxDate?: string;
   /** Shown when the date is before `minDate` (default names the date). */
   minMessage?: string;
@@ -55,10 +62,13 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
   const generatedId = React.useId();
   const inputId = id ?? generatedId;
   const now = (): Date => (getToday ? getToday() : new Date());
+  if (minDate !== undefined) assertISODate(minDate, 'minDate');
+  if (maxDate !== undefined) assertISODate(maxDate, 'maxDate');
+  const show = (iso: string): string => formatDisplayDate(localDateFromISO(iso), '');
 
   const check = (iso: string): string | null => {
-    if (minDate && iso < minDate) return minMessage ?? `The date must be on or after ${formatSaDate(minDate)}.`;
-    if (maxDate && iso > maxDate) return maxMessage ?? `The date must be on or before ${formatSaDate(maxDate)}.`;
+    if (minDate && iso < minDate) return minMessage ?? `The date must be on or after ${show(minDate)}.`;
+    if (maxDate && iso > maxDate) return maxMessage ?? `The date must be on or before ${show(maxDate)}.`;
     return null;
   };
 
@@ -70,15 +80,21 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
     return refusal ? { ok: false, reason: refusal } : { ok: true, value: r.iso };
   };
 
-  const field = useParsedField<string>({ value, format: formatSaDate, parse, onChange });
+  const field = useParsedField<string>({ value, format: show, parse, onChange });
   const error = externalError ?? field.error;
   const understood = field.text.trim() === '' ? null : parseSaDate(field.text, now());
-  const echo = understood?.ok ? formatSaDateLong(understood.iso) : null;
+  const echo = understood?.ok ? formatDisplayDateWeekday(localDateFromISO(understood.iso), '') || null : null;
   const frame = { error, helperText, echo, help };
 
-  const step = (days: number): void => {
-    const base = understood?.ok ? understood.iso : localISODate(now());
-    field.commit(formatSaDate(addDaysISO(base, understood?.ok ? days : 0)));
+  /** One day up or down from the date on screen (or from today when empty). Unreadable text is left alone. */
+  const step = (days: number): boolean => {
+    if (field.text.trim() === '') {
+      field.commit(show(todayInSast(now())));
+      return true;
+    }
+    if (!understood?.ok) return false;
+    field.commit(show(addDaysISO(understood.iso, days)));
+    return true;
   };
 
   return (
@@ -86,7 +102,6 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
       <input
         ref={ref}
         id={inputId}
-        name={name}
         type="text"
         autoComplete="off"
         spellCheck={false}
@@ -103,13 +118,13 @@ export const DateField = React.forwardRef<HTMLInputElement, DateFieldProps>(func
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') field.commit();
-          else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          else if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && step(e.key === 'ArrowUp' ? 1 : -1)) {
             e.preventDefault();
-            step(e.key === 'ArrowUp' ? 1 : -1);
           }
         }}
         className={cn(inputVariants({ inputVariant: error ? 'error' : 'default' }), 'tabular-nums', className)}
       />
+      {name && <input type="hidden" name={name} value={value ?? ''} />}
     </FieldFrame>
   );
 });
