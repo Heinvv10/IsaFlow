@@ -27,6 +27,8 @@ export interface MoneyFieldProps {
   name?: string;
   /** Shown as a badge; the echo is "R ..." for ZAR and "<code> ..." otherwise. */
   currency?: string;
+  /** Change it to discard refused text on screen (a form reset); `value` alone cannot, null stays null. */
+  resetKey?: string | number;
   /** External error (e.g. from the server). Overrides the field's own. */
   error?: string;
   helperText?: string;
@@ -46,7 +48,7 @@ export interface MoneyFieldProps {
 
 export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(function MoneyField(
   {
-    label, value, onChange, id, name, currency = 'ZAR', error: externalError, helperText, help, placeholder = '0.00',
+    label, value, onChange, id, name, currency = 'ZAR', error: externalError, helperText, help, resetKey, placeholder = '0.00',
     required, disabled, allowNegative = false, min, max, className, onBlur,
   },
   ref,
@@ -67,7 +69,7 @@ export const MoneyField = React.forwardRef<HTMLInputElement, MoneyFieldProps>(fu
   };
 
   const field = useParsedField<number>({
-    value, format: (cents) => formatCents(cents, { symbol: false }), parse, onChange,
+    value, format: (cents) => formatCents(cents, { symbol: false }), parse, onChange, resetKey,
   });
   const error = externalError ?? field.error;
   const understood = field.text.trim() === '' ? null : parseSaAmount(field.text, { currency });

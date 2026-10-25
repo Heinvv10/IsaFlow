@@ -30,7 +30,7 @@ export function Money({ amount, cents, decimals, className, style, ...props }: M
       style={{ fontFamily: 'var(--ff-num-font)', ...style }}
       {...props}
     >
-      {cents !== undefined ? formatCents(cents) : formatMoney(amount, { decimals })}
+      {cents !== undefined ? formatCents(cents) : amount !== undefined ? formatMoney(amount, { decimals }) : '—'}
     </span>
   );
 }

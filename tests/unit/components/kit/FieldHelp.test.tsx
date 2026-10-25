@@ -164,6 +164,9 @@ describe('Learn more only links to safe targets', () => {
     'help/amounts',
     '',
     'https://exa mple.com',
+    'http://help.isaflow.co.za/x',
+    'HTTP://HELP.ISAFLOW.CO.ZA/',
+    'http://localhost:3000/a',
   ])('renders no link for %j', (href) => {
     render(field(href));
     fireEvent.focus(screen.getByRole('button', { name: 'Help: Amount' }));
@@ -171,7 +174,7 @@ describe('Learn more only links to safe targets', () => {
     expect(tip().textContent).toBe('Help text.');
   });
 
-  it.each(['https://help.isaflow.co.za/x?y=1#z', 'http://localhost:3000/a', 'HTTPS://HELP.ISAFLOW.CO.ZA/', '/help/amounts', '/'])(
+  it.each(['https://help.isaflow.co.za/x?y=1#z', 'HTTPS://HELP.ISAFLOW.CO.ZA/', '/help/amounts', '/'])(
     'renders a link for %j',
     (href) => {
       render(field(href));
