@@ -11,7 +11,7 @@
 // transaction), so a rule dropped from the file turns a test red.
 // What 946 closes: s07e-b-routes.int.test.ts.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { closeSql, createSql } from '../../scripts/_pg';
+import { closeSql, type TaggedSql } from '../../scripts/_pg';
 import { appLoginRoleViolations } from '../../scripts/check-app-login-roles';
 import { getAuthPool } from '@/lib/auth/authPool';
 import { doBlock, fixture, migration, newIds, rolledBack, setup, teardown } from './s07b-app-pool-login-role.helpers';
@@ -59,6 +59,30 @@ async function shape(q: Q) {
   }
   return out;
 }
+/** The top-level `( ... )` rows of the `<name> (...) AS (VALUES ...)` list in a migration, whitespace-free, comments dropped. */
+function valueRows(text: string, name: string): string[] {
+  const body = text.replace(/--[^\n]*/g, '');
+  const at = body.search(new RegExp(`${name} \\([a-z_, ]+\\) AS \\(VALUES`));
+  if (at < 0) throw new Error(`no ${name} VALUES list`);
+  const out: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = body.indexOf('(VALUES', at); i < body.length; i++) {
+    if (body[i] === '(') { depth++; if (depth === 2) start = i; }
+    if (body[i] === ')') { if (depth === 2) out.push(body.slice(start, i + 1).replace(/\s+/g, '')); depth--; if (depth === 0) break; }
+  }
+  return out;
+}
+/** Rows of `older` that `newer` lacks. */
+const lost = (older: string, newer: string, name: string) => {
+  const kept = new Set(valueRows(newer, name));
+  return valueRows(older, name).filter((r) => !kept.has(r));
+};
+/** The deploy's check bound to one rolled-back transaction: values are inlined (booleans and strings only). */
+const txSql = (q: Q): TaggedSql => (async (strings: TemplateStringsArray, ...values: unknown[]) =>
+  rows(q, strings.reduce((t, part, i) => t + part + (i < values.length ? (typeof values[i] === 'boolean' ? String(values[i])
+    : `'${String(values[i]).replace(/'/g, "''")}'`) : ''), ''))) as unknown as TaggedSql;
+
 const CLOSED = Object.fromEntries(TABLES.map((t) => [t, { update: STAMPS[t], insert: false, delete: false, truncate: false, unreadable: 0 }]));
 
 describe('946: migration', () => {
@@ -176,18 +200,54 @@ describe('946: migration', () => {
     });
   });
 
-  it('the deploy\'s check is clean on the fixture and reports a forged re-grant', async () => {
-    const url = new URL(String(fixture.options.connectionString));
-    url.searchParams.set('sslmode', 'disable');
-    const sql = createSql(url.toString());
-    const reach = (v: string[] | undefined) => (v ?? []).filter((x) => x.includes('reachable from an app pool login'));
-    expect(reach(await appLoginRoleViolations(sql))).toEqual([]);
-    await fixture.query('GRANT UPDATE (url) ON public.webhook_endpoints TO app_service');
-    try {
-      expect(await appLoginRoleViolations(sql)).toContain('app_service (reachable from an app pool login) can UPDATE webhook_endpoints.url');
-    } finally {
-      await fixture.query('REVOKE UPDATE (url) ON public.webhook_endpoints FROM app_service');
+  it('the deploy\'s check is clean on the fixture and reports a forged re-grant (the grant is rolled back with its transaction)', async () => {
+    const reach = (v: string[] | null) => (v ?? []).filter((x) => x.includes('reachable from an app pool login'));
+    await rolledBack(async (q) => {
+      expect(reach(await appLoginRoleViolations(txSql(q)))).toEqual([]);
+      await q('GRANT UPDATE (url) ON public.webhook_endpoints TO app_service');
+      expect(await appLoginRoleViolations(txSql(q))).toContain('app_service (reachable from an app pool login) can UPDATE webhook_endpoints.url');
+    });
+    const left = await rows((text) => fixture.query(text), `SELECT has_column_privilege('app_service', 'public.webhook_endpoints', 'url', 'UPDATE') AS p`);
+    expect(left[0]!.p).toBe(false);
+  });
+
+  // Every column that is not a stamp, read from the catalog: a column added later is covered without touching this file.
+  it.each(TABLES)('%s: every non-stamp column refuses UPDATE and INSERT (catalog-derived)', async (t) => {
+    const cols = (await rows((text) => fixture.query(text), `SELECT attname::text AS c FROM pg_attribute WHERE attrelid = 'public.${t}'::regclass
+      AND attnum > 0 AND NOT attisdropped ORDER BY attnum`)).map((r) => String(r.c)).filter((c) => !STAMPS[t]!.includes(c));
+    expect(cols.length).toBeGreaterThan(ROUTE[t]!.length);
+    expect(cols).toEqual(expect.arrayContaining([...ROUTE[t]!, 'company_id']));
+    for (const c of cols) {
+      for (const priv of ['UPDATE', 'INSERT']) {
+        await rolledBack(async (q) => {
+          await q(FN);
+          await q(GUARD);
+          await q(`GRANT ${priv} (${c}) ON public.${t} TO app_user`);
+          await expect(q(GUARD), `${priv} ${t}.${c}`).rejects.toThrow(R(APP, `${priv} ${t}\\.${c}`));
+        });
+      }
     }
-    expect(reach(await appLoginRoleViolations(sql))).toEqual([]);
+  });
+
+  describe('946 keeps every rule 945 had', () => {
+    it.each(['rules', 'unreadable'])('every row of 945\'s %s list is in 946\'s, verbatim', (name) => {
+      expect(valueRows(M945, name).length).toBeGreaterThan(5);
+      expect(lost(M945, M946, name)).toEqual([]);
+    });
+
+    it('946 adds exactly its three route tables to the rules, and nothing to unreadable', () => {
+      const added = valueRows(M946, 'rules').filter((r) => !valueRows(M945, 'rules').includes(r));
+      expect(added.map((r) => r.split(',')[0])).toEqual(["('public.webhook_endpoints'", "('public.imap_mirror_connections'",
+        "('public.sent_mirror_connections'"]);
+      expect(valueRows(M946, 'unreadable')).toEqual(valueRows(M945, 'unreadable'));
+    });
+
+    it('the guard sees a rule dropped from, or changed in, a copy of 946', () => {
+      const rule = valueRows(M945, 'rules').find((r) => r.startsWith("('public.flow_wallet'"))!;
+      const raw = M946.split('\n').find((l) => l.includes("'public.flow_wallet'"))!;
+      expect(rule).toBeTruthy();
+      expect(lost(M945, M946.replace(raw, ''), 'rules')).toEqual([rule]);
+      expect(lost(M945, M946.replace(raw, raw.replace('true', 'false')), 'rules')).toEqual([rule]);
+    });
   });
 });

@@ -13,7 +13,7 @@
 //                            mailbox password and present it to that host.
 // Each must now be refused by privilege, on the logins production has. What the
 // scans and the deliveries still stamp stays writable. The legitimate paths:
-// s07e-b-routes.paths.int.test.ts; the migration: s07e-b-routes.migration.
+// s07e-b-routes-paths-{webhooks,imap,sent}.int.test.ts; the migration: s07e-b-routes.migration.int.test.ts.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Pool } from 'pg';
 import { getAuthPool } from '@/lib/auth/authPool';
@@ -85,6 +85,22 @@ const ATTACKS: Attack[] = [
     WHERE company_id = $1`)],
 ];
 
+// One column per statement: a refusal of the multi-column attacks above could hide a column that is still writable.
+const MIRRORS = ['imap_mirror_connections', 'sent_mirror_connections'] as const;
+const SINGLE: Attack[] = [
+  ['an endpoint\'s signing secret replaced (alone)', 'webhook_endpoints', hit(`UPDATE webhook_endpoints SET secret = 'enc:known' WHERE company_id = $1`)],
+  ['an endpoint moved to another company (company_id alone)', 'webhook_endpoints',
+    hit('UPDATE webhook_endpoints SET company_id = $1 WHERE company_id = $1')],
+  ...MIRRORS.flatMap((t): Attack[] => [
+    [`${t}: the stored mailbox password replaced (imap_password_enc alone)`, t,
+      hit(`UPDATE ${t} SET imap_password_enc = 'enc:known' WHERE company_id = $1`)],
+    [`${t}: the mailbox login replaced (imap_username alone)`, t, hit(`UPDATE ${t} SET imap_username = 'attacker' WHERE company_id = $1`)],
+    [`${t}: the mailbox port replaced (imap_port alone)`, t, hit(`UPDATE ${t} SET imap_port = 25 WHERE company_id = $1`)],
+    [`${t}: a connection moved to another company (company_id alone)`, t, hit(`UPDATE ${t} SET company_id = $1 WHERE company_id = $1`)],
+  ]),
+];
+const TRUNCATED = ['webhook_endpoints', ...MIRRORS];
+
 const pools: Array<[string, () => Pool, Parameters<typeof attempt>[2]]> = [
   ['isaflow_app under the victim owner\'s forged claims', getAuthPool, { asRequest: { sub: victimOwner, companyId: other } }],
   ['isaflow_service with no claims', getDbPool, {}],
@@ -94,6 +110,14 @@ const pools: Array<[string, () => Pool, Parameters<typeof attempt>[2]]> = [
 describe.each(pools)('S-07e part B (946): %s', (_, pool, opts) => {
   it.each(ATTACKS)('cannot: %s', async (_what, table, text) => {
     expect(await attempt(pool(), [[text, [other]]], opts)).toEqual(denied(table));
+  });
+
+  it.each(SINGLE)('cannot: %s', async (_what, table, text) => {
+    expect(await attempt(pool(), [[text, [other]]], opts)).toEqual(denied(table));
+  });
+
+  it.each(TRUNCATED)('cannot TRUNCATE %s', async (table) => {
+    expect(await attempt(pool(), [[`TRUNCATE ${table}`]], opts)).toEqual(denied(table));
   });
 
   const firstPerTable = ATTACKS.filter(([, t], i) => ATTACKS.findIndex(([, u]) => u === t) === i);
