@@ -166,10 +166,35 @@ test.describe('reports pin the header row and the first column to the page scrol
       const cellBox = await table.locator('tbody tr td:first-child').nth(2).boundingBox();
       expect(mainBox && headBox && cellBox).toBeTruthy();
       expect(Math.abs(headBox!.y - mainBox!.y), 'header row pinned to the top of the page scroll').toBeLessThan(3);
+      if (report.slug === 'trial-balance') {
+        // The pinned Account column sits flush against the pinned Code column, even for a code too long for it.
+        await table.locator('tbody tr td:first-child span.truncate').first().evaluate((el) => { el.textContent = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; });
+        const ths = table.locator('thead th');
+        const [code, account] = [await ths.nth(0).boundingBox(), await ths.nth(1).boundingBox()];
+        expect(Math.abs(account!.x - (code!.x + code!.width)), 'Account header flush with Code header').toBeLessThan(2);
+        const cells = table.locator('tbody tr').first().locator('td');
+        const [c1, c2] = [await cells.nth(0).boundingBox(), await cells.nth(1).boundingBox()];
+        expect(Math.abs(c2!.x - (c1!.x + c1!.width)), 'Account cell flush with Code cell').toBeLessThan(2);
+        expect(Math.abs(c1!.width - code!.width), 'Code cell is as wide as its header').toBeLessThan(2);
+      }
       if (report.sideways) {
         expect(Math.abs(headBox!.x - mainBox!.x), 'first header cell pinned to the left').toBeLessThan(3);
         expect(Math.abs(cellBox!.x - mainBox!.x), 'first column pinned to the left').toBeLessThan(3);
       }
     });
   }
+});
+
+test('the reports sub-navigation border spans the whole row at 1920', async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 1080 });
+  await seedTheme(page, 'dark');
+  await page.goto('/accounting/reports/income-statement', { waitUntil: 'domcontentloaded' });
+  await settle(page);
+  await page.waitForSelector('div.relative.z-40 nav');
+  const widths = await page.evaluate(() => {
+    const navs = Array.from(document.querySelectorAll('div.relative.z-40 nav'));
+    const nav = navs[navs.length - 1] as HTMLElement;
+    return { nav: nav.getBoundingClientRect().width, row: (nav.closest('div.border-b') as HTMLElement).getBoundingClientRect().width };
+  });
+  expect(widths.nav, 'the nav (which carries the border) is as wide as its row, less the label').toBeGreaterThan(widths.row - 200);
 });
