@@ -83,7 +83,9 @@ function isActiveMandateConflict(err: unknown): boolean {
  * The mandate a successful authorisation belongs to, or null if there is none.
  * Migration 651 records the link on the payment request; rows written before it
  * have none (create.ts passed the id only in Paystack metadata) and fall back
- * to the company's newest paystack mandate, active first. Either way: at most
+ * to the company's newest paystack mandate, active first. Since S-07e the
+ * webhook and verify refuse an unlinked request first (paystackLinkBinding.ts),
+ * so that fallback is no longer reached from either. Either way: at most
  * ONE row, and its status is returned so the caller can refuse to resurrect a
  * revoked one.
  */
