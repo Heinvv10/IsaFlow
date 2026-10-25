@@ -13,9 +13,8 @@
  *     `getNilRatedSupplies`, because a zero-rated or exempt supply posts no VAT
  *     control leg and the box basis never sees it (see that file).
  *
- * DOMESTIC REVERSE CHARGE. The report numbers `input:reverse_charge` as 16 ("change
- * in use"). DRC input tax is an ordinary claim, so here it joins field 15; DRC
- * output tax stays in field 12. UNVERIFIED: SARS DRC guide not on file, so the
+ * DOMESTIC REVERSE CHARGE. DRC input tax is an ordinary claim, so the report
+ * numbers it 15 and it is in field 15; DRC output tax stays in field 12. UNVERIFIED: SARS DRC guide not on file, so the
  * field notes say so whenever DRC tax is present.
  *
  * TWO RESIDUALS keep the form's own arithmetic true. Field 12 ("other and
@@ -121,11 +120,10 @@ export function buildVat201SarsFields(report: ReportBoxes, nilRated: NilRatedSup
   const capital = boxOf(report, '1A');
   const field12 = r2(report.totals.outputTax - standard.tax - capital.tax);
 
-  // Domestic reverse charge INPUT tax is an ordinary input claim, so it is field
-  // 15 with the other goods and services — not field 16 (change in use), which
-  // is where the report's `input:reverse_charge` box number puts it. The report
-  // keeps its own numbering (the MCP and export consumers read it); this form
-  // re-homes the tax by VAT type. No ledger type says "capital", so DRC never
+  // Domestic reverse charge INPUT tax is an ordinary input claim: field 15 with
+  // the other goods and services, never 16 (change in use). The report numbers
+  // it 15 itself (vat201ReportService BOX_NUMBERS); the VAT type is read here
+  // only to say so in the note. No ledger type says "capital", so DRC never
   // reaches field 14. UNVERIFIED: SARS DRC guide not on file; the repo's own
   // audit (docs/audits/2026-10-18/vat-fx-rounding.md V12) puts it in box 15.
   const drcInput = r2(report.boxes
@@ -135,7 +133,7 @@ export function buildVat201SarsFields(report: ReportBoxes, nilRated: NilRatedSup
     .filter((b) => b.direction === 'output' && b.vatType === 'reverse_charge')
     .reduce((s, b) => s + b.tax, 0));
   const inputCapital = boxOf(report, '14').tax;
-  const inputOther = r2(boxOf(report, '15').tax + drcInput);
+  const inputOther = boxOf(report, '15').tax; // includes `input:reverse_charge`, which the report numbers 15
   const inputImported = boxOf(report, '14A/15A').tax;
   const inputBad = boxOf(report, '17').tax;
   const field18 = r2(report.totals.inputTax - inputCapital - inputOther - inputImported - inputBad);

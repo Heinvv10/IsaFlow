@@ -14,8 +14,8 @@ const VAT201_FIELDS = [
  * matches. A draft saved before `form_data` carried the fields (or with none of
  * them) cannot be compared, and is reported as such rather than passed.
  *
- * The SARS form is compared too, when the draft holds it: a reclassification
- * that moves tax between SARS boxes (1 <-> 1A <-> 12, 15 <-> 17/18, 2 <-> 2A)
+ * The SARS form is compared too, and a draft that does not hold it is drift
+ * (re-save it), never a pass: a reclassification that moves tax between SARS boxes (1 <-> 1A <-> 12, 15 <-> 17/18, 2 <-> 2A)
  * can leave every legacy total unchanged, and the reviewer approved the boxes.
  */
 export function draftDrift(
@@ -32,6 +32,11 @@ export function draftDrift(
     if (Math.abs(before - after) >= 0.005) {
       drift.push(`${field} ${before.toFixed(2)} -> ${after.toFixed(2)}`);
     }
+  }
+  if (regenerated.sarsFields && !Array.isArray(saved.sarsFields)) {
+    // Approved before the SARS form existed: its boxes were never reviewed, so a
+    // reclassification between them could pass unseen. Re-save to re-review.
+    drift.push('draft predates SARS field mapping — re-save the draft and review it');
   }
   if (Array.isArray(saved.sarsFields) && regenerated.sarsFields) {
     const before = new Map((saved.sarsFields as Vat201SarsField[]).map((f) => [f.field, f.amount]));
