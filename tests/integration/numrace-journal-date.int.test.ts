@@ -125,8 +125,8 @@ describeIfDb('ledger-date window: createJournalEntry refuses a date outside 1900
   }, 60000);
 
   it('brk F2: posting an approved expense claim dated 2205-01-01 is a 400, the claim untouched', async () => {
-    const emp = ((await sql`INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
-      VALUES (${c.fx.companyId}::UUID, ${`NRJD-${c.fx.tag}`.slice(0, 20)}, 'Nr', 'Jd', '2025-01-01') RETURNING id`) as
+    const emp = ((await sql`INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+      VALUES (${c.fx.companyId}::UUID, ${`NRJD-${c.fx.tag}`.slice(0, 20)}, 'Nr', 'Jd', '2025-01-01', true) RETURNING id`) as
       { id: string }[])[0]!.id;
     const claim = ((await sql`INSERT INTO expense_claims (company_id, employee_id, claim_number, claim_date, status)
       VALUES (${c.fx.companyId}::UUID, ${emp}::UUID, 'CL-NRJD-1', '2205-01-01', 'approved') RETURNING id`) as

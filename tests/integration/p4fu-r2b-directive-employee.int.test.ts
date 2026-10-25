@@ -106,8 +106,8 @@ describe('R4: the employee cannot be changed afterwards', () => {
     const made = await post({ ...BODY, employee_id: f.employee });
     const id = String(made.body.data!.id);
     const second = (await pool.query<{ id: string }>(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
-       VALUES ($1, 'R4-2', 'Second', 'Person', '2021-01-01') RETURNING id`, [f.company])).rows[0]!.id;
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+       VALUES ($1, 'R4-2', 'Second', 'Person', '2021-01-01', true) RETURNING id`, [f.company])).rows[0]!.id;
     for (const body of [{ employee_id: second }, { status: 'approved', employee_id: second }, { employee_id: null }, { employee_id: f.employee }]) {
       const r = await f.call(directive as Route, 'PATCH', `/api/accounting/tax-directives/${id}`, id, { body });
       expect(r.statusCode, JSON.stringify(r.body)).toBe(400);
@@ -121,11 +121,11 @@ describe('R4: the employee cannot be changed afterwards', () => {
 describe('R4: the picker\'s employee list', () => {
   it('lists leavers only on request; the default list stays active-only', async () => {
     const active = (await pool.query<{ id: string }>(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
-       VALUES ($1, 'R4-A', 'Still', 'Here', '2021-01-01') RETURNING id`, [f.company])).rows[0]!.id;
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+       VALUES ($1, 'R4-A', 'Still', 'Here', '2021-01-01', true) RETURNING id`, [f.company])).rows[0]!.id;
     const inactive = (await pool.query<{ id: string }>(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status)
-       VALUES ($1, 'R4-I', 'Not', 'Paid', '2021-01-01', 'inactive') RETURNING id`, [f.company])).rows[0]!.id;
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status, medical_aid_main_member)
+       VALUES ($1, 'R4-I', 'Not', 'Paid', '2021-01-01', 'inactive', true) RETURNING id`, [f.company])).rows[0]!.id;
     const plain = await listEmployees({});
     expect(plain.statusCode).toBe(200);
     expect(plain.ids).toContain(active);
@@ -180,8 +180,8 @@ describe('round 2 review: the create route\'s body and the employee record', () 
 
   it('an employee with no tax number on the record: a supplied one is ignored, NULL stored (decided: the record\'s, as the name)', async () => {
     const bare = (await pool.query<{ id: string }>(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date)
-       VALUES ($1, 'R4-NT', 'No', 'Number', '2021-01-01') RETURNING id`, [f.company])).rows[0]!.id;
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+       VALUES ($1, 'R4-NT', 'No', 'Number', '2021-01-01', true) RETURNING id`, [f.company])).rows[0]!.id;
     const r = await post({ ...BODY, employee_id: bare, employee_tax_number: '0123456789' });
     expect(r.statusCode, JSON.stringify(r.body)).toBe(201);
     expect((await pool.query('SELECT employee_tax_number FROM tax_directives WHERE id = $1', [r.body.data!.id])).rows[0]!.employee_tax_number).toBeNull();
@@ -189,8 +189,8 @@ describe('round 2 review: the create route\'s body and the employee record', () 
 
   it('an inactive employee is refused by name (confirmation 6)', async () => {
     const inactive = (await pool.query<{ id: string }>(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status)
-       VALUES ($1, 'R4-IN', 'Not', 'Here', '2021-01-01', 'inactive') RETURNING id`, [f.company])).rows[0]!.id;
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, status, medical_aid_main_member)
+       VALUES ($1, 'R4-IN', 'Not', 'Here', '2021-01-01', 'inactive', true) RETURNING id`, [f.company])).rows[0]!.id;
     const r = await post({ ...BODY, employee_id: inactive });
     expect(r.statusCode).toBe(400);
     expect(r.body.error?.message).toBe('employee_id is an inactive employee: a directive is for an active employee or a leaver');
