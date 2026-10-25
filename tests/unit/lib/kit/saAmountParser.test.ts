@@ -142,7 +142,7 @@ describe('parseSaAmount ceiling (MAX_MONEY, the NUMERIC(15,2) limit)', () => {
     expect(over.ok).toBe(false);
     if (!over.ok) {
       expect(over.code).toBe('too_large');
-      expect(over.reason).toContain('R 9,999,999,999,999.99');
+      expect(over.reason).toContain('R\xa09\xa0999\xa0999\xa0999\xa0999.99');
     }
   });
   it('refuses 15 digits of cents that are over the cap', () => {

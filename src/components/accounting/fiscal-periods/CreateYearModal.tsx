@@ -42,7 +42,7 @@ export function CreateYearModal({ onClose, onCreated }: { onClose: () => void; o
         <div className="p-6 space-y-4">
           {error && <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg text-sm">{error}</div>}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Financial Year</label>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Financial Year</label>
             <select value={year} onChange={e => setYear(Number(e.target.value))} className="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors">
               {[currentYear - 2, currentYear - 1, currentYear, currentYear + 1].map(y => (
                 <option key={y} value={y}>{y} (Jan – Dec {y})</option>

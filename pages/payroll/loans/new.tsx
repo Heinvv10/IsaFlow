@@ -282,10 +282,10 @@ export default function NewLoanPage() {
                       <tr key={r.sequence} className="border-b border-[var(--ff-border-primary)] last:border-0">
                         <td className="py-1.5 px-3 font-mono text-[var(--ff-text-secondary)]">{r.sequence}</td>
                         <td className="py-1.5 px-3 text-[var(--ff-text-secondary)]">{MONTHS[r.duePeriodMonth - 1]} {r.duePeriodYear}</td>
-                        <td className="py-1.5 px-3 text-right font-mono">{formatCurrency(r.interest)}</td>
-                        <td className="py-1.5 px-3 text-right font-mono">{formatCurrency(r.principal)}</td>
-                        <td className="py-1.5 px-3 text-right font-mono font-medium">{formatCurrency(r.installment)}</td>
-                        <td className="py-1.5 px-3 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(r.closingBalance)}</td>
+                        <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.interest)}</td>
+                        <td className="py-1.5 px-3 text-right tabular-nums">{formatCurrency(r.principal)}</td>
+                        <td className="py-1.5 px-3 text-right tabular-nums font-medium">{formatCurrency(r.installment)}</td>
+                        <td className="py-1.5 px-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(r.closingBalance)}</td>
                       </tr>
                     ))}
                   </tbody>

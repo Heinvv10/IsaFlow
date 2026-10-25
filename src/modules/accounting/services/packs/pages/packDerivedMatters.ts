@@ -8,7 +8,7 @@
  * why it is its own file rather than a fifth entry in that module's SOURCES.
  */
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
-import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, type MoneyScale } from '@/lib/format/money';
 import { NO_PRIOR_MEETING_RECORD, SOURCES, type PackMatter } from './packMatters';
 import { BOARD_DECISIONS } from './packMatterDecisions';
 import { monthLabel } from './packPartialMonth';
@@ -125,7 +125,7 @@ export function creditMonthMatters(
    *  See `CREDIT_MONTH_STANDING`. */
   periodNetProfit: number,
 ): PackMatter[] {
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   return trend.filter((point) => point.expenses < 0).map((point) => ({
     kind: 'finding' as const,
     // AND IT SAYS WHICH NUMBER IT IS, BECAUSE THE PACK PRINTS TWO FOR THIS

@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money/formatMoney';
 /**
  * DayTotalsBar — presentational strip showing daily hour totals and value.
  * Renders an amber warning when total hours exceed 12.
@@ -29,7 +30,7 @@ export function DayTotalsBar({ entries }: DayTotalsBarProps) {
         <div className="w-px h-4 bg-[var(--ff-border-primary)] hidden sm:block" />
         <Stat label="Non-billable" value={`${fmt(nonBillableHours, 2)}h`} />
         <div className="w-px h-4 bg-[var(--ff-border-primary)] hidden sm:block" />
-        <Stat label="Value" value={`R${fmt(totalValue, 2)}`} highlight />
+        <Stat label="Value" value={formatMoney(totalValue)} highlight />
       </div>
 
       {totalHours > 12 && (

@@ -44,7 +44,7 @@ describe('bulk supplier-invoice toast', () => {
       { invoiceId: 'b1', invoiceNumber: 'QAF4-12', ok: true, lateClaim: lc(150) },
       { invoiceId: 'b2', invoiceNumber: 'QAF4-13', ok: true },
     ]);
-    expect(await screen.findByText('Input VAT of R150.00 claimed late, in the VAT period from 2026-07-01')).toBeTruthy();
+    expect(await screen.findByText('Input VAT of R 150.00 claimed late, in the VAT period from 2026-07-01')).toBeTruthy();
     expect(screen.getByText('QAF4-12: 2026-05-01 to 2026-06-30 is filed.')).toBeTruthy();
     // The title is on screen, so the old sentence being absent is a fact about the toast, not about a page not yet rendered.
     expect(screen.queryByText(/was claimed late, in the VAT period starting/)).toBeNull();
@@ -55,7 +55,7 @@ describe('bulk supplier-invoice toast', () => {
       { invoiceId: 'b1', invoiceNumber: 'QAF4-12', ok: true, lateClaim: lc(150) },
       { invoiceId: 'b2', invoiceNumber: 'QAF4-13', ok: true, lateClaim: lc(30) },
     ]);
-    expect(await screen.findByText("2 documents' input VAT of R180.00 claimed late, in the VAT period from 2026-07-01")).toBeTruthy();
+    expect(await screen.findByText("2 documents' input VAT of R 180.00 claimed late, in the VAT period from 2026-07-01")).toBeTruthy();
     expect(screen.getByText('Bills: QAF4-12, QAF4-13')).toBeTruthy();
   });
 });

@@ -7,7 +7,7 @@
  */
 
 import { getAgingReport } from '@/modules/accounting/services/reports/agingReportService';
-import { formatMoney, inScale } from '@/lib/format/money';
+import { formatStatementFigure, inScale } from '@/lib/format/money';
 import { PACK_SCALE } from './packBasis';
 import { getBankAccountsStatus, type BankAccountStatusRow } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
@@ -143,12 +143,12 @@ async function agedDebtorConcentrationMatters(
     matters: [{
     kind: 'finding',
     issue: `Aged debtor concentration: ${largest.entityName} owes `
-      + `${formatMoney(round2(largest.total), { scale: PACK_SCALE })}, ${pct.toFixed(1)}% of all `
+      + `${formatStatementFigure(round2(largest.total), { scale: PACK_SCALE })}, ${pct.toFixed(1)}% of all `
       + 'debtors owed on the aged debtors report, which come to '
       // A FULL STOP, like every other matter's issue. This one ended on its
       // unit — "…which come to 4 146, in R'000" — and sat in a column beside
       // cells that close properly.
-      + `${inScale(formatMoney(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}.`,
+      + `${inScale(formatStatementFigure(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}.`,
     quantum: round2(largest.total),
     owner: 'Credit control',
     movement: NO_PRIOR_MEETING_RECORD,

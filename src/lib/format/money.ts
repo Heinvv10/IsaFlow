@@ -14,7 +14,7 @@
  * column uses is being asked to do the document's work.
  *
  * The bracket wins because it is the convention a financial statement is
- * read in and the one `formatMoney` has always used; `formatPct` and
+ * read in and the one `formatStatementFigure` has always used; `formatPct` and
  * `formatRatio` were the outliers and now follow it, in the pack. There is no
  * minus sign in the pack's output: the sign character a reader sees is `(`
  * and `)`, and nothing else. PROSE is the one exception, and it is not an exception to
@@ -133,10 +133,10 @@ function bracketed(n: number, dp: number): boolean {
 }
 
 /** A figure too small to survive its scale, printed as a bound rather than as
- *  a zero — see `formatMoney`. */
+ *  a zero — see `formatStatementFigure`. */
 const BELOW_SCALE = '<1';
 
-export function formatMoney(
+export function formatStatementFigure(
   n: number,
   opts: { cents?: boolean; symbol?: boolean; scale?: MoneyScale } & PackFormatOpt = {},
 ): string {

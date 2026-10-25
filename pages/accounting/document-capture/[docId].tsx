@@ -373,8 +373,8 @@ export default function DocumentCaptureDetailPage() {
                         <tr key={i}>
                           <td className="px-3 py-2 text-[var(--ff-text-primary)]">{item.description}</td>
                           <td className="px-3 py-2 text-right text-[var(--ff-text-secondary)]">{item.quantity ?? '-'}</td>
-                          <td className="px-3 py-2 text-right font-mono text-[var(--ff-text-secondary)]">{item.unitPrice !== null ? formatCurrency(item.unitPrice) : '-'}</td>
-                          <td className="px-3 py-2 text-right font-mono text-[var(--ff-text-primary)]">{item.total !== null ? formatCurrency(item.total) : '-'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">{item.unitPrice !== null ? formatCurrency(item.unitPrice) : '-'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{item.total !== null ? formatCurrency(item.total) : '-'}</td>
                         </tr>
                       ))}
                     </tbody>

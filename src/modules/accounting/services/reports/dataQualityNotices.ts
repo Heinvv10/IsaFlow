@@ -6,7 +6,7 @@
  * `@/components/accounting/DataQualityNotice` renders whatever this returns.
  */
 
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 
 export interface UnclassifiedWarning {
   accounts: number;
@@ -55,7 +55,7 @@ export interface DataQualityInput {
  * a sentence cannot say "carrying –".
  */
 export const fmtZAR = (n: number): string =>
-  Math.abs(n) < 0.005 ? 'R 0.00' : formatMoney(n, { cents: true, symbol: true });
+  Math.abs(n) < 0.005 ? 'R 0.00' : formatStatementFigure(n, { cents: true, symbol: true });
 
 /**
  * @returns one sentence per caveat; an empty array means the figures rest on

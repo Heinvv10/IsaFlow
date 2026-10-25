@@ -14,6 +14,8 @@ import { log } from '@/lib/logger';
 import { toDepreciationMethod } from '@/modules/accounting/services/items/farDepreciationService';
 import { buildDepreciationSchedule } from '@/modules/accounting/services/items/depreciationSchedule';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ---- Types ----
 
@@ -32,11 +34,11 @@ interface DispForm { disposal_date: string; disposal_method: string; disposal_am
 // ---- Helpers ----
 
 const fmtC = (v: number | null | undefined) =>
-  v != null ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(Number(v)) : '—';
+  v != null ? formatMoney(Number(v)) : '—';
 
 const fmtD = (v: string | Date | null | undefined): string => {
   if (!v) return '—';
-  return (v instanceof Date ? localISODate(v) : v).split('T')[0] ?? '—';
+  return formatDisplayDate(v);
 };
 
 function currentYear(a: Asset): number {
@@ -79,7 +81,7 @@ function DepTable({ asset }: { asset: Asset }) {
               return (
                 <tr key={r.year} className={`border-b border-[var(--ff-border-light)] ${hi ? 'bg-blue-500/10' : 'hover:bg-[var(--ff-bg-primary)]/40'}`}>
                   <td className={`px-4 py-2 font-medium ${hi ? 'text-blue-400' : 'text-[var(--ff-text-primary)]'}`}>
-                    {r.year}{hi && <span className="ml-2 text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full">current</span>}
+                    {r.year}{hi && <span className="ml-2 text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded-full">current</span>}
                   </td>
                   <td className="px-4 py-2 text-right text-[var(--ff-text-secondary)]">{fmtC(r.open)}</td>
                   <td className="px-4 py-2 text-right text-purple-400">{fmtC(r.dep)}</td>
@@ -211,7 +213,7 @@ export default function AssetDetailPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {infoFields.map(f => (
               <div key={f.label} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-3">
-                <p className="text-[10px] uppercase tracking-wider text-[var(--ff-text-tertiary)] mb-1">{f.label}</p>
+                <p className="text-xs uppercase tracking-wider text-[var(--ff-text-tertiary)] mb-1">{f.label}</p>
                 <p className={`text-sm font-semibold truncate ${f.accent ? 'text-blue-400' : 'text-[var(--ff-text-primary)]'}`}>{f.value ?? '—'}</p>
               </div>
             ))}

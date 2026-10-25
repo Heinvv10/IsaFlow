@@ -5,9 +5,9 @@
  */
 import { useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-export const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+export const fmt = (n: number) => formatMoney(n);
 
 export const th = 'px-2 py-1.5 text-left text-xs font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider';
 export const td = 'px-2 py-1.5 text-xs text-[var(--ff-text-primary)] whitespace-nowrap';

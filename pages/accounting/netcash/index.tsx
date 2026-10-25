@@ -9,6 +9,8 @@ import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canResolveSubmission, NetcashResolveForm, type LastPoll } from '@/components/accounting/NetcashResolveControl';
 import { netcashReferenceOf } from '@/modules/accounting/services/ap/netcashAnswerSafety';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Submission {
   id: string;
@@ -56,13 +58,12 @@ const merchantRef = (s: Submission) => netcashReferenceOf(s.netcash_response);
 const pollFailed = (s: Submission) => (s.status === 'submitted' || s.status === 'processing') && Boolean(s.netcash_response?.pollFailure);
 
 function formatRands(cents: number): string {
-  return `R ${(cents / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+  return formatMoney(cents / 100);
 }
 
 function formatDate(val: string | null): string {
   if (!val) return '—';
-  try { return new Date(val).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' }); }
-  catch { return val; }
+  return formatDisplayDate(val);
 }
 
 export default function NetcashSubmissionsPage() {

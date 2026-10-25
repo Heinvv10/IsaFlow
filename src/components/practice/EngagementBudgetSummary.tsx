@@ -24,7 +24,7 @@ export const BUDGET_STATE_TEXT: Record<JobBudgetState, string> = {
 };
 
 /** Small-caps labels: --ff-text-secondary is 4.4:1 on the light panel, under AA. */
-const LABEL = 'text-[10px] tracking-[0.12em] font-semibold text-slate-600 dark:text-slate-300 uppercase';
+const LABEL = 'text-xs tracking-[0.12em] font-semibold text-slate-600 dark:text-slate-300 uppercase';
 
 export const BUDGET_STATE_LABEL: Record<JobBudgetState, string> = {
   none: 'No budget', ok: 'Within budget', warning: '80%+ used', over: 'Over budget',

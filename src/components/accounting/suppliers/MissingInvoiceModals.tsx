@@ -5,6 +5,8 @@
 import { useState, useCallback } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { X, Mail, MessageSquare } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export interface ExpectedAlert {
   id: string; companyId: string; supplierId: string;
@@ -26,10 +28,10 @@ type ChaseMethod = 'email' | 'whatsapp';
 
 const fmtDate = (s: string | Date | null) => {
   if (!s) return '—';
-  try { return new Date(s).toLocaleDateString('en-ZA'); } catch { return String(s); }
+  return formatDisplayDate(s);
 };
 const fmtZAR = (n: number | null) =>
-  n == null ? '—' : 'R ' + n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n == null ? '—' : formatMoney(n);
 
 function buildEmailPreview(a: ExpectedAlert) {
   const subject = `Invoice reminder — ${a.supplierName}`;

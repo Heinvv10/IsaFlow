@@ -58,7 +58,7 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
   /**
    * A cell: the figure, or the mark that points at its not-meaningful note.
    *
-   * A DASH IS A NIL, AND A ROW WITH NO VALUE HAS NO NILS IN IT. `formatMoney`
+   * A DASH IS A NIL, AND A ROW WITH NO VALUE HAS NO NILS IN IT. `formatStatementFigure`
    * prints a measured zero as an en dash, so the same glyph meant two
    * incompatible things one page apart: on the income statement "Other
    * expenses – – –" is a genuine zero, and on the cash page the same dash

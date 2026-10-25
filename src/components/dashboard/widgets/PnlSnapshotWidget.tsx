@@ -6,15 +6,17 @@ import { TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useDashboardStats } from '@/hooks/useDashboardStats';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayMonthYearLong } from '@/utils/dateFormat';
 
 function fmtCurrency(n: number): string {
   if (Math.abs(n) >= 1_000_000) return 'R\u00a0' + (n / 1_000_000).toFixed(1) + 'M';
   if (Math.abs(n) >= 1_000) return 'R\u00a0' + (n / 1_000).toFixed(1) + 'K';
-  return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return formatMoney(n);
 }
 
 function currentMonthLabel(): string {
-  return new Date().toLocaleString('en-ZA', { month: 'long', year: 'numeric' });
+  return formatDisplayMonthYearLong(new Date());
 }
 
 export function PnlSnapshotWidget() {

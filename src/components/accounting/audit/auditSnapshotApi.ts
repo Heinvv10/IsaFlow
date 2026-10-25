@@ -4,6 +4,8 @@
  * a 4xx into an Error carrying the server's message.
  */
 import { apiFetch, assertOk } from '@/lib/apiFetch';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
+import { formatAmount } from '@/lib/money/formatMoney';
 
 export type Row = Record<string, string | null>;
 
@@ -55,13 +57,12 @@ export async function getData<T>(url: string, fallback: string, init?: RequestIn
 
 export const fmtAt = (s: string | null | undefined): string => {
   if (!s) return '—';
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? s : d.toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' });
+  return formatDisplayDateTime(s);
 };
 
 export const fmtAmount = (s: string | null | undefined): string => {
   const n = Number(s ?? 0);
-  return Number.isFinite(n) ? n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(s);
+  return Number.isFinite(n) ? formatAmount(n) : String(s);
 };
 
 export const TRIGGER_LABEL: Record<string, string> = {

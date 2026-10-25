@@ -181,9 +181,9 @@ export default function LoansListPage() {
                       <td className="py-3 px-4 text-[var(--ff-text-primary)]">{l.description}</td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{l.method.replace('_', ' ')}</td>
                       <td className="py-3 px-4"><StatusBadge status={l.status} /></td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{(l.annualInterestRate * 100).toFixed(2)}%</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(l.principal)}</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)] font-medium">{formatCurrency(l.outstandingBalance)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-secondary)]">{(l.annualInterestRate * 100).toFixed(2)}%</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(l.principal)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)] font-medium">{formatCurrency(l.outstandingBalance)}</td>
                       <td className="py-3 px-4 text-right">
                         <Link href={`/payroll/loans/${l.id}`} className="text-emerald-400 hover:text-emerald-300 text-xs font-medium">Open</Link>
                       </td>

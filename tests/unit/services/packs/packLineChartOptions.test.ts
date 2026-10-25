@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCashTrendChart, buildTrendPanels } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import {
   sharedDomain,
   smallMultipleOption,
@@ -164,7 +164,7 @@ describe('buildCashTrendChart', () => {
   it('labels the closing value the chart actually draws', () => {
     const trend = makeTrend([500_000, 520_000, 480_000, 610_000]);
     const chart = buildCashTrendChart(trend)!;
-    expect(chart.svg).toContain(formatMoney(610_000));
+    expect(chart.svg).toContain(formatStatementFigure(610_000));
   });
 
   it('draws a different path when the cash series is different', () => {

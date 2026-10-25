@@ -82,8 +82,6 @@
     --ff-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
 
     /* ── Theme axis: practitioner (Dense) defaults ──────────────────── */
-    /* Numeral font — monospace tabular figures for fast column scanning. */
-    --ff-num-font: ui-monospace, 'SF Mono', 'Roboto Mono', monospace;
     /* Display/heading font. */
     --ff-display-font: var(--ff-font-sans);
     /* Card corner radius. */
@@ -98,7 +96,9 @@
     --ff-unfav: #b23a3a;
     --ff-prior: #c9d0cc;
     --ff-plan: #8a94a0;
-    --ff-fig-font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    /* --ff-fig-font (statement figures, KPI tiles, chart text) is deliberately not defined on screen:
+       figures inherit the app face (DM Sans, digits from 'IsaFlow Figures'), and charts fall back
+       to FALLBACK.figFont. The board-pack print page defines it (styles/packPrintPage.css). */
 
     /* Keyboard focus ring (kit inputs and buttons): teal-600, 3.7:1 on white, 3 px. */
     --ff-focus-ring: #0d9488;
@@ -174,7 +174,6 @@
 
   /* ── Theme axis: client (Warm) overrides ──────────────────────────── */
   [data-theme='client'] {
-    --ff-num-font: var(--ff-font-sans);
     --ff-display-font: Georgia, 'Times New Roman', serif;
     --ff-card-radius: var(--ff-radius-xl);
     --ff-density-y: 0.75rem;
@@ -241,6 +240,65 @@
   .ff-focus-ring.ff-focus-ring-inset:focus-visible,
   .dark .ff-focus-ring.ff-focus-ring-inset:focus-visible {
     outline-offset: calc(var(--ff-focus-ring-width) * -1);
+  }
+}
+
+/*
+ * FIGURES. DM Sans has no tabular numerals (its shipped GSUB has no `tnum`: with tabular-nums set,
+ * "1111111111" measures 60 px and "0000000000" 140 px at 20 px), so a right-aligned column of amounts
+ * did not line up digit for digit. The digits alone (U+0030-0039) come from IBM Plex Sans, whose
+ * digits are all 600/1000 em wide, and every other glyph stays DM Sans. The three faces are the
+ * self-hosted Plex files cut down to those ten glyphs (about 1 KB each, public/fonts/figures; OFL as
+ * public/fonts/OFL.txt). The family is first in the `sans` stack (tailwind.config.mjs), so it applies
+ * wherever the app face does. It is declared under its own name so the board pack's 'IBM Plex Sans'
+ * faces and their readiness gate are untouched.
+ *
+ * While a face loads, digits fall to 'IsaFlow Figures Fallback': Arial's digits (556/1000 em, also
+ * tabular) scaled by 600/556 to Plex's width, so nothing in a number column reflows when Plex swaps in.
+ */
+@font-face {
+  font-family: 'IsaFlow Figures';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/figures/IBMPlexSans-Digits-Regular.woff2') format('woff2');
+  unicode-range: U+0030-0039;
+}
+@font-face {
+  font-family: 'IsaFlow Figures';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/figures/IBMPlexSans-Digits-Medium.woff2') format('woff2');
+  unicode-range: U+0030-0039;
+}
+@font-face {
+  font-family: 'IsaFlow Figures';
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/figures/IBMPlexSans-Digits-SemiBold.woff2') format('woff2');
+  unicode-range: U+0030-0039;
+}
+@font-face {
+  font-family: 'IsaFlow Figures Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans');
+  size-adjust: 107.91%;
+  /* Plex's hhea metrics (1025 / -275 / 0 per 1000 em) divided by the size-adjust, so line boxes match the real face. */
+  ascent-override: 94.99%;
+  descent-override: 25.48%;
+  line-gap-override: 0%;
+  unicode-range: U+0030-0039;
+}
+
+/*
+ * Tabular figures app-wide, never a monospace face. The digit face above already has tabular digits;
+ * this only matters for the system fallback faces (signed-out pages before the app face loads, Safari
+ * without it). A cell that wants proportional digits opts out with `proportional-nums`.
+ */
+@layer base {
+  html {
+    font-variant-numeric: tabular-nums;
   }
 }
 

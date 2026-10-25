@@ -17,6 +17,7 @@ import {
   fmtShortDate,
   type CashFlowForecast,
 } from '@/components/accounting/CashFlowForecastChart';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 const HORIZON_OPTIONS = [
   { label: '30 days', value: 30 },
@@ -205,7 +206,7 @@ export default function AICashFlowForecastPage() {
               </div>
               <p className="text-sm text-[var(--ff-text-primary)] leading-relaxed">{forecast.summary}</p>
               <p className="text-xs text-[var(--ff-text-secondary)] mt-3">
-                Generated at {new Date(forecast.generatedAt).toLocaleString('en-ZA')} &middot;{' '}
+                Generated at {formatDisplayDateTime(forecast.generatedAt)} &middot;{' '}
                 {forecast.historicalPeriods.length} historical weeks &middot; {horizon}-day horizon
               </p>
             </div>

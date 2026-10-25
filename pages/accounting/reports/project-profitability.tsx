@@ -120,12 +120,12 @@ export default function ProjectProfitabilityPage() {
                         className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)] cursor-pointer transition-colors"
                       >
                         <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{r.projectName}</td>
-                        <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(r.revenue)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(r.costs)}</td>
-                        <td className={`px-4 py-3 text-right font-mono font-bold ${r.profit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(r.revenue)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(r.costs)}</td>
+                        <td className={`px-4 py-3 text-right tabular-nums font-bold ${r.profit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                           {formatCurrency(r.profit)}
                         </td>
-                        <td className={`px-4 py-3 text-right font-mono ${r.margin >= 0 ? 'text-[var(--ff-text-primary)]' : 'text-red-400'}`}>
+                        <td className={`px-4 py-3 text-right tabular-nums ${r.margin >= 0 ? 'text-[var(--ff-text-primary)]' : 'text-red-400'}`}>
                           {r.margin.toFixed(1)}%
                         </td>
                       </tr>
@@ -138,7 +138,7 @@ export default function ProjectProfitabilityPage() {
                                 {r.revenueLines.map(l => (
                                   <div key={l.accountCode} className="flex justify-between py-0.5">
                                     <span className="text-[var(--ff-text-secondary)]">{l.accountName}</span>
-                                    <span className="font-mono">{formatCurrency(l.amount)}</span>
+                                    <span className="tabular-nums">{formatCurrency(l.amount)}</span>
                                   </div>
                                 ))}
                               </div>
@@ -147,7 +147,7 @@ export default function ProjectProfitabilityPage() {
                                 {r.costLines.map(l => (
                                   <div key={l.accountCode} className="flex justify-between py-0.5">
                                     <span className="text-[var(--ff-text-secondary)]">{l.accountName}</span>
-                                    <span className="font-mono">{formatCurrency(l.amount)}</span>
+                                    <span className="tabular-nums">{formatCurrency(l.amount)}</span>
                                   </div>
                                 ))}
                               </div>
@@ -161,12 +161,12 @@ export default function ProjectProfitabilityPage() {
                 <tfoot>
                   <tr className="bg-[var(--ff-bg-primary)] font-bold">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(totals.revenue)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(totals.costs)}</td>
-                    <td className={`px-4 py-3 text-right font-mono ${totals.profit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
+                    <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(totals.revenue)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(totals.costs)}</td>
+                    <td className={`px-4 py-3 text-right tabular-nums ${totals.profit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
                       {formatCurrency(totals.profit)}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                       {totals.revenue > 0 ? ((totals.profit / totals.revenue) * 100).toFixed(1) : '0.0'}%
                     </td>
                   </tr>

@@ -91,7 +91,7 @@ export function ProvisionalAttachModal({ submitting, onSelect, onClose }: {
                     <p className="text-sm font-medium text-[var(--ff-text-primary)]">{d.vendorName ?? d.fileName}</p>
                     <p className="text-xs text-[var(--ff-text-tertiary)]">{d.documentType ?? 'Unknown type'} · {formatDate(d.documentDate)}</p>
                   </div>
-                  <span className="text-xs font-mono text-[var(--ff-text-secondary)] shrink-0 ml-2">{d.totalAmount != null ? formatRandAbs(d.totalAmount) : '—'}</span>
+                  <span className="text-xs tabular-nums text-[var(--ff-text-secondary)] shrink-0 ml-2">{d.totalAmount != null ? formatRandAbs(d.totalAmount) : '—'}</span>
                 </button>
               ))}
               {moreError && <p className="flex items-center justify-center gap-2 text-sm text-red-400 py-2"><AlertCircle className="h-4 w-4 shrink-0" />{moreError}</p>}
