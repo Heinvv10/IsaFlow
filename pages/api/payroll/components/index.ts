@@ -18,7 +18,6 @@ import {
   listComponents,
   createComponent,
 } from '@/modules/accounting/services/payroll/payrollComponentService';
-import type { PayrollComponent } from '@/modules/accounting/services/payroll/payrollTypes';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 
 async function handler(
@@ -50,7 +49,7 @@ async function handler(
       return apiResponse.badRequest(res, "componentType must be 'earning' or 'deduction'");
     }
 
-    const data: Omit<PayrollComponent, 'id'> = {
+    const data: Parameters<typeof createComponent>[1] = {
       name: String(name),
       // Normalised as PAYE classifies it (normaliseSarsCode), so the stored code is the one every reader sees.
       sarsSourceCode: code,
