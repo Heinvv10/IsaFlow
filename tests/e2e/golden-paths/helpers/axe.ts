@@ -91,9 +91,15 @@ async function waitForScreenReady(page: Page, screen: A11yScreen): Promise<void>
 /**
  * What went wrong, as text, and TOTAL: nothing in here can throw, whatever was thrown (a revoked Proxy, a `message`
  * getter that throws, a null-prototype object). Objects only - a function is excluded from the message-first path
- * and is printed as a function: anything with a string `message` is read once (so an Error from another realm,
- * which is not `instanceof Error` and would serialise to "{}", keeps its text), else a plain object is JSON
- * (skipped when that is undefined or throws), else String(), else Object.prototype.toString.
+ * and is printed as a function. Order:
+ *   1. an object whose `message` is a string: that message. `message` is read once HERE; an Error from another realm
+ *      (not `instanceof Error`, would serialise to "{}") keeps its text this way.
+ *   2. any other object: JSON, skipped when it is undefined or throws (circular, throwing toJSON). JSON.stringify
+ *      reads the object again, so a NON-string `message` getter is read a second time on this path.
+ *   3. String(), then Object.prototype.toString when String() throws.
+ * A `message` getter (or any access) that throws is not retried by those fallbacks: the outer catch returns only
+ * the sentinel '[unprintable thrown value]'. The caller (inScreen) hands the thrown value over untouched - no
+ * `instanceof`, which itself throws on a revoked Proxy - and keeps it as `cause`.
  */
 function failureText(err: unknown): string {
   try {
