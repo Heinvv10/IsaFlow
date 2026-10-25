@@ -130,7 +130,6 @@ export default function PayComponentsPage() {
                   <select className={field} value={type} onChange={e => setType(e.target.value as ComponentType)}>
                     <option value="earning">Earning</option>
                     <option value="deduction">Deduction</option>
-                    <option value="employer_contribution">Employer contribution</option>
                   </select>
                 </div>
               </div>
