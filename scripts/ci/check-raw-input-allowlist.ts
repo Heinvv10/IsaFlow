@@ -8,7 +8,8 @@
  *   - a file has fewer than its count (SHRUNK) or none or is gone (STALE): lower or remove the entry, so
  *     fixing a form forces the list down in the same PR;
  *   - against the list on origin/master (RAW_INPUT_BASE_REF overrides the ref locally; on GitHub the gate
- *     refuses the override) an entry was ADDED or a
+ *     refuses the override). The base ref is resolved before the ESLint run, so a refusal is instant. The
+ *     whole flow is `runGate` in ./rawInputAllowlist.ts; this file only wires ESLint, git and the file system. an entry was ADDED or a
  *     count RAISED. When master has no list at that path (the PR that introduces it) the comparison is
  *     skipped and says so; any other git failure, or a base list that does not parse, fails the gate.
  *     With the ref itself missing the gate fails on GitHub (fetch-depth 0 provides it) and warns locally.
@@ -31,10 +32,9 @@ import { ESLint } from 'eslint';
 import tsParser from '@typescript-eslint/parser';
 import isaflow from '../../eslint/isaflow-plugin.mjs';
 import { ALLOWLIST_FILE } from '../../eslint/rules/no-raw-form-input.mjs';
-import { compareCounts, parseCounts, pruneCounts, readBaseList, resolveBaseRef, type Counts } from './rawInputAllowlist';
+import { runGate, type Counts } from './rawInputAllowlist';
 
 const RULE = 'isaflow/no-raw-form-input';
-const LIST_PATH = 'eslint/raw-input-allowlist.json';
 
 /** Reports per file with the allowlist emptied (files with none are absent). */
 async function actualCounts(): Promise<Counts> {
@@ -64,55 +64,17 @@ async function actualCounts(): Promise<Counts> {
 }
 
 const git = (args: string[]): string => execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-const write = (counts: Counts): void => writeFileSync(ALLOWLIST_FILE, `${JSON.stringify(counts, null, 2)}\n`);
 
-async function main(): Promise<number> {
-  const writing = process.argv.includes('--write');
-  const actual = await actualCounts();
-
-  if (!existsSync(ALLOWLIST_FILE)) {
-    if (!writing) {
-      console.error(`[raw-input-allowlist] ${LIST_PATH} is missing`);
-      return 1;
-    }
-    write(actual);
-    console.log(`[raw-input-allowlist] wrote ${Object.keys(actual).length} entries`);
-    return 0;
-  }
-  const listed = parseCounts(readFileSync(ALLOWLIST_FILE, 'utf8'), LIST_PATH);
-
-  if (writing) {
-    const pruned = pruneCounts(listed, actual);
-    write(pruned);
-    const stillBad = compareCounts(pruned, actual, null, '').filter((p) => !p.startsWith('SHRUNK'));
-    console.log(`[raw-input-allowlist] pruned: ${Object.keys(pruned).length} files left`);
-    stillBad.forEach((p) => console.error(`[raw-input-allowlist] ${p}`));
-    return stillBad.length > 0 ? 1 : 0;
-  }
-
-  const resolved = resolveBaseRef(process.env);
-  if (!resolved.ok) {
-    console.error(`[raw-input-allowlist] FAIL: ${resolved.reason}`);
-    return 1;
-  }
-  const ref = resolved.ref;
-  const base = readBaseList(ref, LIST_PATH, git);
-  if (base.kind === 'no-ref') {
-    const where = process.env.GITHUB_ACTIONS === 'true' ? 'FAIL' : 'warn';
-    console.error(`[raw-input-allowlist] ${where}: base ref ${ref} is not available, cannot check that the list only shrinks.`);
-    if (where === 'FAIL') return 1;
-  } else if (base.kind === 'no-list') {
-    console.log(`[raw-input-allowlist] ${ref} has no allowlist yet: this change introduces it, nothing to compare.`);
-  }
-  const problems = compareCounts(listed, actual, base.kind === 'list' ? base.counts : null, ref);
-  problems.forEach((p) => console.error(`[raw-input-allowlist] ${p}`));
-  if (problems.length > 0) return 1;
-  const total = Object.values(listed).reduce((a, b) => a + b, 0);
-  console.log(`[raw-input-allowlist] ok: ${Object.keys(listed).length} files (${total} reports) still to migrate, none new, none stale`);
-  return 0;
-}
-
-main().then(
+runGate({
+  env: process.env,
+  writing: process.argv.includes('--write'),
+  git,
+  actualCounts,
+  readList: () => (existsSync(ALLOWLIST_FILE) ? readFileSync(ALLOWLIST_FILE, 'utf8') : null),
+  writeList: (counts) => writeFileSync(ALLOWLIST_FILE, `${JSON.stringify(counts, null, 2)}\n`),
+  log: (line) => console.log(line),
+  error: (line) => console.error(line),
+}).then(
   (code) => process.exit(code),
   (err: unknown) => {
     console.error(err);
