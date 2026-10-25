@@ -57,6 +57,7 @@ function webhookBody(reference: string, extra: Record<string, unknown> = {}) {
       currency: 'ZAR',
       channel: 'card',
       customer: { email: 'payer@k036.test.local', customer_code: 'CUS_k036' },
+      metadata: { invoice_id: invoiceId, company_id: companyId },
       ...extra,
     },
   });
@@ -246,6 +247,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     await seedPaymentRequest(reference);
     verifyTransaction.mockResolvedValue({
       status: 'success', id: 555000111, amountCents: AMOUNT_CENTS, currency: 'ZAR', channel: 'card',
+      metadata: { invoice_id: invoiceId, company_id: companyId },
       authorization: { authorizationCode: 'AUTH_k036' },
     });
 
@@ -261,6 +263,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     await seedPaymentRequest(reference);
     verifyTransaction.mockResolvedValue({
       status: 'success', id: 555000222, amountCents: AMOUNT_CENTS, currency: 'ZAR', channel: 'card',
+      metadata: { invoice_id: invoiceId, company_id: companyId },
       authorization: { authorizationCode: 'AUTH_k036b' },
     });
 
@@ -468,6 +471,7 @@ describe('K-036 Paystack invoice payments never reach the general ledger', () =>
     await seedPaymentRequest(reference);
     verifyTransaction.mockResolvedValue({
       status: 'success', id: 555000333, amountCents: AMOUNT_CENTS, currency: 'ZAR', channel: 'card',
+      metadata: { invoice_id: invoiceId, company_id: companyId },
       authorization: { authorizationCode: 'AUTH_k036c' },
     });
 

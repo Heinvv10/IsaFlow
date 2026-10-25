@@ -17,7 +17,7 @@ import { randomBytes, randomUUID } from 'crypto';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import {
   CO, SECRET, addLink, cleanupCompany, create, deliver, getLink, invoiceWithLink, linkRow, pool, requests,
-  seedCompany, verify,
+  metaFor, seedCompany, verify,
 } from './r167-portal-links.helpers';
 import { spendPaymentLinkOfRequest } from '@/modules/accounting/services/ar/portalLinkCharge';
 import { restoreAmountPaidCheck } from './helpers/amountPaidCheck';
@@ -152,7 +152,7 @@ describe('a completed payment spends the link it came from', () => {
     const { invoiceId, linkId, token } = await invoiceWithLink(0, 20);
     expect((await create(token)).statusCode).toBe(200);
     const [req] = await requests(invoiceId);
-    h.verifyTransaction.mockResolvedValue({ status: 'success', id: 1671, amountCents: 2000, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card' });
+    h.verifyTransaction.mockResolvedValue({ status: 'success', id: 1671, amountCents: 2000, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', metadata: await metaFor(req!.ref) });
     expect((await verify(req!.ref)).statusCode).toBe(200);
     expect(h.verifyTransaction).toHaveBeenCalledWith(req!.ref, { timeoutMs: 10_000 }); // bounded
     expect(await linkRow(linkId)).toMatchObject({ status: 'paid', payment_reference: req!.ref });
@@ -208,7 +208,7 @@ describe('a completed payment spends the link it came from', () => {
     const [req] = await requests(invoiceId);
     h.verifyTransaction.mockImplementation(async () => {
       await pool.query("UPDATE paystack_payment_requests SET status = 'failed' WHERE paystack_reference = $1", [req!.ref]);
-      return { status: 'success', id: 1673, amountCents: 2000, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card' };
+      return { status: 'success', id: 1673, amountCents: 2000, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', metadata: await metaFor(req!.ref) };
     });
     expect((await verify(req!.ref)).body.data?.status).toBe('completed');
     expect((await pool.query('SELECT status FROM paystack_payment_requests WHERE paystack_reference = $1', [req!.ref])).rows)
@@ -224,7 +224,7 @@ describe('a completed payment spends the link it came from', () => {
     await pool.query("UPDATE paystack_payment_requests SET status = 'failed' WHERE paystack_reference = $1", [req!.ref]);
     h.verifyTransaction.mockResolvedValue({ status: 'abandoned', id: 1674 });
     expect((await verify(req!.ref)).body.data?.status).toBe('failed');
-    h.verifyTransaction.mockResolvedValue({ status: 'success', id: 1674, amountCents: 2000, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card' });
+    h.verifyTransaction.mockResolvedValue({ status: 'success', id: 1674, amountCents: 2000, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', metadata: await metaFor(req!.ref) });
     expect((await verify(req!.ref)).body.data?.status).toBe('completed');
     expect(await banked(req!.ref)).toEqual([{ t: '20.00' }]);
     expect((await linkRow(linkId)).status).toBe('paid');

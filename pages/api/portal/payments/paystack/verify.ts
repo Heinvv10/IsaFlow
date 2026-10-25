@@ -19,6 +19,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { verifyTransaction } from '@/modules/billing/services/paystackClient';
+import { linkMismatch, logRefusedLink } from '@/modules/billing/services/paystackLinkBinding';
 import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
 import { receiptCurrency } from '@/modules/accounting/services/ar/gatewaySettlementReview';
@@ -107,7 +108,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             SET status = ${mapped},
                 completed_at = CASE WHEN ${mapped} = 'completed' THEN COALESCE(completed_at, now()) ELSE completed_at END,
                 paystack_transaction_id = ${live.id ?? null},
-                paystack_authorization_code = COALESCE(${live.authorization?.authorizationCode ?? null}, paystack_authorization_code),
                 channel = COALESCE(${live.channel ?? null}, channel)
             WHERE id = ${pr.id} AND company_id = ${pr.company_id} AND purpose = 'customer_invoice'
               AND status <> 'completed' AND (${mapped} = 'completed' OR status = 'pending')
@@ -116,7 +116,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           // If the webhook hasn't run yet, record the receipt so the return
           // page doesn't have to wait for it. Idempotent on the reference, so
           // whichever of the two arrives second records nothing.
-          if (mapped === 'completed' && pr.customer_invoice_id) {
+          // Only for the invoice Paystack's own checkout metadata names (S-07e:
+          // the request row is app-written); otherwise the webhook's review note.
+          const mismatch = mapped === 'completed' ? linkMismatch(pr, live.metadata) : null;
+          if (mismatch) logRefusedLink(pr.paystack_reference, pr, mismatch);
+          if (mapped === 'completed' && pr.customer_invoice_id && !mismatch) {
             await recordGatewayInvoiceReceipt({
               companyId: pr.company_id,
               invoiceId: pr.customer_invoice_id,
