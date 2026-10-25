@@ -68,8 +68,8 @@ export async function rig(label: string) {
   async function employee(salary: number, c = company): Promise<{ employee: string; salaryRow: string }> {
     empSeq += 1;
     const emp = (await pool.query(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number)
-       VALUES ($1, $2, 'Brk', $2, '2020-01-01', '1980-01-01', $3) RETURNING id`,
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, medical_aid_main_member)
+       VALUES ($1, $2, 'Brk', $2, '2020-01-01', '1980-01-01', $3, true) RETURNING id`,
       [c, `BRK-${empSeq}`, String(1000000000 + Math.floor(Math.random() * 899999999))])).rows[0]!.id;
     let comp = (await pool.query(`SELECT id FROM payroll_components WHERE company_id = $1 AND name = 'Basic Salary'`, [c])).rows[0]?.id;
     comp ??= (await pool.query(

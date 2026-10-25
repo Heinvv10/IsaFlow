@@ -91,8 +91,8 @@ beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   // A stand-alone directive payment must name its employee (PAYE 4a follow-ups G1: it goes on their certificate).
   await pool.query(
-    `INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date)
-     VALUES ($1, $2, 'K107-1', 'K107', 'Employee', '2020-01-01')`, [employee, company]);
+    `INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+     VALUES ($1, $2, 'K107-1', 'K107', 'Employee', '2020-01-01', true)`, [employee, company]);
   await pool.query(
     `INSERT INTO gl_accounts(id,company_id,account_code,account_name,account_type,account_subtype,normal_balance,is_active)
      VALUES($1,$2,'2150','UIF Payable','liability','other','credit',true),
