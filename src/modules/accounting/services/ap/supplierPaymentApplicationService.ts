@@ -38,6 +38,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { lockSupplierCredit } from './supplierCreditLock';
 import { getSupplierOnAccountCredit } from './supplierOnAccountCredit';
@@ -172,9 +173,9 @@ async function assertWithinOnAccountCredit(companyId: string, supplierId: string
   if (toCents(requested) <= toCents(credit)) return;
   const onAccount = Math.max(credit, 0);
   throw new SupplierPaymentRefusal(
-    `Applying R${requested.toFixed(2)} would leave ${supplierName} owing the company: only `
-    + `R${onAccount.toFixed(2)} of its cash is still on account (a refund has already returned the rest). `
-    + (onAccount > 0 ? `Apply at most R${onAccount.toFixed(2)}.` : 'Nothing more can be applied from it.'),
+    `Applying ${formatMoney(requested)} would leave ${supplierName} owing the company: only `
+    + `${formatMoney(onAccount)} of its cash is still on account (a refund has already returned the rest). `
+    + (onAccount > 0 ? `Apply at most ${formatMoney(onAccount)}.` : 'Nothing more can be applied from it.'),
   );
 }
 
