@@ -2,118 +2,78 @@
  * A mirror scan's failure, recorded on its connection row (S-07e part B,
  * migration 946). Shared by imapMirrorService and sentMirrorService.
  *
- * Flipping `status` to 'error' is not a scan stamp, so no app role may write
- * it: it runs on the migration_admin pool, from a fixed statement per table,
- * keyed on the connection AND its company (that role bypasses RLS). The
- * last_scan_at / last_error stamp is the app pool's own and stays available.
- *
- * Inside a request (scan-now) the request's transaction already holds this
- * row, from the scan's cursor stamp. A migration_admin write would wait on
- * that lock until its lock_timeout, so the flip is deferred until the request
- * has committed, and only the stamp is written meanwhile.
+ * No app role may write a connection row, so both writes here run on the
+ * migration_admin login (`routeAdminQuery`: its own pool, a short transaction
+ * that waits at most 2 s for the row), from a fixed statement per table, keyed
+ * on the connection AND its company (that role bypasses RLS):
+ *   - markMirrorScanError: last_scan_at, last_error, and status 'active' to
+ *     'error' (the connection is not scanned again until it is reconnected);
+ *   - stampScanStopped: last_scan_at and last_error only, status untouched (a
+ *     scan stopped by its deadline or its byte meter: retried next interval).
+ * Inside a request (scan-now) the write needs no deferral: the request holds
+ * only the key-share lock its scan-log INSERT takes on the row, which an UPDATE
+ * of these columns does not wait for.
  *
  * Never throws: the cron scans many connections and one connection's
- * bookkeeping must not stop the tick.
+ * bookkeeping must not stop the tick. A write that waited 2 s in vain (55P03)
+ * warns and is lost; the next failing scan writes again.
  */
 
-import { als } from '@/lib/als';
-import { runAfterCommit } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
-import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
-import { LOCK_NOT_AVAILABLE, scanWrite, type ScanTag } from './mirrorScanWrite';
+import { routeAdminQuery } from '@/lib/auth/routeAdminPool';
+import { LOCK_NOT_AVAILABLE } from './mirrorScanWrite';
 
 export type MirrorKind = 'imap' | 'sent';
 export interface MirrorRef { id: string; companyId: string }
 
-const FLIP_STATUS = {
+const MARK_ERROR = {
   imap: `UPDATE imap_mirror_connections
-            SET last_scan_at = NOW(),
-                last_error = $3,
+            SET last_scan_at = NOW(), last_error = $1,
                 status = CASE WHEN status = 'active' THEN 'error' ELSE status END
-          WHERE id = $1::uuid AND company_id = $2::uuid`,
+          WHERE id = $2::uuid AND company_id = $3::uuid`,
   sent: `UPDATE sent_mirror_connections
-            SET last_scan_at = NOW(),
-                last_error = $3,
+            SET last_scan_at = NOW(), last_error = $1,
                 status = CASE WHEN status = 'active' THEN 'error' ELSE status END
-          WHERE id = $1::uuid AND company_id = $2::uuid`,
+          WHERE id = $2::uuid AND company_id = $3::uuid`,
+} as const;
+
+const STAMP_STOPPED = {
+  imap: `UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = $1
+          WHERE id = $2::uuid AND company_id = $3::uuid`,
+  sent: `UPDATE sent_mirror_connections SET last_scan_at = NOW(), last_error = $1
+          WHERE id = $2::uuid AND company_id = $3::uuid`,
 } as const;
 
 /** What a tenant sees when its mail server held a scan past the deadline; the log has the details. */
 export const SCAN_TIMED_OUT = 'Scan timed out';
 
+/** What a tenant sees when its mail server sent more for one message than the size it reported allows. */
+export const MESSAGE_TOO_LARGE = 'A message was larger than its server said; the scan was stopped';
+
 const SCOPE = { imap: 'imap-mirror', sent: 'sent-mirror' } as const;
 
-/** The stamp statement, run through `run` (the request's `sql`, or a bounded-wait transaction's tag). */
-async function writeStamp(run: ScanTag, kind: MirrorKind, conn: MirrorRef, error: string): Promise<void> {
-  if (kind === 'imap') {
-    await run`
-      UPDATE imap_mirror_connections
-      SET last_scan_at = NOW(), last_error = ${error}
-      WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
-    `;
-  } else {
-    await run`
-      UPDATE sent_mirror_connections
-      SET last_scan_at = NOW(), last_error = ${error}
-      WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
-    `;
-  }
-}
-
-/**
- * The stamp alone, on the app pool: the error is recorded, the status is not touched.
- *
- * Through scanWrite: outside a request (the cron) a short transaction of its own that waits at
- * most SCAN_LOCK_WAIT for the row (an unbounded wait would stall the whole tick). On 55P03 it
- * warns and moves on; the next failing scan stamps again. Inside a request it runs on the
- * request's own transaction.
- */
-async function stampError(kind: MirrorKind, conn: MirrorRef, error: string): Promise<void> {
+async function write(kind: MirrorKind, conn: MirrorRef, text: string, error: string, what: string): Promise<void> {
   try {
-    await scanWrite((q) => writeStamp(q, kind, conn, error));
+    await routeAdminQuery(`${what} (${kind} mirror)`, text, [error, conn.id, conn.companyId]);
   } catch (err) {
     const code = (err as { code?: unknown } | null)?.code;
     if (code === LOCK_NOT_AVAILABLE) {
-      log.warn('mirror scan error stamp timed out on a row lock; skipped', { connectionId: conn.id, kind, code }, SCOPE[kind]);
+      log.warn(`mirror ${what} timed out on a row lock; skipped`, { connectionId: conn.id, kind, code }, SCOPE[kind]);
     } else {
-      log.error('mirror scan error stamp failed', { connectionId: conn.id, kind, err }, SCOPE[kind]);
+      log.error(`mirror ${what} failed`, { connectionId: conn.id, kind, code, err }, SCOPE[kind]);
     }
   }
 }
 
-/**
- * A scan that passed its deadline (mirrorScanGuard.ts): the generic stamp, status untouched. The
- * connection's last_scan_at moves to now, so it goes to the back of the due queue and the next tick
- * scans the others first. Never throws.
- */
-export async function stampScanTimeout(kind: MirrorKind, conn: MirrorRef): Promise<void> {
-  await stampError(kind, conn, SCAN_TIMED_OUT);
-}
-
-async function flipStatus(kind: MirrorKind, conn: MirrorRef, error: string): Promise<void> {
-  try {
-    await migrationAdminTx(`mark ${kind} mirror scan error`, (client) => client.query(
-      FLIP_STATUS[kind], [conn.id, conn.companyId, error],
-    ));
-  } catch (err) {
-    const code = (err as { code?: unknown } | null)?.code;
-    if (code === LOCK_NOT_AVAILABLE) {
-      log.warn('mirror scan error status write timed out on a row lock; stamping the error only',
-        { connectionId: conn.id, kind, code }, SCOPE[kind]);
-    } else {
-      log.error('mirror scan error status write failed; stamping the error only',
-        { connectionId: conn.id, kind, code, err }, SCOPE[kind]);
-    }
-    await stampError(kind, conn, error);
-  }
-}
-
+/** A failed scan: the error is stamped and an active connection becomes 'error'. Never throws. */
 export async function markMirrorScanError(kind: MirrorKind, conn: MirrorRef, error: string): Promise<void> {
-  const store = als.getStore();
-  if (store && !store.finished && store.afterCommit) {
-    await stampError(kind, conn, error);
-    runAfterCommit(`flip ${kind} mirror status`, () => flipStatus(kind, conn, error));
-    return;
-  }
-  await flipStatus(kind, conn, error);
+  await write(kind, conn, MARK_ERROR[kind], error, 'scan error write');
+}
+
+/**
+ * A scan its guard stopped (mirrorScanGuard.ts): the generic stamp, status untouched. The row's
+ * last_scan_at moves to now, so it goes to the back of the due queue. Never throws.
+ */
+export async function stampScanStopped(kind: MirrorKind, conn: MirrorRef, reason: string): Promise<void> {
+  await write(kind, conn, STAMP_STOPPED[kind], reason, 'scan stop stamp');
 }

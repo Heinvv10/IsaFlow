@@ -13,6 +13,10 @@
  *
  * Round 4: such a cursor is clamped to UIDNEXT - 1 (nothing old is scanned, new mail is
  * picked up) and the clamped value is written back; it was a rescan from UID 1.
+ *
+ * Round 5: no app role may write `scan_cursor` any more (the write is migration_admin's,
+ * routeAdminQuery); these checks stay as a defence against an ops edit or a server whose
+ * UIDNEXT went backwards.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -21,6 +25,7 @@ const h = vi.hoisted(() => ({ ranges: [] as string[], markError: vi.fn(), uidNex
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     mailbox = { uidNext: h.uidNext };
+    streamer = { write: () => true, push: () => true }; // what the scan's byte meter wraps
     on() { /* the mirror registers an 'error' listener */ }
     async connect() { /* fake mailbox */ }
     async logout() { /* fake mailbox */ }
@@ -35,6 +40,9 @@ vi.mock('@/lib/neon', () => {
   const sql = vi.fn(async (strings: TemplateStringsArray, ...v: unknown[]) => { h.statements.push({ q: strings.join('?').replace(/\s+/g, ' ').trim(), v }); return []; });
   return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
 });
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: vi.fn(async (_label: string, text: string, v: unknown[]) => { h.statements.push({ q: text.replace(/\s+/g, ' ').trim(), v }); return []; }),
+}));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
 vi.mock('@/lib/documentStorage', () => ({ sha256: vi.fn(), storeCapturedBytes: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ routeEvent: vi.fn() }));

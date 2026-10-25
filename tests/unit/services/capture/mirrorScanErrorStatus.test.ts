@@ -1,10 +1,10 @@
 /**
- * S-07e part B (migration 946): a scan error's flip of `status` to 'error' is not
- * a scan stamp, so imapMirrorService and sentMirrorService write it on the
- * migration_admin pool, keyed on the connection and its company. If that write
- * is refused (scan-now's request transaction may hold the row), the error is
- * still recorded by a stamp-only app-pool UPDATE that does not touch status.
- * (mirrorScanError.test.ts pins the helper itself.) A scan also refuses, before
+ * S-07e part B (migration 946): no app role may write a connection row, so a scan
+ * error (its stamp and the flip of `status` to 'error', one statement) is written
+ * by imapMirrorService and sentMirrorService on migration_admin (routeAdminQuery),
+ * keyed on the connection and its company. A refused write is logged and lost:
+ * there is no app-pool fallback any more (round 5). (mirrorScanError.test.ts pins
+ * the helper itself.) A scan also refuses, before
  * it connects, a host that is or resolves to private space and any port but
  * 143/993: the connection is marked errored with the reason.
  */
@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock('imapflow', () => ({
   ImapFlow: class {
+    streamer = { write: () => true, push: () => true }; // what the scan's byte meter wraps
     on() { /* the mirror registers an 'error' listener */ }
     async connect() { h.connects += 1; throw new Error('connect ECONNREFUSED'); }
     async logout() { /* fake mailbox */ }
@@ -45,15 +46,11 @@ vi.mock('@/lib/neon', () => ({
     return [];
   })),
 }));
-vi.mock('@/lib/auth/migrationAdminPool', () => ({
-  migrationAdminTx: async (label: string, fn: (c: unknown) => Promise<unknown>) => {
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: async (label: string, text: string, values: unknown[]) => {
+    h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
     if (h.adminFails) throw Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' });
-    return fn({
-      query: async (text: string, values: unknown[]) => {
-        h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
-        return { rows: [] };
-      },
-    });
+    return [];
   },
 }));
 
@@ -83,28 +80,24 @@ describe.each([
   ['imap_mirror_connections', 'c1', () => scanConnection(imapConn)],
   ['sent_mirror_connections', 's1', () => scanSentConnection(sentConn)],
 ] as const)('%s scan error', (table, id, scan) => {
-  it('writes status through migrationAdminTx, keyed on the connection and its company, nothing on the app pool', async () => {
+  it('writes the error and the status through routeAdminQuery (migration_admin), keyed on the connection and its company, nothing on the app pool', async () => {
     const r = await scan();
     expect(r.errors).toBe(1);
     expect(h.admin).toHaveLength(1);
     const w = h.admin[0]!;
     expect(w.text).toContain(`UPDATE ${table}`);
     expect(w.text).toContain("status = CASE WHEN status = 'active' THEN 'error' ELSE status END");
-    expect(w.text).toContain('WHERE id = $1::uuid AND company_id = $2::uuid');
-    expect(w.values).toEqual([id, COMPANY, 'connect ECONNREFUSED']);
+    expect(w.text).toContain('WHERE id = $2::uuid AND company_id = $3::uuid');
+    expect(w.values).toEqual(['connect ECONNREFUSED', id, COMPANY]);
     expect(h.app.some((q) => q.text.includes(table))).toBe(false);
   });
 
-  it('a refused status write falls back to an app-pool stamp that never mentions status', async () => {
+  it('a refused write is lost, not retried on the app pool (no app role may write the row); the scan still ends', async () => {
     h.adminFails = true;
     const r = await scan();
     expect(r.errors).toBe(1);
-    const stamps = h.app.filter((q) => q.text.startsWith(`UPDATE ${table}`));
-    expect(stamps).toHaveLength(1);
-    expect(stamps[0]!.text).toContain('SET last_scan_at = NOW(), last_error = ?');
-    expect(stamps[0]!.text).toContain('WHERE id = ?::uuid AND company_id = ?::uuid');
-    expect(stamps[0]!.text).not.toContain('status');
-    expect(stamps[0]!.values).toEqual(['connect ECONNREFUSED', id, COMPANY]);
+    expect(h.admin).toHaveLength(1);
+    expect(h.app.some((q) => q.text.includes(table))).toBe(false);
   });
 });
 
@@ -123,7 +116,7 @@ describe.each([
     expect(h.connects).toBe(0);
     expect(h.admin).toHaveLength(1);
     expect(h.admin[0]!.text).toContain(`UPDATE ${table}`);
-    expect(h.admin[0]!.values).toEqual([id, COMPANY, reason]);
+    expect(h.admin[0]!.values).toEqual([reason, id, COMPANY]);
   });
 
   it('a name that now resolves into private space (rebinding) is refused at scan time', async () => {
@@ -131,7 +124,7 @@ describe.each([
     const r = await scan({});
     expect(r.errors).toBe(1);
     expect(h.connects).toBe(0);
-    expect(h.admin[0]!.values[2]).toBe('This mail server address is not allowed or could not be resolved'); // the address it resolved to stays in the log
+    expect(h.admin[0]!.values[0]).toBe('This mail server address is not allowed or could not be resolved'); // the address it resolved to stays in the log
   });
 
   it('a public host on an IMAP port connects (143 and 993)', async () => {

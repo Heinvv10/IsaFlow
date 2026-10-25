@@ -25,6 +25,14 @@ vi.mock('@/lib/neon', () => {
   });
   return { sql: tag, withTransaction: async (fn: (t: typeof tag) => Promise<unknown>) => fn(tag) };
 });
+// The due selection and the connection-row stamps run on migration_admin (S-07e part B): the same recorder.
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: vi.fn(async (_label: string, text: string, v: unknown[]) => {
+    const q = text.replace(/\s+/g, ' ').trim();
+    h.statements.push({ q, v });
+    return /^SELECT \* FROM \w+_mirror_connections/.test(q) ? h.rows : [];
+  }),
+}));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'pw' }));
 vi.mock('@/lib/documentStorage', () => ({ sha256: vi.fn(() => 'sha'), storeCapturedBytes: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ routeEvent: vi.fn() }));
@@ -84,7 +92,7 @@ function recordSleeps(fireSleeps: boolean, keep: number[] = []): number[] {
 }
 
 describe.each(SERVICES)('%s: the per-scan deadline', (_name, kind, tick, table) => {
-  const stampOf = (id: string) => h.statements.find((s) => new RegExp(`UPDATE ${table} SET last_scan_at = NOW\\(\\), last_error = \\?`).test(s.q) && s.v.includes(id));
+  const stampOf = (id: string) => h.statements.find((s) => new RegExp(`UPDATE ${table} SET last_scan_at = NOW\\(\\), last_error = \\$1`).test(s.q) && s.v.includes(id));
 
   it.each([
     ['a server that drips a line every 100 ms and never completes SELECT', { mode: 'drip' as const }],
@@ -103,11 +111,11 @@ describe.each(SERVICES)('%s: the per-scan deadline', (_name, kind, tick, table) 
     expect(results[0]!.errors).toBe(1);
     expect(results[1]!.errors).toBe(0);
     expect(servers.good.commands.some((c) => /SELECT INBOX/.test(c))).toBe(true); // the next connection was scanned
-    // Stamped with a generic text on the app pool, not flipped to 'error'.
+    // Stamped with a generic text (on migration_admin), not flipped to 'error'.
     const stamp = stampOf('bad-1');
     expect(stamp?.v).toEqual(['Scan timed out', 'bad-1', COMPANY]);
     expect(h.markError).not.toHaveBeenCalled();
-    expect(vi.mocked(log.warn).mock.calls.some((c) => /passed its deadline/.test(String(c[0])))).toBe(true);
+    expect(vi.mocked(log.warn).mock.calls.some((c) => /scan stopped/.test(String(c[0])) && (c[1] as { reason?: string }).reason === 'Scan timed out')).toBe(true);
     expect(stampOf('good-1')).toBeUndefined();
   }, 15000);
 
@@ -122,7 +130,8 @@ describe.each(SERVICES)('%s: the per-scan deadline', (_name, kind, tick, table) 
   }, 15000);
 
   it('a throttle backoff the server asks for is capped: ImapFlow never sleeps 2^31-1 ms on its say-so', async () => {
-    const sleeps = recordSleeps(true, [LONG_DEADLINE]);
+    // ImapFlow's connection (90 s) and greeting (16 s) timeouts stay real: fired at 1 ms they raced the fake's greeting.
+    const sleeps = recordSleeps(true, [LONG_DEADLINE, 90_000, 16_000]);
     serve({ mode: 'throttle', uidNext: 8, messages: [{ uid: 6 }, { uid: 7 }] });
     h.rows = [row('bad-1', 'bad.test', kind)];
     await tick({ deadlineMs: LONG_DEADLINE });

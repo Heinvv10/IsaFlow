@@ -1,8 +1,8 @@
 /**
  * S-07e part B (migration 946): webhook_endpoints create, update and delete run
- * on the migration_admin pool (no app role may INSERT, DELETE or UPDATE more than
- * the delivery stamps). The role bypasses RLS, so each statement must carry the
- * verified company itself.
+ * on the migration_admin pool (no app role may write the table at all; the
+ * delivery stamp is routeAdminQuery's, fireWebhookAwaitable.test.ts). The role
+ * bypasses RLS, so each statement must carry the verified company itself.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
   admin: [] as Array<{ label: string; text: string; values: unknown[] }>,
   results: [] as unknown[][],
   tx: 0,
+  route: [] as Array<{ text: string; values: unknown[] }>,
 }));
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
@@ -26,9 +27,13 @@ vi.mock('@/lib/auth/migrationAdminPool', () => ({
   },
 }));
 
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: async (_label: string, text: string, values: unknown[]) => { h.route.push({ text: text.replace(/\s+/g, ' ').trim(), values }); return []; },
+}));
+
 import { sql } from '@/lib/neon';
+import { stampDelivery } from '@/modules/accounting/services/core/webhookEndpointWrites';
 import { createWebhook, updateWebhook, deleteWebhook } from '@/modules/accounting/services/core/webhookService';
-import { disableFailingEndpoint } from '@/modules/accounting/services/core/webhookEndpointWrites';
 
 const COMPANY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
@@ -48,6 +53,7 @@ beforeEach(() => {
   h.admin.length = 0;
   h.results.length = 0;
   h.tx = 0;
+  h.route.length = 0;
   vi.mocked(sql).mockReset();
 });
 
@@ -110,12 +116,15 @@ describe('webhook endpoint writes (migration_admin)', () => {
     expect(sql).not.toHaveBeenCalled();
   });
 
-  it('disableFailingEndpoint switches off only at or past the threshold, keyed on id AND company', async () => {
-    await disableFailingEndpoint(COMPANY, ID, 10);
-    expect(h.admin).toHaveLength(1);
-    expect(h.admin[0]!.text).toContain('SET is_active = false');
-    expect(h.admin[0]!.text).toContain('WHERE id = $1::UUID AND company_id = $2::UUID AND failure_count >= $3');
-    expect(h.admin[0]!.values).toEqual([ID, COMPANY, 10]);
+  it('stampDelivery: a success and a failure are one statement each on routeAdminQuery, keyed on id AND company; never migrationAdminTx', async () => {
+    await stampDelivery(COMPANY, ID, true, 10);
+    await stampDelivery(COMPANY, ID, false, 10);
+    expect(h.route.map((w) => w.values)).toEqual([[ID, COMPANY], [ID, COMPANY, 10]]);
+    expect(h.route.every((w) => /WHERE id = \$1::UUID AND company_id = \$2::UUID$/.test(w.text))).toBe(true);
+    expect(h.route[0]!.text).toContain('SET last_triggered_at = NOW(), failure_count = 0');
+    // The auto-disable rides on the failure's own UPDATE: the count it compares is the one it writes.
+    expect(h.route[1]!.text).toContain('is_active = CASE WHEN failure_count + 1 >= $3 THEN false ELSE is_active END');
+    expect(h.tx).toBe(0);
     expect(sql).not.toHaveBeenCalled();
   });
 });

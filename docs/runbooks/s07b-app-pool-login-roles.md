@@ -285,73 +285,74 @@ Migration 945 (S-07e: billing tables and TEMPORARY, 2026-10-25) also takes effec
 
 Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes effect on deploy:
 
-- No app role may INSERT or DELETE `webhook_endpoints`,
-  `imap_mirror_connections` or `sent_mirror_connections`, or UPDATE them
-  except the stamps a delivery or a scan writes (webhook: `last_triggered_at`,
-  `failure_count`; mirrors: `scan_cursor`, `last_scan_at`, `last_success_at`,
-  `last_error`, the message counters; `updated_at` is set by the table's touch trigger, which needs no
-  column privilege). Creating, editing,
-  disconnecting, reactivating and deleting them, an endpoint's auto-disable
-  after 10 failures and a scan marking a connection errored run on
-  migration_admin, keyed on the verified company; the admin site's webhook
-  page keeps writing on platform_admin. 946 refuses to apply unless
-  migration_admin still can.
+- No app role may write `webhook_endpoints`, `imap_mirror_connections` or
+  `sent_mirror_connections` at all: the app pools keep SELECT only (no INSERT,
+  UPDATE on any column, DELETE, TRUNCATE, REFERENCES or TRIGGER). Creating,
+  editing, disconnecting, reactivating and deleting them run on migration_admin
+  (`migrationAdminTx`), keyed on the verified company. What a delivery or a scan
+  writes (webhook: `last_triggered_at`, `failure_count` and the auto-disable after
+  10 failures, in one statement; mirrors: `scan_cursor`, `last_scan_at`,
+  `last_success_at`, `last_error`, the counters, the scan-error status flip and the
+  stop stamp) and the cron's due selection run on the same login in a pool of its
+  own (`routeAdminPool`, `ROUTE_ADMIN_POOL_MAX`, default 3, so a burst of deliveries
+  never queues a sign-in), one fixed statement per transaction keyed on the row's id
+  AND company, waiting at most 2 s for a row lock. `updated_at` is set by the mirror
+  tables' touch trigger, which needs no column privilege. The admin site's webhook
+  page keeps writing on platform_admin. 946 refuses to apply unless migration_admin
+  still can. The scan logs, `webhook_deliveries`, `captured_documents` and
+  `capture_events` are unchanged (app-writable).
 - Storage reads (invoice PDF, portal PDF, audit export and audit-portal
   downloads, captured documents, pack verify) refuse a pointer that is not
   under the reading company's `<company_id>/` prefix (code only, no privilege).
 - Deploy window: until the new code is live (and after a code-only rollback)
-  the old release's webhook and mirror-connection settings writes are refused
-  42501 and write nothing. Scans and deliveries keep running and stamping, but
-  two failure paths now throw: on the OLD code a scan error's status write is
-  refused 42501 and the error escapes the scan, so the cron tick stops at that
-  connection (the ones after it wait for the next tick); and a failed
-  delivery's stamp (the old UPDATE names `is_active`) is refused 42501, so the
-  event's remaining endpoints are skipped and `failure_count` is not stamped (a
-  success's stamp is unaffected). On 2026-10-25 prod had 0 webhook endpoints, 1
-  IMAP mirror connection (inactive) and 0 sent-mirror connections.
-- Named limits: the stamp columns stay writable under forged claims, so an
-  injected request can reset or raise a webhook endpoint's `failure_count`
-  (delay or hasten its auto-disable) and move a mailbox's `scan_cursor` (skip a
-  mailbox's mail, or re-read it; both mirrors skip a file the company already
-  holds, by `company_id` and file hash, so a re-read captures nothing twice).
-  Integrity only:
-  no route changes and no credential is exposed. Also:
-  - An app pool can still lock a connection row (`FOR UPDATE` needs only the
-    column UPDATE it holds), so it can delay or drop one error-status flip: the
-    flip waits migration_admin's 5 s `lock_timeout`, falls back to a status-free
-    stamp that waits 2 s (outside a request), and on 55P03 warns and moves on, so
-    a cron tick is never stalled behind the lock. That failure's flip is lost;
-    the next failing scan flips again.
+  every write the old release makes to these tables is refused 42501 and writes
+  nothing. Settings writes (webhook and mirror-connection create, edit, delete,
+  disconnect, reconnect) fail with an error. A delivery still POSTs and logs to
+  `webhook_deliveries`, but its stamp is refused: the error leaves `fireWebhook`'s
+  loop ('fireWebhook error' in the log), so the event's remaining endpoints are not
+  delivered, `failure_count` is not counted and no endpoint is switched off. A scan
+  still ingests, then its cursor or success stamp is refused, its error-status write
+  is refused too and that error escapes: the cron tick stops at the first due
+  connection (the route answers 500), and because the cursor and `last_scan_at`
+  never move, the next tick scans the same messages again; the old capture mirror
+  has no hash de-dupe, so it captures their attachments again every tick (the old
+  sent mirror links them instead). On 2026-10-25 prod had 0 webhook endpoints, 1
+  IMAP mirror connection (inactive, so never due) and 0 sent-mirror connections;
+  the pre-check below counts the active ones (all zero: nothing of this happens).
+- What an app pool can still do to these tables: read them. It cannot lock a row
+  (`FOR UPDATE`/`FOR SHARE` need UPDATE); the key-share lock its scan-log or
+  delivery-log INSERT takes does not block a stamp (an UPDATE of non-key columns)
+  nor the due selection (`FOR NO KEY UPDATE SKIP LOCKED`). So a forged NULL, past or
+  future `last_scan_at`, a forged `scan_cursor` and a forged `failure_count` are
+  refused 42501 (s07e-b-routes.int.test.ts), and no tenant can pin the 20 due slots
+  or skip another tenant's mail. The due selection still orders a future
+  `last_scan_at` last and `readCursor` still refuses a cursor that is not an IMAP
+  number below UIDNEXT (an ops edit, or a server whose UIDNEXT went backwards).
+  Also named:
+  - `captured_documents` is outside 946: SQL injected on an app pool can plant a
+    row with a file's hash under another company, and the capture mirror then
+    treats that file as held (`skipped_duplicate`) when it arrives. It needs the
+    file's bytes; a rejected or failed-to-read document, or one whose mirror capture
+    event failed, does not count as held, so a re-sent copy of such a file is
+    captured again.
+  - In scan-now, the scan's stamps commit on their own, ahead of the request: if the
+    request's COMMIT then fails, the messages it ingested are rolled back while the
+    cursor has passed them (recover by moving the cursor back on migration_admin;
+    the hash de-dupe skips what is held).
+  - A stamp, flip or due selection that waits 2 s in vain (55P03; only another
+    migration_admin write can hold the row now) is skipped: a scan skips its
+    connection for the tick (warn, not marked 'error', cursor not advanced; the next
+    tick re-scans and both mirrors skip the files already held, by `company_id` and
+    file hash), a delivery loses that stamp, an error flip is lost until the next
+    failing scan.
   - A transient DNS or connect failure marks a connection 'error', as any failed
-    scan always has, and `listActiveConnections` skips it from then on. The user
+    scan always has, and the due selection skips it from then on. The user
     reconnects the mailbox to resume: `reactivateConnection` has no route.
-  - The cron's other writes to a connection row, its scan log and its counters
-    (cursor, success stamp, counters, log insert) also wait at most 2 s for the
-    row outside a request, each in a short transaction with a transaction-local
-    `lock_timeout`; on 55P03 the scan skips that connection for the tick (a
-    warning, not marked 'error', cursor not advanced; the next tick re-scans and
-    both mirrors skip the files already held, by `company_id` and file hash). A
-    locked connection therefore costs a tick about 2 s, not the lock's holding
-    time. The cron's due selection takes `FOR UPDATE SKIP LOCKED`, so a row an app
-    role holds locked is not selected at all (it never takes one of the 20 slots)
-    and the connections behind it are scanned.
-  - An app pool can still stamp a future `last_scan_at` (or an out-of-range
-    `scan_cursor`) on any company's connection. The cron's due check treats a
-    `last_scan_at` in the future as due and orders it LAST among the due rows (so
-    forged stamps cannot pin the 20 slots), a cursor that is not an integer in
-    1..2^32-1 is ignored with a warning (the folder is scanned from the start,
-    safe because of the hash de-dupe), and a cursor at or past the mailbox's
-    UIDNEXT is clamped to UIDNEXT - 1 and written back (nothing old is
-    rescanned; new mail is picked up). The forged value is overwritten by the
-    next scan's stamp.
-  - Cursor limits that remain, because the cursor is a bare UID in an app-writable
-    column: (1) a server-side UIDVALIDITY reset (a rebuilt mailbox) is not
+  - Cursor limits: a server-side UIDVALIDITY reset (a rebuilt mailbox) is not
     detected, because the cursor does not record UIDVALIDITY; if the new UIDNEXT
     is below the cursor, the cursor is clamped to the new UIDNEXT - 1 and the old
     mail in the rebuilt mailbox is NOT re-captured, and if the new UIDNEXT is
-    above it, new mail up to the old cursor is skipped; (2) a forged cursor
-    between the real one and UIDNEXT - 1 skips the mail in that gap, which a stamp
-    column cannot tell from a real cursor.
+    above it, new mail up to the old cursor is skipped.
   - Each connection's scan runs under a hard deadline (`MIRROR_SCAN_DEADLINE_MS`,
     120 s, `mirrorScanGuard.ts`) because the mail server is the tenant's: ImapFlow's
     `socketTimeout` (lowered to 60 s) is idle-only, it has no per-command timeout,
@@ -359,11 +360,18 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
     the retries; its own first wait of up to 5 min remains). When the deadline
     passes the client is closed, the row gets `last_scan_at = NOW()` and
     `last_error = 'Scan timed out'` (status stays `active`, the row goes to the
-    back of the queue) and the tick scans the next connection; the abandoned
-    scan writes nothing further. A tenant whose server always overruns is retried
-    every interval and shows 'Scan timed out'. A message whose size the server
-    reports over about 13.4 MB (the capture upload limit, 10 MB, as base64 plus
-    headers) is not fetched: it is logged as `skipped_too_large` and passed.
+    back of the queue) and the tick scans the next connection.
+  - Size (`mirrorScanLimits.ts`): a message whose reported RFC822.SIZE is over
+    about 13.4 MB (the capture upload limit, 10 MB, as base64 plus headers), or
+    that reports no size, is not fetched: logged `skipped_too_large` and passed.
+    The bytes the server sends are counted after TLS and inflation; one response
+    over 1.5x that cap (1 MB per envelope while the 50-message list is read)
+    closes the client, stamps `last_error` = 'A message was larger than its server
+    said; the scan was stopped' (status stays `active`) and the tick moves on; a
+    fetched source over the cap is not parsed; subjects and addresses are clipped
+    to 500 characters before they are written. A server that lies about a
+    message's size stops the scan at that message every tick: the mailbox does not
+    pass it until the tenant removes it.
   - One vetted address is used per scan: a host with several addresses is
     connected to by the first IPv4 one (else the first address), with no
     failover to the others, so a host whose first address is down fails the scan
@@ -664,10 +672,14 @@ SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, ac
          'public.sent_mirror_connections']::regclass[])
    AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
    AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
--- 946: how much the moved tables hold (counts only), to judge the deploy window;
+-- 946: how much the moved tables hold (counts only), to judge the deploy window: the
+-- old code's deliveries and scans fail only on ACTIVE rows (the *_active columns);
 -- and every stored storage pointer is under its own company's prefix (zero in each *_outside)
 SELECT (SELECT count(*) FROM webhook_endpoints) AS webhooks, (SELECT count(*) FROM imap_mirror_connections) AS imap,
        (SELECT count(*) FROM sent_mirror_connections) AS sent,
+       (SELECT count(*) FROM webhook_endpoints WHERE is_active) AS webhooks_active,
+       (SELECT count(*) FROM imap_mirror_connections WHERE status = 'active') AS imap_active,
+       (SELECT count(*) FROM sent_mirror_connections WHERE status = 'active') AS sent_active,
        (SELECT count(*) FROM captured_documents WHERE storage_path IS NOT NULL AND storage_path NOT LIKE company_id::text || '/%') AS captured_outside;
 -- 936: a table or column grant on companies to a role either login reaches,
 -- other than app_user (936 revokes from app_user, app_service and PUBLIC only;

@@ -26,6 +26,10 @@ vi.mock('@/lib/neon', () => {
   });
   return { sql: tag, withTransaction: async (fn: (t: typeof tag) => Promise<unknown>) => fn(tag) };
 });
+// The connection-row stamps run on migration_admin (S-07e part B): the same recorder.
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: vi.fn(async (_label: string, text: string, v: unknown[]) => { h.statements.push({ q: text.replace(/\s+/g, ' ').trim(), v }); return []; }),
+}));
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'pw' }));
 vi.mock('@/lib/documentStorage', () => ({ sha256: (b: Buffer) => `sha-${b.toString().trim()}`, storeCapturedBytes: vi.fn(async () => ({ bucket: 'b', path: 'p' })) }));
 vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ routeEvent: vi.fn(async () => undefined) }));

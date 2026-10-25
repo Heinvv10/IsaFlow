@@ -24,12 +24,12 @@
  *     and mandate create, verify and revoke. No app role writes those tables
  *     or reads the columns a charge is made with (`migrationAdminSqlTx`);
  *   - outbound-feed and mailbox connections (S-07e part B, migration 946):
- *     webhook_endpoints create, update, delete and the auto-disable, and
+ *     webhook_endpoints create, update and delete, and
  *     imap_mirror_connections / sent_mirror_connections create, update,
- *     disconnect, delete and the scan-error status flip. The app pools keep
- *     only the delivery and scan stamps: a forged claim could otherwise
- *     re-point an endpoint's url, or a mailbox's IMAP host, at an outside
- *     server (`migrationAdminTx`).
+ *     disconnect and delete: a forged claim could otherwise re-point an
+ *     endpoint's url, or a mailbox's IMAP host, at an outside server
+ *     (`migrationAdminTx`). What a delivery or a scan stamps on those rows
+ *     runs on the same login in a pool of its own (routeAdminPool.ts).
  */
 import pg from 'pg';
 import { buildQuery, type TxSql } from '@/lib/neon';

@@ -12,13 +12,23 @@
 --                            re-pointing a victim's connection at another host
 --                            makes the scan cron decrypt the victim's stored
 --                            mailbox password and present it to that host.
--- app_user (and through it app_service and both logins) loses INSERT, DELETE
--- and UPDATE on them; UPDATE comes back only on what a delivery or a scan
--- stamps. Creating, changing, disconnecting and deleting them, and a scan or
--- delivery that changes a connection's or endpoint's status, run on the
--- migration_admin pool from fixed statements keyed on the verified company
--- (S-07e part B). They stay readable: the scan cron and the dispatcher read
--- the encrypted credentials and signing secret, which the app's key decrypts.
+-- app_user (and through it app_service and both logins) keeps only SELECT on
+-- them: no INSERT, UPDATE (no column either), DELETE, TRUNCATE, REFERENCES or
+-- TRIGGER. Every write runs on the migration_admin login from fixed statements
+-- keyed on the row's id AND its company (S-07e part B): creating, changing,
+-- disconnecting and deleting them, and also what a delivery or a scan stamps
+-- (failure_count and last_triggered_at; scan_cursor, last_scan_at,
+-- last_success_at, last_error and the counters), the auto-disable, the
+-- scan-error status flip and the cron's due selection (FOR NO KEY UPDATE SKIP
+-- LOCKED, which needs UPDATE). Those stamps were app-writable in the first
+-- version of this migration, and SQL injected on an app pool could forge them on
+-- any company's rows: pin the 20 due-selection slots with a NULL or ancient
+-- last_scan_at (stopping every other tenant's mirror), skip a mailbox's mail by
+-- its scan_cursor, or delay or hasten an endpoint's auto-disable by its
+-- failure_count. They stay readable: the scan cron and the dispatcher read the
+-- encrypted credentials and signing secret, which the app's key decrypts.
+-- The scan logs (imap_mirror_scan_log, sent_mirror_scan_log), webhook_deliveries,
+-- captured_documents and capture_events are not changed here.
 -- No new SECURITY DEFINER function, so no new app_definer_reviews row.
 -- Every rule joins app_pool_reach_violations() (920, 930, 932, 936, 937, 945).
 --
@@ -28,27 +38,29 @@
 -- under its own company's prefix (captured_documents 1266, customer_invoices
 -- 1052, audit_trail_exports 1).
 --
--- updated_at is not among the stamp columns: the table's touch trigger sets it
--- on every UPDATE, and a trigger's change to NEW needs no column privilege.
+-- updated_at needs no privilege of its own: the mirror tables' touch trigger sets
+-- it on every UPDATE, and a trigger's change to NEW needs no column privilege.
 --
 -- Deploy window: until the new code is live, and after a code-only rollback,
--- the previous release's writes are refused 42501 and write nothing: webhook
--- create, edit and delete; mirror connection create, edit, disconnect,
--- reconnect and delete. Scans and deliveries keep running and stamping, but two
--- of their failure paths now throw: on the OLD code a scan error's status write
--- is refused 42501 and the error ESCAPES the scan, so the cron tick stops at
--- that connection and the connections after it wait for the next tick; and a
--- failed delivery's stamp (the old UPDATE names is_active) is refused 42501, so
--- the event's remaining endpoints are skipped and failure_count is not stamped
--- (a success's stamp is unaffected). Production on
--- 2026-10-25: 0 webhook endpoints, 1 IMAP mirror connection (inactive),
--- 0 sent-mirror connections.
---
--- Named limits. The stamp columns stay writable under forged claims, so an
--- injected request can reset or raise a webhook endpoint's failure_count (delay
--- or hasten its auto-disable) and move a mailbox's scan_cursor (skip a
--- mailbox's mail, or re-ingest it; ingestion de-dupes by hash). That is an
--- integrity limit only: it changes no route and exposes no credential.
+-- every write the previous release makes to these tables is refused 42501 and
+-- writes nothing. Its webhook and mirror-connection settings writes (create,
+-- edit, delete; disconnect, reconnect) fail with an error. A delivery still
+-- POSTs and still logs to webhook_deliveries, but its stamp (a success's or a
+-- failure's, which also carries the auto-disable) is refused: the error leaves
+-- fireWebhook's loop, which logs 'fireWebhook error', so that event's
+-- remaining endpoints are not delivered, failure_count is not counted and no
+-- endpoint is switched off. A scan still connects, ingests (captured_documents,
+-- capture_events, the scan log are unchanged) and then has its cursor or success
+-- stamp refused; its catch then writes the error status, which is refused too,
+-- and that error escapes the scan: scanAllDueConnections (and the sent mirror's)
+-- stops at the first due connection and the cron route answers 500. Because the
+-- cursor and last_scan_at never move, the same connection is due again on the
+-- next tick and the same messages (up to 50) are scanned again: the old
+-- capture mirror has no hash de-dupe and captures every attachment again, each
+-- tick (the old sent mirror links a file it already holds instead). Production on
+-- 2026-10-25: 0 webhook endpoints, 1 IMAP mirror connection (inactive, so never
+-- due), 0 sent-mirror connections: none of this happens there. The runbook's
+-- pre-check counts the active ones.
 --
 -- The preflight below (migration_admin's privileges and BYPASSRLS) is skipped
 -- when the migration_admin role does not exist, as in 936, 937 and 945.
@@ -59,11 +71,10 @@
 --   GRANT INSERT, UPDATE, DELETE ON public.webhook_endpoints, public.imap_mirror_connections,
 --     public.sent_mirror_connections TO app_user;
 
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.webhook_endpoints, public.imap_mirror_connections,
+-- A table-level REVOKE also revokes every column-level grant of the privilege, so
+-- this clears the stamp-column UPDATE grants the first version of 946 made.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.webhook_endpoints, public.imap_mirror_connections,
   public.sent_mirror_connections FROM app_user, app_service, PUBLIC;
-GRANT UPDATE (last_triggered_at, failure_count) ON public.webhook_endpoints TO app_user;
-GRANT UPDATE (scan_cursor, last_scan_at, last_success_at, last_error, messages_ingested_total) ON public.imap_mirror_connections TO app_user;
-GRANT UPDATE (scan_cursor, last_scan_at, last_success_at, last_error, messages_captured_total, messages_linked_total) ON public.sent_mirror_connections TO app_user;
 
 -- app_service's mirrors follow app_user's privileges (915).
 SELECT public.app_service_sync_policies();
@@ -177,11 +188,11 @@ AS $$
      '{id,company_id,purpose,customer_invoice_id,subscription_charge_id,flow_purchase_id,paystack_reference,paystack_access_code,paystack_transaction_id,authorization_url,amount_cents,currency,status,failure_reason,channel,payer_name,payer_email,created_at,updated_at,completed_at,mandate_id,portal_payment_link_id}',
      '{status,completed_at,paystack_transaction_id,channel,failure_reason,paystack_access_code,authorization_url,updated_at}',
                                                                   true,  false),
-    -- 946: a company's outbound routes are written on migration_admin; the
-    -- scans and the deliveries keep their stamps.
-    ('public.webhook_endpoints',        '{}', '{last_triggered_at,failure_count}', true,  false),
-    ('public.imap_mirror_connections',  '{}', '{scan_cursor,last_scan_at,last_success_at,last_error,messages_ingested_total}', true,  false),
-    ('public.sent_mirror_connections',  '{}', '{scan_cursor,last_scan_at,last_success_at,last_error,messages_captured_total,messages_linked_total}', true,  false)
+    -- 946: a company's outbound routes, stamps included, are written on
+    -- migration_admin only; the app pools read them.
+    ('public.webhook_endpoints',       '{}', '{}', true,  false),
+    ('public.imap_mirror_connections', '{}', '{}', true,  false),
+    ('public.sent_mirror_connections', '{}', '{}', true,  false)
   ),
   -- 937: columns no app role may read on a table it otherwise reads.
   unreadable (tbl, col) AS (VALUES

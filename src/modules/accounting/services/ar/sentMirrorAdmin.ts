@@ -6,8 +6,8 @@
  * the outbound table. Credentials encrypted at rest via lib/encryption.ts.
  *
  * Every write here runs on the migration_admin pool (S-07e part B, migration
- * 946): no app role may INSERT or DELETE a sent_mirror_connections row, or
- * UPDATE more than the scan stamps (sentMirrorService). Re-pointing a victim's
+ * 946): no app role may write a sent_mirror_connections row at all (the
+ * scan's own stamps are sentMirrorWrites.ts's, also on migration_admin). Re-pointing a victim's
  * imap_host/port/tls/username makes the scan cron decrypt the victim's stored
  * mailbox password and send it to the attacker's server. `companyId` is the
  * verified request's; the role bypasses RLS, so every statement carries

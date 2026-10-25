@@ -1,8 +1,8 @@
 // tests/integration/s07e-b-routes.migration.int.test.ts
 //
-// Migration 946 takes INSERT, DELETE and (but for what a scan or a delivery
-// stamps) UPDATE on a company's outbound routes (webhook_endpoints,
-// imap_mirror_connections, sent_mirror_connections) off the app pools, keeps
+// Migration 946 takes every write privilege on a company's outbound routes
+// (webhook_endpoints, imap_mirror_connections, sent_mirror_connections) off the
+// app pools, the stamp columns included since review round 5 (SELECT stays), keeps
 // 920/930/932/936/937/945's rules in app_pool_reach_violations() and adds its
 // own. It applies twice after 945, as a NON-superuser postgres as production's
 // deploy runs, also on a database and tables owned by migration_admin; and every
@@ -23,13 +23,16 @@ const GUARD = doBlock(M946, "RAISE EXCEPTION '946: %'");
 const PREFLIGHT = doBlock(M946, 'which the code writes on it');
 const FN_AT = M946.indexOf('CREATE OR REPLACE FUNCTION public.app_pool_reach_violations()');
 const FN = M946.slice(FN_AT, M946.indexOf('\n$$;', FN_AT) + 4);
-const STAMPS: Record<string, string[]> = {
+const TABLES = ['webhook_endpoints', 'imap_mirror_connections', 'sent_mirror_connections'];
+// The columns the first 946 left app-writable (review round 5 took them): what a scan or a delivery stamps.
+const FORMER_STAMPS: Record<string, string[]> = {
   webhook_endpoints: ['failure_count', 'last_triggered_at'],
   imap_mirror_connections: ['last_error', 'last_scan_at', 'last_success_at', 'messages_ingested_total', 'scan_cursor'],
   sent_mirror_connections: ['last_error', 'last_scan_at', 'last_success_at', 'messages_captured_total', 'messages_linked_total',
     'scan_cursor'],
 };
-const TABLES = Object.keys(STAMPS);
+// The first 946's stamp grants, as a database that applied it has them.
+const ROUND4_GRANTS = TABLES.map((t) => `GRANT UPDATE (${FORMER_STAMPS[t]!.join(', ')}) ON public.${t} TO app_user`).join('; ');
 // A column a scan or delivery does not stamp: the one a re-point or a revival would write.
 const ROUTE: Record<string, string[]> = { webhook_endpoints: ['url', 'is_active'], imap_mirror_connections: ['imap_host', 'status'],
   sent_mirror_connections: ['imap_host', 'status'] };
@@ -83,7 +86,7 @@ const txSql = (q: Q): TaggedSql => (async (strings: TemplateStringsArray, ...val
   rows(q, strings.reduce((t, part, i) => t + part + (i < values.length ? (typeof values[i] === 'boolean' ? String(values[i])
     : `'${String(values[i]).replace(/'/g, "''")}'`) : ''), ''))) as unknown as TaggedSql;
 
-const CLOSED = Object.fromEntries(TABLES.map((t) => [t, { update: STAMPS[t], insert: false, delete: false, truncate: false, unreadable: 0 }]));
+const CLOSED = Object.fromEntries(TABLES.map((t) => [t, { update: null, insert: false, delete: false, truncate: false, unreadable: 0 }]));
 
 describe('946: migration', () => {
   it('applies twice after 945 as a NON-superuser postgres from master\'s grants; no violation after', async () => {
@@ -115,16 +118,30 @@ describe('946: migration', () => {
     });
   });
 
-  it('leaves the fixture closed: readable, no insert, delete or truncate, only the stamps updatable', async () => {
+  it('leaves the fixture closed: readable, no insert, update (no column), delete or truncate', async () => {
     expect(await shape((text) => fixture.query(text))).toEqual(CLOSED);
   });
 
+  it('clears the first 946\'s stamp-column grants (a table-level REVOKE revokes the column grants too)', async () => {
+    await rolledBack(async (q) => {
+      await q(ROUND4_GRANTS);
+      expect(((await shape(q)).imap_mirror_connections as { update: string[] }).update).toEqual(FORMER_STAMPS.imap_mirror_connections);
+      await q('ALTER ROLE postgres NOSUPERUSER');
+      await q('SET LOCAL ROLE postgres');
+      await q(M946);
+      expect(await shape(q)).toEqual(CLOSED);
+      expect(await rows(q, 'SELECT * FROM public.app_pool_reach_violations()')).toEqual([]);
+    });
+  });
+
   it.each([
-    ['without the REVOKE', () => M946.replace(/REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON[^;]*;/, ''),
+    ['without the REVOKE', () => M946.replace(/REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON[^;]*;/, ''),
       /946: .* can (INSERT|UPDATE|DELETE|TRUNCATE) (public\.)?(webhook_endpoints|imap_mirror_connections|sent_mirror_connections)/],
-    ...TABLES.map((t) => [`with UPDATE granted on all of ${t}`,
-      () => M946.replace(new RegExp(`GRANT UPDATE \\([^)]*\\) ON public\\.${t} TO app_user;`), `GRANT UPDATE ON public.${t} TO app_user;`),
-    new RegExp(`946: .* can UPDATE ${t}\\.`)] as const),
+    // The first 946's shape: a stamp column granted back after the REVOKE.
+    ...TABLES.map((t) => [`with ${t}.${FORMER_STAMPS[t]![0]} re-granted to app_user`,
+      () => M946.replace(/(REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON[^;]*;)/,
+        `$1\nGRANT UPDATE (${FORMER_STAMPS[t]![0]}) ON public.${t} TO app_user;`),
+    new RegExp(`946: .* can UPDATE ${t}\\.${FORMER_STAMPS[t]![0]}`)] as const),
   ])('refuses to apply %s, from master\'s grants', async (_, text, msg) => {
     await rolledBack(async (q) => {
       await q(MASTER_GRANTS);
@@ -172,13 +189,15 @@ describe('946: migration', () => {
     });
   });
 
-  it.each(TABLES.flatMap((t) => STAMPS[t]!.map((c) => [t, c])) as Array<[string, string]>)(
-    'allows what 946 leaves: UPDATE %s.%s',
-    async (t, c) => {
+  // Round 5: no column is left. Each former stamp, granted to either role, is a violation.
+  it.each(TABLES.flatMap((t) => FORMER_STAMPS[t]!.flatMap((c) => ['app_user', 'app_service'].map((who) => [t, c, who]))) as Array<[string, string, string]>)(
+    'refuses the round-4 grant: UPDATE %s.%s to %s',
+    async (t, c, who) => {
       await rolledBack(async (q) => {
         await q(FN);
-        await q(`GRANT UPDATE (${c}) ON public.${t} TO app_user, app_service`);
         await q(GUARD);
+        await q(`GRANT UPDATE (${c}) ON public.${t} TO ${who}`);
+        await expect(q(GUARD)).rejects.toThrow(R(who === 'app_user' ? APP : who, `UPDATE ${t}\\.${c}`));
       });
     });
 
@@ -211,12 +230,12 @@ describe('946: migration', () => {
     expect(left[0]!.p).toBe(false);
   });
 
-  // Every column that is not a stamp, read from the catalog: a column added later is covered without touching this file.
-  it.each(TABLES)('%s: every non-stamp column refuses UPDATE and INSERT (catalog-derived)', async (t) => {
+  // Every column, read from the catalog: a column added later is covered without touching this file.
+  it.each(TABLES)('%s: every column refuses UPDATE and INSERT (catalog-derived)', async (t) => {
     const cols = (await rows((text) => fixture.query(text), `SELECT attname::text AS c FROM pg_attribute WHERE attrelid = 'public.${t}'::regclass
-      AND attnum > 0 AND NOT attisdropped ORDER BY attnum`)).map((r) => String(r.c)).filter((c) => !STAMPS[t]!.includes(c));
+      AND attnum > 0 AND NOT attisdropped ORDER BY attnum`)).map((r) => String(r.c));
     expect(cols.length).toBeGreaterThan(ROUTE[t]!.length);
-    expect(cols).toEqual(expect.arrayContaining([...ROUTE[t]!, 'company_id']));
+    expect(cols).toEqual(expect.arrayContaining([...ROUTE[t]!, ...FORMER_STAMPS[t]!, 'company_id']));
     for (const c of cols) {
       for (const priv of ['UPDATE', 'INSERT']) {
         await rolledBack(async (q) => {

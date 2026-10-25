@@ -11,9 +11,13 @@
 //                            re-pointing a victim's connection at another host
 //                            makes the scan cron decrypt the victim's stored
 //                            mailbox password and present it to that host.
-// Each must now be refused by privilege, on the logins production has. What the
-// scans and the deliveries still stamp stays writable. The legitimate paths:
-// s07e-b-routes-paths-{webhooks,imap,sent}.int.test.ts; the migration: s07e-b-routes.migration.int.test.ts.
+// Each must now be refused by privilege, on the logins production has. Review
+// round 5: so is every stamp a scan or a delivery writes (breaker rounds forged
+// them across tenants: a NULL or ancient last_scan_at pinned the cron's 20 due
+// slots, a scan_cursor skipped a mailbox's mail, a failure_count delayed or
+// hastened an auto-disable); those writes run on migration_admin now. The
+// legitimate paths: s07e-b-routes-paths-*.int.test.ts; the migration:
+// s07e-b-routes.migration.int.test.ts.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Pool } from 'pg';
 import { getAuthPool } from '@/lib/auth/authPool';
@@ -99,6 +103,36 @@ const SINGLE: Attack[] = [
     [`${t}: a connection moved to another company (company_id alone)`, t, hit(`UPDATE ${t} SET company_id = $1 WHERE company_id = $1`)],
   ]),
 ];
+// Round 5: the stamps. Every forgery breaker rounds executed, plus the shapes next to them.
+const STAMP_FORGERIES: Attack[] = [
+  ...MIRRORS.flatMap((t): Attack[] => [
+    [`${t}: last_scan_at forged NULL (pins a due slot first)`, t, hit(`UPDATE ${t} SET last_scan_at = NULL WHERE company_id = $1`)],
+    [`${t}: last_scan_at forged into the past (1970)`, t, hit(`UPDATE ${t} SET last_scan_at = '1970-01-01' WHERE company_id = $1`)],
+    [`${t}: last_scan_at forged into the future (9999)`, t, hit(`UPDATE ${t} SET last_scan_at = '9999-01-01' WHERE company_id = $1`)],
+    [`${t}: scan_cursor forged past UIDNEXT (skips the mailbox's mail)`, t,
+      hit(`UPDATE ${t} SET scan_cursor = '{"INBOX": 4294967295, "Sent": 4294967295}' WHERE company_id = $1`)],
+    [`${t}: scan_cursor reset (re-reads the mailbox)`, t, hit(`UPDATE ${t} SET scan_cursor = '{}' WHERE company_id = $1`)],
+    [`${t}: last_error forged`, t, hit(`UPDATE ${t} SET last_error = 'Your mailbox password expired: re-enter it at https://attacker.test'
+      WHERE company_id = $1`)],
+    [`${t}: last_success_at forged`, t, hit(`UPDATE ${t} SET last_success_at = NOW() WHERE company_id = $1`)],
+    [`${t}: updated_at written (the touch trigger's column)`, t, hit(`UPDATE ${t} SET updated_at = NOW() WHERE company_id = $1`)],
+  ]),
+  ['imap_mirror_connections: the ingested counter forged', 'imap_mirror_connections',
+    hit('UPDATE imap_mirror_connections SET messages_ingested_total = 0 WHERE company_id = $1')],
+  ['sent_mirror_connections: the counters forged', 'sent_mirror_connections',
+    hit('UPDATE sent_mirror_connections SET messages_captured_total = 0, messages_linked_total = 0 WHERE company_id = $1')],
+  ['webhook_endpoints: failure_count reset (delays the auto-disable)', 'webhook_endpoints',
+    hit('UPDATE webhook_endpoints SET failure_count = 0 WHERE company_id = $1')],
+  ['webhook_endpoints: failure_count raised (hastens the auto-disable)', 'webhook_endpoints',
+    hit('UPDATE webhook_endpoints SET failure_count = 9 WHERE company_id = $1')],
+  ['webhook_endpoints: last_triggered_at forged', 'webhook_endpoints', hit('UPDATE webhook_endpoints SET last_triggered_at = NULL WHERE company_id = $1')],
+  ...['imap_mirror_connections', 'sent_mirror_connections', 'webhook_endpoints'].map((t): Attack =>
+    [`${t}: a row lock taken (FOR UPDATE needs UPDATE; it would hold up the stamps)`, t, `SELECT 1 / count(*) FROM (SELECT 1 FROM ${t}
+      WHERE company_id = $1 FOR UPDATE) l`]),
+  ...['imap_mirror_connections', 'sent_mirror_connections', 'webhook_endpoints'].map((t): Attack =>
+    [`${t}: a key-share lock taken directly (FOR KEY SHARE needs UPDATE too)`, t, `SELECT 1 / count(*) FROM (SELECT 1 FROM ${t}
+      WHERE company_id = $1 FOR KEY SHARE) l`]),
+];
 const TRUNCATED = ['webhook_endpoints', ...MIRRORS];
 
 const pools: Array<[string, () => Pool, Parameters<typeof attempt>[2]]> = [
@@ -116,6 +150,10 @@ describe.each(pools)('S-07e part B (946): %s', (_, pool, opts) => {
     expect(await attempt(pool(), [[text, [other]]], opts)).toEqual(denied(table));
   });
 
+  it.each(STAMP_FORGERIES)('cannot (round 5): %s', async (_what, table, text) => {
+    expect(await attempt(pool(), [[text, [other]]], opts)).toEqual(denied(table));
+  });
+
   it.each(TRUNCATED)('cannot TRUNCATE %s', async (table) => {
     expect(await attempt(pool(), [[`TRUNCATE ${table}`]], opts)).toEqual(denied(table));
   });
@@ -126,28 +164,25 @@ describe.each(pools)('S-07e part B (946): %s', (_, pool, opts) => {
   });
 });
 
-describe('S-07e part B (946): what the scans and deliveries still stamp', () => {
+describe('S-07e part B (946): what the app pools keep', () => {
   it.each([
-    ['a delivery stamped on its endpoint', hit(`UPDATE webhook_endpoints SET last_triggered_at = NOW(), failure_count = 0
-      WHERE company_id = $1`)],
-    ['a mailbox scan stamped', hit(`UPDATE imap_mirror_connections SET scan_cursor = scan_cursor, last_scan_at = NOW(), last_success_at = NOW(),
-      last_error = NULL, messages_ingested_total = messages_ingested_total + 1 WHERE company_id = $1`)],
-    ['a sent-mailbox scan stamped', hit(`UPDATE sent_mirror_connections SET scan_cursor = scan_cursor, last_scan_at = NOW(), last_success_at = NOW(),
-      last_error = NULL, messages_captured_total = messages_captured_total + 1, messages_linked_total = messages_linked_total + 1
-      WHERE company_id = $1`)],
-    ['the scan cron reads its connections', `SELECT 1 / count(*) FROM imap_mirror_connections WHERE company_id = $1
-      AND imap_password_enc IS NOT NULL`],
+    ['the scan cron\'s and the dispatcher\'s read of a connection, credentials included', `SELECT 1 / count(*) FROM imap_mirror_connections
+      WHERE company_id = $1 AND imap_password_enc IS NOT NULL`],
+    ['a read of an endpoint, its signing secret included', 'SELECT 1 / count(*) FROM webhook_endpoints WHERE company_id = $1 AND secret IS NOT NULL'],
   ])('%s, on the service pool', async (_, text) => {
     expect(await attempt(getDbPool(), [[text, [other]]])).toBeNull();
   });
 
-  // updated_at is no stamp column (nothing but the touch trigger sets it): the trigger's change to NEW needs no column privilege.
-  it.each(['imap_mirror_connections', 'sent_mirror_connections'])('%s: a scan stamp still bumps updated_at, though no app role may write it', async (table) => {
-    const read = async () => (await fixture.query(`SELECT updated_at FROM ${table} WHERE company_id = $1`, [other])).rows[0]!.updated_at as Date;
-    const before = await read();
-    // attempt() rolls back, so the bump is checked inside the statement: no row newer than before → division_by_zero.
-    expect(await attempt(getDbPool(), [[`WITH w AS (UPDATE ${table} SET last_scan_at = NOW() WHERE company_id = $1 RETURNING updated_at)
-      SELECT 1 / count(*) FROM w WHERE updated_at > $2`, [other, before]]])).toBeNull();
-    expect(await attempt(getDbPool(), [[`UPDATE ${table} SET updated_at = NOW() WHERE company_id = $1`, [other]]])).toEqual(denied(table));
+  // The stamps the first 946 left app-writable (round 5 took them): one column at a time, on the service pool with no claims,
+  // the way breaker5 sent its NULL pin.
+  it.each([
+    ['webhook_endpoints', 'last_triggered_at = NOW()'], ['webhook_endpoints', 'failure_count = 0'],
+    ...MIRRORS.flatMap((t) => ['scan_cursor = scan_cursor', 'last_scan_at = NOW()', 'last_success_at = NOW()', 'last_error = NULL']
+      .map((set) => [t, set] as [string, string])),
+    ['imap_mirror_connections', 'messages_ingested_total = messages_ingested_total + 1'],
+    ['sent_mirror_connections', 'messages_captured_total = messages_captured_total + 1'],
+    ['sent_mirror_connections', 'messages_linked_total = messages_linked_total + 1'],
+  ])('%s: SET %s is refused', async (table, set) => {
+    expect(await attempt(getDbPool(), [[hit(`UPDATE ${table} SET ${set} WHERE company_id = $1`), [other]]])).toEqual(denied(table));
   });
 });

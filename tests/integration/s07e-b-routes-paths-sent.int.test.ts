@@ -1,8 +1,9 @@
 // tests/integration/s07e-b-routes-paths-sent.int.test.ts
 //
-// S-07e part B (migration 946): sent_mirror_connections is written by the app
-// pools only on the scan stamps; create, update, disconnect, delete and
-// markScanError's status flip run on migration_admin. Proven through the real
+// S-07e part B (migration 946): no app role writes sent_mirror_connections.
+// Create, update, disconnect and delete run on migration_admin (migrationAdminTx);
+// the scan stamps, the status flip and the due selection on the same login's own
+// pool (routeAdminQuery, review round 5). Proven through the real
 // routes on the production logins (disconnect has no route: the service is
 // called directly); the IMAP client is stubbed (no network).
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -12,6 +13,7 @@ import scanNowRoute from '../../pages/api/accounting/ar/sent-mirror/connections/
 import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminPool';
+import { routeAdminPool } from '@/lib/auth/routeAdminPool';
 import { decrypt } from '@/lib/encryption';
 import { createSentImapConnection, disconnectSentConnection } from '@/modules/accounting/services/ar/sentMirrorAdmin';
 import { listActiveSentConnections, scanAllDueSentConnections, scanSentConnection } from '@/modules/accounting/services/ar/sentMirrorService';
@@ -19,12 +21,13 @@ import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
 const imap = vi.hoisted(() => ({ connectError: null as string | null,
-  metas: [] as Array<{ uid: number; envelope: { subject: string; to: Array<{ address: string }> } }> }));
+  metas: [] as Array<{ uid: number; size?: number; envelope: { subject: string; to: Array<{ address: string }> } }> }));
 // The create route and the scan resolve the IMAP host first (imapTargetGuard): the fake .test names are a public address here.
 vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     mailbox = { uidNext: 100 };
+    streamer = { write: () => true, push: () => true }; // what the scan's byte meter wraps
     on() { /* the mirror registers an 'error' listener */ }
     async connect() { if (imap.connectError) throw new Error(imap.connectError); }
     async getMailboxLock() { return { release: () => undefined }; }
@@ -53,7 +56,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await q('DELETE FROM sent_mirror_connections WHERE company_id = ANY($1)', [[company, other]]);
-  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool(), billingAdminPool()]);
+  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool(), billingAdminPool(), routeAdminPool()]);
 });
 
 beforeEach(() => { imap.connectError = null; imap.metas = []; });
@@ -81,9 +84,9 @@ describe('S-07e part B (946): sent-mirror connections, through the routes on the
     expect(await row(id)).toBeUndefined();
   });
 
-  it('a scan\'s stamp (cursor, last_scan_at, last_success_at) writes on the app pool', async () => {
+  it('a scan\'s stamp (cursor, last_scan_at, last_success_at) is written, on migration_admin', async () => {
     const id = String(conn(await create()).id);
-    imap.metas = [{ uid: 9, envelope: { subject: 'hi', to: [{ address: 'c@x.test' }] } }];
+    imap.metas = [{ uid: 9, size: 100, envelope: { subject: 'hi', to: [{ address: 'c@x.test' }] } }];
     const scan = await as(scanNowRoute, 'POST', { id });
     expect(scan.status).toBe(200);
     expect((scan.body as { data: Record<string, number> }).data).toMatchObject({ scanned: 1, skipped: 1, errors: 0 });
@@ -95,11 +98,13 @@ describe('S-07e part B (946): sent-mirror connections, through the routes on the
     expect((await q('SELECT outcome FROM sent_mirror_scan_log WHERE connection_id = $1', [id])).rows).toEqual([{ outcome: 'skipped_no_attachment' }]);
   });
 
-  it('the app pool may write the counter stamps but not status, the host or a delete (42501)', async () => {
+  it('the app pool may write neither the counter stamps nor status, the host or a delete (42501)', async () => {
     const id = String(conn(await create()).id);
     const pool = getDbPool();
-    await pool.query('UPDATE sent_mirror_connections SET messages_captured_total = 2, messages_linked_total = 1 WHERE id = $1', [id]);
-    expect(await row(id)).toMatchObject({ messages_captured_total: 2, messages_linked_total: 1 });
+    await expect(pool.query('UPDATE sent_mirror_connections SET messages_captured_total = 2, messages_linked_total = 1 WHERE id = $1', [id]))
+      .rejects.toMatchObject({ code: '42501' });
+    await expect(pool.query('UPDATE sent_mirror_connections SET last_scan_at = NULL WHERE id = $1', [id])).rejects.toMatchObject({ code: '42501' });
+    expect(await row(id)).toMatchObject({ messages_captured_total: 0, messages_linked_total: 0 });
     await expect(pool.query(`UPDATE sent_mirror_connections SET status = 'error' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '42501' });
     await expect(pool.query(`UPDATE sent_mirror_connections SET imap_host = 'evil.test' WHERE id = $1`, [id])).rejects.toMatchObject({ code: '42501' });
     await expect(pool.query('DELETE FROM sent_mirror_connections WHERE id = $1', [id])).rejects.toMatchObject({ code: '42501' });
@@ -111,8 +116,8 @@ describe('S-07e part B (946): sent-mirror connections, through the routes on the
     const scan = await as(scanNowRoute, 'POST', { id });
     expect(scan.status).toBe(200);
     expect((scan.body as { data: Record<string, number> }).data.errors).toBe(1);
-    // The error is stamped in the request; the status flip is deferred until it has committed (mirrorScanError.ts).
-    await vi.waitFor(async () => expect(await row(id)).toMatchObject({ status: 'error', last_error: 'connect ECONNREFUSED' }), { timeout: 10000 });
+    // Written on migration_admin before the response (no deferral since round 5: mirrorScanError.ts).
+    expect(await row(id)).toMatchObject({ status: 'error', last_error: 'connect ECONNREFUSED' });
     expect((await row(id))!.last_scan_at).not.toBeNull();
   });
 });
@@ -130,15 +135,18 @@ describe('S-07e part B (946): another tenant\'s sent-mirror connection', () => {
   });
 });
 
-// An app login may write last_scan_at (a scan stamp), so it can stamp another tenant's row into the future; the
-// cron's due check used to wait for that time to pass, which silenced the connection for good.
+// While last_scan_at was app-writable (rounds 1-4) an app login could stamp another tenant's row into the future,
+// and the cron's due check used to wait for that time to pass, which silenced the connection for good. Round 5
+// refuses the forgery; a future stamp (an ops write, a clock step) is still due and sorts last.
 describe('S-07e part B (946): the cron treats a last_scan_at in the future as due', () => {
   const make = async (name: string, lastScan: string | null): Promise<string> => {
     const { id } = await createSentImapConnection({ companyId: other, displayName: name, accountEmail: `${name}@s07eb.test`,
       imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'me', imapPassword: 'mailbox-pw' });
     if (lastScan !== null) {
-      // As the app login, the way a forged stamp arrives.
-      await getDbPool().query('UPDATE sent_mirror_connections SET last_scan_at = $2::timestamptz WHERE id = $1', [id, lastScan]);
+      // The app login's forgery is refused; the stamp is set as the table's owner would.
+      await expect(getDbPool().query('UPDATE sent_mirror_connections SET last_scan_at = $2::timestamptz WHERE id = $1', [id, lastScan]))
+        .rejects.toMatchObject({ code: '42501' });
+      await q('UPDATE sent_mirror_connections SET last_scan_at = $2::timestamptz WHERE id = $1', [id, lastScan]);
     }
     return id;
   };
@@ -175,7 +183,7 @@ describe('S-07e part B (946): the cron treats a last_scan_at in the future as du
 // the connections behind it are still scanned.
 describe('S-07e part B (946): the cron meets a sent-mirror row locked by someone else', () => {
   it('skips that connection after the bounded wait, leaves it active with its cursor, and scans the next one', async () => {
-    imap.metas = [{ uid: 9, envelope: { subject: 'Invoice', to: [{ address: 'c@x.test' }] } }];
+    imap.metas = [{ uid: 9, size: 100, envelope: { subject: 'Invoice', to: [{ address: 'c@x.test' }] } }];
     await q('DELETE FROM sent_mirror_connections WHERE company_id = $1', [company]);
     const mk = async (name: string) => (await createSentImapConnection({ companyId: company, displayName: name, accountEmail: `${name}@s07eb.test`,
       imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'me', imapPassword: 'mailbox-pw' })).id;
@@ -183,7 +191,7 @@ describe('S-07e part B (946): the cron meets a sent-mirror row locked by someone
     const free = await mk('free-cron');
     const holder = await fixture.connect();
     try {
-      // The due selection takes FOR UPDATE SKIP LOCKED: a row locked before the tick is not selected at all.
+      // The due selection takes FOR NO KEY UPDATE SKIP LOCKED: a row locked before the tick is not selected at all.
       // The bounded wait is for a lock taken after the selection, so select first, lock, then scan one by one.
       const selected = (await listActiveSentConnections()).filter((c) => c.id === held || c.id === free);
       expect(selected.map((c) => c.id).sort()).toEqual([held, free].sort());
