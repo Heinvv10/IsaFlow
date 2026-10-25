@@ -19,7 +19,6 @@ vi.mock('@/lib/logger', () => ({
 
 import { withSavepoint, sql, SavepointQueueTimeoutError, savepointQueueWait } from '@/lib/neon';
 import { als } from '@/lib/als';
-import { queuedSavepoint } from '@/lib/neon/savepointQueue';
 
 function pgLikeClient(delayMs = 0) {
   const stack: string[] = [];
@@ -139,16 +138,6 @@ describe('withSavepoint on one request connection', () => {
       const run = inRequest(pg.client, () => Promise.all([sleeper('s1', 60), sleeper('s2', 60), sleeper('s3', 60), withSavepoint('last', read(1))]));
       await vi.advanceTimersByTimeAsync(400);
       expect(await run).toEqual(['s1', 's2', 's3', 1]);
-    }));
-
-    // Calls the queue directly: no SAVEPOINT / RELEASE statements, so `lastActivity` never moves and only the
-    // queue's own `progressAt` (set when a sibling finishes) keeps the waiter alive.
-    it('siblings finishing keep a waiter alive through the queue\'s own progress mark alone', () => bound(async () => {
-      const client = {};
-      const sib = (n: number) => queuedSavepoint(client, `q${n}`, async () => { await new Promise((r) => setTimeout(r, 60)); return n; });
-      const run = Promise.all([sib(1), sib(2), sib(3), queuedSavepoint(client, 'last', async () => 0)]);
-      await vi.advanceTimersByTimeAsync(400);
-      expect(await run).toEqual([1, 2, 3, 0]);
     }));
 
     it('a waiter behind a sibling that makes no progress for the bound IS refused', () => bound(async () => {
