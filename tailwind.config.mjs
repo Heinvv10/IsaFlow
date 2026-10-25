@@ -18,7 +18,7 @@ export default {
   ],
   theme: {
     // The type scale: six sizes, 12 px minimum. A size below 12 px (text-[10px], text-[11px],
-    // fontSize: 10 on a chart tick) is not a token and is refused by tests/unit/lib/typeScaleCensus.test.ts.
+    // fontSize: 10 on a chart tick) is not a token and is refused by tests/unit/lib/typeAndMoneyCensus.test.ts.
     fontSize: {
       xs: ['0.75rem', { lineHeight: '1rem' }],
       sm: ['0.875rem', { lineHeight: '1.25rem' }],
@@ -173,6 +173,7 @@ export default {
         sans: [
           // Digits come from this face (styles/globals.css): DM Sans has no tabular numerals.
           "'IsaFlow Figures'",
+          "'IsaFlow Figures Fallback'",
           // Inline fallback, not just the stack below it: an undefined var()
           // invalidates the WHOLE font-family declaration, so the entries that
           // follow never apply and the browser default serif wins. This is what

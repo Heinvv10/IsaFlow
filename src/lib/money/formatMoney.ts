@@ -1,7 +1,8 @@
 /**
  * The one on-screen ZAR format: "R 25 000.00". Negative amounts render as "-R 2 300.00".
  *
- * Thousands are grouped with a NON-BREAKING space and the decimal is a dot, so a figure never
+ * Every space in it, the one after the R included, is a NON-BREAKING space: a line can never break between
+ * the symbol and the figure (a bank-transactions row at 390 px wrapped "R" / "150.00"). Thousands are grouped with a NON-BREAKING space and the decimal is a dot, so a figure never
  * wraps across lines and never carries a comma that could be read as a decimal comma (SimplePay
  * read "25,000.00" as R25). This is also the shape `parseSaAmount` accepts back, so a displayed
  * amount round-trips. `Intl` is not used: en-ZA's separators differ across ICU builds, and the
@@ -45,7 +46,7 @@ function parts(amount: number, decimals: number): Parts {
 /** "R 25 000.00" / "-R 2 300.00". Non-finite inputs (NaN/Infinity) are the caller's responsibility; they pass through verbatim. */
 export function formatMoney(amount: number, options: FormatMoneyOptions = {}): string {
   const { negative, body } = parts(amount, options.decimals ?? 2);
-  return `${negative ? '-' : ''}R ${body}`;
+  return `${negative ? '-' : ''}R${GROUP}${body}`;
 }
 
 /** The same figure without the symbol, for a column whose header says it is rand: "25 000.00" / "-2 300.00". */
@@ -60,8 +61,8 @@ export function formatAmount(amount: number, options: FormatMoneyOptions = {}): 
  */
 export function formatMoneyCompact(amount: number, options: FormatMoneyOptions = {}): string {
   const abs = Math.abs(amount);
-  if (abs >= 1_000_000) return `${amount < 0 ? '-' : ''}R ${(abs / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${amount < 0 ? '-' : ''}R ${(abs / 1_000).toFixed(1)}K`;
+  if (abs >= 1_000_000) return `${amount < 0 ? '-' : ''}R${GROUP}${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${amount < 0 ? '-' : ''}R${GROUP}${(abs / 1_000).toFixed(1)}K`;
   return formatMoney(amount, options);
 }
 

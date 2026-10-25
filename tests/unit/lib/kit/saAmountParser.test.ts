@@ -11,10 +11,10 @@ describe('parseSaAmount accepts', () => {
     [`25${NB}000,00`, 2_500_000],
     ['25\u202F000,00', 2_500_000],
     ['25\u2009000.00', 2_500_000],
-    ['R 1 234.56', 123_456],
+    ['R\xa01 234.56', 123_456],
     ['R1234.56', 123_456],
     ['r 1234,56', 123_456],
-    ['ZAR 1 234.56', 123_456],
+    ['ZAR\xa01 234.56', 123_456],
     [`R${NB}1${NB}234.56`, 123_456],
     ['1234.5', 123_450],
     ['1234,5', 123_450],
@@ -45,10 +45,10 @@ describe('parseSaAmount accepts', () => {
     ['1.15', 115],
     // negatives
     ['(123.45)', -12_345],
-    ['(R 1 234,56)', -123_456],
+    ['(R\xa01 234,56)', -123_456],
     ['-123.45', -12_345],
     ['\u2212123.45', -12_345],
-    ['-R 123.45', -12_345],
+    ['-R\xa0123.45', -12_345],
     ['R -123.45', -12_345],
     ['R(123.45)', -12_345],
     ['-25 000,00', -2_500_000],
@@ -75,7 +75,7 @@ describe('parseSaAmount rejects with a reason', () => {
     ['1.234', 'ambiguous'],
     ['12,345', 'ambiguous'],
     ['123,456', 'ambiguous'],
-    ['R 1,234', 'ambiguous'],
+    ['R\xa01,234', 'ambiguous'],
     ['(1,234)', 'ambiguous'],
     ['-1.234', 'ambiguous'],
     // malformed
@@ -136,11 +136,11 @@ describe('parseSaAmount rejects with a reason', () => {
 
 describe('formatCentsEcho', () => {
   it('groups thousands with a non-breaking space and keeps a dot decimal', () => {
-    expect(formatCentsEcho(2_500_000)).toBe(`R 25${NB}000.00`);
-    expect(formatCentsEcho(123_456)).toBe(`R 1${NB}234.56`);
-    expect(formatCentsEcho(5)).toBe('R 0.05');
-    expect(formatCentsEcho(-12_345)).toBe('-R 123.45');
-    expect(formatCentsEcho(0)).toBe('R 0.00');
+    expect(formatCentsEcho(2_500_000)).toBe(`R\xa025${NB}000.00`);
+    expect(formatCentsEcho(123_456)).toBe(`R\xa01${NB}234.56`);
+    expect(formatCentsEcho(5)).toBe('R\xa00.05');
+    expect(formatCentsEcho(-12_345)).toBe('-R\xa0123.45');
+    expect(formatCentsEcho(0)).toBe('R\xa00.00');
   });
   it('plain form has no currency marker', () => {
     expect(formatCentsPlain(2_500_000)).toBe(`25${NB}000.00`);

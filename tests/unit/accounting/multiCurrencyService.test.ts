@@ -185,7 +185,7 @@ describe('calculateFXGainLoss', () => {
 // ---------------------------------------------------------------------------
 describe('formatCurrencyAmount', () => {
   it('formats ZAR as "R 1 234.56"', () => {
-    expect(formatCurrencyAmount(1234.56, 'ZAR')).toBe('R 1\u00A0234.56');
+    expect(formatCurrencyAmount(1234.56, 'ZAR')).toBe('R\xa01\u00A0234.56');
   });
 
   it('formats USD as "$ 1 234.56"', () => {
@@ -205,10 +205,10 @@ describe('formatCurrencyAmount', () => {
   });
 
   it('formats zero correctly', () => {
-    expect(formatCurrencyAmount(0, 'ZAR')).toBe('R 0.00');
+    expect(formatCurrencyAmount(0, 'ZAR')).toBe('R\xa00.00');
   });
 
   it('formats large amounts with correct thousands separators', () => {
-    expect(formatCurrencyAmount(1000000.0, 'ZAR')).toBe('R 1\u00A0000\u00A0000.00');
+    expect(formatCurrencyAmount(1000000.0, 'ZAR')).toBe('R\xa01\u00A0000\u00A0000.00');
   });
 });

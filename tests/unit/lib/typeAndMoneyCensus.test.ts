@@ -81,11 +81,11 @@ const MONEY_CALL =
   /\bfmt[A-Za-z]*\(|formatMoney|formatCurrency|formatAmount|formatRand|<Money\b|formatCents|\.toFixed\(|formatZar|\bzar\(|Intl\.NumberFormat|\.toLocaleString\(/;
 const CODE_LIKE = /<code|<kbd|<pre|break-all|select-all/;
 
-/** font-mono on an element that shows a number: a money call in its first three lines, or a right-aligned cell. */
+/** font-mono on an element that shows a number: a money call before the element closes (within eight lines), or a right-aligned cell. */
 export function monoOnNumber(all: string[], i: number): boolean {
   const line = all[i] ?? '';
   if (!/\bfont-mono\b/.test(line) || CODE_LIKE.test(line)) return false;
-  let win = all.slice(i, i + 3).join('\n');
+  let win = all.slice(i, i + 8).join('\n');
   const cut = CLOSE.exec(win);
   if (cut) win = win.slice(0, cut.index);
   return MONEY_CALL.test(win) || /\btext-right\b/.test(line);

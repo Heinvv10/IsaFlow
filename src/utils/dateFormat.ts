@@ -80,13 +80,24 @@ function sastParts(instant: Date): Parts | null {
   return { y: got.year ?? 0, m: got.month ?? 0, d: got.day ?? 0, hh: got.hour ?? 0, mm: got.minute ?? 0, ss: got.second ?? 0 };
 }
 
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
+/** 0 = Sunday, from the calendar date alone (Sakamoto), so no Date or timezone is involved. */
+function weekdayOf(year: number, month: number, day: number): number {
+  const offsets = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+  const y = month < 3 ? year - 1 : year;
+  return (y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) + (offsets[month - 1] ?? 0) + day) % 7;
+}
+
 /** Parts of a strict ISO date (no timezone shift: it names its own calendar day); null for 2026-02-30. */
 function isoParts(iso: string): Parts | null {
   const m = ISO_DATE.exec(iso);
   if (!m) return null;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const real = new Date(Date.UTC(y, mo - 1, d));
-  if (real.getUTCFullYear() !== y || real.getUTCMonth() !== mo - 1 || real.getUTCDate() !== d) return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > daysInMonth(y, mo)) return null;
   return { y, m: mo, d, hh: 0, mm: 0, ss: 0 };
 }
 
@@ -169,7 +180,7 @@ export function formatDisplayMonthYearLong(date: DateInput, fallback = NO_DATE):
 export function formatDisplayDateWeekday(date: DateInput, fallback = NO_DATE): string {
   const p = partsOf(date);
   if (!p) return fallback;
-  const weekday = WEEKDAYS[new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay()];
+  const weekday = WEEKDAYS[weekdayOf(p.y, p.m, p.d)];
   return `${weekday}, ${pad(p.d)} ${SHORT_MONTHS[p.m - 1]} ${p.y}`;
 }
 

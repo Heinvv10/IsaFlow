@@ -10,7 +10,7 @@
  *
  * Pure: no Decimal, no float arithmetic. Cents are built from the digit string.
  */
-import { formatMoney } from '@/lib/money/formatMoney';
+import { formatAmount, formatMoney } from '@/lib/money/formatMoney';
 
 export type AmountParseCode = 'empty' | 'ambiguous' | 'malformed' | 'decimals' | 'chars' | 'too_large';
 
@@ -121,7 +121,7 @@ export function parseSaAmount(input: string): AmountParseResult {
 
 /** "25 000.00" / "-123.45": space-grouped, dot decimal. Parses back to the same cents. */
 export function formatCentsPlain(cents: number): string {
-  return formatMoney(cents / 100).replace(/^(-?)R /, '$1');
+  return formatAmount(cents / 100);
 }
 
 /** "R 25 000.00": space-grouped (no comma that could be read as a decimal), dot decimal. */

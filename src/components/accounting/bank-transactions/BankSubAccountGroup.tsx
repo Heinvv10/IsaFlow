@@ -46,10 +46,10 @@ export function BankGroupCard({ group, containsSelection, expanded, onToggle }: 
         </p>
         {hasGap && (
           <span
-            className="text-xs text-amber-400 font-mono"
+            className="text-xs text-amber-400 tabular-nums"
             title={`${group.unreconciledCount} unallocated transaction${group.unreconciledCount !== 1 ? 's' : ''} across this group`}
           >
-            Δ {fmtCurrency(Math.abs(group.unreconciledBalance))}
+            Δ&nbsp;{fmtCurrency(Math.abs(group.unreconciledBalance))}
           </span>
         )}
       </div>
@@ -104,7 +104,7 @@ export function BankGroupWorklist({ group, selectedBank, onSelectBank }: Worklis
                 {fmtCurrency(a.balance)}
               </span>
               {a.unallocatedCount > 0 && (
-                <span className="text-xs font-mono text-amber-400 shrink-0" title="Unallocated transactions">
+                <span className="text-xs tabular-nums text-amber-400 shrink-0" title="Unallocated transactions">
                   {a.unallocatedCount} open
                 </span>
               )}

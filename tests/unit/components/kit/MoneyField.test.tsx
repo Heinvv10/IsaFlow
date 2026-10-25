@@ -40,7 +40,7 @@ describe('MoneyField', () => {
   it.each([
     ['25 000,00', 2_500_000],
     ['25,000.00', 2_500_000],
-    ['R 1 234.56', 123_456],
+    ['R\xa01 234.56', 123_456],
     ['(123.45)', null],
   ])('parses %j on blur', (text, cents) => {
     const spy = vi.fn();
@@ -69,9 +69,9 @@ describe('MoneyField', () => {
   it('echoes what it understood, live while typing and after blur', () => {
     render(<Harness />);
     type('25 000,00');
-    expect(plain(screen.getByText(/^R 25 000\.00$/u).textContent)).toBe('R 25 000.00');
+    expect(plain(screen.getByText(/^R\s25\s000\.00$/u).textContent)).toBe('R 25 000.00');
     fireEvent.blur(input());
-    expect(plain(screen.getByText(/^R 25 000\.00$/u).textContent)).toBe('R 25 000.00');
+    expect(plain(screen.getByText(/^R\s25\s000\.00$/u).textContent)).toBe('R 25 000.00');
     expect(plain(input().value)).toBe('25 000.00');
   });
 
@@ -118,17 +118,17 @@ describe('MoneyField', () => {
     type('-5');
     fireEvent.blur(input());
     expect(out()).toBe('-500');
-    expect(screen.getByText(/^-R 5\.00$/u)).toBeTruthy();
+    expect(screen.getByText(/^-R\s5\.00$/u)).toBeTruthy();
   });
 
   it('enforces min and max in cents', () => {
     render(<Harness min={1_000} max={5_000} />);
     type('5');
     fireEvent.blur(input());
-    expect(screen.getByRole('alert').textContent).toMatch(/at least R 10\.00/);
+    expect(screen.getByRole('alert').textContent).toMatch(/at least R\xa010\.00/);
     type('60');
     fireEvent.blur(input());
-    expect(screen.getByRole('alert').textContent).toMatch(/at most R 50\.00/);
+    expect(screen.getByRole('alert').textContent).toMatch(/at most R\xa050\.00/);
     type('25');
     fireEvent.blur(input());
     expect(out()).toBe('2500');
