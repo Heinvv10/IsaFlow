@@ -1,5 +1,5 @@
 {
- "method": "axe color-contrast + computed-style walker, 390x844/1280x800/1920x1080, light+dark, reporting-qa on dev Demo, on the tree with #836 merged (4b220ee58)",
+ "method": "axe color-contrast + computed-style walker, 390/1280/1920, light+dark, reporting-qa on dev Demo, tree with #836 merged + review round 2 (12 screens incl. receipt-match and disputes, which hold data-surface=light panels)",
  "results": {
   "balance-sheet.light.390": {
    "textNodes": 134,
@@ -170,15 +170,51 @@
    "axeColorContrastViolations": 0
   },
   "dashboard.light.1920": {
-   "textNodes": 173,
+   "textNodes": 147,
    "belowAA": 0,
    "worstRatio": 5,
    "axeColorContrastViolations": 0
   },
   "dashboard.dark.1920": {
-   "textNodes": 173,
+   "textNodes": 147,
    "belowAA": 0,
    "worstRatio": 5,
+   "axeColorContrastViolations": 0
+  },
+  "disputes.light.390": {
+   "textNodes": 33,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "disputes.dark.390": {
+   "textNodes": 33,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
+  "disputes.light.1280": {
+   "textNodes": 28,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
+  "disputes.dark.1280": {
+   "textNodes": 28,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
+  "disputes.light.1920": {
+   "textNodes": 28,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
+  "disputes.dark.1920": {
+   "textNodes": 28,
+   "belowAA": 0,
+   "worstRatio": 5.65,
    "axeColorContrastViolations": 0
   },
   "general-ledger.light.390": {
@@ -289,6 +325,42 @@
    "worstRatio": 5.07,
    "axeColorContrastViolations": 0
   },
+  "receipt-match.light.390": {
+   "textNodes": 1317,
+   "belowAA": 0,
+   "worstRatio": 4.87,
+   "axeColorContrastViolations": 0
+  },
+  "receipt-match.dark.390": {
+   "textNodes": 1317,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
+  "receipt-match.light.1280": {
+   "textNodes": 1312,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
+  "receipt-match.dark.1280": {
+   "textNodes": 1312,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
+  "receipt-match.light.1920": {
+   "textNodes": 1312,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
+  "receipt-match.dark.1920": {
+   "textNodes": 1312,
+   "belowAA": 0,
+   "worstRatio": 5.65,
+   "axeColorContrastViolations": 0
+  },
   "trial-balance.light.390": {
    "textNodes": 202,
    "belowAA": 0,
@@ -332,7 +404,7 @@
    "axeColorContrastViolations": 0
   },
   "vat201.dark.390": {
-   "textNodes": 37,
+   "textNodes": 25,
    "belowAA": 0,
    "worstRatio": 5.76,
    "axeColorContrastViolations": 0
@@ -344,7 +416,7 @@
    "axeColorContrastViolations": 0
   },
   "vat201.dark.1280": {
-   "textNodes": 20,
+   "textNodes": 32,
    "belowAA": 0,
    "worstRatio": 5.76,
    "axeColorContrastViolations": 0

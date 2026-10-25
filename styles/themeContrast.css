@@ -413,10 +413,10 @@
 }
 
 /*
- * Chart legends (LIGHT theme only; in dark the series colours read fine): recharts colours each label with
- * its series (teal, orange, rose), which is 1.8-3.5:1 on a light card. The swatch beside the label still
- * carries the series colour.
+ * Chart legends, BOTH themes (measured: rose-500 on the dark #1e293b card is 3.98:1 in dark, 1.8-3.5:1 on a
+ * light card): recharts colours each label with its series (teal, orange, rose). The swatch beside the
+ * label still carries the series colour.
  */
-:where(html:not(.dark)) .recharts-legend-item-text {
+.recharts-legend-item-text {
   color: var(--ff-text-secondary) !important;
 }

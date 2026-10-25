@@ -117,7 +117,7 @@ test.describe('panels and surfaces', () => {
     expect(c.outside, 'slate-400 on the dark page is untouched').toBe('rgb(148, 163, 184)');
   });
 
-  test('chart legend labels are forced to the text token in light only', async ({ page }) => {
+  test('chart legend labels are forced to the text token in both themes (the series colour is 3.98:1 on the dark card)', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     const colours: Record<string, string> = {};
     for (const theme of ['light', 'dark'] as const) {
@@ -135,7 +135,7 @@ test.describe('panels and surfaces', () => {
       });
     }
     expect(colours.light, 'light: the token wins over the series colour').toBe('rgb(75, 85, 99)');
-    expect(colours.dark, 'dark: the series colour is kept').toBe('rgb(244, 63, 94)');
+    expect(colours.dark, 'dark: the token wins over the series colour').toBe('rgb(203, 213, 225)');
   });
 
   test('data-surface="light" keeps light tokens, color-scheme and form controls in the dark theme', async ({ page }) => {

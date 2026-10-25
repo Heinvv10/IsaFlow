@@ -26,6 +26,9 @@ const SCREENS = [
   { slug: 'balance-sheet', path: '/accounting/reports/balance-sheet' },
   { slug: 'trial-balance', path: '/accounting/trial-balance' },
   { slug: 'general-ledger', path: '/accounting/reports/general-ledger' },
+  // Screens with white-in-both-themes panels (data-surface="light"): their grey text must hold on white in the dark theme.
+  { slug: 'receipt-match', path: '/accounting/ar/receipt-match' },
+  { slug: 'disputes', path: '/accounting/disputes' },
 ] as const;
 const VIEWPORTS = [
   { name: '390', width: 390, height: 844 },
