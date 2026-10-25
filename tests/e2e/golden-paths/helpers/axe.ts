@@ -94,7 +94,10 @@ async function waitForScreenReady(page: Page): Promise<void> {
  * own settled-state wait - or the generic spinner wait - has passed.
  */
 export async function openScreen(page: Page, screen: A11yScreen): Promise<void> {
-  const loaded = Promise.all((screen.responses ?? []).map((re) => page.waitForResponse((r) => re.test(r.url()), { timeout: 30_000 })));
+  const loaded = Promise.all((screen.responses ?? []).map((re) =>
+    page.waitForResponse((r) => re.test(r.url()), { timeout: 30_000 }).catch((err: unknown) => {
+      throw new Error(`a11y screen "${screen.name}": no response matching ${re} within 30s (${err instanceof Error ? err.message.split('\n')[0] : String(err)})`);
+    })));
   loaded.catch(() => undefined); // surfaced below, once the navigation has happened
   await page.goto(screen.path);
   await loaded;

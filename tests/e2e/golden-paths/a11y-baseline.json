@@ -26,7 +26,8 @@
     "dataDriven": {
      "source": "/api/accounting/bank-accounts",
      "why": "amount and gap chips on a card per bank account: which accounts have them follows their balances"
-    }
+    },
+    "maxHint": 100
    },
    {
     "rule": "color-contrast",
@@ -35,7 +36,8 @@
     "dataDriven": {
      "source": "/api/accounting/bank-import-batches",
      "why": "format chip renders only when a statement batch is loaded"
-    }
+    },
+    "maxHint": 1
    },
    {
     "rule": "color-contrast",
@@ -44,7 +46,8 @@
     "dataDriven": {
      "source": "/api/accounting/bank-auto-post",
      "why": "one Undo button per active auto-post run"
-    }
+    },
+    "maxHint": 20
    },
    {
     "rule": "document-title",
@@ -279,7 +282,8 @@
     "dataDriven": {
      "source": "/api/accounting/migration/session",
      "why": "status badge renders only while a migration session exists"
-    }
+    },
+    "maxHint": 1
    },
    {
     "rule": "document-title",
@@ -351,7 +355,8 @@
     "dataDriven": {
      "source": "/api/accounting/reports-vat-return",
      "why": "count badge renders only for VAT boxes that have transactions"
-    }
+    },
+    "maxHint": 20
    },
    {
     "rule": "document-title",
