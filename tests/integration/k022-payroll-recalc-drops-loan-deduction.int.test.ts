@@ -35,8 +35,8 @@ const otherLoan = crypto.randomUUID();
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [company, 'K022 payroll fixture']);
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status)
-     VALUES($1,$2,'K022-1','Lerato','Mokoena',DATE '2020-01-01','active')`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status, medical_aid_main_member)
+     VALUES($1,$2,'K022-1','Lerato','Mokoena',DATE '2020-01-01','active', true)`,
     [employee, company],
   );
   await pool.query(
@@ -74,8 +74,8 @@ beforeAll(async () => {
 
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [otherCompany, 'K022 other tenant']);
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status)
-     VALUES($1,$2,'K022-2','Sipho','Dlamini',DATE '2020-01-01','active')`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status, medical_aid_main_member)
+     VALUES($1,$2,'K022-2','Sipho','Dlamini',DATE '2020-01-01','active', true)`,
     [otherEmployee, otherCompany],
   );
   await pool.query(

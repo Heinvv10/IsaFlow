@@ -48,8 +48,8 @@ async function createTenant(opts: {
 
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [t.company, 'K022 edge case']);
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status)
-     VALUES($1,$2,'K022-E','Nomsa','Khumalo',DATE '2020-01-01','active')`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status, medical_aid_main_member)
+     VALUES($1,$2,'K022-E','Nomsa','Khumalo',DATE '2020-01-01','active', true)`,
     [t.employee, t.company],
   );
   await pool.query(

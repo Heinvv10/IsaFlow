@@ -1,5 +1,5 @@
 /** D2 census group 8 (b): list and report pages that read `res.json()` without checking the status. */
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { vi } from 'vitest';
 import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 import { runSiteCases } from '../helpers/d2CensusG8Harness';
@@ -38,7 +38,11 @@ runSiteCases([
     hit: (u) => u.includes('chart-of-accounts'),
     okData: [{ id: 'g1', accountCode: '7788', accountName: 'D2 Ledger Account', level: 3, hasTransactions: true, parentAccountId: null }],
     other: (u) => (u.includes('reports-account-transactions') ? EMPTY_REPORT : { items: [] }),
-    plain: /Could not load the chart of accounts/, okCheck: () => screen.findByRole('option', { name: '7788 — D2 Ledger Account' }) },
+    plain: /Could not load the chart of accounts/, okCheck: async () => {
+      // the account list lives in the AccountPicker dropdown: open it to read the loaded chart
+      fireEvent.click(await screen.findByRole('combobox', { name: 'Account' }));
+      return screen.findByRole('option', { name: '7788 · D2 Ledger Account' });
+    } },
   { name: 'item quantities', ui: () => <ItemQuantitiesPage />,
     hit: (u) => u.includes('reports/item-quantities'),
     okData: [{ id: 'i1', itemCode: 'D2-ITM', name: 'D2 Bolt', category: 'c', uom: 'ea', qtyOnHand: 4, minLevel: 0, lowStock: false }],

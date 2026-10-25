@@ -63,8 +63,8 @@ async function seed(
     const employeeId = crypto.randomUUID();
     f.employees.push(employeeId);
     await pool.query(
-      `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status)
-       VALUES($1,$2,$3,'Test','Employee',DATE '2020-01-01','active')`,
+      `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status, medical_aid_main_member)
+       VALUES($1,$2,$3,'Test','Employee',DATE '2020-01-01','active', true)`,
       [employeeId, f.company, `K023-${employeeId.slice(0, 8)}`],
     );
     for (const [i, earning] of earnings.entries()) {

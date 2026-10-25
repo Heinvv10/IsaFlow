@@ -48,8 +48,8 @@ afterAll(() => cleanup(pool, companies, users));
 async function plantEmployeeWithHistory(companyId: string, changedBy: string) {
   const employeeId = crypto.randomUUID();
   await pool.query(
-    `INSERT INTO payroll_employees(id, company_id, employee_number, first_name, last_name, employment_type, start_date)
-     VALUES ($1,$2,'EMP-R147-M2','Test','Employee','permanent', DATE '2026-01-01')`,
+    `INSERT INTO payroll_employees(id, company_id, employee_number, first_name, last_name, employment_type, start_date, medical_aid_main_member)
+     VALUES ($1,$2,'EMP-R147-M2','Test','Employee','permanent', DATE '2026-01-01', true)`,
     [employeeId, companyId]);
   await pool.query(
     `INSERT INTO payroll_employee_history(company_id, employee_id, field_name, old_value, new_value, changed_by)

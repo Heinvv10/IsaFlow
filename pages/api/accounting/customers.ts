@@ -7,6 +7,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
+import { UUID_RE } from '@/lib/validation';
 import {
   createCustomer,
   ContactValidationError,
@@ -80,11 +81,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return apiResponse.success(res, activity);
       }
 
+      // Single customer: names a preselected id that is not in the first page (ContactPicker). A bare `?id=` that is
+      // not a UUID keeps its old answer (the list), which the detail page still filters itself.
+      if (typeof id === 'string' && UUID_RE.test(id)) {
+        const found = (await sql`
+          SELECT id, name, email, phone, contact_person, payment_terms, credit_limit, is_active,
+                 vat_number, registration_number, created_at
+          FROM customers
+          WHERE id = ${id}::uuid AND company_id = ${companyId} AND deleted_at IS NULL
+        `) as Row[];
+        if (found.length === 0) return apiResponse.notFound(res, 'Customer');
+        return apiResponse.success(res, found[0]);
+      }
+
       const searchQuery = typeof q === 'string' ? q : null;
+      const limitRaw = Number(req.query.limit);
+      const limit = Number.isFinite(limitRaw) && limitRaw >= 1 ? Math.min(Math.floor(limitRaw), 200) : 200;
 
       // Not cached (R-125): ten files write customers, and an in-process
       // cache is invisible to every other process.
-      const rows = await listCustomers(companyId, searchQuery);
+      const rows = await listCustomers(companyId, searchQuery, { limit, offset: 0 });
 
       return apiResponse.success(res, rows);
     } catch (err: unknown) {

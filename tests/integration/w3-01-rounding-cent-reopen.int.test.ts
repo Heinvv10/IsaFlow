@@ -182,8 +182,8 @@ describe('the tie cent on the other cost-centre account (W3-01 breaker C)', () =
     await pool.query('UPDATE payroll_employees SET cost_centre_id = $1 WHERE company_id = $2', [c1, other]);
     for (const [n, amount, centre, tax] of [['W301-2', 20000, c2, '0123456788'], ['W301-3', TIE_BREAKER, null, '0123456787']] as const) {
       const emp = (await pool.query(
-        `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, cost_centre_id)
-         VALUES ($1, $2, 'Twin', $2, '2020-01-01', '1980-01-01', $3, $4) RETURNING id`, [other, n, tax, centre])).rows[0]!.id;
+        `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, tax_number, cost_centre_id, medical_aid_main_member)
+         VALUES ($1, $2, 'Twin', $2, '2020-01-01', '1980-01-01', $3, $4, true) RETURNING id`, [other, n, tax, centre])).rows[0]!.id;
       await pool.query("INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from) VALUES ($1,$2,$3,'2020-01-01')", [emp, comp, amount]);
     }
   });

@@ -16,6 +16,10 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e/golden-paths',
+  // scripts/verify-deploy.sh sets GOLDEN_SKIP_A11Y=1 for the post-deploy run against production. The a11y spec is a
+  // dev/CI gate (its baseline is keyed to dev data), and ignoring it here means Playwright never LOADS the file, so
+  // a missing @axe-core/playwright cannot break a deploy check either. A --grep-invert would still import it.
+  testIgnore: process.env.GOLDEN_SKIP_A11Y === '1' ? /n-a11y-main-screens\.spec\.ts$/ : undefined,
   globalSetup: './tests/e2e/golden-paths/_global-setup.ts',
   timeout: 90_000,
   retries: 0,

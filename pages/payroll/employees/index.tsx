@@ -8,6 +8,7 @@ import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { MedicalAidReviewBanner } from '@/components/payroll/MedicalAidReviewBanner';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
 
@@ -98,6 +99,7 @@ export default function EmployeesListPage() {
         </div>
 
         <div className="p-6">
+          <MedicalAidReviewBanner />
           <div className="flex items-center gap-3 mb-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
