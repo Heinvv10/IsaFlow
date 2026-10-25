@@ -12,6 +12,7 @@
 import { sql } from '@/lib/neon';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
+import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { arOverdueFragment } from './arOutstandingService';
 import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
@@ -78,13 +79,14 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
     AND (${dateFrom}::date IS NULL OR ci.invoice_date >= ${dateFrom}::date)
     AND (${dateTo}::date IS NULL OR ci.invoice_date <= ${dateTo}::date)
     AND (NOT ${filterDueSoon} OR (
-      ci.status != 'paid'
+      ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+      AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0
       AND ci.due_date IS NOT NULL
       AND ci.due_date::date >= ${asAt}::date
       AND ci.due_date::date <= ${asAt}::date + 7
     ))
     AND (NOT ${filterOverdue90} OR (
-      ci.status != 'paid'
+      ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
       AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0
       AND (${asAt}::date - COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)::date) > 90
     ))
@@ -115,6 +117,7 @@ export async function listCustomerInvoices(
   // Aging column cannot disagree with them (the DB's CURRENT_DATE is not SA's).
   const asAt = asAtTodayStr();
   const effDue = sql.unsafe('COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)::date');
+  const openStatuses = Array.from(AR_OPEN_STATUSES);
   const balance = sql.unsafe('(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))');
 
   const [invoices, countResult] = await Promise.all([
@@ -138,11 +141,11 @@ export async function listCustomerInvoices(
         vs.last_viewed_at,
         COALESCE(vs.view_count, 0) AS view_count,
         CASE
-          WHEN ci.status = 'paid' OR ${balance} <= 0 THEN NULL
+          WHEN NOT (ci.status = ANY(${openStatuses}::text[])) OR ${balance} <= 0 THEN NULL
           ELSE GREATEST(0, (${asAt}::date - ${effDue}))
         END AS days_overdue,
         CASE
-          WHEN ci.status = 'paid' OR ${balance} <= 0 THEN NULL
+          WHEN NOT (ci.status = ANY(${openStatuses}::text[])) OR ${balance} <= 0 THEN NULL
           WHEN (${asAt}::date - ${effDue}) <= 0 THEN 'Current'
           WHEN (${asAt}::date - ${effDue}) <= 30 THEN '1-30'
           WHEN (${asAt}::date - ${effDue}) <= 60 THEN '31-60'

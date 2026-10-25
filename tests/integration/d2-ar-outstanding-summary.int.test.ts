@@ -32,7 +32,7 @@ function shift(days: number): string {
 
 interface Seed { key?: string; status: string; total: number; paid: number; due: number | null; invoiceDate?: number; deleted?: boolean; unreversed?: boolean; credited?: number }
 const rep = (n: number, seed: Seed): Seed[] => Array.from({ length: n }, () => seed);
-/** 36 rows (34 not soft-deleted). Overdue: 5 part-paid, 5 sent, 3 approved yesterday, 2 literal 'overdue', 1 part-credited. */
+/** 41 rows (39 not soft-deleted). Overdue: 5 part-paid, 5 sent, 3 approved yesterday, 2 literal 'overdue', 1 part-credited. */
 const SEEDS: Seed[] = [
   ...rep(6, { status: 'paid', total: 1000, paid: 1000, due: -40 }),
   ...rep(5, { status: 'partially_paid', total: 2000, paid: 500, due: -10 }),
@@ -55,12 +55,19 @@ const SEEDS: Seed[] = [
   // still carries it, so OUTSTANDING does too, but nothing may chase it as overdue. Old enough
   // to sort into the top 10 if a predicate wrongly let it through.
   { key: 'deleted-unreversed', status: 'sent', total: 1700, paid: 0, due: -45, deleted: true, unreversed: true },
+  // Due within a week: only the open, unsettled one is due soon.
+  { key: 'soon', status: 'sent', total: 500, paid: 0, due: 3 },
+  { key: 'soon-settled', status: 'approved', total: 640, paid: 640, due: 3 },
+  { key: 'soon-draft', status: 'draft', total: 640, paid: 0, due: 3 },
+  // More than 90 days overdue: the open one counts, a cancelled one never does.
+  { key: 'old90', status: 'sent', total: 250, paid: 0, due: -120 },
+  { key: 'cancelled-old', status: 'cancelled', total: 250, paid: 0, due: -120 },
   // Credit notes applied: amount_paid already carries them.
   { key: 'part-credited', status: 'approved', total: 1000, paid: 600, due: -15, credited: 600 },
   { key: 'full-credited', status: 'approved', total: 750, paid: 750, due: -15, credited: 750 },
 ];
-// outstanding: 5*1500 + 5*1000 + 3*800 + 2*700 + 3*600 + 2*500 + 900 + 450 + 400 + 1700 (deleted-unreversed)
-const EXPECTED = { outstanding: 22550, overdueCount: 17, overdueAmount: 7500 + 5000 + 2400 + 1000 + 400 + 900 };
+// outstanding: 5*1500 + 5*1000 + 3*800 + 2*700 + 3*600 + 2*500 + 900 + 450 + 400 + 1700 (deleted-unreversed) + 500 (soon) + 250 (old90)
+const EXPECTED = { outstanding: 23300, overdueCount: 18, overdueAmount: 7500 + 5000 + 2400 + 1000 + 400 + 900 + 250, onDeletedAmount: 1700 };
 const keyNumber = (key: string): string => `${TAG}-${SEEDS.findIndex((s) => s.key === key)}`;
 
 let token = '';
@@ -131,14 +138,14 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
   }, 60000);
 
   it('the service equals the hand-computed totals and excludes company B', async () => {
-    expect(SEEDS).toHaveLength(36);
+    expect(SEEDS).toHaveLength(41);
     expect(await getAROutstandingSummary(COMPANY)).toEqual(EXPECTED);
   });
 
-  it('the list endpoint returns the same company-wide figures although it pages 25 of 34', async () => {
+  it('the list endpoint returns the same company-wide figures although it pages 25 of 39', async () => {
     const data = await call<{ invoices: unknown[]; total: number; arSummary: unknown }>(listRoute, { page: '1', limit: '25', summary: '1' });
     expect(data.invoices).toHaveLength(25);
-    expect(data.total).toBe(34);
+    expect(data.total).toBe(39);
     expect(data.arSummary).toEqual(EXPECTED);
   });
 
@@ -174,7 +181,7 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
     const numbers = todos.overdueInvoices.map((r) => r.invoiceNumber);
     // Oldest-first sorting only lets a wrong-predicate row into the top 10 if it is OLD: these four are
     // (due -20, -30, -45, -15), so they would be listed by a predicate that missed them.
-    for (const key of ['settled', 'deleted', 'deleted-unreversed', 'full-credited']) expect(numbers).not.toContain(keyNumber(key));
+    for (const key of ['settled', 'deleted', 'deleted-unreversed', 'full-credited', 'cancelled-old']) expect(numbers).not.toContain(keyNumber(key));
   });
 
   it('the overdue figures exclude due-today, settled, fresh no-due-date, deleted and fully credited, and net a part-credited balance', async () => {
@@ -213,5 +220,23 @@ describeIfDb('D2 company-wide AR outstanding/overdue summary', () => {
     expect(by('settled').days_overdue).toBeNull();
     expect(by('part-credited').aging_bucket).toBe('1-30');
     expect(by('part-credited').days_overdue).toBe(15);
+    expect(by('cancelled-old').aging_bucket).toBeNull(); // not an open status: no bucket
+    expect(by('soon-draft').aging_bucket).toBeNull();
+  });
+
+  it('the due-soon filter needs an open status and a positive balance', async () => {
+    const soon = await call<{ invoices: { invoice_number: string }[] }>(listRoute, { aging: 'due-soon', limit: '100' });
+    const numbers = soon.invoices.map((r) => r.invoice_number);
+    // due today counts as due soon: the two due-today rows plus the one due in 3 days
+    expect(numbers).toHaveLength(3);
+    expect(numbers).toContain(keyNumber('soon'));
+    expect(numbers).toContain(keyNumber('today'));
+    expect(numbers).not.toContain(keyNumber('soon-settled'));
+    expect(numbers).not.toContain(keyNumber('soon-draft'));
+  });
+
+  it('the overdue-90 filter needs an open status and ages no-due-date invoices from the invoice date', async () => {
+    const old = await call<{ invoices: { invoice_number: string }[] }>(listRoute, { aging: 'overdue-90', limit: '100' });
+    expect(old.invoices.map((r) => r.invoice_number)).toEqual([keyNumber('old90')]);
   });
 });

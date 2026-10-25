@@ -53,6 +53,7 @@ vi.mock('@/lib/apiResponse', () => ({
 
 // ── Import handler after mocks ────────────────────────────────────────────────
 
+import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 import { mockUnsafe } from '../helpers/sqlFragmentMock';
 import handler from '../../../pages/api/accounting/customer-invoices-list';
 
@@ -73,6 +74,9 @@ function makeReq(query: Record<string, string | string[]> = {}): NextApiRequest 
 function makeRes(): NextApiResponse {
   return {} as NextApiResponse;
 }
+
+// The due-soon / overdue-90 / aging clauses bind the AR open-status allowlist on every list call.
+const isOpenStatuses = (v: unknown[]) => JSON.stringify(v) === JSON.stringify([...AR_OPEN_STATUSES]);
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -135,7 +139,7 @@ describe('customer-invoices-list handler (BL-23)', () => {
     expect(mainCallValues).toContain(CLIENT_ID);
     // statusValues array should NOT be present (it is null, not an array)
     const hasStatusArray = mainCallValues.some(
-      (v) => Array.isArray(v) && (v as unknown[]).length > 0,
+      (v) => Array.isArray(v) && (v as unknown[]).length > 0 && !isOpenStatuses(v),
     );
     expect(hasStatusArray).toBe(false);
   });
@@ -149,7 +153,7 @@ describe('customer-invoices-list handler (BL-23)', () => {
     expect(mainCallValues).toContain('INV-001');
     // statusValues should remain null
     const hasStatusArray = mainCallValues.some(
-      (v) => Array.isArray(v) && (v as unknown[]).length > 0,
+      (v) => Array.isArray(v) && (v as unknown[]).length > 0 && !isOpenStatuses(v),
     );
     expect(hasStatusArray).toBe(false);
   });

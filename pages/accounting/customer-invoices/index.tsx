@@ -101,11 +101,11 @@ export default function CustomerInvoicesPage() {
           {/* KPI strip: Outstanding and Overdue are company-wide (all invoices, not this page or filter) */}
           {!isLoading && arSummary && (() => {
             const fmt = (n: number) => 'R ' + new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 }).format(n);
-            const { outstanding, overdueCount, overdueAmount } = arSummary;
+            const { outstanding, overdueCount, overdueAmount, onDeletedAmount } = arSummary;
             return (
               <KpiStrip items={[
                 { label: 'Invoices (this filter)', value: total, icon: FileText, tone: 'info' },
-                { label: 'Outstanding (all invoices)', value: fmt(outstanding), sub: 'Open balance, company-wide', icon: CheckCircle, tone: 'warning' },
+                { label: 'Outstanding (all invoices)', value: fmt(outstanding), sub: onDeletedAmount > 0 ? `Includes ${fmt(onDeletedAmount)} on deleted invoices with unreversed journals` : 'Open balance, company-wide', icon: CheckCircle, tone: 'warning' },
                 { label: 'Overdue (all invoices)', value: overdueCount, sub: overdueCount === 0 ? 'All on time' : `${fmt(overdueAmount)} past due date`, icon: AlertTriangle, tone: overdueCount > 0 ? 'danger' : 'success' },
               ]} />
             );
