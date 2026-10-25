@@ -29,16 +29,18 @@ import { callRoute } from './s07-users-privilege-columns.helpers';
 import { response } from './mfa-impersonation-postgres.helpers';
 import { CRON, callCron, fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
-const paystack = vi.hoisted(() => ({ reference: '', charged: [] as Array<{ authorizationCode: string; amountCents: number }> }));
+const paystack = vi.hoisted(() => ({ reference: '', metadata: null as Record<string, unknown> | null,
+  charged: [] as Array<{ authorizationCode: string; amountCents: number }> }));
 vi.mock('@/modules/billing/services/paystackClient', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  initializeTransaction: vi.fn(async (input: { reference: string }) => {
+  initializeTransaction: vi.fn(async (input: { reference: string; metadata?: Record<string, unknown> }) => {
     paystack.reference = input.reference;
+    paystack.metadata = input.metadata ?? null; // what Paystack hands back on verify
     return { authorizationUrl: 'https://checkout.paystack.test/x', accessCode: 'ac_s07e', reference: input.reference };
   }),
   verifyTransaction: vi.fn(async (reference: string) => ({ status: 'success', reference, id: 1, amountCents: 100,
     requestedAmountCents: 100, feesCents: 0, currency: 'ZAR', channel: 'card', paidAt: null, gatewayResponse: 'Approved',
-    customer: { email: 'payer@s07e.test.local', customerCode: 'CUS_s07e' },
+    metadata: paystack.metadata, customer: { email: 'payer@s07e.test.local', customerCode: 'CUS_s07e' },
     authorization: { authorizationCode: 'AUTH_s07e_card', bin: '408408', last4: '4081', expMonth: '12', expYear: '2030',
       cardType: 'visa', bank: 'Test Bank', brand: 'visa', reusable: true } })),
   chargeAuthorization: vi.fn(async (input: { authorizationCode: string; amountCents: number; reference: string }) => {
@@ -157,8 +159,8 @@ describe('S-07e (945): metering, on the production logins', () => {
 
 describe('S-07e (945): the Paystack webhook, bound to what was paid', () => {
   let seq = 0;
-  async function deliver(data: Record<string, unknown>) {
-    const body = JSON.stringify({ event: 'charge.success', data: { id: 9000 + (++seq), status: 'success', currency: 'ZAR',
+  async function deliver(data: Record<string, unknown>, event = 'charge.success') {
+    const body = JSON.stringify({ event, data: { id: 9000 + (++seq), status: 'success', currency: 'ZAR',
       channel: 'card', customer: { email: 'payer@s07e.test.local', customer_code: 'CUS_s07e' }, ...data } });
     const req = Readable.from([Buffer.from(body)]) as unknown as NextApiRequest;
     (req as { method: string }).method = 'POST';
@@ -179,9 +181,14 @@ describe('S-07e (945): the Paystack webhook, bound to what was paid', () => {
   }
   const purchaseStatus = async (id: string) => (await q('SELECT status FROM flow_purchases WHERE id = $1', [id])).rows[0]!.status;
 
+  // The checkout's own metadata, as purchase.ts starts it: what Paystack signs.
+  const meta = (purchase: string, companyId = company) => ({ purpose: 'flow_bundle', company_id: companyId, flow_purchase_id: purchase });
+  const review = async (reference: string) => (await q(
+    'SELECT failure_reason FROM paystack_payment_requests WHERE paystack_reference = $1', [reference])).rows[0]!.failure_reason;
+
   it('credits a bundle purchase paid in full', async () => {
     const { purchase, reference } = await purchaseRequest(25000);
-    expect(await deliver({ reference, amount: 25000 })).toBe(200);
+    expect(await deliver({ reference, amount: 25000, metadata: meta(purchase) })).toBe(200);
     expect(await purchaseStatus(purchase)).toBe('succeeded');
     expect((await wallet()).balance_flows).toBe(600);
     expect(await ledger()).toEqual([{ type: 'purchase', flows: 500 }]);
@@ -189,10 +196,60 @@ describe('S-07e (945): the Paystack webhook, bound to what was paid', () => {
 
   it('credits nothing when a cheap payment is pointed at a dearer purchase', async () => {
     const { purchase, reference } = await purchaseRequest(25000);
-    expect(await deliver({ reference, amount: 100, requested_amount: 100 })).toBe(200);
+    expect(await deliver({ reference, amount: 100, requested_amount: 100, metadata: meta(purchase) })).toBe(200);
     expect(await purchaseStatus(purchase)).toBe('pending');
     expect((await wallet()).balance_flows).toBe(100);
     expect(await ledger()).toEqual([]);
+    expect(await review(reference)).toBe('review:flow_purchase_not_credited');
+  });
+
+  it('credits a purchase whose payer bore the fee on top of the price', async () => {
+    const { purchase, reference } = await purchaseRequest(25000);
+    expect(await deliver({ reference, amount: 25750, requested_amount: 25000, metadata: meta(purchase) })).toBe(200);
+    expect(await purchaseStatus(purchase)).toBe('succeeded');
+    expect((await wallet()).balance_flows).toBe(600);
+  });
+
+  it.each([
+    ['in another currency', { currency: 'USD' }],
+    ['in no stated currency', { currency: undefined }],
+  ])('credits nothing for a payment %s', async (_, extra) => {
+    const { purchase, reference } = await purchaseRequest(25000);
+    expect(await deliver({ reference, amount: 25000, metadata: meta(purchase), ...extra })).toBe(200);
+    expect(await purchaseStatus(purchase)).toBe('pending');
+    expect((await wallet()).balance_flows).toBe(100);
+  });
+
+  it('credits nothing when a victim\'s paid request was re-pointed at the attacker\'s purchase', async () => {
+    // The attacker's own pending purchase, and a victim's checkout of the same price. An app role can no
+    // longer rewrite the link (945; s07e-billing-temp), so the fixture's owner plays the attacker's rewrite.
+    const { purchase: attackers } = await purchaseRequest(25000);
+    const victimPurchase = crypto.randomUUID();
+    const victimRef = `s07e_${crypto.randomUUID().slice(0, 12)}`;
+    await q(`INSERT INTO paystack_payment_requests (company_id, purpose, flow_purchase_id, amount_cents, currency, status,
+      paystack_reference) VALUES ($1, 'flow_bundle', $2, 25000, 'ZAR', 'pending', $3)`, [company, attackers, victimRef]);
+    expect(await deliver({ reference: victimRef, amount: 25000, metadata: meta(victimPurchase, ids.other) })).toBe(200);
+    expect(await purchaseStatus(attackers)).toBe('pending');
+    expect((await wallet()).balance_flows).toBe(100);
+    expect(await review(victimRef)).toBe('review:checkout_company_mismatch');
+  });
+
+  it('a failed payment fails its own purchase, and not one its metadata does not name', async () => {
+    const own = await purchaseRequest(25000);
+    const other = await purchaseRequest(25000);
+    expect(await deliver({ reference: own.reference, metadata: meta(own.purchase) }, 'charge.failed')).toBe(200);
+    expect(await deliver({ reference: other.reference, metadata: meta(crypto.randomUUID()) }, 'charge.failed')).toBe(200);
+    expect([await purchaseStatus(own.purchase), await purchaseStatus(other.purchase)]).toEqual(['failed', 'pending']);
+  });
+
+  it('subscription.disable revokes the mandate holding that Paystack subscription', async () => {
+    const code = `SUB_s07e_${crypto.randomUUID().slice(0, 8)}`;
+    await q(`UPDATE subscription_mandates SET status = 'revoked' WHERE company_id = $1 AND status = 'active'`, [company]);
+    const id = (await q(`INSERT INTO subscription_mandates (company_id, max_amount_cents, status, gateway, paystack_subscription_code)
+      VALUES ($1, 100000, 'active', 'paystack', $2) RETURNING id`, [company, code])).rows[0]!.id as string;
+    expect(await deliver({ subscription_code: code }, 'subscription.disable')).toBe(200);
+    expect((await q('SELECT status, revoked_reason FROM subscription_mandates WHERE id = $1', [id])).rows[0])
+      .toEqual({ status: 'revoked', revoked_reason: 'paystack_subscription_disabled' });
   });
 
   it('settles a subscription charge only for its own amount', async () => {
@@ -214,8 +271,9 @@ describe('S-07e (945): the Paystack webhook, bound to what was paid', () => {
         paystack_reference, payer_email) VALUES ($1, 'subscription_charge', $2, 49900, 'ZAR', 'pending', $3, 'payer@s07e.test.local')`,
       [company, charge, reference]);
     }
-    expect(await deliver({ reference: refs[0], amount: 49900 })).toBe(200);
-    expect(await deliver({ reference: refs[1], amount: 100 })).toBe(200);
+    const chargeMeta = (charge: string) => ({ purpose: 'subscription_charge', company_id: company, subscription_charge_id: charge });
+    expect(await deliver({ reference: refs[0], amount: 49900, metadata: chargeMeta(charges[0]!) })).toBe(200);
+    expect(await deliver({ reference: refs[1], amount: 100, metadata: chargeMeta(charges[1]!) })).toBe(200);
     const status = async (id: string) => (await q('SELECT status FROM subscription_charges WHERE id = $1', [id])).rows[0]!.status;
     expect([await status(charges[0]!), await status(charges[1]!)]).toEqual(['settled', 'submitted']);
   });
@@ -257,7 +315,9 @@ describe('S-07e (945): a mandate set up and charged, on the production logins', 
       const before = (await q('SELECT current_period_end FROM subscriptions WHERE company_id = $1', [company])).rows[0]!.current_period_end;
       paystack.charged.length = 0;
       expect((await callCron(chargesCron, CRON)).status).toBe(200);
-      expect(paystack.charged).toEqual([{ authorizationCode: 'AUTH_s07e_card', amountCents: 49900 }]);
+      // This company's card only: other suites' due subscriptions may share the fixture.
+      expect(paystack.charged.filter((c) => c.authorizationCode === 'AUTH_s07e_card'))
+        .toEqual([{ authorizationCode: 'AUTH_s07e_card', amountCents: 49900 }]);
       expect((await q(`SELECT status FROM subscription_charges WHERE company_id = $1 ORDER BY created_at DESC LIMIT 1`, [company]))
         .rows[0]!.status).toBe('settled');
       const after = (await q('SELECT current_period_end FROM subscriptions WHERE company_id = $1', [company])).rows[0]!.current_period_end;

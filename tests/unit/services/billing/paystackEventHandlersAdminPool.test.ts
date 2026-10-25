@@ -41,6 +41,7 @@ vi.mock('@/modules/billing/services/paystackMandateActivation', () => ({
 
 import { completePaidBundlePurchase, failBundlePurchase } from '@/modules/billing/services/flowWalletService';
 import { settleSubscriptionCharge } from '@/modules/billing/services/subscriptionPeriod';
+import { noteAuthorisationNotAttached } from '@/modules/billing/services/paystackMandateActivation';
 import { processEvent } from '@/modules/billing/services/paystackEventHandlers';
 
 beforeEach(() => {
@@ -52,6 +53,8 @@ beforeEach(() => {
 
 const PR = { id: 'pr-1', company_id: 'co-1', flow_purchase_id: null, subscription_charge_id: null,
   customer_invoice_id: null, mandate_id: null, amount_cents: '100', status: 'completed' };
+// The checkout metadata Paystack signs: the server set it from the verified request.
+const META = { flow: { company_id: 'co-1', flow_purchase_id: 'fp-1' }, charge: { company_id: 'co-1', subscription_charge_id: 'ch-1' } };
 
 describe('Paystack webhook handlers', () => {
   it('subscription.disable revokes the mandate on the migration_admin pool, by the subscription code', async () => {
@@ -61,18 +64,32 @@ describe('Paystack webhook handlers', () => {
   });
 
   it('charge.failed on a subscription charge: the payment request first, then the charge on migration_admin', async () => {
-    h.script.push([{ id: 'pr-1', company_id: 'co-1', purpose: 'subscription_charge', flow_purchase_id: null, subscription_charge_id: 'ch-1' }]);
-    await processEvent('charge.failed', { event: 'charge.failed', data: { reference: 'ref-1' } });
+    h.script.push([{ id: 'pr-1', company_id: 'co-1', purpose: 'subscription_charge', flow_purchase_id: null,
+      subscription_charge_id: 'ch-1', mandate_id: null }]);
+    await processEvent('charge.failed', { event: 'charge.failed', data: { reference: 'ref-1', metadata: META.charge } });
     expect(h.order).toEqual(['app:payment_request', 'admin:paystack_charge_failed']);
-    // Scoped to the payment request's company: its charge link is app-writable (S-07e).
+    // Scoped to the payment request's company: its charge link is app-written (S-07e).
     expect(h.adminValues).toEqual([['charge.failed', 'ch-1', 'co-1']]);
   });
 
   it('charge.failed on a flow purchase fails the purchase, and writes no subscription charge', async () => {
-    h.script.push([{ id: 'pr-1', company_id: 'co-1', purpose: 'flow_bundle', flow_purchase_id: 'fp-1', subscription_charge_id: null }]);
-    await processEvent('charge.failed', { event: 'charge.failed', data: { reference: 'ref-1' } });
+    h.script.push([{ id: 'pr-1', company_id: 'co-1', purpose: 'flow_bundle', flow_purchase_id: 'fp-1',
+      subscription_charge_id: null, mandate_id: null }]);
+    await processEvent('charge.failed', { event: 'charge.failed', data: { reference: 'ref-1', metadata: META.flow } });
     expect(failBundlePurchase).toHaveBeenCalledWith('fp-1', 'charge.failed', 'co-1');
     expect(h.order).toEqual(['app:payment_request']);
+  });
+
+  it.each([
+    ['no metadata', undefined],
+    ['another company\'s', { company_id: 'co-2', subscription_charge_id: 'ch-1' }],
+    ['another charge', { company_id: 'co-1', subscription_charge_id: 'ch-2' }],
+  ])('charge.failed whose checkout metadata is %s fails only the request', async (_, metadata) => {
+    h.script.push([{ id: 'pr-1', company_id: 'co-1', purpose: 'subscription_charge', flow_purchase_id: null,
+      subscription_charge_id: 'ch-1', mandate_id: null }]);
+    await processEvent('charge.failed', { event: 'charge.failed', data: { reference: 'ref-1', metadata } });
+    expect(h.order).toEqual(['app:payment_request']);
+    expect(h.adminValues).toEqual([]);
   });
 
   it('a redelivered charge.failed (request already failed) writes nothing', async () => {
@@ -85,15 +102,28 @@ describe('Paystack webhook handlers', () => {
   it('charge.success on a flow bundle completes the purchase after the request is marked completed', async () => {
     h.script.push([{ ...PR, purpose: 'flow_bundle', flow_purchase_id: 'fp-1' }]);
     await processEvent('charge.success', { event: 'charge.success', data: { reference: 'ref-1', amount: 10150, requested_amount: 10000,
-      currency: 'ZAR' } });
+      currency: 'ZAR', metadata: META.flow } });
     expect(h.order).toEqual(['app:payment_request']);
     // Bound to what the checkout asked for (the payer's fee on top excluded) and to the request's company.
     expect(completePaidBundlePurchase).toHaveBeenCalledWith('fp-1', { companyId: 'co-1', amountCents: 10000, currency: 'ZAR' });
   });
 
-  it('charge.success on a subscription charge settles it', async () => {
+  it.each([
+    ['no metadata', undefined],
+    ['another company\'s', { company_id: 'co-2', flow_purchase_id: 'fp-1' }],
+    ['another purchase', { company_id: 'co-1', flow_purchase_id: 'fp-2' }],
+  ])('charge.success whose checkout metadata is %s credits nothing and marks the request for review', async (_, metadata) => {
+    h.script.push([{ ...PR, purpose: 'flow_bundle', flow_purchase_id: 'fp-1' }]);
+    await processEvent('charge.success', { event: 'charge.success', data: { reference: 'ref-1', amount: 10000, currency: 'ZAR',
+      metadata } });
+    expect(completePaidBundlePurchase).not.toHaveBeenCalled();
+    expect(noteAuthorisationNotAttached).toHaveBeenCalledWith('pr-1', 'co-1', expect.stringMatching(/^review:/));
+  });
+
+  it('charge.success on a subscription charge settles it for the amount and currency Paystack reported', async () => {
     h.script.push([{ ...PR, purpose: 'subscription_charge', subscription_charge_id: 'ch-1' }]);
-    await processEvent('charge.success', { event: 'charge.success', data: { reference: 'ref-1', amount: 49900 } });
-    expect(settleSubscriptionCharge).toHaveBeenCalledWith('ch-1', 'co-1', 49900);
+    await processEvent('charge.success', { event: 'charge.success', data: { reference: 'ref-1', amount: 49900, currency: 'ZAR',
+      metadata: META.charge } });
+    expect(settleSubscriptionCharge).toHaveBeenCalledWith('ch-1', 'co-1', { cents: 49900, currency: 'ZAR' });
   });
 });

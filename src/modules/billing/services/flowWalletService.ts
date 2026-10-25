@@ -22,10 +22,10 @@
 
 import { sql } from '@/lib/neon';
 import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
-import { ensureWalletRow } from './flowWalletTx';
+import { computeNudge, ensureWalletRow, type LedgerType, type NudgeLevel } from './flowWalletTx';
 
-export type LedgerType = 'purchase' | 'debit' | 'refund' | 'admin_adjustment';
-export type NudgeLevel = 'none' | 'yellow' | 'orange' | 'red';
+export type { LedgerType, NudgeLevel } from './flowWalletTx';
+export { InsufficientFlowsError } from './flowWalletTx';
 
 export interface FlowWallet {
   companyId: string;
@@ -56,9 +56,6 @@ export interface LedgerEntry {
   reason: string | null;
   createdAt: Date;
 }
-
-export { InsufficientFlowsError } from './flowWalletTx';
-import { computeNudge } from './flowWalletTx';
 
 function mapWallet(row: Record<string, unknown>): FlowWallet {
   return {
@@ -143,13 +140,11 @@ export async function listActiveBundles(): Promise<FlowBundle[]> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export {
-  startBundlePurchase, completeBundlePurchase, completePaidBundlePurchase, failBundlePurchase, purchaseBundle, getPurchaseStatus,
+  startBundlePurchase, completeBundlePurchase, completePaidBundlePurchase, failBundlePurchase, getPurchaseStatus,
 } from './flowPurchaseService';
 export type { PurchaseResult, PendingPurchase, PurchaseStatus, PaidAmount, PurchaseStatusResult } from './flowPurchaseService';
 
-
 export { deductFlows, refundFlows, adminAdjust } from './flowWalletMutations';
-
 
 export interface AutoTopupResult {
   success: boolean;

@@ -30,6 +30,7 @@ import { buildQuery, type TxSql } from '@/lib/neon';
 // in this process. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { log } from '@/lib/logger';
+import { poolSizeFromEnv } from '@/lib/limits/poolLimits';
 import { rollbackFailed } from '@/lib/rollbackFailed';
 import { als } from '@/lib/als';
 
@@ -54,7 +55,12 @@ export function migrationAdminPool(): pg.Pool {
     // AFS sign-in requests and verifies are rate-limited per IP, and a WhatsApp
     // webhook is signature-checked and reads an active binding on the service
     // pool first. Every transaction waits at most 5 s for a lock (below).
-    max: 4,
+    // S-07e adds billing: each metered PAYG request's debit (and refund), Flow
+    // purchases, mandates, the two billing crons, and a Paystack webhook that
+    // writes billing rows (it holds one connection for its event). Each is a
+    // short transaction and none is held across an outside call, hence 8 by
+    // default; MIGRATION_ADMIN_POOL_MAX overrides it.
+    max: poolSizeFromEnv('MIGRATION_ADMIN_POOL_MAX', 8),
     connectionTimeoutMillis: 15_000,
     ssl:
       process.env.DATABASE_SSL === 'strict'
@@ -68,6 +74,9 @@ export function migrationAdminPool(): pg.Pool {
   return _pool;
 }
 
+/** Savepoint names for migrationAdminTx calls joined to an outer migration_admin transaction. */
+let joinedSeq = 0;
+
 /**
  * Run `fn` in one transaction on a migrationAdminPool() client: BEGIN, COMMIT,
  * a ROLLBACK on any throw, and a connection whose ROLLBACK failed destroyed
@@ -79,14 +88,25 @@ export function migrationAdminPool(): pg.Pool {
  * the session (impersonation included). This role bypasses RLS and the member
  * guards, so nothing here is decided by them.
  */
-let joinedSeq = 0;
-
 export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   // Inside a transaction that already holds a migration_admin client (the
   // Paystack webhook's, publicRouteTx.ts): run in a savepoint on it, so this
   // commits or rolls back with the event. Sequence such calls: savepoints on
   // one connection nest LIFO, as with withTransaction.
-  const joined = als.getStore()?.migrationAdminClient;
+  const store = als.getStore();
+  if (store?.migrationAdminOnDemand && !store.migrationAdminClient && !store.finished) {
+    const opened = await migrationAdminPool().connect();
+    try {
+      await opened.query('BEGIN');
+      await opened.query(`SET LOCAL lock_timeout = '5s'`);
+    } catch (err) {
+      const openFailed = await rollbackFailed(opened, label);
+      opened.release(openFailed);
+      throw err;
+    }
+    store.migrationAdminClient = opened;
+  }
+  const joined = store?.migrationAdminClient;
   if (joined) {
     joinedSeq = (joinedSeq + 1) % 1_000_000;
     const sp = `migration_admin_${joinedSeq}`;
@@ -110,7 +130,7 @@ export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolCli
     opened = true; // before BEGIN (R-176): a BEGIN that reached the server but failed is rolled back too
     await client.query('BEGIN');
     // Bounded: a lock an app-pool request holds (a share link's view counter,
-    // an ingest's lease) must not keep one of this pool's 4 connections.
+    // an ingest's lease) must not keep one of this pool's connections.
     await client.query(`SET LOCAL lock_timeout = '5s'`);
     if (claims && Object.keys(claims).length > 0) {
       await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);

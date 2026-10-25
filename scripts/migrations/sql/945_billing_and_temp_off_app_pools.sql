@@ -24,7 +24,18 @@
 --                           recurring charge is made with (a mandate pointed
 --                           at another company's authorisation charges that
 --                           company's card).
--- All of them are now read-only to the app roles. Their writes run on the
+--   paystack_payment_requests the link from a Paystack payment to the purchase,
+--                           charge or mandate it pays for, which the webhook
+--                           then acts on as migration_admin: rewriting a
+--                           victim's paid request to the attacker's company and
+--                           purchase credited the attacker with the victim's
+--                           money. It stays app-insertable (the checkouts
+--                           write it), but no app role may change a link after
+--                           insert, delete a request, or read the card codes it
+--                           used to copy; the webhook and mandate verify also
+--                           check the link against the checkout's own
+--                           Paystack metadata (paystackLinkBinding.ts).
+-- All of the others are now read-only to the app roles. Their writes run on the
 -- migration_admin pool (metering, purchases, auto top-up settings, the
 -- subscription and charge crons, the Paystack webhook, mandate create, verify
 -- and revoke) or stay on platform_admin (the admin site), from fixed
@@ -56,7 +67,8 @@
 -- mandate today), Flow purchases and auto top-up settings, mandate create,
 -- verify and revoke, the subscription-charge and Flow-month crons, and the
 -- Paystack webhook's settlement (Paystack retries a failed webhook). The
--- admin site's billing writes keep working.
+-- old webhook and verify also wrote card codes onto payment requests: those
+-- statements now 42501 too. The admin site's billing writes keep working.
 --
 -- Rollback (break-glass, in docs/runbooks/s07b-app-pool-login-roles.md), which
 -- reopens the forgery and makes every deploy's check refuse until this
@@ -64,7 +76,7 @@
 --   GRANT SELECT, INSERT, UPDATE, DELETE ON public.flow_wallet, public.flow_ledger,
 --     public.flow_purchases, public.flow_bundles, public.plans, public.plan_features,
 --     public.feature_flags, public.company_feature_overrides, public.subscriptions,
---     public.subscription_charges, public.subscription_mandates TO app_user;
+--     public.subscription_charges, public.subscription_mandates, public.paystack_payment_requests TO app_user;
 --   GRANT TEMPORARY ON DATABASE <this database> TO PUBLIC;
 
 REVOKE ALL ON public.plans, public.plan_features, public.feature_flags, public.company_feature_overrides,
@@ -72,6 +84,22 @@ REVOKE ALL ON public.plans, public.plan_features, public.feature_flags, public.c
   FROM app_user, app_service, PUBLIC;
 GRANT SELECT ON public.plans, public.plan_features, public.feature_flags, public.company_feature_overrides,
   public.flow_bundles, public.flow_ledger, public.flow_purchases, public.subscriptions TO app_user;
+
+-- paystack_payment_requests: INSERT and SELECT on every column but the card's
+-- codes (nothing reads them back; one production row holds one, left in place
+-- and unreadable), UPDATE only on its status and checkout columns.
+REVOKE ALL ON public.paystack_payment_requests FROM app_user, app_service, PUBLIC;
+DO $$
+DECLARE
+  cols text;
+BEGIN
+  SELECT pg_catalog.string_agg(pg_catalog.quote_ident(a.attname), ', ' ORDER BY a.attnum) INTO cols
+    FROM pg_catalog.pg_attribute a
+   WHERE a.attrelid = 'public.paystack_payment_requests'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+     AND a.attname NOT IN ('paystack_authorization_code', 'paystack_customer_code');
+  EXECUTE pg_catalog.format('GRANT SELECT (%1$s), INSERT (%1$s) ON public.paystack_payment_requests TO app_user', cols);
+END $$;
+GRANT UPDATE (status, completed_at, paystack_transaction_id, channel, failure_reason, paystack_access_code, authorization_url, updated_at) ON public.paystack_payment_requests TO app_user;
 
 -- SELECT back on every column but the ones a charge or a top-up is made with,
 -- computed from the catalogue so a column added later is decided by its own migration.
@@ -105,7 +133,7 @@ DECLARE
 BEGIN
   EXECUTE pg_catalog.format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', pg_catalog.current_database());
   FOR r IN SELECT rolname FROM pg_catalog.pg_roles
-            WHERE rolname !~ '^pg_' AND NOT rolsuper
+            WHERE rolname !~ '^pg_' AND NOT rolsuper AND rolname NOT IN ('app_user', 'app_service')
               AND NOT (pg_catalog.to_regrole('isaflow_app') IS NOT NULL AND pg_catalog.pg_has_role('isaflow_app', oid, 'MEMBER'))
               AND NOT (pg_catalog.to_regrole('isaflow_service') IS NOT NULL AND pg_catalog.pg_has_role('isaflow_service', oid, 'MEMBER'))
             ORDER BY 1
@@ -217,7 +245,12 @@ AS $$
     ('public.flow_purchases',                '{}', '{}', true,  false),
     ('public.subscriptions',                 '{}', '{}', true,  false),
     ('public.subscription_charges',          '{}', '{}', true,  false),
-    ('public.subscription_mandates',         '{}', '{}', true,  false)
+    ('public.subscription_mandates',         '{}', '{}', true,  false),
+    -- 945: a payment request's link is written once, at insert.
+    ('public.paystack_payment_requests',
+     '{id,company_id,purpose,customer_invoice_id,subscription_charge_id,flow_purchase_id,paystack_reference,paystack_access_code,paystack_transaction_id,authorization_url,amount_cents,currency,status,failure_reason,channel,payer_name,payer_email,created_at,updated_at,completed_at,mandate_id,portal_payment_link_id}',
+     '{status,completed_at,paystack_transaction_id,channel,failure_reason,paystack_access_code,authorization_url,updated_at}',
+                                                                  true,  false)
   ),
   -- 937: columns no app role may read on a table it otherwise reads.
   unreadable (tbl, col) AS (VALUES
@@ -228,7 +261,9 @@ AS $$
     ('public.subscription_mandates', 'paystack_customer_code'),
     ('public.subscription_mandates', 'paystack_subscription_code'),
     ('public.subscription_mandates', 'paystack_email_token'),
-    ('public.subscription_charges', 'paystack_authorization_code')
+    ('public.subscription_charges', 'paystack_authorization_code'),
+    ('public.paystack_payment_requests', 'paystack_authorization_code'),
+    ('public.paystack_payment_requests', 'paystack_customer_code')
   ),
   ruled AS (
     SELECT pg_catalog.to_regclass(r.tbl) AS rel, r.* FROM rules r WHERE pg_catalog.to_regclass(r.tbl) IS NOT NULL
@@ -346,13 +381,16 @@ BEGIN
       ('migration_admin', 'public.subscription_charges', 'SELECT, INSERT, UPDATE'),
       ('migration_admin', 'public.subscription_mandates', 'SELECT, INSERT, UPDATE'),
       ('migration_admin', 'public.companies', 'SELECT'),
+      ('migration_admin', 'public.users', 'SELECT'),
+      ('migration_admin', 'public.subscriptions', 'INSERT'),
       ('platform_admin', 'public.plans', 'SELECT, INSERT, UPDATE'),
       ('platform_admin', 'public.feature_flags', 'SELECT, UPDATE'),
       ('platform_admin', 'public.company_feature_overrides', 'SELECT, INSERT, UPDATE, DELETE'),
       ('platform_admin', 'public.subscriptions', 'SELECT, INSERT, UPDATE'),
       ('platform_admin', 'public.subscription_charges', 'SELECT, UPDATE'),
       ('platform_admin', 'public.flow_wallet', 'SELECT, INSERT, UPDATE'),
-      ('platform_admin', 'public.flow_ledger', 'INSERT'),
+      ('platform_admin', 'public.flow_ledger', 'SELECT, INSERT'),
+      ('platform_admin', 'public.subscription_mandates', 'SELECT'),
       ('platform_admin', 'public.flow_bundles', 'SELECT, INSERT, UPDATE')) w(who, tbl, privs),
     LATERAL pg_catalog.unnest(pg_catalog.string_to_array(w.privs, ', ')) p(priv)
   LOOP
@@ -365,9 +403,17 @@ BEGIN
     RAISE EXCEPTION '945: migration_admin and platform_admin must bypass row security, which the billing code relies on';
   END IF;
   FOR r IN SELECT p.oid::regprocedure AS fn, p.proowner::regrole AS owner FROM pg_catalog.pg_proc p
-            WHERE p.oid = pg_catalog.to_regprocedure('public.refresh_customer_invoice_view_summary()')
+            WHERE p.oid IN (pg_catalog.to_regprocedure('public.refresh_customer_invoice_view_summary()'),
+                            pg_catalog.to_regprocedure('public.refresh_customer_invoice_view_summary_if_due()'))
               AND NOT pg_catalog.has_database_privilege(p.proowner, pg_catalog.current_database(), 'TEMPORARY')
   LOOP
     RAISE EXCEPTION '945: % (owner %) cannot create the temporary table REFRESH ... CONCURRENTLY needs', r.fn, r.owner;
+  END LOOP;
+  -- REFRESH ... CONCURRENTLY runs as the materialized view's owner.
+  FOR r IN SELECT c.oid::regclass AS mv, c.relowner::regrole AS owner FROM pg_catalog.pg_class c
+            WHERE c.relkind = 'm' AND c.oid = pg_catalog.to_regclass('public.customer_invoice_view_summary')
+              AND NOT pg_catalog.has_database_privilege(c.relowner, pg_catalog.current_database(), 'TEMPORARY')
+  LOOP
+    RAISE EXCEPTION '945: % (owner %) cannot create the temporary table REFRESH ... CONCURRENTLY needs', r.mv, r.owner;
   END LOOP;
 END $$;

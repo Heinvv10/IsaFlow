@@ -96,6 +96,7 @@ export async function resolveStaleSubmittedCharges(
       SET verifying_at = now(),
           updated_at = now()
       WHERE id = ${c.id}
+        AND company_id = ${c.company_id}
         AND status = 'submitted'
         AND (verifying_at IS NULL
              OR verifying_at < now() - ${`${VERIFY_CLAIM_MINUTES} minutes`}::interval)

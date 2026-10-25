@@ -27,6 +27,12 @@ export interface RequestContext {
    */
   migrationAdminClient?: PoolClient;
   /**
+   * Set by the owner that will COMMIT or ROLL BACK a migrationAdminClient it
+   * has not opened yet: the first migrationAdminTx opens it (BEGIN) and stores
+   * it above, so an event that writes no billing row never takes a connection.
+   */
+  migrationAdminOnDemand?: boolean;
+  /**
    * Set by withSavepoint when its ROLLBACK TO SAVEPOINT itself fails, carrying
    * the ORIGINAL error's message. The connection is aborted at that point, so
    * every later query on it would raise a bare 25P02 ("current transaction is
@@ -57,6 +63,11 @@ export interface RequestContext {
    * registration rather than dropping the work.
    */
   afterCommit?: Array<{ label: string; fn: () => Promise<unknown> }>;
+  /**
+   * Work to start only if this transaction does NOT commit (see `@/lib/afterCommit`):
+   * the undo of something that committed on its own connection (S-07e: a Flows debit).
+   */
+  afterRollback?: Array<{ label: string; fn: () => Promise<unknown> }>;
   /**
    * Usage-quota units this request charged and has used so far (the daily AI
    * and email-send buckets; see `@/lib/quotaUse`). When the request ends the

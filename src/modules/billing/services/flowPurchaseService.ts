@@ -28,8 +28,8 @@ export type PurchaseStatus = 'pending' | 'succeeded' | 'failed';
  * payment-link path: the caller then creates the Stitch link and redirects
  * the payer; the webhook calls `completeBundlePurchase` when paid.
  *
- * Callers wanting a synchronous credit (admin-recorded) should use
- * `purchaseBundle` which composes start + complete in one transaction.
+ * Its own migration_admin transaction; the credit is another
+ * (`completeBundlePurchase` / `completePaidBundlePurchase`).
  */
 export async function startBundlePurchase(
   companyId: string,
@@ -71,21 +71,16 @@ export async function startBundlePurchase(
   });
 }
 
-/**
- * Idempotently credit the wallet for a previously-started purchase.  Safe to
- * call multiple times — re-invocations on an already-succeeded row are a
- * no-op and return the current wallet balance.  Called from the Stitch
- * webhook on payment.paid, and from `purchaseBundle` for the synchronous
- * admin-recorded path.
- *
- * Rejects pending → succeeded transitions on bundles that are no longer
- * active only if the bundle itself was soft-deleted between start and
- * complete; the persisted `flow_purchases.flows` amount is the source of
- * truth so the credit still happens at the originally-quoted amount.
- */
-/** What the gateway says was paid, for the purchase a payment request names. */
-export interface PaidAmount { companyId: string; amountCents: number; currency?: string }
+/** What the gateway says was paid (`amountCents` null when it reported no usable amount). */
+export interface PaidAmount { companyId: string; amountCents: number | null; currency?: string }
 
+/**
+ * Idempotently credit the wallet for a previously-started purchase, with no
+ * payment check: only the dev-only unpaid fallback (purchase.ts) calls it.
+ * Re-invocations on an already-succeeded row are a no-op and return the
+ * current balance. The persisted `flow_purchases.flows` is the source of
+ * truth, so the credit is at the originally-quoted amount.
+ */
 export async function completeBundlePurchase(
   purchaseId: string,
 ): Promise<PurchaseResult> {
@@ -94,10 +89,11 @@ export async function completeBundlePurchase(
 
 /**
  * The webhook's completion: credits only when the purchase belongs to the
- * payment request's company and its price is what Paystack received. The
- * payment request is app-writable, so its purchase link is a claim, not a fact
- * (S-07e): a cheap payment pointed at a large purchase credits nothing. Null
- * when refused; the caller logs it (a throw would make every redelivery repeat it).
+ * payment request's company and at least its price was paid, in rand. The
+ * payment request is app-written, so its purchase link is a claim the webhook
+ * also checks against Paystack's metadata (S-07e). Null when refused, logged
+ * here at error level; the caller marks the request for review (a throw would
+ * make every redelivery repeat it).
  */
 export async function completePaidBundlePurchase(purchaseId: string, paid: PaidAmount): Promise<PurchaseResult | null> {
   return creditPurchase(purchaseId, paid);
@@ -109,15 +105,17 @@ async function creditPurchase(purchaseId: string, paid: PaidAmount | null): Prom
       SELECT id, company_id, bundle_id, flows, price_cents, status
         FROM flow_purchases
        WHERE id = ${purchaseId}
-       FOR UPDATE
+       FOR NO KEY UPDATE
     `) as Array<{
       id: string; company_id: string; bundle_id: string;
       flows: number; price_cents: number; status: PurchaseStatus;
     }>;
     const row = rows[0];
     if (!row) throw new Error(`flow_purchases ${purchaseId} not found`);
-    if (paid && (row.company_id !== paid.companyId || Number(row.price_cents) !== Number(paid.amountCents)
-        || paid.currency !== 'ZAR')) { // a payment in no stated currency is not a ZAR payment
+    // At least the price, in rand: paying more buys nothing extra, and a payment
+    // in no stated currency is not a ZAR payment.
+    if (paid && (row.company_id !== paid.companyId || paid.amountCents === null
+        || Number(paid.amountCents) < Number(row.price_cents) || paid.currency !== 'ZAR')) {
       log.error('flow purchase not credited: the payment does not match it', {
         purchaseId, purchaseCompanyId: row.company_id, paidCompanyId: paid.companyId,
         priceCents: row.price_cents, paidCents: paid.amountCents, currency: paid.currency,
@@ -181,22 +179,6 @@ export async function failBundlePurchase(
   if (rows[0]) {
     log.info('flow purchase marked failed', { purchaseId, reason }, 'BILLING');
   }
-}
-
-/**
- * Synchronous purchase (start + complete in one transaction) — admin-recorded
- * credits, auto-topup after a successful Stitch mandate charge, etc.
- */
-export async function purchaseBundle(
-  companyId: string,
-  bundleId: string,
-  opts: { paymentMethod?: string; autoTriggered?: boolean } = {},
-): Promise<PurchaseResult> {
-  const pending = await startBundlePurchase(companyId, bundleId, {
-    paymentMethod: opts.paymentMethod ?? 'admin_recorded',
-    autoTriggered: opts.autoTriggered ?? false,
-  });
-  return completeBundlePurchase(pending.purchaseId);
 }
 
 export interface PurchaseStatusResult {

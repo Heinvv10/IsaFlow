@@ -22,20 +22,21 @@
  * `company_id` predicates in the services called from `fn` — every query they
  * issue must carry one.
  */
-import type { PoolClient } from 'pg';
 import { getDbPool } from '@/lib/neon';
 import { als, type RequestContext } from '@/lib/als';
 import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
 import { rollbackFailed } from '@/lib/rollbackFailed';
-import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 
 /**
- * `migrationAdmin`: also open a migration_admin transaction beside it, which
- * every migrationAdminTx inside `fn` joins (S-07e: the billing tables are
- * written only there). A throw rolls back both. On success migration_admin
+ * `migrationAdmin`: a migration_admin transaction beside it, opened by the
+ * first migrationAdminTx inside `fn` and joined by every later one (S-07e: the
+ * billing tables are written only there; an event that writes none takes no
+ * migration_admin connection). A throw rolls back both. On success migration_admin
  * COMMITs first: if the service pool's COMMIT then fails, the billing writes
  * stand without the event's `processed` stamp, the gateway redelivers, and
- * settlement, purchase completion and mandate activation are idempotent. The
+ * settlement, purchase completion, mandate activation, a charge's failure (it
+ * counts an attempt only on a charge still in flight) and a mandate's revoke
+ * are idempotent. The
  * other order could stamp an event processed whose billing writes were lost.
  */
 export async function withPublicRouteTransaction<T>(
@@ -53,27 +54,19 @@ export async function withPublicRouteTransaction<T>(
     );
   }
   const client = await getDbPool().connect();
-  let admin: PoolClient | null = null;
   // Set ONLY when the ROLLBACK itself fails. A business-logic throw that rolls
   // back cleanly leaves a perfectly reusable connection; destroying it on every
   // failed webhook would churn the pool for nothing.
   let unusable = false;
   let adminUnusable = false;
-  let adminOpen = false;
+  const ctx: RequestContext = { client, userId: '', claims: {}, afterCommit: [],
+    ...(opts.migrationAdmin ? { migrationAdminOnDemand: true } : {}) };
   try {
     await client.query('BEGIN');
-    if (opts.migrationAdmin) {
-      admin = await migrationAdminPool().connect();
-      adminOpen = true;
-      await admin.query('BEGIN');
-      await admin.query(`SET LOCAL lock_timeout = '5s'`);
-    }
-    const ctx: RequestContext = { client, userId: '', claims: {}, afterCommit: [], ...(admin ? { migrationAdminClient: admin } : {}) };
     const result = await runOwnedContext(ctx, fn);
-    if (admin) {
-      await admin.query('COMMIT');
-      adminOpen = false;
-    }
+    // Opened by the first migrationAdminTx inside `fn`, if any (migrationAdminPool.ts).
+    const admin = ctx.migrationAdminClient;
+    if (admin) await admin.query('COMMIT');
     await client.query('COMMIT');
     drainAfterCommit(ctx);
     return result;
@@ -81,11 +74,13 @@ export async function withPublicRouteTransaction<T>(
     // The connection is in an unknown state when this fails. The release below then
     // DESTROYS it rather than handing an aborted or still-open transaction to the
     // next unrelated request.
-    if (admin && adminOpen) adminUnusable = await rollbackFailed(admin, `withPublicRouteTransaction(${label}) migration_admin`);
+    const admin = ctx.migrationAdminClient;
+    if (admin) adminUnusable = await rollbackFailed(admin, `withPublicRouteTransaction(${label}) migration_admin`);
     unusable = await rollbackFailed(client, `withPublicRouteTransaction(${label})`);
     throw err;
   } finally {
-    admin?.release(adminUnusable);
+    const admin = ctx.migrationAdminClient;
+    if (admin) admin.release(adminUnusable);
     client.release(unusable);
   }
 }

@@ -22,7 +22,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { log } from '@/lib/logger';
-import { runAfterCommit } from '@/lib/afterCommit';
+import { runAfterCommit, runAfterRollback } from '@/lib/afterCommit';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   deductFlows,
@@ -142,6 +142,9 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
         }
         if (handlerError) throw handlerError;
       } else {
+        // The debit committed on its own (S-07e): if the request it paid for
+        // rolls back after all (a failed COMMIT, rollbackOnly), refund it then.
+        runAfterRollback('flow refund (request rolled back)', () => refundFlows(companyId, flowCost, operationCode, null));
         // Nudge recalc — never blocks the response, and starts only after the
         // request COMMITs, on its own connection (R-075).
         runAfterCommit('recalculateNudge', () => recalculateNudge(companyId).catch((err: unknown) => {
