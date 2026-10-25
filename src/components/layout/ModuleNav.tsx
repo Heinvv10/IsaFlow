@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import { NavLinksBlock } from './NavLinksBlock';
 import {
-  isFlyout, isLinkActive, activeHrefAmong,
+  isFlyout, activeHrefAmong,
   type Tab, type DropdownItem, type NavItem,
 } from '../accounting/accountingNavConfig';
 
@@ -222,6 +222,8 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
   const allSections = (tab.items ?? []).filter(isFlyout);
   // Settings sections render inline (no flyout chevron) — all items are isSetting links
   const settingsSections = allSections.filter(s => s.section === 'Settings');
+  const settingsItems = settingsSections.flatMap(s => s.items);
+  const settingsActiveHref = activeHrefAmong(settingsItems, asPath);
   const regularSections = allSections.filter(s => s.section !== 'Settings');
 
   return (
@@ -271,14 +273,14 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
         })}
 
         {/* Settings items — rendered inline with separator, no flyout */}
-        {settingsSections.flatMap(s => s.items).map(item => {
+        {settingsItems.map(item => {
           if (isFlyout(item)) return null;
           return (
             <Link
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 whitespace-nowrap transition-colors ${ isLinkActive(item.href, asPath) ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50' }`}
+              className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 whitespace-nowrap transition-colors ${ item.href === settingsActiveHref ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50' }`}
             >
               <Settings className="h-3.5 w-3.5 flex-shrink-0" />
               {item.label}
