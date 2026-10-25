@@ -8,7 +8,7 @@
  * Dismissal is kept in localStorage, per browser and company. It holds the ids
  * that were dismissed, so an employee flagged later brings the banner back.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, X } from 'lucide-react';
 import { apiFetch, assertOk } from '@/lib/apiFetch';
@@ -26,6 +26,7 @@ interface ReviewEmployee {
 const keyFor = (companyId: string | undefined) => `isaflow:payroll:medical-aid-review-dismissed:${companyId ?? 'none'}`;
 
 function readDismissed(key: string): string[] {
+  if (typeof window === 'undefined') return [];
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(key) ?? '[]');
     return Array.isArray(parsed) ? parsed.map(String) : [];
@@ -47,11 +48,15 @@ export function MedicalAidReviewBanner() {
   const { companyRole, activeCompany } = useCompany();
   const mayWrite = canWrite(companyRole);
   const key = keyFor(activeCompany?.id);
-  // Each piece of state carries the key it was read for and is used only while that is the current
-  // key, so the render right after a company switch cannot show the previous company's list (an
-  // effect-time reset would still let that one render through), nor a late response for it.
+  // The loaded list carries the key it was read for and is used only while that is the current key,
+  // so the render right after a company switch cannot show the previous company's list (an effect-time
+  // reset would still let that one render through). `currentKey` lets a late response for a company
+  // we have since left be dropped instead of overwriting the current company's data.
+  const currentKey = useRef(key);
   const [loaded, setLoaded] = useState<{ key: string; flagged: ReviewEmployee[] } | null>(null);
-  const [dismissedFor, setDismissedFor] = useState<{ key: string; ids: string[] } | null>(null);
+  // Dismissals made this session, by key; anything else is read from storage for the CURRENT key at
+  // render, so going A -> B -> A can never reuse B's (or a stale) dismissed list.
+  const [dismissedByKey, setDismissedByKey] = useState<Record<string, string[]>>({});
 
   const load = useCallback(async (forKey: string) => {
     let list: ReviewEmployee[] = [];
@@ -65,23 +70,24 @@ export function MedicalAidReviewBanner() {
       // The banner is advisory: a failed load shows nothing rather than an error on the list page.
       log.warn('medical-aid review: could not load', { error: err }, 'MedicalAidReviewBanner');
     }
+    if (currentKey.current !== forKey) return;
     setLoaded({ key: forKey, flagged: list });
   }, []);
 
   useEffect(() => {
+    currentKey.current = key;
     if (!mayWrite) return;
-    setDismissedFor({ key, ids: readDismissed(key) });
     void load(key);
   }, [mayWrite, key, load]);
 
   const flagged = loaded?.key === key ? loaded.flagged : [];
-  const dismissed = dismissedFor?.key === key ? dismissedFor.ids : [];
+  const dismissed = dismissedByKey[key] ?? readDismissed(key);
   if (!mayWrite || flagged.length === 0 || flagged.every(e => dismissed.includes(e.id))) return null;
 
   const dismiss = () => {
     const ids = flagged.map(e => e.id);
     writeDismissed(key, ids);
-    setDismissedFor({ key, ids });
+    setDismissedByKey(prev => ({ ...prev, [key]: ids }));
   };
 
   return (
