@@ -15,6 +15,7 @@ import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminPool';
 import { createImapConnection } from '@/modules/accounting/services/capture/mirrorConnectionService';
+import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -66,4 +67,34 @@ describe('S-07e part B (946): scan-now fails after its cursor stamp', () => {
     expect((await row(id)).scan_cursor).toEqual({ INBOX: 9 });
     await vi.waitFor(async () => expect(await row(id)).toMatchObject({ status: 'error', last_error: imap.releaseError }), { timeout: 10000 });
   });
+});
+
+// An app role can lock a connection row (FOR UPDATE needs only the column UPDATE it holds). The flip waits its
+// 5 s lock_timeout, and the fallback stamp that follows waits 2 s, not for as long as the lock is held: the
+// cron scans its connections one after another, so an unbounded wait would stall the tick.
+describe('S-07e part B (946): a connection row locked by someone else, outside a request (the cron)', () => {
+  it('records the error as far as it can, within the two lock waits, and never throws', async () => {
+    const { id } = await createImapConnection({ companyId: company, displayName: 'Held', accountEmail: 'held@s07eb.test',
+      imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'ap', imapPassword: 'mailbox-pw' });
+    const holder = await fixture.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM imap_mirror_connections WHERE id = $1 FOR UPDATE', [id]);
+
+      const started = Date.now();
+      await expect(markMirrorScanError('imap', { id, companyId: company }, 'boom')).resolves.toBeUndefined();
+      const elapsed = Date.now() - started;
+
+      // 5 s (flip) + 2 s (stamp) + slack; the lock is held for far longer (until the release below).
+      expect(elapsed, `markMirrorScanError took ${elapsed}ms`).toBeGreaterThan(5000);
+      expect(elapsed, `markMirrorScanError took ${elapsed}ms`).toBeLessThan(9500);
+      // Neither write landed: this failure's flip is lost, as documented (the next failing scan flips again).
+      expect(await row(id)).toMatchObject({ status: 'active', last_error: null });
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    await markMirrorScanError('imap', { id, companyId: company }, 'boom again');
+    expect(await row(id)).toMatchObject({ status: 'error', last_error: 'boom again' });
+  }, 30000);
 });

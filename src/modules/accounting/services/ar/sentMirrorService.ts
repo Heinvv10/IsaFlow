@@ -32,6 +32,7 @@ import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
+import { readCursorUid } from '@/modules/accounting/services/capture/mirrorCursor';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
 
 type Row = Record<string, unknown>;
@@ -251,16 +252,13 @@ async function openImapClient(conn: SentMirrorConnection): Promise<ImapFlow> {
   if (!conn.imapHost || !conn.imapPort || !conn.imapUsername || !conn.imapPasswordEnc) {
     throw new Error(`Incomplete IMAP config for sent-mirror connection ${conn.id}`);
   }
-  // Before the password is decrypted: never connect to private space.
-  const refused = await checkImapTarget(conn.imapHost, conn.imapPort);
-  if (refused) throw new Error(refused);
+  // Before the password is decrypted: never connect to private space. Connect to the vetted address, not the name.
+  const target = await checkImapTarget(conn.imapHost, conn.imapPort);
+  if (!target.ok) throw new Error(target.message);
   const password = decrypt(conn.imapPasswordEnc);
   return new ImapFlow({
-    host: conn.imapHost,
-    port: conn.imapPort,
-    secure: conn.imapUseTls,
-    auth: { user: conn.imapUsername, pass: password },
-    logger: false,
+    host: target.address, servername: target.servername, port: conn.imapPort, secure: conn.imapUseTls,
+    auth: { user: conn.imapUsername, pass: password }, logger: false,
   });
 }
 
@@ -283,7 +281,7 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
 
     const lock = await client.getMailboxLock(conn.sentFolder);
     try {
-      const cursorUid = Number(conn.scanCursor[conn.sentFolder] ?? 0);
+      const cursorUid = readCursorUid(conn.scanCursor, conn.sentFolder, { id: conn.id, kind: 'sent-mirror' });
       // Clean exit when the mailbox has nothing past the cursor — IMAP
       // "fetch 2:*" on an empty/stale range throws "Command failed" on some
       // servers (cPanel/dovecot). Guard with mailbox.uidNext.
