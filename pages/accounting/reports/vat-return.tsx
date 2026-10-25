@@ -77,7 +77,7 @@ function BoxRow({ box, section }: { box: VAT201Box; section: 'output' | 'input' 
           <span className="font-mono text-xs text-[var(--ff-text-tertiary)] w-12">{box.box}</span>
           <span className="text-[var(--ff-text-secondary)]">{box.label}</span>
           {hasTransactions && (
-            <span className="text-xs text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-tertiary)] px-1.5 py-0.5 rounded">
+            <span data-testid="vat-box-count" className="text-xs text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-tertiary)] px-1.5 py-0.5 rounded">
               {box.transactions!.length}
             </span>
           )}

@@ -7,6 +7,7 @@
  */
 
 import { medicalFieldRules } from './easyFileMedicalFields';
+import { birthDateRules } from './easyFileEmployeeFacts';
 import {
   getSarsCode,
   isKnownSarsCode,
@@ -253,6 +254,7 @@ export function validateCertificateTaxFields(lines: string[]): ValidationMessage
   const tax = ['4101', '4102', '4115'].filter(c => field.has(c));
   const reason = field.get('4150');
   medicalFieldRules(field, err);
+  birthDateRules(field, err);
   if (field.get('3015') === 'IT3(a)') {
     if (reason == null) err('IT3A_WITHOUT_REASON_CODE', 'An IT3(a) needs a reason code for non-deduction of tax (4150).');
     else if (!/^(0?[2-9]|10)$/.test(reason)) err('IT3A_INVALID_REASON_CODE', `Reason code 4150 must be 02 to 10, not ${reason}.`);

@@ -65,8 +65,8 @@ beforeAll(async () => {
   // A row in the other tenant pointing at this tenant's centre. It should not
   // exist in practice; the point is which layer refuses the delete when it does.
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,cost_centre_id)
-     VALUES($1,$2,'E-GUARD','Thandi','Mokoena','2026-01-01',$3)`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,cost_centre_id, medical_aid_main_member)
+     VALUES($1,$2,'E-GUARD','Thandi','Mokoena','2026-01-01',$3, true)`,
     [crypto.randomUUID(), other, freeCentre]);
 });
 

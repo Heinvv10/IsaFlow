@@ -25,8 +25,8 @@ let joiner = '';
 
 async function employee(number: string, start: string, salary: number): Promise<string> {
   const id = (await pool.query<{ id: string }>(
-    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth)
-     VALUES ($1, $2, 'Emp', $2, $3::date, '1985-01-01') RETURNING id`, [f.company, number, start])).rows[0]!.id;
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, date_of_birth, medical_aid_main_member)
+     VALUES ($1, $2, 'Emp', $2, $3::date, '1985-01-01', true) RETURNING id`, [f.company, number, start])).rows[0]!.id;
   await pool.query(
     `INSERT INTO payroll_employee_components (employee_id, component_id, amount, effective_from)
      SELECT $1, id, $2, '2020-01-01' FROM payroll_components WHERE company_id = $3 AND sars_source_code = '3601'`,
