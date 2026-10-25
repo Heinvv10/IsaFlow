@@ -77,9 +77,11 @@ describe.skipIf(!process.env.DATABASE_URL)('global search against the real schem
   }, 60000);
 
   it('the user\'s % and _ match literally, not as wildcards', async () => {
-    expect(await globalSearch(c.fx.companyId, '%', 50)).toEqual([]);
-    expect(await globalSearch(c.fx.companyId, '_', 50)).toEqual([]);
-    expect((await globalSearch(c.fx.companyId, `INV_${c.fx.tag.slice(1)}`, 50)).filter((r) => r.type === 'invoice')).toEqual([]);
+    // Each would match the seeded rows if % or _ were a wildcard; no seeded value holds them literally.
+    expect(await globalSearch(c.fx.companyId, `%${c.fx.tag}`, 50)).toEqual([]);
+    expect(await globalSearch(c.fx.companyId, `_${c.fx.tag}`, 50)).toEqual([]);
+    expect((await globalSearch(c.fx.companyId, `INV_${c.fx.tag}`, 50)).filter((r) => r.type === 'invoice')).toEqual([]);
+    expect((await globalSearch(c.fx.companyId, `INV-${c.fx.tag}`, 50)).filter((r) => r.type === 'invoice')).toHaveLength(1);
   }, 60000);
 
   it('an invoice whose customer row is another company\'s shows no name, just its total', async () => {
