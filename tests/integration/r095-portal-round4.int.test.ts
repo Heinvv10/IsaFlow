@@ -47,7 +47,7 @@ describeIfDb('R-095 round 4', () => {
     assertDisposable();
     f = await seedPortalFixture();
     customerR = ((await sql`INSERT INTO customers (company_id, name, email) VALUES (${f.companyA}::UUID, ${'cust-r ' + f.tag}, ${emailR()}) RETURNING id`) as { id: string }[])[0]!.id;
-    await sql`INSERT INTO portal_access (client_id, email, password_hash, name) VALUES (${customerR}::UUID, ${emailR()}, 'x', 'R')`;
+    await sql`INSERT INTO portal_access (client_id, company_id, email, password_hash, name) VALUES (${customerR}::UUID, (SELECT company_id FROM customers WHERE id = ${customerR}::UUID), ${emailR()}, 'x', 'R')`;
     const inv = async (suffix: string, status: string, total: number, paid: number, date: number, due: number, deleted = false) =>
       ((await sql`
         INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, subtotal, tax_amount, total_amount, amount_paid, created_by, deleted_at)
@@ -111,7 +111,7 @@ describeIfDb('R-095 round 4', () => {
     const [c] = (await sql`INSERT INTO customers (company_id, name, email) VALUES (${f.companyA}::UUID, ${'cust-v ' + f.tag}, ${email}) RETURNING id`) as { id: string }[];
     const v = c!.id;
     try {
-      await sql`INSERT INTO portal_access (client_id, email, password_hash, name) VALUES (${v}::UUID, ${email}, 'x', 'V')`;
+      await sql`INSERT INTO portal_access (client_id, company_id, email, password_hash, name) VALUES (${v}::UUID, (SELECT company_id FROM customers WHERE id = ${v}::UUID), ${email}, 'x', 'V')`;
       const inv = async (suffix: string, status: string | null, total: number, paid: number) =>
         ((await sql`
           INSERT INTO customer_invoices (company_id, client_id, customer_id, invoice_number, invoice_date, due_date, status, subtotal, tax_amount, total_amount, amount_paid, created_by)

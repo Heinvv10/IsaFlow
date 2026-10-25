@@ -1,5 +1,5 @@
 import { getAge } from './payeEngine';
-import { payeTreatment } from './payeAnnualPayment';
+import { normaliseSarsCode, payeTreatment } from './payeAnnualPayment';
 import { calculateCumulativePaye } from './payeCumulative';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
@@ -36,6 +36,11 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
   let uifLeviable = 0;
   let sdlLeviable = 0;
   let totalDeductions = 0;
+  // Medical scheme fees the employee pays through payroll: deductions coded
+  // 4005 (e@syFile 4005; BRS V25.3.0 p. 52-53, 101). Employer-paid medical aid
+  // (the 3810 fringe benefit, deemed paid by the employee) is not supported.
+  // They decide the 65+ additional medical expenses tax credit (payeEngine).
+  let medicalSchemeFees = 0;
 
   const breakdown: ComponentBreakdownItem[] = [];
   const warnings: ValidationResult[] = [];
@@ -77,6 +82,7 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     } else if (component.componentType === 'deduction') {
       totalDeductions += amount;
       if (component.isTaxable) taxableDeductions += amount;
+      if (normaliseSarsCode(component.sarsSourceCode) === '4005') medicalSchemeFees += amount;
     }
   }
 
@@ -95,13 +101,25 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     ? 1 + employee.medicalAidDependantsCount
     : employee.medicalAidDependantsCount;
 
-  const { regular, annualPaymentPaye } = calculateCumulativePaye({
+  // Fees deducted for a scheme the employee is not recorded as a member of: no MTC (and, 65+, no
+  // additional credit) is given, so PAYE is over-deducted. Warned, not corrected: the membership is data.
+  if (medicalSchemeFees > 0 && medicalBeneficiaries <= 0) {
+    warnings.push({
+      code: 'MEDICAL_FEES_WITHOUT_MEMBERSHIP',
+      severity: 'warning',
+      message: `R${medicalSchemeFees.toFixed(2)} of medical aid contributions (code 4005) is deducted, but the employee is not marked as a `
+        + `medical aid member and has no dependants, so no medical tax credit${rebateAge >= 65 ? ' (nor the 65+ additional credit)' : ''} `
+        + 'was given and PAYE is over-deducted. Set the medical aid membership on the employee and recalculate.',
+    });
+  }
+  const { regular, annualPaymentPaye, medicalCredit, additionalMedicalCredit } = calculateCumulativePaye({
     regularTaxable,
     annualPayments: annualTaxable,
-    ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0 },
+    ytd: input.ytd ?? { periods: 0, periodicTaxable: 0, annualPayments: 0, tablePaye: 0, medicalCredit: 0, additionalMedicalCredit: 0, medicalSchemeFees: 0 },
     taxYear,
     rebateAge,
     monthlyMedicalBeneficiaries: medicalBeneficiaries,
+    medicalSchemeFees,
   });
   const payeSplit = { regular: regular.monthlyPaye, annualPayment: annualPaymentPaye, directive: round2(directivePaye) };
   const paye = { ...regular, monthlyPaye: round2(payeSplit.regular + payeSplit.annualPayment + payeSplit.directive) };
@@ -154,6 +172,9 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
     annualTaxable: round2(annualTaxable),
     paye,
     payeSplit,
+    medicalCredit,
+    additionalMedicalCredit,
+    medicalSchemeFees: round2(medicalSchemeFees),
     uif,
     sdl: Math.round(sdl * 100) / 100,
     sdlLeviable: Math.round(sdlLeviable * 100) / 100,
