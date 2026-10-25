@@ -76,7 +76,7 @@ export function VAT201PeriodSelector({
         <button
           onClick={onGenerate}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-700 text-white text-sm font-medium hover:bg-teal-800 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-700 text-white text-sm font-medium hover:bg-brand-800 disabled:opacity-50"
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
           Generate

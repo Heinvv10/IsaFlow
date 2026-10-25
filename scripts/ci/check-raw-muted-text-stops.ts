@@ -58,10 +58,10 @@ function main(): number {
     return grew.length > 0 ? 1 : 0;
   }
   for (const g of grew) {
-    console.error(`[raw-muted-text-stops] NEW: ${g}. Use text-ink-muted / text-ink-faint, or write the dark twin (dark:text-slate-400); do not raise the baseline.`);
+    console.error(`[raw-muted-text-stops] TOO MANY: ${g}. Use text-ink-muted / text-ink-faint, or write the dark twin (dark:text-slate-400); do not raise the baseline.`);
   }
   for (const s of shrank) {
-    console.error(`[raw-muted-text-stops] LOWER THE BASELINE: ${s} (bun scripts/ci/check-raw-muted-text-stops.ts --write).`);
+    console.error(`[raw-muted-text-stops] LOWER THE BASELINE: ${s}. Run: bun scripts/ci/check-raw-muted-text-stops.ts --write`);
   }
   if (grew.length + shrank.length > 0) return 1;
   const total = Object.values(counts).reduce((a, b) => a + b, 0);

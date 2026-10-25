@@ -4,8 +4,8 @@
  *
  *   bg-teal-600 / bg-teal-700            -> bg-brand-600 / bg-brand-700
  *   bg-emerald-600 / 700 / 800           -> bg-success-700 / 800 / 900
- *   bg-teal-500 on a line with text-white -> bg-brand-600 (badges, the current wizard step)
- *   hover:bg-teal-500 beside bg-brand-600 -> hover:bg-brand-700 (a hover must not get lighter under white text)
+ *   bg-teal-500 / bg-emerald-500 / dark:bg-teal-500 on a line with text-white -> bg-brand-600 / bg-success-700 / dark:bg-brand-600
+ *   a hover that is not darker than its base fill -> the next step darker (brand-600>700>800, success-700>800)
  *   text-blue-500 / text-rose-500 with no dark: twin on the line -> text-<hue>-600 dark:text-<hue>-400
  *     (the 500 stop is 3.98:1 on the dark slate-800 cards; the light theme remap would otherwise be all that fixes it)
  *
@@ -25,20 +25,58 @@ export const RULES = [
   ['bg-emerald-800', 'bg-success-900'],
 ];
 
-/** Rules that read the whole line: a white-text fill, a brand fill with a hover, a text stop with no dark twin. */
+const WHITE_TEXT = /(?<![\w:-])text-white(?![\w-])/;
+const bare = (cls) => new RegExp(`(?<![\\w:-])${cls}(?![\\w/-])`, 'g');
+const variant = (v, cls) => new RegExp(`(?<![\\w-])${v}:${cls}(?![\\w/-])`, 'g');
+
+/**
+ * Rules that read the whole line (a Tailwind class list is one string literal, so the line is the unit):
+ *  - a lighter fill under white text, bare or `dark:`, becomes the AA token;
+ *  - a text stop with no dark twin gets one;
+ *  - a hover must be one step DARKER than its base, never equal or lighter: a hover that matches the
+ *    base looks dead, and one that lightens a white-text fill falls under AA.
+ */
 function transformLine(line) {
   let out = line;
-  if (/(?<![\w-])text-white(?![\w-])/.test(out)) out = out.replace(/(?<![\w:-])bg-teal-500(?![\w/-])/g, 'bg-brand-600');
+  const white = WHITE_TEXT.test(out);
+  if (white) {
+    out = out.replace(bare('bg-teal-500'), 'bg-brand-600').replace(bare('bg-emerald-500'), 'bg-success-700');
+    if (!out.includes('dark:text-')) out = out.replace(variant('dark', 'bg-teal-500'), 'dark:bg-brand-600');
+  }
   for (const hue of ['blue', 'rose']) {
     if (!out.includes(`dark:text-${hue}-`)) {
-      out = out.replace(new RegExp(`(?<![\\w:-])text-${hue}-500(?![\\w/-])`, 'g'), `text-${hue}-600 dark:text-${hue}-400`);
+      out = out.replace(bare(`text-${hue}-500`), `text-${hue}-600 dark:text-${hue}-400`);
     }
   }
-  if (out.includes('bg-brand-600')) out = out.replace(/(?<![\w-])hover:bg-teal-500(?![\w/-])/g, 'hover:bg-brand-700');
+  // Only the plain `hover:` of the light layer: `disabled:hover:` keeps its meaning, `dark:hover:` is handled below.
+  const hover = (cls) => new RegExp(`(?<![\\w:-])hover:${cls}(?![\\w/-])`, 'g');
+  const darker = [
+    // [base class, hover shades that are not darker than it, the hover it gets]
+    ['bg-brand-600', ['teal-400', 'teal-500', 'teal-600', 'teal-800', 'brand-600'], 'brand-700'],
+    ['bg-brand-700', ['teal-400', 'teal-500', 'teal-600', 'teal-800', 'brand-700'], 'brand-800'],
+    ['bg-success-700', ['emerald-400', 'emerald-500', 'emerald-600', 'success-700'], 'success-800'],
+  ];
+  for (const [base, hovers, to] of darker) {
+    if (!bare(base).test(out)) continue;
+    for (const h of hovers) out = out.replace(hover(`bg-${h}`), `hover:bg-${to}`);
+  }
+  // The dark: layer: under a brand-600 fill (bare, or dark:) a dark:hover that is not darker gets brand-700. A bare
+  // brand-600 on the line makes dark:bg-brand-600 redundant, so it is dropped.
+  const bareBrand = bare('bg-brand-600').test(out);
+  if (bareBrand || out.includes('dark:bg-brand-600')) {
+    for (const h of ['teal-400', 'teal-500', 'teal-600', 'teal-800', 'brand-600']) {
+      out = out.replace(new RegExp(`dark:hover:bg-${h}(?![\\w/-])`, 'g'), 'dark:hover:bg-brand-700');
+    }
+  }
+  if (bareBrand) out = out.replace(/ dark:bg-brand-600(?![\w/-])/g, '');
   return out;
 }
 
+/** A file may opt out with this marker: its colours are categorical (an avatar palette), not brand fills. */
+export const SKIP_MARKER = 'brand-fill-tokens: skip';
+
 export function transform(src) {
+  if (src.includes(SKIP_MARKER)) return src;
   let out = src;
   for (const [from, to] of RULES) {
     out = out.replace(new RegExp(`(?<![\\w-])${from}(?![\\w/-])`, 'g'), to);

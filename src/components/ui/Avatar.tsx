@@ -37,14 +37,15 @@ const STATUS_COLOR: Record<AvatarStatus, string> = {
   busy: 'bg-amber-500',
 };
 
+// brand-fill-tokens: skip - these hues are a categorical palette, not brand fills.
 // Palette of accessible background colors for initials avatars
 const PALETTE = [
-  'bg-brand-600',
+  'bg-teal-600',
   'bg-blue-600',
   'bg-violet-600',
   'bg-rose-600',
   'bg-amber-600',
-  'bg-success-700',
+  'bg-emerald-600',
   'bg-indigo-600',
   'bg-pink-600',
   'bg-cyan-600',
@@ -67,7 +68,7 @@ function getColorFromName(name: string): string {
     hash |= 0; // convert to 32-bit int
   }
   const index = Math.abs(hash) % PALETTE.length;
-  return PALETTE[index] ?? 'bg-brand-600';
+  return PALETTE[index] ?? 'bg-teal-600';
 }
 
 // WORKING: Avatar component

@@ -31,6 +31,12 @@ const DARK_PANELS = [
   ...['0', '1', '2', '3'].flatMap((d) => [`[class^="bg-[#${d}"]`, `[class*=" bg-[#${d}"]`]),
 ];
 
+/**
+ * Where the 800 weights apply: the light theme, and a `data-surface="light"` panel inside the dark theme (white
+ * there, so a raw text-slate-400 would sit at 2.6:1 on it).
+ */
+const LIGHT_SCOPES = [':where(html:not(.dark))', ':where(html.dark [data-surface="light"])'];
+
 const stops = [];
 for (const h of HUES_800) for (const n of [300, 400, 500, ...(WITH_600.has(h) ? [600] : [])]) stops.push([h, n, colors[h][800]]);
 for (const h of NEUTRALS) for (const n of [400, 500]) stops.push([h, n, NEUTRAL_LIGHT]);
@@ -52,19 +58,22 @@ lines.push(`/*
  * loads after globals.css, and hover: / focus: / group-hover: / dark: variants still outrank it.
  */
 `);
-lines.push(':where(html:not(.dark)) {');
+lines.push(`${LIGHT_SCOPES.join(',\n')} {`);
 for (const [h, n, hex] of stops) lines.push(`  ${v(h, n)}: ${hex};`);
 lines.push('}\n');
 lines.push(`:where(${DARK_PANELS.join(', ')}),\n:where(${DARK_PANELS.join(', ')}) * {`);
 for (const [h, n] of stops) lines.push(`  ${v(h, n)}: ${colors[h][n]};`);
 lines.push('}\n');
-for (const [h, n] of stops) lines.push(`:where(html:not(.dark)) .text-${h}-${n} {\n  color: var(${v(h, n)});\n}`);
+for (const [h, n] of stops) {
+  lines.push(`${LIGHT_SCOPES.map((sc) => `${sc} .text-${h}-${n}`).join(',\n')} {\n  color: var(${v(h, n)});\n}`);
+}
 lines.push(`
 /*
- * Chart legends: recharts colours each label with its series (teal, orange, rose), which is
- * 1.8-3.5:1 on a light card. The swatch beside the label still carries the series colour.
+ * Chart legends (LIGHT theme only; in dark the series colours read fine): recharts colours each label with
+ * its series (teal, orange, rose), which is 1.8-3.5:1 on a light card. The swatch beside the label still
+ * carries the series colour.
  */
-.recharts-legend-item-text {
+${LIGHT_SCOPES[0]} .recharts-legend-item-text {
   color: var(--ff-text-secondary) !important;
 }
 `);

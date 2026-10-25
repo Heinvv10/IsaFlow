@@ -46,6 +46,34 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
+describe('brand-fill-tokens: hovers and dark twins', () => {
+  it('a hover is never the same as, or lighter than, its base fill', () => {
+    expect(t('bg-brand-600 hover:bg-brand-600 text-white')).toBe('bg-brand-600 hover:bg-brand-700 text-white');
+    expect(t('bg-teal-600 text-white hover:bg-teal-400')).toBe('bg-brand-600 text-white hover:bg-brand-700');
+    expect(t('bg-brand-700 text-white hover:bg-teal-800')).toBe('bg-brand-700 text-white hover:bg-brand-800');
+    expect(t('bg-emerald-600 text-white hover:bg-emerald-500')).toBe('bg-success-700 text-white hover:bg-success-800');
+    expect(t('bg-emerald-500 text-white hover:bg-success-700')).toBe('bg-success-700 text-white hover:bg-success-800');
+  });
+
+  it('leaves a hover that is already darker, a disabled hover and a hover on an unrelated fill alone', () => {
+    expect(t('bg-brand-600 hover:bg-brand-700 text-white')).toBe('bg-brand-600 hover:bg-brand-700 text-white');
+    expect(t('bg-brand-600 text-white disabled:hover:bg-brand-600')).toBe('bg-brand-600 text-white disabled:hover:bg-brand-600');
+    expect(t('bg-slate-100 hover:bg-teal-400')).toBe('bg-slate-100 hover:bg-teal-400');
+  });
+
+  it('dark:bg-teal-500 under white text is a brand fill too (2.49:1)', () => {
+    expect(t('bg-brand-600 text-white dark:bg-teal-500 dark:hover:bg-brand-600')).toBe('bg-brand-600 text-white dark:hover:bg-brand-700');
+    expect(t('bg-slate-100 text-white dark:bg-teal-500')).toBe('bg-slate-100 text-white dark:bg-brand-600');
+    // dark text on teal-500 is its own, valid pairing (7:1): left alone
+    expect(t('bg-brand-600 text-white dark:bg-teal-500 dark:text-gray-900')).toBe('bg-brand-600 text-white dark:bg-teal-500 dark:text-gray-900');
+  });
+
+  it('a file marked as categorical keeps its raw hues', () => {
+    const src = "// brand-fill-tokens: skip\nconst P = ['bg-teal-600', 'bg-emerald-600'];";
+    expect(t(src)).toBe(src);
+  });
+});
+
 describe('the tree', () => {
   it('has no raw white-text teal/emerald fill left for the codemod to change', () => {
     const dirty: string[] = [];
