@@ -15,7 +15,8 @@ const company = vi.hoisted(() => ({ role: 'owner' as string | null, id: 'co-1' }
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('next/router', () => { const r = { ...router, isReady: true, replace: vi.fn(), pathname: '/' }; return { useRouter: () => r }; });
-vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
+const linkRenders = vi.hoisted(() => [] as string[]);
+vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => { linkRenders.push(href); return <a href={href}>{children}</a>; } }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/contexts/CompanyContext', () => ({
   useCompany: () => ({ companyRole: company.role, activeCompany: { id: company.id } }),
@@ -31,7 +32,7 @@ const REVIEW_URL = '/api/payroll/employees/medical-aid-review';
 const E1 = { id: 'e1', employeeNumber: 'E1', firstName: 'Ann', lastName: 'Lee', medicalAidDependantsCount: 0 };
 const E2 = { id: 'e2', employeeNumber: 'E2', firstName: 'Bob', lastName: 'Ng', medicalAidDependantsCount: 1 };
 
-beforeEach(() => { vi.mocked(apiFetch).mockReset(); router.push.mockReset(); window.localStorage.clear(); company.role = 'owner'; company.id = 'co-1'; });
+beforeEach(() => { vi.mocked(apiFetch).mockReset(); router.push.mockReset(); linkRenders.length = 0; window.localStorage.clear(); company.role = 'owner'; company.id = 'co-1'; });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const reviewCalls = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes(REVIEW_URL)).length;
@@ -110,8 +111,26 @@ describe('employees list — medical-aid review banner', () => {
     vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
       (String(url).includes(REVIEW_URL) ? new Promise<Response>(() => undefined) : ok([])));
     company.id = 'co-2';
+    linkRenders.length = 0;
     view.rerender(<EmployeesListPage />);
+    // not one render of the old list, not even the first one after the switch
+    expect(linkRenders.filter(h => h === '/payroll/employees/e1')).toEqual([]);
     await waitFor(() => expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull());
+  });
+
+  it("a late response for the previous company is not shown after a switch", async () => {
+    let release: (r: Response) => void = () => undefined;
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
+      (String(url).includes(REVIEW_URL) ? new Promise<Response>((res) => { release = res; }) : ok([])));
+    const view = render(<EmployeesListPage />);
+    await waitFor(() => expect(reviewCalls()).toBe(1));
+    const lateForCo1 = release;
+    company.id = 'co-2';
+    view.rerender(<EmployeesListPage />);
+    await waitFor(() => expect(reviewCalls()).toBe(2));
+    lateForCo1(ok({ count: 1, employees: [E1] }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull();
   });
 
   it('the banner is a status region, not an alert', async () => {
