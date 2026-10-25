@@ -51,8 +51,8 @@ describeIfDb('late input VAT claim: the human-initiated callers opt in', () => {
               'other_current_liability', 'credit', true, 3)
       RETURNING id`) as Row[])[0]!.id);
     await sql`
-      INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, employment_type, start_date, status)
-      VALUES (${employeeId}::UUID, ${fx.companyId}::UUID, ${`VLK-${Date.now() % 1e9}`}, 'Kay', 'Late', 'permanent', CURRENT_DATE, 'active')`;
+      INSERT INTO payroll_employees (id, company_id, employee_number, first_name, last_name, employment_type, start_date, status, medical_aid_main_member)
+      VALUES (${employeeId}::UUID, ${fx.companyId}::UUID, ${`VLK-${Date.now() % 1e9}`}, 'Kay', 'Late', 'permanent', CURRENT_DATE, 'active', true)`;
     await lockPeriod(fx, P.start, P.end);
   }, 120000);
 

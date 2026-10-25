@@ -199,8 +199,8 @@ export async function seed(): Promise<void> {
   await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$3,'admin'),($2,$3,'admin')",
     [company, otherCompany, user]);
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,employment_type,start_date,status)
-     VALUES($1,$2,'R088-01','Ria','Eightyeight','permanent',CURRENT_DATE,'active')`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,employment_type,start_date,status, medical_aid_main_member)
+     VALUES($1,$2,'R088-01','Ria','Eightyeight','permanent',CURRENT_DATE,'active', true)`,
     [employee, company],
   );
   for (const owner of [company, otherCompany]) {
