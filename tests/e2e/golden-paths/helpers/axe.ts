@@ -17,6 +17,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { stripVTControlCharacters } from 'util';
 import { describeTargets } from './a11yDescribe';
 import type { A11yScreen } from './a11yScreens';
 import { evaluateGate, pageKeyOf, screenMismatch, seriousViolations, type BaselineFile, type Violation } from './a11yBaseline';
@@ -87,6 +88,15 @@ async function waitForScreenReady(page: Page, screen: A11yScreen): Promise<void>
     expect(page.locator('.animate-pulse, .animate-spin, [aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 }));
 }
 
+/** What went wrong, as text: an Error's message, a plain object as JSON (String when it cannot be serialised), anything else as String. */
+function failureText(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'object' && err !== null) {
+    try { return JSON.stringify(err) ?? String(err); } catch { return String(err); }
+  }
+  return String(err);
+}
+
 /**
  * Runs a wait; when it fails the error names the screen and what was being waited for, keeps the whole underlying
  * message (Playwright's Expected/Received lines are what say why), and carries the original as `cause`.
@@ -95,8 +105,8 @@ async function inScreen<T>(screen: A11yScreen, waitingFor: string, fn: () => Pro
   try {
     return await fn();
   } catch (err) {
-    const why = (err instanceof Error ? err.message : String(err)).replace(/\u001b\[[0-9;]*m/g, '');
-    throw new Error(`a11y screen "${screen.name}" (${screen.path}): ${waitingFor}\n${why}`, { cause: err });
+    const why = stripVTControlCharacters(failureText(err));
+    throw new Error(`a11y screen "${screen.name}" (${screen.path}): ${waitingFor}${why ? `\n${why}` : ''}`, { cause: err });
   }
 }
 
