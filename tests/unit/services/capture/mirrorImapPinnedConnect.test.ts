@@ -115,6 +115,6 @@ describe.each(SERVICES)('%s: the scan connects to the address the guard vetted',
     expect(m.decrypt).not.toHaveBeenCalled();
     // Generic text to the tenant (last_error): no resolved address.
     expect(m.markError).toHaveBeenCalledTimes(1);
-    expect(m.markError.mock.calls[0]![2]).toBe('This mail server address is not allowed');
+    expect(m.markError.mock.calls[0]![2]).toBe('This mail server address is not allowed or could not be resolved');
   });
 });
