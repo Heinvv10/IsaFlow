@@ -87,12 +87,16 @@ async function waitForScreenReady(page: Page, screen: A11yScreen): Promise<void>
     expect(page.locator('.animate-pulse, .animate-spin, [aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 }));
 }
 
-/** Runs a wait; when it fails the error names the screen and what was being waited for, not just a bare Playwright timeout. */
+/**
+ * Runs a wait; when it fails the error names the screen and what was being waited for, keeps the whole underlying
+ * message (Playwright's Expected/Received lines are what say why), and carries the original as `cause`.
+ */
 async function inScreen<T>(screen: A11yScreen, waitingFor: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    throw new Error(`a11y screen "${screen.name}" (${screen.path}): ${waitingFor} (${err instanceof Error ? err.message.split('\n')[0] : String(err)})`);
+    const why = (err instanceof Error ? err.message : String(err)).replace(/\u001b\[[0-9;]*m/g, '');
+    throw new Error(`a11y screen "${screen.name}" (${screen.path}): ${waitingFor}\n${why}`, { cause: err });
   }
 }
 
