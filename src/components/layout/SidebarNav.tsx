@@ -205,6 +205,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
           if (tab.href && !hasItems) {
             return (
               <Link key={tab.id} href={tab.href}
+                data-testid={`sidebar-tab-${tab.id}`}
                 className={`flex items-center px-4 py-2 text-sm font-medium transition-colors border-l-[3px] ${
                   active
                     ? 'text-teal-700 dark:text-teal-300 bg-teal-500/[0.08] border-teal-500 dark:border-teal-400'
@@ -219,6 +220,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
           if (tab.href && hasItems) {
             return (
               <Link key={tab.id} href={tab.href}
+                data-testid={`sidebar-tab-${tab.id}`}
                 onMouseEnter={(e) => openFlyout(tab.id, e.currentTarget)}
                 onMouseLeave={dl}
                 className={`flex items-center justify-between px-4 py-2 text-sm font-medium transition-colors border-l-[3px] ${
