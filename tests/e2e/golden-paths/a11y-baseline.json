@@ -3,11 +3,6 @@
  "pages": {
   "/accounting/assets": [
    {
-    "rule": "color-contrast",
-    "selector": "div > div > div > div > div > a[href=\"/accounting/assets/new\"]",
-    "max": 1
-   },
-   {
     "rule": "document-title",
     "selector": "html",
     "max": 1
@@ -100,11 +95,6 @@
   "/accounting/credit-notes": [
    {
     "rule": "color-contrast",
-    "selector": "div > div > div > div > div > a[href=\"/accounting/credit-notes/new\"]",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
     "selector": "div > div > div > div > div > button{all}",
     "max": 1
    },
@@ -116,32 +106,12 @@
   ],
   "/accounting/customer-invoices": [
    {
-    "rule": "color-contrast",
-    "selector": "div > div > div > div > div > a[href=\"/accounting/customer-invoices/new\"]",
-    "max": 1
-   },
-   {
     "rule": "document-title",
     "selector": "html",
     "max": 1
    }
   ],
   "/accounting/customer-invoices/new": [
-   {
-    "rule": "color-contrast",
-    "selector": "div > div > div > div > div > button",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "div > div > div > div > div > p",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "div > div > div > div > label > span",
-    "max": 1
-   },
    {
     "rule": "document-title",
     "selector": "html",
@@ -191,11 +161,6 @@
   "/accounting/customer-payments/new": [
    {
     "rule": "color-contrast",
-    "selector": "form > div > div > div > div > button[type=\"button\"]",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
     "selector": "form > div > div > div > p",
     "max": 1
    },
@@ -228,11 +193,6 @@
   "/accounting/customer-quotes": [
    {
     "rule": "color-contrast",
-    "selector": "div > div > div > div > div > button",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
     "selector": "div > div > div > div > div > button{all}",
     "max": 1
    },
@@ -247,11 +207,6 @@
     "rule": "button-name",
     "selector": "table > tbody > tr > td > button[type=\"button\"]",
     "max": 2
-   },
-   {
-    "rule": "color-contrast",
-    "selector": "form > div > div > div > div > button[type=\"button\"]",
-    "max": 1
    },
    {
     "rule": "document-title",
@@ -352,11 +307,6 @@
   "/accounting/supplier-payments/new": [
    {
     "rule": "color-contrast",
-    "selector": "form > div > div > div > div > button[type=\"button\"]",
-    "max": 1
-   },
-   {
-    "rule": "color-contrast",
     "selector": "form > div > div > div > p",
     "max": 1
    },
@@ -387,11 +337,6 @@
    }
   ],
   "/payroll/runs": [
-   {
-    "rule": "color-contrast",
-    "selector": "main > div > div > div > div > a[href=\"/payroll/runs/new\"]",
-    "max": 1
-   },
    {
     "rule": "document-title",
     "selector": "html",

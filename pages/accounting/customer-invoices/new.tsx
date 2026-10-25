@@ -114,7 +114,7 @@ export default function NewCustomerInvoicePage() {
       <div className="min-h-screen bg-slate-50 dark:bg-[var(--ff-bg-primary)]">
         <PageHeader
           icon={FileText}
-          title="New Customer Invoice"
+          title="Customer Invoice"
           breadcrumb={[{ label: 'Invoices', href: '/accounting/customer-invoices' }, { label: 'New invoice' }]}
           actions={<ScanAndFillButton onExtracted={handleExtracted} label="Scan Invoice" />}
           className="mb-0"

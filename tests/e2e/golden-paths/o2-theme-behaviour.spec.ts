@@ -10,6 +10,7 @@
  * Read-only: writes no data.
  */
 import { expect, test } from '@playwright/test';
+import { auditContrast } from '../helpers/themeContrast';
 import { axeContrastFailures, rootTheme, seedTheme, settle } from '../helpers/themeSpec';
 
 test.setTimeout(180_000);
@@ -161,10 +162,12 @@ test.describe('panels and surfaces', () => {
 test.describe('reports pin the header row and the first column to the page scroll', () => {
   test.use({ viewport: { width: 760, height: 520 } });
 
+  // The geometry is forced (a wide, tall table) so the test proves the pinning whatever data this company has:
+  // comparator columns are disabled where there is no prior period, and a small company has few rows.
   const REPORTS = [
-    { slug: 'income-statement', path: '/accounting/reports/income-statement', widen: ['Budget', '12-month trend'], sideways: true },
-    { slug: 'balance-sheet', path: '/accounting/reports/balance-sheet', widen: ['Variance', '12-month trend'], sideways: false },
-    { slug: 'trial-balance', path: '/accounting/trial-balance', widen: ['Show movement'], sideways: true },
+    { slug: 'income-statement', path: '/accounting/reports/income-statement' },
+    { slug: 'balance-sheet', path: '/accounting/reports/balance-sheet' },
+    { slug: 'trial-balance', path: '/accounting/trial-balance' },
   ] as const;
 
   for (const report of REPORTS) {
@@ -172,10 +175,7 @@ test.describe('reports pin the header row and the first column to the page scrol
       await seedTheme(page, 'light');
       await page.goto(report.path, { waitUntil: 'domcontentloaded' });
       await settle(page);
-      for (const label of report.widen) {
-        await page.getByLabel(label).or(page.getByRole('button', { name: label })).first().click();
-      }
-      await settle(page);
+      await page.addStyleTag({ content: 'main table { min-width: 1500px !important } main table tbody tr { height: 56px !important }' });
 
       const main = page.locator('main');
       const table = main.locator('table').first();
@@ -183,7 +183,7 @@ test.describe('reports pin the header row and the first column to the page scrol
       const scroll = await main.evaluate((m) => ({ y: m.scrollHeight - m.clientHeight, x: m.scrollWidth - m.clientWidth, overflowY: getComputedStyle(m).overflowY }));
       expect(scroll.overflowY).toBe('auto');
       expect(scroll.y, 'the page must be tall enough to scroll or this proves nothing').toBeGreaterThan(40);
-      if (report.sideways) expect(scroll.x, 'the page must be wide enough to scroll sideways or this proves nothing').toBeGreaterThan(20);
+      expect(scroll.x, 'the page must be wide enough to scroll sideways or this proves nothing').toBeGreaterThan(20);
       // One scroll container: nothing between the table and <main> may scroll or clip it.
       const trapped = await table.evaluate((t) => {
         for (let el = t.parentElement; el && el.tagName !== 'MAIN'; el = el.parentElement) {
@@ -218,10 +218,8 @@ test.describe('reports pin the header row and the first column to the page scrol
         expect(Math.abs(c2!.x - (c1!.x + c1!.width)), 'Account cell flush with Code cell').toBeLessThan(2);
         expect(Math.abs(c1!.width - code!.width), 'Code cell is as wide as its header').toBeLessThan(2);
       }
-      if (report.sideways) {
-        expect(Math.abs(headBox!.x - mainBox!.x), 'first header cell pinned to the left').toBeLessThan(3);
-        expect(Math.abs(cellBox!.x - mainBox!.x), 'first column pinned to the left').toBeLessThan(3);
-      }
+      expect(Math.abs(headBox!.x - mainBox!.x), 'first header cell pinned to the left').toBeLessThan(3);
+      expect(Math.abs(cellBox!.x - mainBox!.x), 'first column pinned to the left').toBeLessThan(3);
     });
   }
 });
@@ -238,4 +236,22 @@ test('the reports sub-navigation border spans the whole row at 1920', async ({ p
     return { nav: nav.getBoundingClientRect().width, row: (nav.closest('div.border-b') as HTMLElement).getBoundingClientRect().width };
   });
   expect(widths.nav, 'the nav (which carries the border) is as wide as its row, less the label').toBeGreaterThan(widths.row - 200);
+});
+
+test('the contrast walker exempts the label of a disabled control and nothing else', async ({ page }) => {
+  await page.goto('/accounting/customer-invoices', { waitUntil: 'domcontentloaded' });
+  await settle(page);
+  await page.evaluate(() => {
+    const host = document.createElement('div');
+    host.id = 'walker-fixture';
+    host.style.cssText = 'background:#fff;position:fixed;top:0;left:0;z-index:99999';
+    host.innerHTML =
+      '<label><input type="checkbox" disabled><span style="color:#aaa">disabled-label</span></label>' +
+      '<label><input type="checkbox"><span style="color:#aaa">enabled-label</span></label>';
+    document.body.appendChild(host);
+  });
+  const report = await auditContrast(page);
+  const texts = report.failing.map((f) => f.text);
+  expect(texts).toContain('enabled-label');
+  expect(texts).not.toContain('disabled-label');
 });
