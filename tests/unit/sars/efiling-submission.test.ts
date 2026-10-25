@@ -57,6 +57,7 @@ vi.mock('@/modules/accounting/services/reports/sarsEfilingRepo', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
+import { draftBlockReason } from '@/modules/accounting/services/reports/sarsEfilingDraftDrift';
 import {
   evaluateEfilingGate,
   submitVAT201ToSars,
@@ -385,14 +386,21 @@ describe('draftDrift — the SARS form', () => {
 
   it('treats a draft saved without the SARS form as drift (re-save needed), never as a pass', () => {
     const drift = draftDrift({ ...FILED_FIELDS }, now(form()));
-    expect(drift).toEqual(['draft predates SARS field mapping — re-save the draft and review it']);
+    expect(drift).toEqual(['draft predates SARS field mapping']);
+  });
+
+  it('words an uncomparable draft in its own terms and a moved figure as the ledger having moved', () => {
+    expect(draftBlockReason(['this draft holds no saved VAT201 figures to compare against']))
+      .toBe('This draft holds no saved VAT201 figures to compare against — re-save the draft and review it before filing');
+    expect(draftBlockReason(['field5_outputVAT 100.00 -> 150.00'])).toMatch(/^The ledger has moved since this draft was saved \(field5_outputVAT/);
   });
 
   it('blocks filing such a draft, naming the reason', async () => {
     m.getVat201Return.mockResolvedValue({ ...FILED_FIELDS, rateCheck: tiedRateCheck(), sarsFields: form(), warnings: [], filability: { filable: true, reason: null } });
     const err = await submitVAT201ToSars(CID, SID, UID).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(EfilingBlockedError);
-    expect((err as EfilingBlockedError).reason).toMatch(/draft predates SARS field mapping/);
+    expect((err as EfilingBlockedError).reason).toBe('This draft predates SARS field mapping — re-save the draft and review it before filing');
+    expect((err as EfilingBlockedError).reason).not.toMatch(/ledger has moved/);
     expect(m.submitVAT201).not.toHaveBeenCalled();
   });
 });
