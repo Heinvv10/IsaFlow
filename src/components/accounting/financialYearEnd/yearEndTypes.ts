@@ -11,11 +11,14 @@ export const BTN_SECONDARY = 'px-4 py-2 rounded-lg border border-[var(--ff-borde
 
 export const MIN_REASON = 10;
 
-/** 'YYYY-MM-DD' for display, built from its parts (no timezone round-trip). Anything else is shown as it came. */
+/** 'YYYY-MM-DD' for display, built from its parts (no timezone round-trip). Anything that is not exactly that, or not a real day, is shown as it came. */
 export function fmtDay(date: string): string {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
-  const month = MONTH_NAMES[m - 1];
-  return month === undefined || !Number.isFinite(d) || !Number.isFinite(y) ? date : `${d} ${month.slice(0, 3)} ${y}`;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return date;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const real = new Date(Date.UTC(y, mo - 1, d)); // only to ask "does this day exist in that month"; nothing is read back in a zone
+  if (mo < 1 || mo > 12 || real.getUTCFullYear() !== y || real.getUTCMonth() !== mo - 1 || real.getUTCDate() !== d) return date;
+  return `${d} ${MONTH_NAMES[mo - 1]!.slice(0, 3)} ${y}`;
 }
 
 /** The South African calendar day of a timestamp (an ISO instant), for display. */

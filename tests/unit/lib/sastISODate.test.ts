@@ -13,7 +13,7 @@ afterEach(() => {
   else process.env.TZ = ORIGINAL_TZ;
 });
 
-// Pacific/Auckland (UTC+12/13) is AHEAD of Johannesburg: a local-field read puts 21:59:59Z on the 21st there, SAST says the 20th.
+// Pacific/Auckland (UTC+12/13) is AHEAD of Johannesburg: a local-field read puts the instant 2026-10-20T21:59:59Z on the 21st there, SAST says the 20th.
 const ZONES = ['UTC', 'America/New_York', 'Africa/Johannesburg', 'Pacific/Auckland'] as const;
 
 describe.each(ZONES)('device in %s', (zone) => {
@@ -59,6 +59,12 @@ describe('fmtDay on input that is not a day', () => {
     expect(fmtDay('')).toBe('');
     expect(fmtDay('garbage')).toBe('garbage');
     expect(fmtDay('2026-13-01')).toBe('2026-13-01');
+    expect(fmtDay('2026-10-99')).toBe('2026-10-99');
+    expect(fmtDay('2026-02-30')).toBe('2026-02-30');
+    expect(fmtDay('2026-10-21-x')).toBe('2026-10-21-x');
+    expect(fmtDay('2026-10')).toBe('2026-10');
+    expect(fmtDay('2024-02-29')).toBe('29 Feb 2024');
+    expect(fmtDay('2026-12-31')).toBe('31 Dec 2026');
     expect(fmtDay('2026-10-21')).toBe('21 Oct 2026');
   });
 });
