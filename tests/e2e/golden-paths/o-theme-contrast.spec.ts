@@ -62,6 +62,7 @@ for (const screen of SCREENS) {
         if (recordOnly) continue;
 
         expect(scheme, `${key}: color-scheme`).toBe(theme);
+        expect(await page.locator('h1').count(), `${key}: one page title`).toBe(1);
         const detail = walker.failing.slice(0, 8).map((f) => `${f.ratio}<${f.required} ${f.el} "${f.text}"`);
         expect(walker.failing, `${key}: text below AA\n${detail.join('\n')}`).toHaveLength(0);
         expect(axe, `${key}: axe color-contrast`).toEqual([]);
