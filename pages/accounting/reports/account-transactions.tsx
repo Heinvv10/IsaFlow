@@ -137,7 +137,7 @@ export default function AccountTransactionsPage() {
             {costCentres.length > 0 && (
               <div>
                 <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">Cost Centre</label>
-                <select value={costCentreFilter} onChange={e => setCostCentreFilter(e.target.value)} className="ff-select text-sm">
+                <select data-testid="cost-centre-filter" value={costCentreFilter} onChange={e => setCostCentreFilter(e.target.value)} className="ff-select text-sm">
                   <option value="">All Cost Centres</option>
                   {costCentres.map(cc => <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>)}
                 </select>

@@ -1,5 +1,5 @@
 {
- "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24), recorded on dev after a full golden run. May only SHRINK: fix a violation and delete its entry (an entry that no longer occurs FAILS the run), or lower its max. Never add an entry or raise a max to make a red run green. Keyed by page path (ids -> :id); selector = nearest anchor + the tags/names down to the node (tests/e2e/golden-paths/helpers/a11yDescribe.ts); max = most nodes allowed to match; dataDriven = how many nodes match (even none) follows the company's data or async state, so any number is allowed and the entry is never stale (reason given per entry). scripts/verify-deploy.sh runs report-only (A11Y_GATE=report). 'shell:*' keys are pieces of the app shell scanned on their own.",
+ "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24), recorded on dev. May only SHRINK: fix a violation and delete its entry (an entry that no longer occurs FAILS the run), or lower its max. Never add an entry or raise a max to make a red run green. Keyed by page path (ids -> :id); '<page>#rows' is the page's data table scanned apart; 'shell:*' is a piece of the app shell scanned on its own. selector = nearest anchor + the tags/names down to the node (tests/e2e/golden-paths/helpers/a11yDescribe.ts); max = most nodes allowed to match. dataDriven = how many nodes match (even none) is decided by the data behind `source` (an API route), so the entry is never stale; its selector is anchored on a data-testid or aria-label, and maxHint is a hard cap where the UI has one. A dev/CI gate: scripts/verify-deploy.sh excludes it.",
  "pages": {
   "/accounting/assets": [
    {
@@ -21,21 +21,30 @@
   "/accounting/bank-transactions": [
    {
     "rule": "color-contrast",
-    "selector": "div > div > button > div > div > span",
+    "selector": "button[data-testid=\"bank-account-card\"] > div > div > span",
     "max": 1,
-    "dataDriven": "amount and difference chips of an imported batch: present only when batches have amounts"
+    "dataDriven": {
+     "source": "/api/accounting/bank-accounts",
+     "why": "amount and gap chips on a card per bank account: which accounts have them follows their balances"
+    }
    },
    {
     "rule": "color-contrast",
-    "selector": "div > div > div > div > div > span",
+    "selector": "span[data-testid=\"statement-format-chip\"]",
     "max": 1,
-    "dataDriven": "statement id chip: present only for imported statements"
+    "dataDriven": {
+     "source": "/api/accounting/bank-import-batches",
+     "why": "format chip renders only when a statement batch is loaded"
+    }
    },
    {
     "rule": "color-contrast",
-    "selector": "div > div > div > ul > li > button[type=\"button\"]",
-    "max": 1,
-    "dataDriven": "one match per table row or list item"
+    "selector": "ul[aria-label=\"Auto-post runs\"] > li > button[type=\"button\"]",
+    "max": 7,
+    "dataDriven": {
+     "source": "/api/accounting/bank-auto-post",
+     "why": "one Undo button per active auto-post run"
+    }
    },
    {
     "rule": "document-title",
@@ -48,27 +57,41 @@
     "max": 2
    },
    {
-    "rule": "label",
-    "selector": "table > tbody > tr > td > input[type=\"checkbox\"]",
-    "max": 25,
-    "dataDriven": "one match per table row or list item"
-   },
-   {
-    "rule": "label",
-    "selector": "table > thead > tr > th > input[type=\"checkbox\"]",
-    "max": 1,
-    "dataDriven": "select-all box: the table (and its header) renders only when there are transactions"
-   },
-   {
     "rule": "select-name",
     "selector": "main > div > div > div > select",
     "max": 5
+   }
+  ],
+  "/accounting/bank-transactions#rows": [
+   {
+    "rule": "label",
+    "selector": "table[data-testid=\"bank-tx-table\"] > tbody > tr > td > input[type=\"checkbox\"]",
+    "max": 25,
+    "dataDriven": {
+     "source": "/api/accounting/bank-transactions",
+     "why": "one select box per transaction row; the page shows 25 rows"
+    },
+    "maxHint": 25
+   },
+   {
+    "rule": "label",
+    "selector": "table[data-testid=\"bank-tx-table\"] > thead > tr > th > input[type=\"checkbox\"]",
+    "max": 1,
+    "dataDriven": {
+     "source": "/api/accounting/bank-transactions",
+     "why": "the table, and so its header, renders only when the account has transactions"
+    },
+    "maxHint": 1
    },
    {
     "rule": "select-name",
-    "selector": "table > tbody > tr > td > select",
+    "selector": "table[data-testid=\"bank-tx-table\"] > tbody > tr > td > select",
     "max": 46,
-    "dataDriven": "one match per table row or list item"
+    "dataDriven": {
+     "source": "/api/accounting/bank-transactions",
+     "why": "a few selects per transaction row (type, selection, VAT, and CC1/CC2/BU when enabled); 25 rows x 6"
+    },
+    "maxHint": 150
    }
   ],
   "/accounting/credit-notes": [
@@ -159,8 +182,7 @@
    {
     "rule": "select-name",
     "selector": "table > tbody > tr > td > select[name=\"incomeType\"]",
-    "max": 1,
-    "dataDriven": "one match per table row or list item"
+    "max": 1
    }
   ],
   "/accounting/customer-payments/new": [
@@ -221,8 +243,7 @@
    {
     "rule": "button-name",
     "selector": "table > tbody > tr > td > button[type=\"button\"]",
-    "max": 2,
-    "dataDriven": "one match per table row or list item"
+    "max": 2
    },
    {
     "rule": "color-contrast",
@@ -242,8 +263,7 @@
    {
     "rule": "select-name",
     "selector": "table > tbody > tr > td > select[name=\"accountId\"]",
-    "max": 2,
-    "dataDriven": "one match per table row or list item"
+    "max": 2
    }
   ],
   "/accounting/migration": [
@@ -254,9 +274,12 @@
    },
    {
     "rule": "color-contrast",
-    "selector": "div > div > div > div > div > span",
+    "selector": "span[data-testid=\"migration-status-badge\"]",
     "max": 1,
-    "dataDriven": "migration session status badge: present only while a session is in progress"
+    "dataDriven": {
+     "source": "/api/accounting/migration/session",
+     "why": "status badge renders only while a migration session exists"
+    }
    },
    {
     "rule": "document-title",
@@ -279,9 +302,13 @@
   "/accounting/month-end-workbench": [
    {
     "rule": "color-contrast",
-    "selector": "main > div > div > div > div > button",
+    "selector": "button[data-testid=\"start-close-run\"]",
     "max": 1,
-    "dataDriven": "Start close run: rendered only while the month has no close run yet"
+    "dataDriven": {
+     "source": "/api/accounting/close-run",
+     "why": "rendered only while the month has no close run yet"
+    },
+    "maxHint": 1
    },
    {
     "rule": "document-title",
@@ -302,22 +329,29 @@
    },
    {
     "rule": "select-name",
-    "selector": "div > div > div > div > div > select",
+    "selector": "select[data-testid=\"cost-centre-filter\"]",
     "max": 1,
-    "dataDriven": "Cost Centre select: rendered only when the company has cost centres"
+    "dataDriven": {
+     "source": "/api/accounting/cost-centres",
+     "why": "rendered only when the company has cost centres"
+    },
+    "maxHint": 1
    }
   ],
   "/accounting/reports/vat-return": [
    {
     "rule": "color-contrast",
-    "selector": "div > div > div > button > div > span",
-    "max": 1,
-    "dataDriven": "per-box transaction-count badge: shown only for boxes that have transactions"
+    "selector": "div > div > div > div > div > button",
+    "max": 1
    },
    {
     "rule": "color-contrast",
-    "selector": "div > div > div > div > div > button",
-    "max": 1
+    "selector": "span[data-testid=\"vat-box-count\"]",
+    "max": 1,
+    "dataDriven": {
+     "source": "/api/accounting/reports-vat-return",
+     "why": "count badge renders only for VAT boxes that have transactions"
+    }
    },
    {
     "rule": "document-title",

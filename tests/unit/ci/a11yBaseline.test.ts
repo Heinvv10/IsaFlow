@@ -1,9 +1,9 @@
 // The comparison behind expectNoSeriousA11yViolations: what counts as a violation, how a page is keyed, what the
-// baseline excuses (by count), when a run fails in enforce mode and when it only reports. Pure functions; the
+// baseline excuses (by count) and when a run fails. Pure functions; the
 // Playwright wiring is tests/unit/ci/a11yAxeWiring.test.ts and the golden specs.
 import { describe, expect, it } from 'vitest';
 import {
-  diffAgainstBaseline, evaluateGate, formatViolations, gateMode, pageKeyOf, screenMismatch, seriousViolations,
+  diffAgainstBaseline, evaluateGate, formatViolations, pageKeyOf, screenMismatch, seriousViolations,
   type AxeViolationLike, type BaselineFile, type Violation,
 } from '../../e2e/golden-paths/helpers/a11yBaseline';
 
@@ -87,73 +87,57 @@ describe('diffAgainstBaseline', () => {
 });
 
 describe('dataDriven entries (presence and count follow the data, not the markup)', () => {
-  const baseline: BaselineFile = { pages: { '/p': [{ rule: 'select-name', selector: 'table > tbody > tr > td > select', max: 46, dataDriven: 'one per table row' }] } };
-  const row = (count: number) => found('select-name', 'table > tbody > tr > td > select', count);
+  const source = { source: '/api/accounting/bank-transactions', why: 'one select per table row' };
+  const baseline: BaselineFile = { pages: { '/p': [
+    { rule: 'select-name', selector: 'table[data-testid="t"] > tbody > tr > td > select', max: 46, dataDriven: source },
+    { rule: 'label', selector: 'table[data-testid="t"] > tbody > tr > td > input', max: 25, maxHint: 25, dataDriven: source },
+  ] } };
+  const rows = (count: number) => found('select-name', 'table[data-testid="t"] > tbody > tr > td > select', count);
+  const boxes = (count: number) => found('label', 'table[data-testid="t"] > tbody > tr > td > input', count);
 
-  it('allow any number of matches, however many the data has', () => {
-    expect(diffAgainstBaseline('/p', [row(3)], baseline).added).toEqual([]);
-    expect(diffAgainstBaseline('/p', [row(500)], baseline).added).toEqual([]);
+  it('allow any number of matches when there is no hard cap', () => {
+    expect(diffAgainstBaseline('/p', [rows(3)], baseline).added).toEqual([]);
+    expect(diffAgainstBaseline('/p', [rows(500)], baseline).added).toEqual([]);
+  });
+  it('a maxHint is a hard cap: one match over it fails, saying what was allowed', () => {
+    expect(diffAgainstBaseline('/p', [boxes(25)], baseline).added).toEqual([]);
+    expect(diffAgainstBaseline('/p', [boxes(26)], baseline).added).toEqual([expect.objectContaining({ rule: 'label', count: 26, max: 25 })]);
   });
   it('are never stale or shrunk: with no data there is nothing to match', () => {
-    const d = diffAgainstBaseline('/p', [], baseline);
-    expect(d.stale).toEqual([]);
-    expect(diffAgainstBaseline('/p', [row(1)], baseline).shrunk).toEqual([]);
-    expect(evaluateGate('enforce', '/p', [], baseline).failure).toBeNull();
+    expect(diffAgainstBaseline('/p', [], baseline).stale).toEqual([]);
+    expect(diffAgainstBaseline('/p', [rows(1)], baseline).shrunk).toEqual([]);
+    expect(evaluateGate('/p', [], baseline).failure).toBeNull();
   });
   it('excuse only their own rule + selector', () => {
-    expect(diffAgainstBaseline('/p', [found('select-name', 'table > tbody > tr > td > input')], baseline).added).toHaveLength(1);
-    expect(diffAgainstBaseline('/p', [found('label', 'table > tbody > tr > td > select')], baseline).added).toHaveLength(1);
-  });
-});
-
-describe('gateMode', () => {
-  it('defaults to enforce, accepts report, and refuses a typo rather than silently enforcing or skipping', () => {
-    expect(gateMode(undefined)).toBe('enforce');
-    expect(gateMode('')).toBe('enforce');
-    expect(gateMode('enforce')).toBe('enforce');
-    expect(gateMode('report')).toBe('report');
-    expect(() => gateMode('reprot')).toThrow(/A11Y_GATE must be/);
+    expect(diffAgainstBaseline('/p', [found('select-name', 'table[data-testid="t"] > tbody > tr > td > input')], baseline).added).toHaveLength(1);
+    expect(diffAgainstBaseline('/p', [found('label', 'table[data-testid="t"] > tbody > tr > td > select')], baseline).added).toHaveLength(1);
   });
 });
 
 describe('evaluateGate', () => {
   const baseline: BaselineFile = { pages: { '/p': [{ rule: 'label', selector: 'a', max: 1 }, { rule: 'old', selector: 'gone', max: 1 }] } };
-  const withNew = [found('label', 'a'), found('critical-new', 'b', 1, 'critical')];
 
-  it('enforce: a new violation throws, naming rule, impact and target', () => {
-    const r = evaluateGate('enforce', '/p', withNew, baseline);
+  it('a new violation fails, naming rule, impact and target', () => {
+    const r = evaluateGate('/p', [found('label', 'a'), found('critical-new', 'b', 1, 'critical')], baseline);
     expect(r.failure).toContain('critical-new');
     expect(r.failure).toContain('[critical]');
     expect(r.failure).toContain('target: b');
   });
-  it('enforce: a stale entry throws, telling the author to delete it', () => {
-    const r = evaluateGate('enforce', '/p', [found('label', 'a')], baseline);
+  it('a stale entry fails, telling the author to delete it', () => {
+    const r = evaluateGate('/p', [found('label', 'a')], baseline);
     expect(r.failure).toMatch(/no longer occur - delete from a11y-baseline\.json/);
     expect(r.failure).toContain('old: gone');
   });
-  it('enforce: exactly the baseline passes', () => {
-    expect(evaluateGate('enforce', '/p', [found('label', 'a'), found('old', 'gone')], baseline).failure).toBeNull();
-  });
-  it('report: the same findings never throw, and are annotated instead', () => {
-    const r = evaluateGate('report', '/p', withNew, baseline);
+  it('exactly the baseline passes, with no annotations', () => {
+    const r = evaluateGate('/p', [found('label', 'a'), found('old', 'gone')], baseline);
     expect(r.failure).toBeNull();
-    const report = r.annotations.find((a) => a.type === 'a11y-gate-report');
-    expect(report?.description).toContain('critical-new');
-    expect(report?.description).toContain('old: gone'); // the stale one too
+    expect(r.annotations).toEqual([]);
   });
-  it('report: attaches what was observed (for re-recording the baseline), with counts', () => {
-    const r = evaluateGate('report', '/p', [found('label', 'a', 4)], baseline);
-    const obs = r.annotations.find((a) => a.type === 'a11y-observed');
-    expect(JSON.parse(obs!.description)).toEqual({ key: '/p', found: [{ rule: 'label', selector: 'a', count: 4 }] });
-  });
-  it('enforce does not attach the observed set', () => {
-    expect(evaluateGate('enforce', '/p', [found('label', 'a'), found('old', 'gone')], baseline).annotations).toEqual([]);
-  });
-  it('shrunk entries are annotated in both modes', () => {
+  it('an entry with fewer nodes than its max is annotated, not failed', () => {
     const b: BaselineFile = { pages: { '/p': [{ rule: 'label', selector: 'a', max: 5 }] } };
-    for (const mode of ['enforce', 'report'] as const) {
-      expect(evaluateGate(mode, '/p', [found('label', 'a', 2)], b).annotations.some((a) => a.type === 'a11y-baseline-shrunk')).toBe(true);
-    }
+    const r = evaluateGate('/p', [found('label', 'a', 2)], b);
+    expect(r.failure).toBeNull();
+    expect(r.annotations.map((a) => a.type)).toEqual(['a11y-baseline-shrunk']);
   });
 });
 
