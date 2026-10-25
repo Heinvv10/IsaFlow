@@ -44,6 +44,7 @@ import { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, 
 import { validateEmployee } from './easyFileEmployeeChecks';
 import { lumpSumPayeCode } from './payrollLumpSumFiling';
 import { validateCertificateTaxFields } from './irp5ValidationEngine';
+import { certificateBirthDate } from './easyFileEmployeeFacts';
 import { assertBirthCorrelates, medicalFieldLines, nilTaxReason, type MedicalCertificateInput } from './easyFileMedicalFields';
 
 export { UsageError, formatField, isValidPayeRef, isValidSdlRef, isValidUifRef, isValidTaxNumber };
@@ -192,6 +193,12 @@ function lumpIncome(lumpSums: LumpSumInput[]): (string | null)[] {
 export function buildEmployeeRecord(emp: EmployeeInput): string[] {
   validateEmployee(emp);
   assertBirthCorrelates(emp);
+  // 3080 is mandatory for nature A (BRS V25.3.0 p. 26); validateEmployee has already required a 13-digit ID.
+  const birth3080 = certificateBirthDate(emp.dateOfBirth, emp.idNumber);
+  if (!birth3080) {
+    throw new UsageError(`${emp.surname} (certificate ${emp.certificateNumber}): the ID number (${emp.idNumber}) does not begin with a `
+      + 'valid date of birth (YYMMDD), so the mandatory date of birth (code 3080) cannot correlate with it. Correct the ID number.');
+  }
   const lumpSums = emp.lumpSums ?? [];
   const under4115 = lumpSums.filter(l => lumpSumPayeCode(l.sourceCode) === '4115');
   const paye4115 = Math.round(under4115.reduce((t, l) => t + l.paye, 0) * 100) / 100;
@@ -211,6 +218,7 @@ export function buildEmployeeRecord(emp: EmployeeInput): string[] {
     formatField(3040, emp.firstNames, 'AN'),
     formatField(3050, emp.initials, 'A'),
     formatField(3060, emp.idNumber, 'N'),
+    formatField(3080, birth3080, 'N'),
     formatField(3150, emp.taxNumber, 'AN'),
     formatField(3200, emp.employmentStartDate, 'N'),
     formatField(3210, emp.employmentEndDate, 'N'),
