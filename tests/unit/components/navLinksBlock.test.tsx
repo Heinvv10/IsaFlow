@@ -3,9 +3,10 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { NavLinksBlock } from '@/components/layout/NavLinksBlock';
 import { mostSpecificActiveHref } from '@/components/accounting/navSections/activeTab';
 
+// Specific link FIRST: a "last match wins" implementation would pick Reconcile.
 const LINKS = [
-  { label: 'Reconcile', href: '/accounting/bank-reconciliation' },
   { label: 'Import Statement', href: '/accounting/bank-reconciliation/import' },
+  { label: 'Reconcile', href: '/accounting/bank-reconciliation' },
 ];
 const cls = (active: boolean) => (active ? 'on' : 'off');
 
@@ -16,6 +17,9 @@ describe('NavLinksBlock', () => {
     );
     expect(screen.getAllByRole('link')).toHaveLength(2);
     expect(container.querySelectorAll('.sep')).toHaveLength(1);
+    const last = container.lastElementChild as HTMLElement;
+    expect(last.className).toBe('sep');
+    expect(last.previousElementSibling?.tagName).toBe('A');
   });
 
   it('renders nothing, separator included, without links', () => {
