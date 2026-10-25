@@ -36,15 +36,35 @@ function script(target: (p: string, m: string) => boolean, fail: Fail, rest: (p:
     return target(p, m) ? fail() : ok(rest(p, m));
   });
 }
-beforeEach(() => { vi.mocked(apiFetch).mockReset(); });
-afterEach(() => { cleanup(); });
+/**
+ * pages/admin/companies mounts with a 300 ms debounce that clears the selection and reloads the list (and clears
+ * `error`). A test that selects a row and presses a bulk button takes however long the box lets it, so on a loaded
+ * machine the debounce fired in the middle: the button vanished, or the error was wiped. The debounce is collapsed to
+ * 0 ms, and `mountCompanies` drains it (both list loads, counted event-loop turns) before the test touches the page.
+ */
+const realSetTimeout = globalThis.setTimeout;
+let timers: { mockRestore: () => void } | undefined;
+beforeEach(() => {
+  vi.mocked(apiFetch).mockReset();
+  timers = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void, ms?: number, ...a: unknown[]) =>
+    realSetTimeout(fn, ms === 300 ? 0 : ms, ...a)) as typeof setTimeout);
+});
+afterEach(() => { cleanup(); timers?.mockRestore(); });
+const turn = () => act(async () => { await new Promise<void>((r) => setImmediate(r)); });
+async function mountCompanies() {
+  const view = render(<CompaniesPage />);
+  const lists = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).startsWith('/api/admin/companies?')).length;
+  for (let i = 0; i < 500 && lists() < 2; i += 1) await turn(); // the page effect's load and the debounced one
+  for (let i = 0; i < 10; i += 1) await turn(); // let the second load's state land
+  return view;
+}
 
 describe('admin companies: create, bulk suspend, extend trial', () => {
   const C = { id: 'c-1', name: 'D2 Acme Ltd', trading_name: null, plan_name: 'Starter', plan_code: 'starter', status: 'active', user_count: 1, mrr_cents: 0, created_at: '2026-01-01T00:00:00Z', last_active: null };
   const list = (p: string) => (p === '/api/admin/companies' ? { items: [C], total: 1, page: 1, limit: 25 } : []);
   const create = async (fail: Fail) => {
     script((p, m) => p === '/api/admin/companies' && m === 'POST', fail, list);
-    const { container } = render(<CompaniesPage />);
+    const { container } = await mountCompanies();
     fireEvent.click(await screen.findByRole('button', { name: /add company/i }));
     fireEvent.change(container.querySelector('input[required]')!, { target: { value: 'New D2 Co' } });
     fireEvent.click(screen.getByRole('button', { name: /^create company$/i }));
@@ -53,7 +73,7 @@ describe('admin companies: create, bulk suspend, extend trial', () => {
   it('create empty 500: a plain sentence', async () => { await create(empty500); expect(await screen.findByText('Could not create the company - try again')).toBeTruthy(); noRaw(); });
   it('create 200: the modal closes and the list reloads', async () => {
     script(() => false, empty500, (p, m) => (p === '/api/admin/companies' && m === 'POST' ? { id: 'c-2' } : list(p)));
-    const { container } = render(<CompaniesPage />);
+    const { container } = await mountCompanies();
     fireEvent.click(await screen.findByRole('button', { name: /add company/i }));
     fireEvent.change(container.querySelector('input[required]')!, { target: { value: 'New D2 Co' } });
     fireEvent.click(screen.getByRole('button', { name: /^create company$/i }));
@@ -61,7 +81,7 @@ describe('admin companies: create, bulk suspend, extend trial', () => {
   });
   const bulk = async (label: RegExp, fail: Fail | null) => {
     script((p) => p.endsWith('/bulk-action'), fail ?? (() => ok({}) as Response), list);
-    render(<CompaniesPage />);
+    await mountCompanies();
     await screen.findAllByText('D2 Acme Ltd');
     fireEvent.click(screen.getAllByRole('checkbox').at(-1)!.closest('td')!);
     fireEvent.click(await screen.findByRole('button', { name: label }));
@@ -71,7 +91,7 @@ describe('admin companies: create, bulk suspend, extend trial', () => {
     it(`${what} empty 500: a plain sentence`, async () => { await bulk(label, empty500); expect(await screen.findByText(sentence)).toBeTruthy(); noRaw(); });
     it(`${what} 200: the selection clears`, async () => {
       script((p) => p.endsWith('/bulk-action') && false, empty500, list);
-      render(<CompaniesPage />);
+      await mountCompanies();
       await screen.findAllByText('D2 Acme Ltd');
       fireEvent.click(screen.getAllByRole('checkbox').at(-1)!.closest('td')!);
       fireEvent.click(await screen.findByRole('button', { name: label }));
