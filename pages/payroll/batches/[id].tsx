@@ -329,13 +329,13 @@ export default function BatchGridPage() {
                     </td>
                     {batch.batchType === 'reimbursive_travel' ? (
                       <>
-                        <td className="py-2 px-3 text-right font-mono">{l.km ?? '—'}</td>
-                        <td className="py-2 px-3 text-right font-mono">{l.ratePerKm ?? '—'}</td>
-                        <td className="py-2 px-3 text-right font-mono">{formatCurrency(l.nonTaxablePortion ?? 0)}</td>
-                        <td className="py-2 px-3 text-right font-mono">{formatCurrency(l.taxablePortion ?? 0)}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{l.km ?? '—'}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{l.ratePerKm ?? '—'}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.nonTaxablePortion ?? 0)}</td>
+                        <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.taxablePortion ?? 0)}</td>
                       </>
                     ) : (
-                      <td className="py-2 px-3 text-right font-mono">{formatCurrency(l.value)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums">{formatCurrency(l.value)}</td>
                     )}
                     <td className="py-2 px-3 text-xs text-red-400">{l.error ?? ''}</td>
                     <td className="py-2 px-3 text-right">

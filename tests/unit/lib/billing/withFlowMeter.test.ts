@@ -190,6 +190,39 @@ describe('withFlowMeter', () => {
     expect(res.headers['X-Flow-Refunded']).toBe('true');
   });
 
+  it('refunds when handler responds with 5xx', async () => {
+    // The debit COMMITs on its own (S-07e), so the request's >= 500 rollback no longer takes it back.
+    mockGetPlan.mockResolvedValueOnce({ planCode: 'payg', planId: 'p', subscriptionId: 's' });
+    mockDeduct.mockResolvedValueOnce({ balanceAfter: 97 });
+    mockRefund.mockResolvedValueOnce({ balanceAfter: 100 });
+
+    const handler = vi.fn(async (_req, res: ReturnType<typeof mockRes>) => { res.statusCode = 500; });
+    const wrapped = withFlowMeter('invoice.create', 3)(handler);
+    const res = mockRes();
+    await wrapped({ companyId: 'co-1' } as never, res as never);
+
+    expect(mockRefund).toHaveBeenCalledOnce();
+    expect(res.headers['X-Flow-Refunded']).toBe('true');
+  });
+
+  it('rethrows the HANDLER\'s error, not the refund\'s, when both fail, and logs the lost refund', async () => {
+    mockGetPlan.mockResolvedValueOnce({ planCode: 'payg', planId: 'p', subscriptionId: 's' });
+    mockDeduct.mockResolvedValueOnce({ balanceAfter: 97 });
+    mockRefund.mockRejectedValueOnce(new Error('wallet locked'));
+
+    const wrapped = withFlowMeter('invoice.create', 3)(vi.fn(async () => { throw new Error('boom'); }));
+    const res = mockRes();
+
+    await expect(wrapped({ companyId: 'co-1' } as never, res as never)).rejects.toThrow('boom');
+    expect(mockRefund).toHaveBeenCalledOnce();
+    expect(log.error).toHaveBeenCalledWith(
+      'flow refund failed after handler error',
+      expect.objectContaining({ companyId: 'co-1', operationCode: 'invoice.create' }),
+      'BILLING',
+    );
+    expect(res.headers['X-Flow-Refunded']).toBeUndefined();
+  });
+
   it('does NOT refund on 2xx / 3xx', async () => {
     mockGetPlan.mockResolvedValueOnce({ planCode: 'payg', planId: 'p', subscriptionId: 's' });
     mockDeduct.mockResolvedValueOnce({ balanceAfter: 97 });

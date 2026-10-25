@@ -8,6 +8,7 @@ import type { DisclosureNote } from './disclosureNoteService';
 import type { DbRow } from '@/types/db';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import { agedBucketTable, getAgedBucketTotals } from './agedBucketTotals';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 import { VAT_SUBMISSION_CLEARING_SOURCE } from './vatSubmissionClearing';
@@ -63,7 +64,7 @@ export async function noteAccountingPolicies(companyId: string, _fiscalYear: num
 // ── Note 2: Property, Plant & Equipment ───────────────────────────────────────
 
 export async function notePPE(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
-  const { start, end } = await getFiscalRange(companyId, fiscalYear);
+  const { current: { start, end, phrase } } = await getReportingPeriod(companyId, fiscalYear);
 
   const rows = await sql`
     SELECT
@@ -96,7 +97,7 @@ export async function notePPE(companyId: string, fiscalYear: number): Promise<Di
   const totalAccum = rows.reduce((s: number, r: DbRow) => s + (Number(r.total_accum_dep) || 0), 0);
   tableRows.push(['Total', fmt(totalCost), fmt(totalAccum), fmt(totalCost - totalAccum), '', '', '']);
 
-  const content = `The table below summarises the movement in property, plant and equipment for the year ended 31 December ${fiscalYear}. Depreciation is charged to profit or loss on a systematic basis over the estimated useful lives of the assets.`;
+  const content = `The table below summarises the movement in property, plant and equipment for the ${phrase}. Depreciation is charged to profit or loss on a systematic basis over the estimated useful lives of the assets.`;
 
   return {
     noteNumber: 2,
@@ -211,7 +212,7 @@ export async function noteCash(companyId: string, fiscalYear: number): Promise<D
 // ── Note 7: Taxation (VAT) ────────────────────────────────────────────────────
 
 export async function noteTaxation(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
-  const { start, end } = await getFiscalRange(companyId, fiscalYear);
+  const { current: { start, end, phrase } } = await getReportingPeriod(companyId, fiscalYear);
 
   const rows = await sql`
     SELECT
@@ -241,7 +242,7 @@ export async function noteTaxation(companyId: string, fiscalYear: number): Promi
   return {
     noteNumber: 7,
     title: 'Taxation',
-    content: `The company is registered for Value Added Tax (VAT) with SARS. VAT is levied at the standard rate of 15% on all taxable supplies. The reconciliation below reflects the net VAT position for the year ended 31 December ${fiscalYear}.`,
+    content: `The company is registered for Value Added Tax (VAT) with SARS. VAT is levied at the standard rate of 15% on all taxable supplies. The reconciliation below reflects the net VAT position for the ${phrase}.`,
     tables: [{
       headers: ['', 'Amount (R)'],
       rows: [

@@ -11,7 +11,7 @@ export function NoteMarker({ note, onClick, label }: {
       type="button"
       onClick={onClick}
       aria-label={`${note.count} ${note.count === 1 ? 'note' : 'notes'} on ${label}`}
-      className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]"
       style={{ color: note.hasOpen ? 'var(--ff-brand-500)' : 'var(--ff-text-tertiary)' }}
     >
       <MessageSquare className="h-3 w-3" />

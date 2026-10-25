@@ -58,17 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         throw new Error('One or both suppliers not found or do not belong to this company');
       }
 
-      // 2. Re-parent supplier_invoices. supplier_id is approval content (R-035):
-      // the merging user becomes an author of every bill it moves.
-      await tx`
-        UPDATE supplier_invoices
-        SET supplier_id = ${target_id},
-            content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
-        WHERE supplier_id = ${source_id}
-          AND company_id = ${companyId}
-      `;
-
-      // 3. Re-parent supplier_payments. supplier_id is approval content too —
+      // 2. Re-parent supplier_payments. supplier_id is approval content too —
       // with it the payee's bank details (R-035 PR5): the merging user becomes
       // an author of every payment it moves, and of each batch they belong to.
       // Their batches are locked first: batch before members, the order
@@ -82,6 +72,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND company_id = ${companyId}
       `;
       await stampBatchesOfMovedPayments(companyId, batchIds, user.id);
+
+      // 3. Re-parent supplier_invoices — AFTER the payments, as every payment
+      // writer takes a payment and then its bills (bank/.claude.md lock order;
+      // bills first deadlocked a concurrent process, 2026-10-24). supplier_id is
+      // approval content (R-035): the merging user becomes an author of every
+      // bill it moves.
+      await tx`
+        UPDATE supplier_invoices
+        SET supplier_id = ${target_id},
+            content_authors = approval_add_author(content_authors, ${user.id}::UUID), content_edited_at = NOW()
+        WHERE supplier_id = ${source_id}
+          AND company_id = ${companyId}
+      `;
 
       // 4. Re-parent supplier_purchase_orders
       await tx`

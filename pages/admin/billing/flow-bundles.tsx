@@ -158,9 +158,9 @@ export default function FlowBundlesPage() {
               {bundles.map((b) => (
                 <tr key={b.id} className="border-t border-gray-200 dark:border-gray-700">
                   <td className="px-4 py-3">{b.name}</td>
-                  <td className="px-4 py-3 text-right font-mono">{b.flows}</td>
-                  <td className="px-4 py-3 text-right font-mono">{formatCurrency(b.priceCents / 100)}</td>
-                  <td className="px-4 py-3 text-right font-mono">
+                  <td className="px-4 py-3 text-right tabular-nums">{b.flows}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(b.priceCents / 100)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">
                     {formatCurrency(b.priceCents / b.flows / 100)}
                   </td>
                   <td className="px-4 py-3 text-center">{b.displayOrder}</td>

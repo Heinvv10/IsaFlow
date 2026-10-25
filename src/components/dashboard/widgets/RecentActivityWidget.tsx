@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Badge } from '@/components/ui/Badge';
 import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { formatDisplayDateShort } from '@/utils/dateFormat';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface JournalEntry {
   id: string;
@@ -19,7 +20,7 @@ interface JournalEntry {
 }
 
 function fmtCurrency(n: number): string {
-  return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return formatMoney(n);
 }
 
 const STATUS_VARIANT: Record<string, 'success' | 'warning' | 'default'> = {

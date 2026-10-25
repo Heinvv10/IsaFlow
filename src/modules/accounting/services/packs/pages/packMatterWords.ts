@@ -2,7 +2,7 @@
  * How page 11's matter sentences write a count. Moved out of
  * `packMatterSources.ts` whole, for the 300-line limit.
  */
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 
 /**
  * EVERY MATTER ON THIS PAGE IS A SENTENCE A DIRECTOR READS, so it is written
@@ -29,5 +29,5 @@ export function plural(n: number, one: string, many: string = `${one}s`): string
  * reach when its panel names no finding.
  */
 export function groupedCount(n: number): string {
-  return n === 0 ? '0' : formatMoney(n, { pack: true });
+  return n === 0 ? '0' : formatStatementFigure(n, { pack: true });
 }

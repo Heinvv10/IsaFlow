@@ -43,8 +43,6 @@ const ALLOWED: Readonly<Record<string, string>> = {
     'definition: fiscalYearRange, the pure calendar the generator and tests build a template year from',
   'src/modules/accounting/services/gl/fiscalYearBasis.ts':
     'definition: fiscalYearStart / getFiscalYearStartMonth, the declared-month helpers (payroll still reads them)',
-  'pages/api/payroll/period-context.ts':
-    'Feature F, PR 3: payroll tax year, COALESCE(financial_year_start, 3) converts with payroll',
 };
 
 /** Strip `//` and block comments so prose describing the old way is not a use of it. */

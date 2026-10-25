@@ -9,6 +9,7 @@ import type { DbRow } from '@/types/db';
 import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import {
   PAYABLE_SUBTYPES,
   RECEIVABLE_SUBTYPES,
@@ -67,7 +68,7 @@ export async function generateNote27GoingConcern(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = await getFiscalRange(companyId, fiscalYear);
+  const { current: { start, end, phrase } } = await getReportingPeriod(companyId, fiscalYear);
 
   log.info('note27: querying going concern indicators', { companyId, fiscalYear });
 
@@ -124,7 +125,7 @@ export async function generateNote27GoingConcern(
   const blocks: NoteContent['blocks'] = [
     {
       type: 'paragraph',
-      text: `The entity has a current ratio of ${currentRatioStr} and ${resultLabel} of R ${fmt(Math.abs(netResult))} for the year.`,
+      text: `The entity has a current ratio of ${currentRatioStr} and ${resultLabel} of R ${fmt(Math.abs(netResult))} for the ${phrase}.`,
     },
     {
       type: 'paragraph',

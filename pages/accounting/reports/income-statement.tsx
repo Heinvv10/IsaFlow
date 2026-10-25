@@ -183,14 +183,14 @@ export default function IncomeStatementPage() {
             <Link href="/accounting?tab=reports" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2">
               <ArrowLeft className="h-4 w-4" /> Back to Reports
             </Link>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-teal-500/10">
                   <BarChart3 className="h-6 w-6 text-teal-500" />
                 </div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Income Statement</h1>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <PresentLink from={periodStart} to={periodEnd} />
                 <button onClick={handleXlsxExport} disabled={!report}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
@@ -265,7 +265,7 @@ export default function IncomeStatementPage() {
                   Profit &amp; Loss — {formatDisplayDate(periodStart)} to {formatDisplayDate(periodEnd)}
                 </h2>
               </div>
-
+              <p className="sm:hidden mb-1 text-xs text-[var(--ff-text-tertiary)]">Swipe the statement sideways for the prior period and variance columns.</p>
               <IncomeStatementSections
                 costCentreId={costCentreId}
                 businessUnitId={businessUnitId}

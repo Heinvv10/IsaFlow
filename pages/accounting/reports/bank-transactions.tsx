@@ -10,6 +10,8 @@ import { ArrowLeft, Landmark, Loader2, AlertCircle, Download } from 'lucide-reac
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { groupBankAccountOptions } from '@/components/accounting/bank/groupBankOptions';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface AcctOpt { id: string; accountCode: string; label: string; parentAccountId: string | null }
 
@@ -29,7 +31,7 @@ interface Report {
   transactions: Txn[];
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 function getDefaultDates() {
   const now = new Date();
@@ -168,11 +170,11 @@ export default function BankTransactionsPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
                   <span className="text-xs text-[var(--ff-text-tertiary)]">Opening Balance</span>
-                  <p className="text-lg font-bold text-[var(--ff-text-primary)] font-mono">{fmt(report.openingBalance)}</p>
+                  <p className="text-lg font-bold text-[var(--ff-text-primary)] tabular-nums">{fmt(report.openingBalance)}</p>
                 </div>
                 <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
                   <span className="text-xs text-[var(--ff-text-tertiary)]">Closing Balance</span>
-                  <p className="text-lg font-bold text-[var(--ff-text-primary)] font-mono">{fmt(report.closingBalance)}</p>
+                  <p className="text-lg font-bold text-[var(--ff-text-primary)] tabular-nums">{fmt(report.closingBalance)}</p>
                 </div>
               </div>
 
@@ -190,20 +192,20 @@ export default function BankTransactionsPage() {
                     {report.transactions.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-[var(--ff-text-tertiary)]">No transactions</td></tr>}
                     {report.transactions.map((t, i) => (
                       <tr key={i} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
-                        <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{t.date}</td>
+                        <td className="px-4 py-2 text-[var(--ff-text-secondary)]">{formatDisplayDate(t.date)}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-secondary)] font-mono text-xs">{t.entryNumber}</td>
                         <td className="px-4 py-2 text-[var(--ff-text-primary)] truncate max-w-[250px]">{t.description}</td>
-                        <td className="px-4 py-2 text-right font-mono text-teal-400">{t.deposit > 0 ? fmt(t.deposit) : ''}</td>
-                        <td className="px-4 py-2 text-right font-mono text-red-400">{t.withdrawal > 0 ? fmt(t.withdrawal) : ''}</td>
-                        <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">{fmt(t.runningBalance)}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-teal-400">{t.deposit > 0 ? fmt(t.deposit) : ''}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-red-400">{t.withdrawal > 0 ? fmt(t.withdrawal) : ''}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(t.runningBalance)}</td>
                       </tr>
                     ))}
                     {report.transactions.length > 0 && (
                       <tr className="bg-[var(--ff-bg-primary)] font-medium">
                         <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                        <td className="px-4 py-3 text-right font-mono text-teal-400">{fmt(totalDep)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-red-400">{fmt(totalWd)}</td>
-                        <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{fmt(report.closingBalance)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-teal-400">{fmt(totalDep)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-red-400">{fmt(totalWd)}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(report.closingBalance)}</td>
                       </tr>
                     )}
                   </tbody>

@@ -50,11 +50,11 @@ export function CustomerStatementTable({ rows, selected, onToggle, onToggleAll }
                   : <Square className="h-4 w-4" />}
               </button>
             </th>
-            <th className="text-left px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
-            <th className="text-left px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Email</th>
-            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
-            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Overdue</th>
-            <th className="text-center px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Preview</th>
+            <th className="text-left px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Customer</th>
+            <th className="text-left px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Email</th>
+            <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
+            <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Overdue</th>
+            <th className="text-center px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Preview</th>
           </tr>
         </thead>
         <tbody>

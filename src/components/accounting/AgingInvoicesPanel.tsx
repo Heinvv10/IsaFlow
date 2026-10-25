@@ -84,15 +84,15 @@ export function AgingInvoicesPanel({ side, entityId, entityName, asAtDate, colSp
                     {fmtDay(inv.dueDate)}
                     {inv.dueDateMissing && <span className="ml-1 text-xs text-[var(--ff-text-tertiary)]">(no due date — invoice date)</span>}
                   </td>
-                  <td className="px-4 py-2 text-sm text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
-                  <td className="px-4 py-2 text-sm text-right font-mono text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
-                  <td className="px-4 py-2 text-sm text-right font-mono font-bold text-[var(--ff-text-primary)]">
+                  <td className="px-4 py-2 text-sm text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(inv.totalAmount)}</td>
+                  <td className="px-4 py-2 text-sm text-right tabular-nums text-teal-500">{inv.amountPaid > 0 ? formatCurrency(inv.amountPaid) : '—'}</td>
+                  <td className="px-4 py-2 text-sm text-right tabular-nums font-bold text-[var(--ff-text-primary)]">
                     {formatCurrency(inv.balance)}
                     {(inv.disputedAmount ?? 0) > 0 && (
                       <span className="block text-xs font-normal text-amber-500">{formatCurrency(inv.disputedAmount ?? 0)} disputed</span>
                     )}
                   </td>
-                  <td className={`px-4 py-2 text-sm text-right font-mono ${days > 0 ? 'text-red-400' : 'text-teal-500'}`}>
+                  <td className={`px-4 py-2 text-sm text-right tabular-nums ${days > 0 ? 'text-red-400' : 'text-teal-500'}`}>
                     {days > 0 ? `${days}d` : 'Current'}
                   </td>
                 </tr>

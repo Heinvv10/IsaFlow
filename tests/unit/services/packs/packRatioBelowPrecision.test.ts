@@ -10,7 +10,7 @@
  *
  * Two halves, both held here: the read restores the measurement the engine
  * rounded away, and the formatter states a figure below its precision as a
- * bound — `<0.01×` — the way `formatMoney` already states an amount below its
+ * bound — `<0.01×` — the way `formatStatementFigure` already states an amount below its
  * scale as `<1`.
  */
 import { describe, expect, it } from 'vitest';

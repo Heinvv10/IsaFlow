@@ -1,13 +1,14 @@
 import { sql } from '@/lib/neon';
-import { localISODate, toISODate } from '@/lib/dateUtils';
 /**
  * Budget vs Actual Report API
- * GET /api/accounting/reports-budget-vs-actual?period=current|ytd|full_year
+ * GET /api/accounting/reports-budget-vs-actual?period=current|ytd|full_year[&fiscal_year=2027]
+ * `fiscal_year` (optional, ytd and full_year only) is a financial-year label from the
+ * registry: 404 when no year carries it, 400 when it is not a label.
  * Sage equivalent: Reports > Budget vs Actual
  *
- * Primary source: accounting_budgets table (period_amounts JSONB per fiscal year).
- * Fallback: app_settings key 'accounting_budgets', used only when no budget rows exist
- * for the current fiscal year. Both sources are filtered by company_id.
+ * Budgets come from budget_month_amounts (one amount per account per calendar
+ * month): the window's budget is the sum of the months inside it. The window
+ * itself comes from the fiscal-year registry (see budgetWindowService).
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -15,11 +16,9 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
-import {
-  budgetMonthKeysInWindow,
-  currentMonthWindow,
-  sumBudgetForWindow,
-} from '@/modules/accounting/services/reports/budgetPeriodWindow';
+import { loadWindowBudgets, resolveBudgetWindow } from '@/modules/accounting/services/reports/budgetWindowService';
+import { BudgetReportYearError, chosenReportYear, reportYearOptions } from '@/modules/accounting/services/reports/budgetReportYear';
+import { localISODate } from '@/lib/dateUtils';
 import {
   buildBudgetVsActualLines,
   type RawActualRow,
@@ -35,95 +34,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   try {
-    const { period = 'ytd' } = req.query;
-
-    // Determine date range. Windows are 'YYYY-MM-DD' strings read off the LOCAL
-    // calendar: `new Date(y, m, 1).toISOString()` is local midnight rendered as
-    // UTC, which in SAST is 22:00 on the last day of the PREVIOUS month, so the
-    // "current month" window used to open a day early and sweep in a day of the
-    // previous month's actuals.
-    let startDate: string;
-    let endDate: string;
-    // The fiscal year the budget rows are filed under. Read from fiscal_periods
-    // rather than sliced off the start date: the two agree only while a fiscal
-    // year starts in January (which every company here currently does), and
-    // slicing would silently look up the wrong year for anyone who doesn't.
-    let fiscalYear: number;
-    const now = new Date();
-
-    if (period === 'current') {
-      ({ startDate, endDate } = currentMonthWindow(now));
-      const [fp] = await sql`
-        SELECT fiscal_year FROM fiscal_periods
-        WHERE company_id = ${companyId}::UUID
-          AND start_date <= ${endDate} AND end_date >= ${startDate}
-        ORDER BY start_date DESC LIMIT 1
-      `;
-      fiscalYear = Number(fp?.fiscal_year ?? startDate.slice(0, 4));
-    } else {
-      // YTD or full_year — use fiscal year start
-      const [fy] = await sql`
-        SELECT MIN(start_date) as start_date, MAX(end_date) as end_date,
-               MIN(fiscal_year) as fiscal_year
-        FROM fiscal_periods
-        WHERE company_id = ${companyId} AND fiscal_year = (SELECT fiscal_year FROM fiscal_periods WHERE company_id = ${companyId} AND status = 'open' ORDER BY start_date DESC LIMIT 1)
-      `;
-      // This fallback fires ONLY for a company with no fiscal_periods rows at
-      // all (Dotbiz, in production today) — which is precisely the case where
-      // there are no periods to appeal to and `companies.financial_year_start`
-      // is the only signal there is. Every company DECLARES 3, while every
-      // company that HAS periods actually starts them 01-01, so the two
-      // disagree; with no periods, the declaration wins and March stands. Do
-      // not "correct" this to January to match the period data: the branch
-      // cannot be reached by any company that has period data.
-      startDate = toISODate(fy?.start_date) || `${now.getFullYear()}-03-01`;
-      endDate = period === 'full_year'
-        ? (toISODate(fy?.end_date) || `${now.getFullYear() + 1}-02-28`)
-        : localISODate(now);
-      fiscalYear = Number(fy?.fiscal_year ?? startDate.slice(0, 4));
-    }
-
-    // Load budgets from accounting_budgets table. Months live in period_amounts
-    // JSONB, keyed by calendar month name ('jan'..'dec') — see budgetService.
-    //
-    // The window used to be derived by comparing Date.getMonth() bounds, which
-    // holds only while a fiscal year starts in January. Every company here does,
-    // so that loop happened to work — but for a fiscal year starting in any
-    // other month the bound goes backwards, the loop runs zero times, and the
-    // report shows R0.00 of budget against real actuals, indistinguishable from
-    // nobody having set a budget.
-    let budgets: Record<string, number> = {};
-    const monthKeys = budgetMonthKeysInWindow(startDate, endDate);
-
-    const budgetRows = await sql`
-      SELECT ab.gl_account_id, ga.account_code, ab.period_amounts, ab.annual_amount
-      FROM accounting_budgets ab
-      JOIN gl_accounts ga ON ga.id = ab.gl_account_id AND ga.company_id = ${companyId}::UUID
-      WHERE ab.company_id = ${companyId}::UUID AND ab.fiscal_year = ${fiscalYear}
-    `;
-    for (const row of budgetRows) {
-      const total = sumBudgetForWindow(
-        (row.period_amounts ?? {}) as Record<string, unknown>,
-        Number(row.annual_amount ?? 0),
-        monthKeys,
-      );
-      budgets[row.account_code] = total;
-      budgets[row.gl_account_id] = total;
-    }
-
-    // If no budget rows found, try app_settings fallback
-    if (Object.keys(budgets).length === 0) {
-      const [settingsRow] = await sql`
-        SELECT value FROM app_settings
-        WHERE company_id = ${companyId} AND key = 'accounting_budgets'
-        LIMIT 1
-      `;
-      if (settingsRow?.value) {
-        budgets = typeof settingsRow.value === 'string'
-          ? (JSON.parse(settingsRow.value) as Record<string, number>)
-          : (settingsRow.value as Record<string, number>);
-      }
-    }
+    // Windows are 'YYYY-MM-DD' strings read off the LOCAL calendar and the
+    // fiscal-year registry: `new Date(y, m, 1).toISOString()` is local midnight
+    // rendered as UTC, which in SAST is 22:00 on the last day of the PREVIOUS
+    // month, so "current month" used to open a day early.
+    const period = String(req.query.period ?? 'ytd');
+    const chosen = await chosenReportYear(companyId, req.query.fiscal_year, period);
+    const { startDate, endDate, fiscalYear, notStarted } = await resolveBudgetWindow(companyId, period, new Date(), chosen);
+    // A year that has not started has no budget and no actuals, whatever dates its window happens to name.
+    const budgets = notStarted ? {} : await loadWindowBudgets(companyId, startDate, endDate);
 
     // Get actual GL balances for expense and revenue accounts. We don't filter
     // by ga.level — many companies don't populate the hierarchy fully and that
@@ -140,7 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     //
     // is_active is deliberately absent: it is a picker flag, and an account
     // deactivated mid-year still earned or spent what it earned or spent.
-    const actuals = await sql`
+    const actuals = notStarted ? [] : await sql`
       SELECT
         ga.id, ga.account_code, ga.account_name, ga.account_type,
         COALESCE(
@@ -171,17 +90,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const lines = buildBudgetVsActualLines(actuals as unknown as RawActualRow[], budgets);
 
     const report = {
-      period: `${startDate} to ${endDate}`,
+      // A year that has not started has no window to name; the page says when it starts.
+      period: notStarted ? 'not started' : `${startDate} to ${endDate}`,
+      ...(notStarted ? { not_started: true, starts_on: startDate } : {}),
       lines,
       total_budget: lines.reduce((s, l) => s + l.budget_amount, 0),
       total_actual: lines.reduce((s, l) => s + l.actual_amount, 0),
       total_variance: lines.reduce((s, l) => s + l.variance, 0),
     };
 
-    return apiResponse.success(res, { report });
+    return apiResponse.success(res, {
+      report, fiscal_year: fiscalYear.fiscalYear, years: await reportYearOptions(companyId, localISODate()),
+    });
   } catch (err) {
+    if (err instanceof BudgetReportYearError) {
+      return err.unknown ? apiResponse.notFound(res, 'Financial year', String(err.label)) : apiResponse.badRequest(res, err.message);
+    }
+    // Anything else is a real failure: rethrown, withErrorHandler answers 500 and the request rolls back.
     log.error('Failed to generate budget vs actual report', { error: err, module: 'accounting' });
-    return apiResponse.databaseError(res, err, 'Failed to generate budget vs actual report');
+    throw err;
   }
 }
 

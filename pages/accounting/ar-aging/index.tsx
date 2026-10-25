@@ -161,12 +161,12 @@ export default function ARAgingPage() {
                           {b.entityName}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-emerald-700 dark:text-emerald-400">{formatCurrency(b.current)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-amber-700 dark:text-amber-400">{formatCurrency(b.days30)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-orange-700 dark:text-orange-400">{formatCurrency(b.days60)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-red-700 dark:text-red-400">{formatCurrency(b.days90)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-rose-700 dark:text-rose-400">{formatCurrency(b.days120Plus)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-emerald-700 dark:text-emerald-400">{formatCurrency(b.current)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-400">{formatCurrency(b.days30)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-orange-700 dark:text-orange-400">{formatCurrency(b.days60)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-red-700 dark:text-red-400">{formatCurrency(b.days90)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-rose-700 dark:text-rose-400">{formatCurrency(b.days120Plus)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">{formatCurrency(b.total)}</td>
                     </tr>
                     {expandedId === b.entityId && (
                       <AgingInvoicesPanel side="ar" entityId={b.entityId} entityName={b.entityName} asAtDate={asAtDate} colSpan={8} />
@@ -177,12 +177,12 @@ export default function ARAgingPage() {
                   <tr className="bg-[var(--ff-bg-primary)] font-bold">
                     <td className="px-4 py-3"></td>
                     <td className="px-4 py-3 text-[var(--ff-text-primary)]">TOTAL</td>
-                    <td className="px-4 py-3 text-right font-mono text-teal-400">{formatCurrency(totals.current)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-amber-400">{formatCurrency(totals.days30)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-orange-400">{formatCurrency(totals.days60)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-red-400">{formatCurrency(totals.days90)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-purple-400">{formatCurrency(totals.days120Plus)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(totals.total)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-teal-400">{formatCurrency(totals.current)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-amber-400">{formatCurrency(totals.days30)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-orange-400">{formatCurrency(totals.days60)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-red-400">{formatCurrency(totals.days90)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-purple-400">{formatCurrency(totals.days120Plus)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(totals.total)}</td>
                   </tr>
                 </tbody>
               </table>

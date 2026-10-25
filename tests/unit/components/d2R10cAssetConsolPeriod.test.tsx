@@ -30,7 +30,7 @@ const lastBody = (method: string, part: string) => {
   const c = vi.mocked(apiFetch).mock.calls.filter(([u, i]) => String(u).includes(part) && (i as RequestInit | undefined)?.method === method).pop()!;
   return JSON.parse(String((c[1] as RequestInit).body));
 };
-const money = (digits: string) => new RegExp(digits.replace(' ', '[\\s\\u00a0\\u202f]'));
+const money = (digits: string) => new RegExp(digits.replace('.', '\\.').replace(' ', '[\\s\\u00a0\\u202f]'));
 
 describe('assets/[assetId]', () => {
   const asset = { id: 'as1', asset_number: 'FA-D2-1', name: 'D2 Laptop', category: 'Computers', purchase_date: '2025-01-15', purchase_price: 12345,
@@ -43,8 +43,8 @@ describe('assets/[assetId]', () => {
     expect(await screen.findByText('D2 Laptop')).toBeDefined();
     expect(screen.queryByText('D2 Other')).toBeNull();
     for (const t of ['FA-D2-1', 'D2 Cape Town', 'SN-D2-42', 'D2 Supplier']) expect(screen.getAllByText(t).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(money('R 12 345,00')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(money('R 9 876,00')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(money('R 12 345.00')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(money('R 9 876.00')).length).toBeGreaterThan(0);
   });
   it('load: a 400 refusal shows the server message; an empty 500 shows the sentence; no asset', async () => {
     serve(on('GET', '/api/accounting/assets', () => refuse()));
@@ -116,7 +116,7 @@ describe('consolidation', () => {
     expect(screen.getByText('D2 Parent Co')).toBeDefined();
     const row = screen.getByText('D2 Cash').closest('tr') as HTMLElement;
     expect(within(row).getByText('D2-1100')).toBeDefined();
-    expect(row.textContent).toMatch(money('7 777,00'));
+    expect(row.textContent).toMatch(money('7 777.00'));
   });
   it('report: a 400 refusal shows the server message; an empty 500 shows the sentence; no table', async () => {
     await run(() => refuse());
@@ -157,7 +157,7 @@ describe('loans/period-close', () => {
     serve(on('GET', 'loans/period-close', () => ok(period([loan]))));
     render(<PeriodClosePage />);
     const row = (await screen.findByText('D2-LN-7')).closest('tr') as HTMLElement;
-    expect(row.textContent).toMatch(money('555 000,00')); expect(row.textContent).toMatch(money('4 321,00'));
+    expect(row.textContent).toMatch(money('555 000.00')); expect(row.textContent).toMatch(money('4 321.00'));
     expect(within(row).getByText('11.5%')).toBeDefined();
     expect(screen.getByText('1 active loans — 1 unposted')).toBeDefined();
   });

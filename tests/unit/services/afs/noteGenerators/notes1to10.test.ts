@@ -12,6 +12,13 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/afs/afsFiscalPeriod', () => ({
   getFiscalRange: vi.fn(async () => ({ start: '2026-01-01', end: '2026-12-31' })),
 }));
+// The period wording comes from the registry (afsReportingPeriod, tested against a database in
+// tests/integration/afs-transition-year.int.test.ts); a twelve-month year here.
+vi.mock('@/modules/accounting/services/afs/afsReportingPeriod', () => ({
+  getReportingPeriod: vi.fn(async () => ({
+    current: { start: '2026-01-01', end: '2026-12-31', months: 12, phrase: 'year ended 2026-12-31' },
+  })),
+}));
 // Notes 10 and 16 are the aged report at the year end, summed (R-059). The
 // ageing's own arithmetic is pinned against a database in
 // tests/integration/r059-year-end-notes-agree-with-ageing.int.test.ts; here the
@@ -23,6 +30,7 @@ vi.mock('@/modules/accounting/services/reports/agedBucketTotals', async (orig) =
 });
 
 import { sql } from '@/lib/neon';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 import { getAgedBucketTotals } from '@/modules/accounting/services/reports/agedBucketTotals';
 import {
   generateNote1AccountingPolicies,
@@ -141,6 +149,18 @@ describe('notes1to10 generators', () => {
       const result = await generateNote3PropertyPlantEquipment(COMPANY_ID, FISCAL_YEAR);
       expect(result).toHaveProperty('dataSnapshot');
       expect(result).toHaveProperty('content');
+    });
+
+    it('the table intro names the period the registry gives, not "the year"', async () => {
+      (getReportingPeriod as unknown as MockedFunction<() => Promise<unknown>>).mockResolvedValueOnce({
+        current: { start: '2026-01-01', end: '2027-02-28', months: 14, phrase: '14 months ended 2027-02-28' },
+      });
+      mockSql.mockResolvedValueOnce([
+        { category: 'Equipment', total_cost: '1', total_accum_dep: '0', total_carrying_value: '1', additions: '0', disposals: '0' },
+      ]);
+      const { content } = await generateNote3PropertyPlantEquipment(COMPANY_ID, FISCAL_YEAR);
+      const intro = content.blocks.find((b) => b.type === 'paragraph');
+      expect(intro && 'text' in intro ? intro.text : '').toContain('for the 14 months ended 2027-02-28:');
     });
 
     it('content includes table with correct headers', async () => {

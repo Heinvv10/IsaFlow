@@ -10,7 +10,7 @@
  * caption says where it starts and why.
  */
 import { describe, expect, it } from 'vitest';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { legacyTrendCaption, legacyTrendOption } from '@/components/accounting/packs/PackSectionView';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { liveDemoTrend } from './fixtures/liveDemoBoardPack';
@@ -21,7 +21,7 @@ import { glyphCells } from './support/bridgeSvg';
 const unesc = (s: string) => s.replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&amp;/g, '&');
 const texts = (svg: string) => [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => unesc(m[1]!).replace(/ /g, ' '));
 const withRevenue = (revenue: number[]): PackTrendPoint[] => liveDemoTrend.map((p, i) => ({ ...p, revenue: revenue[i]! }));
-const R = (n: number) => formatMoney(n, { scale: 'R' }).replace(/ /g, ' ');
+const R = (n: number) => formatStatementFigure(n, { scale: 'R' }).replace(/ /g, ' ');
 
 /** The Demo company: nothing posted until July, September a part month. */
 const DEMO = withRevenue([0, 0, 0, 0, 0, 0, 0, 0, 0, 36_800, 35_150, 29_730]);

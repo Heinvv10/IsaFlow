@@ -11,6 +11,8 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayMonthYear } from '@/utils/dateFormat';
 
 // ---------------------------------------------------------------------------
 // Dynamic Recharts imports (SSR disabled)
@@ -52,7 +54,7 @@ interface ApiResponse {
 function fmtCurrency(n: number): string {
   if (Math.abs(n) >= 1_000_000) return 'R\u00a0' + (n / 1_000_000).toFixed(1) + 'M';
   if (Math.abs(n) >= 1_000) return 'R\u00a0' + (n / 1_000).toFixed(1) + 'K';
-  return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return formatMoney(n);
 }
 
 export function buildLast12Months(now: Date = new Date()): string[] {
@@ -67,7 +69,7 @@ export function buildLast12Months(now: Date = new Date()): string[] {
 function monthLabel(yyyyMm: string): string {
   const [y, m] = yyyyMm.split('-');
   const d = new Date(Number(y), Number(m) - 1, 1);
-  return d.toLocaleString('en-ZA', { month: 'short', year: '2-digit' });
+  return formatDisplayMonthYear(d);
 }
 
 function aggregateByMonth(rows: InvoiceRow[]): MonthBar[] {
@@ -223,7 +225,7 @@ export function SalesHistoryWidget() {
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(156,163,175,0.3)" vertical={false} />
               <XAxis
                 dataKey="month"
-                tick={{ fontSize: 10, fill: 'currentColor' }}
+                tick={{ fontSize: 12, fill: 'currentColor' }}
                 tickLine={false}
                 axisLine={false}
                 className="text-gray-500 dark:text-gray-400"
@@ -231,7 +233,7 @@ export function SalesHistoryWidget() {
               />
               <YAxis
                 tickFormatter={(v: number) => fmtCurrency(v)}
-                tick={{ fontSize: 10, fill: 'currentColor' }}
+                tick={{ fontSize: 12, fill: 'currentColor' }}
                 tickLine={false}
                 axisLine={false}
                 className="text-gray-500 dark:text-gray-400"

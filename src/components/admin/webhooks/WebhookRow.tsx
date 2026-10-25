@@ -5,12 +5,13 @@
 import { Loader2, ChevronDown, ChevronRight, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { DeliveryLog } from './DeliveryLog';
 import type { AdminWebhook } from '@/modules/admin/services/adminWebhookService';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmtDate = (d: string | null) => {
   if (!d) return '—';
-  return new Date(d).toLocaleString('en-ZA', { dateStyle: 'short', timeStyle: 'short' });
+  return formatDisplayDateTime(d);
 };
 
 const truncateUrl = (url: string, max = 48) =>

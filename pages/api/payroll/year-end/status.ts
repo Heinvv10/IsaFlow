@@ -11,7 +11,7 @@
  *   3. Payroll runs posted for the year
  *   4. IRP5 readiness (no validation errors)
  *   5. EMP501 balanced (Σ EMP201 PAYE = Σ IRP5 PAYE)
- *   6. Period lockdown applied (Feb 28 or later)
+ *   6. Period lockdown applied (last day of February or later)
  */
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -19,6 +19,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import {
+  PAYE_TAX_YEAR_END_MONTH,
+  PAYE_TAX_YEAR_START_MONTH,
+  payeTaxYearBounds,
+} from '@/modules/accounting/utils/payeTaxYear';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
@@ -76,7 +81,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     return apiResponse.badRequest(res, 'taxYear must be an integer between 2000 and 2100');
   }
   const taxYear = taxYearRaw;
-  const startMonth = 3, startYear = taxYear - 1, endMonth = 2, endYear = taxYear;
+  const startMonth = PAYE_TAX_YEAR_START_MONTH, startYear = taxYear - 1, endMonth = PAYE_TAX_YEAR_END_MONTH, endYear = taxYear;
+  const bounds = payeTaxYearBounds(taxYear);
   // The checklist reports on the runs the IRP5 and EMP501 actually declare.
   const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
@@ -157,8 +163,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
         WHERE  company_id     = ${companyId}::uuid
           AND  directive_type = 'severance'
           AND  status         = 'approved'
-          AND  effective_date <= ${`${endYear}-02-28`}::date
-          AND  (expiry_date IS NULL OR expiry_date >= ${`${startYear}-03-01`}::date)
+          AND  effective_date <= ${bounds.end}::date
+          AND  (expiry_date IS NULL OR expiry_date >= ${bounds.start}::date)
       ` as Promise<DbRow[]>,
     ]);
 
@@ -254,7 +260,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   // ─── 6. Period lock ────────────────────────────────────────────────────────
   const lockDate = company.lockdown_date ? fmtDate(company.lockdown_date) : null;
   const lockedAtYearEnd = Boolean(
-    company.lockdown_enabled && lockDate && new Date(lockDate) >= new Date(`${endYear}-02-28`),
+    company.lockdown_enabled && lockDate && lockDate >= bounds.end,
   );
 
   const payload: YearEndStatus = {

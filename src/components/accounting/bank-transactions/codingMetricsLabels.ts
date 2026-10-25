@@ -3,6 +3,7 @@
  * transactions strip and the bureau panel so both say the same thing.
  */
 import type { Ratio } from '@/modules/accounting/services/bank/codingMetrics';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export function fmtPct(r: Ratio): string {
   return r.pct === null ? '—' : `${Number.isInteger(r.pct) ? r.pct : r.pct.toFixed(1)}%`;
@@ -10,7 +11,7 @@ export function fmtPct(r: Ratio): string {
 
 export function fmtDay(iso: string | null): string {
   if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Johannesburg' });
+  return formatDisplayDate(iso);
 }
 
 /**

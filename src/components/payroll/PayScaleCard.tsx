@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface PayScale {
   id: string;
@@ -97,7 +98,7 @@ export function PayScaleCard({ employeeId, currentPayScaleId, onChange }: Props)
           </div>
           {current && (
             <div className="mt-3 text-xs text-[var(--ff-text-secondary)]">
-              Band: R{current.minSalary.toLocaleString()} — R{current.midSalary.toLocaleString()} — R{current.maxSalary.toLocaleString()}
+              Band: {formatMoney(current.minSalary, { decimals: 0 })} — {formatMoney(current.midSalary, { decimals: 0 })} — {formatMoney(current.maxSalary, { decimals: 0 })}
             </div>
           )}
         </>

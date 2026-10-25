@@ -7,9 +7,10 @@ import { Receipt, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useDashboardStats } from '@/hooks/useDashboardStats';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 function fmtCurrency(n: number): string {
-  return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return formatMoney(n);
 }
 
 export function BillsToPayWidget() {

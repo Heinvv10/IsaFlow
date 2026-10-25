@@ -19,7 +19,7 @@ interface OutstandingInvoice { id: string; invoiceNumber: string; totalAmount: n
 interface Allocation { key: string; invoiceId: string; amount: number }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 export default function NewSupplierPaymentPage() {
@@ -190,7 +190,7 @@ export default function NewSupplierPaymentPage() {
                         </div>
                         <div className="col-span-2">
                           {idx === 0 && <label className={lbl}>Balance</label>}
-                          <div className={`${inp} bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-right font-mono`}>{selectedInvoice ? formatCurrency(selectedInvoice.balance) : '—'}</div>
+                          <div className={`${inp} bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-right tabular-nums`}>{selectedInvoice ? formatCurrency(selectedInvoice.balance) : '—'}</div>
                         </div>
                         <div className="col-span-3">
                           {idx === 0 && <label className={lbl}>Pay Amount</label>}
@@ -221,14 +221,14 @@ export default function NewSupplierPaymentPage() {
                       return inv ? (
                         <div key={a.key} className="flex justify-between text-sm">
                           <span className="text-slate-500 dark:text-slate-400 font-mono text-xs">{inv.invoiceNumber}</span>
-                          <span className="font-mono text-slate-900 dark:text-slate-100">{formatCurrency(a.amount)}</span>
+                          <span className="tabular-nums text-slate-900 dark:text-slate-100">{formatCurrency(a.amount)}</span>
                         </div>
                       ) : null;
                     })}
                     <div className="h-px bg-slate-100 dark:bg-slate-800" />
                     <div className="flex justify-between">
                       <span className="text-sm font-semibold text-slate-900 dark:text-white">Total</span>
-                      <span className="font-mono font-bold text-lg text-amber-500">{formatCurrency(totalAmount)}</span>
+                      <span className="tabular-nums font-bold text-lg text-amber-500">{formatCurrency(totalAmount)}</span>
                     </div>
                   </div>
                   <button type="submit" disabled={isSubmitting || totalAmount <= 0} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">

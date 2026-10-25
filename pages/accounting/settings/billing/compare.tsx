@@ -13,6 +13,7 @@ import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { AlertCircle, ArrowLeft, Loader2, Check, Zap } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Wallet {
   balance: number;
@@ -40,7 +41,7 @@ function daysBetween(from: Date, to: Date) {
 }
 
 function formatRand(cents: number) {
-  return `R${(cents / 100).toFixed(2)}`;
+  return formatMoney(cents / 100);
 }
 
 export default function ComparePlansPage() {
@@ -162,7 +163,7 @@ export default function ComparePlansPage() {
                   <Zap className="w-5 h-5 text-teal-500" />
                   <h2 className="font-semibold">Pay-As-You-Go (Flows)</h2>
                 </div>
-                <div className="text-3xl font-semibold mb-1">{formatRand(comparison.mtdCents)}</div>
+                <div className="text-2xl font-semibold mb-1">{formatRand(comparison.mtdCents)}</div>
                 <div className="text-sm text-gray-500 mb-4">
                   {wallet!.monthFlowsUsed} Flows used over {comparison.elapsed}
                   {comparison.elapsed === 1 ? ' day' : ' days'} this month
@@ -180,7 +181,7 @@ export default function ComparePlansPage() {
                 <div className="flex items-center gap-2 mb-3">
                   <h2 className="font-semibold">{comparison.targetPlan.name}</h2>
                 </div>
-                <div className="text-3xl font-semibold mb-1">{formatRand(comparison.starterCents)}</div>
+                <div className="text-2xl font-semibold mb-1">{formatRand(comparison.starterCents)}</div>
                 <div className="text-sm text-gray-500 mb-4">flat per month — unlimited usage</div>
                 <div className="pt-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
                   {comparison.targetPlan.description && (

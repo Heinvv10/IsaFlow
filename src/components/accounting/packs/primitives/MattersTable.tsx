@@ -24,7 +24,7 @@
  * the document for the same reason every other money column is: a quantum in
  * rands beside a statement in thousands is the 1000x misread, one page later.
  */
-import { formatMoney, inScale, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inScale, type MoneyScale } from '@/lib/format/money';
 import { mattersColumnPercents } from '@/modules/accounting/services/packs/pages/packMattersColumns';
 import { groupedCount } from '@/modules/accounting/services/packs/pages/packMatterWords';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -134,14 +134,14 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
               {/* `n/m`, not a dash and not a zero: a filing that is overdue
                 * has no rand amount. "R0" would say the exposure was measured
                 * and found to be nothing, and the dash says exactly that
-                * everywhere else in the pack — `formatMoney` prints a
+                * everywhere else in the pack — `formatStatementFigure` prints a
                 * measured zero as an en dash and page 12 now defines it that
                 * way. A quantum that does not exist is the pack's other
                 * convention, which page 12 also defines. */}
               <td>
                 {matter.quantum.value === null
                   ? <NotMeaningfulCell figure={matter.quantum} reasons={reasons} />
-                  : formatMoney(matter.quantum.value, { scale })}
+                  : formatStatementFigure(matter.quantum.value, { scale })}
               </td>
               {columns.map((c) => <td key={c.key}>{matter[c.key]}</td>)}
             </tr>
@@ -176,7 +176,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
              * gate that refuses this shape only sees strings the MODEL
              * composes, and this one is composed in the renderer, so it was
              * the one copy of the defect no test could reach. */
-            : `In total they come to ${inScale(formatMoney(omitted.quantum.value, { scale }), scale)}.`}
+            : `In total they come to ${inScale(formatStatementFigure(omitted.quantum.value, { scale }), scale)}.`}
         </p>
       )}
       <NotMeaningfulNotes reasons={reasons} />

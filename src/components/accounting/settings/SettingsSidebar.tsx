@@ -69,7 +69,7 @@ export function SettingsSidebar({ activeTab, onTabChange }: SettingsSidebarProps
         <div className="space-y-5">
           {SETTINGS_NAV.map(group => (
             <div key={group.id}>
-              <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-widest text-[var(--ff-text-secondary)] select-none">
+              <p className="px-3 mb-1 text-xs font-semibold uppercase tracking-widest text-[var(--ff-text-secondary)] select-none">
                 {group.label}
               </p>
               <ul className="space-y-0.5">

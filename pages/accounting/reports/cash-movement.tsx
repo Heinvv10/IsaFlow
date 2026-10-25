@@ -142,7 +142,7 @@ export default function CashMovementPage() {
                   </div>
                   <div>
                     <p className="text-xs text-[var(--ff-text-tertiary)] mb-0.5">Total Inflows</p>
-                    <p className="text-lg font-bold text-teal-400 font-mono">
+                    <p className="text-lg font-bold text-teal-400 tabular-nums">
                       {formatCurrency(data.totals.inflows)}
                     </p>
                   </div>
@@ -154,7 +154,7 @@ export default function CashMovementPage() {
                   </div>
                   <div>
                     <p className="text-xs text-[var(--ff-text-tertiary)] mb-0.5">Total Outflows</p>
-                    <p className="text-lg font-bold text-red-400 font-mono">
+                    <p className="text-lg font-bold text-red-400 tabular-nums">
                       {formatCurrency(data.totals.outflows)}
                     </p>
                   </div>
@@ -166,7 +166,7 @@ export default function CashMovementPage() {
                   </div>
                   <div>
                     <p className="text-xs text-[var(--ff-text-tertiary)] mb-0.5">Net Movement</p>
-                    <p className={`text-lg font-bold font-mono ${netColor(data.totals.net_movement)}`}>
+                    <p className={`text-lg font-bold tabular-nums ${netColor(data.totals.net_movement)}`}>
                       {formatCurrency(data.totals.net_movement)}
                     </p>
                   </div>
@@ -211,19 +211,19 @@ export default function CashMovementPage() {
                               <p className="text-xs text-[var(--ff-text-tertiary)]">{acc.account_number}</p>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-secondary)]">
+                          <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">
                             {formatCurrency(acc.opening_balance)}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-teal-400">
+                          <td className="px-4 py-3 text-right tabular-nums text-teal-400">
                             {formatCurrency(acc.inflows)}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-red-400">
+                          <td className="px-4 py-3 text-right tabular-nums text-red-400">
                             {formatCurrency(acc.outflows)}
                           </td>
-                          <td className={`px-4 py-3 text-right font-mono font-semibold ${netColor(acc.net_movement)}`}>
+                          <td className={`px-4 py-3 text-right tabular-nums font-semibold ${netColor(acc.net_movement)}`}>
                             {formatCurrency(acc.net_movement)}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)] font-semibold">
+                          <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)] font-semibold">
                             {formatCurrency(acc.closing_balance)}
                           </td>
                           <td className="px-4 py-3 text-center">
@@ -241,19 +241,19 @@ export default function CashMovementPage() {
                     <tfoot>
                       <tr className="border-t-2 border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
                         <td className="px-4 py-3 font-semibold text-[var(--ff-text-primary)]">Totals</td>
-                        <td className="px-4 py-3 text-right font-mono font-semibold text-[var(--ff-text-primary)]">
+                        <td className="px-4 py-3 text-right tabular-nums font-semibold text-[var(--ff-text-primary)]">
                           {formatCurrency(data.totals.opening_balance)}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono font-bold text-teal-400">
+                        <td className="px-4 py-3 text-right tabular-nums font-bold text-teal-400">
                           {formatCurrency(data.totals.inflows)}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono font-bold text-red-400">
+                        <td className="px-4 py-3 text-right tabular-nums font-bold text-red-400">
                           {formatCurrency(data.totals.outflows)}
                         </td>
-                        <td className={`px-4 py-3 text-right font-mono font-bold ${netColor(data.totals.net_movement)}`}>
+                        <td className={`px-4 py-3 text-right tabular-nums font-bold ${netColor(data.totals.net_movement)}`}>
                           {formatCurrency(data.totals.net_movement)}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono font-bold text-[var(--ff-text-primary)]">
+                        <td className="px-4 py-3 text-right tabular-nums font-bold text-[var(--ff-text-primary)]">
                           {formatCurrency(data.totals.closing_balance)}
                         </td>
                         <td />

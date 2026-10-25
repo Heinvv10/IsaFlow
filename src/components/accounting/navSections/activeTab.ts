@@ -99,7 +99,6 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/vat-') ||
     pathname.startsWith('/accounting/drc-vat') ||
     pathname.startsWith('/accounting/sars') ||
-    pathname === '/accounting/reports/vat-return' ||
     pathname === '/accounting/reports/vat-reconciliation' ||
     pathname.startsWith('/payroll/emp201') ||
     pathname.startsWith('/payroll/emp501') ||
@@ -119,6 +118,7 @@ export function getActiveModuleId(
     pathname.startsWith('/accounting/auto-postings') ||
     pathname.startsWith('/accounting/fiscal-periods') ||
     pathname.startsWith('/accounting/financial-years') ||
+    pathname.startsWith('/accounting/financial-year-end-change') ||
     pathname.startsWith('/accounting/year-end') ||
     pathname.startsWith('/accounting/default-accounts') ||
     pathname.startsWith('/accounting/merchant-categories') ||
@@ -172,6 +172,28 @@ export function getActiveTabId(
   if (pathname.startsWith('/accounting/month-end-workbench')) return 'workbench';
   const id = getActiveModuleId(pathname, query);
   return DEMOTED_MODULE_IDS.has(id) ? 'library' : id;
+}
+
+/**
+ * Of a set of sibling links, the one that is active for `asPath`: the longest
+ * matching path wins, so /bank-reconciliation/import lights only "Import
+ * Statement", not "Reconcile" as well. Null when none match.
+ */
+export function mostSpecificActiveHref(hrefs: string[], asPath: string): string | null {
+  let best: string | null = null;
+  for (const href of hrefs) {
+    if (!isLinkActive(href, asPath)) continue;
+    const len = href.split('?')[0]!.length + (href.includes('?') ? 1 : 0);
+    const bestLen = best === null ? -1 : best.split('?')[0]!.length + (best.includes('?') ? 1 : 0);
+    if (len > bestLen) best = href;
+  }
+  return best;
+}
+
+/** `mostSpecificActiveHref` over the plain links of a mixed link/section list. */
+export function activeHrefAmong(items: Array<{ href: string } | { section: string }>, asPath: string): string | null {
+  const hrefs = items.flatMap(i => ('href' in i ? [i.href] : []));
+  return mostSpecificActiveHref(hrefs, asPath);
 }
 
 export function isLinkActive(href: string, asPath: string): boolean {

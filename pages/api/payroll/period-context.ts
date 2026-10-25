@@ -16,6 +16,11 @@ import {
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { sql } from '@/lib/neon';
+import {
+  PAYE_PERIODS_IN_TAX_YEAR,
+  PAYE_TAX_YEAR_START_MONTH,
+  payeTaxPeriodNumber,
+} from '@/modules/accounting/utils/payeTaxYear';
 
 interface RunRow {
   id: string;
@@ -26,7 +31,6 @@ interface RunRow {
 
 interface CompanyRow {
   name: string;
-  tax_year_start_month: number | null;
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -36,18 +40,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
 
-  // SA tax year starts March (month 3) by default. financial_year_start is the
-  // company's own start month; we use it as the tax-year anchor.
+  // The PAYE tax year is always March-February, whatever the company's own
+  // financial year end (companies.financial_year_start is the books' year).
   const companyRows = (await sql`
-    SELECT name, COALESCE(financial_year_start, 3) AS tax_year_start_month
-      FROM companies WHERE id = ${companyId} LIMIT 1
+    SELECT name FROM companies WHERE id = ${companyId} LIMIT 1
   `) as unknown as CompanyRow[];
 
   if (companyRows.length === 0) {
     return apiResponse.notFound(res, 'Company', companyId);
   }
   const company = companyRows[0]!;
-  const taxYearStartMonth = company.tax_year_start_month ?? 3;
 
   const runRows = (await sql`
     SELECT id, period_month, period_year, status
@@ -76,18 +78,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   // SA-style period numbering: Period 1 = first month of tax year.
-  const periodNumber =
-    ((periodMonth - taxYearStartMonth + 12) % 12) + 1;
+  const periodNumber = payeTaxPeriodNumber(periodMonth);
 
   return apiResponse.success(res, {
     companyName: company.name,
     periodMonth,
     periodYear,
     periodNumber,
-    periodsInTaxYear: 12,
+    periodsInTaxYear: PAYE_PERIODS_IN_TAX_YEAR,
     runId,
     status,
-    taxYearStartMonth,
+    taxYearStartMonth: PAYE_TAX_YEAR_START_MONTH,
   });
 }
 

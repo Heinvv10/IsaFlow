@@ -4,6 +4,7 @@
 
 import dynamic from 'next/dynamic';
 import type { SignupTrendPoint } from '@/modules/admin/types/admin.types';
+import { formatDisplayDateShort } from '@/utils/dateFormat';
 
 const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
 const BarChart            = dynamic(() => import('recharts').then((m) => m.BarChart),            { ssr: false });
@@ -20,7 +21,7 @@ interface Props {
 
 function fmtShortDate(dateStr: unknown) {
   const d = new Date(String(dateStr ?? ''));
-  return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+  return formatDisplayDateShort(d);
 }
 
 export function SignupTrendChart({ data }: Props) {
@@ -39,14 +40,14 @@ export function SignupTrendChart({ data }: Props) {
         <XAxis
           dataKey="date"
           tickFormatter={(v: unknown) => fmtShortDate(v)}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           interval={4}
         />
         <YAxis
           allowDecimals={false}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={28}

@@ -13,19 +13,21 @@ import type { CompanyUserSummary } from '@/modules/accounting/services/practice/
 import { PeriodPicker } from '@/components/practice/PeriodPicker';
 import type { PeriodRange } from '@/components/practice/PeriodPicker';
 import { localISODate, monthStartISO } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ---------- helpers ----------
 
 function fmtDate(iso: string) {
-  return iso ? new Date(iso).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+  return iso ? formatDisplayDate(iso) : '—';
 }
 function fmtMoney(n: number | null) {
   if (n == null) return '—';
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+  return formatMoney(n);
 }
 function shortId(uuid: string) { return uuid.slice(0, 8); }
 
-const TH = 'text-left py-2 px-3 text-[10px] tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
+const TH = 'text-left py-2 px-3 text-xs tracking-widest font-semibold text-[var(--ff-text-secondary)] uppercase';
 const TD = 'py-2.5 px-3 text-sm text-[var(--ff-text-secondary)]';
 const SEL_CLS = 'rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)] px-3 py-2 text-sm text-[var(--ff-text-primary)] focus:outline-none focus:ring-2 focus:ring-teal-500/40';
 const BTN_BASE = 'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed';

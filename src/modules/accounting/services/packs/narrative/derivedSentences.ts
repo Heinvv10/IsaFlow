@@ -12,7 +12,7 @@
  * branch that depends on anything but its arguments.
  *
  * SCALE IS A REQUIRED ARGUMENT WHEREVER A FIGURE IS PRINTED (R-P52).
- * Scaling is a display concern owned by `formatMoney`; the model's figures
+ * Scaling is a display concern owned by `formatStatementFigure`; the model's figures
  * stay RAW so the integrity gate keeps comparing raw values. It was the
  * TABLES that were wired for the document's scale and the PROSE that was
  * not, so page 6 printed revenue as `99` under an `R'000` header and, three

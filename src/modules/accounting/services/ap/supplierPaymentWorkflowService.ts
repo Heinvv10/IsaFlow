@@ -8,7 +8,6 @@ import { sql, withSavepoint } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
-import { claimUnderLockTimeout } from '../core/documentClaimLock';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
@@ -42,7 +41,7 @@ export { approveSupplierPayment } from './supplierPaymentApproval';
 export { SupplierPaymentNotFoundError };
 
 /**
- * Raised when the payment is not 'approved' when the claim runs — because it
+ * Raised when the payment is not 'approved' under its row lock — because it
  * never was, or because a concurrent request has already processed it. Raised
  * BEFORE the journal is created, so a route may answer it with a 4xx without
  * `withAuth` committing a half-processed payment.
@@ -84,37 +83,18 @@ export async function processSupplierPayment(
     // Decided under the payment lock, so a double-click's loser is told the
     // payment is processed (409) rather than that its bills are now paid.
     if (payment.status !== 'approved') throw new SupplierPaymentNotProcessableError(payment.status);
-    // Not a batch member, and every bill still payable (K-063/K-066) — before the claim.
+    // Not a batch member, and every bill still payable (K-063/K-066) — before the posting.
     await assertPaymentStillProcessable(companyId, payment);
     // R-035 PR5: the money moves here, so the approval is re-checked under the
-    // lock — before the claim, so the route's 409 commits nothing.
+    // lock — before the posting, so the route's 409 commits nothing.
     await assertPaymentApprovalCleared(companyId, payment);
 
-    // CLAIM the payment before anything is posted — the singular twin of
-    // batchPaymentService.processBatch, which carried the identical defect.
-    // What this replaced read `payment.status !== 'approved'` and then created
-    // and POSTED DR AP / CR Bank for the full amount and incremented
-    // `amount_paid` on every allocated bill, with the payment's own row
-    // rewritten unconditionally: two concurrent "process" clicks credited the
-    // bank twice and overstated the supplier ledger, and only one journal id
-    // survived on the payment to show for it. The status-predicated UPDATE is
-    // the guard — the loser matches zero rows and stops here, before the first
-    // posting — and it also moves the first blocking point off the per-company
-    // entry_number trigger, where two interleaved callers used to park on each
-    // other with no lock_timeout at all.
-    const claimed = await claimUnderLockTimeout('supplier payment', async () => (await sql`
-      UPDATE supplier_payments
-      SET status = 'processed', processed_at = NOW()
-      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
-      RETURNING id
-    `) as Row[]);
-    if (claimed.length === 0) {
-      // Re-read rather than trusting the row read before the UPDATE: the loser
-      // of a double-click needs the status the winner left behind.
-      const now = await getSupplierPaymentById(companyId, id);
-      throw new SupplierPaymentNotProcessableError(now?.status ?? 'missing');
-    }
-
+    // No separate CLAIM before the posting: the payment row lock above already serialises a double-click (the loser
+    // waits on it, then reads 'processed' and is refused 409 before posting anything, K-107), so the row is written
+    // ONCE, at the end. A second write of a row this transaction already wrote re-runs its foreign-key checks, and
+    // the supplier FK's FOR KEY SHARE on `suppliers`, taken after the payment, crossed updateSupplier (supplier FOR
+    // UPDATE, then the supplier's payments in recordBankDetailsSetter): 40P01. Written once, this path locks no
+    // supplier row at all (ap/.claude.md, 2026-10-24).
     const apAccount = await getSystemAccount('payable', companyId);
     const bankAccount = payment.bankAccountId
       ? ((await sql`SELECT * FROM gl_accounts WHERE id = ${payment.bankAccountId}::UUID AND company_id = ${companyId}::UUID`) as Row[])[0]
@@ -163,15 +143,16 @@ export async function processSupplierPayment(
       `;
     }
 
-    // Only the journal link is left to write — the status and timestamp were
-    // set by the claim above.
+    // The one write of the payment row: status, timestamp and journal link together.
     const updatedRows = (await sql`
-      UPDATE supplier_payments
-      SET gl_journal_entry_id = ${journalEntry.id}::UUID
-      WHERE id = ${id} AND company_id = ${companyId}::UUID
+      UPDATE supplier_payments SET status = 'processed', processed_at = NOW(), gl_journal_entry_id = ${journalEntry.id}::UUID
+      WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'approved'
       RETURNING *
     `) as Row[];
-    const updated = updatedRows[0] as Row;
+    // Unreachable under the lock. A plain Error (500), so the posting above rolls back with the request; never the
+    // typed 409, which is raised only before the journal exists.
+    if (!updatedRows[0]) throw new Error('Cannot process payment: its status changed concurrently');
+    const updated = updatedRows[0];
 
     log.info('Processed supplier payment', { id, journalEntryId: journalEntry.id }, 'accounting');
     return mapPaymentRow(updated);

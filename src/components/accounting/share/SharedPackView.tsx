@@ -5,7 +5,7 @@
  */
 import { Fragment } from 'react';
 import { CommentaryBlock, type PublishedCommentaryRow } from '@/components/accounting/commentary/CommentaryBlock';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
 import {
   packToTotals, packToMargins, packToBsTotals, packToBsDetail,
@@ -118,7 +118,7 @@ export function SharedPackView({ data }: { data: SharedPackProps }) {
                 .map(([k, v]) => (
                   <div key={k} className="rounded border border-[var(--ff-border-light)] p-2">
                     <dt className="text-xs text-[var(--ff-text-tertiary)]">{labelFor(k)}</dt>
-                    <dd className="tabular-nums text-[var(--ff-text-primary)]">{formatMoney(v as number)}</dd>
+                    <dd className="tabular-nums text-[var(--ff-text-primary)]">{formatStatementFigure(v as number)}</dd>
                   </div>
                 ))}
             </dl>
