@@ -5,10 +5,9 @@
 
 import { useState } from 'react';
 import {
-  Button, Input, MoneyField, DateField, FormSection, AutosaveStatus, ExplainDrawer,
+  Button, Input, Money, MoneyField, DateField, FormSection, AutosaveStatus, ExplainDrawer,
   type AutosaveState, type Explanation,
 } from '@/components/ui';
-import { formatCentsEcho } from '@/lib/money/saAmountParser';
 
 const EXPLANATION: Explanation = {
   title: 'How was PAYE calculated?',
@@ -54,7 +53,7 @@ export function FormKitShowcase() {
           <div className="rounded-lg border border-gray-200 p-4 text-sm dark:border-gray-700">
             <p className="font-medium text-gray-900 dark:text-gray-100">Total due</p>
             <p className="mt-1 text-lg tabular-nums text-gray-900 dark:text-gray-100">
-              {amount === null ? '—' : formatCentsEcho(amount)}
+              {amount === null ? '—' : <Money cents={amount} />}
             </p>
           </div>
         }

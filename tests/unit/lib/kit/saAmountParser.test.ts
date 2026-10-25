@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseSaAmount, formatCentsEcho, formatCentsPlain } from '@/lib/money/saAmountParser';
+import { parseSaAmount } from '@/lib/money/saAmountParser';
+import { formatCents } from '@/lib/money/formatMoney';
 
 const NB = '\u00A0';
 
@@ -134,22 +135,46 @@ describe('parseSaAmount rejects with a reason', () => {
   });
 });
 
-describe('formatCentsEcho', () => {
-  it('groups thousands with a non-breaking space and keeps a dot decimal', () => {
-    expect(formatCentsEcho(2_500_000)).toBe(`R 25${NB}000.00`);
-    expect(formatCentsEcho(123_456)).toBe(`R 1${NB}234.56`);
-    expect(formatCentsEcho(5)).toBe('R 0.05');
-    expect(formatCentsEcho(-12_345)).toBe('-R 123.45');
-    expect(formatCentsEcho(0)).toBe('R 0.00');
+describe('parseSaAmount ceiling (MAX_MONEY, the NUMERIC(15,2) limit)', () => {
+  it('accepts the largest storable amount and refuses one cent more', () => {
+    expect(parseSaAmount('9 999 999 999 999.99')).toEqual({ ok: true, cents: 999_999_999_999_999 });
+    const over = parseSaAmount('10 000 000 000 000.00');
+    expect(over.ok).toBe(false);
+    if (!over.ok) {
+      expect(over.code).toBe('too_large');
+      expect(over.reason).toContain('R 9,999,999,999,999.99');
+    }
   });
-  it('plain form has no currency marker', () => {
-    expect(formatCentsPlain(2_500_000)).toBe(`25${NB}000.00`);
-    expect(formatCentsPlain(-12_345)).toBe('-123.45');
+  it('refuses 15 digits of cents that are over the cap', () => {
+    expect(parseSaAmount('9 999 999 999 999.999').ok).toBe(false);
+    expect(parseSaAmount('99999999999999.99')).toMatchObject({ ok: false, code: 'too_large' });
   });
-  it('round-trips through the parser', () => {
-    for (const c of [0, 5, 99, 1_005, 123_456, 2_500_000, -2_500_000, 123_456_789]) {
-      expect(parseSaAmount(formatCentsEcho(c))).toEqual({ ok: true, cents: c });
-      expect(parseSaAmount(formatCentsPlain(c))).toEqual({ ok: true, cents: c });
+});
+
+describe('parseSaAmount currency', () => {
+  it('reads R and ZAR for a rand field (the default)', () => {
+    expect(parseSaAmount('R 5')).toEqual({ ok: true, cents: 500 });
+    expect(parseSaAmount('ZAR 5', { currency: 'ZAR' })).toEqual({ ok: true, cents: 500 });
+  });
+  it.each(['R 5', 'r5', 'ZAR 5', 'zar5', '-R 5', '(R 5)', 'R-5', '\u2212R 5'])(
+    'refuses %j in a USD field instead of reading it as 5 USD',
+    (text) => {
+      const r = parseSaAmount(text, { currency: 'USD' });
+      expect(r).toMatchObject({ ok: false, code: 'currency' });
+      if (!r.ok) expect(r.reason).toContain('USD');
+    },
+  );
+  it('reads a bare number in a USD field', () => {
+    expect(parseSaAmount('25,000.00', { currency: 'USD' })).toEqual({ ok: true, cents: 2_500_000 });
+    expect(parseSaAmount('-5', { currency: 'USD' })).toEqual({ ok: true, cents: -500 });
+  });
+});
+
+describe('typed text round-trips through the canonical formatter', () => {
+  it('formatCents output parses back to the same cents, with and without the R', () => {
+    for (const c of [0, 5, 99, 1_005, 123_456, 2_500_000, -2_500_000, 123_456_789, 999_999_999_999_999]) {
+      expect(parseSaAmount(formatCents(c))).toEqual({ ok: true, cents: c });
+      expect(parseSaAmount(formatCents(c, { symbol: false }))).toEqual({ ok: true, cents: c });
     }
   });
 });

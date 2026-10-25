@@ -11,6 +11,7 @@
     "scripts/ci/mq-merge-already-tested.ts",
     "scripts/ci/check-raw-input-allowlist.ts",
     "scripts/ci/check-raw-muted-text-stops.ts",
+    "scripts/ci/rawInputAllowlist.ts",
     "tests/helpers/liveGoTrue.ts",
     "tests/helpers/integrationGate.ts",
     "scripts/sandbox/*.ts",

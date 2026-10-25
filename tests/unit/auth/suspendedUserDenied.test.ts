@@ -42,7 +42,7 @@ function makeClient(rows: MembershipRow[], events: string[]): MockClient {
     query: vi.fn(async (text: string) => {
       const t = String(text);
       const verb = t.trim().split(/\s+/)[0]!.toUpperCase();
-      if (/FROM company_users/i.test(t)) return { rows };
+      if (/FROM (public\.)?company_users/i.test(t)) return { rows };
       if (verb === 'BEGIN' || verb === 'COMMIT' || verb === 'ROLLBACK') events.push(verb);
       return { rows: [] };
     }),

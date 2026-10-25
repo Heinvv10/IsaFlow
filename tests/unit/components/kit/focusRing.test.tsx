@@ -61,6 +61,16 @@ describe('focus ring tokens', () => {
   });
 });
 
+describe('inset modifier for fields flush in an overflow-hidden parent', () => {
+  it('draws the ring inside the control, in both themes, by the full ring width', () => {
+    for (const selector of ['.ff-focus-ring.ff-focus-ring-inset:focus-visible', '.dark .ff-focus-ring.ff-focus-ring-inset:focus-visible']) {
+      const at = css.indexOf(selector);
+      expect(at, selector).toBeGreaterThan(-1);
+    }
+    expect(css).toMatch(/outline-offset:\s*calc\(var\(--ff-focus-ring-width\) \* -1\)/);
+  });
+});
+
 describe('kit controls carry the focus ring class', () => {
   it('Button and Input', () => {
     render(

@@ -83,6 +83,41 @@ export function runAfterCommit(label: string, fn: () => Promise<unknown>): void 
 }
 
 /**
+ * Run `fn` if the current request transaction does NOT commit: a ROLLBACK, a
+ * failed COMMIT, or a throw. For undoing what committed on its own connection
+ * (a Flows debit on migration_admin, S-07e) when the request it paid for did
+ * not land. It runs outside any ALS context, like after-commit work, and a
+ * failure is logged under `label`. Outside a request there is nothing to wait
+ * for and nothing can roll back, so it is dropped.
+ */
+export function runAfterRollback(label: string, fn: () => Promise<unknown>): void {
+  const store = als.getStore();
+  if (!store) return;
+  if (store.finished || !store.afterRollback) {
+    // Not thrown: the work this guards already succeeded, and failing it now
+    // would answer an error for it. withAuth and the bearer pipeline keep the
+    // queue; another owner's rollback does not refund (logged so it is seen).
+    log.warn('runAfterRollback: no after-rollback queue on this transaction; dropped', {
+      label, finished: Boolean(store.finished),
+    }, 'DB');
+    return;
+  }
+  store.afterRollback.push({ label, fn });
+}
+
+/**
+ * The owner's `finally`: start every after-rollback callback when the
+ * transaction did not commit, and drop them all when it did.
+ */
+export function settleAfterRollback(ctx: RequestContext | null, committed: boolean): void {
+  if (!ctx) return;
+  const queue = ctx.afterRollback ?? [];
+  ctx.afterRollback = undefined;
+  if (committed) return;
+  for (const { label, fn } of queue) detach(label, fn);
+}
+
+/**
  * Start every callback queued on `ctx`. The owner calls this ONLY after its
  * COMMIT succeeded; on ROLLBACK it simply does not, and the queue is dropped
  * with the context.

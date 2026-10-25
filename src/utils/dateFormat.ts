@@ -8,6 +8,7 @@
  *   formatDisplayDate()       → "25 Feb 2026"
  *   formatDisplayDateTime()   → "25 Feb 2026, 14:30"
  *   formatDisplayDateLong()   → "25 February 2026"
+ *   formatDisplayDateWeekday() → "Wednesday, 25 February 2026"
  *   formatDisplayDateShort()  → "25 Feb"
  *   formatDisplayMonthYear()  → "Feb 2026"
  *
@@ -80,6 +81,15 @@ export function formatDisplayDateLong(date: DateInput, fallback = 'N/A'): string
   const d = toDate(date);
   if (!d) return fallback;
   return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+/**
+ * "Wednesday, 25 February 2026" — Echo of a typed date (the weekday catches a wrong month or year)
+ */
+export function formatDisplayDateWeekday(date: DateInput, fallback = 'N/A'): string {
+  const d = toDate(date);
+  if (!d) return fallback;
+  return d.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 /**

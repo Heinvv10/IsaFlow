@@ -65,8 +65,8 @@ beforeAll(async () => {
     "INSERT INTO company_users(company_id,user_id,role) VALUES($1,$3,'admin'),($2,$3,'admin'),($1,$4,'admin')",
     [companyA, companyB, bothUser, aOnlyUser]);
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status)
-     VALUES($1,$2,'E-897-A','Ayanda','Zulu','2020-01-01','active'),($3,$4,'E-897-B','Johan','Smit','2020-01-01','active')`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status, medical_aid_main_member)
+     VALUES($1,$2,'E-897-A','Ayanda','Zulu','2020-01-01','active', true),($3,$4,'E-897-B','Johan','Smit','2020-01-01','active', true)`,
     [employeeA, companyA, employeeB, companyB]);
   await pool.query(
     `INSERT INTO payroll_components(id,company_id,name,sars_source_code,component_type,is_taxable)

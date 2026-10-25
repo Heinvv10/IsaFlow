@@ -216,7 +216,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       label: 'G then T',
       description: 'Go to Tax',
       category: 'navigation',
-      action: () => { void router.push('/accounting/reports/vat-return'); },
+      action: () => { void router.push('/accounting/sars/vat201'); },
     },
   ], [router]);
 

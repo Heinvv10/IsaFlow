@@ -13,7 +13,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify, verifyAs, metaFor } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -27,7 +27,7 @@ vi.mock('@/modules/billing/services/paystackClient', () => ({
 const live = (amountCents: number, extra: Record<string, unknown> = {}) =>
   ({ status: 'success', id: 1814, amountCents, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', ...extra });
 const paystackSays = (amountCents: number, extra: Record<string, unknown> = {}) =>
-  h.verifyTransaction.mockResolvedValue(live(amountCents, extra));
+  h.verifyTransaction.mockImplementation(verifyAs(live(amountCents, extra)));
 
 beforeAll(async () => {
   vi.stubEnv('PAYSTACK_SECRET_KEY', SECRET);
@@ -106,7 +106,7 @@ describe('LOW-5: two different Paystack amounts for one transaction are flagged'
     const ref = await checkout(A, id, 10000);
     h.verifyTransaction.mockImplementation(async () => {
       expect((await deliver(ref, 10300, 'ZAR', { requested_amount: 10000, fees: 300 })).statusCode).toBe(200);
-      return live(10000);
+      return { ...live(10000), metadata: await metaFor(ref) };
     });
     expect((await verify(ref)).body.data?.status).toBe('completed');
     expect(await settlement(A, ref, id)).toMatchObject({

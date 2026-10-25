@@ -9,31 +9,41 @@ const fmt = (n: number) =>
 // ── FormRow ──────────────────────────────────────────────────────────────────
 
 export function FormRow({
-  field, label, amount, highlight,
+  field, label, amount, highlight, kind, note,
 }: {
   field: string;
   label: string;
-  amount: number;
+  /** Null: IsaFlow has no source for the field — shown as a dash, never as R0.00. */
+  amount: number | null;
   highlight?: boolean;
+  /** `value` = rand value of supplies, `tax` = a VAT amount. */
+  kind?: 'value' | 'tax';
+  note?: string;
 }) {
   return (
-    <div className={`px-4 py-3 flex items-center justify-between ${highlight ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
+    <div data-testid={`vat201-field-${field}`} className={`px-4 py-3 flex items-center justify-between ${highlight ? 'bg-[var(--ff-bg-primary)]/30' : ''}`}>
       <div className="flex items-center gap-3">
-        <span className="text-sm font-mono text-[var(--ff-text-tertiary)] w-8">{field}</span>
-        <span className={`text-sm ${highlight ? 'font-semibold text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
-          {label}
+        <span data-testid="vat201-field-number" className="text-sm font-mono text-[var(--ff-text-tertiary)] w-10">{field}</span>
+        <div>
+          <span className={`text-sm ${highlight ? 'font-semibold text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
+            {label}
+          </span>
+          {note && <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">{note}</p>}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        {kind && <span className="text-[10px] uppercase tracking-wider text-[var(--ff-text-tertiary)]">{kind === 'value' ? 'Value' : 'VAT'}</span>}
+        <span data-testid="vat201-field-amount" className={`text-sm font-medium ${highlight ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
+          {amount === null ? '—' : fmt(amount)}
         </span>
       </div>
-      <span className={`text-sm font-medium ${highlight ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
-        {fmt(amount)}
-      </span>
     </div>
   );
 }
 
 // ── TransactionTable ──────────────────────────────────────────────────────────
 
-interface VAT201Invoice {
+export interface VAT201Invoice {
   id: string;
   invoiceNumber: string;
   counterpartyName: string;

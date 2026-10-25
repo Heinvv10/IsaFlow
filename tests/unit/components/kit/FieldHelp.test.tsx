@@ -8,6 +8,10 @@ import { ExplainDrawer } from '@/components/ui/ExplainDrawer';
 const HELP = { text: 'The amount before VAT, in rand.', href: 'https://help.isaflow.co.za/amounts' };
 
 const tip = (): HTMLElement => document.querySelector('[role="tooltip"]') as HTMLElement;
+const help = (href?: string) => ({ text: 'Help text.', href });
+const field = (href?: string) => (
+  <MoneyField label="Amount" value={null} onChange={() => undefined} help={help(href)} />
+);
 
 describe('field help on MoneyField and DateField', () => {
   it.each([
@@ -18,10 +22,10 @@ describe('field help on MoneyField and DateField', () => {
     const button = screen.getByRole('button', { name: `Help: ${subject}` });
     expect(button.tagName).toBe('BUTTON');
     expect(button.getAttribute('type')).toBe('button');
-    expect(tip().hidden).toBe(true);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
     expect(button.getAttribute('aria-expanded')).toBe('false');
     fireEvent.focus(button);
-    expect(tip().hidden).toBe(false);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(false);
     expect(button.getAttribute('aria-expanded')).toBe('true');
     expect(tip().textContent).toContain(HELP.text);
   });
@@ -29,7 +33,7 @@ describe('field help on MoneyField and DateField', () => {
   it('links the help text to the input with aria-describedby (even while hidden)', () => {
     render(<MoneyField label="Amount" value={null} onChange={() => undefined} help={HELP} />);
     const input = screen.getByLabelText('Amount');
-    expect(tip().hidden).toBe(true);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
     expect(input.getAttribute('aria-describedby')?.split(' ')).toContain(tip().id);
     expect(document.getElementById(tip().id)?.textContent).toContain(HELP.text);
   });
@@ -54,9 +58,9 @@ describe('field help on MoneyField and DateField', () => {
     const button = screen.getByRole('button', { name: 'Help: Date' });
     button.focus();
     fireEvent.focus(button);
-    expect(tip().hidden).toBe(false);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(false);
     fireEvent.keyDown(button, { key: 'Escape' });
-    expect(tip().hidden).toBe(true);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
     expect(document.activeElement).toBe(button);
   });
 
@@ -70,9 +74,9 @@ describe('field help on MoneyField and DateField', () => {
     );
     const button = screen.getByRole('button', { name: 'Help: Amount' });
     fireEvent.mouseEnter(button.parentElement as HTMLElement);
-    expect(tip().hidden).toBe(false);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(false);
     fireEvent.keyDown(document.body, { key: 'Escape' });
-    expect(tip().hidden).toBe(true);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -80,9 +84,9 @@ describe('field help on MoneyField and DateField', () => {
     render(<MoneyField label="Amount" value={null} onChange={() => undefined} help={HELP} />);
     const wrapper = screen.getByRole('button', { name: 'Help: Amount' }).parentElement as HTMLElement;
     fireEvent.mouseEnter(wrapper);
-    expect(tip().hidden).toBe(false);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(false);
     fireEvent.mouseLeave(wrapper);
-    expect(tip().hidden).toBe(true);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
   });
 
   it('closes when focus leaves, but not when it moves to the Learn more link', () => {
@@ -91,9 +95,9 @@ describe('field help on MoneyField and DateField', () => {
     fireEvent.focus(button);
     const link = screen.getByRole('link', { name: /Learn more/ });
     fireEvent.blur(button, { relatedTarget: link });
-    expect(tip().hidden).toBe(false);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(false);
     fireEvent.blur(link, { relatedTarget: screen.getByLabelText('Amount') });
-    expect(tip().hidden).toBe(true);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
   });
 
   it('renders the Learn more link; external links open in a new tab and say so', () => {
@@ -119,6 +123,67 @@ describe('field help on MoneyField and DateField', () => {
   });
 });
 
+describe('the tooltip holds text only; the link is beside it', () => {
+  it('role=tooltip has no interactive descendants, the link is a sibling in the popover', () => {
+    render(field('https://help.isaflow.co.za/x'));
+    fireEvent.focus(screen.getByRole('button', { name: 'Help: Amount' }));
+    expect(tip().querySelector('a, button, input')).toBeNull();
+    expect(tip().textContent).toBe('Help text.');
+    const link = screen.getByRole('link', { name: /Learn more/ });
+    expect(tip().contains(link)).toBe(false);
+    expect((tip().parentElement as HTMLElement).contains(link)).toBe(true);
+  });
+
+  it('Esc with focus on the link closes the popover and puts focus back on the (i) button', () => {
+    render(field('https://help.isaflow.co.za/x'));
+    const button = screen.getByRole('button', { name: 'Help: Amount' });
+    fireEvent.focus(button);
+    const link = screen.getByRole('link', { name: /Learn more/ });
+    link.focus();
+    expect(document.activeElement).toBe(link);
+    fireEvent.keyDown(link, { key: 'Escape' });
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
+    expect(document.activeElement).toBe(button);
+  });
+});
+
+describe('Learn more only links to safe targets', () => {
+  it.each([
+    'javascript:alert(1)',
+    'JaVaScRiPt:alert(1)',
+    ' javascript:alert(1)',
+    '\tjavascript:alert(1)',
+    'java\nscript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'vbscript:msgbox(1)',
+    '//evil.example/x',
+    '/\\evil.example/x',
+    'https://',
+    'ftp://example.com/x',
+    'mailto:a@b.co',
+    'help/amounts',
+    '',
+    'https://exa mple.com',
+    'http://help.isaflow.co.za/x',
+    'HTTP://HELP.ISAFLOW.CO.ZA/',
+    'http://localhost:3000/a',
+  ])('renders no link for %j', (href) => {
+    render(field(href));
+    fireEvent.focus(screen.getByRole('button', { name: 'Help: Amount' }));
+    expect(document.querySelector('a')).toBeNull();
+    expect(tip().textContent).toBe('Help text.');
+  });
+
+  it.each(['https://help.isaflow.co.za/x?y=1#z', 'HTTPS://HELP.ISAFLOW.CO.ZA/', '/help/amounts', '/'])(
+    'renders a link for %j',
+    (href) => {
+      render(field(href));
+      fireEvent.focus(screen.getByRole('button', { name: 'Help: Amount' }));
+      expect(document.querySelector('a')?.getAttribute('href')).toBe(href);
+    },
+  );
+});
+
 describe('field help on FormSection', () => {
   it('the help button is named for the section and the text describes the region', () => {
     render(
@@ -128,13 +193,13 @@ describe('field help on FormSection', () => {
     );
     const button = screen.getByRole('button', { name: 'Help: Line items' });
     const region = screen.getByRole('region', { name: /Line items/ });
-    expect(tip().hidden).toBe(true);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
     expect(region.getAttribute('aria-describedby')).toBe(tip().id);
     fireEvent.focus(button);
-    expect(tip().hidden).toBe(false);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(false);
     expect(tip().textContent).toContain('One row per product or service.');
     fireEvent.keyDown(button, { key: 'Escape' });
-    expect(tip().hidden).toBe(true);
+    expect((tip().parentElement as HTMLElement).hidden).toBe(true);
   });
 
   it('keeps the heading text clean of the help button', () => {

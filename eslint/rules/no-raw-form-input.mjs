@@ -8,16 +8,28 @@
  *      {...spread} props are given the benefit of the doubt (the label may arrive through them).
  *      type="hidden" is exempt.
  *
- * Files that already violate are listed in eslint/raw-input-allowlist.json and skipped. The list
- * only shrinks: scripts/ci/check-raw-input-allowlist.ts fails on an entry that no longer violates.
- * Pass `{ allowlist: [] }` to see every violation (that script does).
+ * Scope: <input> only. Unlabelled <select> and <textarea> are not checked here: adding them would put many more
+ * files on the allowlist, and the allowlist may only shrink. A follow-up PR can widen the rule together with a
+ * deliberate, reviewed regeneration of the list.
+ *
+ * `type` is read case-insensitively, and a conditional or logical `type={a ? 'date' : 'text'}` counts as a date
+ * input if ANY branch is 'date'. A `type` the rule cannot see through (an identifier, a call) is given the
+ * benefit of the doubt, as are {...spread} props.
+ *
+ * Files that already violate are listed in eslint/raw-input-allowlist.json as path -> number of reports. A
+ * listed file may keep that many; the rule reports only what is beyond it (the later ones in the file), so a
+ * NEW raw input in a listed file fails too. The list only shrinks: scripts/ci/check-raw-input-allowlist.ts
+ * fails when a count is higher than the base ref's or no longer matches the file. Pass `{ allowlist: {} }`
+ * to see every violation (that script does).
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const ALLOWLIST_FILE = path.join(here, '..', 'raw-input-allowlist.json');
+/** Paths in the allowlist and the kit prefix are relative to the repo root, wherever eslint was started from. */
+const REPO_ROOT = path.resolve(here, '..', '..');
+export const ALLOWLIST_FILE = path.join(REPO_ROOT, 'eslint', 'raw-input-allowlist.json');
 
 const UI_DIR = 'src/components/ui/';
 
@@ -42,18 +54,44 @@ function literal(a) {
   return undefined;
 }
 
-/** True when the attribute is present and not an empty literal. */
+/** Every string literal a `type` value could take: "x", {"x"}, {a ? 'x' : 'y'}, {a && 'x'}, {`x`}. */
+function typeCandidates(a) {
+  const out = [];
+  const visit = (e) => {
+    if (!e) return;
+    if (e.type === 'Literal' && typeof e.value === 'string') out.push(e.value.trim().toLowerCase());
+    else if (e.type === 'TemplateLiteral' && e.expressions.length === 0) out.push((e.quasis[0]?.value.cooked ?? '').trim().toLowerCase());
+    else if (e.type === 'ConditionalExpression') { visit(e.consequent); visit(e.alternate); }
+    else if (e.type === 'LogicalExpression') { visit(e.left); visit(e.right); }
+  };
+  const v = a?.value;
+  if (v?.type === 'Literal') visit(v);
+  else if (v?.type === 'JSXExpressionContainer') visit(v.expression);
+  return out;
+}
+
+/** `{undefined}`, `{null}`, `{false}`, `{''}` and `{``}`: written out, but there is nothing in them. */
+function isNothing(a) {
+  const e = a.value?.type === 'JSXExpressionContainer' ? a.value.expression : a.value;
+  if (!e) return false;
+  if (e.type === 'Identifier') return e.name === 'undefined';
+  if (e.type === 'Literal') return e.value === null || e.value === false || (typeof e.value === 'string' && e.value.trim() === '');
+  if (e.type === 'TemplateLiteral' && e.expressions.length === 0) return (e.quasis[0]?.value.cooked ?? '').trim() === '';
+  return false;
+}
+
+/** True when the attribute is present and carries something (a literal, or an expression we cannot see through). */
 function hasValue(a) {
   if (!a) return false;
-  const lit = literal(a);
-  return lit === undefined ? a.value !== null : lit.trim() !== '';
+  if (a.value === null) return true; // bare `aria-label` is `true`
+  return !isNothing(a);
 }
 
 /** @type {import('eslint').Rule.RuleModule} */
 export const noRawFormInput = {
   meta: {
     type: 'problem',
-    schema: [{ type: 'object', properties: { allowlist: { type: 'array', items: { type: 'string' } } }, additionalProperties: false }],
+    schema: [{ type: 'object', properties: { allowlist: { type: 'object', additionalProperties: { type: 'integer', minimum: 0 } } }, additionalProperties: false }],
     messages: {
       rawDate:
         'Use <DateField> from @/components/ui instead of <input type="date"> (typed shortcuts, dd MMM yyyy, ISO value out).',
@@ -64,12 +102,15 @@ export const noRawFormInput = {
     },
   },
   create(context) {
-    const rel = path.relative(context.cwd, context.filename).split(path.sep).join('/');
-    const allowlist = new Set(context.options[0]?.allowlist ?? defaultAllowlist());
-    if (rel.startsWith(UI_DIR) || allowlist.has(rel)) return {};
+    const rel = path.relative(REPO_ROOT, context.filename).split(path.sep).join('/');
+    const allowlist = context.options[0]?.allowlist ?? defaultAllowlist();
+    if (rel.startsWith(UI_DIR)) return {};
+    // Own-property lookup: a file called "constructor" or "__proto__" must not read the prototype.
+    const allowed = Object.prototype.hasOwnProperty.call(allowlist, rel) ? allowlist[rel] : 0;
 
     const labelTargets = new Set();
     const idInputs = [];
+    const found = [];
 
     return {
       JSXOpeningElement(node) {
@@ -80,9 +121,9 @@ export const noRawFormInput = {
         if (htmlFor) labelTargets.add(htmlFor);
         if (tag !== 'input') return;
 
-        const type = literal(attr(node, 'type'));
-        if (type === 'hidden') return;
-        if (type === 'date') context.report({ node, messageId: 'rawDate' });
+        const types = typeCandidates(attr(node, 'type'));
+        if (types.length > 0 && types.every((t) => t === 'hidden')) return;
+        if (types.includes('date')) found.push({ node, messageId: 'rawDate' });
 
         if (node.attributes.some((a) => a.type === 'JSXSpreadAttribute')) return;
         if (hasValue(attr(node, 'aria-label')) || hasValue(attr(node, 'aria-labelledby'))) return;
@@ -92,16 +133,19 @@ export const noRawFormInput = {
         if (inLabel) return;
 
         const id = attr(node, 'id');
-        if (!id) {
-          context.report({ node, messageId: 'unlabelled' });
+        if (!id || isNothing(id)) {
+          found.push({ node, messageId: 'unlabelled' });
         } else if (literal(id) !== undefined) {
           idInputs.push({ node, id: literal(id) });
         }
       },
       'Program:exit'() {
         for (const { node, id } of idInputs) {
-          if (!labelTargets.has(id)) context.report({ node, messageId: 'orphanId', data: { id } });
+          if (!labelTargets.has(id)) found.push({ node, messageId: 'orphanId', data: { id } });
         }
+        // The first `allowed` reports in file order are the ones the list already knows about.
+        found.sort((a, b) => a.node.range[0] - b.node.range[0]);
+        for (const report of found.slice(allowed)) context.report(report);
       },
     };
   },

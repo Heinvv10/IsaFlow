@@ -8,6 +8,7 @@
  * Handler errors return a GENERIC message — never stack traces or SQL.
  */
 import { withSavepoint } from '@/lib/neon';
+import { runAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { roleFenceRefusal } from './roleFence';
@@ -246,6 +247,11 @@ export class McpRegistry {
       const didBillableWork = result.isError !== true && result.billable !== false;
       if (!didBillableWork && debit.handle) {
         await refundForTool(ctx.companyId, debit.handle);
+      } else if (debit.handle) {
+        // The debit committed on its own (S-07e): if the request rolls back after
+        // all (a later batch call's 5xx, a failed COMMIT), refund it then.
+        const handle = debit.handle;
+        runAfterRollback(`mcp flow refund (${name}, request rolled back)`, () => refundForTool(ctx.companyId, handle));
       }
       // Both flags are registry-internal — never put them on the wire.
       const { billable: _billable, wroteNothing: _wroteNothing, ...wire } = result;

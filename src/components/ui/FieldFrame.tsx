@@ -19,7 +19,7 @@ export interface FieldFrameProps {
   children: React.ReactNode;
 }
 
-export const fieldIds = (id: string) => ({
+const fieldIds = (id: string) => ({
   error: `${id}-error`,
   helper: `${id}-helper`,
   help: `${id}-help`,
