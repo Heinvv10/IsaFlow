@@ -13,8 +13,7 @@ import { LoadingSpinner } from './LoadingSpinner';
 const buttonVariants = cva(
   [
     'inline-flex items-center justify-center gap-2 rounded-lg font-medium',
-    'transition-colors duration-150 focus-visible:outline-none',
-    'focus-visible:ring-2 focus-visible:ring-offset-2',
+    'transition-colors duration-150 ff-focus-ring',
     'disabled:pointer-events-none disabled:opacity-50',
     'select-none whitespace-nowrap',
   ],
@@ -25,26 +24,22 @@ const buttonVariants = cva(
           'bg-gradient-to-b from-teal-400 to-teal-600 text-white',
           'hover:from-teal-300 hover:to-teal-500',
           'shadow-[0_1px_2px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.15)]',
-          'focus-visible:ring-teal-500',
         ],
         secondary: [
           'border border-gray-300 bg-white text-gray-700 backdrop-blur-sm',
           'hover:bg-gray-50 hover:border-gray-400',
-          'focus-visible:ring-teal-500',
           'dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200',
           'dark:hover:bg-gray-700 dark:hover:border-gray-500',
         ],
         ghost: [
           'bg-transparent text-gray-700',
           'hover:bg-gray-100 hover:text-gray-900',
-          'focus-visible:ring-teal-500',
           'dark:text-gray-300 dark:hover:bg-white/8 dark:hover:text-gray-100',
         ],
         danger: [
           'bg-gradient-to-b from-red-500 to-red-700 text-white',
           'hover:from-red-400 hover:to-red-600',
           'shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
-          'focus-visible:ring-red-500',
         ],
       },
       size: {

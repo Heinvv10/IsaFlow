@@ -96,7 +96,7 @@ function TabButton({ tab, active, variant, onClick }: TabButtonProps) {
   const Icon = tab.icon;
 
   const underlineClasses = cn(
-    'relative inline-flex items-center gap-1.5 px-1 pb-3 pt-1 text-sm font-medium border-b-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-1',
+    'relative inline-flex items-center gap-1.5 px-1 pb-3 pt-1 text-sm font-medium border-b-2 transition-colors ff-focus-ring',
     active
       ? 'border-teal-600 text-teal-600 dark:border-teal-400 dark:text-teal-400'
       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:border-gray-600',
@@ -104,7 +104,7 @@ function TabButton({ tab, active, variant, onClick }: TabButtonProps) {
   );
 
   const pillClasses = cn(
-    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500',
+    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ff-focus-ring',
     active
       ? 'bg-teal-600 text-white dark:bg-teal-500'
       : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-100',

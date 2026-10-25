@@ -32,8 +32,8 @@ async function companyWithHistory() {
     customer: await one("INSERT INTO customers(company_id, name) VALUES($1,'B cust') RETURNING id", [c]),
     gl_account: await one(`INSERT INTO gl_accounts(company_id, account_code, account_name, account_type, normal_balance)
       VALUES($1,'B1','B acc','expense','debit') RETURNING id`, [c]),
-    payroll_employee: await one(`INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, employment_type, start_date)
-      VALUES($1,'B1','B','Emp','permanent','2026-01-01') RETURNING id`, [c]),
+    payroll_employee: await one(`INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, employment_type, start_date, medical_aid_main_member)
+      VALUES($1,'B1','B','Emp','permanent','2026-01-01', true) RETURNING id`, [c]),
     approval_rule: await one(`INSERT INTO approval_rules(company_id, name, document_type, condition_field, condition_operator,
       condition_value, approver_role, is_active) VALUES($1,'B rule','supplier_invoice','amount','any',0,'admin',true) RETURNING id`, [c]),
   };
