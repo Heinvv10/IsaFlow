@@ -1,6 +1,9 @@
 /**
  * PATCH /api/billing/flows/auto-topup — enable/disable auto top-up and
  * set which bundle to buy when balance hits zero.
+ *
+ * v1 has no payment gateway, so auto top-up cannot buy anything: it may be
+ * switched off (or its bundle changed while on), never switched on (409).
  */
 
 import type { NextApiResponse } from 'next';
@@ -11,7 +14,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withWriteAccess } from '@/lib/auth/withWriteAccess';
 import { apiResponse } from '@/lib/apiResponse';
-import { setAutoTopup } from '@/modules/billing/services/flowWalletService';
+import { getWallet, setAutoTopup } from '@/modules/billing/services/flowWalletService';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 
 const Body = z.object({
@@ -37,6 +40,9 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, parsed.error.flatten().formErrors[0] ?? 'Invalid input');
   }
 
+  if (parsed.data.enabled && !(await getWallet(req.companyId))?.autoTopupEnabled) {
+    return apiResponse.conflict(res, 'Auto top-up needs a stored payment method, and none can be stored yet. Top up manually.');
+  }
   await setAutoTopup(req.companyId, parsed.data.enabled, parsed.data.bundleId ?? null);
   return apiResponse.success(res, { enabled: parsed.data.enabled, bundleId: parsed.data.bundleId ?? null });
 }

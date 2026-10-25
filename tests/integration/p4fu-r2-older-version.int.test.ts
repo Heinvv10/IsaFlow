@@ -54,8 +54,8 @@ let seq = 0;
 async function employee(f: SeveranceFixture, pay: 'salary' | 'allowance', from: string, to: string | null = null, start = '2020-01-01') {
   seq += 1;
   const id = String((await pool.query(
-    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, end_date, date_of_birth, tax_number)
-     VALUES ($1, $2, 'Extra', $2, $3::date, $4::date, '1980-01-01', $5) RETURNING id`,
+    `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, end_date, date_of_birth, tax_number, medical_aid_main_member)
+     VALUES ($1, $2, 'Extra', $2, $3::date, $4::date, '1980-01-01', $5, true) RETURNING id`,
     [f.company, `R1-OV-${seq}`, start, to, String(1234567000 + seq)])).rows[0]!.id);
   const comp = pay === 'salary'
     ? String((await pool.query("SELECT id FROM payroll_components WHERE company_id = $1 AND sars_source_code = '3601'", [f.company])).rows[0]!.id)

@@ -59,7 +59,7 @@ function makeClient(opts: {
   return {
     query: vi.fn(async (text: string) => {
       const verb = typeof text === 'string' ? text.trim().split(/\s+/)[0]!.toUpperCase() : 'PARAM';
-      if (/FROM company_users/i.test(String(text))) {
+      if (/FROM (public\.)?company_users/i.test(String(text))) {
         opts.events.push('SELECT_MEMBERSHIP');
         return { rows: membershipRows };
       }
@@ -181,6 +181,32 @@ describe('withAuth — commit-before-respond ordering', () => {
     expect(events).toContain('COMMIT_THROW');
     expect(state.statusCode).toBe(500);
     expect(state.finished).toBe(true); // a response WAS sent
+  });
+
+  // S-07e: what committed on its own connection (a Flows debit) is undone when
+  // the request does not commit; never when it does.
+  it.each([
+    ['a failed COMMIT after a 2xx', { commitThrows: true }, 200, true],
+    ['a 5xx', {}, 500, true],
+    ['a throw', {}, 'throw', true],
+    ['a committed 2xx', {}, 200, false],
+  ] as const)('runs after-rollback work on %s: %s', async (_, clientOpts, outcome, runs) => {
+    const events: string[] = [];
+    currentClient = makeClient({ events, ...clientOpts });
+    const { res } = makeRes(events);
+    const { withAuth } = await import('@/lib/auth/withAuth');
+    const { runAfterRollback } = await import('@/lib/afterCommit');
+    const tok = await makeToken('user-1');
+    const undo = vi.fn(async () => undefined);
+
+    await withAuth(async (_req: never, r: NextApiResponse) => {
+      runAfterRollback('undo the debit', undo);
+      if (outcome === 'throw') throw new Error('handler threw');
+      r.status(outcome).json({ ok: outcome < 500 });
+    })(mkReq(tok, COMPANY_ID), res);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(undo).toHaveBeenCalledTimes(runs ? 1 : 0);
   });
 
   it('flushes exactly once when the handler calls end twice', async () => {

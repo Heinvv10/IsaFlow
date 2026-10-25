@@ -36,11 +36,18 @@ export const getLink = async (token: string) => call(await route('../../pages/ap
 export const verify = async (ref: string) => call(await route('../../pages/api/portal/payments/paystack/verify'),
   { method: 'GET', url: `/api/portal/payments/paystack/verify?ref=${ref}`, query: { ref } });
 
+/** What a real portal checkout stamps into Paystack's metadata for `ref`'s request (its invoice and company). */
+export async function metaFor(ref: string): Promise<{ invoice_id: string | null; company_id: string } | undefined> {
+  const { rows } = await pool.query<{ invoice_id: string | null; company_id: string }>(
+    'SELECT customer_invoice_id AS invoice_id, company_id FROM paystack_payment_requests WHERE paystack_reference = $1', [ref]);
+  return rows[0];
+}
+
 export async function deliver(reference: string, cents: number) {
   const webhook = await route('../../pages/api/webhooks/paystack');
   const body = JSON.stringify({ event: 'charge.success', data: {
     id: 167, reference, status: 'success', amount: cents, currency: 'ZAR', channel: 'card',
-    customer: { email: 'payer@r167.test', customer_code: 'CUS_r167' } } });
+    customer: { email: 'payer@r167.test', customer_code: 'CUS_r167' }, metadata: await metaFor(reference) } });
   const req = Readable.from([Buffer.from(body)]) as unknown as NextApiRequest;
   Object.assign(req, { method: 'POST', headers: { 'content-type': 'application/json',
     'x-paystack-signature': createHmac('sha512', SECRET).update(body).digest('hex') } });

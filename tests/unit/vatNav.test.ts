@@ -22,7 +22,6 @@ function allHrefs(tabs: Tab[]): string[] {
 describe('isVatSurfaceHref', () => {
   it('matches the VAT-only pages', () => {
     expect(isVatSurfaceHref('/accounting/sars/vat201')).toBe(true);
-    expect(isVatSurfaceHref('/accounting/reports/vat-return')).toBe(true);
     expect(isVatSurfaceHref('/accounting/drc-vat')).toBe(true);
   });
 
@@ -73,6 +72,25 @@ describe('stripVatNav', () => {
     expect(stripVatNav([tab], false)).toEqual([]);
   });
 
+  it('drops a links-only tab whose every link was a VAT surface', () => {
+    const tab: Tab = {
+      id: 'x', label: 'X',
+      links: [{ label: 'VAT201', href: '/accounting/sars/vat201' }],
+    };
+    expect(stripVatNav([tab], false)).toEqual([]);
+  });
+
+  it('strips only the VAT links from a tab that keeps others', () => {
+    const tab: Tab = {
+      id: 'x', label: 'X',
+      links: [
+        { label: 'VAT201', href: '/accounting/sars/vat201' },
+        { label: 'EMP201', href: '/accounting/sars/emp201' },
+      ],
+    };
+    expect(stripVatNav([tab], false)[0]?.links?.map((i) => i.href)).toEqual(['/accounting/sars/emp201']);
+  });
+
   it('keeps a topItems-only tab that still has a non-VAT link', () => {
     const tab: Tab = {
       id: 'x', label: 'X',
@@ -91,5 +109,16 @@ describe('stripVatNav', () => {
       items: [{ section: 'VAT', items: [{ label: 'VAT201', href: '/accounting/sars/vat201' }] }],
     };
     expect(stripVatNav([tab], false)).toEqual([]);
+  });
+});
+
+describe('one VAT201 surface', () => {
+  it('no nav entry points at the retired VAT return report', () => {
+    expect(allHrefs(TABS)).not.toContain('/accounting/reports/vat-return');
+  });
+
+  it('the Tax tab lists the VAT201 page exactly once', () => {
+    const links = hrefs(taxTab.items).filter((h) => h === '/accounting/sars/vat201');
+    expect(links).toHaveLength(1);
   });
 });

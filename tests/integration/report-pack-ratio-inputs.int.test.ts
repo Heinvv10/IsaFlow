@@ -236,8 +236,8 @@ async function seed(admin: Pool, book: Book): Promise<void> {
   const employ = async (start: string, end: string | null, status: string) => {
     n += 1;
     await admin.query(
-      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, end_date, status)
-       VALUES ($1, $2, 'Fixture', $3, $4, $5, $6)`,
+      `INSERT INTO payroll_employees (company_id, employee_number, first_name, last_name, start_date, end_date, status, medical_aid_main_member)
+       VALUES ($1, $2, 'Fixture', $3, $4, $5, $6, true)`,
       [book.company, `PR-${n}`, `Employee ${n}`, start, end, status],
     );
   };

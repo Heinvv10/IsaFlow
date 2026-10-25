@@ -130,7 +130,7 @@ describe('every tracked table records', () => {
         gl_account: await one(`INSERT INTO gl_accounts(company_id, account_code, account_name, account_type, normal_balance, account_subtype,
           bank_account_number) VALUES($1,'EC1','EC Bank','asset','debit','bank','5555666677') RETURNING id`, [c]),
         payroll_employee: await one(`INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, id_number,
-          employment_type, start_date) VALUES($1,'E1','Ec','Emp','8001015009087','permanent','2026-01-01') RETURNING id`, [c]),
+          employment_type, start_date, medical_aid_main_member) VALUES($1,'E1','Ec','Emp','8001015009087','permanent','2026-01-01', true) RETURNING id`, [c]),
         company_user_permission: await one(`INSERT INTO company_user_permissions(company_id, user_id, module_key, can_read)
           VALUES($1,$2,'payroll',true) RETURNING id`, [c, a]),
       };

@@ -34,7 +34,7 @@ const verify = verifyTransaction as unknown as ReturnType<typeof vi.fn>;
 const PR = { id: 'pr-1', company_id: 'co-1', purpose: 'customer_invoice', customer_invoice_id: 'inv-1', amount_cents: '11500' };
 const REPORTED = { amountCents: 11850, currency: 'ZAR', requestedAmountCents: 11500, feeCents: 350 };
 const event = { event: 'charge.success', data: {
-  reference: 'r181_pass', id: 1, amount: 11850, currency: 'ZAR', requested_amount: 11500, fees: 350, paid_at: '2026-10-02T10:00:00Z' } };
+  reference: 'r181_pass', id: 1, amount: 11850, currency: 'ZAR', requested_amount: 11500, fees: 350, paid_at: '2026-10-02T10:00:00Z', metadata: { company_id: 'co-1', invoice_id: 'inv-1' } } };
 
 beforeEach(() => { h.rows.clear(); record.mockClear(); verify.mockReset(); });
 
@@ -52,16 +52,40 @@ describe('the webhook hands over what Paystack reported', () => {
   });
 });
 
+describe('the webhook books no receipt for an invoice its checkout did not name (S-07e)', () => {
+  it.each([
+    ['another invoice', { company_id: 'co-1', invoice_id: 'inv-2' }],
+    ['another company', { company_id: 'co-2', invoice_id: 'inv-1' }],
+    ['no metadata', undefined],
+  ])('%s', async (_, metadata) => {
+    h.rows.set('UPDATE paystack_payment_requests', [PR]);
+    await processEvent('charge.success', { ...event, data: { ...event.data, metadata } });
+    expect(record).not.toHaveBeenCalled();
+  });
+});
+
 describe('verify hands over what Paystack verified', () => {
   it('requested_amount and fees pass through, and the fee leg with them', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, paystack_reference: 'r181_pass', status: 'pending' }]);
     h.rows.set('UPDATE paystack_payment_requests', [{ id: 'pr-1' }]);
     verify.mockResolvedValue({ status: 'success', id: 1, amountCents: 11850, currency: 'ZAR',
-      requestedAmountCents: 11500, feesCents: 350, paidAt: null, channel: 'card', authorization: null });
+      requestedAmountCents: 11500, feesCents: 350, paidAt: null, channel: 'card', authorization: null, metadata: { company_id: 'co-1', invoice_id: 'inv-1' } });
     const res = { statusCode: 200, body: undefined as unknown, headers: {} as Record<string, unknown>,
       status(c: number) { this.statusCode = c; return this; }, json(b: unknown) { this.body = b; return this; },
       setHeader(k: string, v: unknown) { this.headers[k] = v; return this; }, end() { return this; } };
     await verifyRoute({ method: 'GET', query: { ref: 'r181_pass' }, headers: {}, socket: {} } as never, res as never);
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ requestedCents: 11500, reported: REPORTED, feeRand: 3.5 }));
+  });
+
+  it('books no receipt when the checkout Paystack verified named another invoice (S-07e)', async () => {
+    h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, paystack_reference: 'r181_pass', status: 'pending' }]);
+    h.rows.set('UPDATE paystack_payment_requests', [{ id: 'pr-1' }]);
+    verify.mockResolvedValue({ status: 'success', id: 1, amountCents: 11850, currency: 'ZAR', requestedAmountCents: 11500,
+      feesCents: 350, paidAt: null, channel: 'card', authorization: null, metadata: { company_id: 'co-1', invoice_id: 'inv-2' } });
+    const res = { statusCode: 200, body: undefined as unknown, headers: {} as Record<string, unknown>,
+      status(c: number) { this.statusCode = c; return this; }, json(b: unknown) { this.body = b; return this; },
+      setHeader(k: string, v: unknown) { this.headers[k] = v; return this; }, end() { return this; } };
+    await verifyRoute({ method: 'GET', query: { ref: 'r181_pass' }, headers: {}, socket: {} } as never, res as never);
+    expect(record).not.toHaveBeenCalled();
   });
 });
