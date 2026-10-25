@@ -37,8 +37,8 @@ import { currentLockTimeout, restoreLockTimeout } from './rowLockBudget';
  */
 export class PaymentLockTimeoutError extends Error {
   readonly code = 'PAYMENT_LOCK_TIMEOUT';
-  constructor(paymentId: string) {
-    super(`Payment ${paymentId} is being processed by another request — retry in a moment.`);
+  constructor(paymentId: string, message?: string) {
+    super(message ?? `Payment ${paymentId} is being processed by another request — retry in a moment.`);
     this.name = 'PaymentLockTimeoutError';
   }
 }

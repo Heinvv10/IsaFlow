@@ -32,7 +32,7 @@ import { fetchOpenCustomerInvoices } from '../ar/openCustomerInvoices';
 import { journalsInAPeriod } from './journalPeriodVisibility';
 import { EPS } from './autoAllocateStrategy';
 import {
-  basisSources, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
+  basisSources, markCreditCeilingSkips, SKIP_NO_FISCAL_PERIOD, SKIP_NO_JOURNAL,
 } from './autoApplyBackfillSkips';
 import type { SimulationDocument } from './autoApplySimulation';
 import type { BackfillSource, Subledger } from './autoApplyBackfillPlan';
@@ -146,7 +146,8 @@ export async function readBackfillSources(
     ))
     .slice(0, limit);
 
-  return markJournalPeriodSkips(companyId, ordered);
+  // The credit ceiling AFTER the period skip: a withheld source consumes no credit.
+  return markCreditCeilingSkips(subledger, basis.rows, await markJournalPeriodSkips(companyId, ordered));
 }
 
 /**

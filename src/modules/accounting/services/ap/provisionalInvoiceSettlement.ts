@@ -120,7 +120,9 @@ export async function settleInvoiceFromProvisional(
 
   const applied = round2(Math.min(claim.bankAmount, invoice.totalAmount - invoice.amountPaid));
   if (applied > 0) {
-    const plan = await planSupplierPaymentApplication(companyId, paymentId, [{ invoiceId: invoice.id, amount: applied }]);
+    const plan = await planSupplierPaymentApplication(
+      companyId, paymentId, [{ invoiceId: invoice.id, amount: applied }], { paymentCreatedInThisRequest: true },
+    );
     await applySupplierPaymentPlan(companyId, plan, userId);
   }
 

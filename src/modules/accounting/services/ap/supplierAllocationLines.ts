@@ -18,7 +18,7 @@
  * why its allocations never affected anything downstream.
  */
 
-import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
+import { moveSupplierBillPaid } from '../ar/invoiceStatusRecompute';
 import { assertBillAllocatable, billsPayable, toCents } from './billAllocatable';
 import { SupplierPaymentRefusal } from './supplierPaymentRefusal';
 import { assertAllocationShape } from './supplierAllocationShape';
@@ -236,8 +236,8 @@ export function buildLine(
 }
 
 /**
- * Move one bill's `amount_paid` by a RELATIVE amount, recompute its status, and
- * maintain `payment_matched`.
+ * Move one bill's `amount_paid` by a RELATIVE amount and derive its status and
+ * `payment_matched` in the same write.
  *
  * `payment_matched` is DERIVED from the settlement, not preserved — an
  * assignment, never a CASE that can only ever set it TRUE. That distinction is
@@ -264,21 +264,11 @@ export async function applyLineToBill(
   companyId: string,
   line: SupplierApplicationLine,
 ): Promise<void> {
-  // MONEY ONLY, mirroring the AR twin. `status`, `payment_matched` and
-  // `payment_matched_at` all derive from ONE threshold — `amount_paid >=
-  // total_amount - EPS` — and `recomputeInvoiceStatus` owns that threshold.
-  // Three columns on one condition, written in one place.
+  // `status`, `payment_matched` and `payment_matched_at` all derive from ONE threshold — `amount_paid >=
+  // total_amount - EPS` — and `invoiceStatusRecompute` owns it. A status outside `BALANCE_DERIVED` (`cancelled`,
+  // `draft`, `written_off`) keeps all three: a payment figure is not evidence about any of them.
   //
-  // BEHAVIOUR CHANGE, deliberate: the helper restricts itself to
-  // `status = ANY(BALANCE_DERIVED)`, which this statement never did. A bill
-  // that is `cancelled`, `draft` or `written_off` is now left alone entirely,
-  // flag included — a payment figure is not evidence about any of them. The
-  // inline version would happily have flagged a cancelled bill matched.
-  await sql`
-    UPDATE supplier_invoices
-    SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount},
-        updated_at = NOW()
-    WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
-  `;
-  await recomputeInvoiceStatus(companyId, 'supplier', line.invoiceId);
+  // ONE statement, not the money then a recompute: a second write of the bill re-runs its supplier FK check
+  // after the payment this request holds, and crossed a supplier merge (40P01, 2026-10-25).
+  await moveSupplierBillPaid(companyId, line.invoiceId, line.amount);
 }

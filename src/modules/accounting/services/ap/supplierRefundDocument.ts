@@ -86,6 +86,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { lockContactForRefund } from '../core/paymentLock';
+import { lockSupplierCredit } from './supplierCreditLock';
 
 /** The one `payment_method` value that carries a negative total. */
 export const REFUND_PAYMENT_METHOD = 'refund';
@@ -146,12 +147,13 @@ function round2(n: number): number {
  * one had already consumed.
  *
  * @param asAt 'YYYY-MM-DD'. String throughout: SAST is UTC+2 and this repo has
- *   a live UTC-rollback defect class around Date arithmetic.
+ *   a live UTC-rollback defect class around Date arithmetic. `null`: every posted
+ *   payment, whatever its date (the application ceiling).
  */
 export async function getSupplierOnAccountCredit(
   companyId: string,
   supplierId: string,
-  asAt: string,
+  asAt: string | null,
 ): Promise<{ credit: number; supplierName: string }> {
   const rows = (await sql`
     SELECT COALESCE(SUM(
@@ -164,7 +166,7 @@ export async function getSupplierOnAccountCredit(
       ON sp.supplier_id = s.id
      AND sp.company_id = s.company_id
      AND sp.status IN ('processed', 'reconciled')
-     AND sp.payment_date <= ${asAt}::DATE
+     AND (${asAt}::DATE IS NULL OR sp.payment_date <= ${asAt}::DATE)
     LEFT JOIN LATERAL (
       SELECT SUM(pa.amount_allocated) AS allocated
       FROM payment_allocations pa
@@ -200,6 +202,9 @@ export async function planSupplierRefund(
   // BEFORE the read, and held for the rest of the request. A ceiling read
   // without this lock is a number two concurrent refunds both satisfy.
   await lockContactForRefund(companyId, 'supplier', supplierId);
+  // Then the credit key, which every application of posted cash holds from its plan to its COMMIT: held by
+  // another request, this refuses (retryable) instead of counting cash an application is spending.
+  await lockSupplierCredit(companyId, supplierId);
   const { credit, supplierName } = await getSupplierOnAccountCredit(
     companyId, supplierId, paymentDate,
   );
