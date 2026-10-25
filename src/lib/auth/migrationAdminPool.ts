@@ -18,9 +18,14 @@
  *   - the rest of that class (S-07d, migration 937): member role changes and
  *     removals, AFS portal magic links and contacts, the AR portal login,
  *     share links, auditor sessions, capture inboxes and WhatsApp claims, and
- *     bank feed connections.
+ *     bank feed connections;
+ *   - billing (S-07e, migration 945): the Flows wallet, ledger and purchases,
+ *     the subscription and charge crons, the Paystack webhook's settlement,
+ *     and mandate create, verify and revoke. No app role writes those tables
+ *     or reads the columns a charge is made with (`migrationAdminSqlTx`).
  */
 import pg from 'pg';
+import { buildQuery, type TxSql } from '@/lib/neon';
 // Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
 // in this process. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
@@ -98,4 +103,20 @@ export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolCli
   } finally {
     client.release(unusable);
   }
+}
+
+/**
+ * `migrationAdminTx` with a tagged-template `tx` shaped like `withTransaction`'s
+ * (`TxSql`), so a statement written as ``tx`SELECT ... ${id}` `` moves here
+ * unchanged. Every interpolation is a bound parameter. This role bypasses RLS:
+ * each statement names the company it is for, from the verified request.
+ */
+export async function migrationAdminSqlTx<T>(label: string, fn: (tx: TxSql) => Promise<T>): Promise<T> {
+  return migrationAdminTx(label, (client) => {
+    const tx: TxSql = async (strings, ...values) => {
+      const { text, values: params } = buildQuery(strings, values);
+      return (await client.query(text, params)).rows as unknown[];
+    };
+    return fn(tx);
+  });
 }

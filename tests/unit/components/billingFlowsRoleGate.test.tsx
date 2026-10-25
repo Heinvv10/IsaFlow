@@ -22,7 +22,7 @@ import { FlowWalletWidget } from '@/components/billing/FlowWalletWidget';
 
 useApiJsonOverMock();
 const COPY = 'Only the company owner or an admin can buy Flows or change auto top-up.';
-const WALLET = { balance: 5, nudgeLevel: 'none', monthFlowsUsed: 0, autoTopupEnabled: true, autoTopupBundleId: 'b1', paymentMethodToken: 'tok' };
+const WALLET = { balance: 5, nudgeLevel: 'none', monthFlowsUsed: 0, autoTopupEnabled: true, autoTopupBundleId: 'b1' };
 const serve = () => script((u) => (u.includes('/wallet') ? ok(WALLET) : u.includes('/ledger') ? ok({ entries: [] }) : ok([{ id: 'b1', name: 'Small', flows: 100, priceCents: 9900 }])));
 const topUp = async () => (await screen.findByRole('button', { name: /top up/i })) as HTMLButtonElement;
 
@@ -46,6 +46,24 @@ describe('Flows page', () => {
     expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(false);
     expect((screen.getByRole('combobox') as HTMLSelectElement).disabled).toBe(false);
     expect(screen.queryByText(COPY)).toBeNull();
+  });
+});
+
+describe('Flows page: auto top-up has no payment method in v1', () => {
+  it('says it is unavailable and lets nobody switch it on', async () => {
+    script((u) => (u.includes('/wallet') ? ok({ ...WALLET, autoTopupEnabled: false, autoTopupBundleId: null })
+      : u.includes('/ledger') ? ok({ entries: [] }) : ok([])));
+    render(<FlowsPage />);
+    expect((await topUp()).disabled).toBe(false);
+    expect(screen.getByText(/no payment method on file/i)).toBeTruthy();
+    expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('still lets an owner switch an existing setting off', async () => {
+    render(<FlowsPage />);
+    expect((await topUp()).disabled).toBe(false);
+    expect(screen.getByText(/no payment method on file/i)).toBeTruthy();
+    expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(false);
   });
 });
 

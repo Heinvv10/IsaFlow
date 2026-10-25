@@ -59,7 +59,7 @@ function makeClient(opts: {
   return {
     query: vi.fn(async (text: string) => {
       const verb = typeof text === 'string' ? text.trim().split(/\s+/)[0]!.toUpperCase() : 'PARAM';
-      if (/FROM company_users/i.test(String(text))) {
+      if (/FROM (public\.)?company_users/i.test(String(text))) {
         opts.events.push('SELECT_MEMBERSHIP');
         return { rows: membershipRows };
       }
