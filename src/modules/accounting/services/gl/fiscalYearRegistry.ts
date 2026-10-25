@@ -114,10 +114,18 @@ export async function getFiscalYear(companyId: string, fiscalYear: number): Prom
   return rows[0] ? mapYear(rows[0]) : null;
 }
 
+/** A label no financial year carries (a change of year end can skip one). */
+export class FiscalYearLabelUnknownError extends Error {
+  constructor(readonly companyId: string, readonly fiscalYear: number) {
+    super(`Company ${companyId} has no financial year labelled ${fiscalYear}`);
+    this.name = 'FiscalYearLabelUnknownError';
+  }
+}
+
 /** As getFiscalYear, refusing a label no year carries. */
 export async function requireFiscalYear(companyId: string, fiscalYear: number): Promise<FiscalYearRecord> {
   const year = await getFiscalYear(companyId, fiscalYear);
-  if (!year) throw new Error(`Company ${companyId} has no financial year labelled ${fiscalYear}`);
+  if (!year) throw new FiscalYearLabelUnknownError(companyId, fiscalYear);
   return year;
 }
 

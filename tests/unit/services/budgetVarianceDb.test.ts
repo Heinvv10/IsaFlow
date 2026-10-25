@@ -26,6 +26,9 @@ vi.mock('@/lib/logger', () => ({
 
 import { getPoolForTests, sql } from '@/lib/neon';
 import { upsertBudget } from '@/modules/accounting/services/core/budgetService';
+import { requireFiscalYear } from '@/modules/accounting/services/gl/fiscalYearRegistry';
+import { budgetMonthKeysInWindow } from '@/modules/accounting/services/reports/budgetPeriodWindow';
+import { addDaysISO } from '@/lib/dateUtils';
 import { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
 
 type AlsCtx = Parameters<typeof als.run>[0];
@@ -147,36 +150,43 @@ async function inRequestTx(run: (f: Fixture) => Promise<void>): Promise<void> {
   }
 }
 
-const FY = 2031;
-const START = '2031-03-01';
-const END = '2032-02-29';
+// Labelled by the year it ends in (FY2033 = Mar 2032 - Feb 2033 for the March demo company): clear of
+// isaflow_dev's posted journals, which run to 2031-01 (a later posting would move postedThrough).
+const FY = 2033;
+
+/** The registry year's window, and a date `day` days into its month number `i` (0-based). */
+async function yearWindow(f: Fixture): Promise<{ start: string; end: string; at: (i: number, day: number) => string }> {
+  const year = await requireFiscalYear(f.companyId, FY);
+  const keys = budgetMonthKeysInWindow(year.startDate, year.endDate);
+  return { start: year.startDate, end: year.endDate, at: (i, day) => `${keys[i]}-${String(day).padStart(2, '0')}` };
+}
 
 describe('getBudgetVariance against a real ledger', async () => {
   const reachable = await isDbReachable();
 
   it.skipIf(!reachable)('reports the real posted movement against the budgeted months', async () => {
     await inRequestTx(async (f) => {
-      // R120,000 a year, evenly spread — R10,000 a month over twelve months.
+      const w = await yearWindow(f);
+      // R120,000 a year, evenly spread — R10,000 a month over the year's twelve months.
       await upsertBudget(
         f.companyId,
         { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 120000 },
         f.userId,
       );
-      await postJournal(f, '2031-04-15', f.expenseAccountId, 25000);
-      await postJournal(f, '2032-01-10', f.expenseAccountId, 5000); // across the year boundary
+      await postJournal(f, w.at(1, 15), f.expenseAccountId, 25000);
+      await postJournal(f, w.at(10, 10), f.expenseAccountId, 5000); // across the calendar-year boundary
 
-      const result = await getBudgetVariance(f.companyId, START, END);
+      const result = await getBudgetVariance(f.companyId, w.start, w.end);
       const line = result.rows.find(r => r.account_code === f.expenseCode);
       expect(line).toBeDefined();
       expect(result.monthKeys).toHaveLength(12);
       expect(line!.budget_amount).toBeCloseTo(120000, 2);
-      // Both journals fall inside the window; the January one is the one a
-      // calendar-year month window would have dropped.
+      // Both journals fall inside the window, one in the next calendar year.
       expect(line!.actual_amount).toBeCloseTo(30000, 2);
       // Expense variance is positive when under budget.
       expect(line!.variance).toBeCloseTo(90000, 2);
       expect(line!.account_id).toBe(f.expenseAccountId);
-      expect(result.postedThrough).toBe('2032-01-10');
+      expect(result.postedThrough).toBe(w.at(10, 10));
     });
   });
 
@@ -186,12 +196,13 @@ describe('getBudgetVariance against a real ledger', async () => {
   // expression changed nothing and the mutation survived.
   it.skipIf(!reachable)('reports credited revenue as a positive actual, not a negative one', async () => {
     await inRequestTx(async (f) => {
+      const w = await yearWindow(f);
       await upsertBudget(
         f.companyId, { glAccountId: f.revenueAccountId, fiscalYear: FY, annualAmount: 120000 }, f.userId,
       );
-      await postRevenueJournal(f, '2031-04-15', f.revenueAccountId, 30000);
+      await postRevenueJournal(f, w.at(1, 15), f.revenueAccountId, 30000);
 
-      const result = await getBudgetVariance(f.companyId, START, END);
+      const result = await getBudgetVariance(f.companyId, w.start, w.end);
       const line = result.rows.find(r => r.account_code === f.revenueCode);
       expect(line).toBeDefined();
       expect(line!.actual_amount).toBeCloseTo(30000, 2);
@@ -203,13 +214,14 @@ describe('getBudgetVariance against a real ledger', async () => {
   // proving the revenue branch really is credit-less-debit and not an absolute.
   it.skipIf(!reachable)('nets a debit against credited revenue', async () => {
     await inRequestTx(async (f) => {
+      const w = await yearWindow(f);
       await upsertBudget(
         f.companyId, { glAccountId: f.revenueAccountId, fiscalYear: FY, annualAmount: 120000 }, f.userId,
       );
-      await postRevenueJournal(f, '2031-04-15', f.revenueAccountId, 30000);
-      await postJournal(f, '2031-05-20', f.revenueAccountId, 5000); // DR revenue = a reversal
+      await postRevenueJournal(f, w.at(1, 15), f.revenueAccountId, 30000);
+      await postJournal(f, w.at(2, 20), f.revenueAccountId, 5000); // DR revenue = a reversal
 
-      const result = await getBudgetVariance(f.companyId, START, END);
+      const result = await getBudgetVariance(f.companyId, w.start, w.end);
       const line = result.rows.find(r => r.account_code === f.revenueCode);
       expect(line!.actual_amount).toBeCloseTo(25000, 2);
     });
@@ -217,12 +229,13 @@ describe('getBudgetVariance against a real ledger', async () => {
 
   it.skipIf(!reachable)('excludes movement dated outside the window', async () => {
     await inRequestTx(async (f) => {
+      const w = await yearWindow(f);
       await upsertBudget(
         f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
       );
-      await postJournal(f, '2032-03-01', f.expenseAccountId, 999999); // the day after END
+      await postJournal(f, addDaysISO(w.end, 1), f.expenseAccountId, 999999); // the day after the year ends
 
-      const result = await getBudgetVariance(f.companyId, START, END);
+      const result = await getBudgetVariance(f.companyId, w.start, w.end);
       const line = result.rows.find(r => r.account_code === f.expenseCode);
       expect(line!.actual_amount).toBe(0);
     });
@@ -230,12 +243,13 @@ describe('getBudgetVariance against a real ledger', async () => {
 
   it.skipIf(!reachable)('surfaces spend on an unbudgeted account instead of dropping it', async () => {
     await inRequestTx(async (f) => {
+      const w = await yearWindow(f);
       await upsertBudget(
         f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
       );
-      await postJournal(f, '2031-06-01', f.otherExpenseId, 44000);
+      await postJournal(f, w.at(3, 1), f.otherExpenseId, 44000);
 
-      const result = await getBudgetVariance(f.companyId, START, END);
+      const result = await getBudgetVariance(f.companyId, w.start, w.end);
       expect(result.rows.map(r => r.account_code)).toContain(f.expenseCode);
       expect(result.rows.map(r => r.account_code)).not.toContain(f.otherExpenseCode);
 
@@ -250,12 +264,13 @@ describe('getBudgetVariance against a real ledger', async () => {
 
   it.skipIf(!reachable)('ignores a draft journal', async () => {
     await inRequestTx(async (f) => {
+      const w = await yearWindow(f);
       await upsertBudget(
         f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 12000 }, f.userId,
       );
       const je = (await sql`
         INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
-        VALUES (${f.companyId}::uuid, ${'2031-05-01'}::date, ${'draft'}, ${'manual'}, ${'draft'}, ${f.userId})
+        VALUES (${f.companyId}::uuid, ${w.at(2, 1)}::date, ${'draft'}, ${'manual'}, ${'draft'}, ${f.userId})
         RETURNING id
       `) as Array<{ id: string }>;
       await sql`
@@ -263,7 +278,7 @@ describe('getBudgetVariance against a real ledger', async () => {
         VALUES (${f.companyId}::uuid, ${String(je[0]!.id)}::uuid, ${f.expenseAccountId}::uuid, 7777, 0)
       `;
 
-      const result = await getBudgetVariance(f.companyId, START, END);
+      const result = await getBudgetVariance(f.companyId, w.start, w.end);
       const line = result.rows.find(r => r.account_code === f.expenseCode);
       expect(line!.actual_amount).toBe(0);
     });

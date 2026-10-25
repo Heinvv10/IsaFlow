@@ -30,6 +30,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 import { getTaxYear } from './taxTables';
 import type { PayeYearToDate, PayrollPeriod, ValidationResult } from './payrollTypes';
 import { loadMedicalRecord } from './payrollMedicalRecord';
@@ -63,7 +64,7 @@ export async function loadPayeYearToDate(
       WHERE h.company_id = ${companyId}::uuid
         AND h.id <> ${runId}::uuid
         AND h.status = ANY(${declarable}::text[])
-        AND make_date(h.period_year, h.period_month, 1) >= make_date(${taxYear - 1}::int, 3, 1)
+        AND make_date(h.period_year, h.period_month, 1) >= make_date(${taxYear - 1}::int, ${PAYE_TAX_YEAR_START_MONTH}::int, 1)
         AND make_date(h.period_year, h.period_month, 1) < make_date(${period.year}::int, ${period.month}::int, 1)
         AND l.employee_id = ANY(${employeeIds}::uuid[])
     )

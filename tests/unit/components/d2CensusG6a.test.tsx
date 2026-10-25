@@ -7,7 +7,7 @@ import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
 
 const routerState = vi.hoisted(() => ({ query: {} as Record<string, string> }));
 vi.mock('next/link', () => ({ default: ({ children, href }: { children: ReactNode; href: string }) => <a href={href}>{children}</a> }));
-vi.mock('next/router', () => ({ useRouter: () => ({ query: routerState.query, push: vi.fn(), replace: vi.fn() }) }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: routerState.query, isReady: true, push: vi.fn(), replace: vi.fn() }) }));
 vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());

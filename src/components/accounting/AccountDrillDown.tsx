@@ -10,6 +10,22 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiErrorMessage, apiJson } from '@/lib/apiFetch';
 import Link from 'next/link';
 
+// A request in flight, by URL. React StrictMode (`next dev`) mounts, unmounts and re-mounts the effect
+// below at once: the second run joins the first request instead of sending its own.
+const inFlight = new Map<string, ReturnType<typeof requestTransactions>>();
+
+const requestTransactions = (params: URLSearchParams) =>
+  apiJson(`/api/accounting/reports-account-transactions?${params}`, undefined, 'Could not load the transactions - try again');
+
+function loadTransactions(params: URLSearchParams) {
+  const key = params.toString();
+  const running = inFlight.get(key);
+  if (running) return running;
+  const request = requestTransactions(params).finally(() => { inFlight.delete(key); });
+  inFlight.set(key, request);
+  return request;
+}
+
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
@@ -91,7 +107,7 @@ export function AccountDrillDown({
     if (costCentreId) params.set('cost_centre_id', costCentreId);
     if (businessUnitId) params.set('business_unit_id', businessUnitId);
 
-    apiJson(`/api/accounting/reports-account-transactions?${params}`, undefined, 'Could not load the transactions - try again')
+    loadTransactions(params)
       .then(d => {
         if (cancelled) return;
         if (!d || !Array.isArray(d.transactions)) throw new Error('Invalid transaction response');
