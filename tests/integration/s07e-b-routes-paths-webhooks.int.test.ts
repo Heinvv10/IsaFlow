@@ -1,8 +1,9 @@
 // tests/integration/s07e-b-routes-paths-webhooks.int.test.ts
 //
-// S-07e part B (migration 946): no app role may INSERT, DELETE or UPDATE
-// (beyond the delivery stamps) webhook_endpoints; the code makes those writes on
-// the migration_admin pool. This proves each legitimate path still works end to
+// S-07e part B (migration 946): no app role may write webhook_endpoints at all
+// (the delivery stamps included, since review round 5); the code makes those
+// writes on migration_admin (the settings on migrationAdminTx, a delivery's stamp
+// and auto-disable on routeAdminQuery). This proves each legitimate path still works end to
 // end through its real route, on the production logins (s07b helpers), and that
 // another tenant's endpoint cannot be changed. Outbound HTTP is stubbed.
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
@@ -10,6 +11,7 @@ import webhooksRoute from '../../pages/api/accounting/webhooks';
 import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminPool';
+import { routeAdminPool } from '@/lib/auth/routeAdminPool';
 import { decryptToken } from '@/lib/encryption';
 import { fireWebhook, createWebhook } from '@/modules/accounting/services/core/webhookService';
 import { callRoute } from './s07-users-privilege-columns.helpers';
@@ -39,7 +41,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await q('DELETE FROM webhook_endpoints WHERE company_id = ANY($1)', [[company, other]]);
-  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool(), billingAdminPool()]);
+  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool(), billingAdminPool(), routeAdminPool()]);
 });
 
 beforeEach(async () => {
@@ -97,7 +99,7 @@ describe('S-07e part B (946): webhook endpoints, through the route on the produc
   });
 });
 
-describe('S-07e part B (946): fireWebhook, delivery stamps on the app pool, auto-disable on migration_admin', () => {
+describe('S-07e part B (946): fireWebhook, the delivery stamp and the auto-disable on migration_admin', () => {
   let id = '';
   beforeEach(async () => {
     id = (await createWebhook(company, { name: 'Fire', url: URL_A, secret: 'sig-secret', events: ['invoice.created'] })).id;
@@ -128,9 +130,10 @@ describe('S-07e part B (946): fireWebhook, delivery stamps on the app pool, auto
     expect(outbound.calls).toHaveLength(0);
   });
 
-  it('the app pool can stamp a delivery but cannot write is_active itself (the refusal is 42501)', async () => {
+  it('the app pool can neither stamp a delivery nor write is_active (the refusal is 42501)', async () => {
     const pool = getDbPool();
-    await expect(pool.query('UPDATE webhook_endpoints SET failure_count = 3, last_triggered_at = NOW() WHERE id = $1', [id])).resolves.toBeDefined();
+    await expect(pool.query('UPDATE webhook_endpoints SET failure_count = 3, last_triggered_at = NOW() WHERE id = $1', [id])).rejects.toMatchObject({ code: '42501' });
+    await expect(pool.query('UPDATE webhook_endpoints SET failure_count = 0 WHERE id = $1', [id])).rejects.toMatchObject({ code: '42501' });
     await expect(pool.query('UPDATE webhook_endpoints SET is_active = false WHERE id = $1', [id])).rejects.toMatchObject({ code: '42501' });
     await expect(pool.query('UPDATE webhook_endpoints SET url = $2 WHERE id = $1', [id, URL_B])).rejects.toMatchObject({ code: '42501' });
   });

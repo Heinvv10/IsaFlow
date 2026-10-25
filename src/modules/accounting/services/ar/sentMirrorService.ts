@@ -19,9 +19,9 @@
  * Invariant: link-back is company-scoped. A sha256 hash collision across
  * tenants still yields two separate captured_documents rows.
  *
- * App-pool writes to sent_mirror_connections are the scan stamps only, each
- * keyed on the connection AND its company (S-07e part B, migration 946). The
- * flip of `status` to 'error' is mirrorScanError.ts's, on migration_admin.
+ * No app role writes sent_mirror_connections (S-07e part B, migration 946): the
+ * scan's stamps and the due selection are sentMirrorWrites.ts's, the flip of
+ * `status` to 'error' capture/mirrorScanError.ts's, all on migration_admin.
  */
 
 import type { ImapFlow } from 'imapflow';
@@ -34,11 +34,11 @@ import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
 import { readCursor } from '@/modules/accounting/services/capture/mirrorCursor';
 import { createMirrorClient } from '@/modules/accounting/services/capture/mirrorImapClient';
-import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from '@/modules/accounting/services/capture/mirrorScanGuard';
+import { clipMirrorText, isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from '@/modules/accounting/services/capture/mirrorScanGuard';
 import { findExistingByHash } from '@/modules/accounting/services/capture/capturedDocumentHash';
 import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from '@/modules/accounting/services/capture/mirrorImapFetch';
 import { isScanLockSkip } from '@/modules/accounting/services/capture/mirrorScanWrite';
-import { addCounters, advanceCursor, logScanEntry, stampSuccess, type ScanLogEntry } from './sentMirrorWrites';
+import { addCounters, advanceCursor, logScanEntry, selectDueSentConnections, stampSuccess, type ScanLogEntry } from './sentMirrorWrites';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
 
 type Row = Record<string, unknown>;
@@ -92,17 +92,7 @@ function loadConnection(row: Row): SentMirrorConnection {
 }
 
 export async function listActiveSentConnections(): Promise<SentMirrorConnection[]> {
-  const rows = (await sql`
-    SELECT * FROM sent_mirror_connections
-    WHERE status = 'active'
-      AND (last_scan_at IS NULL
-           OR last_scan_at > NOW()
-           OR last_scan_at < NOW() - (scan_interval_minutes || ' minutes')::INTERVAL)
-    ORDER BY CASE WHEN last_scan_at > NOW() THEN 'infinity'::timestamptz ELSE last_scan_at END ASC NULLS FIRST
-    LIMIT 20
-    FOR UPDATE SKIP LOCKED
-  `) as Row[];
-  return rows.map(loadConnection);
+  return (await selectDueSentConnections()).map(loadConnection);
 }
 
 export async function listSentConnectionsForCompany(companyId: string): Promise<SentMirrorConnection[]> {
@@ -141,10 +131,8 @@ async function captureOutbound(
   const content = att.content as Buffer;
   const mime = (att.contentType ?? 'application/octet-stream').toLowerCase();
   const filename = att.filename ?? `sent-${hash.slice(0, 8)}`;
-  const recipient = parsed.to
-    ? Array.isArray(parsed.to) ? parsed.to[0]?.text ?? null : parsed.to.text ?? null
-    : null;
-  const subject = parsed.subject ?? null;
+  const recipient = clipMirrorText(parsed.to ? Array.isArray(parsed.to) ? parsed.to[0]?.text : parsed.to.text : null);
+  const subject = clipMirrorText(parsed.subject);
 
   const [doc] = (await sql`
     INSERT INTO captured_documents (

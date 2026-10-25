@@ -3,13 +3,14 @@
  * of the database (S-07d review: during a deploy window, or a code-only
  * rollback, the old release's inbox upsert is refused 42501 and every scanned
  * invoice used to be skipped for good). The mailbox, the parser, storage and
- * both pools are fakes; the cursor written to imap_mirror_connections is read
- * back from the recorded statements.
+ * the pools are fakes; the cursor written to imap_mirror_connections (on
+ * migration_admin, routeAdminQuery: S-07e part B) is read back from the recorded
+ * statements.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const h = vi.hoisted(() => ({
-  sql: [] as Array<{ text: string; values: unknown[] }>,
+  sql: [] as Array<{ text: string; values: unknown[]; pool: 'app' | 'route' }>,
   upsertFails: new Set<number>(),
   upserts: 0,
   failWith: null as unknown,
@@ -22,12 +23,13 @@ const h = vi.hoisted(() => ({
 
 vi.mock('imapflow', () => ({
   ImapFlow: class {
+    streamer = { write: () => true, push: () => true }; // what the scan's byte meter wraps
     on() { /* the mirror registers an 'error' listener */ }
     async connect() { /* fake mailbox */ }
     async logout() { /* fake mailbox */ }
     async getMailboxLock() { return { release: () => undefined }; }
     async *fetch() {
-      for (const uid of h.empty ? [] : [11, 12, 13]) yield { uid, envelope: { from: [{ address: 'ap@supplier.test' }], subject: `Invoice ${uid}` } };
+      for (const uid of h.empty ? [] : [11, 12, 13]) yield { uid, size: 100, envelope: { from: [{ address: 'ap@supplier.test' }], subject: `Invoice ${uid}` } };
     }
     async fetchOne(uid: string) { return { uid: Number(uid), source: Buffer.from(`msg ${uid}`) }; }
   },
@@ -51,7 +53,7 @@ vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: () => undefined }));
 vi.mock('@/lib/neon', () => {
   const sql = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').replace(/\s+/g, ' ').trim();
-    h.sql.push({ text, values });
+    h.sql.push({ text, values, pool: 'app' });
     if (text.startsWith('INSERT INTO captured_documents') && ++h.docInserts === h.docInsertFails) {
       return Promise.reject(Object.assign(new Error('connection terminated'), { code: '08006' }));
     }
@@ -63,6 +65,12 @@ vi.mock('@/lib/neon', () => {
   // The scan's bookkeeping writes run in a short transaction (bounded lock wait); here it is the same recorder.
   return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
 });
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: vi.fn(async (_label: string, text: string, values: unknown[]) => {
+    h.sql.push({ text: text.replace(/\s+/g, ' ').trim(), values, pool: 'route' });
+    return [];
+  }),
+}));
 vi.mock('@/lib/auth/migrationAdminPool', () => ({
   migrationAdminTx: async (_label: string, fn: (c: unknown) => unknown) => {
     h.upserts += 1;
@@ -103,7 +111,7 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     expect([r.ingested, r.errors, cursorWritten()]).toEqual([4, 0, 13]);
     // A success clears an earlier stop's error.
     expect(h.sql.find((q) => q.text.startsWith('UPDATE imap_mirror_connections SET scan_cursor'))?.text).toContain('last_error = NULL');
-    expect(h.sql.some((q) => /SET last_scan_at = NOW\(\), last_error = \?/.test(q.text))).toBe(false);
+    expect(h.sql.some((q) => /SET last_scan_at = NOW\(\), last_error = \$1/.test(q.text))).toBe(false);
   });
 
   it.each([
@@ -142,7 +150,7 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     expect(documentsCreated()).toBe(2); // 11's, and 12's first, left without an event
     // Progress (message 11) is recorded, and so is the stop's error after it.
     const writes = h.sql.filter((q) => q.text.startsWith('UPDATE imap_mirror_connections')).map((q) => q.text);
-    expect(writes.findIndex((t) => t.includes('scan_cursor'))).toBeLessThan(writes.findIndex((t) => /last_error = \?/.test(t)));
+    expect(writes.findIndex((t) => t.includes('scan_cursor'))).toBeLessThan(writes.findIndex((t) => /last_error = \$1/.test(t)));
   });
 
   it('a database failure after part of a message was ingested is passed, so nothing is captured twice', async () => {
@@ -152,18 +160,21 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
     expect(documentsCreated()).toBe(4); // 11, 12a, 12b (refused), 13: none retried
   });
 
-  // S-07e part B: the role that stamps is the app pool's, so every stamp names the company as well as the row.
-  describe('every stamp on the connection row is keyed on id AND company_id', () => {
+  // S-07e part B: every stamp runs on migration_admin, which bypasses RLS, so it names the company as well as the row;
+  // none reaches the app pool (no app role may write the table).
+  describe('every stamp on the connection row is keyed on id AND company_id, on migration_admin', () => {
     const stamps = () => h.sql.filter((q) => q.text.startsWith('UPDATE imap_mirror_connections'));
-    const keyed = (q: { text: string; values: unknown[] }) =>
-      q.text.includes('WHERE id = ?::uuid AND company_id = ?::uuid') && q.values.slice(-2).join() === `${conn.id},${conn.companyId}`;
+    const keyed = (q: { text: string; values: unknown[]; pool: string }) => q.pool === 'route'
+      && /WHERE id = \$\d::uuid AND company_id = \$\d::uuid$/.test(q.text) && q.values.slice(-2).join() === `${conn.id},${conn.companyId}`;
+    const onAppPool = () => h.sql.filter((q) => q.pool === 'app' && /imap_mirror_connections/.test(q.text));
 
     it('a scan that ingests: the cursor stamp and the counter', async () => {
       await scanConnection(conn);
       expect(stamps()).toHaveLength(2);
-      expect(stamps()[0]!.text).toContain('SET scan_cursor = ?');
-      expect(stamps()[1]!.text).toContain('messages_ingested_total = messages_ingested_total + ?');
+      expect(stamps()[0]!.text).toContain('SET scan_cursor = $1::jsonb');
+      expect(stamps()[1]!.text).toContain('messages_ingested_total = messages_ingested_total + $1');
       expect(stamps().every(keyed)).toBe(true);
+      expect(onAppPool()).toEqual([]);
     });
 
     it('a scan with nothing new: the last_scan_at bump', async () => {
@@ -172,6 +183,7 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
       expect(stamps()).toHaveLength(1);
       expect(stamps()[0]!.text).toContain('last_success_at = NOW(), last_error = NULL');
       expect(stamps().every(keyed)).toBe(true);
+      expect(onAppPool()).toEqual([]);
     });
 
     it('a scan that stops on a transient failure: the error stamp', async () => {
@@ -179,8 +191,9 @@ describe('IMAP mirror scan: the cursor and a failed ingest', () => {
       h.upsertFails.add(1);
       await scanConnection(conn);
       expect(stamps()).toHaveLength(1);
-      expect(stamps()[0]!.text).toContain('last_error = ?');
+      expect(stamps()[0]!.text).toContain('last_error = $1');
       expect(stamps().every(keyed)).toBe(true);
+      expect(onAppPool()).toEqual([]);
     });
   });
 });

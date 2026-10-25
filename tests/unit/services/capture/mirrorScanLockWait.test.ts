@@ -1,14 +1,16 @@
 /**
- * S-07e part B, review round 3: an app role can lock a connection row, and an
- * INSERT into a scan log takes a key-share lock on it through its foreign key.
- * The cron scans its connections one after another, so every app-pool write a
- * scan makes to a connection row, its scan log or its counters waits at most
- * 2 s for the row outside a request (a short transaction with a
- * transaction-local lock_timeout). A write that gives up (55P03) makes the scan
- * skip the connection for this tick: warned, not marked failed, cursor not
- * advanced. Inside a request (scan-now) the writes are the request's own and a
- * failure is handled as before. Both mirror services; mailbox, parser, storage
- * and the pool are fakes.
+ * S-07e part B, review round 3: an INSERT into a scan log takes a key-share lock
+ * on its connection row through the foreign key, which another session's
+ * FOR UPDATE blocks. The cron scans its connections one after another, so the
+ * scan-log write waits at most 2 s for the row outside a request (a short
+ * transaction with a transaction-local lock_timeout). Round 5: the writes to the
+ * connection row itself (cursor, success stamp, counters) run on migration_admin
+ * (routeAdminQuery, whose own transaction waits 2 s: routeAdminPool.test.ts), in
+ * a request too, and never on the app pool. A write that gives up (55P03) makes
+ * the scan skip the connection for this tick: warned, not marked failed, cursor
+ * not advanced. Inside a request (scan-now) the scan-log write is the request's
+ * own and its failure is handled as before. Both mirror services; mailbox,
+ * parser, storage and the pools are fakes.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RequestContext } from '@/lib/als';
@@ -22,18 +24,21 @@ const h = vi.hoisted(() => ({
   failCode: '55P03',
   direct: [] as string[],
   txs: [] as Array<{ statements: Array<{ text: string; values: unknown[] }> }>,
+  /** Statements sent through routeAdminQuery (migration_admin). */
+  route: [] as string[],
   markError: vi.fn(),
 }));
 
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     mailbox = { uidNext: h.uidNext };
+    streamer = { write: () => true, push: () => true }; // what the scan's byte meter wraps
     on() { /* the mirror registers an 'error' listener */ }
     async connect() { /* fake mailbox */ }
     async logout() { /* fake mailbox */ }
     async getMailboxLock() { return { release: () => undefined }; }
     async *fetch() {
-      for (const uid of h.uids) yield { uid, envelope: { from: [{ address: 'ap@supplier.test' }], to: [{ address: 'c@cust.test' }], subject: `Invoice ${uid}` } };
+      for (const uid of h.uids) yield { uid, size: 100, envelope: { from: [{ address: 'ap@supplier.test' }], to: [{ address: 'c@cust.test' }], subject: `Invoice ${uid}` } };
     }
     async fetchOne(uid: string) { return { uid: Number(uid), source: Buffer.from(`msg ${uid}`) }; }
   },
@@ -54,6 +59,14 @@ vi.mock('@/modules/accounting/services/capture/imapMirrorInbox', () => ({
   ensureMirrorInbox: vi.fn(async () => 'inbox-1'), isTransientIngestError: vi.fn(() => false),
 }));
 vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ markMirrorScanError: h.markError }));
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: vi.fn(async (_label: string, text: string) => {
+    const t = text.replace(/\s+/g, ' ').trim();
+    h.route.push(t);
+    if (h.failOn?.test(t)) throw Object.assign(new Error('statement failed'), { code: h.failCode });
+    return [];
+  }),
+}));
 vi.mock('@/lib/neon', () => {
   const failure = () => Object.assign(new Error('statement failed'), { code: h.failCode });
   const run = (record: (text: string, values: unknown[]) => void) => async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -113,23 +126,28 @@ beforeEach(() => {
   h.failCode = '55P03';
   h.direct.length = 0;
   h.txs.length = 0;
+  h.route.length = 0;
   h.markError.mockClear();
   vi.mocked(log.warn).mockClear();
   vi.mocked(log.error).mockClear();
 });
 
 describe.each(SERVICES)('%s, outside a request (the cron)', (_name, scan, table, scope, writes) => {
-  it('every write to the connection row, its scan log and its counters is a transaction that waits 2 s for the row at most', async () => {
+  it('the scan log write is a transaction that waits 2 s for the row at most; the connection row is written on migration_admin only', async () => {
     h.uids = [11];
     await scan();
-    const mirror = h.txs.filter((t) => t.statements.some((s) => new RegExp(`${table}|${scope.replace('-mirror', '_mirror')}_scan_log`).test(s.text)));
-    expect(mirror.length).toBeGreaterThanOrEqual(3); // log insert, cursor stamp, counter
-    for (const t of mirror) {
+    const logs = h.txs.filter((t) => t.statements.some((s) => /_scan_log/.test(s.text)));
+    expect(logs.length).toBeGreaterThanOrEqual(1);
+    for (const t of logs) {
       expect(t.statements[0]!.text).toContain("set_config('lock_timeout', ?, true)"); // transaction-local, set first
       expect(t.statements[0]!.values).toEqual(['2s']);
     }
-    // None of them ran on the pool directly, where the wait is unbounded.
-    expect(h.direct.filter((t) => new RegExp(`${table}|_scan_log`).test(t) && /^(UPDATE|INSERT)/.test(t))).toEqual([]);
+    // The cursor stamp and the counter: migration_admin, never the app pool (no app role may write the table).
+    expect(h.route.filter((t) => t.startsWith(`UPDATE ${table}`)).length).toBeGreaterThanOrEqual(2);
+    const onApp = [...h.direct, ...h.txs.flatMap((t) => t.statements.map((x) => x.text))].filter((t) => t.includes(table));
+    expect(onApp).toEqual([]);
+    // No scan-log write ran on the pool directly, where the wait is unbounded.
+    expect(h.direct.filter((t) => /_scan_log/.test(t) && /^INSERT/.test(t))).toEqual([]);
   });
 
   it.each(writes)('%s gives up on a locked row: the scan skips the connection, warns, and does not mark it failed', async (_what, uids, uidNext, statement) => {
@@ -149,7 +167,7 @@ describe.each(SERVICES)('%s, outside a request (the cron)', (_name, scan, table,
     h.failOn = /_scan_log/;
     await scan();
     const attempted = h.txs.flatMap((t) => t.statements.map((s) => s.text));
-    expect(attempted.some((t) => /SET scan_cursor/.test(t))).toBe(false);
+    expect(h.route.some((t) => /SET scan_cursor/.test(t))).toBe(false);
     expect(attempted.filter((t) => /INSERT INTO \w+_scan_log/.test(t))).toHaveLength(1); // 12 was never looked at
   });
 
@@ -163,13 +181,24 @@ describe.each(SERVICES)('%s, outside a request (the cron)', (_name, scan, table,
   });
 });
 
-describe.each(SERVICES)('%s, inside a request (scan-now)', (_name, scan, _table, scope) => {
-  it('writes on the request\'s own transaction: no transaction of its own, no lock_timeout change', async () => {
+describe.each(SERVICES)('%s, inside a request (scan-now)', (_name, scan, table, scope) => {
+  it('logs on the request\'s own transaction (no transaction of its own, no lock_timeout change); stamps on migration_admin', async () => {
     h.uids = [11];
     await als.run(requestCtx(), () => scan());
     expect(h.txs).toEqual([]);
     expect(h.direct.some((t) => /set_config/.test(t))).toBe(false);
     expect(h.direct.some((t) => /_scan_log/.test(t))).toBe(true);
+    expect(h.direct.some((t) => t.includes(table))).toBe(false);
+    expect(h.route.some((t) => t.startsWith(`UPDATE ${table} SET scan_cursor`))).toBe(true);
+  });
+
+  it('a stamp that waits out its 2 s there is a skip too (its transaction is its own, not the request\'s)', async () => {
+    h.uids = [11];
+    h.failOn = new RegExp(`UPDATE ${table} SET scan_cursor`);
+    const r = await als.run(requestCtx(), () => scan());
+    expect(r.errors).toBe(0);
+    expect(h.markError).not.toHaveBeenCalled();
+    expect(vi.mocked(log.warn).mock.calls.filter((c) => c[2] === scope && /skipped this tick/.test(String(c[0])))).toHaveLength(1);
   });
 
   it('a 55P03 there is the scan\'s failure as before, not a skip', async () => {

@@ -2,8 +2,9 @@
  * A mirror connection's per-folder scan cursor (the last IMAP UID ingested),
  * shared by imapMirrorService and sentMirrorService.
  *
- * `scan_cursor` is a column the app pool may write (migration 946: it is a scan
- * stamp), so a forged claim can put anything in it. A cursor goes into the
+ * `scan_cursor` was app-writable until review round 5 of migration 946 (now only
+ * migration_admin writes it), and an ops edit or a server whose UIDNEXT went
+ * backwards can still leave anything in it. A cursor goes into the
  * IMAP `UID FETCH <cursor + 1>:*`; a value such as 1.5, -1 or 1e20 makes the server
  * answer BAD, the scan throws, and the connection is flipped to 'error'. So a
  * folder's cursor is used only when it is a positive safe integer; any other
@@ -21,8 +22,9 @@
  * Limits this does not remove: (1) a mailbox rebuilt on the server (a changed
  * UIDVALIDITY, which the cursor does not record) is not detected unless its UIDNEXT
  * fell below the cursor; then the cursor is clamped and the old mail is not
- * re-captured; (2) a forged cursor between the real one and UIDNEXT - 1 skips the
- * mail in that gap, which is indistinguishable from a real one.
+ * re-captured; (2) a wrong cursor between the real one and UIDNEXT - 1 (only a
+ * migration_admin write can put one there now) skips the mail in that gap, which is
+ * indistinguishable from a real one.
  */
 import { log } from '@/lib/logger';
 

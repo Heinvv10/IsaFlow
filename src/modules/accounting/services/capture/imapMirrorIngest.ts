@@ -6,7 +6,8 @@
  * isFileAlreadyCaptured) is not ingested again: the same attachment reaches a mailbox
  * twice (a forwarded or re-sent invoice), and a scan that is repeated (a lock skip after
  * some messages were ingested, a cursor reset) must capture nothing twice. Nothing else
- * de-duplicates: captured_documents has no unique index on the hash.
+ * de-duplicates: captured_documents has no unique index on the hash. The sender and
+ * subject written to capture_events are clipped (mirrorScanLimits.clipMirrorText).
  */
 import type { Attachment, ParsedMail } from 'mailparser';
 import { sql } from '@/lib/neon';
@@ -15,6 +16,7 @@ import { runAfterCommit } from '@/lib/afterCommit';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
 import { routeEvent } from '@/modules/accounting/services/capture/captureRouterService';
 import { isFileAlreadyCaptured } from './capturedDocumentHash';
+import { clipMirrorText } from './mirrorScanLimits';
 
 type Row = Record<string, unknown>;
 
@@ -61,7 +63,7 @@ export async function ingestAttachment(
       status, captured_document_id
     ) VALUES (
       ${conn.companyId}::uuid, ${inboxId}::uuid,
-      'imap_mirror', ${parsed.from?.text ?? null}, ${parsed.subject ?? null},
+      'imap_mirror', ${clipMirrorText(parsed.from?.text)}, ${clipMirrorText(parsed.subject)},
       'received', ${documentId}::uuid
     )
     RETURNING id

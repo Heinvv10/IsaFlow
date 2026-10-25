@@ -2,10 +2,10 @@
  * Webhook Service — WS-8.1
  * Fire-and-forget HMAC-signed webhook delivery with delivery logging.
  *
- * Endpoint create, update and delete, and fireWebhook's auto-disable, run on
- * the migration_admin pool (webhookEndpointWrites.ts; S-07e part B, migration
- * 946). The app pools keep only the delivery stamps on webhook_endpoints:
- * last_triggered_at and failure_count. webhook_deliveries stays app-writable.
+ * No app role writes webhook_endpoints (S-07e part B, migration 946): endpoint
+ * create, update and delete, and fireWebhook's delivery stamp and auto-disable,
+ * run on migration_admin (webhookEndpointWrites.ts). webhook_deliveries stays
+ * app-writable.
  */
 
 import { sql } from '@/lib/neon';
@@ -15,7 +15,7 @@ import crypto from 'crypto';
 import { safeFetch } from '@/lib/safeFetch';
 import { encryptToken, decryptToken } from '@/lib/encryption';
 import { WEBHOOK_EVENTS } from '@/modules/accounting/constants/webhookEvents';
-import { insertEndpoint, updateEndpoint, deleteEndpoint, disableFailingEndpoint } from './webhookEndpointWrites';
+import { insertEndpoint, updateEndpoint, deleteEndpoint, stampDelivery } from './webhookEndpointWrites';
 type Row = DbRow;
 
 /** Consecutive failures after which fireWebhook switches an endpoint off. */
@@ -164,27 +164,11 @@ export async function fireWebhook(
                 ${responseStatus}, ${responseBody}, ${success})
       `;
 
-      if (success) {
-        await sql`
-          UPDATE webhook_endpoints
-          SET last_triggered_at = NOW(), failure_count = 0
-          WHERE id = ${endpoint.id}::UUID AND company_id = ${companyId}
-        `;
-      } else {
-        const stamped = (await sql`
-          UPDATE webhook_endpoints
-          SET failure_count = failure_count + 1
-          WHERE id = ${endpoint.id}::UUID AND company_id = ${companyId}
-          RETURNING failure_count
-        `) as Row[];
-        if (Number(stamped[0]?.failure_count ?? 0) >= AUTO_DISABLE_AFTER_FAILURES) {
-          try {
-            await disableFailingEndpoint(companyId, endpoint.id, AUTO_DISABLE_AFTER_FAILURES);
-          } catch (disableErr) {
-            // Stays on and is retried by the next failed delivery; the other endpoints still go out.
-            log.error('Webhook auto-disable failed', { endpointId: endpoint.id, error: disableErr }, 'webhook');
-          }
-        }
+      try {
+        await stampDelivery(companyId, endpoint.id, success, AUTO_DISABLE_AFTER_FAILURES);
+      } catch (stampErr) {
+        // This delivery's stamp is lost (a failure is not counted); the other endpoints still go out.
+        log.error('Webhook delivery stamp failed', { endpointId: endpoint.id, success, error: stampErr }, 'webhook');
       }
     }
   } catch (err) {

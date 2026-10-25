@@ -1,17 +1,21 @@
 /**
- * Webhook endpoint writes, on the migration_admin pool (S-07e part B,
- * migration 946): no app role may INSERT or DELETE a webhook_endpoints row, or
- * UPDATE any column but the delivery stamps (last_triggered_at, failure_count).
- * SQL injected on an app pool can forge the claims RLS judges, and a planted or
- * re-pointed endpoint (url, events, is_active) is a standing feed of a company's
- * events to an outside URL.
+ * Every webhook_endpoints write, on the migration_admin login (S-07e part B,
+ * migration 946): no app role may INSERT, UPDATE or DELETE a row. SQL injected
+ * on an app pool can forge the claims RLS judges: a planted or re-pointed
+ * endpoint (url, events, is_active) is a standing feed of a company's events
+ * to an outside URL, and a forged failure_count delays or hastens its
+ * auto-disable. Create, update and delete run on migrationAdminTx (the
+ * request's writes); fireWebhook's delivery stamp, which also switches an
+ * endpoint off after its threshold of failures, on routeAdminQuery (a pool of
+ * its own, so a burst of deliveries never queues a sign-in).
  *
  * `companyId` is the verified request's (the route's `req.companyId`) or the
- * endpoint's own company (fireWebhook's auto-disable). This role bypasses RLS,
- * so every statement carries `company_id = $n`.
+ * endpoint's own company (fireWebhook). This role bypasses RLS, so every
+ * statement carries `company_id = $n`.
  */
 
 import { migrationAdminTx } from '@/lib/auth/migrationAdminPool';
+import { routeAdminQuery } from '@/lib/auth/routeAdminPool';
 
 type Row = Record<string, unknown>;
 
@@ -78,15 +82,19 @@ export async function deleteEndpoint(companyId: string, id: string): Promise<voi
   ));
 }
 
+const STAMP_SUCCESS = `UPDATE webhook_endpoints SET last_triggered_at = NOW(), failure_count = 0
+  WHERE id = $1::UUID AND company_id = $2::UUID`;
+const STAMP_FAILURE = `UPDATE webhook_endpoints
+  SET failure_count = failure_count + 1,
+      is_active = CASE WHEN failure_count + 1 >= $3 THEN false ELSE is_active END
+  WHERE id = $1::UUID AND company_id = $2::UUID`;
+
 /**
- * fireWebhook's auto-disable: switches the endpoint off once its failure_count
- * (stamped on the app pool) has reached `threshold`. The count is re-checked
- * here, so a success that reset it in between keeps the endpoint on.
+ * fireWebhook's stamp after one delivery: a success stamps last_triggered_at and resets
+ * failure_count; a failure counts up and, in the same statement, switches the endpoint off
+ * once the count reaches `disableAfter`. Throws on a refusal (55P03 after a 2 s wait included).
  */
-export async function disableFailingEndpoint(companyId: string, id: string, threshold: number): Promise<void> {
-  await migrationAdminTx('auto-disable webhook endpoint', (client) => client.query(
-    `UPDATE webhook_endpoints SET is_active = false
-      WHERE id = $1::UUID AND company_id = $2::UUID AND failure_count >= $3`,
-    [id, companyId, threshold],
-  ));
+export async function stampDelivery(companyId: string, id: string, success: boolean, disableAfter: number): Promise<void> {
+  if (success) await routeAdminQuery('webhook delivery stamp', STAMP_SUCCESS, [id, companyId]);
+  else await routeAdminQuery('webhook delivery failure stamp', STAMP_FAILURE, [id, companyId, disableAfter]);
 }

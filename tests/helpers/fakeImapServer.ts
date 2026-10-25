@@ -8,12 +8,25 @@
  * or the last one when none is, as RFC 3501 6.4.8 has it); 'drip' answers SELECT with an untagged
  * line every 100 ms and never the tagged completion (the socket is never idle); 'throttle' answers
  * every UID FETCH with a throttle BAD asking for `backoffMs`.
+ *
+ * Sizes (S-07e part B, review round 5): a message may claim one RFC822.SIZE (`size`, or none
+ * with `noSize`) and send a body of `bodyBytes` instead, or an envelope whose subject is a
+ * literal of `subjectBytes`. Those are streamed in 64 KB chunks as the client reads, so a
+ * client that closes the socket stops the server; `sentBytes` counts what it sent.
  */
 import { Duplex } from 'node:stream';
 import tls from 'node:tls';
 import { vi } from 'vitest';
 
-export interface FakeMessage { uid: number; subject?: string; size?: number; pdf?: string }
+export interface FakeMessage {
+  uid: number; subject?: string; size?: number; pdf?: string;
+  /** Leave RFC822.SIZE out of the envelope answer. */
+  noSize?: boolean;
+  /** Send a body literal of this many bytes, whatever `size` says. */
+  bodyBytes?: number;
+  /** Send the envelope's subject as a literal of this many bytes. */
+  subjectBytes?: number;
+}
 
 export interface FakeServer {
   mode: 'ok' | 'drip' | 'throttle';
@@ -26,14 +39,16 @@ export interface FakeServer {
   socketTimeouts: number[];
   /** Connections opened to it. */
   connects: number;
+  /** Bytes it has sent, over every connection. */
+  sentBytes: number;
 }
 
 export const fakeServer = (over: Partial<FakeServer> = {}): FakeServer =>
-  ({ mode: 'ok', uidNext: 1, messages: [], commands: [], socketTimeouts: [], connects: 0, ...over });
+  ({ mode: 'ok', uidNext: 1, messages: [], commands: [], socketTimeouts: [], connects: 0, sentBytes: 0, ...over });
 
 const envelope = (subject: string) => `ENVELOPE (NIL "${subject}" (("a" NIL "a" "b.test")) NIL NIL (("c" NIL "c" "d.test")) NIL NIL NIL NIL)`;
-const mime = (tag: string) => [
-  'From: a@b.test', 'To: c@d.test', 'Subject: Invoice', 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary=XX', '',
+const mime = (tag: string, subject = 'Invoice') => [
+  'From: a@b.test', 'To: c@d.test', `Subject: ${subject}`, 'MIME-Version: 1.0', 'Content-Type: multipart/mixed; boundary=XX', '',
   '--XX', 'Content-Type: text/plain', '', 'hi', '--XX', `Content-Type: application/pdf; name="${tag}.pdf"`,
   `Content-Disposition: attachment; filename="${tag}.pdf"`, '', tag, '--XX--', ''].join('\r\n');
 
@@ -42,6 +57,8 @@ export class FakeImap extends Duplex {
   authorized = true;
   private buf = '';
   private drip: NodeJS.Timeout | null = null;
+  /** Literal bytes still to stream, then the text that follows them. */
+  private streaming: Array<{ remaining: number; after: string }> = [];
 
   constructor(private readonly server: FakeServer, private readonly registry: FakeImap[]) {
     super();
@@ -54,9 +71,36 @@ export class FakeImap extends Duplex {
   setKeepAlive() { return this; }
   setNoDelay() { return this; }
   setTimeout(ms: number) { this.server.socketTimeouts.push(ms); return this; }
-  line(s: string) { this.push(`${s}\r\n`); }
-  kill() { if (this.drip) clearInterval(this.drip); this.push(null); }
-  _read() { /* data is pushed by the script */ }
+  /** A line, after anything still streaming. */
+  line(s: string) {
+    if (this.streaming.length > 0) this.streaming.push({ remaining: 0, after: `${s}\r\n` });
+    else this.send(`${s}\r\n`);
+  }
+  kill() { if (this.drip) clearInterval(this.drip); this.streaming = []; this.push(null); }
+  _read() { this.pump(); }
+
+  private send(s: string): boolean {
+    if (this.destroyed) return false;
+    this.server.sentBytes += Buffer.byteLength(s);
+    return this.push(s);
+  }
+
+  /** `head`, then `bytes` of filler as the client reads them, then `after`: all after anything still streaming. */
+  private stream(head: string, bytes: number, after: string) {
+    this.streaming.push({ remaining: 0, after: head }, { remaining: bytes, after });
+    this.pump();
+  }
+
+  private pump() {
+    while (this.streaming.length > 0 && !this.destroyed) {
+      const cur = this.streaming[0]!;
+      if (cur.remaining === 0) { this.streaming.shift(); if (!this.send(cur.after)) return; continue; }
+      const n = Math.min(64 * 1024, cur.remaining);
+      cur.remaining -= n;
+      this.server.sentBytes += n;
+      if (!this.push(Buffer.alloc(n, 0x41))) return;
+    }
+  }
 
   _write(chunk: Buffer, _enc: string, cb: () => void) {
     this.buf += chunk.toString();
@@ -94,14 +138,25 @@ export class FakeImap extends Duplex {
       const from = Number(range.split(':')[0]);
       const past = s.messages.filter((m) => m.uid >= from);
       const answer = past.length > 0 ? past : s.messages.slice(-1);
-      answer.forEach((m, n) => out(`* ${n + 1} FETCH (UID ${m.uid} RFC822.SIZE ${m.size ?? 200} ${envelope(m.subject ?? 'Invoice')})`));
-      out(`${tag} OK fetched`);
+      setImmediate(() => {
+        answer.forEach((m, n) => {
+          const size = m.noSize ? '' : ` RFC822.SIZE ${m.size ?? 200}`;
+          if (!m.subjectBytes) { this.line(`* ${n + 1} FETCH (UID ${m.uid}${size} ${envelope(m.subject ?? 'Invoice')})`); return; }
+          const [pre, post] = envelope('\u0000').split('"\u0000"');
+          this.stream(`* ${n + 1} FETCH (UID ${m.uid}${size} ${pre}{${m.subjectBytes}}\r\n`, m.subjectBytes, `${post})\r\n`);
+        });
+        this.line(`${tag} OK fetched`);
+      });
       return;
     }
     const uid = Number(range);
     const m = s.messages.find((x) => x.uid === uid);
     if (!m) { out(`${tag} OK fetched`); return; }
-    const body = mime(m.pdf ?? `body-of-${uid}`);
+    if (m.bodyBytes) {
+      setImmediate(() => this.stream(`* 1 FETCH (UID ${uid} BODY[] {${m.bodyBytes}}\r\n`, m.bodyBytes!, `)\r\n${tag} OK fetched\r\n`));
+      return;
+    }
+    const body = mime(m.pdf ?? `body-of-${uid}`, m.subject);
     out(`* 1 FETCH (UID ${uid} BODY[] {${Buffer.byteLength(body)}}\r\n${body})`);
     out(`${tag} OK fetched`);
   }

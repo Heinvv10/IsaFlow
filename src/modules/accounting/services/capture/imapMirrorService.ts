@@ -10,9 +10,9 @@
  * Invariant: the service never DELETEs or marks remote messages read.
  * Access is read-only — invoices stay where the user expects them.
  *
- * App-pool writes to imap_mirror_connections are the scan stamps only, each
- * keyed on the connection AND its company (S-07e part B, migration 946). The
- * flip of `status` to 'error' is mirrorScanError.ts's, on migration_admin.
+ * No app role writes imap_mirror_connections (S-07e part B, migration 946): the
+ * scan's stamps and the due selection are imapMirrorWrites.ts's, the flip of
+ * `status` to 'error' mirrorScanError.ts's, all on migration_admin.
  */
 
 import type { ImapFlow } from 'imapflow';
@@ -26,7 +26,7 @@ import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } 
 import { ingestAttachment } from './imapMirrorIngest';
 import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from './mirrorImapFetch';
 import { isScanLockSkip } from './mirrorScanWrite';
-import { addIngested, logScanEntry, stampStopped, stampSuccess, updateCursor } from './imapMirrorWrites';
+import { addIngested, logScanEntry, selectDueConnections, stampStopped, stampSuccess, updateCursor } from './imapMirrorWrites';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
@@ -93,17 +93,7 @@ function loadMirrorRow(row: Row): MirrorConnection {
 }
 
 export async function listActiveConnections(): Promise<MirrorConnection[]> {
-  const rows = (await sql`
-    SELECT * FROM imap_mirror_connections
-    WHERE status = 'active'
-      AND (last_scan_at IS NULL
-           OR last_scan_at > NOW()
-           OR last_scan_at < NOW() - (scan_interval_minutes || ' minutes')::INTERVAL)
-    ORDER BY CASE WHEN last_scan_at > NOW() THEN 'infinity'::timestamptz ELSE last_scan_at END ASC NULLS FIRST
-    LIMIT 20
-    FOR UPDATE SKIP LOCKED
-  `) as Row[];
-  return rows.map(loadMirrorRow);
+  return (await selectDueConnections()).map(loadMirrorRow);
 }
 
 export async function listConnectionsForCompany(companyId: string): Promise<MirrorConnection[]> {

@@ -44,9 +44,15 @@ export async function findExistingByHash(companyId: string, hash: string): Promi
 
 /**
  * True when the tenant already holds this file: a captured_documents row with the hash that is
- * not an unfinished mirror ingest. An ingest that failed after its row was inserted leaves the
- * row 'pending' with no capture event (the runbook's orphan query lists them); the scan retries
- * that message, so such a row must not count, or the retry would drop the file for good.
+ * neither rejected nor failed, and not an unfinished mirror ingest.
+ * - Rejected (`status = 'rejected'`) or failed to read (`read_state = 'failed'`): a re-sent copy
+ *   is captured again, so the tenant gets a second go at a file that once failed.
+ * - A mirror ingest leaves its row 'pending' with a capture event; it counts while that event
+ *   has not failed (routing marks the event 'failed', not the document). An ingest that failed
+ *   after its row was inserted leaves it 'pending' with no event at all (the runbook's orphan
+ *   query lists them); the scan retries that message, so it must not count either.
+ * Limit: captured_documents is app-writable (outside migration 946), so SQL injected on an app
+ * pool can plant a row with a file's hash and make that file look held when it arrives.
  */
 export async function isFileAlreadyCaptured(companyId: string, hash: string): Promise<boolean> {
   const rows = (await sql`
@@ -54,10 +60,13 @@ export async function isFileAlreadyCaptured(companyId: string, hash: string): Pr
     FROM captured_documents cd
     WHERE cd.company_id = ${companyId}::uuid
       AND cd.raw_bytes_sha256 = ${hash}
+      AND cd.status <> 'rejected'
+      AND cd.read_state <> 'failed'
       AND (cd.status <> 'pending'
            OR EXISTS (SELECT 1 FROM capture_events ce
                        WHERE ce.captured_document_id = cd.id
-                         AND ce.company_id = cd.company_id))
+                         AND ce.company_id = cd.company_id
+                         AND ce.status <> 'failed'))
     LIMIT 1
   `) as Row[];
   return rows.length > 0;
