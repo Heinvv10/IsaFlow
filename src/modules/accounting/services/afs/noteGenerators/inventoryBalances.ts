@@ -1,11 +1,17 @@
 // src/modules/accounting/services/afs/noteGenerators/inventoryBalances.ts
-// The inventory accounts with a balance at a year end: note 9 lists them, and
-// note 1 states an inventories policy only when there is at least one.
+// The inventory accounts with a balance at a date: note 9 lists them at the year
+// end, and note 1 reads them at the prior year end (with the year's movements).
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import { rawSubtypesFor } from '@/modules/accounting/services/gl/accountSubtypes';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
+
+/** The account subtypes that hold inventory. */
+export const INVENTORY_SUBTYPES: readonly string[] = [
+  ...rawSubtypesFor('inventory'),
+  'raw_materials', 'work_in_progress', 'finished_goods', 'consumables',
+];
 
 /** Inventory-classified GL accounts whose posted balance at `end` is not zero (year-end closing journals excluded). */
 export async function inventoryBalancesAt(companyId: string, end: string): Promise<DbRow[]> {
@@ -19,10 +25,7 @@ export async function inventoryBalancesAt(companyId: string, end: string): Promi
       ON gje.id = gjl.journal_entry_id
       AND gje.entry_date <= ${end} AND gje.status = 'posted' AND gje.source IS DISTINCT FROM ${YEAR_END_JOURNAL_SOURCE}
     WHERE ga.company_id = ${companyId}
-      AND ga.account_subtype = ANY(${[
-        ...rawSubtypesFor('inventory'),
-        'raw_materials', 'work_in_progress', 'finished_goods', 'consumables',
-      ]}::TEXT[])
+      AND ga.account_subtype = ANY(${INVENTORY_SUBTYPES}::TEXT[])
     GROUP BY ga.account_name, ga.account_code, ga.account_subtype
     HAVING COALESCE(SUM(CASE WHEN gje.id IS NULL THEN 0 ELSE gjl.debit - gjl.credit END), 0) <> 0
     ORDER BY ga.account_subtype, ga.account_name
