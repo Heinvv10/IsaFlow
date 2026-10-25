@@ -22,11 +22,11 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 - `POST /api/accounting/capture/[id]/discard` — body `{ reason? }`; status=`discarded`
 
 ### Mirror (PRD-05 Phase 9)
-- `GET|POST /api/accounting/capture/mirror` — list / create IMAP-password connection (Gmail/M365 use `/oauth/start`)
+- `GET|POST /api/accounting/capture/mirror` — list / create IMAP-password connection (Gmail/M365 use `/oauth/start`); 400 unless `scanIntervalMinutes` is a whole number 5..1440 (PATCH too), 409 at 5 active connections
 - `PATCH|DELETE /api/accounting/capture/mirror/[id]` — update senders/folder/interval / hard-delete (cascades log)
 - `POST /api/accounting/capture/mirror/[id]/disconnect` — mark disconnected + wipe creds
 - `GET /api/accounting/capture/mirror/[id]/log` — recent scan entries
-- `POST /api/accounting/capture/mirror/[id]/scan-now` — one-off scan bypassing interval gate; returns `{ scanned, ingested, skipped, errors }`
+- `POST /api/accounting/capture/mirror/[id]/scan-now` — one-off scan bypassing interval gate; returns `{ scanned, ingested, skipped, errors }` (30 s deadline; 409 while a scan of the connection or another scan-now of the company is running; stamps land just after the request commits)
 
 ## Auth
 - User routes: `withAuth(withErrorHandler(withWriteAccess(...)))` for mutating; `withAuth(withErrorHandler(...))` for GET

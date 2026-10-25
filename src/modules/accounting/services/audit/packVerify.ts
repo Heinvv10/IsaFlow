@@ -73,13 +73,13 @@ function centralDirectoryCount(buf: Buffer): number | null {
   return null;
 }
 
-async function download(bucket: string, path: string): Promise<Buffer> {
+async function download(companyId: string, bucket: string, path: string): Promise<Buffer> {
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`the stored pack did not download within ${PACK_DOWNLOAD_TIMEOUT_MS / 1000} s`)), PACK_DOWNLOAD_TIMEOUT_MS);
   });
   try {
-    return await Promise.race([downloadCapturedDocument(bucket, path), late]);
+    return await Promise.race([downloadCapturedDocument(bucket, path, companyId), late]);
   } finally {
     clearTimeout(timer);
   }
@@ -145,7 +145,7 @@ async function checkPackFile(companyId: string, e: AuditExport, buf: Buffer): Pr
 export async function verifyPack(companyId: string, exportId: string): Promise<PackVerification | null> {
   const e = await getExport(exportId, companyId);
   if (!e || !e.zipStoragePath || !e.snapshotId) return null;
-  const { intact, ...file } = await checkPackFile(companyId, e, await download(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath));
+  const { intact, ...file } = await checkPackFile(companyId, e, await download(companyId, e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath));
   const snapshotStatus = (await verifySnapshot(companyId, e.snapshotId))?.status ?? null;
   // Fail closed: valid only when every part is.
   return { status: intact && snapshotStatus === 'valid' ? 'valid' : 'invalid', ...file, snapshotId: e.snapshotId, snapshotStatus };
@@ -154,7 +154,7 @@ export async function verifyPack(companyId: string, exportId: string): Promise<P
 /** The stored ZIP of a ready snapshot pack, served only when it proves itself (no ledger read). */
 export async function verifiedPackZip(companyId: string, e: AuditExport): Promise<Buffer> {
   if (!e.zipStoragePath) throw new PackRefusedError('This export has no pack ZIP.');
-  const buf = await download(e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath);
+  const buf = await download(companyId, e.zipStorageBucket ?? 'captured-documents', e.zipStoragePath);
   const check = await checkPackFile(companyId, e, buf);
   if (!check.intact) {
     log.warn('audit pack: refused to serve a pack that does not verify', { exportId: e.id, zipMatches: check.zipMatches,

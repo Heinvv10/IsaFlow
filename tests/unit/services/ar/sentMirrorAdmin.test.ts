@@ -8,6 +8,9 @@
  *   4. disconnectSentConnection returns true on match, false otherwise
  *   5. deleteSentConnection returns false when no row deleted
  *   6. listSentScanLog passes through the row list
+ *   7. every write goes through routeAdminQuery (S-07e part B, migration 946: its own
+ *      pool, 2 s lock wait), never migrationAdminTx (the credential pool sign-in shares),
+ *      bound to the verified company and never to the app pool's `sql`
  */
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
@@ -19,6 +22,33 @@ vi.mock('@/lib/neon', () => {
     withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(sqlMock)),
   };
 });
+
+const h = vi.hoisted(() => ({
+  admin: [] as Array<{ label: string; text: string; values: unknown[] }>,
+  adminRows: [] as unknown[][],
+  activeCount: 0,
+}));
+
+vi.mock('@/lib/auth/migrationAdminPool', () => ({
+  migrationAdminTx: async (label: string) => { throw new Error(`${label}: a sent mirror write ran on the credential pool`); },
+}));
+
+vi.mock('@/lib/auth/routeAdminPool', () => ({
+  routeAdminQuery: async (label: string, text: string, values: unknown[]) => {
+    h.admin.push({ label, text: text.replace(/\s+/g, ' ').trim(), values });
+    return h.adminRows.shift() ?? [];
+  },
+  routeAdminTx: async (label: string, fn: (c: { query: (text: string, values: unknown[]) => Promise<{ rows: unknown[] }> }) => Promise<unknown>) =>
+    fn({
+      query: async (text: string, values: unknown[]) => {
+        const t = text.replace(/\s+/g, ' ').trim();
+        h.admin.push({ label, text: t, values });
+        if (/pg_advisory_xact_lock/.test(t)) return { rows: [] };
+        if (/COUNT\(\*\)/.test(t)) return { rows: [{ n: h.activeCount }] };
+        return { rows: h.adminRows.shift() ?? [] };
+      },
+    }),
+}));
 
 vi.mock('@/lib/encryption', () => ({
   encrypt: vi.fn((plain: string) => `enc(${plain})`),
@@ -35,6 +65,7 @@ import {
   deleteSentConnection,
   listSentScanLog,
 } from '@/modules/accounting/services/ar/sentMirrorAdmin';
+import { MAX_ACTIVE_CONNECTIONS_PER_COMPANY, MirrorConnectionCapError } from '@/modules/accounting/services/capture/mirrorLimits';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockEncrypt = encrypt as unknown as MockedFunction<typeof encrypt>;
@@ -63,6 +94,9 @@ function rowFixture(overrides: Record<string, unknown> = {}): Record<string, unk
 
 beforeEach(() => {
   vi.clearAllMocks();
+  h.admin.length = 0;
+  h.adminRows.length = 0;
+  h.activeCount = 0;
 });
 
 describe('listSentConnectionSummaries', () => {
@@ -79,26 +113,40 @@ describe('listSentConnectionSummaries', () => {
 });
 
 describe('createSentImapConnection', () => {
-  it('encrypts the password and inserts the connection', async () => {
-    mockSql.mockResolvedValueOnce([rowFixture()]);
-    await createSentImapConnection({
-      companyId: COMPANY_ID,
-      displayName: 'Billing Outbound',
-      accountEmail: 'billing@acme.co.za',
-      imapHost: 'imap.gmail.com',
-      imapPort: 993,
-      imapUsername: 'billing@acme.co.za',
-      imapPassword: 'app-password-123',
-    });
+  const input = {
+    companyId: COMPANY_ID,
+    displayName: 'Billing Outbound',
+    accountEmail: 'billing@acme.co.za',
+    imapHost: 'imap.gmail.com',
+    imapPort: 993,
+    imapUsername: 'billing@acme.co.za',
+    imapPassword: 'app-password-123',
+  };
+
+  it('takes the company lock, counts its active connections, then encrypts the password and inserts the connection', async () => {
+    h.adminRows.push([rowFixture()]);
+    h.activeCount = MAX_ACTIVE_CONNECTIONS_PER_COMPANY - 1;
+    await createSentImapConnection(input);
     expect(mockEncrypt).toHaveBeenCalledWith('app-password-123');
-    const call = mockSql.mock.calls[0]!;
-    expect(call).toContain('enc(app-password-123)');
+    expect(h.admin).toHaveLength(3);
+    expect(h.admin[0]!.text).toContain("pg_advisory_xact_lock(hashtextextended('sent_mirror_connections:'");
+    expect(h.admin[1]!.text).toContain("FROM sent_mirror_connections WHERE company_id = $1::uuid AND status = 'active'");
+    expect(h.admin[2]!.text).toContain('INSERT INTO sent_mirror_connections');
+    expect(h.admin[2]!.values).toContain('enc(app-password-123)');
+    expect(h.admin.map((w) => w.values[0])).toEqual([COMPANY_ID, COMPANY_ID, COMPANY_ID]);
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('refuses a company at its limit of active connections, and inserts nothing', async () => {
+    h.activeCount = MAX_ACTIVE_CONNECTIONS_PER_COMPANY;
+    await expect(createSentImapConnection(input)).rejects.toBeInstanceOf(MirrorConnectionCapError);
+    expect(h.admin.some((w) => /^INSERT/.test(w.text))).toBe(false);
   });
 });
 
 describe('updateSentConnection', () => {
   it('returns null when no row matches', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    h.adminRows.push([]);
     const result = await updateSentConnection({
       id: CONN_ID, companyId: COMPANY_ID, scanIntervalMinutes: 30,
     });
@@ -106,30 +154,41 @@ describe('updateSentConnection', () => {
   });
 
   it('returns the updated summary when a row matches', async () => {
-    mockSql.mockResolvedValueOnce([rowFixture({ scan_interval_minutes: 30 })]);
+    h.adminRows.push([rowFixture({ scan_interval_minutes: 30 })]);
     const result = await updateSentConnection({
       id: CONN_ID, companyId: COMPANY_ID, scanIntervalMinutes: 30,
     });
     expect(result?.scanIntervalMinutes).toBe(30);
+    expect(h.admin[0]!.text).toMatch(/^UPDATE sent_mirror_connections .*company_id = \$2::uuid/);
+    expect(h.admin[0]!.values.slice(0, 2)).toEqual([CONN_ID, COMPANY_ID]);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 });
 
 describe('disconnectSentConnection', () => {
   it('returns true when a row was updated', async () => {
-    mockSql.mockResolvedValueOnce([{ id: CONN_ID }]);
+    h.adminRows.push([{ id: CONN_ID }]);
     expect(await disconnectSentConnection(CONN_ID, COMPANY_ID)).toBe(true);
+    expect(h.admin[0]!.text).toContain("SET status = 'disconnected'");
+    expect(h.admin[0]!.text).toContain('imap_password_enc = NULL');
+    expect(h.admin[0]!.text).toContain('company_id = $2::uuid');
+    expect(h.admin[0]!.values).toEqual([CONN_ID, COMPANY_ID]);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('returns false when no matching row exists', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    h.adminRows.push([]);
     expect(await disconnectSentConnection(CONN_ID, COMPANY_ID)).toBe(false);
   });
 });
 
 describe('deleteSentConnection', () => {
   it('returns false when no row was deleted (cross-tenant guard)', async () => {
-    mockSql.mockResolvedValueOnce([]);
+    h.adminRows.push([]);
     expect(await deleteSentConnection(CONN_ID, COMPANY_ID)).toBe(false);
+    expect(h.admin[0]!.text).toMatch(/^DELETE FROM sent_mirror_connections WHERE id = \$1::uuid AND company_id = \$2::uuid/);
+    expect(h.admin[0]!.values).toEqual([CONN_ID, COMPANY_ID]);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 });
 

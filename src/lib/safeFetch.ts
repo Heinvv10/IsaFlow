@@ -28,6 +28,14 @@ export class SsrfError extends Error {
   }
 }
 
+/** The resolver could not answer (as opposed to answering with an address that is not allowed). */
+export class DnsResolutionError extends SsrfError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DnsResolutionError';
+  }
+}
+
 export interface SafeFetchOptions {
   /** Permit http:// (default: https only). */
   allowHttp?: boolean;
@@ -66,6 +74,7 @@ function reasonV4(ip: string): string | null {
   if (inRange('172.16.0.0', 12)) return 'private (172.16.0.0/12)';
   if (inRange('192.0.0.0', 24)) return 'IETF protocol (192.0.0.0/24)';
   if (inRange('192.0.2.0', 24)) return 'TEST-NET-1 (192.0.2.0/24)';
+  if (inRange('192.88.99.0', 24)) return '6to4 relay anycast, deprecated (192.88.99.0/24)';
   if (inRange('192.168.0.0', 16)) return 'private (192.168.0.0/16)';
   if (inRange('198.18.0.0', 15)) return 'benchmarking (198.18.0.0/15)';
   if (inRange('198.51.100.0', 24)) return 'TEST-NET-2 (198.51.100.0/24)';
@@ -114,6 +123,10 @@ function reasonV6(ip: string): string | null {
   const h = expandV6(ip);
   if (!h) return 'invalid IPv6';
   const zeroTo4 = h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0;
+  // IPv4-translated (SIIT, ::ffff:0:0:0/96): a v4 behind a translator; nothing here uses one.
+  if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0xffff && h[5] === 0) {
+    return 'IPv4-translated (::ffff:0:0:0/96)';
+  }
   // IPv4-mapped (::ffff:0:0/96) and IPv4-compatible incl. ::1/:: (::/96) — validate the
   // embedded v4. new URL() canonicalizes these to hex (::ffff:7f00:1), so never regex the tail.
   if (zeroTo4 && (h[5] === 0xffff || h[5] === 0)) return reasonV4(embeddedV4(h));
@@ -121,11 +134,16 @@ function reasonV6(ip: string): string | null {
   if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0) {
     return reasonV4(embeddedV4(h));
   }
+  // Local-use NAT64 (RFC 8215): whatever the operator's translator maps it to.
+  if (h[0] === 0x64 && h[1] === 0xff9b && h[2] === 1) return 'local-use NAT64 (64:ff9b:1::/48)';
   if ((h[0]! & 0xfe00) === 0xfc00) return 'unique-local (fc00::/7)';
   if ((h[0]! & 0xffc0) === 0xfe80) return 'link-local (fe80::/10)';
+  if ((h[0]! & 0xffc0) === 0xfec0) return 'site-local, deprecated (fec0::/10)';
   if ((h[0]! & 0xff00) === 0xff00) return 'multicast (ff00::/8)';
   if (h[0] === 0x2002) return '6to4 (2002::/16)';
   if (h[0] === 0x2001 && h[1] === 0) return 'Teredo (2001::/32)';
+  if (h[0] === 0x2001 && h[1] === 0x0db8) return 'documentation (2001:db8::/32)';
+  if (h[0] === 0x0100 && h[1] === 0 && h[2] === 0 && h[3] === 0) return 'discard-only (100::/64)';
   return null;
 }
 
@@ -164,11 +182,29 @@ export async function assertPublicUrl(rawUrl: string, opts: SafeFetchOptions = {
     throw new SsrfError(`host not allowlisted: ${hostname}`);
   }
 
+  await assertPublicHostname(hostname);
+}
+
+/**
+ * Throws SsrfError unless a bare host (a DNS name, or an IPv4/IPv6 literal with no
+ * brackets) is, and resolves only to, public addresses. For callers that connect by
+ * host and port rather than fetch a URL (the IMAP mirrors).
+ */
+export async function assertPublicHostname(hostname: string): Promise<void> {
+  await resolvePublicHostname(hostname);
+}
+
+/**
+ * assertPublicHostname that returns the address it vetted: the IP literal itself, or the name's first IPv4
+ * address (else its first address; all of them are public). IPv4 first: this host may have no IPv6 route. A caller that connects by that address, not the name,
+ * closes the gap between this lookup and its own (DNS rebinding).
+ */
+export async function resolvePublicHostname(hostname: string): Promise<string> {
   // IP literal → validate directly, no DNS.
   if (net.isIP(hostname) !== 0) {
     const r = ipReason(hostname);
     if (r) throw new SsrfError(`blocked address ${hostname}: ${r}`);
-    return;
+    return hostname;
   }
 
   // DNS host → block if ANY resolved address is reserved (rebinding defence).
@@ -176,13 +212,14 @@ export async function assertPublicUrl(rawUrl: string, opts: SafeFetchOptions = {
   try {
     addrs = await lookup(hostname, { all: true });
   } catch {
-    throw new SsrfError(`DNS resolution failed for ${hostname}`);
+    throw new DnsResolutionError(`DNS resolution failed for ${hostname}`);
   }
-  if (!addrs.length) throw new SsrfError(`no DNS records for ${hostname}`);
+  if (!addrs.length) throw new DnsResolutionError(`no DNS records for ${hostname}`);
   for (const a of addrs) {
     const r = ipReason(a.address);
     if (r) throw new SsrfError(`${hostname} resolves to blocked address ${a.address}: ${r}`);
   }
+  return (addrs.find((a) => net.isIPv4(a.address)) ?? addrs[0]!).address;
 }
 
 /** Non-throwing variant for request validation. Returns null when safe, else the reason. */

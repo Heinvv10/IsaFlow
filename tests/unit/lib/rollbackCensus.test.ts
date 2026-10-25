@@ -58,6 +58,10 @@ const PINNED: Record<string, { rollbacks: number; unreadable: number; reason: st
     reason: `bounded(): ${PASSES_TEXT_ON}, with a query_timeout added (AP-01 round 12); its callers send no ROLLBACK (they use rollbackFailed)`,
   },
   'src/lib/neon/sql.ts': { rollbacks: 0, unreadable: 3, reason: PASSES_TEXT_ON },
+  'src/lib/auth/routeAdminPool.ts': {
+    rollbacks: 0, unreadable: 1,
+    reason: `routeAdminQuery: ${PASSES_TEXT_ON} (one fixed statement of its callers', S-07e part B); it rolls back with rollbackFailed`,
+  },
   'src/lib/neon/transaction.ts': { rollbacks: 0, unreadable: 2, reason: PASSES_TEXT_ON },
   'src/lib/auth/migrationAdminPool.ts': {
     rollbacks: 0, unreadable: 1,

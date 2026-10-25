@@ -60,7 +60,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // A snapshot pack's ZIP is served only when its sealed manifest verifies: the auditor holds no key to check it.
     bytes = file.contentType === 'application/zip'
-      ? await verifiedPackZip(verified.companyId, ex) : await downloadCapturedDocument(file.bucket, file.path);
+      ? await verifiedPackZip(verified.companyId, ex) : await downloadCapturedDocument(file.bucket, file.path, verified.companyId);
   } catch (err) {
     if (respondAuditRefusal(res, err)) return;
     throw err;

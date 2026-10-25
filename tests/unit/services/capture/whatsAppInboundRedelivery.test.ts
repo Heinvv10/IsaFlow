@@ -76,7 +76,7 @@ describe('Twilio redelivery (K-160)', () => {
     const deleteCall = vi.mocked(sqlMock).mock.calls[4]!;
     expect((deleteCall[0] as unknown as string[]).join('?')).toMatch(/DELETE FROM captured_documents/);
     expect(deleteCall.slice(1)).toEqual([DOC_ID, COMPANY_ID]);
-    expect(removeMock).toHaveBeenCalledWith('captured-documents', 'company/doc-id');
+    expect(removeMock).toHaveBeenCalledWith('captured-documents', 'company/doc-id', COMPANY_ID);
     expect(routeEventMock).not.toHaveBeenCalled();
     expect(attachReplyMediaMock).not.toHaveBeenCalled();
     expect(markQueryRepliedMock).not.toHaveBeenCalled();
