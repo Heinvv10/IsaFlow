@@ -1,6 +1,7 @@
 // The Playwright-facing half of the a11y gate (helpers/axe.ts) against a fake page, a fake AxeBuilder and a fake
 // test.info(): which selectors reach axe, how the baseline key defaults, how a screen's data table is scanned
 // apart, and what openScreen waits for and refuses.
+import { runInNewContext } from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({
@@ -198,10 +199,7 @@ describe('inScreen keeps what went wrong', () => {
   it('keeps the whole underlying message, Expected/Received lines included, with colour codes stripped', async () => {
     const original = new Error(`\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected: 0\nReceived: 2`);
     const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw original; } }).catch((e: Error) => e);
-    expect((err as Error).message).toContain('a11y screen "assets" (/accounting/assets): the screen never settled');
-    expect((err as Error).message).toContain('Expected: 0');
-    expect((err as Error).message).toContain('Received: 2');
-    expect((err as Error).message).not.toContain('\u001b');
+    expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled\nexpect(locator) failed\n\nExpected: 0\nReceived: 2');
   });
 
   it('rethrows with the original as `cause`, so its stack survives', async () => {
@@ -218,9 +216,9 @@ describe('inScreen keeps what went wrong', () => {
   });
 
   it('the h1 and spinner waits keep the full message and cause too', async () => {
-    const h1 = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: 'locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\'h1\').first() to be visible' }), SCREEN).catch((e: Error) => e);
-    expect((h1 as Error).message).toContain('no <h1> showed within 30s\nlocator.waitFor: Timeout 30000ms exceeded.');
-    expect((h1 as Error).message).toContain("waiting for locator('h1').first() to be visible"); // a later line of the original, not just the first
+    const body = "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator('h1').first() to be visible";
+    const h1 = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: body }), SCREEN).catch((e: Error) => e);
+    expect((h1 as Error).message).toBe(`a11y screen "assets" (/accounting/assets): no <h1> showed within 30s\n${body}`);
     expect((h1 as Error).cause).toBeInstanceOf(Error);
     const page = screenPage({ landsOn: 'http://x/accounting/assets' });
     (page as unknown as { locator: (s: string) => unknown }).locator = (sel: string) => ({
@@ -252,5 +250,29 @@ describe('inScreen keeps what went wrong', () => {
   it('an error with an empty message leaves no trailing newline', async () => {
     const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw new Error(''); } }).catch((e: Error) => e);
     expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled');
+  });
+
+  it('a whitespace-only message gets no newline either', async () => {
+    for (const blank of [' ', '\n', '  \n\t ']) {
+      const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw new Error(blank); } }).catch((e: Error) => e);
+      expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled');
+    }
+  });
+
+  it('an Error from another realm (not instanceof Error) keeps its message instead of becoming "{}"', async () => {
+    const foreign = runInNewContext('new Error("cross realm failure\\nReceived: 2")') as Error;
+    expect(foreign instanceof Error).toBe(false);
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw foreign; } }).catch((e: Error) => e);
+    expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled\ncross realm failure\nReceived: 2');
+    expect((err as Error).cause).toBe(foreign);
+  });
+
+  it('nothing throws out of the wrapper: a thrown value whose String() throws still yields the named Error', async () => {
+    const bare = Object.create(null) as object; // String(bare) throws a TypeError; JSON gives {}
+    Object.defineProperty(bare, 'toJSON', { value: () => { throw new Error('no json'); } });
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw bare; } }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('a11y screen "assets" (/accounting/assets): the screen never settled\n[object Object]');
+    expect((err as Error).cause).toBe(bare);
   });
 });
