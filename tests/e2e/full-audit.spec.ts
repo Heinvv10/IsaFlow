@@ -49,7 +49,7 @@ const ALL_PAGES = [
   '/accounting/recurring-journals', '/accounting/fiscal-periods',
   '/accounting/opening-balances',
   // VAT
-  '/accounting/vat-return', '/accounting/vat-adjustments',
+  '/accounting/vat-adjustments',
   '/accounting/drc-vat',
   // Accountant's Area
   '/accounting/trial-balance', '/accounting/audit-trail',
