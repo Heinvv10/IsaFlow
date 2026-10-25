@@ -85,8 +85,8 @@ const KNOWN_WRITERS = [
   'scripts/qa-cleanup-run.ts: names as a string', // W18 QA cleanup by company — postgres
   'scripts/sandbox/reviewerSandboxIdentity.ts: writes', // fictional reviewer sandbox seed (docs/mcp/REVIEWER-SANDBOX.md)
   'scripts/stress-test.ts: writes', // W18 stress seed — postgres
-  'src/modules/accounting/services/core/userAccessService.ts: locks', // S-04: the target's row, FOR UPDATE before the owner check — app_user
-  'src/modules/accounting/services/core/userAccessService.ts: writes', // W1/W2 — app_user: role (930's one column grant) and removal
+  'src/modules/accounting/services/core/memberWrites.ts: locks', // S-04: the target's row FOR UPDATE, the actor's FOR SHARE — migration_admin pool (S-07d, 937)
+  'src/modules/accounting/services/core/memberWrites.ts: writes', // W1/W2 role change and removal — migration_admin pool since S-07d (937), the guard's rules in TS
   'src/modules/accounting/services/core/userInvitationService.ts: locks', // assertCanInvite: the inviter's membership, FOR SHARE — migration_admin pool (S-07c)
   'src/modules/accounting/services/core/userInvitationService.ts: writes', // W3–W6 — migration_admin pool since S-07c (930), no auto-add; the cancel DELETE — app_user
   'src/modules/admin/services/adminUserActionsService.ts: writes', // W13–W14 delete-user, reset-onboarding — platform_admin; refused whole for a company's only owner (908b)
@@ -107,7 +107,8 @@ const KNOWN_WRITERS = [
  * re-writes both so app_service (S-07b's service pool) takes app_user's
  * rules, patching the exemption line in place (pg_get_functiondef), read as
  * 886 was; 930 (S-07c) revokes INSERT and UPDATE on both from app_user and
- * grants back only UPDATE (role) on company_users.
+ * grants back only UPDATE (role) on company_users; 937 (S-07d) revokes that
+ * and DELETE on company_users too.
  */
 const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '220_multi_company_scoping.sql': ['writes'],
@@ -126,6 +127,8 @@ const KNOWN_MIGRATIONS: Record<string, string[]> = {
   '908b_company_member_owner_rules.sql': ['alters'],
   '916_service_role_member_guards.sql': ['alters'],
   '930_credential_membership_writes_off_app_pools.sql': ['grants'],
+  // 937 grants nothing on either table; its REVOKE names TRUNCATE, which the truncate pattern reads as a write.
+  '937_credential_tables_off_app_pools.sql': ['writes'],
 };
 
 const all = (() => { let cache: SourceFile[] | undefined; return () => (cache ??= sourceFiles()); })();
@@ -134,7 +137,7 @@ const isMigration = (file: string) => file.startsWith(MIGRATIONS) && file.endsWi
 describe('company_users / company_invitations writers (census by table)', () => {
   it('reads what it claims', () => {
     expect(all().length).toBeGreaterThan(3000);
-    expect(all().some((f) => f.file === 'src/modules/accounting/services/core/userAccessService.ts')).toBe(true);
+    expect(all().some((f) => f.file === 'src/modules/accounting/services/core/memberWrites.ts')).toBe(true);
   });
 
   it('every app writer is one of the classified ones', () => {
