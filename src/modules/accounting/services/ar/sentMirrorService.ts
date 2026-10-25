@@ -18,15 +18,26 @@
  *
  * Invariant: link-back is company-scoped. A sha256 hash collision across
  * tenants still yields two separate captured_documents rows.
+ *
+ * No app role writes sent_mirror_connections (S-07e part B, migration 946): the
+ * scan's stamps and the due selection are sentMirrorWrites.ts's, the flip of
+ * `status` to 'error' capture/mirrorScanError.ts's, all on migration_admin.
  */
 
-import { ImapFlow, type FetchMessageObject } from 'imapflow';
-import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
+import type { ImapFlow } from 'imapflow';
+import { simpleParser, type Attachment } from 'mailparser';
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { decrypt } from '@/lib/encryption';
-import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
+import { sha256 } from '@/lib/documentStorage';
+import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
+import { readCursor } from '@/modules/accounting/services/capture/mirrorCursor';
+import { captureOutbound, openImapClient } from './sentMirrorClient';
+import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from '@/modules/accounting/services/capture/mirrorScanGuard';
+import { findExistingByHash } from '@/modules/accounting/services/capture/capturedDocumentHash';
+import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from '@/modules/accounting/services/capture/mirrorImapFetch';
+import { dueOrSkipTick, isScanLockSkip } from '@/modules/accounting/services/capture/mirrorScanWrite';
+import { addCounters, advanceCursor, logScanEntry, selectDueSentConnections, stampSuccess, type ScanLogEntry } from './sentMirrorWrites';
 
 type Row = Record<string, unknown>;
 
@@ -79,15 +90,7 @@ function loadConnection(row: Row): SentMirrorConnection {
 }
 
 export async function listActiveSentConnections(): Promise<SentMirrorConnection[]> {
-  const rows = (await sql`
-    SELECT * FROM sent_mirror_connections
-    WHERE status = 'active'
-      AND (last_scan_at IS NULL
-           OR last_scan_at < NOW() - (scan_interval_minutes || ' minutes')::INTERVAL)
-    ORDER BY COALESCE(last_scan_at, '1970-01-01'::timestamptz) ASC
-    LIMIT 20
-  `) as Row[];
-  return rows.map(loadConnection);
+  return (await selectDueSentConnections()).map(loadConnection);
 }
 
 export async function listSentConnectionsForCompany(companyId: string): Promise<SentMirrorConnection[]> {
@@ -117,201 +120,38 @@ function looksCapturable(att: Attachment): boolean {
   return true;
 }
 
-interface LinkMatch {
-  documentId: string;
-  invoiceId: string | null;
-  documentType: string | null;
-}
-
-/**
- * Look up an existing captured_documents row for this tenant by raw byte
- * hash. Returns the document id + any customer_invoice that already points
- * at it (the snapshot link from Phase 1).
- *
- * Company-scoped so a sha collision across tenants still creates a new row.
- */
-async function findExistingByHash(
-  companyId: string,
-  hash: string,
-): Promise<LinkMatch | null> {
-  const rows = (await sql`
-    SELECT cd.id AS document_id,
-           cd.document_type,
-           ci.id AS invoice_id
-    FROM captured_documents cd
-    LEFT JOIN customer_invoices ci
-      ON ci.source_document_id = cd.id
-     AND ci.company_id = cd.company_id
-    WHERE cd.company_id = ${companyId}::uuid
-      AND cd.raw_bytes_sha256 = ${hash}
-    ORDER BY cd.created_at ASC
-    LIMIT 1
-  `) as Row[];
-  const row = rows[0];
-  if (!row) return null;
-  return {
-    documentId: String(row.document_id),
-    invoiceId: row.invoice_id ? String(row.invoice_id) : null,
-    documentType: row.document_type ? String(row.document_type) : null,
-  };
-}
-
-async function captureOutbound(
-  conn: SentMirrorConnection,
-  parsed: ParsedMail,
-  att: Attachment,
-  hash: string,
-): Promise<string> {
-  const content = att.content as Buffer;
-  const mime = (att.contentType ?? 'application/octet-stream').toLowerCase();
-  const filename = att.filename ?? `sent-${hash.slice(0, 8)}`;
-  const recipient = parsed.to
-    ? Array.isArray(parsed.to) ? parsed.to[0]?.text ?? null : parsed.to.text ?? null
-    : null;
-  const subject = parsed.subject ?? null;
-
-  const [doc] = (await sql`
-    INSERT INTO captured_documents (
-      company_id, file_name, file_type, file_size,
-      document_type, status,
-      raw_bytes_sha256, raw_bytes_size,
-      notes
-    ) VALUES (
-      ${conn.companyId}::uuid, ${filename}, ${mime}, ${content.length},
-      'outbound_email', 'matched',
-      ${hash}, ${content.length},
-      ${`Sent-mirror capture · to=${recipient ?? '?'} · subject=${subject ?? '(none)'}`}
-    )
-    RETURNING id
-  `) as Row[];
-
-  const documentId = String(doc!.id);
-  const stored = await storeCapturedBytes(conn.companyId, documentId, content, mime);
-  await sql`
-    UPDATE captured_documents
-    SET storage_bucket = ${stored.bucket}, storage_path = ${stored.path}
-    WHERE id = ${documentId}::uuid
-      AND company_id = ${conn.companyId}::uuid
-  `;
-
-  return documentId;
-}
-
-// ─── Logging + cursor ─────────────────────────────────────────────────────────
-
-interface ScanLogEntry {
-  imapUid: string | null;
-  recipient: string | null;
-  subject: string | null;
-  attachmentCount: number;
-  outcome: 'linked_to_invoice' | 'captured_outbound' | 'skipped_no_attachment' | 'error';
-  error?: string | null;
-  linkedInvoiceIds?: string[];
-  capturedDocumentIds?: string[];
-}
-
-async function logScanEntry(conn: SentMirrorConnection, entry: ScanLogEntry): Promise<void> {
-  await sql`
-    INSERT INTO sent_mirror_scan_log
-      (connection_id, company_id, imap_uid, recipient, subject,
-       attachment_count, outcome, error,
-       linked_invoice_ids, captured_document_ids)
-    VALUES
-      (${conn.id}::uuid, ${conn.companyId}::uuid, ${entry.imapUid},
-       ${entry.recipient}, ${entry.subject}, ${entry.attachmentCount},
-       ${entry.outcome}, ${entry.error ?? null},
-       ${entry.linkedInvoiceIds ?? null}::uuid[],
-       ${entry.capturedDocumentIds ?? null}::uuid[])
-  `;
-}
-
-async function advanceCursor(conn: SentMirrorConnection, folder: string, uid: number): Promise<void> {
-  const nextCursor = { ...conn.scanCursor, [folder]: uid };
-  await sql`
-    UPDATE sent_mirror_connections
-    SET scan_cursor = ${JSON.stringify(nextCursor)}::jsonb,
-        last_scan_at = NOW(),
-        last_success_at = NOW()
-    WHERE id = ${conn.id}::uuid
-  `;
-}
-
-async function markScanError(conn: SentMirrorConnection, error: string): Promise<void> {
-  await sql`
-    UPDATE sent_mirror_connections
-    SET last_scan_at = NOW(),
-        last_error = ${error},
-        status = CASE WHEN status = 'active' THEN 'error' ELSE status END
-    WHERE id = ${conn.id}::uuid
-  `;
-}
-
-// ─── IMAP connection ──────────────────────────────────────────────────────────
-
-async function openImapClient(conn: SentMirrorConnection): Promise<ImapFlow> {
-  if (conn.provider !== 'imap') {
-    throw new Error(`${conn.provider} OAuth flow not yet wired — pending Google/Microsoft app registration`);
-  }
-  if (!conn.imapHost || !conn.imapPort || !conn.imapUsername || !conn.imapPasswordEnc) {
-    throw new Error(`Incomplete IMAP config for sent-mirror connection ${conn.id}`);
-  }
-  const password = decrypt(conn.imapPasswordEnc);
-  return new ImapFlow({
-    host: conn.imapHost,
-    port: conn.imapPort,
-    secure: conn.imapUseTls,
-    auth: { user: conn.imapUsername, pass: password },
-    logger: false,
-  });
-}
-
 // ─── Scan ─────────────────────────────────────────────────────────────────────
 
-export async function scanSentConnection(conn: SentMirrorConnection): Promise<SentMirrorScanResult> {
-  const result: SentMirrorScanResult = {
-    connectionId: conn.id,
-    scanned: 0,
-    linked: 0,
-    captured: 0,
-    skipped: 0,
-    errors: 0,
-  };
+/** Scans one connection under the per-scan deadline (mirrorScanGuard.ts); a scan that overruns is closed, stamped and abandoned. */
+export function scanSentConnection(conn: SentMirrorConnection, opts: ScanOptions = {}): Promise<SentMirrorScanResult> {
+  const result: SentMirrorScanResult = { connectionId: conn.id, scanned: 0, linked: 0, captured: 0, skipped: 0, errors: 0 };
+  return runGuardedScan('sent', conn, result, (guard) => scanBody(conn, result, guard), opts.deadlineMs);
+}
 
+async function scanBody(conn: SentMirrorConnection, result: SentMirrorScanResult, guard: ScanGuard): Promise<SentMirrorScanResult> {
   let client: ImapFlow | null = null;
   try {
-    client = await openImapClient(conn);
+    client = guard.track(await openImapClient(conn));
     await client.connect();
 
     const lock = await client.getMailboxLock(conn.sentFolder);
     try {
-      const cursorUid = Number(conn.scanCursor[conn.sentFolder] ?? 0);
+      const uidNext = mailboxUidNext(client);
+      const { uid: cursorUid, clamped } = readCursor(conn.scanCursor, conn.sentFolder, { id: conn.id, kind: 'sent-mirror' }, uidNext);
       // Clean exit when the mailbox has nothing past the cursor — IMAP
       // "fetch 2:*" on an empty/stale range throws "Command failed" on some
       // servers (cPanel/dovecot). Guard with mailbox.uidNext.
-      const mbox = client.mailbox;
-      const uidNext = typeof mbox === 'object' && mbox && 'uidNext' in mbox
-        ? Number((mbox as { uidNext?: number }).uidNext ?? 0)
-        : 0;
       if (uidNext > 0 && cursorUid + 1 >= uidNext) {
-        // No new messages — just bump last_scan_at and return.
-        await sql`
-          UPDATE sent_mirror_connections
-          SET last_scan_at = NOW(), last_success_at = NOW()
-          WHERE id = ${conn.id}::uuid
-        `;
+        if (clamped) await advanceCursor(conn, conn.sentFolder, cursorUid); // store the clamped cursor, or new mail stays behind the forged one
+        else await stampSuccess(conn); // no new messages
         return result;
       }
-      const searchRange = cursorUid > 0 ? `${cursorUid + 1}:*` : '1:*';
 
-      const metas: FetchMessageObject[] = [];
-      for await (const meta of client.fetch(searchRange, { uid: true, envelope: true, size: true })) {
-        metas.push(meta);
-        if (metas.length >= 50) break;
-      }
+      const metas = await fetchNewMessages(client, cursorUid);
 
       let maxUidSeen = cursorUid;
-
       for (const meta of metas) {
+        guard.check();
         result.scanned += 1;
         const uid = Number(meta.uid);
         if (uid > maxUidSeen) maxUidSeen = uid;
@@ -320,13 +160,20 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
         const recipient = recipientEntry ? `${recipientEntry.address}` : null;
         const subject = meta.envelope?.subject ?? null;
 
-        const full = await client.fetchOne(String(uid), { source: true, uid: true });
-        if (!full || !full.source) {
+        if (isOversizedMessage(meta.size)) {
+          result.skipped += 1;
+          log.warn('sent mirror message too large to fetch; skipped', { connectionId: conn.id, uid, size: meta.size }, 'sent-mirror');
+          await logScanEntry(conn, { imapUid: String(uid), recipient, subject, attachmentCount: 0, outcome: 'skipped_too_large' });
+          continue;
+        }
+
+        const source = await fetchSourceByUid(client, uid);
+        if (!source) {
           result.skipped += 1;
           continue;
         }
 
-        const parsed = await simpleParser(full.source);
+        const parsed = await simpleParser(source);
         const attachments = (parsed.attachments ?? []).filter(looksCapturable);
 
         if (attachments.length === 0) {
@@ -343,6 +190,7 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
 
         try {
           for (const att of attachments) {
+            guard.check(); // an abandoned scan ingests nothing more
             const hash = sha256(att.content as Buffer);
             const existing = await findExistingByHash(conn.companyId, hash);
             if (existing) {
@@ -366,6 +214,7 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
             capturedDocumentIds: capturedDocumentIds.length ? capturedDocumentIds : undefined,
           });
         } catch (err) {
+          if (guard.expired || isScanLockSkip(err)) throw err;
           const msg = err instanceof Error ? err.message : String(err);
           result.errors += 1;
           log.warn('sent mirror ingest failed', { connectionId: conn.id, uid, err: msg }, 'sent-mirror');
@@ -377,46 +226,39 @@ export async function scanSentConnection(conn: SentMirrorConnection): Promise<Se
         }
       }
 
-      if (maxUidSeen > cursorUid) {
-        await advanceCursor(conn, conn.sentFolder, maxUidSeen);
-      } else {
-        await sql`
-          UPDATE sent_mirror_connections
-          SET last_scan_at = NOW(), last_success_at = NOW()
-          WHERE id = ${conn.id}::uuid
-        `;
-      }
-
-      if (result.captured > 0 || result.linked > 0) {
-        await sql`
-          UPDATE sent_mirror_connections
-          SET messages_captured_total = messages_captured_total + ${result.captured},
-              messages_linked_total   = messages_linked_total   + ${result.linked}
-          WHERE id = ${conn.id}::uuid
-        `;
-      }
+      guard.check();
+      if (maxUidSeen > cursorUid || clamped) await advanceCursor(conn, conn.sentFolder, maxUidSeen);
+      else await stampSuccess(conn);
+      if (result.captured > 0 || result.linked > 0) await addCounters(conn, result.captured, result.linked);
     } finally {
       lock.release();
     }
   } catch (err) {
+    if (guard.expired) return result; // the deadline's owner has stamped the row
+    if (isScanLockSkip(err)) {
+      log.warn('sent mirror scan skipped this tick: the connection row is locked', { connectionId: conn.id }, 'sent-mirror');
+      return result;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error('sent mirror scan failed', { connectionId: conn.id, err: msg }, 'sent-mirror');
     result.errors += 1;
-    await markScanError(conn, msg);
+    await markMirrorScanError('sent', conn, msg);
   } finally {
-    if (client) {
-      try { await client.logout(); } catch { /* ignore */ }
+    if (client && !guard.expired) {
+      try { await client.logout(); } catch (err) {
+        log.debug('sent mirror client logout failed', { connectionId: conn.id, err: String((err as Error)?.message ?? err) }, 'sent-mirror');
+      }
     }
   }
 
   return result;
 }
 
-export async function scanAllDueSentConnections(): Promise<SentMirrorScanResult[]> {
-  const connections = await listActiveSentConnections();
+export async function scanAllDueSentConnections(opts: ScanOptions = {}): Promise<SentMirrorScanResult[]> {
+  const connections = await dueOrSkipTick(listActiveSentConnections, 'sent-mirror');
   const results: SentMirrorScanResult[] = [];
   for (const conn of connections) {
-    results.push(await scanSentConnection(conn));
+    results.push(await scanSentConnection(conn, opts));
   }
   return results;
 }

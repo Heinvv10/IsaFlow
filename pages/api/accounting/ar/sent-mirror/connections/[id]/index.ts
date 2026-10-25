@@ -15,10 +15,12 @@ import {
   updateSentConnection,
   deleteSentConnection,
 } from '@/modules/accounting/services/ar/sentMirrorAdmin';
+import { SCAN_ACTIVE_MESSAGE, isScanActive } from '@/modules/accounting/services/capture/mirrorScanActive';
+import { MIN_SCAN_INTERVAL_MINUTES, MAX_SCAN_INTERVAL_MINUTES, scanIntervalError } from '@/modules/accounting/services/capture/mirrorLimits';
 
 const UpdateSchema = z.object({
   sentFolder: z.string().max(200).optional(),
-  scanIntervalMinutes: z.number().int().min(1).max(1440).optional(),
+  scanIntervalMinutes: z.number().int().min(MIN_SCAN_INTERVAL_MINUTES).max(MAX_SCAN_INTERVAL_MINUTES).optional(),
 }).strict();
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
@@ -27,7 +29,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (!idParse.success) return apiResponse.notFound(res, 'Sent mirror connection', String(req.query.id ?? ''));
   const id = idParse.data;
 
+  if ((req.method === 'PATCH' || req.method === 'DELETE') && isScanActive(id)) {
+    return apiResponse.conflict(res, SCAN_ACTIVE_MESSAGE, { reason: 'scan' });
+  }
+
   if (req.method === 'PATCH') {
+    const intervalError = scanIntervalError((req.body as { scanIntervalMinutes?: unknown } | null)?.scanIntervalMinutes);
+    if (intervalError) return apiResponse.badRequest(res, intervalError);
     const parsed = UpdateSchema.safeParse(req.body);
     if (!parsed.success) {
       return apiResponse.validationError(res, parsed.error.flatten().fieldErrors);

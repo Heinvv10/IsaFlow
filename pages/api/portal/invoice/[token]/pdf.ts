@@ -52,7 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void>
     let source: 'sealed' | 'rendered';
 
     if (sealed) {
-      buffer = await downloadCapturedDocument(sealed.bucket, sealed.path);
+      buffer = await downloadCapturedDocument(sealed.bucket, sealed.path, companyId);
       source = 'sealed';
     } else {
       buffer = await generateInvoicePdf(companyId, invoiceId);

@@ -85,7 +85,7 @@ export async function fetchRawBytes(
   const path = row.storage_path as string | null;
   if (!path) return null;
 
-  const buffer = await downloadCapturedDocument(bucket, path);
+  const buffer = await downloadCapturedDocument(bucket, path, companyId);
 
   return {
     buffer,

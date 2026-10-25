@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -56,6 +57,7 @@ export default function PracticeJobsPage() {
   const [error, setError] = useState('');
   const [filterError, setFilterError] = useState('');
   const [toast, setToast] = useState('');
+  const afterToast = useTimeoutOnce();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [clientFilter, setClientFilter] = useState('');
 
@@ -110,7 +112,7 @@ export default function PracticeJobsPage() {
       });
       await assertOk(res, 'Could not change the job status - try again');
       setToast('Status updated');
-      setTimeout(() => setToast(''), 3000);
+      afterToast(() => setToast(''), 3000);
       await loadJobs();
     } catch (err) {
       setError(apiErrorMessage(err, 'Could not change the job status - try again'));
