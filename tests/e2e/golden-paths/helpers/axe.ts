@@ -17,6 +17,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { stripVTControlCharacters } from 'util';
 import { describeTargets } from './a11yDescribe';
 import type { A11yScreen } from './a11yScreens';
 import { evaluateGate, pageKeyOf, screenMismatch, seriousViolations, type BaselineFile, type Violation } from './a11yBaseline';
@@ -87,12 +88,49 @@ async function waitForScreenReady(page: Page, screen: A11yScreen): Promise<void>
     expect(page.locator('.animate-pulse, .animate-spin, [aria-busy="true"]')).toHaveCount(0, { timeout: 30_000 }));
 }
 
-/** Runs a wait; when it fails the error names the screen and what was being waited for, not just a bare Playwright timeout. */
+/**
+ * What went wrong, as text, and TOTAL: nothing in here can throw, whatever was thrown (a revoked Proxy, a `message`
+ * getter that throws, a null-prototype object). Objects only - a function is excluded from the message-first path
+ * and is printed as a function: anything with a string `message` is read once (so an Error from another realm,
+ * which is not `instanceof Error` and would serialise to "{}", keeps its text), else a plain object is JSON
+ * (skipped when that is undefined or throws), else String(), else Object.prototype.toString.
+ */
+function failureText(err: unknown): string {
+  try {
+    if (err !== null && typeof err === 'object') {
+      const message = (err as { message?: unknown }).message;
+      if (typeof message === 'string') return message;
+      const json = jsonOrNull(err);
+      if (json !== null) return json;
+    }
+    try {
+      return String(err);
+    } catch {
+      return Object.prototype.toString.call(err);
+    }
+  } catch {
+    return '[unprintable thrown value]';
+  }
+}
+
+function jsonOrNull(value: object): string | null {
+  try {
+    return JSON.stringify(value) ?? null;
+  } catch {
+    return null; // circular, or a throwing toJSON
+  }
+}
+
+/**
+ * Runs a wait; when it fails the error names the screen and what was being waited for, keeps the whole underlying
+ * message (Playwright's Expected/Received lines are what say why), and carries the original as `cause`.
+ */
 async function inScreen<T>(screen: A11yScreen, waitingFor: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    throw new Error(`a11y screen "${screen.name}" (${screen.path}): ${waitingFor} (${err instanceof Error ? err.message.split('\n')[0] : String(err)})`);
+    const why = stripVTControlCharacters(failureText(err)).trim();
+    throw new Error(`a11y screen "${screen.name}" (${screen.path}): ${waitingFor}${why ? `\n${why}` : ''}`, { cause: err });
   }
 }
 
