@@ -82,20 +82,20 @@ export function BankRuleRow({
       </td>
       <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">
         {rule.supplierName
-          ? <span><span className="text-blue-400 text-[10px] mr-1">SUP</span>{rule.supplierName}</span>
+          ? <span><span className="text-blue-400 text-xs mr-1">SUP</span>{rule.supplierName}</span>
           : rule.clientName
-            ? <span><span className="text-purple-400 text-[10px] mr-1">CUST</span>{rule.clientName}</span>
+            ? <span><span className="text-purple-400 text-xs mr-1">CUST</span>{rule.clientName}</span>
             : <span className="text-[var(--ff-text-tertiary)]">—</span>}
       </td>
       <td className="px-4 py-3">
         {rule.vatCode && rule.vatCode !== 'none'
-          ? <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/10 text-blue-400">{VAT_LABELS[rule.vatCode]}</span>
+          ? <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-blue-500/10 text-blue-400">{VAT_LABELS[rule.vatCode]}</span>
           : <span className="text-[var(--ff-text-tertiary)] text-xs">—</span>}
       </td>
       <td className="px-4 py-3">
         {rule.autoCreateEntry
-          ? <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400" title="Posts a journal entry when matched">Auto-post</span>
-          : <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-sky-500/10 text-sky-400" title="Attaches a category for review only">Suggest</span>}
+          ? <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-400" title="Posts a journal entry when matched">Auto-post</span>
+          : <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-sky-500/10 text-sky-400" title="Attaches a category for review only">Suggest</span>}
       </td>
       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{rule.priority}</td>
       <td className="px-4 py-3">
@@ -103,7 +103,7 @@ export function BankRuleRow({
           {rule.isActive ? 'Active' : 'Inactive'}
         </span>
         {pendingApproval && (
-          <span className="ml-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400"
+          <span className="ml-1 px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-400"
             title="A change to this rule is waiting for another member's approval — see Pending changes">
             Pending approval
           </span>

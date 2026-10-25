@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packTrendCharts';
 import { dominantPoint, moneyPanelScales } from '@/modules/accounting/services/packs/pages/packTrendScale';
 import { buildTrendBlocks } from '@/modules/accounting/services/packs/pages/packPageBlocks';
-import { formatDays, formatMoney, formatPctLevel } from '@/lib/format/money';
+import { formatDays, formatStatementFigure, formatPctLevel } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { liveDemoRenderedInput, liveDemoTrend } from './fixtures/liveDemoBoardPack';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
@@ -91,8 +91,8 @@ describe('page 10 prints the scale its claims are made against', () => {
       withRatios.map((p) => p.netProfit),
       withRatios.map((p) => p.cash),
     ].flat();
-    const low = formatMoney(Math.min(0, ...money), { scale: PACK_SCALE });
-    const high = formatMoney(Math.max(0, ...money), { scale: PACK_SCALE });
+    const low = formatStatementFigure(Math.min(0, ...money), { scale: PACK_SCALE });
+    const high = formatStatementFigure(Math.max(0, ...money), { scale: PACK_SCALE });
     for (const panel of shared) {
       const texts = painted(panel.svg);
       expect(texts, `${panel.id} does not paint the shared domain's low`).toContain(low);
@@ -157,8 +157,8 @@ describe('page 10 prints the scale its claims are made against', () => {
     const stated = /the SHARED range is (.+?), ([\d.]+)% narrower/.exec(netProfit.title);
     expect(stated, netProfit.title).not.toBeNull();
     const [low, high] = stated![1]!.split(' to ');
-    expect(low).toBe(formatMoney(-1_621_400, { scale: PACK_SCALE }));
-    expect(high).toBe(formatMoney(58_400, { scale: PACK_SCALE }));
+    expect(low).toBe(formatStatementFigure(-1_621_400, { scale: PACK_SCALE }));
+    expect(high).toBe(formatStatementFigure(58_400, { scale: PACK_SCALE }));
 
     // AND THE READER'S OWN SUBTRACTION GIVES THE PRINTED PERCENTAGE. 1 908 −
     // (1 621) = 3 529; 58 − (1 621) = 1 679; 1 − 1 679/3 529 = 52.4%.
@@ -233,7 +233,7 @@ describe('page 10 prints the scale its claims are made against', () => {
     expect(sharedRange).not.toBeNull();
     expect(sharedRange!).toContain(PACK_SCALE);
     expect(sharedRange!).not.toMatch(/\d{7}/);
-    expect(formatMoney(0, { scale: PACK_SCALE })).toBeTruthy();
+    expect(formatStatementFigure(0, { scale: PACK_SCALE })).toBeTruthy();
   });
 });
 

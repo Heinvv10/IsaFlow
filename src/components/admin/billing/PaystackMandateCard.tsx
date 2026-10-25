@@ -9,6 +9,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { CreditCard, CheckCircle2, XCircle, Loader2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { formatDisplayDate, formatDisplayMonthYear } from '@/utils/dateFormat';
 
 interface Mandate {
   id: string;
@@ -193,7 +194,7 @@ export function PaystackMandateCard() {
             {data.mandate.authorised_at && (
               <Row
                 label="Authorised"
-                value={new Date(data.mandate.authorised_at).toLocaleDateString('en-ZA')}
+                value={formatDisplayDate(data.mandate.authorised_at)}
               />
             )}
           </dl>
@@ -218,7 +219,7 @@ export function PaystackMandateCard() {
             {data.charges.map((c) => (
               <li key={c.id} className="flex items-center justify-between">
                 <span className="text-slate-600">
-                  {new Date(c.period_start).toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' })}
+                  {formatDisplayMonthYear(c.period_start)}
                 </span>
                 <span className="flex items-center gap-3">
                   <span className="text-slate-900 font-medium">

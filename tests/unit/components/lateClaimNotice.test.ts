@@ -25,22 +25,22 @@ describe('late claim notice', () => {
 
   it('the title says how much and from when; the second line holds only what fits', () => {
     expect(lateClaimNotice([lc])).toEqual({
-      title: 'Input VAT of R150.00 claimed late, in the VAT period from 2026-07-01', message: 'Period 2026-05-01 to 2026-06-30 is filed.' });
+      title: 'Input VAT of R\xa0150.00 claimed late, in the VAT period from 2026-07-01', message: 'Period 2026-05-01 to 2026-06-30 is filed.' });
     expect(lateClaimNotice([lc, { ...lc, inputTax: 30 }])).toEqual({
-      title: "2 documents' input VAT of R180.00 claimed late, in the VAT period from 2026-07-01", message: 'Their VAT periods are filed.' });
+      title: "2 documents' input VAT of R\xa0180.00 claimed late, in the VAT period from 2026-07-01", message: 'Their VAT periods are filed.' });
     // A period written longer than a date still leaves a line that fits.
     const wide = { ...lc, lockPeriod: { start: '2026-05-01T00:00:00.000Z', end: '2026-06-30T00:00:00.000Z' } };
     for (const n of [lateClaimNotice([lc]), lateClaimNotice([wide]), lateClaimNotice([lc, lc, lc])]) {
       expect(n.message.length, n.message).toBeLessThanOrEqual(NOTICE_LINE_FITS);
     }
-    expect(lateClaimNotice([wide]).title).toContain('R150.00 claimed late');
+    expect(lateClaimNotice([wide]).title).toContain('R\xa0150.00 claimed late');
   });
 
   it('the multi-document title starts at the EARLIEST claim date, whatever the order', () => {
     const a = { ...lc, claimDate: '2026-10-01' };
     const b = { ...lc, claimDate: '2026-08-01' };
-    expect(lateClaimNotice([a, b]).title).toBe("2 documents' input VAT of R300.00 claimed late, in the VAT period from 2026-08-01");
-    expect(lateClaimNotice([b, a]).title).toBe("2 documents' input VAT of R300.00 claimed late, in the VAT period from 2026-08-01");
+    expect(lateClaimNotice([a, b]).title).toBe("2 documents' input VAT of R\xa0300.00 claimed late, in the VAT period from 2026-08-01");
+    expect(lateClaimNotice([b, a]).title).toBe("2 documents' input VAT of R\xa0300.00 claimed late, in the VAT period from 2026-08-01");
   });
 
   it('reads a date whichever shape it arrives in, so the earliest is the earliest', () => {
@@ -66,7 +66,7 @@ describe('late claim notice', () => {
     expect(n.message.length).toBeLessThanOrEqual(NOTICE_LINE_FITS);
     // One late claim in a bulk run: the bill is named when the name fits beside the period, else the period alone.
     expect(notifyLateClaims({ data: { results: [{ invoiceNumber: 'INV-12', lateClaim: lc }, { invoiceNumber: 'INV-13' }] } })).toBe(1);
-    expect(notify.info).toHaveBeenLastCalledWith(expect.stringContaining('R150.00 claimed late'), 'INV-12: 2026-05-01 to 2026-06-30 is filed.');
+    expect(notify.info).toHaveBeenLastCalledWith(expect.stringContaining('R\xa0150.00 claimed late'), 'INV-12: 2026-05-01 to 2026-06-30 is filed.');
     notifyLateClaims({ data: { results: [{ invoiceNumber: 'QAF4-LONG-0001', lateClaim: lc }] } });
     expect(notify.info).toHaveBeenLastCalledWith(expect.anything(), 'Period 2026-05-01 to 2026-06-30 is filed.');
     // A single claim outside a bulk run has no bill to name.
@@ -79,10 +79,10 @@ describe('late claim notice', () => {
 
   it('shows one notice per response, summarised for a bulk action, and none without a late claim', () => {
     expect(notifyLateClaims({ data: { lateClaim: lc } })).toBe(1);
-    expect(notify.info).toHaveBeenCalledWith('Input VAT of R150.00 claimed late, in the VAT period from 2026-07-01', 'Period 2026-05-01 to 2026-06-30 is filed.');
+    expect(notify.info).toHaveBeenCalledWith('Input VAT of R\xa0150.00 claimed late, in the VAT period from 2026-07-01', 'Period 2026-05-01 to 2026-06-30 is filed.');
     vi.mocked(notify.info).mockReset();
     expect(notifyLateClaims({ data: { results: [{ lateClaim: lc }, { lateClaim: { ...lc, inputTax: 30 } }] } })).toBe(2);
-    expect(vi.mocked(notify.info).mock.calls[0]![0]).toContain('R180.00');
+    expect(vi.mocked(notify.info).mock.calls[0]![0]).toContain('R\xa0180.00');
     vi.mocked(notify.info).mockReset();
     expect(notifyLateClaims({ data: {} })).toBe(0);
     expect(notify.info).not.toHaveBeenCalled();

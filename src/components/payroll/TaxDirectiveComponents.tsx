@@ -7,12 +7,12 @@ import { useState } from 'react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { X, Loader2, Calculator, Plus } from 'lucide-react';
 import { calculateLumpSumTax, type LumpSumCalculation } from '@/lib/taxCalculations';
+import { formatMoney } from '@/lib/money/formatMoney';
 import { DirectiveEmployeeSelect, useDirectiveEmployees } from './TaxDirectiveEmployeeSelect';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const fmtCurrency = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmtCurrency = (n: number) => formatMoney(n);
 
 const DIRECTIVE_TYPES = ['lump_sum', 'retirement', 'severance', 'death'] as const;
 type DirectiveType = typeof DIRECTIVE_TYPES[number];

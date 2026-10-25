@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { waterfallOption, trendOption, stepPaint, DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 import { FALLBACK } from '@/lib/charts/theme';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { contrastRatio } from '@/lib/brand/contrast';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import type {
@@ -162,7 +162,7 @@ describe('waterfallOption', () => {
    */
   it('formats the tooltip figure the way every other money figure is formatted', () => {
     const opt = waterfallOption(steps) as unknown as TooltipFormatterOption;
-    expect(opt.tooltip.formatter({ dataIndex: 0 })).toBe(`Revenue: ${formatMoney(steps[0]!.value)}`);
+    expect(opt.tooltip.formatter({ dataIndex: 0 })).toBe(`Revenue: ${formatStatementFigure(steps[0]!.value)}`);
     // Not the raw number: 1000 renders as "1 000", never "1000".
     expect(opt.tooltip.formatter({ dataIndex: 0 })).not.toBe(`Revenue: ${steps[0]!.value}`);
     // A negative comes back parenthesised, like the statement's own cells.
@@ -197,9 +197,9 @@ describe('trendOption', () => {
     expect(opt.animation).toBe(false);
   });
 
-  it('formats the tooltip figure through formatMoney too', () => {
+  it('formats the tooltip figure through formatStatementFigure too', () => {
     const opt = trendOption([{ label: 'Mar 2026', value: 1234567 }]) as unknown as TooltipFormatterOption;
-    expect(opt.tooltip.formatter({ dataIndex: 0 })).toBe(`Mar 2026: ${formatMoney(1234567)}`);
+    expect(opt.tooltip.formatter({ dataIndex: 0 })).toBe(`Mar 2026: ${formatStatementFigure(1234567)}`);
   });
 
   it('escapes a hostile point label before it reaches the tooltip HTML', () => {

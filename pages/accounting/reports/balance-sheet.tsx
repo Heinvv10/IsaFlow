@@ -139,14 +139,14 @@ export default function BalanceSheetPage() {
             <Link href="/accounting?tab=reports" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] mb-2">
               <ArrowLeft className="h-4 w-4" /> Back to Reports
             </Link>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-blue-500/10">
                   <BarChart3 className="h-6 w-6 text-blue-500" />
                 </div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Balance Sheet</h1>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {/* The balance sheet is an as-at figure with no period start
                     of its own. The deck's range is the same year-to-date
                     window the account drill-down already uses, so the two
@@ -216,6 +216,8 @@ export default function BalanceSheetPage() {
               <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
             </div>
           ) : report ? (
+            <>
+            <p className="sm:hidden mb-1 text-xs text-[var(--ff-text-tertiary)]">Swipe the statement sideways for the prior period and variance columns.</p>
             <BalanceSheetBody
               returnTo={returnTo}
               costCentreId={costCentreId}
@@ -230,6 +232,7 @@ export default function BalanceSheetPage() {
               drillDownEnd={drillDownEnd}
               onEvidence={handleEvidence}
             />
+            </>
           ) : null}
         </div>
       </div>

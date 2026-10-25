@@ -27,7 +27,7 @@ export const FALLBACK = {
   unfav: '#b23a3a',
   prior: '#c9d0cc',
   plan: '#8a94a0',
-  figFont: 'ui-monospace, monospace',
+  figFont: "'IBM Plex Sans', system-ui, sans-serif",
 } as const;
 
 export interface EChartsTheme {

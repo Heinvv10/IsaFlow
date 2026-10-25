@@ -7,6 +7,7 @@
  */
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 import { Section, VarianceCell, fmt, tdNum, td, th } from './vatExceptionsUi';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 export function VatReconTable({ recon }: { recon: VatExceptionsReport['controlRecon'] }) {
   return (
@@ -68,7 +69,7 @@ export function VatUncodedAndBalanceSheetSections({ report }: { report: VatExcep
             {report.uncodedGlLines.map((l, i) => (
               <tr key={`${l.journalEntryId}-${i}`}>
                 <td className={td}>{l.entryNumber}</td>
-                <td className={td}>{l.entryDate}</td>
+                <td className={td}>{formatDisplayDate(l.entryDate)}</td>
                 <td className={td}>{l.accountCode} {l.accountName}</td>
                 <td className={`${td} max-w-[16rem] truncate`}>{l.description}</td>
                 <td className={tdNum}>{fmt(l.amount)}</td>
@@ -100,7 +101,7 @@ export function VatUncodedAndBalanceSheetSections({ report }: { report: VatExcep
             {report.vatOnBalanceSheetLines.map((l, i) => (
               <tr key={`${l.journalEntryId}-${i}`}>
                 <td className={td}>{l.entryNumber}</td>
-                <td className={td}>{l.entryDate}</td>
+                <td className={td}>{formatDisplayDate(l.entryDate)}</td>
                 <td className={td}>{l.accountCode} {l.accountName}</td>
                 <td className={td}>{l.accountSubtype ?? l.accountType}</td>
                 <td className={td}>{l.vatType}</td>
@@ -151,7 +152,7 @@ export function VatBillTaxCodeWarningSection({ report }: {
             <tr key={`${b.invoiceId}-${i}`}>
               <td className={td}>{b.invoiceNumber}</td>
               <td className={td}>{b.counterpartyName}</td>
-              <td className={td}>{b.invoiceDate}</td>
+              <td className={td}>{formatDisplayDate(b.invoiceDate)}</td>
               <td className={`${td} text-amber-400`}>
                 {b.issue === 'missing_tax_rate' ? 'No tax code' : 'Tax code set, zero VAT'}
               </td>
@@ -180,7 +181,7 @@ export function VatInvoiceIssueSections({ report }: { report: VatExceptionsRepor
               <tr key={`${inv.invoiceId}-${i}`}>
                 <td className={td}>{inv.invoiceNumber}</td>
                 <td className={td}>{inv.counterpartyName}</td>
-                <td className={td}>{inv.invoiceDate}</td>
+                <td className={td}>{formatDisplayDate(inv.invoiceDate)}</td>
                 <td className={`${td} text-amber-400`}>
                   {inv.issue === 'missing_tax_rate' ? 'No tax code' : 'Tax code set, zero VAT'}
                 </td>

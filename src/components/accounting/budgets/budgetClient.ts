@@ -1,3 +1,4 @@
+import { formatMoney } from '@/lib/money/formatMoney';
 /** Shapes and labels the budgets page reads from /api/accounting/budgets. */
 
 export interface BudgetMonth { month: string; amount: number }
@@ -16,7 +17,7 @@ export interface GLAccount { id: string; accountCode: string; accountName: strin
 
 const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+export const fmt = (n: number) => formatMoney(n);
 
 /** 'Mar 2026' for '2026-03'. */
 export function monthLabel(key: string): string {

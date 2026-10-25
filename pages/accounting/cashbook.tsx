@@ -10,9 +10,10 @@ import { BookOpen, Loader2, AlertCircle, Filter } from 'lucide-react';
 import { log } from '@/lib/logger';
 import { apiFetch, apiJson, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface BankAcct {
   id: string;
@@ -167,27 +168,27 @@ export default function CashbookPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                    <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
-                    <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
-                    <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Description</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Deposits</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Withdrawals</th>
-                    <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Date</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Reference</th>
+                    <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Description</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Deposits</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Withdrawals</th>
+                    <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Balance</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
                     <tr key={r.id} className="hover:bg-teal-500/[0.04] transition-colors">
-                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.transactionDate?.split('T')[0]}</td>
+                      <td className="px-4 py-3 text-[var(--ff-text-primary)]">{formatDisplayDate(r.transactionDate)}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.reference || '—'}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.description || r.matchedEntity || '—'}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-green-400">
+                      <td className="px-4 py-3 text-right tabular-nums text-green-400">
                         {r.deposit > 0 ? fmt(r.deposit) : ''}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-red-400">
+                      <td className="px-4 py-3 text-right tabular-nums text-red-400">
                         {r.withdrawal > 0 ? fmt(r.withdrawal) : ''}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                         {fmt(r.balance)}
                       </td>
                     </tr>
@@ -196,9 +197,9 @@ export default function CashbookPage() {
                 <tfoot>
                   <tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
                     <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-primary)]">TOTALS</td>
-                    <td className="px-4 py-3 text-right font-mono text-green-400">{fmt(totals.deposits)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-red-400">{fmt(totals.withdrawals)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+                    <td className="px-4 py-3 text-right tabular-nums text-green-400">{fmt(totals.deposits)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-red-400">{fmt(totals.withdrawals)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                       {rows.length > 0 ? fmt(rows[rows.length - 1]?.balance ?? 0) : fmt(0)}
                     </td>
                   </tr>

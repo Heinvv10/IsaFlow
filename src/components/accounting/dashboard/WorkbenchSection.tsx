@@ -23,6 +23,7 @@ import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
+import { formatMoneyCompact } from '@/lib/money/formatMoney';
 
 interface WorkbenchMetrics {
   unreconciledBankTxns: number;
@@ -44,13 +45,7 @@ interface CardDef {
   format?: (value: number) => string;
 }
 
-function fmtCurrency(n: number): string {
-  const abs = Math.abs(n);
-  const prefix = (n < 0 ? '-' : '') + 'R ';
-  if (abs >= 1_000_000) return prefix + (abs / 1_000_000).toFixed(1) + 'M';
-  if (abs >= 1_000) return prefix + (abs / 1_000).toFixed(1) + 'K';
-  return prefix + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(abs);
-}
+const fmtCurrency = (n: number): string => formatMoneyCompact(n, { decimals: 0 });
 
 const CARDS: CardDef[] = [
   {
@@ -205,7 +200,7 @@ export function WorkbenchSection() {
                     <div className={`p-1 rounded-md ${styles.badge}`}>
                       <Icon className="h-3.5 w-3.5" />
                     </div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 leading-tight line-clamp-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 leading-tight line-clamp-2">
                       {card.label}
                     </p>
                   </div>
@@ -215,7 +210,7 @@ export function WorkbenchSection() {
                   </p>
 
                   <div className="flex items-center gap-1 mt-auto">
-                    <span className="text-[10px] text-slate-500 group-hover:text-teal-400 transition-colors">
+                    <span className="text-xs text-slate-500 group-hover:text-teal-400 transition-colors">
                       View
                     </span>
                     <ArrowRight className="h-3 w-3 text-slate-500 group-hover:text-teal-400 transition-colors" />

@@ -9,6 +9,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
   AlertCircle, Check, Copy, Loader2, Plus, Settings, Trash2, X,
 } from 'lucide-react';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface OauthApp {
   id: string;
@@ -34,9 +35,7 @@ interface NewApp {
 
 function fmt(val: string | null): string {
   if (!val) return '—';
-  try {
-    return new Date(val).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
-  } catch { return val; }
+  return formatDisplayDate(val);
 }
 
 function Toast({ msg, ok, onClose }: { msg: string; ok: boolean; onClose: () => void }) {

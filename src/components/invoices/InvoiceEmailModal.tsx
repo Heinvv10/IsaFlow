@@ -4,6 +4,7 @@
  */
 
 import { Loader2, Send, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Props {
   open: boolean;
@@ -80,7 +81,7 @@ export function InvoiceEmailModal({
         )}
         {emailSentAt && (
           <p className="text-xs text-[var(--ff-text-tertiary)] mb-4">
-            Last sent to {emailSentTo} on {emailSentAt.split('T')[0]}
+            Last sent to {emailSentTo} on {formatDisplayDate(emailSentAt)}
           </p>
         )}
         <div className="flex justify-end gap-2">

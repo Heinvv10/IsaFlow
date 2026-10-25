@@ -19,6 +19,7 @@ import {
   VatAccountsSection,
   OpeningBalancesSection,
 } from '@/components/accounting/items/ItemFormSections';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Category { id: string; name: string }
 interface Account { id: string; account_number: string; name: string }
@@ -284,7 +285,7 @@ export default function NewItemPage() {
                     <div className="space-y-3 mb-5">
                       {form.description && (
                         <div>
-                          <p className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Description</p>
+                          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Description</p>
                           <p className="text-sm text-slate-900 dark:text-slate-100 font-medium mt-0.5 truncate">{form.description}</p>
                         </div>
                       )}
@@ -297,14 +298,14 @@ export default function NewItemPage() {
                           <div className="h-px bg-slate-100 dark:bg-slate-800" />
                           <div className="flex justify-between text-sm">
                             <span className="text-slate-500 dark:text-slate-400">Price (excl)</span>
-                            <span className="font-mono text-slate-900 dark:text-slate-100">
-                              R {Number(form.selling_price_excl).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                            <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                              {formatMoney(Number(form.selling_price_excl))}
                             </span>
                           </div>
                           <div className="flex justify-between text-sm">
                             <span className="text-slate-500 dark:text-slate-400">Price (incl)</span>
-                            <span className="font-mono text-slate-900 dark:text-slate-100">
-                              R {Number(form.selling_price_incl || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}
+                            <span className="tabular-nums text-slate-900 dark:text-slate-100">
+                              {formatMoney(Number(form.selling_price_incl || 0))}
                             </span>
                           </div>
                           {form.gp_percent && (
@@ -312,7 +313,7 @@ export default function NewItemPage() {
                               <div className="h-px bg-slate-100 dark:bg-slate-800" />
                               <div className="flex justify-between">
                                 <span className="text-sm font-semibold text-slate-900 dark:text-white">GP Margin</span>
-                                <span className={`font-mono font-bold text-lg ${gpNum >= 30 ? 'text-emerald-500' : gpNum >= 15 ? 'text-amber-500' : 'text-red-500'}`}>
+                                <span className={`tabular-nums font-bold text-lg ${gpNum >= 30 ? 'text-emerald-500' : gpNum >= 15 ? 'text-amber-500' : 'text-red-500'}`}>
                                   {gpNum.toFixed(1)}%
                                 </span>
                               </div>

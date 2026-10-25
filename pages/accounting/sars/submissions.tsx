@@ -14,6 +14,7 @@ import {
 import { formatDate } from '@/utils/formatters';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { SubmissionDetailModal, type SubmissionDetail } from '@/components/accounting/sars/SubmissionDetailModal';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Submission extends SubmissionDetail {
   submittedBy: string | null;
@@ -21,10 +22,7 @@ interface Submission extends SubmissionDetail {
 
 const formatDateTime = (d: string) => {
   if (!d) return '—';
-  return new Date(d).toLocaleString('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+  return formatDisplayDateTime(d);
 };
 
 const statusBadge = (status: string) => {

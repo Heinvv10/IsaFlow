@@ -25,7 +25,7 @@ describe('buildTheme', () => {
     const theme = buildTheme(() => '');
 
     expect(theme.color).toEqual(['#15202b', '#c9d0cc', '#8a94a0']);
-    expect(theme.textStyle.fontFamily).toBe('ui-monospace, monospace');
+    expect(theme.textStyle.fontFamily).toBe("'IBM Plex Sans', system-ui, sans-serif");
   });
 
   it('colours axis lines and labels from the tertiary text and light border tokens', () => {

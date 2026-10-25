@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 /** The roles `POST /api/accounting/netcash/resolve` accepts. */
 const RESOLVE_ROLES = ['owner', 'admin'];
@@ -22,7 +23,7 @@ export function canResolveSubmission(role: string | null | undefined, status: st
 
 function lastPollText(poll: LastPoll | null | undefined): string {
   if (!poll?.status) return 'Netcash has not been checked from here yet.';
-  const when = poll.at ? new Date(poll.at).toLocaleString('en-ZA') : '';
+  const when = poll.at ? formatDisplayDateTime(poll.at) : '';
   return `Last Netcash check${when ? ` (${when})` : ''}: "${poll.status}". This is context only - check the Netcash portal.`;
 }
 

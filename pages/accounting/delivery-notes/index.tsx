@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Truck, Plus, Loader2, XCircle, CheckCircle, Send } from 'lucide-react';
 import { StatusPill } from '@/components/ui';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface DeliveryNote {
   id: string; deliveryNoteNumber: string; customerName: string;
@@ -24,7 +25,7 @@ const TABS = ['all', 'draft', 'dispatched', 'delivered'] as const;
 
 function formatDate(d: string): string {
   if (!d) return '—';
-  return String(d).split('T')[0] ?? d;
+  return formatDisplayDate(d);
 }
 
 export default function DeliveryNotesPage() {

@@ -4,7 +4,7 @@
 /**
  * THE BOARD PACK'S CONVENTIONS ARE OPT-IN, NOT SHARED.
  *
- * `formatMoney` and `formatPct` serve statement screens, KPI tiles, chart
+ * `formatStatementFigure` and `formatPct` serve statement screens, KPI tiles, chart
  * tooltips and the management-accounts page as well as the pack. The pack's
  * non-breaking separator, bracketed negative percentage and `<1` bound were
  * first written into the shared path, which changed every one of those

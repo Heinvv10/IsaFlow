@@ -168,11 +168,11 @@ export default function CompliancePage() {
                     </div>
                     <div>
                       <p className="text-gray-500 dark:text-slate-400">Turnover points</p>
-                      <p className="font-mono text-gray-900 dark:text-white">{pisScore.turnoverPoints.toFixed(2)}</p>
+                      <p className="tabular-nums text-gray-900 dark:text-white">{pisScore.turnoverPoints.toFixed(2)}</p>
                     </div>
                     <div>
                       <p className="text-gray-500 dark:text-slate-400">Liability points</p>
-                      <p className="font-mono text-gray-900 dark:text-white">{pisScore.liabilityPoints.toFixed(2)}</p>
+                      <p className="tabular-nums text-gray-900 dark:text-white">{pisScore.liabilityPoints.toFixed(2)}</p>
                     </div>
                   </div>
                 </div>

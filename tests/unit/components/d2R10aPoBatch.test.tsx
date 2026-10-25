@@ -70,7 +70,7 @@ describe('batch-payments/new', () => {
     // 500 - 100 - 50 = 350
     expect(await screen.findByText(/D2-INV-9/)).toBeDefined();
     const opt = screen.getByText(/D2-INV-9/).textContent ?? '';
-    expect(opt).toMatch(/350,00/); expect(opt).toMatch(/reserved/); expect(opt).toMatch(/50,00/);
+    expect(opt).toMatch(/350\.00/); expect(opt).toMatch(/reserved/); expect(opt).toMatch(/50\.00/);
   });
   it('load: a 400 refusal on the bill list shows the server message; an empty 500 shows the sentence', async () => {
     serve(on('GET', 'supplier-invoices', () => refuse()));
@@ -127,7 +127,7 @@ describe('batch-payments/[batchId] (route: data = batch row + payments[] + billC
     serve(on('GET', 'batch-payments?id=bt1', () => ok(batch('draft'))));
     render(<BatchDetailPage />);
     expect(await screen.findByText('BATCH-D2-88')).toBeDefined();
-    expect(document.body.textContent).toMatch(/1[\s  ]234,50/);
+    expect(document.body.textContent).toMatch(/1[\s  ]234\.50/);
     const row = screen.getByText('PAY-D2-1').closest('tr') as HTMLElement;
     expect(within(row).getByText('D2 Acme Ltd')).toBeDefined();
     expect(screen.getByText('D2 Beta Ltd')).toBeDefined();

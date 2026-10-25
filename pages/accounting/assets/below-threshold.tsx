@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { AlertTriangle, Loader2, CheckCircle2 } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface BelowThresholdAsset {
   id: string;
@@ -25,8 +26,7 @@ interface BelowThresholdAsset {
   suggestedTreatment: string;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export default function BelowThresholdPage() {
   const [assets, setAssets] = useState<BelowThresholdAsset[]>([]);
@@ -125,9 +125,9 @@ export default function BelowThresholdPage() {
                       <td className="px-4 py-3 font-mono text-xs font-semibold text-amber-400">{a.asset_number}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">{a.name}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs">{a.category_name ?? '—'}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-[var(--ff-text-primary)]">{fmt(a.cost)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-[var(--ff-text-secondary)]">{fmt(a.threshold)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-xs text-amber-400">{fmt(a.threshold - a.cost)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs text-[var(--ff-text-primary)]">{fmt(a.cost)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs text-[var(--ff-text-secondary)]">{fmt(a.threshold)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-xs text-amber-400">{fmt(a.threshold - a.cost)}</td>
                       <td className="px-4 py-3">
                         {isDone
                           ? <span className="text-xs text-teal-400 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />Expensed</span>

@@ -2,9 +2,9 @@
  * VAT201 summary view (form rows) and detail view (transaction tables).
  */
 import { formatDate } from '@/utils/formatters';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 // ── FormRow ──────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ export function FormRow({
         </div>
       </div>
       <div className="flex items-center gap-3">
-        {kind && <span className="text-[10px] uppercase tracking-wider text-[var(--ff-text-tertiary)]">{kind === 'value' ? 'Value' : 'VAT'}</span>}
+        {kind && <span className="text-xs uppercase tracking-wider text-[var(--ff-text-tertiary)]">{kind === 'value' ? 'Value' : 'VAT'}</span>}
         <span data-testid="vat201-field-amount" className={`text-sm font-medium ${highlight ? 'text-[var(--ff-text-primary)]' : 'text-[var(--ff-text-secondary)]'}`}>
           {amount === null ? '—' : fmt(amount)}
         </span>

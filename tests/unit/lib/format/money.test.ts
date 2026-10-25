@@ -1,22 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { formatDays, formatMoney, formatPct, formatPctLevel, formatRatio, pctWithWord, signOf, MONEY_SCALES, toMoneyScale } from '@/lib/format/money';
+import { formatDays, formatStatementFigure, formatPct, formatPctLevel, formatRatio, pctWithWord, signOf, MONEY_SCALES, toMoneyScale } from '@/lib/format/money';
 
 const PACK = { pack: true } as const;
 
-describe('formatMoney', () => {
+describe('formatStatementFigure', () => {
   it('uses thousands separators and no decimals by default', () => {
-    expect(formatMoney(4812345.67, PACK)).toBe('4\u00a0812\u00a0346');
+    expect(formatStatementFigure(4812345.67, PACK)).toBe('4\u00a0812\u00a0346');
   });
   it('shows negatives in parentheses, never a minus', () => {
-    expect(formatMoney(-2190000, PACK)).toBe('(2\u00a0190\u00a0000)');
-    expect(formatMoney(-2190000, PACK)).not.toContain('-');
+    expect(formatStatementFigure(-2190000, PACK)).toBe('(2\u00a0190\u00a0000)');
+    expect(formatStatementFigure(-2190000, PACK)).not.toContain('-');
   });
   it('shows cents when asked', () => {
-    expect(formatMoney(53787.07, { cents: true, ...PACK })).toBe('53\u00a0787.07');
+    expect(formatStatementFigure(53787.07, { cents: true, ...PACK })).toBe('53\u00a0787.07');
   });
   it('prefixes the rand symbol when asked', () => {
-    expect(formatMoney(1000, { symbol: true, ...PACK })).toBe('R 1\u00a0000');
-    expect(formatMoney(-1000, { symbol: true, ...PACK })).toBe('(R 1\u00a0000)');
+    expect(formatStatementFigure(1000, { symbol: true, ...PACK })).toBe('R 1\u00a0000');
+    expect(formatStatementFigure(-1000, { symbol: true, ...PACK })).toBe('(R 1\u00a0000)');
   });
   /**
    * THE SEPARATOR IS NOT A SPACE A LINE CAN BREAK AT.
@@ -36,11 +36,11 @@ describe('formatMoney', () => {
    */
   it('separates thousands with a space that cannot break a line', () => {
     for (const printed of [
-      formatMoney(4812345.67, PACK),
-      formatMoney(-2190000, PACK),
-      formatMoney(53787.07, { cents: true, ...PACK }),
-      formatMoney(1000, { symbol: true, ...PACK }),
-      formatMoney(4_200_000, { scale: "R'000" }),
+      formatStatementFigure(4812345.67, PACK),
+      formatStatementFigure(-2190000, PACK),
+      formatStatementFigure(53787.07, { cents: true, ...PACK }),
+      formatStatementFigure(1000, { symbol: true, ...PACK }),
+      formatStatementFigure(4_200_000, { scale: "R'000" }),
       formatDays(1035),
     ]) {
       // The group separator is present…
@@ -52,14 +52,14 @@ describe('formatMoney', () => {
     // missing from many faces and would render as a notdef box or as nothing
     // at all, which would turn `4 128` into `4128`. The one separator this
     // module emits is U+00A0.
-    expect(formatMoney(4812345.67, PACK)).not.toContain('\u202f');
+    expect(formatStatementFigure(4812345.67, PACK)).not.toContain('\u202f');
   });
 
   it('renders zero as a dash', () => {
-    expect(formatMoney(0)).toBe('–');
+    expect(formatStatementFigure(0)).toBe('–');
   });
   it('treats -0.004 as zero, not a negative', () => {
-    expect(formatMoney(-0.004)).toBe('–');
+    expect(formatStatementFigure(-0.004)).toBe('–');
   });
 });
 
@@ -84,17 +84,17 @@ describe('formatPct', () => {
 /**
  * THE PACK'S CONVENTIONS DO NOT LEAK ONTO SCREENS.
  *
- * `formatMoney` and `formatPct` serve statements, KPI tiles, chart tooltips
+ * `formatStatementFigure` and `formatPct` serve statements, KPI tiles, chart tooltips
  * and the management-accounts page. Their output was pinned here against the
  * pre-pack module (git 85cd87539) for a caller that opts into nothing.
  */
 describe('non-pack callers keep their pre-pack output', () => {
   it('separates thousands with an ASCII space, not U+00A0', () => {
-    expect(formatMoney(4812345.67)).toBe('4 812 346');
-    expect(formatMoney(-2190000)).toBe('(2 190 000)');
-    expect(formatMoney(53787.07, { cents: true })).toBe('53 787.07');
-    expect(formatMoney(1000, { symbol: true })).toBe('R 1 000');
-    expect(formatMoney(4812345.67)).not.toContain('\u00a0');
+    expect(formatStatementFigure(4812345.67)).toBe('4 812 346');
+    expect(formatStatementFigure(-2190000)).toBe('(2 190 000)');
+    expect(formatStatementFigure(53787.07, { cents: true })).toBe('53 787.07');
+    expect(formatStatementFigure(1000, { symbol: true })).toBe('R 1 000');
+    expect(formatStatementFigure(4812345.67)).not.toContain('\u00a0');
   });
   it('prints a negative percentage with U+2212, not brackets', () => {
     expect(formatPct(-8.1)).toBe('\u22128.1%');
@@ -102,21 +102,21 @@ describe('non-pack callers keep their pre-pack output', () => {
     expect(formatPct(6.94)).toBe('+6.9%');
   });
   it('prints an unscaled amount under half a rand as 0, not <1', () => {
-    expect(formatMoney(0.3)).toBe('0');
-    expect(formatMoney(-0.3)).toBe('(0)');
-    expect(formatMoney(0.3, { symbol: true })).toBe('R 0');
+    expect(formatStatementFigure(0.3)).toBe('0');
+    expect(formatStatementFigure(-0.3)).toBe('(0)');
+    expect(formatStatementFigure(0.3, { symbol: true })).toBe('R 0');
   });
 });
 
 describe('pack callers opt in to the pack conventions', () => {
   it('a scale selects the non-breaking separator and the <1 bound', () => {
-    expect(formatMoney(4_200_000, { scale: "R'000" })).toBe('4\u00a0200');
-    expect(formatMoney(400, { scale: "R'000" })).toBe('<1');
-    expect(formatMoney(-400, { scale: "R'000" })).toBe('(<1)');
+    expect(formatStatementFigure(4_200_000, { scale: "R'000" })).toBe('4\u00a0200');
+    expect(formatStatementFigure(400, { scale: "R'000" })).toBe('<1');
+    expect(formatStatementFigure(-400, { scale: "R'000" })).toBe('(<1)');
   });
   it('pack: true on an unscaled amount takes the non-breaking separator and <1', () => {
-    expect(formatMoney(4812345.67, PACK)).toBe('4\u00a0812\u00a0346');
-    expect(formatMoney(0.3, PACK)).toBe('<1');
+    expect(formatStatementFigure(4812345.67, PACK)).toBe('4\u00a0812\u00a0346');
+    expect(formatStatementFigure(0.3, PACK)).toBe('<1');
   });
   it('pack: true prints a negative percentage in brackets', () => {
     expect(formatPct(-12, 1, PACK)).toBe('(12.0%)');
@@ -199,10 +199,10 @@ describe('non-finite figures', () => {
     expect(signOf(-Infinity)).toBe('zero');
   });
 
-  it('formatMoney renders a dash rather than the word NaN', () => {
-    expect(formatMoney(NaN)).toBe('–');
-    expect(formatMoney(NaN, { cents: true, symbol: true })).toBe('–');
-    expect(formatMoney(Infinity)).toBe('–');
+  it('formatStatementFigure renders a dash rather than the word NaN', () => {
+    expect(formatStatementFigure(NaN)).toBe('–');
+    expect(formatStatementFigure(NaN, { cents: true, symbol: true })).toBe('–');
+    expect(formatStatementFigure(Infinity)).toBe('–');
   });
 
   it('formatPct renders a dash rather than 0.0% or +NaN%', () => {
@@ -215,23 +215,23 @@ describe('non-finite figures', () => {
 });
 
 
-describe('formatMoney scaling', () => {
+describe('formatStatementFigure scaling', () => {
   // The defect this pins: a table headed "R'000" whose cells were formatted
   // unscaled printed R4 200 000 as `4 200 000`, which a director reads as
   // R4.2bn. Nothing caught it because no assertion read a cell against its
   // own header.
   it("prints a thousands-scaled figure under an R'000 header", () => {
-    expect(formatMoney(4_200_000, { scale: "R'000" })).toBe('4\u00a0200');
+    expect(formatStatementFigure(4_200_000, { scale: "R'000" })).toBe('4\u00a0200');
   });
 
   it('leaves every existing caller byte-identical when no scale is given', () => {
     for (const n of [4_200_000, -1_234, 0, 999.4]) {
-      expect(formatMoney(n, { scale: undefined })).toBe(formatMoney(n));
+      expect(formatStatementFigure(n, { scale: undefined })).toBe(formatStatementFigure(n));
     }
   });
 
   it('keeps the sign convention after scaling', () => {
-    expect(formatMoney(-4_200_000, { scale: "R'000" })).toBe('(4\u00a0200)');
+    expect(formatStatementFigure(-4_200_000, { scale: "R'000" })).toBe('(4\u00a0200)');
   });
 
   it('distinguishes a figure that rounds to nothing from an actual zero', () => {
@@ -245,15 +245,15 @@ describe('formatMoney scaling', () => {
     // `<1` states the bound. The dash stays reserved for a MEASURED zero, so
     // all three readings remain distinct: an amount under one unit, nothing,
     // and unavailable.
-    expect(formatMoney(400, { scale: "R'000" })).toBe('<1');
-    expect(formatMoney(-400, { scale: "R'000" })).toBe('(<1)');
-    expect(formatMoney(400, { scale: "R'000", symbol: true })).toBe('R <1');
-    expect(formatMoney(0.4, PACK)).toBe('<1');
+    expect(formatStatementFigure(400, { scale: "R'000" })).toBe('<1');
+    expect(formatStatementFigure(-400, { scale: "R'000" })).toBe('(<1)');
+    expect(formatStatementFigure(400, { scale: "R'000", symbol: true })).toBe('R <1');
+    expect(formatStatementFigure(0.4, PACK)).toBe('<1');
     // Cents already print the real amount, so there is nothing to bound.
-    expect(formatMoney(0.4, { cents: true })).toBe('0.40');
-    expect(formatMoney(0, { scale: "R'000" })).toBe('–');
+    expect(formatStatementFigure(0.4, { cents: true })).toBe('0.40');
+    expect(formatStatementFigure(0, { scale: "R'000" })).toBe('–');
     // And a figure that does survive the scale is untouched.
-    expect(formatMoney(1_400, { scale: "R'000" })).toBe('1');
+    expect(formatStatementFigure(1_400, { scale: "R'000" })).toBe('1');
   });
 
   it('reaches the bound for the amounts the pack actually carries', () => {
@@ -263,23 +263,23 @@ describe('formatMoney scaling', () => {
     // this formatter's word for a MEASURED zero, and `<1` was unreachable
     // there. R400 (above) was inside the window; R4 was not, and the matters
     // page's quantum column is where an exposure of R4 lands.
-    expect(formatMoney(4, { scale: "R'000" })).toBe('<1');
-    expect(formatMoney(-4, { scale: "R'000" })).toBe('(<1)');
-    expect(formatMoney(0.01, { scale: "R'000" })).toBe('<1');
+    expect(formatStatementFigure(4, { scale: "R'000" })).toBe('<1');
+    expect(formatStatementFigure(-4, { scale: "R'000" })).toBe('(<1)');
+    expect(formatStatementFigure(0.01, { scale: "R'000" })).toBe('<1');
     // At millions the same window is a thousand times wider.
-    expect(formatMoney(4_000, { scale: "R'm" })).toBe('<1');
+    expect(formatStatementFigure(4_000, { scale: "R'm" })).toBe('<1');
 
     // AND THE OTHER DIRECTION, which is why the tolerance did not move: half a
     // cent is not an amount. A statement total is a subtraction, and float
     // residue off one must read as the measured zero it is rather than as
     // money too small to show.
-    expect(formatMoney(0.004, { scale: "R'000" })).toBe('–');
-    expect(formatMoney(-0.004)).toBe('–');
-    expect(formatMoney(0)).toBe('–');
+    expect(formatStatementFigure(0.004, { scale: "R'000" })).toBe('–');
+    expect(formatStatementFigure(-0.004)).toBe('–');
+    expect(formatStatementFigure(0)).toBe('–');
   });
 
   it('scales millions too', () => {
-    expect(formatMoney(4_200_000, { scale: "R'm" })).toBe('4');
+    expect(formatStatementFigure(4_200_000, { scale: "R'm" })).toBe('4');
     expect(MONEY_SCALES["R'm"]).toBe(1_000_000);
   });
 

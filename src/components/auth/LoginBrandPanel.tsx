@@ -34,14 +34,14 @@ export function LoginBrandPanel() {
             className="flex min-h-[92px] flex-col items-center justify-center gap-2.5 rounded-lg border border-white/[0.14] bg-slate-950/[0.18] px-3 py-3.5 text-center shadow-xl shadow-slate-950/10 backdrop-blur-md"
           >
             <Icon className="h-6 w-6 text-teal-200" strokeWidth={1.7} />
-            <span className="text-[11px] font-semibold leading-4 text-white/90">{label}</span>
+            <span className="text-xs font-semibold leading-4 text-white/90">{label}</span>
           </div>
         ))}
       </div>
 
       {quote && (
         <figure className="mt-8 hidden max-w-lg border-l-2 border-teal-300/90 py-1 pl-5 sm:block">
-          <figcaption className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-teal-100/90">
+          <figcaption className="mb-2 text-xs font-semibold uppercase tracking-[0.22em] text-teal-100/90">
             Daily perspective
           </figcaption>
           <blockquote className="text-sm font-medium leading-6 text-white/90">

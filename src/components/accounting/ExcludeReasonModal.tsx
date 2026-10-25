@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { X } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 /** Preset exclusion reasons shown as quick-select buttons */
 const PRESET_REASONS = [
@@ -17,7 +18,7 @@ const PRESET_REASONS = [
 ] as const;
 
 function fmtCurrency(n: number): string {
-  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+  return formatMoney(n);
 }
 
 export interface ExcludeReasonModalTransaction {
@@ -87,12 +88,12 @@ export function ExcludeReasonModal({ transaction, onClose, onExclude }: Props) {
         {/* Amount pill */}
         <div className="mb-5 flex gap-2">
           {spent !== null && (
-            <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-red-500/10 text-red-400">
+            <span className="text-xs tabular-nums font-medium px-2 py-0.5 rounded-full bg-red-500/10 text-red-400">
               Spent {fmtCurrency(spent)}
             </span>
           )}
           {received !== null && (
-            <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400">
+            <span className="text-xs tabular-nums font-medium px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400">
               Received {fmtCurrency(received)}
             </span>
           )}

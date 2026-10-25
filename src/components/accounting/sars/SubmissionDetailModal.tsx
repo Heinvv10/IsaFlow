@@ -7,6 +7,8 @@
 import { useEffect, useId } from 'react';
 import { X, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 import type { Vat201SarsField } from '@/modules/accounting/services/reports/vat201SarsFields';
 
 export interface SubmissionDetail {
@@ -23,15 +25,11 @@ export interface SubmissionDetail {
   updatedAt: string;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const formatDateTime = (d: string) => {
   if (!d) return '—';
-  return new Date(d).toLocaleString('en-ZA', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
+  return formatDisplayDateTime(d);
 };
 
 function StatusBadge({ status }: { status: string }) {

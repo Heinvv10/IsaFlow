@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { formatMoney, formatPct } from '@/lib/format/money';
+import { formatStatementFigure, formatPct } from '@/lib/format/money';
 import { Sparkline } from '@/components/accounting/statement/Sparkline';
 
 /**
@@ -25,10 +25,10 @@ export interface KpiTileProps {
 // Inline style rather than a Tailwind arbitrary property, per the convention
 // StatementRowView.tsx settled on: `var(--ff-fig-font)` inside
 // `[font-family:...]` is not reliably picked up by the Tailwind content scan.
-const FIG_STYLE: CSSProperties = { fontFamily: 'var(--ff-fig-font)' };
+const FIG_STYLE: CSSProperties = { fontFamily: 'var(--ff-fig-font, inherit)' };
 
 function fmt(v: number, kind: KpiTileProps['kind']): string {
-  if (kind === 'money') return formatMoney(v, { symbol: true });
+  if (kind === 'money') return formatStatementFigure(v, { symbol: true });
   if (kind === 'pct') return `${v.toFixed(1)}%`;
   return v.toFixed(2);
 }

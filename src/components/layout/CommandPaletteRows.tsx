@@ -80,7 +80,7 @@ export function ResultRow({ dataIdx, icon, title, subtitle, badge, isSelected, o
         )}
       </div>
       <span className="
-        flex-shrink-0 px-2 py-0.5 text-[10px] font-medium rounded-full
+        flex-shrink-0 px-2 py-0.5 text-xs font-medium rounded-full
         bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]
       ">
         {badge}
@@ -125,7 +125,7 @@ export function ActionRow({ dataIdx, icon, label, shortcut, isSelected, onClick 
       </div>
       <span className="flex-1 text-sm font-medium">{label}</span>
       {shortcut && (
-        <kbd className="hidden sm:inline-flex px-1.5 py-0.5 text-[10px] text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] rounded">
+        <kbd className="hidden sm:inline-flex px-1.5 py-0.5 text-xs text-[var(--ff-text-tertiary)] bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-primary)] rounded">
           {shortcut}
         </kbd>
       )}

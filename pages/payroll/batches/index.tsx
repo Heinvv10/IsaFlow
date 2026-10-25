@@ -150,7 +150,7 @@ export default function PayrollBatchesListPage() {
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{MONTHS[b.periodMonth - 1]} {b.periodYear}</td>
                       <td className="py-3 px-4"><StatusBadge status={b.status} /></td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{b.lineCount}</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(b.totalAmount)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(b.totalAmount)}</td>
                       <td className="py-3 px-4 text-right">
                         {mayWrite && (
                           <Link href={`/payroll/batches/${b.id}`} className="text-indigo-400 hover:text-indigo-300 text-xs font-medium">Open</Link>
