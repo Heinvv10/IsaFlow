@@ -17,18 +17,27 @@ export type BaseList =
   | { kind: 'no-list' }
   | { kind: 'no-ref' };
 
+/**
+ * Is this a CI run? Any non-empty GITHUB_ACTIONS or CI counts, whatever the value ("true", "1", "True",
+ * even "false"): the check must not be switchable off by spelling. GitHub sets GITHUB_ACTIONS=true on every run
+ * and the quality job's workflow rule refuses a step env that could override it.
+ */
+export function isCI(env: Record<string, string | undefined>): boolean {
+  return ['GITHUB_ACTIONS', 'CI'].some((key) => (env[key] ?? '') !== '');
+}
+
 export type BaseRef = { ok: true; ref: string } | { ok: false; reason: string };
 
 /**
- * The ref the list is compared with: origin/master, or RAW_INPUT_BASE_REF for local experiments. On GitHub the
+ * The ref the list is compared with: origin/master, or RAW_INPUT_BASE_REF for local experiments. In CI the
  * override is refused: a workflow (or a PR that edits one) must not be able to point the gate at a base that
  * allows more.
  */
 export function resolveBaseRef(env: Record<string, string | undefined>): BaseRef {
   const override = env.RAW_INPUT_BASE_REF;
   if (override === undefined || override === '') return { ok: true, ref: 'origin/master' };
-  if (env.GITHUB_ACTIONS === 'true') {
-    return { ok: false, reason: `RAW_INPUT_BASE_REF is set (${override}) on GitHub. The base is always origin/master there; remove the override.` };
+  if (isCI(env)) {
+    return { ok: false, reason: `RAW_INPUT_BASE_REF is set (${override}) in CI. The base is always origin/master there; remove the override.` };
   }
   return { ok: true, ref: override };
 }
@@ -104,4 +113,72 @@ export function pruneCounts(listed: Counts, actual: Counts): Counts {
     if (now > 0) out[file] = Math.min(now, listed[file] as number);
   }
   return out;
+}
+
+/** Everything the gate touches outside this module, so `runGate` can be driven by fakes in a test. */
+export interface GateDeps {
+  env: Record<string, string | undefined>;
+  /** True for `--write`. */
+  writing: boolean;
+  git: GitRunner;
+  /** Reports per file with the allowlist emptied (the ESLint run). */
+  actualCounts: () => Promise<Counts>;
+  /** The committed list's text, or null when the file does not exist. */
+  readList: () => string | null;
+  writeList: (counts: Counts) => void;
+  log: (line: string) => void;
+  error: (line: string) => void;
+}
+
+const LIST_PATH = 'eslint/raw-input-allowlist.json';
+const TAG = '[raw-input-allowlist]';
+
+/** The whole gate; returns the process exit code. The base ref is settled BEFORE the slow ESLint run. */
+export async function runGate(deps: GateDeps): Promise<number> {
+  const { env, git, log, error } = deps;
+  // Refused in CI for `--write` too: it does not read the base, but a CI that sets the override is wrong either way.
+  const resolved = resolveBaseRef(env);
+  if (!resolved.ok) {
+    error(`${TAG} FAIL: ${resolved.reason}`);
+    return 1;
+  }
+  const ref = resolved.ref;
+
+  const text = deps.readList();
+  if (text === null) {
+    if (!deps.writing) {
+      error(`${TAG} ${LIST_PATH} is missing`);
+      return 1;
+    }
+    const fresh = await deps.actualCounts();
+    deps.writeList(fresh);
+    log(`${TAG} wrote ${Object.keys(fresh).length} entries`);
+    return 0;
+  }
+  const listed = parseCounts(text, LIST_PATH);
+
+  const actual = await deps.actualCounts();
+  if (deps.writing) {
+    const pruned = pruneCounts(listed, actual);
+    deps.writeList(pruned);
+    const stillBad = compareCounts(pruned, actual, null, '').filter((p) => !p.startsWith('SHRUNK'));
+    log(`${TAG} pruned: ${Object.keys(pruned).length} files left`);
+    stillBad.forEach((p) => error(`${TAG} ${p}`));
+    return stillBad.length > 0 ? 1 : 0;
+  }
+
+  const base = readBaseList(ref, LIST_PATH, git);
+  if (base.kind === 'no-ref') {
+    const where = isCI(env) ? 'FAIL' : 'warn';
+    error(`${TAG} ${where}: base ref ${ref} is not available, cannot check that the list only shrinks.`);
+    if (where === 'FAIL') return 1;
+  } else if (base.kind === 'no-list') {
+    log(`${TAG} ${ref} has no allowlist yet: this change introduces it, nothing to compare.`);
+  }
+  const problems = compareCounts(listed, actual, base.kind === 'list' ? base.counts : null, ref);
+  problems.forEach((p) => error(`${TAG} ${p}`));
+  if (problems.length > 0) return 1;
+  const total = Object.values(listed).reduce((a, b) => a + b, 0);
+  log(`${TAG} ok: ${Object.keys(listed).length} files (${total} reports) still to migrate, none new, none stale`);
+  return 0;
 }

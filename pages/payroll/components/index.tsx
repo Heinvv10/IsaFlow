@@ -98,7 +98,7 @@ export default function PayComponentsPage() {
             </div>
             <div>
               <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Pay Components</h1>
-              <p className="text-sm text-[var(--ff-text-secondary)]">Earnings, deductions, employer contributions (SARS-tagged)</p>
+              <p className="text-sm text-[var(--ff-text-secondary)]">Earnings and deductions (SARS-tagged)</p>
             </div>
           </div>
         </div>
@@ -130,7 +130,6 @@ export default function PayComponentsPage() {
                   <select className={field} value={type} onChange={e => setType(e.target.value as ComponentType)}>
                     <option value="earning">Earning</option>
                     <option value="deduction">Deduction</option>
-                    <option value="employer_contribution">Employer contribution</option>
                   </select>
                 </div>
               </div>

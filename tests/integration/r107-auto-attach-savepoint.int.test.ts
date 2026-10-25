@@ -14,8 +14,10 @@
 // auto-attach no longer swallows the victim: the bill would post with its own journal beside the provisional (the slip
 // booked twice). It re-throws, the route answers 503 + Retry-After and withAuth rolls the whole request back.
 //
-// The deadlock is built by hand here so the POST side is the victim: it starts
-// waiting first, so its deadlock_timeout fires first and it aborts itself.
+// The deadlock is built by hand here so the POST side is the victim, whatever the load: the manual side waits on the
+// slip FIRST (and has a 20 s deadlock_timeout), then the post's auto-attach waits on the bank line and closes the
+// cycle. The cycle already exists when the post's own 1 s deadlock_timeout fires, so the post always finds it and
+// aborts itself; the manual side's check is 20 s away. No step depends on how fast the other side issues its query.
 import { describe, expect, it } from 'vitest';
 import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
@@ -53,16 +55,18 @@ describe('R-107 / K-157: the automatic evidence attach cannot poison the posting
     try {
       await post.query('BEGIN');
       await manual.query('BEGIN');
-      const postPid = (await post.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
+      const manualPid = (await manual.query('SELECT pg_backend_pid() AS p')).rows[0].p as number;
+      await manual.query("SET LOCAL deadlock_timeout = '20s'");
       // The manual attach's first lock: the bank line.
       await manual.query('SELECT 1 FROM bank_transactions WHERE id=$1 FOR UPDATE', [bt]);
-      // The post: slip locked and claimed, then (as capturePostFollowUps does) the auto-attach.
+      // The post: slip locked and claimed.
       await inCtx(post, () => lockCapturedDocumentForUpdate(company, doc));
       await post.query('UPDATE captured_documents SET posted_at = NOW() WHERE id=$1', [doc]);
-      const auto = inCtx(post, () => attachEvidenceToProvisional(company, doc, null, 211.00, today));
-      await waitUntilBlocked(postPid);
-      // The manual attach now reaches for the slip: a cycle. The post waited first, so it is the victim.
+      // The manual attach reaches for the slip and waits on the post: no cycle yet.
       const manualDoc = manual.query('SELECT 1 FROM captured_documents WHERE id=$1 FOR UPDATE', [doc]);
+      await waitUntilBlocked(manualPid);
+      // Then the post's auto-attach (as capturePostFollowUps does) reaches for the bank line: the cycle closes here.
+      const auto = inCtx(post, () => attachEvidenceToProvisional(company, doc, null, 211.00, today));
 
       await expect(auto).rejects.toMatchObject({ code: '40P01' });
       // The savepoint rolled the attach back alone: the post's transaction is still usable (no 25P02), so the request

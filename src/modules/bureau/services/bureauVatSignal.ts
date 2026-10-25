@@ -46,7 +46,7 @@ export function shapeVatDue(
     items.push({
       bureauId: m.bureau_id, bureauName: m.bureau_name, companyId: c.id, companyName: m.company_name,
       task: 'VAT return due', detail: vatDetail(period.periodStart, period.periodEnd),
-      dueAt: period.dueDate, href: '/accounting/reports/vat-return', severity: severityForDate(due, today),
+      dueAt: period.dueDate, href: '/accounting/sars/vat201', severity: severityForDate(due, today),
     });
   }
   return items;

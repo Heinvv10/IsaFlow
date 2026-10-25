@@ -63,7 +63,7 @@ const ALL_PAGES = [
   '/accounting/reports/customer-reports', '/accounting/reports/supplier-reports',
   '/accounting/reports/bank-transactions', '/accounting/reports/account-transactions',
   '/accounting/reports/trial-balance', '/accounting/reports/audit-trail',
-  '/accounting/reports/vat-return', '/accounting/reports/general-ledger',
+  '/accounting/sars/vat201', '/accounting/reports/general-ledger',
   '/accounting/reports/customer', '/accounting/reports/supplier',
   '/accounting/reports/item-listing', '/accounting/reports/item-movement',
   '/accounting/reports/item-quantities', '/accounting/reports/item-valuation',

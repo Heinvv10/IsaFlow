@@ -11,10 +11,10 @@
  *
  * A guard fails in both directions, so every shape here has a live twin that
  * must still be reported: a live overdue invoice, a live overdue bill, a live
- * draft. The predicate is UNDATED because this is a workflow queue asked as at
- * NOW; it is not a balance that has to tie to a control account, so the dated
- * `documentInLedgerAsAtFragment` used by ageing and the statements would be the
- * wrong question here.
+ * draft. The overdue invoice rows now share the DATED predicate of
+ * arOutstandingService (D2: rows and count must be one population); a deleted
+ * document with no journal is excluded by it just as `deleted_at IS NULL` did.
+ * The bills and drafts keep the undated predicate of a workflow queue.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'crypto';

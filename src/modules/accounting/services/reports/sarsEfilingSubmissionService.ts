@@ -13,7 +13,10 @@ import { log } from '@/lib/logger';
 import { getEfilingConfig } from './sarsEfilingConfig';
 import { getVatExceptions } from './vatExceptionsService';
 import type { VatExceptionsReport } from './vatExceptionsTypes';
-import { getLedgerVAT201, evaluateVat201Filability, type LedgerVAT201 } from './vat201LedgerFields';
+import { evaluateVat201Filability } from './vat201LedgerFields';
+import { getVat201Return } from './vat201Return';
+import { draftBlockReason, draftDrift } from './sarsEfilingDraftDrift';
+import { isvPayloadMappedToSarsFields, ISV_PAYLOAD_UNMAPPED_REASON } from './sarsEfilingPayloadGuard';
 import { authenticate, submitVAT201, pollStatus } from './sarsEfilingClient';
 import {
   getEfilingSubmission,
@@ -47,6 +50,13 @@ export class EfilingBlockedError extends Error {
     this.reason = reason;
   }
 }
+/** The submit path is refused until its payload is in SARS's field numbers (sarsEfilingPayloadGuard). */
+export class EfilingPayloadUnmappedError extends EfilingBlockedError {
+  constructor() {
+    super(ISV_PAYLOAD_UNMAPPED_REASON);
+    this.name = 'EfilingPayloadUnmappedError';
+  }
+}
 /** The VAT201 was already filed to SARS — refuse to file it twice (a double
  *  statutory submission). Carries the existing correlation id for reference. */
 export class EfilingAlreadyFiledError extends Error {
@@ -77,35 +87,7 @@ export function evaluateEfilingGate(
   return { allowed: true, reason: null };
 }
 
-/** The eleven statutory figures. Everything else on the form is drill-down. */
-const VAT201_FIELDS = [
-  'field1_standardRatedSupplies', 'field2_zeroRatedSupplies', 'field3_exemptSupplies',
-  'field4_totalImports', 'field5_outputVAT', 'field6_capitalGoods', 'field7_otherGoods',
-  'field8_services', 'field9_imports', 'field10_totalInputVAT', 'field11_vatPayableOrRefundable',
-] as const;
-
-/**
- * Which of the reviewed draft's figures the regenerated return no longer
- * matches. A draft saved before `form_data` carried the fields (or with none of
- * them) cannot be compared, and is reported as such rather than passed.
- */
-export function draftDrift(
-  saved: Record<string, unknown> | null,
-  regenerated: LedgerVAT201,
-): string[] {
-  if (!saved || VAT201_FIELDS.every((f) => saved[f] === undefined)) {
-    return ['this draft holds no saved VAT201 figures to compare against'];
-  }
-  const drift: string[] = [];
-  for (const field of VAT201_FIELDS) {
-    const before = Number(saved[field] ?? 0);
-    const after = Number(regenerated[field] ?? 0);
-    if (Math.abs(before - after) >= 0.005) {
-      drift.push(`${field} ${before.toFixed(2)} -> ${after.toFixed(2)}`);
-    }
-  }
-  return drift;
-}
+export { draftDrift } from './sarsEfilingDraftDrift';
 
 const VAT_NUMBER_RE = /^4\d{9}$/;
 
@@ -136,6 +118,15 @@ export async function submitVAT201ToSars(
     throw new EfilingAlreadyFiledError(submission.efilingCorrelationId ?? '');
   }
 
+  // The payload below is still the legacy field1..11 meaning, not what the user
+  // reviewed as the SARS form: refuse, and audit it, until the remap ships.
+  if (!isvPayloadMappedToSarsFields()) {
+    await insertEfilingEvent({
+      companyId, submissionId, eventType: 'blocked', message: ISV_PAYLOAD_UNMAPPED_REASON, createdBy: userId,
+    });
+    throw new EfilingPayloadUnmappedError();
+  }
+
   // Server-side exceptions gate — the enforcement point.
   const report = await getVatExceptions(companyId, submission.periodStart, submission.periodEnd);
   const gate = evaluateEfilingGate(report);
@@ -162,7 +153,7 @@ export async function submitVAT201ToSars(
   // above) reconciles against THIS SAME `getLedgerVAT201` fields 5/10 (2026-09-25,
   // fdcfe53d6) — invoice-vs-GL posting gaps still surface per document
   // (queries 4/5), but the two no longer disagree on what "the return" is.
-  const vat201 = await getLedgerVAT201(companyId, submission.periodStart, submission.periodEnd);
+  const vat201 = await getVat201Return(companyId, submission.periodStart, submission.periodEnd);
 
   // The form's own arithmetic, which the invoice-population exceptions report
   // does not check: SARS's 15% tie-out, and negative supply values.
@@ -182,7 +173,7 @@ export async function submitVAT201ToSars(
   // `exportVat201` guards with its period lock, and this path had neither.
   const drift = draftDrift(submission.formData, vat201);
   if (drift.length > 0) {
-    const reason = `The ledger has moved since this draft was saved (${drift.join('; ')}) — re-save the draft and review it before filing`;
+    const reason = draftBlockReason(drift);
     await insertEfilingEvent({
       companyId, submissionId, eventType: 'blocked', message: reason,
       detail: { drift }, createdBy: userId,
@@ -193,7 +184,7 @@ export async function submitVAT201ToSars(
   const taxPeriod = submission.periodStart.replace(/-/g, '').slice(0, 6); // CCYYMM
   const {
     degradedSources: _drop, outputInvoices: _o, inputInvoices: _i,
-    periodStart: _ps, periodEnd: _pe, rateCheck: _rc, ...fields
+    periodStart: _ps, periodEnd: _pe, rateCheck: _rc, sarsFields: _sf, warnings: _w, filability: _fb, ...fields
   } = vat201;
 
   try {

@@ -24,11 +24,13 @@ interface Props {
   isOwnerOrAdmin?: boolean;
   overrideReason?: string;
   onOverrideReasonChange?: (reason: string) => void;
+  /** Why the return fails the form's own arithmetic (evaluateVat201Filability). A warning only: marking it submitted stays allowed. */
+  filabilityWarning?: string | null;
 }
 
 export function VAT201SubmitModal({
   sarsRef, submitting, onRefChange, onConfirm, onClose,
-  blockingCounts = null, isOwnerOrAdmin = false, overrideReason = '', onOverrideReasonChange,
+  blockingCounts = null, isOwnerOrAdmin = false, overrideReason = '', onOverrideReasonChange, filabilityWarning = null,
 }: Props) {
   const blocked = blockingCounts !== null && blockingCounts.totalExceptions > 0;
   const needsReason = blocked && isOwnerOrAdmin && !overrideReason.trim();
@@ -39,6 +41,11 @@ export function VAT201SubmitModal({
         <p className="text-sm text-[var(--ff-text-secondary)] mb-4">
           Enter the SARS eFiling reference number after submitting the return on the SARS eFiling portal.
         </p>
+        {filabilityWarning && (
+          <p data-testid="vat201-submit-filability-warning" className="text-sm text-amber-400 mb-4">
+            Warning: {filabilityWarning}
+          </p>
+        )}
         <input
           type="text"
           value={sarsRef}
