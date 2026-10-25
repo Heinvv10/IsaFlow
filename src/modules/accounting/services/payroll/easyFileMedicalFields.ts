@@ -131,7 +131,7 @@ function recordBirth(field: Map<string, string>): Date | null {
  * 4005 value, 4116 with every 4005; 4120 "validate to Date of Birth (code
  * 3080)": never under 65, mandatory with 4005 for 65 and older (age on the last
  * day of the year of assessment, 3025; the date of birth from 3080, else the
- * ID number, since IsaFlow does not emit 3080); 4150 = 08 only with 4116 or
+ * ID number when a record has no 3080); 4150 = 08 only with 4116 or
  * 4120 above nil (Hein 2026-10-23: a nil credit removed no tax).
  */
 export function medicalFieldRules(field: Map<string, string>, err: (code: string, message: string) => void): void {

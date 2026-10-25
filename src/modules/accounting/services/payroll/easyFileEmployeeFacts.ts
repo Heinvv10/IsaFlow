@@ -50,6 +50,41 @@ export function birthFromIdNumber(idNumber: unknown): Date | null {
   return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
 }
 
+/**
+ * 3080 (CCYYMMDD) for a nature-A certificate, which "must correlate with the identity number" (BRS V25.3.0 p. 26):
+ * the payroll date of birth when it is the ID number's YYMMDD and not after today (it carries the century the ID
+ * cannot), else the ID number's own date; null when the ID number's first six digits are no date. Local calendar
+ * day, as birthFromIdNumber builds it.
+ */
+export function certificateBirthDate(dateOfBirth: Date | null | undefined, idNumber: string, today = new Date()): string | null {
+  const fromId = birthFromIdNumber(idNumber);
+  if (!fromId) return null;
+  const day = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  if (dateOfBirth && !Number.isNaN(dateOfBirth.getTime()) && dateOfBirth <= today
+    && day(dateOfBirth).slice(2) === idNumber.slice(0, 6)) return day(dateOfBirth);
+  return day(fromId);
+}
+
+/**
+ * 3080, BRS V25.3.0 p. 26: mandatory for a natural person (3020 A / B / C / M / N / R), CCYYMMDD, "must correlate
+ * with the identity number (if any)" (its YYMMDD is 3060's first six digits), not after today.
+ */
+export function birthDateRules(field: Map<string, string>, err: (code: string, message: string) => void): void {
+  if (!/^[ABCMNR]$/.test(field.get('3020') ?? '')) return;
+  const dob = field.get('3080');
+  if (dob == null) { err('BIRTH_3080_MISSING', 'A natural person\'s certificate needs the date of birth (3080).'); return; }
+  const m = /^(\d{4})(\d{2})(\d{2})$/.exec(dob);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  if (!m || !d || d.getMonth() !== Number(m[2]) - 1 || d.getDate() !== Number(m[3]) || d > new Date()) {
+    err('BIRTH_3080_INVALID', `The date of birth (3080) must be a CCYYMMDD date not after today, not ${dob}.`);
+    return;
+  }
+  const id = field.get('3060');
+  if (id && /^\d{13}$/.test(id) && dob.slice(2) !== id.slice(0, 6)) {
+    err('BIRTH_3080_NOT_ID', `The date of birth (3080, ${dob}) must correlate with the ID number (3060, ${id}).`);
+  }
+}
+
 /** Age on the last day of the year of assessment; from the date of birth, else the ID number; null when unknown. */
 export function ageAtYearEnd(taxYear: number, dateOfBirth: unknown, idNumber: unknown): number | null {
   const born = dateOfBirth ? (dateOfBirth instanceof Date ? dateOfBirth : new Date(String(dateOfBirth))) : birthFromIdNumber(idNumber);
