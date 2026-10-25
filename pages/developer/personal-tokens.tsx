@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { PAT_SCOPES } from '@/lib/auth/patScopes';
@@ -88,9 +89,10 @@ export default function PersonalTokensPage() {
   const [tokenCopied, setTokenCopied] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
+  const afterToast = useTimeoutOnce();
   const showToast = (msg: string, ok: boolean) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 4000);
+    afterToast(() => setToast(null), 4000);
   };
 
   const load = useCallback(async () => {

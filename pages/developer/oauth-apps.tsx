@@ -4,6 +4,7 @@
  * displayed. Owner-scoped via the API.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import {
@@ -64,9 +65,10 @@ export default function OauthAppsPage() {
   const [secretCopied, setSecretCopied] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
+  const afterToast = useTimeoutOnce();
   const showToast = (msg: string, ok: boolean) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 4000);
+    afterToast(() => setToast(null), 4000);
   };
 
   // `wrote` names a write that just succeeded: a failed reload must still report it
