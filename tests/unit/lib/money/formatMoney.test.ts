@@ -114,3 +114,15 @@ describe('the display minus is U+2212 and still parses', () => {
     expect(parseSaAmount(formatCents(-12_345, { symbol: false }))).toEqual({ ok: true, cents: -12_345 });
   });
 });
+
+describe('a negative that rounds to zero has no sign, in every form', () => {
+  it.each([-0.004, -0.0049999, -1e-7])('%s', (n) => {
+    expect(formatMoney(n)).toBe('R\xa00.00');
+    expect(formatAmount(n)).toBe('0.00');
+    expect(formatMoneyCompact(n)).toBe('R\xa00.00');
+    expect(formatMoney(n, { decimals: 0 })).toBe('R\xa00');
+  });
+  it('keeps the sign once it rounds to a cent', () => {
+    expect(formatMoney(-0.005)).toBe('\u2212R\xa00.01');
+  });
+});
