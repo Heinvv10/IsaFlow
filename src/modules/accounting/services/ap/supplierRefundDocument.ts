@@ -92,6 +92,10 @@ import { log } from '@/lib/logger';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { lockContactForRefund } from '../core/paymentLock';
 import { lockSupplierCredit } from './supplierCreditLock';
+import { getSupplierOnAccountCredit } from './supplierOnAccountCredit';
+
+// Moved to its own module (one figure for refunds and applications); re-exported for existing callers.
+export { getSupplierOnAccountCredit } from './supplierOnAccountCredit';
 
 /** The one `payment_method` value that carries a negative total. */
 export const REFUND_PAYMENT_METHOD = 'refund';
@@ -118,7 +122,7 @@ export function isSupplierRefundRefusal(err: unknown): err is SupplierRefundRefu
 export interface SupplierRefundPlan {
   /** Always positive: the gross refund, whatever sign the caller passed. */
   amount: number;
-  /** The supplier's on-account credit as at the payment date, already netted. */
+  /** The supplier's on-account credit, already netted: the lower of as at the payment date and every date. */
   onAccountCredit: number;
   supplierName: string;
 }
@@ -133,58 +137,6 @@ export interface SupplierRefundDocument {
 function round2(n: number): number {
   const r = Math.round(n * 100) / 100;
   return r === 0 ? 0 : r;
-}
-
-/**
- * What this supplier has sitting on account, as at a date.
- *
- * The SAME basis as `shared/unappliedPaymentBasis` — document total minus
- * allocations, over `processed` and `reconciled` rows — restricted to one
- * supplier and returned as a single netted figure. It is not a fourth
- * definition of unapplied cash: the predicate is copied clause for clause, and
- * the integration suite proves the two agree on the same tenant.
- *
- * `GREATEST(sp.total_amount, 0)` is the allocation cap and it is the whole
- * reason this cannot reuse the plain `LEAST(allocated, total_amount)` form. On
- * a refund that form caps the allocations at the NEGATIVE total, so the
- * remainder computes to exactly zero and an earlier refund stops reducing the
- * credit — the second refund would then be measured against a ceiling the first
- * one had already consumed.
- *
- * @param asAt 'YYYY-MM-DD'. String throughout: SAST is UTC+2 and this repo has
- *   a live UTC-rollback defect class around Date arithmetic. `null`: every posted
- *   payment, whatever its date (the application ceiling).
- */
-export async function getSupplierOnAccountCredit(
-  companyId: string,
-  supplierId: string,
-  asAt: string | null,
-): Promise<{ credit: number; supplierName: string }> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-             sp.total_amount
-             - LEAST(COALESCE(alloc.allocated, 0), GREATEST(sp.total_amount, 0))
-           ), 0) AS credit,
-           MAX(s.name) AS supplier_name
-    FROM suppliers s
-    LEFT JOIN supplier_payments sp
-      ON sp.supplier_id = s.id
-     AND sp.company_id = s.company_id
-     AND sp.status IN ('processed', 'reconciled')
-     AND (${asAt}::DATE IS NULL OR sp.payment_date <= ${asAt}::DATE)
-    LEFT JOIN LATERAL (
-      SELECT SUM(pa.amount_allocated) AS allocated
-      FROM payment_allocations pa
-      WHERE pa.payment_id = sp.id
-    ) alloc ON TRUE
-    WHERE s.company_id = ${companyId}::UUID
-      AND s.id = ${supplierId}::UUID
-  `) as DbRow[];
-
-  return {
-    credit: round2(Number(rows[0]?.credit ?? 0)),
-    supplierName: rows[0]?.supplier_name ? String(rows[0].supplier_name) : 'this supplier',
-  };
 }
 
 /**
@@ -210,14 +162,21 @@ export async function planSupplierRefund(
   // Then the credit key, which every application of posted cash holds from its plan to its COMMIT: held by
   // another request, this refuses (retryable) instead of counting cash an application is spending.
   await lockSupplierCredit(companyId, supplierId);
-  const { credit, supplierName } = await getSupplierOnAccountCredit(
+  const { credit: asAtDate, creditAllDates, supplierName } = await getSupplierOnAccountCredit(
     companyId, supplierId, paymentDate,
   );
+  // BOTH figures: as at the refund's date (it cannot return more than was on account then) and over every date
+  // (a refund dated later, already recorded, has taken its share — statement lines allocated out of date order
+  // refunded the same cash twice against the as-at figure alone).
+  const credit = Math.min(asAtDate, creditAllDates);
+  const basis = asAtDate <= creditAllDates
+    ? `as at ${paymentDate}`
+    : 'once documents dated after this one are counted';
 
   if (gross > credit) {
     throw new SupplierRefundRefusal(
       `A refund of ${gross.toFixed(2)} exceeds the ${credit.toFixed(2)} `
-      + `${supplierName} has on account as at ${paymentDate}. `
+      + `${supplierName} has on account ${basis}. `
       + `Recording it would leave ${supplierName} owing the company, which is a `
       + 'receivable — it cannot be recorded against Accounts Payable. Capture a '
       + 'supplier invoice for what is owed, or allocate this deposit to the '

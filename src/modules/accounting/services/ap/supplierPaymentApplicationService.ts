@@ -40,7 +40,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { lockSupplierPaymentForUpdate } from '../core/paymentLock';
 import { lockSupplierCredit } from './supplierCreditLock';
-import { getSupplierOnAccountCredit } from './supplierRefundDocument';
+import { getSupplierOnAccountCredit } from './supplierOnAccountCredit';
 import { toCents } from './billAllocatable';
 import {
   EPS,
@@ -168,7 +168,7 @@ export async function planSupplierPaymentApplication(
  * Read under the credit key (`supplierCreditLock`), so a refund or another application in flight has committed.
  */
 async function assertWithinOnAccountCredit(companyId: string, supplierId: string, requested: number): Promise<void> {
-  const { credit, supplierName } = await getSupplierOnAccountCredit(companyId, supplierId, null);
+  const { creditAllDates: credit, supplierName } = await getSupplierOnAccountCredit(companyId, supplierId, null);
   if (toCents(requested) <= toCents(credit)) return;
   const onAccount = Math.max(credit, 0);
   throw new SupplierPaymentRefusal(

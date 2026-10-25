@@ -74,21 +74,21 @@ beforeEach(() => {
 
 describe('planSupplierRefund — the on-account credit ceiling', () => {
   it('allows a refund up to the credit exactly', async () => {
-    mockSql.mockResolvedValueOnce([{ credit: '5000.00', supplier_name: 'ACME' }]);
+    mockSql.mockResolvedValueOnce([{ id: SUP, credit: '5000.00', credit_all_dates: '5000.00', supplier_name: 'ACME' }]);
     const plan = await planSupplierRefund(CO, SUP, 5000, '2026-09-19');
     expect(plan.onAccountCredit).toBe(5000);
     expect(plan.amount).toBe(5000);
   });
 
   it('refuses a refund of one cent more than the credit', async () => {
-    mockSql.mockResolvedValueOnce([{ credit: '5000.00', supplier_name: 'ACME' }]);
+    mockSql.mockResolvedValueOnce([{ id: SUP, credit: '5000.00', credit_all_dates: '5000.00', supplier_name: 'ACME' }]);
     await expect(planSupplierRefund(CO, SUP, 5000.01, '2026-09-19')).rejects.toThrow(
       /ACME[\s\S]*owing the company/i,
     );
   });
 
   it('refuses against a supplier with no on-account credit at all', async () => {
-    mockSql.mockResolvedValueOnce([{ credit: '0', supplier_name: 'ACME' }]);
+    mockSql.mockResolvedValueOnce([{ id: SUP, credit: '0', credit_all_dates: '0', supplier_name: 'ACME' }]);
     const err = await planSupplierRefund(CO, SUP, 100, '2026-09-19').catch((e) => e);
     expect(isSupplierRefundRefusal(err)).toBe(true);
   });
@@ -97,16 +97,25 @@ describe('planSupplierRefund — the on-account credit ceiling', () => {
     // The query returns one already-netted figure; what is pinned here is that
     // the date is the third bound parameter, so a later payment cannot fund an
     // earlier refund.
-    mockSql.mockResolvedValueOnce([{ credit: '1200.00', supplier_name: 'ACME' }]);
+    mockSql.mockResolvedValueOnce([{ id: SUP, credit: '1200.00', credit_all_dates: '1200.00', supplier_name: 'ACME' }]);
     await planSupplierRefund(CO, SUP, 1200, '2026-03-31');
     const params = mockSql.mock.calls[0]!.slice(1);
     expect(params).toContain('2026-03-31');
-    expect(params).toContain(SUP);
+    expect(params).toContainEqual([SUP]);
     expect(params).toContain(CO);
   });
 
+  it('is judged on the LOWER of the as-at and the all-dates credit', async () => {
+    // A refund dated later, already recorded, has taken its share: R1,000 on
+    // account as at the earlier date but R0 once it is counted.
+    mockSql.mockResolvedValueOnce([{ id: SUP, credit: '1000.00', credit_all_dates: '0.00', supplier_name: 'ACME' }]);
+    await expect(planSupplierRefund(CO, SUP, 1000, '2026-03-31')).rejects.toThrow(
+      /exceeds the 0\.00 ACME has on account once documents dated after this one are counted/,
+    );
+  });
+
   it('takes an absolute amount — a caller passing a signed one is not silently doubled', async () => {
-    mockSql.mockResolvedValueOnce([{ credit: '900.00', supplier_name: 'ACME' }]);
+    mockSql.mockResolvedValueOnce([{ id: SUP, credit: '900.00', credit_all_dates: '900.00', supplier_name: 'ACME' }]);
     const plan = await planSupplierRefund(CO, SUP, -900, '2026-09-19');
     expect(plan.amount).toBe(900);
   });
@@ -115,7 +124,7 @@ describe('planSupplierRefund — the on-account credit ceiling', () => {
 describe('recordSupplierRefund — the document it writes', () => {
   it('writes a negative total under payment_method refund, processed, unallocated', async () => {
     mockSql
-      .mockResolvedValueOnce([{ credit: '5000.00', supplier_name: 'ACME' }]) // re-check
+      .mockResolvedValueOnce([{ id: SUP, credit: '5000.00', credit_all_dates: '5000.00', supplier_name: 'ACME' }]) // re-check
       .mockResolvedValueOnce([{ id: 'pay-1' }]);
     const doc = await recordSupplierRefund({
       companyId: CO, supplierId: SUP, bankTxId: TX, bankAccountId: BANK,
@@ -132,7 +141,7 @@ describe('recordSupplierRefund — the document it writes', () => {
   });
 
   it('re-checks the ceiling and writes NOTHING when it is exceeded', async () => {
-    mockSql.mockResolvedValueOnce([{ credit: '100.00', supplier_name: 'ACME' }]);
+    mockSql.mockResolvedValueOnce([{ id: SUP, credit: '100.00', credit_all_dates: '100.00', supplier_name: 'ACME' }]);
     await expect(recordSupplierRefund({
       companyId: CO, supplierId: SUP, bankTxId: TX, bankAccountId: BANK,
       journalEntryId: JE, amount: 1500, paymentDate: '2026-09-19',
@@ -147,7 +156,7 @@ describe('recordSupplierRefund — the document it writes', () => {
     // taken after the read guards nothing, because the stale figure has already
     // been used to decide.
     mockSql
-      .mockResolvedValueOnce([{ credit: '5000.00', supplier_name: 'ACME' }])
+      .mockResolvedValueOnce([{ id: SUP, credit: '5000.00', credit_all_dates: '5000.00', supplier_name: 'ACME' }])
       .mockResolvedValueOnce([{ id: 'pay-1' }]);
     await recordSupplierRefund({
       companyId: CO, supplierId: SUP, bankTxId: TX, bankAccountId: BANK,
