@@ -390,9 +390,18 @@ describe('draftDrift — the SARS form', () => {
   });
 
   it('words an uncomparable draft in its own terms and a moved figure as the ledger having moved', () => {
-    expect(draftBlockReason(['this draft holds no saved VAT201 figures to compare against']))
+    expect(draftBlockReason(['draft holds no saved VAT201 figures to compare against']))
       .toBe('This draft holds no saved VAT201 figures to compare against — re-save the draft and review it before filing');
     expect(draftBlockReason(['field5_outputVAT 100.00 -> 150.00'])).toMatch(/^The ledger has moved since this draft was saved \(field5_outputVAT/);
+  });
+
+  it('names BOTH when a draft predates the mapping and its figures have also moved', () => {
+    const drift = draftDrift({ ...FILED_FIELDS, field5_outputVAT: 140000 }, now(form()));
+    expect(drift).toHaveLength(2);
+    expect(draftBlockReason(drift)).toBe(
+      'This draft predates SARS field mapping; the ledger has moved since this draft was saved '
+      + '(field5_outputVAT 140000.00 -> 150000.00) — re-save the draft and review it before filing',
+    );
   });
 
   it('blocks filing such a draft, naming the reason', async () => {
