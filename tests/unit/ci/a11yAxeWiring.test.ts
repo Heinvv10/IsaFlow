@@ -145,7 +145,7 @@ describe('openScreen throws on anything but the screen, with its data', () => {
   const failures: Array<[string, Page, RegExp]> = [
     ['a redirect', screenPage({ landsOn: 'http://x/login?reason=session-expired' }), /expected \/accounting\/assets but the browser is on \/login/],
     ['a missing heading', screenPage({ landsOn: 'http://x/accounting/assets', headingVisible: false }), /not visible/],
-    ['a page whose h1 never shows', screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: true }), /a11y screen "assets" \(\/accounting\/assets\): no <h1> showed within 30s \(Timeout 30000ms/],
+    ['a page whose h1 never shows', screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: true }), /a11y screen "assets" \(\/accounting\/assets\): no <h1> showed within 30s\nTimeout 30000ms/],
   ];
 
   it('resolves on the right screen', async () => {
@@ -177,7 +177,7 @@ describe('openScreen throws on anything but the screen, with its data', () => {
   });
 
   it('a settled-wait that fails fails the screen', async () => {
-    await expect(openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw new Error('rows never rendered'); } })).rejects.toThrow(/a11y screen "assets" \(\/accounting\/assets\): the screen never settled \(rows never rendered\)/);
+    await expect(openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw new Error('rows never rendered'); } })).rejects.toThrow(/a11y screen "assets" \(\/accounting\/assets\): the screen never settled\nrows never rendered/);
   });
 });
 
@@ -188,6 +188,46 @@ describe('the generic spinner wait names the screen too', () => {
       first: () => ({ waitFor: async () => {} }),
       count: async () => (sel.includes('animate') ? 2 : 0),
     });
-    await expect(openScreen(page, SCREEN)).rejects.toThrow(/a11y screen "assets" \(\/accounting\/assets\): the page still shows a spinner or skeleton after 30s \(.*count != 0/);
+    await expect(openScreen(page, SCREEN)).rejects.toThrow(/a11y screen "assets" \(\/accounting\/assets\): the page still shows a spinner or skeleton after 30s\n.*count != 0/);
+  });
+});
+
+describe('inScreen keeps what went wrong', () => {
+  const multiLine = () => new Error('expect(locator).toHaveCount(expected) failed\n\nExpected: 0\nReceived: 2\nTimeout: 30000ms');
+
+  it('keeps the whole underlying message, Expected/Received lines included, with colour codes stripped', async () => {
+    const original = new Error(`\u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m)\u001b[22m failed\n\nExpected: 0\nReceived: 2`);
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw original; } }).catch((e: Error) => e);
+    expect((err as Error).message).toContain('a11y screen "assets" (/accounting/assets): the screen never settled');
+    expect((err as Error).message).toContain('Expected: 0');
+    expect((err as Error).message).toContain('Received: 2');
+    expect((err as Error).message).not.toContain('\u001b');
+  });
+
+  it('rethrows with the original as `cause`, so its stack survives', async () => {
+    const original = multiLine();
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw original; } }).catch((e: Error) => e);
+    expect((err as Error).cause).toBe(original);
+    expect(((err as Error).cause as Error).stack).toContain('expect(locator).toHaveCount');
+  });
+
+  it('a thrown non-Error is still named and kept as the cause', async () => {
+    const err = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets' }), { ...SCREEN, settled: async () => { throw 'boom'; } }).catch((e: Error) => e); // eslint-disable-line no-throw-literal
+    expect((err as Error).message).toContain('the screen never settled');
+    expect((err as Error).message).toContain('boom');
+    expect((err as Error).cause).toBe('boom');
+  });
+
+  it('the h1 and spinner waits keep the full message and cause too', async () => {
+    const h1 = await openScreen(screenPage({ landsOn: 'http://x/accounting/assets', h1Fails: true }), SCREEN).catch((e: Error) => e);
+    expect((h1 as Error).cause).toBeInstanceOf(Error);
+    const page = screenPage({ landsOn: 'http://x/accounting/assets' });
+    (page as unknown as { locator: (s: string) => unknown }).locator = (sel: string) => ({
+      first: () => ({ waitFor: async () => {} }),
+      count: async () => (sel.includes('animate') ? 2 : 0),
+    });
+    const spin = await openScreen(page, SCREEN).catch((e: Error) => e);
+    expect((spin as Error).message).toMatch(/count != 0/);
+    expect((spin as Error).cause).toBeInstanceOf(Error);
   });
 });
