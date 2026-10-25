@@ -23,7 +23,7 @@ import verifyMandateRoute from '../../pages/api/billing/paystack/mandate/verify'
 import webhookRoute from '../../pages/api/webhooks/paystack';
 import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
-import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { billingAdminPool, migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { response } from './mfa-impersonation-postgres.helpers';
@@ -97,7 +97,7 @@ afterAll(async () => {
   } finally {
     c.release();
   }
-  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool()]);
+  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool(), billingAdminPool()]);
 });
 
 beforeEach(async () => {
@@ -141,9 +141,15 @@ describe('S-07e (945): metering, on the production logins', () => {
     expect(body).not.toMatch(/paymentMethod/i);
   });
 
-  it('auto top-up is switched on and off through its route', async () => {
+  it('auto top-up cannot be switched on (no payment method in v1), but an existing one is changed and switched off', async () => {
     const on = await callRoute(autoTopupRoute, { sub: owner, method: 'PATCH', companyId: company, body: { enabled: true, bundleId: bundle } });
-    expect(on.status).toBe(200);
+    expect(on.status).toBe(409);
+    expect(await wallet()).toMatchObject({ auto_topup_enabled: false, auto_topup_bundle_id: null });
+    // One already on (from before 945) keeps working: its bundle is changed, then it is switched off.
+    await q('UPDATE flow_wallet SET auto_topup_enabled = true WHERE company_id = $1', [company]);
+    const change = await callRoute(autoTopupRoute, { sub: owner, method: 'PATCH', companyId: company,
+      body: { enabled: true, bundleId: bundle } });
+    expect(change.status).toBe(200);
     expect(await wallet()).toMatchObject({ auto_topup_enabled: true, auto_topup_bundle_id: bundle });
     const off = await callRoute(autoTopupRoute, { sub: owner, method: 'PATCH', companyId: company, body: { enabled: false } });
     expect(off.status).toBe(200);

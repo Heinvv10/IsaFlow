@@ -132,7 +132,7 @@ describe('getWallet', () => {
 
 // Start then complete: what the dev-only unpaid fallback (purchase.ts) does.
 const purchaseBundle = async (companyId: string, bundleId: string) =>
-  completeBundlePurchase((await startBundlePurchase(companyId, bundleId)).purchaseId);
+  completeBundlePurchase((await startBundlePurchase(companyId, bundleId)).purchaseId, companyId);
 
 describe('start + complete (two migration_admin transactions)', () => {
   it('inserts pending purchase then credits wallet + writes ledger', async () => {
@@ -223,7 +223,7 @@ describe('completeBundlePurchase', () => {
     // INSERT flow_ledger
     tx.mockResolvedValueOnce([]);
 
-    const result = await completeBundlePurchase('p-1');
+    const result = await completeBundlePurchase('p-1', 'co-1');
     expect(result).toEqual({ purchaseId: 'p-1', balanceAfter: 120 });
     // Lock, wallet, purchase status and ledger: ONE transaction.
     expect(labels()).toEqual(['flow_complete_purchase']);
@@ -238,7 +238,7 @@ describe('completeBundlePurchase', () => {
     // SELECT balance_flows
     tx.mockResolvedValueOnce([{ balance_flows: 250 }]);
 
-    const result = await completeBundlePurchase('p-1');
+    const result = await completeBundlePurchase('p-1', 'co-1');
     expect(result).toEqual({ purchaseId: 'p-1', balanceAfter: 250 });
     // No UPDATE / INSERT — just the two reads.
     expect(tx).toHaveBeenCalledTimes(2);
@@ -248,19 +248,19 @@ describe('completeBundlePurchase', () => {
     tx.mockResolvedValueOnce([{
       id: 'p-1', company_id: 'co-1', bundle_id: 'b-1', flows: 100, status: 'failed',
     }]);
-    await expect(completeBundlePurchase('p-1')).rejects.toThrow(/already failed/);
+    await expect(completeBundlePurchase('p-1', 'co-1')).rejects.toThrow(/already failed/);
   });
 
   it('throws when the purchase id does not exist', async () => {
     tx.mockResolvedValueOnce([]);
-    await expect(completeBundlePurchase('p-missing')).rejects.toThrow(/not found/);
+    await expect(completeBundlePurchase('p-missing', 'co-1')).rejects.toThrow(/not found/);
   });
 });
 
 describe('failBundlePurchase', () => {
   it('marks a pending row failed (idempotent — only affects status=pending)', async () => {
     tx.mockResolvedValueOnce([{ id: 'p-1' }]);
-    await failBundlePurchase('p-1', 'cancelled');
+    await failBundlePurchase('p-1', 'co-1', 'cancelled');
     expect(tx).toHaveBeenCalledOnce();
     expect(sqlText(tx.mock.calls[0])).toMatch(/status = 'pending'/);
     expect(sql).not.toHaveBeenCalled();
@@ -268,7 +268,7 @@ describe('failBundlePurchase', () => {
 
   it('no-ops when the row is already settled (no rows returned)', async () => {
     tx.mockResolvedValueOnce([]);
-    await failBundlePurchase('p-1', 'cancelled');
+    await failBundlePurchase('p-1', 'co-1', 'cancelled');
     // Still only one query; no throw.
     expect(tx).toHaveBeenCalledOnce();
   });

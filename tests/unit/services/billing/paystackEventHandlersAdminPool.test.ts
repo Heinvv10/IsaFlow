@@ -76,7 +76,7 @@ describe('Paystack webhook handlers', () => {
     h.script.push([{ id: 'pr-1', company_id: 'co-1', purpose: 'flow_bundle', flow_purchase_id: 'fp-1',
       subscription_charge_id: null, mandate_id: null }]);
     await processEvent('charge.failed', { event: 'charge.failed', data: { reference: 'ref-1', metadata: META.flow } });
-    expect(failBundlePurchase).toHaveBeenCalledWith('fp-1', 'charge.failed', 'co-1');
+    expect(failBundlePurchase).toHaveBeenCalledWith('fp-1', 'co-1', 'charge.failed');
     expect(h.order).toEqual(['app:payment_request']);
   });
 

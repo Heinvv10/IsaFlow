@@ -500,10 +500,8 @@ export function flowQuantityFor(
 }
 
 /**
- * Debit before the tool runs. MUST be called OUTSIDE the registry's savepoint.
- * The debit COMMITs on its own migration_admin transaction (S-07e), so neither
- * the savepoint nor the request's rollback undoes it: `refundForTool` is the
- * only undo, and every failure path must call it.
+ * Debit before the tool runs, OUTSIDE the registry's savepoint. It COMMITs on its
+ * own migration_admin transaction (S-07e), so only `refundForTool` undoes it.
  */
 export async function debitForTool(
   companyId: string,
