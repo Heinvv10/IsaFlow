@@ -7,25 +7,26 @@
  *   - a file is not on the list but violates (NEW), or has more than its count (GROWN);
  *   - a file has fewer than its count (SHRUNK) or none or is gone (STALE): lower or remove the entry, so
  *     fixing a form forces the list down in the same PR;
- *   - against the list on origin/master (RAW_INPUT_BASE_REF overrides the ref locally; in CI the gate
- *     refuses the override) an entry was ADDED or a count RAISED. The base ref is resolved before the ESLint
- *     run, so a refusal is instant. When master has no list at that path (the PR that introduces it) the
- *     comparison is skipped and says so; any other git failure, or a base list that does not parse, fails
- *     the gate. With the ref itself missing the gate fails in CI (fetch-depth 0 provides it) and warns
- *     locally.
+ *   - an entry was ADDED, or a count RAISED, compared with the list on the base ref. The base is
+ *     origin/master; RAW_INPUT_BASE_REF overrides it locally and is refused in CI. It is resolved before the
+ *     ESLint run, so a refusal is instant. When master has no list at that path (the PR that introduces it)
+ *     the comparison is skipped and says so; any other git failure, or a base list that does not parse,
+ *     fails the gate. With the base ref itself missing the gate fails in CI (fetch-depth 0 provides it)
+ *     and warns locally.
  *
  * The whole flow is `runGate` in ./rawInputAllowlist.ts; this file only wires ESLint, git and the file system.
  *
  * Inline `eslint-disable` comments are switched off here (noInlineConfig), so a disable cannot hide a
- * violating file from this gate: it has to be on the list. The comparison logic is in ./rawInputAllowlist.ts.
+ * violating file from this gate: it has to be on the list.
  *
  * Syntax-only parse (no type information), so it takes seconds, unlike `bun run lint`. scripts/ is outside
  * `bun run lint` (which covers src and pages), and this CLI reports through the console: that is its output.
  *
  * Run:   bun scripts/ci/check-raw-input-allowlist.ts
  * Prune: bun scripts/ci/check-raw-input-allowlist.ts --write   (lowers counts and drops fixed files; never
- *        adds a file or raises a count. Delete the file first to regenerate it from the tree, which is a
- *        reviewable decision.)
+ *        adds a file or raises a count. It does not read the base ref, so a local RAW_INPUT_BASE_REF is
+ *        ignored, but in CI it is refused like on a plain run. Delete the file first to regenerate it from
+ *        the tree, which is a reviewable decision.)
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
