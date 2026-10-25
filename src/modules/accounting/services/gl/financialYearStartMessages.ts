@@ -4,6 +4,6 @@
  * (FinancialYearStartField.tsx). Pure: no imports, safe in the client bundle.
  */
 
-/** True today: the guided change of year end is being built, not shipped. */
-export const YEAR_END_CHANGE_MESSAGE = 'Changing the financial year end will be possible through a guided change of '
-  + 'year end (coming soon); contact support if you need it now.';
+/** The guided change of year end: the "Change financial year end" wizard (owner/admin). */
+export const YEAR_END_CHANGE_MESSAGE = 'To change the financial year end, use "Change financial year end" '
+  + '(owner or admin); it moves the year end through a transition year.';

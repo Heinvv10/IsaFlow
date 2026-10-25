@@ -26,7 +26,8 @@ describe('D2 success envelope is honoured (group 1b)', () => {
     const period = { id: 'p1', periodName: 'Pelican Period', periodNumber: 1, fiscalYear: 2031,
       startDate: '2031-01-01', endDate: '2031-01-31', status: 'open', createdAt: '2031-01-01', updatedAt: '2031-01-01' };
     vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
-      ok(String(url).includes('jeCounts') ? {} : [period]));
+      ok(String(url).includes('jeCounts') ? {} : [{ id: 'y1', fiscalYear: 2031, startDate: '2031-01-01', endDate: '2031-12-31',
+        status: 'open', kind: 'normal', stored: true, months: 12, periods: [period] }]));
     render(<FinancialYearsPage />);
     await sees('FY 2031');
   });
