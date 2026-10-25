@@ -49,9 +49,14 @@ async function mount() {
 const turns = async (n: number) => {
   for (let i = 0; i < n; i += 1) await act(async () => { await new Promise<void>(r => setImmediate(r)); });
 };
-const untilAsked = async (needle: string) => {
-  for (let i = 0; i < 500 && !asked().some(u => u.includes(needle)); i += 1) await turns(1);
+/** Turns until `needle` was asked for (the budget is 500). */
+const untilAsked = async (needle: string): Promise<number> => {
+  let n = 0;
+  for (; n < 500 && !asked().some(u => u.includes(needle)); n += 1) await turns(1);
+  return n;
 };
+/** How many turns the ordinary-page control needed for its provider fetches: the share test's budget scales from it. */
+let controlTurns = 0;
 
 // The first import of pages/_app is slow under a loaded machine; the 5 s default failed pre-push gates. Timing only.
 const LOAD_TIMEOUT = 60_000;
@@ -67,17 +72,18 @@ describe('pages/_app.tsx — provider fetches on the public share page', () => {
   it('fetches the session on an ordinary app page', async () => {
     pathname = '/accounting/reports/report-packs';
     await mount();
-    await untilAsked('/api/auth/me');
+    controlTurns = Math.max(await untilAsked('/api/auth/me'), await untilAsked('/api/accounting/companies'));
     expect(asked().some(u => u.includes('/api/auth/me'))).toBe(true);
+    expect(asked().some(u => u.includes('/api/accounting/companies'))).toBe(true);
   }, LOAD_TIMEOUT);
 
   it('fetches neither the session nor the companies on a share route', async () => {
     pathname = '/share/[token]';
     await mount();
-    // App has mounted (its page text is on screen), and both fetches, which live in mount effects, get 50 event-loop
-    // turns to be wrong in. The ordinary-page test above shows the session fetch lands within a few turns when asked.
+    // App has mounted (its page text is on screen), and both fetches, which live in mount effects, get at least 5x the
+    // turns the ordinary-page control needed for the same fetches (and never fewer than 50) to be wrong in.
     expect(screen.getByText('shared pack')).toBeTruthy();
-    await turns(50);
+    await turns(Math.max(50, controlTurns * 5));
     expect(asked().some(u => u.includes('/api/auth/me'))).toBe(false);
     expect(asked().some(u => u.includes('/api/accounting/companies'))).toBe(false);
   }, LOAD_TIMEOUT);
