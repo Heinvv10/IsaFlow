@@ -136,45 +136,31 @@ async function handleChargeSuccess(
       AND status <> 'completed'
     RETURNING id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, mandate_id, amount_cents, status
   `;
-  const pr = prRows[0];
+  // The guarded UPDATE matches nothing when the request is ALREADY completed:
+  // normally the portal return page's verify route got there first (it banks
+  // the receipt and posts the fee only when its response carried `fees`), but
+  // an app role may also set `status` (945 keeps that column writable), so a
+  // pre-emptive 'completed' must not cost a paid purchase its credit. Re-read
+  // it and take the same path: recordGatewayInvoiceReceipt and every billing
+  // write below are idempotent, so a repeat posts only what is missing.
+  const pr = prRows[0] ?? (await sql<(typeof prRows)[number]>`
+    SELECT id, company_id, purpose, customer_invoice_id, flow_purchase_id, subscription_charge_id, mandate_id, amount_cents, status
+    FROM paystack_payment_requests
+    WHERE paystack_reference = ${reference} AND status = 'completed'
+    LIMIT 1
+  `)[0];
   if (!pr) {
-    // The guarded UPDATE matched nothing because the request is ALREADY
-    // completed — normally because the portal return page's verify route got
-    // there first. That route banks the receipt and posts the fee only when its
-    // response carried `fees`; this delivery does carry them, and its amount is
-    // compared with the first report's. Re-read the row and let
-    // recordGatewayInvoiceReceipt decide: it is idempotent on the reference and
-    // posts only what is missing.
-    const settled = await sql<{
-      id: string;
-      company_id: string;
-      purpose: string;
-      customer_invoice_id: string | null;
-      amount_cents: string;
-    }>`
-      SELECT id, company_id, purpose, customer_invoice_id, amount_cents
-      FROM paystack_payment_requests
-      WHERE paystack_reference = ${reference} AND status = 'completed'
-      LIMIT 1
-    `;
-    const done = settled[0];
-    if (done && done.purpose === 'customer_invoice' && done.customer_invoice_id) {
-      await recordGatewayInvoiceReceipt({
-        companyId: done.company_id,
-        invoiceId: done.customer_invoice_id,
-        requestedCents: Number(done.amount_cents),
-        reported,
-        reference,
-        paidAt: event.data.paid_at ?? null,
-        feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,
-      });
-      return;
-    }
-    log.info(
-      'charge.success — no matching payment request (possible duplicate or out-of-band)',
-      { reference },
-      'PaystackWebhook',
-    );
+    log.info('charge.success — no matching payment request (possible duplicate or out-of-band)', { reference }, 'PaystackWebhook');
+    return;
+  }
+
+  // Its link is checked against the checkout Paystack signed before any receipt
+  // is booked or billing row touched (S-07e: the request is app-written). The
+  // money stays with the request, marked for review; nothing is applied.
+  const mismatch = linkMismatch(pr, event.data.metadata);
+  if (mismatch) {
+    logRefusedLink(reference, pr, mismatch);
+    await noteAuthorisationNotAttached(pr.id, pr.company_id, `review:${mismatch}`);
     return;
   }
 
@@ -190,16 +176,6 @@ async function handleChargeSuccess(
       paidAt: event.data.paid_at ?? null,
       feeRand: typeof event.data.fees === 'number' ? event.data.fees / 100 : null,
     });
-    return;
-  }
-
-  // Its link is checked against the checkout Paystack signed before any billing
-  // row is touched on migration_admin (S-07e). The money stays with the request,
-  // marked for review; nothing is credited, settled or activated.
-  const mismatch = linkMismatch(pr, event.data.metadata);
-  if (mismatch) {
-    logRefusedLink(reference, pr, mismatch);
-    await noteAuthorisationNotAttached(pr.id, pr.company_id, `review:${mismatch}`);
     return;
   }
 

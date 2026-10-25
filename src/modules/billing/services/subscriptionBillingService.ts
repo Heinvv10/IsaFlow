@@ -28,6 +28,7 @@ import { randomBytes } from 'crypto';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
+import { recordChargePaymentRequest } from './subscriptionChargeRequest';
 import { chargeAuthorization } from './paystackClient';
 import { warnUnattributedLiveCharges } from './subscriptionChargeVerify';
 import {
@@ -253,22 +254,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
         },
       });
 
-      // Record a paystack_payment_requests row so the webhook can finalise. Not
-      // the card's codes: that table is app-readable (S-07e, migration 945).
-      await sql`
-        INSERT INTO paystack_payment_requests (
-          company_id, purpose, subscription_charge_id,
-          paystack_reference,
-          amount_cents, currency,
-          status
-        ) VALUES (
-          ${c.company_id}, 'subscription_charge', ${c.id},
-          ${result.reference},
-          ${Number(c.amount_cents)}, 'ZAR',
-          ${result.status === 'success' ? 'completed' : 'pending'}
-        )
-        ON CONFLICT (paystack_reference) DO NOTHING
-      `;
+      await recordChargePaymentRequest(c.company_id, c.id, result.reference, Number(c.amount_cents), result.status === 'success');
 
       // Optimistically reflect immediate success — the webhook is still
       // authoritative and will overwrite if the bank reverses.

@@ -131,6 +131,12 @@ async function creditPurchase(purchaseId: string, paid: PaidAmount | null): Prom
       return { purchaseId: row.id, balanceAfter: w?.balance_flows ?? 0 };
     }
     if (row.status === 'failed') {
+      // From the webhook a throw would make every redelivery repeat it (500s
+      // for ever, the payment still taken): refuse it once, logged for review.
+      if (paid) {
+        log.error('flow purchase not credited: it had already failed', { purchaseId, companyId: row.company_id }, 'BILLING');
+        return null;
+      }
       throw new Error(`purchase ${purchaseId} already failed — cannot credit`);
     }
 

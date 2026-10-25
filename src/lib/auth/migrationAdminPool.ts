@@ -89,12 +89,29 @@ let joinedSeq = 0;
  * guards, so nothing here is decided by them.
  */
 export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
-  // Inside a transaction that already holds a migration_admin client (the
-  // Paystack webhook's, publicRouteTx.ts): run in a savepoint on it, so this
-  // commits or rolls back with the event. Sequence such calls: savepoints on
-  // one connection nest LIFO, as with withTransaction.
+  // Inside a transaction that holds (or opens on demand) a migration_admin
+  // client (the Paystack webhook's, publicRouteTx.ts): run in a savepoint on
+  // it, so this commits or rolls back with the event. Such calls must be
+  // sequenced, as with withTransaction; a concurrent one is refused.
   const store = als.getStore();
-  if (store?.migrationAdminOnDemand && !store.migrationAdminClient && !store.finished) {
+  const joining = Boolean(store?.migrationAdminClient || (store?.migrationAdminOnDemand && !store.finished));
+  if (store && joining) {
+    // Concurrent calls would both open a client (one leaked) or interleave savepoints.
+    if (store.migrationAdminBusy) throw new Error(`migrationAdminTx(${label}): concurrent calls in one transaction must be sequenced`);
+    store.migrationAdminBusy = true;
+    try {
+      return await joinedTx(store, label, fn);
+    } finally {
+      store.migrationAdminBusy = false;
+    }
+  }
+  return ownTx(label, fn);
+}
+
+/** Run `fn` in a savepoint on the context's migration_admin client, opening it (BEGIN) on the first call. */
+async function joinedTx<T>(store: NonNullable<ReturnType<typeof als.getStore>>, label: string,
+  fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  if (!store.migrationAdminClient) {
     const opened = await migrationAdminPool().connect();
     try {
       await opened.query('BEGIN');
@@ -106,22 +123,24 @@ export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolCli
     }
     store.migrationAdminClient = opened;
   }
-  const joined = store?.migrationAdminClient;
-  if (joined) {
-    joinedSeq = (joinedSeq + 1) % 1_000_000;
-    const sp = `migration_admin_${joinedSeq}`;
-    await joined.query(`SAVEPOINT ${sp}`);
-    try {
-      const result = await fn(joined);
-      await joined.query(`RELEASE SAVEPOINT ${sp}`);
-      return result;
-    } catch (err) {
-      // A failed ROLLBACK TO leaves the outer transaction aborted; it rolls back as a whole.
-      await joined.query(`ROLLBACK TO SAVEPOINT ${sp}`).catch((rbErr: unknown) => log.warn(`${label}: ROLLBACK TO SAVEPOINT failed`,
-        { message: rbErr instanceof Error ? rbErr.message : String(rbErr) }, 'Auth'));
-      throw err;
-    }
+  const joined = store.migrationAdminClient;
+  joinedSeq = (joinedSeq + 1) % 1_000_000;
+  const sp = `migration_admin_${joinedSeq}`;
+  await joined.query(`SAVEPOINT ${sp}`);
+  try {
+    const result = await fn(joined);
+    await joined.query(`RELEASE SAVEPOINT ${sp}`);
+    return result;
+  } catch (err) {
+    // A failed ROLLBACK TO leaves the outer transaction aborted; it rolls back as a whole.
+    await joined.query(`ROLLBACK TO SAVEPOINT ${sp}`).catch((rbErr: unknown) => log.warn(`${label}: ROLLBACK TO SAVEPOINT failed`,
+      { message: rbErr instanceof Error ? rbErr.message : String(rbErr) }, 'Auth'));
+    throw err;
   }
+}
+
+/** One transaction of its own on a migrationAdminPool() client (the usual case). */
+async function ownTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   const claims = als.getStore()?.claims;
   const client = await migrationAdminPool().connect();
   let opened = false;

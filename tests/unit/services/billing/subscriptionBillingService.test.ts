@@ -9,6 +9,7 @@
  * to the wrong pool finds an empty script and fails the test.
  */
 
+import { recordChargePaymentRequest } from '@/modules/billing/services/subscriptionChargeRequest';
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
@@ -17,6 +18,7 @@ vi.mock('@/lib/auth/migrationAdminPool', () => {
   return { migrationAdminSqlTx: vi.fn(async (_label: string, fn: (t: typeof tx) => Promise<unknown>) => fn(tx)), __tx: tx };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@/modules/billing/services/subscriptionChargeRequest', () => ({ recordChargePaymentRequest: vi.fn(async () => undefined) }));
 vi.mock('@/modules/billing/services/paystackClient', () => ({
   chargeAuthorization: vi.fn(),
 }));
@@ -168,8 +170,7 @@ describe('runQueuedCharges', () => {
       .mockResolvedValueOnce([] as never)            // UPDATE charge → settled
       .mockResolvedValueOnce([] as never);           // advance the period
     mockSql
-      .mockResolvedValueOnce([{ count: 0 }] as never)         // unattributed live charges
-      .mockResolvedValueOnce([] as never);           // INSERT paystack_payment_requests
+      .mockResolvedValueOnce([{ count: 0 }] as never);        // unattributed live charges
 
     mockCharge.mockResolvedValueOnce({
       status: 'success',
@@ -192,6 +193,8 @@ describe('runQueuedCharges', () => {
       'subscription_due_charges', 'subscription_claim_attempt',
       'subscription_charge_submitted', 'subscription_advance_period',
     ]);
+    // The webhook's settlement row, under the charge's own reference.
+    expect(recordChargePaymentRequest).toHaveBeenCalledWith('co-1', baseCharge.id, 'sub_co1_2026-05_abcd', 59900, true);
   });
 
   it('skips when mandate is not active', async () => {

@@ -234,6 +234,31 @@ describe('S-07e (945): the Paystack webhook, bound to what was paid', () => {
     expect(await review(victimRef)).toBe('review:checkout_company_mismatch');
   });
 
+  it('still credits a paid purchase whose request an app role had already marked completed', async () => {
+    // 945 keeps payment_requests.status app-writable (the checkouts and the webhook move it), so injected SQL can
+    // mark a victim's request completed before Paystack's event arrives; the webhook must credit it anyway.
+    const { purchase, reference } = await purchaseRequest(25000);
+    await q(`UPDATE paystack_payment_requests SET status = 'completed' WHERE paystack_reference = $1`, [reference]);
+    expect(await deliver({ reference, amount: 25000, metadata: meta(purchase) })).toBe(200);
+    expect(await purchaseStatus(purchase)).toBe('succeeded');
+    expect((await wallet()).balance_flows).toBe(600);
+  });
+
+  it('activates no mandate for an authorisation request with no mandate link', async () => {
+    // A pre-651 request named no mandate, and activation fell back to "the company's pending mandate": anyone can
+    // start a Paystack checkout with any metadata, so a company match alone now binds to nothing (S-07e).
+    await q(`UPDATE subscription_mandates SET status = 'revoked' WHERE company_id = $1 AND status IN ('pending', 'active')`, [company]);
+    const pending = (await q(`INSERT INTO subscription_mandates (company_id, max_amount_cents, status, gateway)
+      VALUES ($1, 100000, 'pending', 'paystack') RETURNING id`, [company])).rows[0]!.id as string;
+    const reference = `s07e_${crypto.randomUUID().slice(0, 12)}`;
+    await q(`INSERT INTO paystack_payment_requests (company_id, purpose, amount_cents, currency, status, paystack_reference)
+      VALUES ($1, 'authorization', 100, 'ZAR', 'pending', $2)`, [company, reference]);
+    expect(await deliver({ reference, amount: 100, metadata: { purpose: 'mandate_authorisation', company_id: company },
+      authorization: { authorization_code: 'AUTH_s07e_attacker', reusable: true } })).toBe(200);
+    expect((await q('SELECT status FROM subscription_mandates WHERE id = $1', [pending])).rows[0]!.status).toBe('pending');
+    expect(await review(reference)).toBe('review:no_mandate_id');
+  });
+
   it('a failed payment fails its own purchase, and not one its metadata does not name', async () => {
     const own = await purchaseRequest(25000);
     const other = await purchaseRequest(25000);
@@ -276,6 +301,22 @@ describe('S-07e (945): the Paystack webhook, bound to what was paid', () => {
     expect(await deliver({ reference: refs[1], amount: 100, metadata: chargeMeta(charges[1]!) })).toBe(200);
     const status = async (id: string) => (await q('SELECT status FROM subscription_charges WHERE id = $1', [id])).rows[0]!.status;
     expect([await status(charges[0]!), await status(charges[1]!)]).toEqual(['settled', 'submitted']);
+  });
+
+  it('a failure reported for a charge already settled changes neither its status nor its attempts', async () => {
+    const sub = (await q(`SELECT id FROM subscriptions WHERE company_id = $1`, [company])).rows[0]!.id as string;
+    const mandate = (await q(`INSERT INTO subscription_mandates (company_id, max_amount_cents, status, gateway)
+      VALUES ($1, 100000, 'revoked', 'paystack') RETURNING id`, [company])).rows[0]!.id as string;
+    const charge = (await q(`INSERT INTO subscription_charges (company_id, mandate_id, subscription_id, period_start, period_end,
+      amount_cents, external_reference, status, gateway, attempt_count, settled_at) VALUES ($1, $2, $3, '2026-07-01', '2026-07-31',
+      49900, $4, 'settled', 'paystack', 1, NOW()) RETURNING id`, [company, mandate, sub, `s07e-${crypto.randomUUID()}`])).rows[0]!.id as string;
+    const reference = `s07e_${crypto.randomUUID().slice(0, 12)}`;
+    await q(`INSERT INTO paystack_payment_requests (company_id, purpose, subscription_charge_id, amount_cents, currency, status,
+      paystack_reference) VALUES ($1, 'subscription_charge', $2, 49900, 'ZAR', 'pending', $3)`, [company, charge, reference]);
+    expect(await deliver({ reference, metadata: { purpose: 'subscription_charge', company_id: company, subscription_charge_id: charge } },
+      'charge.failed')).toBe(200);
+    expect((await q('SELECT status, attempt_count FROM subscription_charges WHERE id = $1', [charge])).rows[0])
+      .toEqual({ status: 'settled', attempt_count: 1 });
   });
 });
 
