@@ -17,6 +17,7 @@ import type {
   PortfolioRow,
 } from '@/modules/accounting/services/workbench/portfolioWorkbenchService';
 import type { CardStatus } from '@/modules/accounting/services/workbench/monthEndWorkbenchService';
+import { formatDisplayDateTime, formatDisplayMonthYearLong } from '@/utils/dateFormat';
 
 function defaultPeriod(): string {
   const now = new Date();
@@ -24,8 +25,7 @@ function defaultPeriod(): string {
 }
 
 function periodLabel(period: string): string {
-  const [y, m] = period.split('-').map(Number) as [number, number];
-  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return formatDisplayMonthYearLong(period);
 }
 
 const STATUS_DOT: Record<CardStatus, string> = {
@@ -281,7 +281,7 @@ export default function PortfolioWorkbenchPage() {
 
         {data && !loading && (
           <p className="mt-4 text-xs text-zinc-600 text-right">
-            Generated {new Date(data.generatedAt).toLocaleString('en-ZA')}
+            Generated {formatDisplayDateTime(data.generatedAt)}
           </p>
         )}
       </div>

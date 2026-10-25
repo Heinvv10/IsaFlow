@@ -20,7 +20,7 @@ export type { DropdownItem, FlyoutSection, NavItem, Tab };
 export { isFlyout };
 
 // Re-export route helpers
-export { getActiveTabId, getActiveModuleId, isLinkActive } from './navSections/activeTab';
+export { getActiveTabId, getActiveModuleId, isLinkActive, mostSpecificActiveHref, activeHrefAmong } from './navSections/activeTab';
 
 // Front-door section tabs
 import { bankingTab } from './navSections/banking';

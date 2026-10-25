@@ -9,13 +9,14 @@ import Link from 'next/link';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Product {
   id: string; code: string; name: string; category: string; category_name: string;
   product_type: string; unit: string; cost_price: number; selling_price: number;
   current_stock: number; reorder_level: number; avg_cost: number; is_active: boolean;
 }
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export default function ProductsListPage() {
   const [products, setProducts] = useState<Product[]>([]);

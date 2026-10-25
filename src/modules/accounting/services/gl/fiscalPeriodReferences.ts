@@ -16,6 +16,9 @@
  *   3. Rows keyed by fiscal-year NUMBER for this company: accounting_budgets,
  *      afs_documents, disclosure_notes_manual. On a new start month the same
  *      number names different months, so their meaning would shift silently.
+ *      accounting_budgets is now only the per-year header (notes); the budget
+ *      AMOUNTS are keyed by calendar month (budget_month_amounts, migration
+ *      944), never shift with a start month, and are not counted.
  *
  * Deliberately not counted: payroll's period_year / balance_year columns (the
  * SARS tax year, which no company start month moves), practice_jobs.financial_year

@@ -20,7 +20,7 @@ import { withSnapshotSlot } from './snapshotSlots';
 import { SNAPSHOT_SEAL_DOMAIN, checkSeal, sign, signingKey, type SigningKey } from './seal';
 import { sealedChain, type ChainLink } from './snapshotRead';
 import { DOCUMENT_VERSION, SNAPSHOT_CAVEAT, contentFingerprint, snapshotHash, sumMoney, type SnapshotHeader } from './documents';
-import { countPostedLines, fiscalYearStart, journalRows, lineRows, tbRows } from './snapshotRows';
+import { countPostedLines, registryYearStart, journalRows, lineRows, tbRows } from './snapshotRows';
 import { snapshotTotals } from './snapshotTotals';
 import { recordCheckRun, runAllChecks } from './checks/checkRunService';
 import { lockStands, recordAttempt, verifiedTwin } from './snapshotAttempts';
@@ -143,7 +143,7 @@ async function snapshot(p: AuditPrincipal, input: { cutoff: string; trigger: Sna
       const takenAt = await transactionNow(client);
       const chain = nextLink(await sealedChain(p.companyId), p.companyId, key);
       await step('reading the ledger');
-      const fyStart = await fiscalYearStart(p.companyId, input.cutoff);
+      const fyStart = await registryYearStart(p.companyId, input.cutoff);
       const journals = await journalRows(p.companyId, input.cutoff);
       await step('reading the lines');
       const lines = await lineRows(p.companyId, input.cutoff);

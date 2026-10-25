@@ -76,7 +76,7 @@ describe('suppliers/expectations (route: data = SupplierExpectation[])', () => {
     const tr = (await screen.findByText('D2 Landlord')).closest('tr') as HTMLElement;
     expect(within(tr).getByText('monthly')).toBeDefined();
     expect(within(tr).getByText('locked')).toBeDefined();
-    expect(tr.textContent).toMatch(/123,45/);
+    expect(tr.textContent).toMatch(/123\.45/);
     expect(within(tr).getByText('6')).toBeDefined();
   });
   it('an empty 500 shows a sentence and no rows', async () => {
@@ -118,7 +118,7 @@ describe('suppliers/rules/index (route: data = SupplierRule[] with supplierName 
     const tr = (await screen.findByText('D2 Rules Supplier')).closest('tr') as HTMLElement;
     expect(within(tr).getByText('D2 Stationery')).toBeDefined();
     expect(within(tr).getByText('Zero')).toBeDefined();
-    expect(tr.textContent).toMatch(/777,00/);
+    expect(tr.textContent).toMatch(/777\.00/);
     expect(within(tr).getByText('85%')).toBeDefined();
     expect(within(tr).getByText('9')).toBeDefined();
   });
@@ -137,8 +137,8 @@ describe('admin/billing/flow-bundles (route: data = { bundles })', () => {
     render(<FlowBundlesPage />);
     const tr = (await screen.findByText('D2 Micro Bundle')).closest('tr') as HTMLElement;
     expect(within(tr).getByText('100')).toBeDefined();
-    expect(tr.textContent).toMatch(/49,00/);   // priceCents / 100
-    expect(tr.textContent).toMatch(/0,49/);    // priceCents / flows / 100
+    expect(tr.textContent).toMatch(/49\.00/);   // priceCents / 100
+    expect(tr.textContent).toMatch(/0\.49/);    // priceCents / flows / 100
     expect(within(tr).getByText('Deactivate')).toBeDefined();
   });
   it('an empty 500 shows a sentence and no bundles', async () => {

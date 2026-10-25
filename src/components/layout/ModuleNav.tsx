@@ -12,8 +12,9 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { NavLinksBlock } from './NavLinksBlock';
 import {
-  isFlyout, isLinkActive,
+  isFlyout, isLinkActive, activeHrefAmong,
   type Tab, type DropdownItem, type NavItem,
 } from '../accounting/accountingNavConfig';
 
@@ -122,6 +123,7 @@ interface SubMenuItemsProps {
 function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsProps) {
   const [hovered, setHovered] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeHref = activeHrefAmong(items, asPath);
   const clear = () => { if (timerRef.current) clearTimeout(timerRef.current); };
   const delayed = () => { timerRef.current = setTimeout(() => setHovered(null), 150); };
   useEffect(() => () => clear(), []);
@@ -136,7 +138,7 @@ function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsProps) {
                 key={item.href}
                 href={item.href}
                 onClick={onClose}
-                className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 pt-2 whitespace-nowrap transition-colors ${ isLinkActive(item.href, asPath) ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50' }`}
+                className={`flex items-center gap-2 px-4 py-2 text-sm border-t border-gray-300 dark:border-gray-700 mt-1 pt-2 whitespace-nowrap transition-colors ${ item.href === activeHref ? accent.activeLinkBg : 'text-gray-400 hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700/50' }`}
               >
                 <Settings className="h-3.5 w-3.5 flex-shrink-0" />
                 {item.label}
@@ -148,7 +150,7 @@ function SubMenuItems({ items, asPath, onClose, accent }: SubMenuItemsProps) {
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={makeLinkCls(isLinkActive(item.href, asPath), accent)}
+              className={makeLinkCls(item.href === activeHref, accent)}
             >
               {item.label}
             </Link>
@@ -186,6 +188,7 @@ interface FlatDropdownProps {
 }
 
 function FlatDropdown({ items, asPath, onClose, accent }: FlatDropdownProps) {
+  const activeHref = activeHrefAmong(items, asPath);
   return (
     <div className="absolute top-full left-0 bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[220px] py-1 z-40">
       {items.map(item => (
@@ -193,7 +196,7 @@ function FlatDropdown({ items, asPath, onClose, accent }: FlatDropdownProps) {
           key={item.href}
           href={item.href}
           onClick={onClose}
-          className={makeLinkCls(isLinkActive(item.href, asPath), accent)}
+          className={makeLinkCls(item.href === activeHref, accent)}
         >
           {item.label}
         </Link>
@@ -224,6 +227,13 @@ function FlyoutDropdown({ tab, asPath, onClose, accent }: FlyoutDropdownProps) {
   return (
     <div className="absolute top-full left-0 z-40">
       <div className="bg-slate-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-b-lg shadow-xl min-w-[200px] py-1">
+        <NavLinksBlock
+          links={tab.links}
+          asPath={asPath}
+          onNav={onClose}
+          linkClassName={active => makeLinkCls(active, accent)}
+          separatorClassName="border-t border-gray-300 dark:border-gray-700 my-1"
+        />
         {tab.topItems?.map(item => (
           <Link
             key={item.href}

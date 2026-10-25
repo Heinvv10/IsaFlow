@@ -10,6 +10,8 @@ import { ArrowLeft, Users, Loader2, AlertCircle, Download } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDateISO, formatDisplayDate } from '@/utils/dateFormat';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -62,13 +64,12 @@ const BUCKET_BG: Record<Bucket, string> = {
   '90+': 'bg-red-700/10 border-red-700/20',
 };
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const fmtDate = (s: string) => {
   if (!s) return '';
   const d = new Date(s);
-  return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDisplayDate(d);
 };
 
 const BUCKETS: Bucket[] = ['current', '1-30', '31-60', '61-90', '90+'];
@@ -109,8 +110,8 @@ export default function ARAgingPage() {
       [
         `"${r.customer_name.replace(/"/g, '""')}"`,
         `"${r.invoice_number}"`,
-        fmtDate(r.invoice_date),
-        fmtDate(r.due_date),
+        formatDateISO(r.invoice_date),
+        formatDateISO(r.due_date),
         r.total_amount.toFixed(2),
         r.amount_paid.toFixed(2),
         r.balance_due.toFixed(2),
@@ -213,7 +214,7 @@ export default function ARAgingPage() {
                       className={`rounded-lg border p-4 text-left transition-all ${BUCKET_BG[b]} ${isActive ? 'ring-2 ring-offset-1 ring-[var(--ff-text-secondary)]' : 'hover:opacity-80'}`}
                     >
                       <p className="text-xs font-semibold text-[var(--ff-text-secondary)] mb-1">{BUCKET_LABELS[b]}</p>
-                      <p className={`text-lg font-bold font-mono ${BUCKET_COLORS[b]}`}>
+                      <p className={`text-lg font-bold tabular-nums ${BUCKET_COLORS[b]}`}>
                         {fmt(s?.total ?? 0)}
                       </p>
                       <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
@@ -230,7 +231,7 @@ export default function ARAgingPage() {
                   <span className="text-sm font-semibold text-[var(--ff-text-secondary)]">
                     Total Outstanding{filterBucket !== 'all' ? ` — ${BUCKET_LABELS[filterBucket]}` : ''}
                   </span>
-                  <span className="text-lg font-bold font-mono text-[var(--ff-text-primary)]">
+                  <span className="text-lg font-bold tabular-nums text-[var(--ff-text-primary)]">
                     {fmt(filterBucket === 'all' ? grandTotal : (data.summary.find(s => s.bucket === filterBucket)?.total ?? 0))}
                   </span>
                 </div>
@@ -269,9 +270,9 @@ export default function ARAgingPage() {
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)] font-mono text-xs">{r.invoice_number}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{fmtDate(r.invoice_date)}</td>
                           <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{fmtDate(r.due_date)}</td>
-                          <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] font-mono">{fmt(r.total_amount)}</td>
-                          <td className="px-4 py-3 text-right text-teal-400 font-mono">{fmt(r.amount_paid)}</td>
-                          <td className="px-4 py-3 text-right font-mono font-semibold text-[var(--ff-text-primary)]">{fmt(r.balance_due)}</td>
+                          <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] tabular-nums">{fmt(r.total_amount)}</td>
+                          <td className="px-4 py-3 text-right text-teal-400 tabular-nums">{fmt(r.amount_paid)}</td>
+                          <td className="px-4 py-3 text-right tabular-nums font-semibold text-[var(--ff-text-primary)]">{fmt(r.balance_due)}</td>
                           <td className="px-4 py-3 text-right">
                             <span className={`font-semibold ${BUCKET_COLORS[r.bucket]}`}>
                               {formatOverdueDaysCompact(r.days_overdue)}

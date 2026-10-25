@@ -7,8 +7,9 @@
  * Inside one fiscal year every close is 0 and nothing renders.
  */
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+import { formatMoney } from '@/lib/money/formatMoney';
+
+const fmt = (n: number) => formatMoney(n);
 
 /** Under one row's account name: what the derived close did to this account. */
 export function YearEndCloseNote({ closed, derived }: { closed?: number; derived?: boolean }) {

@@ -17,6 +17,8 @@ export default function Document() {
         <link rel="icon" href="/icons/icon-192.png" type="image/png" sizes="192x192" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
+        {/* The 400 digit face (styles/globals.css, 1 KB): preloaded so numbers do not reflow when it swaps in. */}
+        <link rel="preload" href="/fonts/figures/IBMPlexSans-Digits-Regular.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
       </Head>
       <body className="h-full antialiased">
         <Main />

@@ -1,6 +1,7 @@
 import { Lock } from 'lucide-react';
 import { Company, Toggle, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
 import { FinancialYearStartField } from './FinancialYearStartField';
+import { YearEndChangeEntry } from './YearEndChangeEntry';
 
 interface Props {
   company: Company;
@@ -17,6 +18,7 @@ export function GeneralTab({ company, onChange }: Props) {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <FinancialYearStartField company={company} onChange={onChange} />
+          <YearEndChangeEntry />
           <div>
             <label className={LABEL_CLS}>Default Currency</label>
             <select className={INPUT_CLS} value={company.defaultCurrency || 'ZAR'} onChange={e => onChange('defaultCurrency', e.target.value)}>

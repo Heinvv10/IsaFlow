@@ -80,7 +80,7 @@ it('not permitted, never verified: says so and offers no form', async () => {
 it('verified: shows who and the South African date of the verification, not the UTC one', async () => {
   serve([view({ state: 'verified', canVerify: false })]);
   render(<SupplierBankDetailsPanel supplierId={S} />);
-  expect(await screen.findByText(/accepted when verification was switched on by Bongi on 2026-10-08/i)).toBeDefined();
+  expect(await screen.findByText(/accepted when verification was switched on by Bongi on 08 Oct 2026/i)).toBeDefined();
 });
 
 it('control off: "Not applicable", and where to switch it on', async () => {

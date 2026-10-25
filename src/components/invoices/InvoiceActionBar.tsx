@@ -85,7 +85,7 @@ function ActionGroup({ group }: { group: InvoiceActionGroup }) {
 
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)] px-0.5">
+      <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)] px-0.5">
         {group.label}
       </span>
       <div className="flex items-center gap-1">
@@ -121,7 +121,7 @@ export function InvoiceActionBar({ groups, overflowActions = [], className }: In
             <div className="self-stretch border-l border-[var(--ff-border-light)] mt-4" aria-hidden="true" />
           )}
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)] px-0.5">
+            <span className="text-xs font-semibold uppercase tracking-wider text-[var(--ff-text-tertiary)] px-0.5">
               More
             </span>
             <ActionMenu items={overflowActions} triggerLabel="More invoice actions" />

@@ -16,6 +16,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Search, Link2, Loader2, CheckCircle2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface BankTxOption {
   id: string;
@@ -30,11 +32,11 @@ interface AttachToTransactionSheetProps {
 }
 
 function formatAmount(a: number): string {
-  return a.toLocaleString('en-ZA', { style: 'currency', currency: 'ZAR' });
+  return formatMoney(a);
 }
 
 function formatDate(d: string): string {
-  return new Date(d).toLocaleDateString('en-ZA');
+  return formatDisplayDate(d);
 }
 
 export function AttachToTransactionSheet({ documentIds, onDone }: AttachToTransactionSheetProps) {

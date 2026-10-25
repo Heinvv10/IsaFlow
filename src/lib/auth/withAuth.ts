@@ -10,7 +10,7 @@ import { authenticatePrintToken } from './withAuthPrint';
 import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 import type { RequestContext } from '@/lib/als';
-import { runOwnedContext, drainAfterCommit } from '@/lib/afterCommit';
+import { runOwnedContext, drainAfterCommit, settleAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { rollbackError, rollbackFailed } from '@/lib/rollbackFailed';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
@@ -96,6 +96,7 @@ export function withAuth(handler: Handler): NextApiHandler {
     const client = await connectObserved(getAuthPool(), 'authPool');
     let deferred: DeferredEnd | null = null;
     let owned: RequestContext | null = null;
+    let committed = false; // after-rollback work runs unless this turns true
     let unusable = false; // set when a ROLLBACK fails: the connection may still be inside its transaction
     try {
       await client.query('BEGIN');
@@ -188,7 +189,7 @@ export function withAuth(handler: Handler): NextApiHandler {
 
       const ctx: RequestContext = {
         client, userId: claims.sub, companyId: activeCompanyId, claims: claims as Record<string, unknown>, afterCommit: [],
-        quotaCharges: [],
+        afterRollback: [], quotaCharges: [],
       };
       owned = ctx;
       const runHandler = async () => runOwnedContext(ctx, async () => { await handler(req, res); });
@@ -220,6 +221,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       } else {
         try {
           await client.query('COMMIT');
+          committed = true;
         } catch (finalizeErr) {
           // The COMMIT failed after the handler "responded": the write did not land, or its
           // outcome is unknown. Roll back, then replace the buffered 2xx with an honest 500.
@@ -246,6 +248,8 @@ export function withAuth(handler: Handler): NextApiHandler {
       answerThrow(req, res, deferred, err, { source: 'withAuth', companyId: activeCompanyId, userId: claims.sub, rolledBack: !failed });
     } finally {
       client.release(unusable); // R-176: a failed ROLLBACK leaves the transaction open; destroy it, do not pool it
+      // Undo what committed on its own connection for a request that did not (S-07e).
+      settleAfterRollback(owned, committed);
       // However the request ended: give back the daily AI / send units it
       // charged and did not use (never the short abuse buckets). Never throws.
       await settleQuotaCharges(owned);

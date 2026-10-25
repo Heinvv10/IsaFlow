@@ -22,7 +22,7 @@ import { pctLevelWithWord } from '@/lib/format/pctLevelWithWord';
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { rankedBy, superlativeClause } from './statedRelation';
 import { MONEY_TOLERANCE } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
-import { formatMoney, formatTimes, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, formatTimes, inProse, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type {
   PackChartSpec,
@@ -153,7 +153,7 @@ export function largestMoverCaption(rows: PackTableRow[], scale: MoneyScale): st
   // sentence for every figure the same sheet already prints.
   const moved = largest.value;
   return `${largest.winner.label} ${superlativeClause(largest)}, `
-    + `${moved < 0 ? 'down' : 'up'} ${formatMoney(Math.abs(moved), { scale })}.`;
+    + `${moved < 0 ? 'down' : 'up'} ${formatStatementFigure(Math.abs(moved), { scale })}.`;
 }
 
 /**
@@ -223,7 +223,7 @@ export function positionCaption(set: PackFigureSet, scale: MoneyScale): string {
     ? 'Current liabilities are not a positive base, so no cover percentage is meaningful'
     : `Current assets cover current liabilities ${pctLevelWithWord(cover, 'at', 'at negative', 'at nil')} `
       + `— a current ratio of ${inProse(formatTimes(currentAssets / currentLiabilities))}`;
-  return `${coverClause}; working capital stands at ${inProse(formatMoney(workingCapital, { scale }))}.`;
+  return `${coverClause}; working capital stands at ${inProse(formatStatementFigure(workingCapital, { scale }))}.`;
 }
 
 /**
@@ -240,7 +240,7 @@ export function cashCaption(set: PackFigureSet, residual: number | null, scale: 
     // The read's own reason where the statement could not be read at all —
     // see `buildCashTable`, whose rows say the same.
     ? set.current.cashFlowUnavailable ?? 'No operating cash flow figure was captured for this period.'
-    : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${inProse(formatMoney(Math.abs(ocf), { scale }))}.`;
+    : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${inProse(formatStatementFigure(Math.abs(ocf), { scale }))}.`;
   if (residual === null || Math.abs(residual) <= MONEY_TOLERANCE) return lead;
-  return `${lead} ${inProse(formatMoney(Math.abs(residual), { scale }))} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
+  return `${lead} ${inProse(formatStatementFigure(Math.abs(residual), { scale }))} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
 }

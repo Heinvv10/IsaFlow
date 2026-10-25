@@ -128,9 +128,9 @@ export default function PayrollRunsListPage() {
                       <td className="py-3 px-4 text-[var(--ff-text-primary)]">{periodLabel(r)}</td>
                       <td className="py-3 px-4"><StatusBadge status={r.status} /></td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{r.employeeCount}</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">{formatCurrency(r.totalGross)}</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-secondary)]">{formatCurrency(r.totalPaye)}</td>
-                      <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)] font-medium">{formatCurrency(r.totalNet)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(r.totalGross)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-secondary)]">{formatCurrency(r.totalPaye)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)] font-medium">{formatCurrency(r.totalNet)}</td>
                       <td className="py-3 px-4 text-xs">
                         {r.journalEntryId ? (
                           <Link href={`/accounting/journal-entries/${r.journalEntryId}`} className="text-teal-400 hover:text-teal-300 font-medium"

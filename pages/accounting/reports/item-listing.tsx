@@ -8,8 +8,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { List, Loader2, Download, Search } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Row { id: string; itemCode: string; name: string; category: string; uom: string; sellingPrice: number; costPrice: number; qtyOnHand: number; isActive: boolean; }
 
@@ -75,13 +76,13 @@ export default function ItemListingReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Selling</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Cost</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Name</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Selling</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Cost</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
@@ -90,8 +91,8 @@ export default function ItemListingReport() {
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">{r.name}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">{r.uom}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{fmt(r.sellingPrice)}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.costPrice)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmt(r.sellingPrice)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.costPrice)}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtyOnHand}</td>
                     </tr>
                   ))}

@@ -7,8 +7,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { DollarSign, Loader2, Download } from 'lucide-react';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 interface Row { id: string; itemCode: string; name: string; category: string; uom: string; qtyOnHand: number; costPrice: number; stockValue: number; }
 
@@ -58,7 +59,7 @@ export default function ItemValuationReport() {
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <p className="text-xs text-[var(--ff-text-tertiary)]">Total Stock Value</p>
-                <p className="text-xl font-bold text-amber-400 font-mono">{fmt(totalValue)}</p>
+                <p className="text-xl font-bold text-amber-400 tabular-nums">{fmt(totalValue)}</p>
               </div>
               <button onClick={() => window.open('/api/accounting/reports/item-valuation?format=csv', '_blank')}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-500 text-white rounded-lg">
@@ -75,7 +76,7 @@ export default function ItemValuationReport() {
               {Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, val]) => (
                 <div key={cat} className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-3">
                   <p className="text-xs text-[var(--ff-text-tertiary)] truncate">{cat}</p>
-                  <p className="text-sm font-bold text-[var(--ff-text-primary)] font-mono">{fmt(val)}</p>
+                  <p className="text-sm font-bold text-[var(--ff-text-primary)] tabular-nums">{fmt(val)}</p>
                 </div>
               ))}
             </div>
@@ -89,13 +90,13 @@ export default function ItemValuationReport() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unit Cost</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Value</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Qty</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Unit Cost</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Value</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {rows.map(r => (
@@ -105,14 +106,14 @@ export default function ItemValuationReport() {
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{r.category}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">{r.uom}</td>
                       <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{r.qtyOnHand}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.costPrice)}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-amber-400 font-medium">{fmt(r.stockValue)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-secondary)]">{fmt(r.costPrice)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-amber-400 font-medium">{fmt(r.stockValue)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot><tr className="border-t-2 border-[var(--ff-border-medium)] bg-[var(--ff-bg-tertiary)] font-bold">
                   <td className="px-4 py-3" colSpan={6}>TOTAL STOCK VALUE</td>
-                  <td className="px-4 py-3 text-right font-mono text-amber-400">{fmt(totalValue)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums text-amber-400">{fmt(totalValue)}</td>
                 </tr></tfoot>
               </table>
             )}

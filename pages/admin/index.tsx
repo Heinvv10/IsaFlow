@@ -1,7 +1,6 @@
 /**
  * Admin Dashboard — KPI stats + recent activity feed.
  */
-
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { StatsCard } from '@/components/admin/StatsCard';
@@ -10,6 +9,7 @@ import { formatCurrency } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import { AlertCircle, Building2, Users, ArrowRight, Loader2, Activity, Clock } from 'lucide-react';
 import Link from 'next/link';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface TrialRow {
   id: string;
@@ -66,7 +66,7 @@ function trialDaysBadge(days: number) {
 }
 
 function fmtTrialDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDisplayDate(iso);
 }
 
 export default function AdminDashboard() {

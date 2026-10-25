@@ -17,13 +17,13 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useTrialBalanceFilters } from '@/components/reports/useTrialBalanceFilters';
 import { localISODate } from '@/lib/dateUtils';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface CostCentre { id: string; code: string; name: string }
 interface BusinessUnit { id: string; code: string; name: string }
 interface EvidenceTarget { accountId: string; accountName: string }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 export default function TrialBalancePage() {
   const [rows, setRows] = useState<TBRowData[]>([]);
@@ -183,7 +183,7 @@ export default function TrialBalancePage() {
                   {fmt(Math.abs(difference))}
                   <span className="text-sm ml-1 font-normal">{balanced ? 'Balanced' : 'Out of Balance'}</span>
                 </p>
-                <p className="text-[11px] text-[var(--ff-text-tertiary)] mt-1">
+                <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">
                   Across {accountCount} account{accountCount === 1 ? '' : 's'}
                   {fiscalYearStart && ` · income statement from ${fiscalYearStart}`}
                 </p>

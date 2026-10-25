@@ -147,7 +147,7 @@ export async function partitionDocuments(
       && adapter.approvableStatuses.includes(c.state.status)
       && !isZeroTotal(c.state)
       // An undated document is skipped below; asking for a period verdict on ''
-      // would reach the auto-create branch, where fiscalYearOfDate throws.
+      // would reach the auto-create branch, where the date is not a valid date.
       && fmtDate(c.state.entryDate) !== '');
   const periodSkips = await resolvePeriodSkips(
     companyId, candidates.map((c) => c.state!.entryDate),
@@ -180,8 +180,8 @@ export async function partitionDocuments(
     }
     // `customer_invoices.invoice_date` is NULLABLE (its supplier and credit-note
     // twins are NOT NULL). fmtDate(null) is '', which matches no period window
-    // and would fall through to the auto-create branch, where fiscalYearOfDate
-    // throws on an unparseable date — a whole batch lost to one undated row.
+    // and would fall through to the auto-create branch, where an
+    // unparseable date has no fiscal year — a whole batch lost to one undated row.
     // There are none in dev today; the column permits them.
     const entryDate = fmtDate(state.entryDate);
     if (!entryDate) {

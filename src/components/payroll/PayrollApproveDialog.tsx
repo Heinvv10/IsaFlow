@@ -122,14 +122,14 @@ export function PayrollApproveDialog({ runId, period, warningCount, open, onClos
                 {shown.lines.map((l, i) => (
                   <tr key={`${l.accountCode}-${i}`} className="border-t border-gray-200 dark:border-white/10">
                     <td className="py-1"><span className="font-mono mr-2">{l.accountCode}</span>{l.accountName}</td>
-                    <td className="py-1 text-right font-mono">{money(l.debit)}</td>
-                    <td className="py-1 text-right font-mono">{money(l.credit)}</td>
+                    <td className="py-1 text-right tabular-nums">{money(l.debit)}</td>
+                    <td className="py-1 text-right tabular-nums">{money(l.credit)}</td>
                   </tr>
                 ))}
                 <tr className="border-t-2 border-gray-300 dark:border-white/20 font-semibold">
                   <td className="py-1">Total</td>
-                  <td className="py-1 text-right font-mono">{formatCurrency(shown.totalDebit)}</td>
-                  <td className="py-1 text-right font-mono">{formatCurrency(shown.totalCredit)}</td>
+                  <td className="py-1 text-right tabular-nums">{formatCurrency(shown.totalDebit)}</td>
+                  <td className="py-1 text-right tabular-nums">{formatCurrency(shown.totalCredit)}</td>
                 </tr>
               </tbody>
             </table>

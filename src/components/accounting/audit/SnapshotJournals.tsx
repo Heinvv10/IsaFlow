@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { apiErrorMessage } from '@/lib/apiFetch';
 import { fmtAmount, fmtAt, getData, type Row } from './auditSnapshotApi';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Stored { id: string; journalId: string; row: Row; materialHash: string; account?: { code: string | null; name: string | null; type: string | null } }
 const SIZE = 50;
@@ -56,7 +57,7 @@ export function SnapshotJournals({ snapshotId }: { snapshotId: string }) {
               <tr className="hover:bg-white/5 cursor-pointer" onClick={() => void toggle(j.id)}>
                 <td className="px-4 py-2 text-slate-500">{open[j.id] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</td>
                 <td className="px-4 py-2 text-slate-200">{j.row.entry_number ?? '—'}</td>
-                <td className="px-4 py-2 text-slate-300">{j.row.entry_date}</td>
+                <td className="px-4 py-2 text-slate-300">{formatDisplayDate(j.row.entry_date)}</td>
                 <td className="px-4 py-2 text-slate-400">{j.row.source}</td>
                 <td className="px-4 py-2 text-slate-300 max-w-[320px] truncate" title={j.row.description ?? ''}>{j.row.description ?? '—'}</td>
                 <td className="px-4 py-2 text-slate-400 text-xs">{fmtAt(j.row.posted_at)}{j.row.reversed_at && <span className="block text-amber-300">reversed {fmtAt(j.row.reversed_at)}</span>}</td>

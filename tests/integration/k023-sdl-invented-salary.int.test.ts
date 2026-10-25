@@ -37,8 +37,8 @@ async function seed(company: string, name: string, comp: string, run: string,
   );
   for (const e of employees) {
     await pool.query(
-      `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status)
-       VALUES($1,$2,$3,'Test','Employee',DATE '2020-01-01','active')`,
+      `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status, medical_aid_main_member)
+       VALUES($1,$2,$3,'Test','Employee',DATE '2020-01-01','active', true)`,
       [e.id, company, e.num],
     );
     await pool.query(

@@ -54,9 +54,10 @@ export async function getEmployeeComponents(
   }));
 }
 
+/** A new component: earnings and deductions only, the types the calculator processes (employer contributions are refused). */
 export async function createComponent(
   companyId: string,
-  data: Omit<PayrollComponent, 'id'>,
+  data: Omit<PayrollComponent, 'id' | 'componentType'> & { componentType: 'earning' | 'deduction' },
 ): Promise<PayrollComponent> {
   log.info('Creating payroll component', { companyId, name: data.name }, 'payrollComponentService');
   const rows = (await sql`

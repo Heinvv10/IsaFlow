@@ -10,7 +10,7 @@
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, ACCUMULATED_BF_CODE, type SectionLine } from './_helpers';
-import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { getReportingPeriod } from '@/modules/accounting/services/afs/afsReportingPeriod';
 
 // Codes whose GL balance is naturally credit-positive (revenue, other
 // income, finance income, dividends, etc.) — render positive on the IS.
@@ -41,16 +41,17 @@ export async function generateIncomeStatement(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateIncomeStatement', { companyId, fiscalYear }, 'AfsPrimary');
-  const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
-  const lines = rollUpTotals(await fetchSectionLines(companyId, 'income_statement', fiscalYear, fiscalYear - 1));
+  const period = await getReportingPeriod(companyId, fiscalYear);
+  const lines = rollUpTotals(await fetchSectionLines(companyId, 'income_statement', fiscalYear, true));
   const adjusted = lines.map((l) => (isRevenueLine(l) ? flipSign(l) : l));
-  const blocks = renderHierarchicalTable(adjusted, true);
+  const blocks = renderHierarchicalTable(adjusted, true, [period.current.header, period.prior.header]);
   return {
     dataSnapshot: { lines },
     content: {
       title: 'Statement of Profit or Loss',
       blocks: [
-        { type: 'paragraph', text: `For the year ended ${fyEnd}.` },
+        { type: 'paragraph', text: `For the ${period.current.phrase}.` },
+        ...(period.comparabilityNote ? [{ type: 'paragraph' as const, text: period.comparabilityNote }] : []),
         ...blocks,
       ],
     },

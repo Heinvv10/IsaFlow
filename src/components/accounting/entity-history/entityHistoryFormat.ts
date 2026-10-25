@@ -3,6 +3,7 @@
  * field labels, values, the op and channel badges, and SAST times.
  */
 import type { Channel } from '@/modules/accounting/services/core/entityChanges/entityChangeTypes';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 /** Names that read badly when merely humanised. */
 const LABELS: Record<string, string> = {
@@ -60,4 +61,4 @@ export const CHANNEL_CLASSES: Record<Channel, string> = {
 
 /** The change's date and time in South Africa, not UTC. */
 export const sastDateTime = (iso: string): string =>
-  new Date(iso).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg', dateStyle: 'medium', timeStyle: 'short' });
+  formatDisplayDateTime(iso);

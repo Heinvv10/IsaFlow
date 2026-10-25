@@ -43,7 +43,7 @@ describe('verify: a charged payer is never told "failed"', () => {
   it('a request stored failed, Paystack success, the settlement throws: pending', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
     h.rows.set('UPDATE paystack_payment_requests', [{ id: 'pr-1' }]);
-    verify.mockResolvedValue({ status: 'success', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
+    verify.mockResolvedValue({ status: 'success', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null, metadata: { company_id: 'co-1', invoice_id: 'inv-1' } });
     record.mockRejectedValue(new Error('Invoice inv-1 is being processed by another request — retry in a moment.'));
     expect((await call()).body.data).toMatchObject({ status: 'pending' });
   });
@@ -56,19 +56,19 @@ describe('verify: a charged payer is never told "failed"', () => {
 
   it('a request stored failed that Paystack still reports pending answers pending', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
-    verify.mockResolvedValue({ status: 'pending', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
+    verify.mockResolvedValue({ status: 'pending', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null, metadata: { company_id: 'co-1', invoice_id: 'inv-1' } });
     expect((await call()).body.data).toMatchObject({ status: 'pending' });
   });
 
   it('a request stored failed that Paystack reports reversed stays failed', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
-    verify.mockResolvedValue({ status: 'reversed', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
+    verify.mockResolvedValue({ status: 'reversed', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null, metadata: { company_id: 'co-1', invoice_id: 'inv-1' } });
     expect((await call()).body.data).toMatchObject({ status: 'failed' });
   });
 
   it('a request stored failed that Paystack also says failed stays failed', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'failed' }]);
-    verify.mockResolvedValue({ status: 'failed', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
+    verify.mockResolvedValue({ status: 'failed', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null, metadata: { company_id: 'co-1', invoice_id: 'inv-1' } });
     expect((await call()).body.data).toMatchObject({ status: 'failed' });
   });
 });
@@ -95,7 +95,7 @@ describe('verify: a settled payment answers with what was banked', () => {
 
   it('nothing banked yet: the checkout amount, not applied, ZAR', async () => {
     h.rows.set('FROM paystack_payment_requests pr', [{ ...PR, status: 'pending' }]);
-    verify.mockResolvedValue({ status: 'pending', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null });
+    verify.mockResolvedValue({ status: 'pending', id: 1, amountCents: 11500, currency: 'ZAR', paidAt: null, channel: 'card', authorization: null, metadata: { company_id: 'co-1', invoice_id: 'inv-1' } });
     expect((await call()).body.data).toMatchObject({ status: 'pending', amountCents: 11500, appliedToInvoice: false, currency: 'ZAR' });
   });
 });

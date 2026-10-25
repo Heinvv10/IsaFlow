@@ -7,10 +7,14 @@
  * 'submitted' forever: the retry query ignores it, the close-out defers to it,
  * and the customer is neither billed again nor cancelled. This asks Paystack
  * what actually happened and writes the answer.
+ *
+ * Its writes to subscription_charges run on the migration_admin pool (S-07e,
+ * migration 945), one statement per transaction, never across the Paystack call.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { verifyTransaction } from './paystackClient';
 import { STALE_SUBMITTED_HOURS, settleSubscriptionCharge } from './subscriptionPeriod';
 
@@ -87,16 +91,17 @@ export async function resolveStaleSubmittedCharges(
   for (const c of stale) {
     // Claim it by stamping verifying_at, which the SELECT above filters on, so
     // a run starting moments later does not pick the same charge up at all.
-    const claimed = await sql<{ id: string }>`
+    const claimed = (await migrationAdminSqlTx('subscription_verify_claim', (tx) => tx`
       UPDATE subscription_charges
       SET verifying_at = now(),
           updated_at = now()
       WHERE id = ${c.id}
+        AND company_id = ${c.company_id}
         AND status = 'submitted'
         AND (verifying_at IS NULL
              OR verifying_at < now() - ${`${VERIFY_CLAIM_MINUTES} minutes`}::interval)
       RETURNING id
-    `;
+    `)) as Array<{ id: string }>;
     if (!claimed[0]) {
       contended++;
       continue;
@@ -118,7 +123,7 @@ export async function resolveStaleSubmittedCharges(
 
       // Status-predicated: if the missing webhook arrived while we were asking
       // Paystack, the row is already 'settled' and must not be overwritten.
-      const marked = await sql<{ id: string }>`
+      const marked = (await migrationAdminSqlTx('subscription_verify_failed', (tx) => tx`
         UPDATE subscription_charges
         SET status = 'failed',
             failure_reason = ${`paystack_${result.status}`},
@@ -127,7 +132,7 @@ export async function resolveStaleSubmittedCharges(
           AND company_id = ${c.company_id}
           AND status = 'submitted'
         RETURNING id
-      `;
+      `)) as Array<{ id: string }>;
       if (!marked[0]) {
         // The missing webhook arrived while we were asking. Leave it settled.
         pending++;

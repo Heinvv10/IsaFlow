@@ -110,7 +110,7 @@ describe('who reads what', () => {
   it('the feed is owner / admin only; employee timelines need manager or above', async () => {
     const c = await company();
     const emp = (await pool.query(`INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, id_number,
-      employment_type, start_date) VALUES($1,'R1','Ree','Oute','8001015009087','permanent','2026-01-01') RETURNING id`, [c])).rows[0].id;
+      employment_type, start_date, medical_aid_main_member) VALUES($1,'R1','Ree','Oute','8001015009087','permanent','2026-01-01', true) RETURNING id`, [c])).rows[0].id;
     for (const user of [v, m]) expect((await get(user, c, {})).state.statusCode).toBe(403);
     const feed = await page(a, c, {});
     expect(new Set(feed.items.map((i) => i.entityType))).toEqual(new Set(['company', 'company_user', 'payroll_employee']));
@@ -133,7 +133,7 @@ describe('who reads what', () => {
     expect(ok.content[0]!.text).not.toContain('1234567890');
     expect((await read('viewer', {})).isError).toBe(true);
     const emp = (await pool.query(`INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, employment_type,
-      start_date) VALUES($1,'M1','Mc','Pee','permanent','2026-01-01') RETURNING id`, [c])).rows[0].id;
+      start_date, medical_aid_main_member) VALUES($1,'M1','Mc','Pee','permanent','2026-01-01', true) RETURNING id`, [c])).rows[0].id;
     expect((await read('admin', { entity_type: 'payroll_employee', entity_id: emp })).isError).toBe(true);
     // Nor the feed filtered to employees (security review of f0d905b8).
     const filtered = await read('admin', { entity_type: 'payroll_employee' });
@@ -170,8 +170,10 @@ describe('definer-written entities record the person, not the definer', () => {
     const member = latest('company_user');
     expect(member).toMatchObject({ op: 'update', actor: o, entityLabel: `${m}@test.local` });
     expect(member.fields).toEqual([{ key: 'role', before: 'manager', after: 'admin', masked: false }]);
-    const dbRoles = (await pool.query("SELECT DISTINCT db_role FROM entity_changes WHERE company_id = $1 AND channel = 'session'", [c])).rows;
-    expect(dbRoles).toEqual([{ db_role: 'app_user' }]);
+    // The member role change runs on the migration_admin pool since S-07d (937), still under the session's claims.
+    const dbRoles = (await pool.query("SELECT DISTINCT db_role FROM entity_changes WHERE company_id = $1 AND channel = 'session' ORDER BY 1", [c])).rows;
+    // This harness points MIGRATION_ADMIN_DATABASE_URL at postgres; production's pool is migration_admin.
+    expect(dbRoles.map((r) => r.db_role)).toEqual(['app_user', expect.stringMatching(/^(migration_admin|postgres)$/)]);
   });
 });
 

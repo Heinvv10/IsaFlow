@@ -8,8 +8,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { FileText, Loader2, AlertCircle, Plus, CheckCircle2, Clock } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-const ZAR = new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' });
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -228,7 +229,7 @@ export default function UifDeclarationPage() {
                 <thead>
                   <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-secondary)]">
                     {['Period','Employees','Leviable Salary','Employee 1%','Employer 1%','Total UIF','Status','Action'].map(h => (
-                      <th key={h} className={`py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase ${h === 'Period' || h === 'Status' || h === 'Action' ? 'text-left' : 'text-right'}`}>{h}</th>
+                      <th key={h} className={`py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase ${h === 'Period' || h === 'Status' || h === 'Action' ? 'text-left' : 'text-right'}`}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -239,10 +240,10 @@ export default function UifDeclarationPage() {
                         {MONTHS[(d.periodMonth - 1) % 12]} {d.periodYear}
                       </td>
                       <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{d.totalEmployees}</td>
-                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{ZAR.format(d.totalLeviableSalary)}</td>
-                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{ZAR.format(d.totalEmployeeContribution)}</td>
-                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{ZAR.format(d.totalEmployerContribution)}</td>
-                      <td className="py-3 px-4 text-right font-semibold text-[var(--ff-text-primary)]">{ZAR.format(d.totalUif)}</td>
+                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{formatMoney(d.totalLeviableSalary)}</td>
+                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{formatMoney(d.totalEmployeeContribution)}</td>
+                      <td className="py-3 px-4 text-right text-[var(--ff-text-secondary)]">{formatMoney(d.totalEmployerContribution)}</td>
+                      <td className="py-3 px-4 text-right font-semibold text-[var(--ff-text-primary)]">{formatMoney(d.totalUif)}</td>
                       <td className="py-3 px-4"><StatusBadge status={d.status} /></td>
                       <td className="py-3 px-4 text-right">
                         {d.status === 'draft' ? (
@@ -256,7 +257,7 @@ export default function UifDeclarationPage() {
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ff-text-tertiary)]">
                             <Clock className="h-3 w-3" />
-                            {d.submittedAt ? new Date(d.submittedAt).toLocaleDateString('en-ZA') : '—'}
+                            {d.submittedAt ? formatDisplayDate(d.submittedAt) : '—'}
                           </span>
                         )}
                       </td>

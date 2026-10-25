@@ -11,7 +11,8 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { getAROutstandingSummary } from '@/modules/accounting/services/ar/arOutstandingService';
 import { fmtDate } from '@/lib/fmtDate';
 import { documentInLedgerAsAtFragment } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 import { YEAR_END_JOURNAL_SOURCE } from '@/modules/accounting/services/gl/yearEndJournalSource';
@@ -36,7 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const [
       bankBalances,
       apTotal,
-      arTotal,
+      arSummary,
       monthRevenue,
       monthExpenses,
       unallocatedCount,
@@ -85,16 +86,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           AND ${documentInLedgerAsAtFragment('si', asAtStr, companyId)}
           AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
       `,
-      // Accounts Receivable total, TODAY, on the LIVE open set (AR_OPEN_STATUSES).
-      // NOT the ageing's population, and this comment used to claim it was.
-      // Same caveat as the AP total above.
-      sql`
-        SELECT COALESCE(SUM(ci.total_amount - COALESCE(ci.amount_paid, 0)), 0) AS total
-        FROM customer_invoices ci
-        WHERE ci.company_id = ${companyId}
-          AND ${documentInLedgerAsAtFragment('ci', asAtStr, companyId)}
-          AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-      `,
+      // Accounts Receivable total, TODAY, from the shared AR service so the
+      // invoice list tiles read the same figure.
+      getAROutstandingSummary(companyId),
       // Revenue this month (account_type = 'revenue')
       sql`
         SELECT COALESCE(SUM(credit - debit), 0) AS total
@@ -137,7 +131,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       banks,
       totalBankBalance: banks.reduce((sum, b) => sum + b.balance, 0),
       apTotal: Number((apTotal as { total: string }[])[0]?.total || 0),
-      arTotal: Number((arTotal as { total: string }[])[0]?.total || 0),
+      arTotal: arSummary.outstanding,
       monthRevenue: Number((monthRevenue as { total: string }[])[0]?.total || 0),
       monthExpenses: Number((monthExpenses as { total: string }[])[0]?.total || 0),
       unallocatedTx: Number((unallocatedCount as { count: string }[])[0]?.count || 0),

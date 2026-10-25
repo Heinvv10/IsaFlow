@@ -10,6 +10,7 @@
 import { notify } from '@/utils/toast';
 import { fmtDate } from '@/lib/fmtDate';
 import { NOTICE_LINE_FITS, listNames } from '@/components/accounting/noticeLine';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 export interface LateClaimNotice {
   claimDate: string;
@@ -58,14 +59,14 @@ export function lateClaimNotice(
     const candidates = [names[0] ? `${names[0]}: ${start} to ${end} is filed.` : '', `Period ${start} to ${end} is filed.`]
       .filter((c) => c !== '' && c.length <= NOTICE_LINE_FITS);
     return {
-      title: `Input VAT of R${first.inputTax.toFixed(2)} claimed late, in the VAT period from ${first.claimDate}`,
+      title: `Input VAT of ${formatMoney(first.inputTax)} claimed late, in the VAT period from ${first.claimDate}`,
       message: candidates[0] ?? 'Its VAT period is filed.',
     };
   }
   const total = found.reduce((s, l) => s + l.inputTax, 0);
   const earliest = found.map((l) => l.claimDate).reduce((a, b) => (b < a ? b : a));
   return {
-    title: `${found.length} documents' input VAT of R${total.toFixed(2)} claimed late, in the VAT period from ${earliest}`,
+    title: `${found.length} documents' input VAT of ${formatMoney(total)} claimed late, in the VAT period from ${earliest}`,
     message: listNames('Bills: ', found.map((_, i) => names[i]), 'Their VAT periods are filed.'),
   };
 }

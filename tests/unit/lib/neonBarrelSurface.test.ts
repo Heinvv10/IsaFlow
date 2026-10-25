@@ -39,10 +39,14 @@ vi.mock('pg', async (importOriginal) => {
   return { ...actual, default: { ...actual.default, Pool } };
 });
 
-/** Names exported by src/lib/neon.ts at 1910c157b, before the split. */
+/**
+ * Names exported by src/lib/neon.ts at 1910c157b, before the split, plus the
+ * savepoint queue's two (PR #807: siblings on one connection queue), plus
+ * buildQuery (S-07e: migrationAdminSqlTx builds its tagged-template tx with it).
+ */
 const PINNED_EXPORTS = [
-  'assertTxUsable', 'default', 'fmtDate', 'getDbPool', 'getPool', 'getPoolForTests', 'sql', 'transaction',
-  'withSavepoint', 'withTransaction',
+  'SavepointQueueTimeoutError', 'assertTxUsable', 'buildQuery', 'default', 'fmtDate', 'getDbPool', 'getPool', 'getPoolForTests',
+  'savepointQueueWait', 'sql', 'transaction', 'withSavepoint', 'withTransaction',
 ];
 
 beforeEach(() => {

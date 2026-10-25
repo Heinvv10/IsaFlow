@@ -1,0 +1,94 @@
+/**
+ * Expanding a Budget vs Actual line fetches that account's transactions ONCE. Next runs `next dev` under
+ * React StrictMode (next.config reactStrictMode), which mounts, unmounts and re-mounts an effect: that used
+ * to be two requests per expand in the browser.
+ */
+import { StrictMode } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { apiFetch } from '@/lib/apiFetch';
+import { useApiJsonOverMock } from '../helpers/apiJsonOverMock';
+import { ok } from '../helpers/d2R3a5';
+
+vi.mock('@/lib/apiFetch', async () => (await import('../helpers/apiJsonOverMock')).mockedApiFetchModule());
+vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
+vi.mock('next/router', () => ({ useRouter: () => ({ query: {}, isReady: true, push: vi.fn() }) }));
+vi.mock('@/components/layout/AppLayout', () => ({ AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }));
+
+import BudgetVsActualPage from '../../../pages/accounting/reports/budget-vs-actual';
+
+useApiJsonOverMock();
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+const REPORT = {
+  fiscal_year: 2026, years: [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31', kind: 'normal' }],
+  report: {
+    period: '2026-10-01 to 2026-10-24', total_budget: 10, total_actual: 5, total_variance: 5,
+    lines: [
+      { account_code: '4000', account_name: 'Sales', account_type: 'revenue', budget_amount: 10, actual_amount: 5, variance: 5, variance_pct: 50 },
+      { account_code: '5000', account_name: 'Rent', account_type: 'expense', budget_amount: 8, actual_amount: 6, variance: 2, variance_pct: 25 },
+    ],
+  },
+};
+const DRILL = { accountCode: '4000', accountName: 'Sales', openingBalance: 0, periodNet: 5, closingBalance: 5, transactions: [] };
+
+const drillFetches = () => vi.mocked(apiFetch).mock.calls.filter(([u]) => String(u).includes('reports-account-transactions'));
+const drillAccounts = () => drillFetches().map(([u]) => new URL(String(u), 'http://x').searchParams.get('account_code'));
+
+describe('budget vs actual drill-down', () => {
+  it('one expand is one request for the account\'s transactions', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
+      ok(String(url).includes('reports-account-transactions') ? DRILL : REPORT));
+    render(<StrictMode><BudgetVsActualPage /></StrictMode>);
+    fireEvent.click(await screen.findByText('Sales'));
+    await screen.findByText('No transactions in this period');
+    // Let any re-render settle: a second request would be made by now.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(drillFetches()).toHaveLength(1);
+  });
+
+  it('a second line expanded is one more request, for its own account', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
+      ok(String(url).includes('reports-account-transactions') ? DRILL : REPORT));
+    render(<StrictMode><BudgetVsActualPage /></StrictMode>);
+    fireEvent.click(await screen.findByText('Sales'));
+    await waitFor(() => expect(drillAccounts()).toEqual(['4000']));
+    fireEvent.click(screen.getByText('Rent'));
+    await waitFor(() => expect(drillAccounts()).toEqual(['4000', '5000']));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(drillAccounts()).toEqual(['4000', '5000']);
+  });
+
+  it('collapsing a line and expanding it again fetches it again (once)', async () => {
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) =>
+      ok(String(url).includes('reports-account-transactions') ? DRILL : REPORT));
+    render(<StrictMode><BudgetVsActualPage /></StrictMode>);
+    const row = await screen.findByText('Sales');
+    fireEvent.click(row);
+    await screen.findByText('No transactions in this period');
+    fireEvent.click(row);
+    await waitFor(() => expect(screen.queryByText('No transactions in this period')).toBeNull());
+    fireEvent.click(row);
+    await screen.findByText('No transactions in this period');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(drillFetches()).toHaveLength(2);
+  });
+
+  it('two accounts expanded while both requests are still in flight each get their own request', async () => {
+    // Drill requests stay pending until released, so the in-flight join sees both at once.
+    const pending: Array<() => void> = [];
+    vi.mocked(apiFetch).mockReset().mockImplementation(async (url) => {
+      if (!String(url).includes('reports-account-transactions')) return ok(REPORT);
+      await new Promise<void>((resolve) => { pending.push(resolve); });
+      return ok(DRILL);
+    });
+    render(<StrictMode><BudgetVsActualPage /></StrictMode>);
+    fireEvent.click(await screen.findByText('Sales'));
+    fireEvent.click(screen.getByText('Rent'));
+    await waitFor(() => expect(drillAccounts()).toEqual(['4000', '5000']));
+    pending.forEach((release) => release());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(drillAccounts()).toEqual(['4000', '5000']);
+  });
+});
+
