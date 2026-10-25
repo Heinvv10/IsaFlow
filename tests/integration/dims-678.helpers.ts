@@ -45,8 +45,8 @@ export async function seedBase(pool: Pool, company: string, user: string): Promi
   const supplier = await one(pool, 'INSERT INTO suppliers(company_id, name) VALUES($1, $2)', [company, 'D678 Supplier']);
   const customer = await one(pool, 'INSERT INTO customers(company_id, name) VALUES($1, $2)', [company, 'D678 Customer']);
   const employee = await one(pool,
-    `INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, start_date)
-     VALUES($1, 'D678-1', 'Dee', 'Six', '2026-01-01')`, [company]);
+    `INSERT INTO payroll_employees(company_id, employee_number, first_name, last_name, start_date, medical_aid_main_member)
+     VALUES($1, 'D678-1', 'Dee', 'Six', '2026-01-01', true)`, [company]);
   const journal = await one(pool,
     "INSERT INTO gl_journal_entries(company_id, entry_date, created_by, description) VALUES($1, '2026-08-01', $2, 'D678')",
     [company, user]);
