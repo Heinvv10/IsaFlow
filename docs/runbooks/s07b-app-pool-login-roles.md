@@ -179,8 +179,13 @@ Migration 937 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   invoice and moves its cursor past the message, so mail scanned while old
   code ran after 937 is not captured (its document row is left `pending`).
   Recover it as soon as the new code is live, before many new scans: moving a
-  cursor back re-scans EVERY message after that uid, and re-captures any of
-  them the new code has captured since. Read-only first:
+  cursor back re-scans EVERY message after that uid. Since S-07e part B round 4
+  the scan skips a file the company already holds (same `company_id` and
+  `raw_bytes_sha256`, a `captured_documents` row with a capture event or past
+  `pending`), so a re-scan does not capture twice; the `pending` rows the old
+  code left without an event do not count as held, so the refused mail is
+  captured. The check below is kept as a belt: it lists what a move would
+  re-read. Read-only first:
 
   ```sql
   -- Messages the old code refused, per connection.
@@ -211,8 +216,9 @@ Migration 937 (S-07d: the remaining credential tables, 2026-10-24) also takes ef
   logged as an error. Find them with
   `SELECT connection_id, imap_uid, error, scanned_at FROM imap_mirror_scan_log
   WHERE outcome = 'error' AND attachment_count > 1 ORDER BY scanned_at DESC`, and
-  recover the rest by forwarding the email to the company's capture address
-  (a cursor move would capture the first attachments twice).
+  recover the rest by forwarding the email to the company's capture address (or
+  by a cursor move to before the message, as above: the attachments already
+  captured are skipped by their hash).
 - The orphaned `pending` documents those failures left (a failure after a
   document row, before its event) are listed by
   `SELECT id FROM captured_documents d WHERE d.status = 'pending' AND NOT EXISTS
@@ -306,7 +312,9 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
 - Named limits: the stamp columns stay writable under forged claims, so an
   injected request can reset or raise a webhook endpoint's `failure_count`
   (delay or hasten its auto-disable) and move a mailbox's `scan_cursor` (skip a
-  mailbox's mail, or re-ingest it; ingestion de-dupes by hash). Integrity only:
+  mailbox's mail, or re-read it; both mirrors skip a file the company already
+  holds, by `company_id` and file hash, so a re-read captures nothing twice).
+  Integrity only:
   no route changes and no credential is exposed. Also:
   - An app pool can still lock a connection row (`FOR UPDATE` needs only the
     column UPDATE it holds), so it can delay or drop one error-status flip: the
@@ -322,14 +330,40 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
     row outside a request, each in a short transaction with a transaction-local
     `lock_timeout`; on 55P03 the scan skips that connection for the tick (a
     warning, not marked 'error', cursor not advanced; the next tick re-scans and
-    ingestion de-dupes by hash). A locked connection therefore costs a tick about
-    2 s, not the lock's holding time.
+    both mirrors skip the files already held, by `company_id` and file hash). A
+    locked connection therefore costs a tick about 2 s, not the lock's holding
+    time. The cron's due selection takes `FOR UPDATE SKIP LOCKED`, so a row an app
+    role holds locked is not selected at all (it never takes one of the 20 slots)
+    and the connections behind it are scanned.
   - An app pool can still stamp a future `last_scan_at` (or an out-of-range
-    `scan_cursor`) on any company's connection. The cron's due check now treats a
-    `last_scan_at` in the future as due, and a cursor outside 1..2^32-1 or at or
-    past the mailbox's UIDNEXT is ignored with a warning (the folder is scanned
-    from the start), so neither silences a mailbox; the forged value is
-    overwritten by the next scan's stamp.
+    `scan_cursor`) on any company's connection. The cron's due check treats a
+    `last_scan_at` in the future as due and orders it LAST among the due rows (so
+    forged stamps cannot pin the 20 slots), a cursor that is not an integer in
+    1..2^32-1 is ignored with a warning (the folder is scanned from the start,
+    safe because of the hash de-dupe), and a cursor at or past the mailbox's
+    UIDNEXT is clamped to UIDNEXT - 1 and written back (nothing old is
+    rescanned; new mail is picked up). The forged value is overwritten by the
+    next scan's stamp.
+  - Cursor limits that remain, because the cursor is a bare UID in an app-writable
+    column: (1) a server-side UIDVALIDITY reset (a rebuilt mailbox) is not
+    detected, because the cursor does not record UIDVALIDITY; if the new UIDNEXT
+    is below the cursor, the cursor is clamped to the new UIDNEXT - 1 and the old
+    mail in the rebuilt mailbox is NOT re-captured, and if the new UIDNEXT is
+    above it, new mail up to the old cursor is skipped; (2) a forged cursor
+    between the real one and UIDNEXT - 1 skips the mail in that gap, which a stamp
+    column cannot tell from a real cursor.
+  - Each connection's scan runs under a hard deadline (`MIRROR_SCAN_DEADLINE_MS`,
+    120 s, `mirrorScanGuard.ts`) because the mail server is the tenant's: ImapFlow's
+    `socketTimeout` (lowered to 60 s) is idle-only, it has no per-command timeout,
+    and it sleeps for a server-suggested throttle backoff (now capped to 10 s for
+    the retries; its own first wait of up to 5 min remains). When the deadline
+    passes the client is closed, the row gets `last_scan_at = NOW()` and
+    `last_error = 'Scan timed out'` (status stays `active`, the row goes to the
+    back of the queue) and the tick scans the next connection; the abandoned
+    scan writes nothing further. A tenant whose server always overruns is retried
+    every interval and shows 'Scan timed out'. A message whose size the server
+    reports over about 13.4 MB (the capture upload limit, 10 MB, as base64 plus
+    headers) is not fetched: it is logged as `skipped_too_large` and passed.
   - One vetted address is used per scan: a host with several addresses is
     connected to by the first IPv4 one (else the first address), with no
     failover to the others, so a host whose first address is down fails the scan

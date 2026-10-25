@@ -6,6 +6,10 @@
  * The selection's behaviour on rows is proven on a real database by
  * tests/integration/s07e-b-routes-paths-{imap,sent}.int.test.ts; this pins the
  * statement the services send, for runs without that fixture.
+ *
+ * Round 4: a future stamp sorts LAST among the due rows (it used to sort first, so a few
+ * forged rows pinned the LIMIT), and FOR UPDATE SKIP LOCKED keeps a row an app role holds
+ * locked from occupying a LIMIT slot tick after tick.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,14 +32,14 @@ describe.each([
   ['capture mirror', listActiveConnections, 'imap_mirror_connections'],
   ['sent mirror', listActiveSentConnections, 'sent_mirror_connections'],
 ] as const)('%s: the connections the cron picks', (_name, list, table) => {
-  it('active rows never scanned, past their interval, or stamped into the future; forged stamps do not push a row to the back', async () => {
+  it('active rows never scanned, past their interval, or stamped into the future (last of the due rows); a row another transaction holds is skipped, not counted against the limit', async () => {
     await list();
     expect(h.statements).toHaveLength(1);
     const q = h.statements[0]!;
     expect(q).toContain(`FROM ${table}`);
     expect(q).toContain("WHERE status = 'active'");
     expect(q).toMatch(/\(last_scan_at IS NULL OR last_scan_at > NOW\(\) OR last_scan_at < NOW\(\) - \(scan_interval_minutes \|\| ' minutes'\)::INTERVAL\)/);
-    expect(q).toContain('ORDER BY CASE WHEN last_scan_at > NOW() THEN NULL ELSE last_scan_at END ASC NULLS FIRST');
-    expect(q).toContain('LIMIT 20');
+    expect(q).toContain("ORDER BY CASE WHEN last_scan_at > NOW() THEN 'infinity'::timestamptz ELSE last_scan_at END ASC NULLS FIRST");
+    expect(q).toMatch(/LIMIT 20 FOR UPDATE SKIP LOCKED$/);
   });
 });

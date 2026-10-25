@@ -13,7 +13,7 @@ export interface ScanLogEntry {
   recipient: string | null;
   subject: string | null;
   attachmentCount: number;
-  outcome: 'linked_to_invoice' | 'captured_outbound' | 'skipped_no_attachment' | 'error';
+  outcome: 'linked_to_invoice' | 'captured_outbound' | 'skipped_no_attachment' | 'skipped_too_large' | 'error';
   error?: string | null;
   linkedInvoiceIds?: string[];
   capturedDocumentIds?: string[];

@@ -15,21 +15,21 @@
  * flip of `status` to 'error' is mirrorScanError.ts's, on migration_admin.
  */
 
-import { ImapFlow } from 'imapflow';
-import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
+import type { ImapFlow } from 'imapflow';
+import { simpleParser, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
 import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
 import { markMirrorScanError } from './mirrorScanError';
-import { readCursorUid } from './mirrorCursor';
+import { readCursor } from './mirrorCursor';
+import { createMirrorClient } from './mirrorImapClient';
+import { isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from './mirrorScanGuard';
+import { ingestAttachment } from './imapMirrorIngest';
 import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from './mirrorImapFetch';
 import { isScanLockSkip } from './mirrorScanWrite';
 import { addIngested, logScanEntry, stampStopped, stampSuccess, updateCursor } from './imapMirrorWrites';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
-import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
-import { routeEvent } from '@/modules/accounting/services/capture/captureRouterService';
-import { runAfterCommit } from '@/lib/afterCommit';
 
 type Row = Record<string, unknown>;
 
@@ -99,8 +99,9 @@ export async function listActiveConnections(): Promise<MirrorConnection[]> {
       AND (last_scan_at IS NULL
            OR last_scan_at > NOW()
            OR last_scan_at < NOW() - (scan_interval_minutes || ' minutes')::INTERVAL)
-    ORDER BY CASE WHEN last_scan_at > NOW() THEN NULL ELSE last_scan_at END ASC NULLS FIRST
+    ORDER BY CASE WHEN last_scan_at > NOW() THEN 'infinity'::timestamptz ELSE last_scan_at END ASC NULLS FIRST
     LIMIT 20
+    FOR UPDATE SKIP LOCKED
   `) as Row[];
   return rows.map(loadMirrorRow);
 }
@@ -161,9 +162,9 @@ async function openImapClient(conn: MirrorConnection): Promise<ImapFlow> {
     const target = await checkImapTarget(conn.imapHost, conn.imapPort);
     if (!target.ok) throw new Error(target.message);
     const password = decrypt(conn.imapPasswordEnc);
-    return new ImapFlow({
+    return createMirrorClient({
       host: target.address, servername: target.servername, port: conn.imapPort, secure: conn.imapUseTls,
-      auth: { user: conn.imapUsername, pass: password }, logger: false,
+      user: conn.imapUsername, pass: password,
     });
   }
   // Gmail / M365 use OAuth2 — actual token exchange handled by the provider-
@@ -173,80 +174,21 @@ async function openImapClient(conn: MirrorConnection): Promise<ImapFlow> {
 
 // ─── Scanning ─────────────────────────────────────────────────────────────────
 
-async function ingestAttachment(
-  conn: MirrorConnection, inboxId: string,
-  parsed: ParsedMail,
-  att: Attachment,
-): Promise<string> {
-  const content = att.content as Buffer;
-  const sha = sha256(content);
-  const mime = (att.contentType ?? 'application/octet-stream').toLowerCase();
-  const filename = att.filename ?? `mirror-${sha.slice(0, 8)}`;
-
-  // Create captured_documents row first — storeCapturedBytes needs the id
-  // so it can scope the storage key.
-  const [doc] = (await sql`
-    INSERT INTO captured_documents (
-      company_id, file_name, file_type, file_size, status,
-      raw_bytes_sha256, raw_bytes_size
-    ) VALUES (
-      ${conn.companyId}::uuid, ${filename}, ${mime}, ${content.length},
-      'pending', ${sha}, ${content.length}
-    )
-    RETURNING id
-  `) as Row[];
-
-  const documentId = String(doc!.id);
-
-  // Upload the raw bytes + stamp the pointer
-  const stored = await storeCapturedBytes(conn.companyId, documentId, content, mime);
-  await sql`
-    UPDATE captured_documents
-    SET storage_bucket = ${stored.bucket}, storage_path = ${stored.path}
-    WHERE id = ${documentId}::uuid
-  `;
-
-  const [event] = (await sql`
-    INSERT INTO capture_events (
-      company_id, inbox_id, channel, sender, subject,
-      status, captured_document_id
-    ) VALUES (
-      ${conn.companyId}::uuid, ${inboxId}::uuid,
-      'imap_mirror', ${parsed.from?.text ?? null}, ${parsed.subject ?? null},
-      'received', ${documentId}::uuid
-    )
-    RETURNING id
-  `) as Row[];
-
-  const eventId = String(event!.id);
-
-  // Hand off to router after the ingest commits — scan-now runs inside withAuth,
-  // whose connection this must not outlive (R-075). The cron has no request
-  // transaction, so there it starts immediately.
-  runAfterCommit('imap mirror routeEvent', () => routeEvent(eventId, conn.companyId).catch((err) => {
-    log.warn('routeEvent failed for mirror ingest', { eventId, err }, 'imap-mirror');
-  }));
-
-  return eventId;
+/** Scans one connection under the per-scan deadline (mirrorScanGuard.ts); a scan that overruns is closed, stamped and abandoned. */
+export function scanConnection(conn: MirrorConnection, opts: ScanOptions = {}): Promise<ScanResult> {
+  const result: ScanResult = { connectionId: conn.id, scanned: 0, ingested: 0, skipped: 0, errors: 0 };
+  return runGuardedScan('imap', conn, result, (guard) => scanBody(conn, result, guard), opts.deadlineMs);
 }
 
-export async function scanConnection(conn: MirrorConnection): Promise<ScanResult> {
-  const result: ScanResult = {
-    connectionId: conn.id,
-    scanned: 0,
-    ingested: 0,
-    skipped: 0,
-    errors: 0,
-  };
-
+async function scanBody(conn: MirrorConnection, result: ScanResult, guard: ScanGuard): Promise<ScanResult> {
   let client: ImapFlow | null = null;
   try {
-    client = await openImapClient(conn);
+    client = guard.track(await openImapClient(conn));
     await client.connect();
 
     const lock = await client.getMailboxLock(conn.folder);
     try {
-      const cursorUid = readCursorUid(conn.scanCursor, conn.folder, { id: conn.id, kind: 'imap-mirror' }, mailboxUidNext(client));
+      const { uid: cursorUid, clamped } = readCursor(conn.scanCursor, conn.folder, { id: conn.id, kind: 'imap-mirror' }, mailboxUidNext(client));
 
       // Fetch UIDs + minimal metadata first — don't pull bodies we don't want
       const msgs = await fetchNewMessages(client, cursorUid);
@@ -255,6 +197,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
       let stoppedOn: string | null = null;
 
       for (const meta of msgs) {
+        guard.check();
         result.scanned += 1;
         const uid = Number(meta.uid);
         if (uid > maxUidSeen) maxUidSeen = uid;
@@ -274,6 +217,14 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
           result.skipped += 1;
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: 0, outcome: 'skipped_not_invoice' });
+          continue;
+        }
+
+        if (isOversizedMessage(meta.size)) {
+          result.skipped += 1;
+          log.warn('mirror message too large to fetch; skipped', { connectionId: conn.id, uid, size: meta.size }, 'imap-mirror');
+          await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
+            subject, attachmentCount: 0, outcome: 'skipped_too_large' });
           continue;
         }
 
@@ -300,12 +251,13 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
           const inboxId = await ensureMirrorInbox(conn.companyId, conn.accountEmail);
           for (const att of attachments) {
             const eventId = await ingestAttachment(conn, inboxId, parsed, att);
-            eventIds.push(eventId);
+            if (eventId) eventIds.push(eventId); // null: the tenant already holds this file
           }
           result.ingested += eventIds.length;
+          if (eventIds.length === 0) result.skipped += 1;
           await logScanEntry(conn, { imapUid: String(uid), sender: fromAddr,
             subject, attachmentCount: attachments.length,
-            outcome: 'ingested', captureEventIds: eventIds });
+            outcome: eventIds.length > 0 ? 'ingested' : 'skipped_duplicate', captureEventIds: eventIds });
         } catch (ingestErr) {
           if (isScanLockSkip(ingestErr)) throw ingestErr;
           const msg = ingestErr instanceof Error ? ingestErr.message : String(ingestErr);
@@ -319,7 +271,8 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
         }
       }
 
-      if (maxUidSeen > cursorUid) {
+      guard.check();
+      if (maxUidSeen > cursorUid || clamped) {
         await updateCursor(conn, conn.folder, maxUidSeen);
       } else if (!stoppedOn) {
         await stampSuccess(conn);
@@ -330,6 +283,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
       lock.release();
     }
   } catch (err) {
+    if (guard.expired) return result; // the deadline's owner has stamped the row
     if (isScanLockSkip(err)) {
       log.warn('mirror scan skipped this tick: the connection row is locked', { connectionId: conn.id }, 'imap-mirror');
       return result;
@@ -339,19 +293,21 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
     result.errors += 1;
     await markMirrorScanError('imap', conn, msg);
   } finally {
-    if (client) {
-      try { await client.logout(); } catch { /* ignore */ }
+    if (client && !guard.expired) {
+      try { await client.logout(); } catch (err) {
+        log.debug('mirror client logout failed', { connectionId: conn.id, err: String((err as Error)?.message ?? err) }, 'imap-mirror');
+      }
     }
   }
 
   return result;
 }
 
-export async function scanAllDueConnections(): Promise<ScanResult[]> {
+export async function scanAllDueConnections(opts: ScanOptions = {}): Promise<ScanResult[]> {
   const connections = await listActiveConnections();
   const results: ScanResult[] = [];
   for (const conn of connections) {
-    results.push(await scanConnection(conn));
+    results.push(await scanConnection(conn, opts));
   }
   return results;
 }

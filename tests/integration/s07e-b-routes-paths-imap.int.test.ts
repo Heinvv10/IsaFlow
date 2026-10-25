@@ -25,6 +25,7 @@ const imap = vi.hoisted(() => ({ connectError: null as string | null,
 vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
 vi.mock('imapflow', () => ({
   ImapFlow: class {
+    on() { /* the mirror registers an 'error' listener */ }
     async connect() { if (imap.connectError) throw new Error(imap.connectError); }
     async getMailboxLock() { return { release: () => undefined }; }
     async *fetch() { for (const m of imap.metas) yield m; }
@@ -165,8 +166,9 @@ describe('S-07e part B (946): the cron treats a last_scan_at in the future as du
     const due = (await listActiveConnections()).map((c) => c.id);
     expect(due).toEqual(expect.arrayContaining([never, stale, future, soon, forever]));
     expect(due).not.toContain(fresh);
-    // Never-scanned and future-stamped rows come first, ahead of the row that has merely waited longest.
-    expect(due.indexOf(stale)).toBeGreaterThan(Math.max(due.indexOf(never), due.indexOf(future), due.indexOf(forever)));
+    // Round 4: a never-scanned row first, then the row that has waited longest; the future-stamped rows (forged or not) last.
+    expect(due.indexOf(never)).toBeLessThan(due.indexOf(stale));
+    expect(due.indexOf(stale)).toBeLessThan(Math.min(due.indexOf(future), due.indexOf(soon), due.indexOf(forever)));
   });
 
   it('a scan of the cron then stamps it back to now', async () => {
