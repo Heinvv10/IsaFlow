@@ -61,6 +61,9 @@ run_step "paystack-export-types" bun run type-check:paystack-exports
 # (and the test helpers it relies on) is compiled here.
 run_step "ci-script-types"   bun run type-check:ci-scripts
 run_step "lint"              bun run lint
+# The raw-input allowlist (eslint/raw-input-allowlist.json) only shrinks: an entry whose file no
+# longer violates the kit-form rule fails here, so fixing a form removes it from the list.
+run_step "raw-input-allowlist" bun scripts/ci/check-raw-input-allowlist.ts
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
 # User identity is a string in this schema (users.id varchar,
