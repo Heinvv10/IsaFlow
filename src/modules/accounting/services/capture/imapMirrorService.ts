@@ -15,12 +15,15 @@
  * flip of `status` to 'error' is mirrorScanError.ts's, on migration_admin.
  */
 
-import { ImapFlow, type FetchMessageObject } from 'imapflow';
+import { ImapFlow } from 'imapflow';
 import { simpleParser, type ParsedMail, type Attachment } from 'mailparser';
 import { sql } from '@/lib/neon';
 import { ensureMirrorInbox, isTransientIngestError } from './imapMirrorInbox';
 import { markMirrorScanError } from './mirrorScanError';
 import { readCursorUid } from './mirrorCursor';
+import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from './mirrorImapFetch';
+import { isScanLockSkip } from './mirrorScanWrite';
+import { addIngested, logScanEntry, stampStopped, stampSuccess, updateCursor } from './imapMirrorWrites';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
 import { log } from '@/lib/logger';
 import { decrypt } from '@/lib/encryption';
@@ -94,8 +97,9 @@ export async function listActiveConnections(): Promise<MirrorConnection[]> {
     SELECT * FROM imap_mirror_connections
     WHERE status = 'active'
       AND (last_scan_at IS NULL
+           OR last_scan_at > NOW()
            OR last_scan_at < NOW() - (scan_interval_minutes || ' minutes')::INTERVAL)
-    ORDER BY COALESCE(last_scan_at, '1970-01-01'::timestamptz) ASC
+    ORDER BY CASE WHEN last_scan_at > NOW() THEN NULL ELSE last_scan_at END ASC NULLS FIRST
     LIMIT 20
   `) as Row[];
   return rows.map(loadMirrorRow);
@@ -168,42 +172,6 @@ async function openImapClient(conn: MirrorConnection): Promise<ImapFlow> {
 }
 
 // ─── Scanning ─────────────────────────────────────────────────────────────────
-
-async function logScanEntry(
-  conn: MirrorConnection,
-  entry: {
-    imapUid: string | null;
-    sender: string | null;
-    subject: string | null;
-    attachmentCount: number;
-    outcome: string;
-    error?: string | null;
-    captureEventIds?: string[];
-  },
-): Promise<void> {
-  await sql`
-    INSERT INTO imap_mirror_scan_log
-      (connection_id, company_id, imap_uid, sender, subject,
-       attachment_count, outcome, error, capture_event_ids)
-    VALUES
-      (${conn.id}::uuid, ${conn.companyId}::uuid, ${entry.imapUid},
-       ${entry.sender}, ${entry.subject}, ${entry.attachmentCount},
-       ${entry.outcome}, ${entry.error ?? null},
-       ${entry.captureEventIds ?? null}::uuid[])
-  `;
-}
-
-async function updateCursor(conn: MirrorConnection, folder: string, uid: number): Promise<void> {
-  const nextCursor = { ...conn.scanCursor, [folder]: uid };
-  await sql`
-    UPDATE imap_mirror_connections
-    SET scan_cursor = ${JSON.stringify(nextCursor)}::jsonb,
-        last_scan_at = NOW(),
-        last_success_at = NOW(), last_error = NULL,
-        messages_ingested_total = messages_ingested_total
-    WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
-  `;
-}
 
 async function ingestAttachment(
   conn: MirrorConnection, inboxId: string,
@@ -278,15 +246,10 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
 
     const lock = await client.getMailboxLock(conn.folder);
     try {
-      const cursorUid = readCursorUid(conn.scanCursor, conn.folder, { id: conn.id, kind: 'imap-mirror' });
-      const searchRange = cursorUid > 0 ? `${cursorUid + 1}:*` : '1:*';
+      const cursorUid = readCursorUid(conn.scanCursor, conn.folder, { id: conn.id, kind: 'imap-mirror' }, mailboxUidNext(client));
 
       // Fetch UIDs + minimal metadata first — don't pull bodies we don't want
-      const msgs: FetchMessageObject[] = [];
-      for await (const msg of client.fetch(searchRange, { uid: true, envelope: true, size: true })) {
-        msgs.push(msg);
-        if (msgs.length >= 50) break; // throttle per scan
-      }
+      const msgs = await fetchNewMessages(client, cursorUid);
 
       let maxUidSeen = cursorUid;
       let stoppedOn: string | null = null;
@@ -315,13 +278,13 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
         }
 
         // Pull the full message body now that the metadata filters pass
-        const full = await client.fetchOne(String(uid), { source: true, uid: true });
-        if (!full || !full.source) {
+        const source = await fetchSourceByUid(client, uid);
+        if (!source) {
           result.skipped += 1;
           continue;
         }
 
-        const parsed = await simpleParser(full.source);
+        const parsed = await simpleParser(source);
         const attachments = (parsed.attachments ?? []).filter(looksLikeInvoiceAttachment);
 
         if (attachments.length === 0) {
@@ -344,6 +307,7 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
             subject, attachmentCount: attachments.length,
             outcome: 'ingested', captureEventIds: eventIds });
         } catch (ingestErr) {
+          if (isScanLockSkip(ingestErr)) throw ingestErr;
           const msg = ingestErr instanceof Error ? ingestErr.message : String(ingestErr);
           result.errors += 1;
           log.warn('mirror ingest failed', { connectionId: conn.id, uid, err: msg }, 'imap-mirror');
@@ -358,28 +322,18 @@ export async function scanConnection(conn: MirrorConnection): Promise<ScanResult
       if (maxUidSeen > cursorUid) {
         await updateCursor(conn, conn.folder, maxUidSeen);
       } else if (!stoppedOn) {
-        // Still bump last_scan_at so the poll interval kicks in correctly
-        await sql`
-          UPDATE imap_mirror_connections
-          SET last_scan_at = NOW(), last_success_at = NOW(), last_error = NULL
-          WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
-        `;
+        await stampSuccess(conn);
       }
-      // A stop shows its error (after any progress above); status stays active so the next scan retries.
-      if (stoppedOn) await sql`UPDATE imap_mirror_connections SET last_scan_at = NOW(), last_error = ${stoppedOn} WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid`;
-
-      // Increment total ingested counter
-      if (result.ingested > 0) {
-        await sql`
-          UPDATE imap_mirror_connections
-          SET messages_ingested_total = messages_ingested_total + ${result.ingested}
-          WHERE id = ${conn.id}::uuid AND company_id = ${conn.companyId}::uuid
-        `;
-      }
+      if (stoppedOn) await stampStopped(conn, stoppedOn);
+      if (result.ingested > 0) await addIngested(conn, result.ingested);
     } finally {
       lock.release();
     }
   } catch (err) {
+    if (isScanLockSkip(err)) {
+      log.warn('mirror scan skipped this tick: the connection row is locked', { connectionId: conn.id }, 'imap-mirror');
+      return result;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error('mirror scan failed', { connectionId: conn.id, err: msg }, 'imap-mirror');
     result.errors += 1;

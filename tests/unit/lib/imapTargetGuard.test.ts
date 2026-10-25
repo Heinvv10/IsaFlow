@@ -62,9 +62,9 @@ describe('checkImapTarget: host', () => {
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ detail: expect.stringMatching(/^imap\.evil\.test resolves to blocked address /) });
   });
 
-  it('refuses a name that does not resolve', async () => {
+  it('a name that does not resolve is told so, not that its address is "not allowed"', async () => {
     m.lookup.mockRejectedValue(new Error('ENOTFOUND'));
-    expect(await checkImapTarget('nope.invalid', 993)).toEqual(HOST_REFUSED);
+    expect(await checkImapTarget('nope.invalid', 993)).toEqual({ ok: false, message: "Could not resolve the mail server's address" });
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ detail: 'DNS resolution failed for nope.invalid' });
   });
 

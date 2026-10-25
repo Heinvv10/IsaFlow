@@ -17,16 +17,19 @@
  * name whose DNS answers public once and private the next time (rebinding)
  * therefore reaches only the public address.
  *
- * The user sees only that the address is not allowed; which address it
- * resolved to is logged, never returned (it would map the internal DNS).
+ * The user sees only that the address is not allowed (or, when DNS gave no
+ * answer at all, that it could not be resolved: a typo or an outage, not a
+ * policy); which address it resolved to is logged, never returned (it would
+ * map the internal DNS).
  */
 import net from 'node:net';
-import { resolvePublicHostname } from '@/lib/safeFetch';
+import { DnsResolutionError, resolvePublicHostname } from '@/lib/safeFetch';
 import { log } from '@/lib/logger';
 
 export const ALLOWED_IMAP_PORTS: readonly number[] = [143, 993];
 
 export const IMAP_HOST_REFUSED = 'This mail server address is not allowed';
+export const IMAP_HOST_UNRESOLVED = "Could not resolve the mail server's address";
 export const IMAP_PORT_REFUSED = `Only ports ${ALLOWED_IMAP_PORTS.join(' and ')} are supported`;
 
 /** A DNS name (punycode for non-ASCII) or an IP literal: nothing a resolver or the IMAP client could read as more. */
@@ -53,6 +56,7 @@ export async function checkImapTarget(host: unknown, port: unknown): Promise<Ima
     const address = await resolvePublicHostname(host);
     return net.isIP(host) ? { ok: true, address } : { ok: true, address, servername: host };
   } catch (err) {
-    return refuse(IMAP_HOST_REFUSED, err instanceof Error ? err.message : 'invalid host', host, port);
+    const message = err instanceof DnsResolutionError ? IMAP_HOST_UNRESOLVED : IMAP_HOST_REFUSED;
+    return refuse(message, err instanceof Error ? err.message : 'invalid host', host, port);
   }
 }

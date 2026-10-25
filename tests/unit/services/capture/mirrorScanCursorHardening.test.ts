@@ -6,14 +6,18 @@
  * is now used only when it is a positive safe integer; otherwise it is logged
  * and the folder is scanned as if it had none. Both mirror services, with the
  * mailbox recording the range it was asked for.
+ *
+ * Round 3: an IMAP number is at most 2^32 - 1 (a larger one is a BAD from a strict
+ * server, or, on the sent mirror, a folder skipped for good), and a cursor at or
+ * past the mailbox's UIDNEXT can never be reached, so it is judged invalid too.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ ranges: [] as string[], markError: vi.fn() }));
+const h = vi.hoisted(() => ({ ranges: [] as string[], markError: vi.fn(), uidNext: 0 }));
 
 vi.mock('imapflow', () => ({
   ImapFlow: class {
-    mailbox = { uidNext: 0 };
+    mailbox = { uidNext: h.uidNext };
     async connect() { /* fake mailbox */ }
     async logout() { /* fake mailbox */ }
     async getMailboxLock() { return { release: () => undefined }; }
@@ -23,7 +27,10 @@ vi.mock('imapflow', () => ({
 }));
 vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(async () => []) }));
+vi.mock('@/lib/neon', () => {
+  const sql = vi.fn(async () => []);
+  return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
+});
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
 vi.mock('@/lib/documentStorage', () => ({ sha256: vi.fn(), storeCapturedBytes: vi.fn() }));
 vi.mock('@/modules/accounting/services/capture/captureRouterService', () => ({ routeEvent: vi.fn() }));
@@ -49,19 +56,39 @@ const sentConn = (scanCursor: unknown): SentMirrorConnection => ({
 
 beforeEach(() => {
   h.ranges.length = 0;
+  h.uidNext = 0;
   h.markError.mockClear();
   vi.mocked(log.warn).mockClear();
 });
 
-const BAD = [['a fraction', 1.5], ['negative', -1], ['a string', 'x'], ['past the safe integers', 1e20], ['a numeric string', '5'], ['zero', 0], ['NaN', NaN], ['an object', { n: 1 }], ['an array', [3]], ['true', true]] as const;
+const BAD = [['2^32, one past an IMAP number', 2 ** 32], ['the largest safe integer', Number.MAX_SAFE_INTEGER], ['a fraction', 1.5], ['negative', -1], ['a string', 'x'], ['past the safe integers', 1e20], ['a numeric string', '5'], ['zero', 0], ['NaN', NaN], ['an object', { n: 1 }], ['an array', [3]], ['true', true]] as const;
 
 describe('readCursorUid', () => {
   const ref = { id: 'c1', kind: 'imap-mirror' } as const;
 
   it('uses a positive safe integer as it is', () => {
     expect(readCursorUid({ INBOX: 41 }, 'INBOX', ref)).toBe(41);
-    expect(readCursorUid({ INBOX: Number.MAX_SAFE_INTEGER }, 'INBOX', ref)).toBe(Number.MAX_SAFE_INTEGER);
+    expect(readCursorUid({ INBOX: 0xfffffffe }, 'INBOX', ref)).toBe(0xfffffffe);
+    expect(readCursorUid({ INBOX: 0xffffffff }, 'INBOX', ref)).toBe(0xffffffff);
     expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it('with the mailbox UIDNEXT known, a cursor below it is used, up to UIDNEXT - 1', () => {
+    expect(readCursorUid({ INBOX: 41 }, 'INBOX', ref, 100)).toBe(41);
+    expect(readCursorUid({ INBOX: 99 }, 'INBOX', ref, 100)).toBe(99);
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it.each([['equal to UIDNEXT', 100], ['past UIDNEXT', 101], ['far past UIDNEXT', 0xfffffffe]])('a cursor %s is ignored, with a warning that names the connection but not the value', (_what, cursor) => {
+    expect(readCursorUid({ INBOX: cursor }, 'INBOX', ref, 100)).toBe(0);
+    expect(log.warn).toHaveBeenCalledTimes(1);
+    const [, fields] = vi.mocked(log.warn).mock.calls[0]!;
+    expect(fields).toMatchObject({ connectionId: 'c1', folder: 'INBOX', uidNext: 100 });
+    expect(fields).not.toHaveProperty('cursor');
+  });
+
+  it('UIDNEXT unknown (0) leaves a cursor to the 2^32 bound alone', () => {
+    expect(readCursorUid({ INBOX: 5000 }, 'INBOX', ref, 0)).toBe(5000);
   });
 
   it('a folder with no cursor, or no cursor object at all, is a first scan and not worth a warning', () => {
@@ -104,6 +131,22 @@ describe.each([
     expect(h.ranges).toEqual(['1:*']);
     expect(h.markError).not.toHaveBeenCalled();
     expect(vi.mocked(log.warn).mock.calls.some((c) => c[2] === scope && /scan_cursor/.test(String(c[0])))).toBe(true);
+  });
+
+  it.each([['2^32 - 2, a valid number but not one this mailbox has', 0xfffffffe], ['UIDNEXT itself', 100], ['past UIDNEXT', 5000]])(
+    'with UIDNEXT 100 from the mailbox, a cursor of %s is ignored: scanned from the start, not marked failed', async (_what, cursor) => {
+      h.uidNext = 100;
+      await scan({ [folder]: cursor });
+      expect(h.ranges).toEqual(['1:*']);
+      expect(h.markError).not.toHaveBeenCalled();
+      expect(vi.mocked(log.warn).mock.calls.some((c) => c[2] === scope && /UIDNEXT/.test(String(c[0])))).toBe(true);
+    });
+
+  it('with UIDNEXT 100, a cursor of 99 (the newest message already seen) is a good cursor', async () => {
+    h.uidNext = 100;
+    await scan({ [folder]: 98 });
+    expect(h.ranges).toEqual(['99:*']);
+    expect(log.warn).not.toHaveBeenCalled();
   });
 
   it('only the folder it scans is judged: a forged value for another folder is left alone', async () => {

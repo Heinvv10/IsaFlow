@@ -41,6 +41,11 @@ describe('IP literals, every IPv6 spelling of a private address: refused with no
     ['local-use NAT64 (64:ff9b:1::/48) wrapping 10.0.0.1', '64:ff9b:1::a00:1'],
     ['6to4 wrapping loopback', '2002:7f00:1::'],
     ['Teredo', '2001:0:7f00::1'],
+    ['6to4 relay anycast (192.88.99.0/24)', '192.88.99.1'],
+    ['6to4 relay anycast, IPv4-mapped', '::ffff:192.88.99.1'],
+    ['documentation (2001:db8::/32)', '2001:db8::1'],
+    ['documentation, upper case, zero-padded', '2001:0DB8:0:0:0:0:0:1'],
+    ['discard-only (100::/64)', '100::1'],
     ['loopback, expanded', '0:0:0:0:0:0:0:1'],
     ['loopback, redundant zero', '::0:1'],
   ])('%s: %s', async (_what, host) => {
@@ -72,6 +77,40 @@ describe('names a resolver reads as an address are not literals: refused on the 
     resolvesTo('127.0.0.1');
     expect(await checkImapTarget(host, 993)).toEqual(REFUSED);
     expect(m.lookup).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the reserved ranges that stay public-looking are refused as DNS answers too', () => {
+  it.each([['6to4 relay anycast', '192.88.99.1'], ['documentation', '2001:db8::5'], ['discard-only', '100::5']])('%s', async (_what, address) => {
+    resolvesTo(address);
+    expect(await checkImapTarget('reserved.example', 993)).toEqual(REFUSED);
+  });
+
+  it('their neighbours are still public', async () => {
+    for (const address of ['192.88.98.1', '192.88.100.1', '2001:db9::1', '2001:db7::1', '100:0:0:1::1']) {
+      expect(ipReason(address), address).toBeNull();
+    }
+  });
+});
+
+describe('a name DNS cannot answer for is not a policy refusal', () => {
+  const UNRESOLVED = { ok: false, message: "Could not resolve the mail server's address" };
+
+  it('a resolver failure (ENOTFOUND, EAI_AGAIN)', async () => {
+    for (const code of ['ENOTFOUND', 'EAI_AGAIN']) {
+      m.lookup.mockRejectedValueOnce(Object.assign(new Error(code), { code }));
+      expect(await checkImapTarget('typo.example', 993)).toEqual(UNRESOLVED);
+    }
+  });
+
+  it('an answer with no records', async () => {
+    m.lookup.mockResolvedValue([]);
+    expect(await checkImapTarget('empty.example', 993)).toEqual(UNRESOLVED);
+  });
+
+  it('an answer that is private stays the generic refusal, whatever else is wrong with the name', async () => {
+    resolvesTo('10.0.0.1');
+    expect(await checkImapTarget('private.example', 993)).toEqual(REFUSED);
   });
 });
 

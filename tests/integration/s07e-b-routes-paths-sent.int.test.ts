@@ -14,6 +14,7 @@ import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminPool';
 import { decrypt } from '@/lib/encryption';
 import { createSentImapConnection, disconnectSentConnection } from '@/modules/accounting/services/ar/sentMirrorAdmin';
+import { listActiveSentConnections, scanAllDueSentConnections } from '@/modules/accounting/services/ar/sentMirrorService';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -27,7 +28,7 @@ vi.mock('imapflow', () => ({
     async connect() { if (imap.connectError) throw new Error(imap.connectError); }
     async getMailboxLock() { return { release: () => undefined }; }
     async *fetch() { for (const m of imap.metas) yield m; }
-    async fetchOne() { return { source: Buffer.from('From: me@s07eb.test\r\nTo: c@x.test\r\nSubject: hi\r\n\r\nno attachment\r\n') }; }
+    async fetchOne(seq: string) { return { uid: Number(seq), source: Buffer.from('From: me@s07eb.test\r\nTo: c@x.test\r\nSubject: hi\r\n\r\nno attachment\r\n') }; }
     async logout() { return undefined; }
   },
 }));
@@ -126,4 +127,79 @@ describe('S-07e part B (946): another tenant\'s sent-mirror connection', () => {
     expect(await disconnectSentConnection(theirs, company)).toBe(false);
     expect(await row(theirs)).toEqual(before);
   });
+});
+
+// An app login may write last_scan_at (a scan stamp), so it can stamp another tenant's row into the future; the
+// cron's due check used to wait for that time to pass, which silenced the connection for good.
+describe('S-07e part B (946): the cron treats a last_scan_at in the future as due', () => {
+  const make = async (name: string, lastScan: string | null): Promise<string> => {
+    const { id } = await createSentImapConnection({ companyId: other, displayName: name, accountEmail: `${name}@s07eb.test`,
+      imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'me', imapPassword: 'mailbox-pw' });
+    if (lastScan !== null) {
+      // As the app login, the way a forged stamp arrives.
+      await getDbPool().query('UPDATE sent_mirror_connections SET last_scan_at = $2::timestamptz WHERE id = $1', [id, lastScan]);
+    }
+    return id;
+  };
+
+  it('picks never-scanned, due, and future-stamped rows (even \'infinity\'), and leaves a row scanned a minute ago', async () => {
+    await q('DELETE FROM sent_mirror_connections WHERE company_id = ANY($1)', [[company, other]]);
+    const never = await make('never', null);
+    const stale = await make('stale', new Date(Date.now() - 600_000).toISOString());
+    const fresh = await make('fresh', new Date(Date.now() - 60_000).toISOString());
+    const future = await make('future', '9999-01-01T00:00:00Z');
+    const soon = await make('soon', new Date(Date.now() + 60_000).toISOString());
+    const forever = await make('forever', 'infinity');
+    const due = (await listActiveSentConnections()).map((c) => c.id);
+    expect(due).toEqual(expect.arrayContaining([never, stale, future, soon, forever]));
+    expect(due).not.toContain(fresh);
+    // Never-scanned and future-stamped rows come first, ahead of the row that has merely waited longest.
+    expect(due.indexOf(stale)).toBeGreaterThan(Math.max(due.indexOf(never), due.indexOf(future), due.indexOf(forever)));
+  });
+
+  it('a scan of the cron then stamps it back to now', async () => {
+    await q('DELETE FROM sent_mirror_connections WHERE company_id = ANY($1)', [[company, other]]);
+    const future = await make('future2', '9999-01-01T00:00:00Z');
+    const results = await scanAllDueSentConnections();
+    expect(results.find((r) => r.connectionId === future)).toMatchObject({ errors: 0 });
+    const r = await row(future);
+    expect(new Date(r!.last_scan_at as string | Date).getTime()).toBeLessThan(Date.now() + 5000);
+    expect(r).toMatchObject({ status: 'active', last_error: null });
+  });
+});
+
+// The cron's other writes (the scan log, the cursor, the success stamp, the counters) wait for a locked row for
+// 2 s at most, outside a request. A connection whose row is held is skipped for this tick, not marked failed, and
+// the connections behind it are still scanned.
+describe('S-07e part B (946): the cron meets a sent-mirror row locked by someone else', () => {
+  it('skips that connection after the bounded wait, leaves it active with its cursor, and scans the next one', async () => {
+    imap.metas = [{ uid: 9, envelope: { subject: 'Invoice', to: [{ address: 'c@x.test' }] } }];
+    await q('DELETE FROM sent_mirror_connections WHERE company_id = $1', [company]);
+    const mk = async (name: string) => (await createSentImapConnection({ companyId: company, displayName: name, accountEmail: `${name}@s07eb.test`,
+      imapHost: 'imap.s07eb.test', imapPort: 993, imapUsername: 'me', imapPassword: 'mailbox-pw' })).id;
+    const held = await mk('held-cron');
+    const free = await mk('free-cron');
+    const holder = await fixture.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM sent_mirror_connections WHERE id = $1 FOR UPDATE', [held]);
+
+      const started = Date.now();
+      const results = await scanAllDueSentConnections();
+      const elapsed = Date.now() - started;
+
+      // One 2 s wait (the scan log's key-share lock), not the lock's holding time and not a per-write 2 s.
+      expect(elapsed, `the tick took ${elapsed}ms`).toBeGreaterThan(1800);
+      expect(elapsed, `the tick took ${elapsed}ms`).toBeLessThan(5000);
+      expect(results.find((r) => r.connectionId === held)).toMatchObject({ errors: 0, captured: 0 });
+      expect(results.find((r) => r.connectionId === free)).toMatchObject({ scanned: 1, errors: 0 });
+      expect(await row(held)).toMatchObject({ status: 'active', last_error: null, scan_cursor: {}, last_scan_at: null });
+      expect(await row(free)).toMatchObject({ status: 'active', last_error: null, scan_cursor: { Sent: 9 } });
+    } finally {
+      await holder.query('ROLLBACK');
+      holder.release();
+    }
+    await scanAllDueSentConnections();
+    expect(await row(held)).toMatchObject({ status: 'active', last_error: null, scan_cursor: { Sent: 9 } });
+  }, 30000);
 });
