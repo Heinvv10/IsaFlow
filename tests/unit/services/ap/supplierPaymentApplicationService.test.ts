@@ -399,7 +399,7 @@ describe('planSupplierPaymentApplication — the on-account credit ceiling', () 
     billRows([billRow(BILL_A)]);
     credit.value = 200;
     await expect(planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 300 }]))
-      .rejects.toThrow(/R300\.00[\s\S]*ACME owing the company[\s\S]*R200\.00/);
+      .rejects.toThrow(/R\s300\.00[\s\S]*ACME owing the company[\s\S]*R\s200\.00/);
     expect(lockSupplierCredit).toHaveBeenCalledWith(COMPANY, SUPPLIER);
     const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
     expect(texts.some((t) => /INSERT INTO|UPDATE\s+\w+\s+SET|DELETE FROM/.test(t))).toBe(false);
