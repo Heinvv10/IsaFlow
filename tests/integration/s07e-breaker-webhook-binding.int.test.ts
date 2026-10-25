@@ -22,7 +22,7 @@ import type { NextApiRequest } from 'next';
 import webhookRoute from '../../pages/api/webhooks/paystack';
 import { getAuthPool } from '@/lib/auth/authPool';
 import { getDbPool } from '@/lib/neon';
-import { migrationAdminPool } from '@/lib/auth/migrationAdminPool';
+import { billingAdminPool, migrationAdminPool } from '@/lib/auth/migrationAdminPool';
 import { response } from './mfa-impersonation-postgres.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -95,7 +95,7 @@ afterAll(async () => {
   await q('DELETE FROM company_users WHERE user_id = $1', [victimOwner]);
   await q('DELETE FROM users WHERE id = $1', [victimOwner]);
   await q('DELETE FROM plans WHERE id = $1', [payg]).catch(() => undefined);
-  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool()]);
+  await teardown(ids, [getAuthPool(), getDbPool(), migrationAdminPool(), billingAdminPool()]);
 });
 
 beforeEach(async () => {

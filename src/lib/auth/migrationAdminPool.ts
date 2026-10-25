@@ -55,12 +55,9 @@ export function migrationAdminPool(): pg.Pool {
     // AFS sign-in requests and verifies are rate-limited per IP, and a WhatsApp
     // webhook is signature-checked and reads an active binding on the service
     // pool first. Every transaction waits at most 5 s for a lock (below).
-    // S-07e adds billing: each metered PAYG request's debit (and refund), Flow
-    // purchases, mandates, the two billing crons, and a Paystack webhook that
-    // writes billing rows (it holds one connection for its event). Each is a
-    // short transaction and none is held across an outside call, hence 8 by
-    // default; MIGRATION_ADMIN_POOL_MAX overrides it.
-    max: poolSizeFromEnv('MIGRATION_ADMIN_POOL_MAX', 8),
+    // Billing (S-07e) has a pool of its own on the same login (billingAdminPool
+    // below), so metering cannot starve these. MIGRATION_ADMIN_POOL_MAX overrides it.
+    max: poolSizeFromEnv('MIGRATION_ADMIN_POOL_MAX', 4),
     connectionTimeoutMillis: 15_000,
     ssl:
       process.env.DATABASE_SSL === 'strict'
@@ -72,6 +69,37 @@ export function migrationAdminPool(): pg.Pool {
   // pg-pool re-emits a pooled or removed client's 'error' on the pool; unlistened, that is an uncaught exception.
   _pool.on('error', (err) => log.warn('migration_admin pool error', { message: err.message }, 'Auth'));
   return _pool;
+}
+
+let _billingPool: pg.Pool | null = null;
+
+/**
+ * The same login (migration_admin), in a pool of its own for the billing writes
+ * (S-07e, migration 945): every metered PAYG request's debit and refund, Flow
+ * purchases, mandates, the billing crons and the Paystack webhook's settlement.
+ * Kept apart so a burst of metered requests, or a webhook holding one
+ * connection for its event, never queues a sign-in, an invitation or a
+ * credential write behind it. Each billing transaction is short, waits at most
+ * 5 s for a lock, and is never held across an outside call.
+ * BILLING_ADMIN_POOL_MAX overrides the size.
+ */
+export function billingAdminPool(): pg.Pool {
+  if (_billingPool) return _billingPool;
+  const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
+  if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required: billing writes (S-07e)');
+  _billingPool = new pg.Pool({
+    connectionString: url,
+    max: poolSizeFromEnv('BILLING_ADMIN_POOL_MAX', 6),
+    connectionTimeoutMillis: 15_000,
+    ssl:
+      process.env.DATABASE_SSL === 'strict'
+        ? { rejectUnauthorized: true }
+        : process.env.DATABASE_SSL === 'disable'
+          ? false
+          : { rejectUnauthorized: false },
+  });
+  _billingPool.on('error', (err) => log.warn('billing admin pool error', { message: err.message }, 'Auth'));
+  return _billingPool;
 }
 
 /** Savepoint names for migrationAdminTx calls joined to an outer migration_admin transaction. */
@@ -88,7 +116,8 @@ let joinedSeq = 0;
  * the session (impersonation included). This role bypasses RLS and the member
  * guards, so nothing here is decided by them.
  */
-export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>,
+  pool: () => pg.Pool = migrationAdminPool): Promise<T> {
   // Inside a transaction that holds (or opens on demand) a migration_admin
   // client (the Paystack webhook's, publicRouteTx.ts): run in a savepoint on
   // it, so this commits or rolls back with the event. Such calls must be
@@ -105,14 +134,15 @@ export async function migrationAdminTx<T>(label: string, fn: (client: pg.PoolCli
       store.migrationAdminBusy = false;
     }
   }
-  return ownTx(label, fn);
+  return ownTx(label, fn, pool);
 }
 
 /** Run `fn` in a savepoint on the context's migration_admin client, opening it (BEGIN) on the first call. */
 async function joinedTx<T>(store: NonNullable<ReturnType<typeof als.getStore>>, label: string,
   fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   if (!store.migrationAdminClient) {
-    const opened = await migrationAdminPool().connect();
+    // Only billing joins (the Paystack webhook), so its pool.
+    const opened = await billingAdminPool().connect();
     try {
       await opened.query('BEGIN');
       await opened.query(`SET LOCAL lock_timeout = '5s'`);
@@ -140,9 +170,9 @@ async function joinedTx<T>(store: NonNullable<ReturnType<typeof als.getStore>>, 
 }
 
 /** One transaction of its own on a migrationAdminPool() client (the usual case). */
-async function ownTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+async function ownTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>, pool: () => pg.Pool): Promise<T> {
   const claims = als.getStore()?.claims;
-  const client = await migrationAdminPool().connect();
+  const client = await pool().connect();
   let opened = false;
   let unusable = false;
   try {
@@ -167,7 +197,7 @@ async function ownTx<T>(label: string, fn: (client: pg.PoolClient) => Promise<T>
 }
 
 /**
- * `migrationAdminTx` with a tagged-template `tx` shaped like `withTransaction`'s
+ * Billing's `migrationAdminTx`, on billingAdminPool(), with a tagged-template `tx` shaped like `withTransaction`'s
  * (`TxSql`), so a statement written as ``tx`SELECT ... ${id}` `` moves here
  * unchanged. Every interpolation is a bound parameter. This role bypasses RLS:
  * each statement names the company it is for, from the verified request.
@@ -179,5 +209,5 @@ export async function migrationAdminSqlTx<T>(label: string, fn: (tx: TxSql) => P
       return (await client.query(text, params)).rows as unknown[];
     };
     return fn(tx);
-  });
+  }, billingAdminPool);
 }

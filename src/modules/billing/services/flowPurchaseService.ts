@@ -83,8 +83,9 @@ export interface PaidAmount { companyId: string; amountCents: number | null; cur
  */
 export async function completeBundlePurchase(
   purchaseId: string,
+  companyId: string,
 ): Promise<PurchaseResult> {
-  return (await creditPurchase(purchaseId, null))!;
+  return (await creditPurchase(purchaseId, null, companyId))!;
 }
 
 /**
@@ -96,21 +97,27 @@ export async function completeBundlePurchase(
  * make every redelivery repeat it).
  */
 export async function completePaidBundlePurchase(purchaseId: string, paid: PaidAmount): Promise<PurchaseResult | null> {
-  return creditPurchase(purchaseId, paid);
+  return creditPurchase(purchaseId, paid, paid.companyId);
 }
 
-async function creditPurchase(purchaseId: string, paid: PaidAmount | null): Promise<PurchaseResult | null> {
+// On a role that bypasses row security, so the purchase is always looked up within the company it is for.
+async function creditPurchase(purchaseId: string, paid: PaidAmount | null, companyId: string): Promise<PurchaseResult | null> {
   return migrationAdminSqlTx('flow_complete_purchase', async (tx) => {
     const rows = (await tx`
       SELECT id, company_id, bundle_id, flows, price_cents, status
         FROM flow_purchases
        WHERE id = ${purchaseId}
+         AND company_id = ${companyId}
        FOR NO KEY UPDATE
     `) as Array<{
       id: string; company_id: string; bundle_id: string;
       flows: number; price_cents: number; status: PurchaseStatus;
     }>;
     const row = rows[0];
+    if (!row && paid) {
+      log.error('flow purchase not credited: not this company\'s', { purchaseId, companyId }, 'BILLING');
+      return null;
+    }
     if (!row) throw new Error(`flow_purchases ${purchaseId} not found`);
     // At least the price, in rand: paying more buys nothing extra, and a payment
     // in no stated currency is not a ZAR payment.
@@ -171,15 +178,15 @@ async function creditPurchase(purchaseId: string, paid: PaidAmount | null): Prom
  */
 export async function failBundlePurchase(
   purchaseId: string,
+  companyId: string,
   reason?: string,
-  companyId?: string,
 ): Promise<void> {
   const rows = (await migrationAdminSqlTx('flow_fail_purchase', (tx) => tx`
     UPDATE flow_purchases
        SET status = 'failed'
      WHERE id = ${purchaseId}
+       AND company_id = ${companyId}
        AND status = 'pending'
-       AND (${companyId ?? null}::uuid IS NULL OR company_id = ${companyId ?? null}::uuid)
      RETURNING id
   `)) as Array<{ id: string }>;
   if (rows[0]) {

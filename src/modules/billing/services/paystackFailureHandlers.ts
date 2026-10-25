@@ -45,7 +45,7 @@ export async function handleChargeFailed(
   }
 
   if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
-    await failBundlePurchase(pr.flow_purchase_id, reason, pr.company_id);
+    await failBundlePurchase(pr.flow_purchase_id, pr.company_id, reason);
   }
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
     // Only a charge still in flight: a redelivered failure, or one for a charge

@@ -76,6 +76,11 @@ export function withFlowMeter(operationCode: FlowOperationCode, flowCost: number
 
       let balanceAfter: number;
       try {
+        // On its own migration_admin connection (S-07e): a lock this request's
+        // transaction already holds on a row the debit needs (its wallet, or the
+        // company row its foreign keys check) is not seen as a deadlock; the
+        // debit waits out its 5 s lock_timeout and fails. No metered route takes
+        // such a lock before metering today.
         const r = await deductFlows(companyId, flowCost, operationCode, null);
         balanceAfter = r.balanceAfter;
       } catch (err) {
