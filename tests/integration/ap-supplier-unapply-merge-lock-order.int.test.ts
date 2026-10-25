@@ -5,7 +5,7 @@
  *   unapply: payment FOR UPDATE -> each bill written twice (UPDATE, then recomputeInvoiceStatus); the second write
  *     re-runs the bill's supplier FK check: FOR KEY SHARE on the supplier, after the payment.
  *   merge (mergeEntities): suppliers FOR UPDATE -> UPDATE supplier_payments (waits on the payment).
- * Unapply now takes the supplier first (lockSupplierPaymentForUpdate's `supplierFirst`).
+ * Fixed 2026-10-25 by writing each bill ONCE (`moveSupplierBillPaid`): no supplier key-share after the payment.
  *
  * Deterministic: unapply parked right after its payment lock, the merge's wait found by pid, judged by outcome.
  * Disposable fixture DB only.
@@ -71,7 +71,7 @@ it('unapplying a payment while its supplier is merged away: no 40P01', async () 
   const unapplying = r.payment(u.a, c, 'unapply', pay.id);
   await p.inGate; // unapply holds the payment row
   const merge = startWriter(c, () => mergeEntities(c, 'supplier', primary, pay.supplierId, u.a));
-  // Fixed: the merge waits on the supplier unapply holds. Before: it held the suppliers and waited on the payment.
+  // The merge holds the suppliers and waits on the payment; unapply then finishes without reaching a supplier row.
   await blockedStatement(await merge.pid).finally(p.release);
   const [res, merged] = await Promise.all([unapplying, merge.outcome]);
   expect({ unapply: res.state.statusCode, body: res.state.statusCode === 200 ? null : res.state.body, merged })

@@ -182,7 +182,7 @@ describe('recordSupplierBankPayment', () => {
     expect(mockPlan).toHaveBeenCalledWith(COMPANY_ID, PAYMENT_ID, [
       { invoiceId: 'bill-old', amount: 600 },
       { invoiceId: 'bill-new', amount: 400 },
-    ]);
+    ], { paymentCreatedInThisRequest: true });
     expect(mockApply).toHaveBeenCalledOnce();
     expect(result.appliedLines).toHaveLength(2);
     expect(result.unappliedRemainder).toBe(0);
@@ -207,7 +207,7 @@ describe('recordSupplierBankPayment', () => {
     expect(mockPlan).toHaveBeenCalledWith(COMPANY_ID, PAYMENT_ID, [
       { invoiceId: 'bill-new', amount: 900 },
       { invoiceId: 'bill-old', amount: 100 },
-    ]);
+    ], { paymentCreatedInThisRequest: true });
   });
 
   it('leaves the payment unapplied when the supplier has nothing open', async () => {

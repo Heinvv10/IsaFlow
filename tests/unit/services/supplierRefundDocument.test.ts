@@ -39,6 +39,11 @@ vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
 // IS TAKEN, and taken BEFORE the credit is read, is pinned below and proved in
 // `tests/integration/supplier-refund-document.int.test.ts`, where two real
 // connections contend for it.
+// The credit key likewise (`ap/supplierCreditLock`): its contention is proved in
+// `tests/integration/ap-supplier-refund-vs-apply-window.int.test.ts`.
+vi.mock('@/modules/accounting/services/ap/supplierCreditLock', () => ({
+  lockSupplierCredit: vi.fn(async () => {}),
+}));
 vi.mock('@/modules/accounting/services/core/paymentLock', async (importActual) => ({
   ...(await importActual<Record<string, unknown>>()),
   lockContactForRefund: vi.fn(async () => ({ id: 'supplier-row', name: 'ACME' })),
@@ -52,6 +57,7 @@ import {
 } from '@/modules/accounting/services/ap/supplierRefundDocument';
 import { getUnappliedPaymentBasis } from '@/modules/accounting/services/shared/unappliedPaymentBasis';
 import { lockContactForRefund } from '@/modules/accounting/services/core/paymentLock';
+import { lockSupplierCredit } from '@/modules/accounting/services/ap/supplierCreditLock';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 
@@ -150,6 +156,13 @@ describe('recordSupplierRefund — the document it writes', () => {
     });
     expect(lockContactForRefund).toHaveBeenCalledWith(CO, 'supplier', SUP);
     expect(vi.mocked(lockContactForRefund).mock.invocationCallOrder[0]!)
+      .toBeLessThan(mockSql.mock.invocationCallOrder[0]!);
+    // Then the credit key, also before the read: an application of this
+    // supplier's posted cash in flight holds it (2026-10-25).
+    expect(lockSupplierCredit).toHaveBeenCalledWith(CO, SUP);
+    expect(vi.mocked(lockContactForRefund).mock.invocationCallOrder[0]!)
+      .toBeLessThan(vi.mocked(lockSupplierCredit).mock.invocationCallOrder[0]!);
+    expect(vi.mocked(lockSupplierCredit).mock.invocationCallOrder[0]!)
       .toBeLessThan(mockSql.mock.invocationCallOrder[0]!);
   });
 });

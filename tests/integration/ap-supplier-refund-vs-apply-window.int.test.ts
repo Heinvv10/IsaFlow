@@ -9,7 +9,8 @@
  *     reads the committed credit and is refused on the ceiling.
  *   B (refund first, committed or in flight): the application is refused before any write. It used to check only its
  *     own payment's remainder and leave the supplier owing the company.
- *   B (two applications against one refund): the second is refused while the first is in flight, and on retry.
+ *   B (two applications against one refund): to different bills, the second is refused while the first is in
+ *     flight and on retry; to one bill, it queues on the bill and is refused on the committed credit.
  *   B (back-fill): the source is skipped with its reason in the population, so dry and live runs agree.
  *
  * Interleaved deterministically (a writer parked by a wrapped export or before its COMMIT), judged by outcome; a
@@ -171,15 +172,32 @@ describe('B — an application may not take on-account credit below zero', () =>
       .toEqual({ apply: IN_FLIGHT, retry: 'SUPPLIER_PAYMENT_REFUSED', credit: 0, allocations: 0, amountPaid: 0 });
   }, 60_000);
 
-  it('two applications against one refund: only one is applied', async () => {
+  it('two applications to different bills against one refund: only one is applied', async () => {
     const { supplier, bill } = await supplierWithBill();
+    const other = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,due_date,subtotal,tax_amount,
+         total_amount,amount_paid,status,created_by)
+       VALUES($1,$2,$3,$4,$5::DATE - 9,$5::DATE + 20,1000,0,1000,0,'approved',$6)`,
+      [other, fx.company, supplier, `RW-${other.slice(0, 8)}`, DAY, fx.user]);
     const p1 = await posted(supplier, 500);
     const p2 = await posted(supplier, 500);
     await posted(supplier, -500); // credit R500: only one of the two may be applied
+    const race = await whileParked(apply(p1, bill, 500), apply(p2, other, 500));
+    const retry = verdictOf(await outcomeOf(inTx(apply(p2, other, 500))));
+    expect({ ...race, retry, credit: await credit(supplier), other: await written(other) })
+      .toEqual({ first: 'passed', second: IN_FLIGHT, retry: 'SUPPLIER_PAYMENT_REFUSED', credit: 0,
+        other: { allocations: 0, amountPaid: 0 } });
+  }, 60_000);
+
+  it('two applications to one bill against one refund: the second queues on the bill, then is refused', async () => {
+    const { supplier, bill } = await supplierWithBill();
+    const p1 = await posted(supplier, 500);
+    const p2 = await posted(supplier, 500);
+    await posted(supplier, -500);
     const race = await whileParked(apply(p1, bill, 500), apply(p2, bill, 500));
-    const retry = verdictOf(await outcomeOf(inTx(apply(p2, bill, 500))));
-    expect({ ...race, retry, credit: await credit(supplier), allocations: (await written(bill)).allocations })
-      .toEqual({ first: 'passed', second: IN_FLIGHT, retry: 'SUPPLIER_PAYMENT_REFUSED', credit: 0, allocations: 1 });
+    expect({ ...race, credit: await credit(supplier), allocations: (await written(bill)).allocations })
+      .toEqual({ first: 'passed', second: 'SUPPLIER_PAYMENT_REFUSED', credit: 0, allocations: 1 });
   }, 60_000);
 
   it('the auto-apply back-fill skips the source with its reason, dry and live alike, and applies nothing', async () => {

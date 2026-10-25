@@ -29,7 +29,7 @@
  * back-fill applies many sources of one supplier; `recordSupplierRefund` re-plans).
  *
  * WHO TAKES IT: `planSupplierPaymentApplication` for posted cash (REST supplier-allocations, MCP apply, the
- * back-fill) after its payment lock; `planSupplierRefund` after its supplier lock. An application of a payment
+ * back-fill) after its payment and bill locks, so it is held only while that request writes; `planSupplierRefund` after its supplier lock. An application of a payment
  * created in the same request (bank allocation, provisional settlement) lowers nothing — the payment and its
  * allocation land together — and does not take it. Unapply and void raise or remove credit and do not take it:
  * a refund reading a stale, lower figure refuses early, the safe direction.

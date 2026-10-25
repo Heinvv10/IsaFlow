@@ -6,9 +6,9 @@
  *     applyLineToBill writes each bill twice (amount_paid, then recomputeInvoiceStatus); the second write re-runs
  *     the bill's supplier FK check: FOR KEY SHARE on the supplier.
  *   merge (mergeEntities): batches -> both suppliers FOR UPDATE in id order -> UPDATE the duplicate's payments.
- * Payment then supplier against supplier then payment. Application now key-shares the supplier before the payment
- * (lockSupplierPaymentForUpdate's `supplierFirst`), and the back-fill, one transaction over many sources, visits
- * them in supplier-id order, as the merge locks them.
+ * Payment then supplier against supplier then payment. Fixed 2026-10-25 by writing each bill ONCE
+ * (`moveSupplierBillPaid`): no second write, so no supplier key-share after the payment. Two suppliers in one
+ * back-fill: the merge waits on the back-fill's payment, which then finishes without touching a supplier row.
  *
  * Interleaved deterministically (the back-fill parked by a wrapped export, the merge's wait found by pid), judged
  * by outcome: both finish, and the back-fill fails no source. Disposable fixture DB only.
