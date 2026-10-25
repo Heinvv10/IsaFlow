@@ -14,6 +14,7 @@ import {
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { Plus, Pencil, Trash2, AlertCircle, Loader2 } from 'lucide-react';
 import type { Announcement } from '@/modules/admin/types/admin.types';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 const TYPE_BADGE: Record<string, string> = {
   info:        'bg-blue-500/10 text-blue-600 dark:text-blue-400',
@@ -24,7 +25,7 @@ const TYPE_BADGE: Record<string, string> = {
 
 function fmtDate(v: string | null) {
   if (!v) return '—';
-  return new Date(v).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' });
+  return formatDisplayDateTime(v);
 }
 
 function announcementToForm(item: Announcement): AnnouncementFormState {

@@ -1,5 +1,6 @@
 // WORKING: pure computation — no DB, no side effects
 import { toFunctional } from '../shared/functionalAmounts';
+import { formatAmount, formatMoney } from '@/lib/money/formatMoney';
 
 export interface ExchangeRateInput {
   fromCurrency: string;
@@ -148,18 +149,16 @@ export function calculateFXGainLoss(
 }
 
 /**
- * Format `amount` as a localised currency string.
+ * Format `amount` as a currency string in the app's one money format (thousands grouped with a
+ * non-breaking space, dot decimal, see `formatMoney`).
  *
  * Known symbols: ZAR → R, USD → $, EUR → €, GBP → £
  * Unknown codes use the ISO code as the prefix.
  *
- * Example output: "R 1,234.56"
+ * Example output: "R 1 234.56"
  */
 export function formatCurrencyAmount(amount: number, currencyCode: string): string {
+  if (currencyCode === 'ZAR') return formatMoney(amount);
   const symbol = CURRENCY_SYMBOLS[currencyCode] ?? currencyCode;
-  const formatted = amount.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return `${symbol} ${formatted}`;
+  return `${symbol} ${formatAmount(amount)}`;
 }

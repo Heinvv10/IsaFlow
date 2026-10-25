@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { Zap, X, Loader2 } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Bundle {
   id: string;
@@ -110,7 +111,7 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
                 <Zap className="w-6 h-6 text-teal-500 mb-2" />
                 <div className="text-lg font-semibold">{b.flows}</div>
                 <div className="text-xs text-gray-500">{b.name}</div>
-                <div className="text-sm font-medium mt-2">R{(b.priceCents / 100).toFixed(2)}</div>
+                <div className="text-sm font-medium mt-2">{formatMoney(b.priceCents / 100)}</div>
                 {purchasing === b.id && (
                   <Loader2 className="w-4 h-4 animate-spin mt-2 text-teal-500" />
                 )}

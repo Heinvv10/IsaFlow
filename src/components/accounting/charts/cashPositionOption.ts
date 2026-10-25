@@ -12,7 +12,7 @@
  * does not carry. Only `varianceColor` issues red, as everywhere else.
  */
 import type { EChartsCoreOption } from 'echarts/core';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import type { ChartPalette } from './chartTypes';
 import { escapeHtml } from './escapeHtml';
 import { axisDomain, roleStyle, varianceColor } from './ibcs';
@@ -36,7 +36,7 @@ export function buildCashPositionOption(
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       formatter: (params: Array<{ name: string; value: number }>) =>
-        params.map((p) => `${escapeHtml(p.name)}<br/>${formatMoney(p.value, { symbol: true })}`).join('<br/>'),
+        params.map((p) => `${escapeHtml(p.name)}<br/>${formatStatementFigure(p.value, { symbol: true })}`).join('<br/>'),
     },
     xAxis: {
       type: 'category',
@@ -47,7 +47,7 @@ export function buildCashPositionOption(
     yAxis: {
       type: 'value',
       ...axisDomain(points.map((p) => p.value)),
-      axisLabel: { color: palette.axisLabel, formatter: (v: number) => formatMoney(v) },
+      axisLabel: { color: palette.axisLabel, formatter: (v: number) => formatStatementFigure(v) },
       splitLine: { lineStyle: { color: palette.axisLine } },
     },
     series: [

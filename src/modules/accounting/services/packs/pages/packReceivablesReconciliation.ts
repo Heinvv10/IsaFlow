@@ -70,7 +70,7 @@
  * to reconcile, and a disclosure about a figure the pack does not print would
  * be the pack answering a question it has not raised.
  */
-import { formatMoney, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { mustDisclose, note } from './packPageBlocks';
 import type { PackPageBlock } from './packPageModel';
@@ -172,12 +172,12 @@ export function receivablesReconciliationNote(
   // reader sees as 720 and 720 reads as an error in the note rather than a
   // finding about the books. The materiality this page can speak to is the
   // materiality it prints at. `Math.round` rather than the formatter,
-  // because `formatMoney` has three different renderings of "small" (`–`,
+  // because `formatStatementFigure` has three different renderings of "small" (`–`,
   // `<1`, `(<1)`) and a comparison against one of them silently lets the
   // other two through.
   if (Math.round(difference / MONEY_SCALES[scale]) === 0) return null;
 
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const money = (n: number) => inProse(formatStatementFigure(n, { scale }));
   const detail = decomposition(read, tradeReceivables, scale);
   // WHERE THE DECOMPOSITION PRINTS, IT NAMES BOTH SOURCES ITSELF — "an open
   // customer subledger of 4 165", "the trade-receivable control account in

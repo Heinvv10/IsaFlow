@@ -21,7 +21,7 @@ export function StatsCard({ title, value, subtitle, trend }: StatsCardProps) {
       <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider truncate">
         {title}
       </p>
-      <p className="text-3xl font-bold text-gray-900 dark:text-white leading-none">
+      <p className="text-2xl font-bold text-gray-900 dark:text-white leading-none">
         {value}
       </p>
       {subtitle && (

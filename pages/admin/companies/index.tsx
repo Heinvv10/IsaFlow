@@ -398,7 +398,7 @@ export default function AdminCompaniesPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{c.user_count}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(c.mrr_cents / 100)}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(c.mrr_cents / 100)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(c.created_at)}</td>
                   <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(c.last_active)}</td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>

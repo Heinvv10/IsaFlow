@@ -9,6 +9,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, AlertCircle, CheckCircle2, Clock } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface PurchaseOrder {
   id: string;
@@ -26,7 +28,7 @@ interface PurchaseOrder {
 
 const fmtCurrency = (v: number | null | undefined) =>
   v != null
-    ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(Number(v))
+    ? formatMoney(Number(v))
     : null;
 
 const statusColor = (s: string | null) => {
@@ -106,8 +108,8 @@ export default function PurchaseOrderDetailPage() {
   const fields: { label: string; value: string | number | null | undefined; highlight?: boolean }[] = [
     { label: 'PO Number', value: po.po_number, highlight: true },
     { label: 'Supplier', value: po.supplier_name },
-    { label: 'Order Date', value: po.order_date?.split('T')[0] },
-    { label: 'Expected Delivery', value: po.expected_delivery_date?.split('T')[0] },
+    { label: 'Order Date', value: formatDisplayDate(po.order_date) },
+    { label: 'Expected Delivery', value: formatDisplayDate(po.expected_delivery_date) },
     { label: 'Subtotal', value: fmtCurrency(po.subtotal) },
     { label: 'Tax Amount', value: fmtCurrency(po.tax_amount) },
     { label: 'Total Amount', value: fmtCurrency(po.total_amount) },
@@ -171,7 +173,7 @@ export default function PurchaseOrderDetailPage() {
             </div>
             {po.created_at && (
               <p className="text-xs text-[var(--ff-text-tertiary)] mt-2">
-                Created: {po.created_at.split('T')[0]}
+                Created: {formatDisplayDate(po.created_at)}
               </p>
             )}
           </div>

@@ -4,6 +4,7 @@
  */
 
 import type { ParsedAccount } from '@/modules/accounting/services/core/migrationParserService';
+import { formatAmount } from '@/lib/money/formatMoney';
 
 const GL_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const;
 type GLType = typeof GL_TYPES[number];
@@ -75,9 +76,9 @@ export function AccountMappingTable({ accounts, onChange, onAutoMap, autoMapping
                     ))}
                   </select>
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-xs text-[var(--ff-text-primary)]">
+                <td className="px-3 py-2 text-right tabular-nums text-xs text-[var(--ff-text-primary)]">
                   {acct.openingBalance !== 0
-                    ? acct.openingBalance.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    ? formatAmount(acct.openingBalance)
                     : '—'
                   }
                 </td>

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { EChartsType, EChartsCoreOption } from 'echarts/core';
 import { echarts } from '@/lib/charts/echarts';
 import { buildTheme } from '@/lib/charts/theme';
+import { readThemeVar } from '@/lib/charts/readThemeVar';
 import { log } from '@/lib/logger';
 
 const THEME_NAME = 'ff-echarts-theme';
@@ -10,7 +11,7 @@ let themeRegistered = false;
 function registerThemeOnce(): void {
   if (themeRegistered || typeof document === 'undefined') return;
   const styles = getComputedStyle(document.documentElement);
-  const theme = buildTheme((name) => styles.getPropertyValue(name).trim());
+  const theme = buildTheme((name) => readThemeVar(styles, name));
   echarts.registerTheme(THEME_NAME, theme);
   themeRegistered = true;
 }

@@ -135,11 +135,11 @@ export default function ItemAdjustmentsPage() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
-                  <th className="px-4 py-3 text-right text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">On Hand</th>
-                  <th className="px-4 py-3 text-left text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Code</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Item</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Category</th>
+                  <th className="px-4 py-3 text-right text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">On Hand</th>
+                  <th className="px-4 py-3 text-left text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">UOM</th>
                 </tr></thead>
                 <tbody className="divide-y divide-[var(--ff-border-light)]">
                   {items.map(i => (
@@ -147,7 +147,7 @@ export default function ItemAdjustmentsPage() {
                       <td className="px-4 py-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{i.item_code}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-primary)]">{i.item_name}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{(i as unknown as Record<string, unknown>).category as string || '—'}</td>
-                      <td className="px-4 py-3 text-right font-mono tabular-nums text-[var(--ff-text-primary)]">{fmtQty(i.current_quantity)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">{fmtQty(i.current_quantity)}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-tertiary)]">{i.uom}</td>
                     </tr>
                   ))}

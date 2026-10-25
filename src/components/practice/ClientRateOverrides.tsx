@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { DollarSign, Plus, Trash2, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface RateOverride {
   id: string;
@@ -243,11 +244,11 @@ export function ClientRateOverrides({ clientId }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--ff-border-primary)] bg-[var(--ff-bg-tertiary)]">
-                <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Staff Member</th>
-                <th className="text-right py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Rate/Hour</th>
-                <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Effective From</th>
-                <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Effective To</th>
-                <th className="text-left py-3 px-4 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Notes</th>
+                <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Staff Member</th>
+                <th className="text-right py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Rate/Hour</th>
+                <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Effective From</th>
+                <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Effective To</th>
+                <th className="text-left py-3 px-4 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">Notes</th>
                 <th className="py-3 px-4" />
               </tr>
             </thead>
@@ -262,8 +263,8 @@ export function ClientRateOverrides({ clientId }: Props) {
                       <span className="block text-xs text-[var(--ff-text-tertiary)]">{o.staffEmail}</span>
                     )}
                   </td>
-                  <td className="py-3 px-4 text-right font-mono text-[var(--ff-text-primary)]">
-                    R {Number(o.ratePerHour).toFixed(2)}
+                  <td className="py-3 px-4 text-right tabular-nums text-[var(--ff-text-primary)]">
+                    {formatMoney(Number(o.ratePerHour))}
                   </td>
                   <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{o.effectiveFrom}</td>
                   <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{o.effectiveTo ?? '—'}</td>

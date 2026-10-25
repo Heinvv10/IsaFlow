@@ -4,7 +4,7 @@
  * export here, so each caller still imports it there.
  */
 import { svgBoxFor, svgBoxPx } from './packChartBox';
-import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, type MoneyScale } from '@/lib/format/money';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import { waterfallOption } from '@/modules/accounting/services/packs/packChartOptions';
@@ -125,8 +125,8 @@ function cashBridgeSteps(
     const movement = current.cash - opening;
     return {
       drawn: false,
-      why: `Cash moved ${inProse(formatMoney(opening, { scale }))} to ${inProse(formatMoney(current.cash, { scale }))} `
-        + `over the period, a movement of ${inProse(formatMoney(movement, { scale }))}. No bridge is drawn `
+      why: `Cash moved ${inProse(formatStatementFigure(opening, { scale }))} to ${inProse(formatStatementFigure(current.cash, { scale }))} `
+        + `over the period, a movement of ${inProse(formatStatementFigure(movement, { scale }))}. No bridge is drawn `
         + 'because there is nothing to bridge THROUGH: this pack\'s figure set carries the '
         + 'period\'s cash totals and none of the operating, investing or financing figures a '
         + 'cash flow statement is made of, so every step between the two balances would be one '
@@ -191,8 +191,8 @@ export function buildCashWaterfallChart(
 
 /** The title, the box it leaves the chart and the axis's ask, for `box`. */
 function cashFrame(steps: WaterfallStep[], opening: number, closing: number, scale: MoneyScale, box: ChartBox) {
-  const title = `Cash moved from ${inProse(formatMoney(opening, { scale }))} to `
-    + `${inProse(formatMoney(closing, { scale }))} over the period.`;
+  const title = `Cash moved from ${inProse(formatStatementFigure(opening, { scale }))} to `
+    + `${inProse(formatStatementFigure(closing, { scale }))} over the period.`;
   const plot = svgBoxFor(box, title);
   return { title, plot, intervals: cashBridgeIntervals(steps, box, plot.heightMm) };
 }

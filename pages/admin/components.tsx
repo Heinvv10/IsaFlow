@@ -97,7 +97,7 @@ export default function ComponentShowcasePage() {
               <nav className="space-y-4">
                 {NAV_SECTIONS.map((section) => (
                   <div key={section.label}>
-                    <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-gray-600 dark:text-gray-400 dark:text-gray-500">
+                    <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-widest text-gray-600 dark:text-gray-400 dark:text-gray-500">
                       {section.label}
                     </p>
                     <div className="space-y-0.5">

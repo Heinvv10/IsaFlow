@@ -67,16 +67,16 @@ describe('MoneyField', () => {
   it('echoes what it understood, live while typing and after blur', () => {
     render(<Harness />);
     type('25 000,00');
-    expect(screen.getByText('R 25,000.00')).toBeTruthy();
+    expect(screen.getByText('R 25 000.00')).toBeTruthy();
     fireEvent.blur(input());
-    expect(screen.getByText('R 25,000.00')).toBeTruthy();
-    expect(input().value).toBe('25,000.00');
+    expect(screen.getByText('R 25 000.00')).toBeTruthy();
+    expect(input().value).toBe('25\xa0000.00');
   });
 
   it('points aria-describedby at the echo', () => {
     render(<Harness />);
     type('1234.5');
-    const echo = screen.getByText('R 1,234.50');
+    const echo = screen.getByText('R 1 234.50');
     expect(input().getAttribute('aria-describedby')).toBe(echo.id);
     expect(echo.getAttribute('aria-live')).toBe('polite');
   });
@@ -107,7 +107,7 @@ describe('MoneyField', () => {
   it('refuses a negative amount unless allowNegative', () => {
     const { unmount } = render(<Harness />);
     type('-5');
-    expect(screen.queryByText(/^-R /u)).toBeNull();
+    expect(screen.queryByText(/^\u2212R\s/u)).toBeNull();
     fireEvent.blur(input());
     expect(screen.getByRole('alert').textContent).toMatch(/negative/i);
     expect(out()).toBe('null');
@@ -116,17 +116,17 @@ describe('MoneyField', () => {
     type('-5');
     fireEvent.blur(input());
     expect(out()).toBe('-500');
-    expect(screen.getByText(/^-R 5\.00$/u)).toBeTruthy();
+    expect(screen.getByText(/^\u2212R\s5\.00$/u)).toBeTruthy();
   });
 
   it('enforces min and max in cents', () => {
     render(<Harness min={1_000} max={5_000} />);
     type('5');
     fireEvent.blur(input());
-    expect(screen.getByRole('alert').textContent).toMatch(/at least R 10\.00/);
+    expect(screen.getByRole('alert').textContent).toMatch(/at least R\xa010\.00/);
     type('60');
     fireEvent.blur(input());
-    expect(screen.getByRole('alert').textContent).toMatch(/at most R 50\.00/);
+    expect(screen.getByRole('alert').textContent).toMatch(/at most R\xa050\.00/);
     type('25');
     fireEvent.blur(input());
     expect(out()).toBe('2500');
@@ -156,14 +156,14 @@ describe('MoneyField', () => {
     render(<Harness currency="USD" />);
     expect(screen.getByText('USD')).toBeTruthy();
     type('25,000.00');
-    expect(screen.getByText('USD 25,000.00')).toBeTruthy();
+    expect(screen.getByText('USD 25 000.00')).toBeTruthy();
   });
 
   it('follows an outside change to value', () => {
     const { rerender } = render(<MoneyField label="Amount" value={100} onChange={() => undefined} />);
     expect(input().value).toBe('1.00');
     rerender(<MoneyField label="Amount" value={250_000} onChange={() => undefined} />);
-    expect(input().value).toBe('2,500.00');
+    expect(input().value).toBe('2\xa0500.00');
   });
 
   it('keeps unreadable text on screen after it reports null', () => {
@@ -244,7 +244,7 @@ describe('MoneyField', () => {
     render(<Harness />);
     type('10 000 000 000 000.00');
     fireEvent.blur(input());
-    expect(screen.getByRole('alert').textContent).toMatch(/R 9,999,999,999,999\.99/);
+    expect(screen.getByRole('alert').textContent).toMatch(/R\xa09\xa0999\xa0999\xa0999\xa0999\.99/);
   });
 
   it('posts the canonical cents through a hidden input, never the display text', () => {

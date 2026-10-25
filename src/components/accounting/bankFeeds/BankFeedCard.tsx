@@ -264,7 +264,7 @@ export function BankFeedCard({
               {d}d
             </button>
           ))}
-          <span className="text-[10px] text-[var(--ff-text-tertiary)] ml-1">
+          <span className="text-xs text-[var(--ff-text-tertiary)] ml-1">
             ABSA caps server-side at 180 days
           </span>
         </div>

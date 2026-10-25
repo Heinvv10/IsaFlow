@@ -10,6 +10,8 @@ import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ApiRequestError, apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface VatData {
   outputVat: number;
@@ -20,11 +22,11 @@ interface VatData {
 }
 
 function fmtCurrency(n: number): string {
-  return 'R\u00a0' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return formatMoney(n);
 }
 
 function fmtDate(s: string): string {
-  return new Date(s).toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDisplayDate(s);
 }
 
 function currentPeriod(): { start: string; end: string } {

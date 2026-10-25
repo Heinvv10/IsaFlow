@@ -11,13 +11,15 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { useVatRegistration } from '@/hooks/useVatRegistration';
 import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
   adjustmentType: string; amount: number; reason: string; status: string;
 }
 
-const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-500/10 text-gray-400',
@@ -183,7 +185,7 @@ export default function VATAdjustmentsPage() {
                 {filteredItems.map(item => (
                   <tr key={item.id} className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50">
                     <td className="px-4 py-3 text-[var(--ff-text-primary)] font-medium">{item.adjustmentNumber}</td>
-                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.adjustmentDate?.split('T')[0]}</td>
+                    <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{formatDisplayDate(item.adjustmentDate)}</td>
                     <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{item.vatPeriod || '—'}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded text-xs font-medium ${item.adjustmentType === 'input' ? 'bg-blue-500/10 text-blue-400' : 'bg-orange-500/10 text-orange-400'}`}>{item.adjustmentType}</span></td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(item.amount)}</td>

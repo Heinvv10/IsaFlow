@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { Check, Clock, Loader2, X } from 'lucide-react';
 import type { PendingRuleChange } from './useBankRuleChanges';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 const KIND: Record<PendingRuleChange['kind'], string> = { create: 'New rule', update: 'Edit', toggle: 'Re-activate' };
 const LABELS: Record<string, string> = {
@@ -21,7 +22,7 @@ const show = (v: unknown, names: Record<string, string>) => (v === null || v ===
   : typeof v === 'boolean' ? (v ? 'Yes' : 'No') : names[String(v)] ?? String(v));
 const when = (iso: string) => {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' });
+  return Number.isNaN(d.getTime()) ? iso : formatDisplayDateTime(d);
 };
 
 interface Props {
@@ -44,7 +45,7 @@ function ChangeItem({ change, busy, names, onDecide }: {
   return (
     <li className="py-3 space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400">{KIND[change.kind]}</span>
+        <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-400">{KIND[change.kind]}</span>
         <span className="font-medium text-[var(--ff-text-primary)]">{change.ruleName}</span>
         <span className="text-xs text-[var(--ff-text-tertiary)]">
           proposed by {change.proposerName ?? 'an unknown member'} · {when(change.proposedAt)}

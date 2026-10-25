@@ -37,7 +37,7 @@ describe('practice/reports/wip-aging (route: data = WipAgingRow[])', () => {
     serve(on('GET', 'wip-aging', () => ok([row])));
     render(<WipAgingPage />);
     const tr = (await screen.findByText('D2 Client Pty')).closest('tr') as HTMLElement;
-    for (const v of ['111.00', '222.00', '333.00', '444.00', '1,110.00']) expect(tr.textContent).toContain(v);
+    for (const v of ['111.00', '222.00', '333.00', '444.00', '1\xa0110.00']) expect(tr.textContent).toContain(v);
   });
   it('empty 500: a sentence, no rows; a failing reload drops the rows already shown', async () => {
     let fail = false;
@@ -62,12 +62,12 @@ describe('sars/emp201 (route: data = EMP201Data)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Generate/ }));
     await screen.findByText('Number of employees');
     expect(rowOf('Number of employees')).toContain('17');
-    expect(rowOf('Total taxable remuneration')).toMatch(/888,00/);
-    expect(rowOf('PAYE payable')).toMatch(/500,00/);
-    expect(rowOf('Total UIF')).toMatch(/25,00/);
-    expect(rowOf('SDL (Skills Development Levy)')).toMatch(/77,00/);
+    expect(rowOf('Total taxable remuneration')).toMatch(/888\.00/);
+    expect(rowOf('PAYE payable')).toMatch(/500\.00/);
+    expect(rowOf('Total UIF')).toMatch(/25\.00/);
+    expect(rowOf('SDL (Skills Development Levy)')).toMatch(/77\.00/);
     fireEvent.click(screen.getByText(/Payroll Runs \(1\)/));
-    expect(await screen.findByText(/999,00/)).toBeDefined();   // run.grossPay
+    expect(await screen.findByText(/999\.00/)).toBeDefined();   // run.grossPay
   });
   it('an empty 500 shows a sentence and no figures', async () => {
     serve(on('GET', 'sars-emp201', empty500));
@@ -207,7 +207,7 @@ describe('supplier-invoices/index (routes: ?status_counts=1 -> { counts }, list 
     const tr = (await screen.findByText('D2-SI-001')).closest('tr') as HTMLElement;
     expect(tr.textContent).toContain('D2 Supplier Ltd');
     expect(tr.textContent).toContain('D2-REF');
-    expect(tr.textContent).toMatch(/321,00/);
+    expect(tr.textContent).toMatch(/321\.00/);
     await waitFor(() => expect(document.body.textContent).toMatch(/1 invoice\b/));
   });
   it('an empty 500 shows a sentence and no invoice rows', async () => {

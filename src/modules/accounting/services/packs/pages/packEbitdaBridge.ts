@@ -4,7 +4,7 @@
  * `packDefinitions.ts` for the 300-line cap; that file re-exports every
  * export here, so each caller still imports it there.
  */
-import { formatMoney, MONEY_SCALES } from '@/lib/format/money';
+import { formatStatementFigure, MONEY_SCALES } from '@/lib/format/money';
 import { PACK_SCALE } from './packScale';
 
 /** The source page 5's EBITDA row already records. Restated here so the
@@ -34,7 +34,7 @@ export const DEPRECIATION_SOURCE = 'packFigureSet.current.depreciation';
 
 /** A raw rand amount as the page PRINTS it — the unit a reader adds. Half
  *  away from zero, which is what `Intl.NumberFormat` does inside
- *  `formatMoney`, so this cannot disagree with the cell beside it. */
+ *  `formatStatementFigure`, so this cannot disagree with the cell beside it. */
 function atPackScale(rands: number): number {
   return Math.sign(rands) * Math.round(Math.abs(rands) / MONEY_SCALES[PACK_SCALE]);
 }
@@ -59,7 +59,7 @@ function atPackScale(rands: number): number {
  */
 export function bridgeRoundingNote(operating: number, addBack: number, ebitda: number): string | undefined {
   if (atPackScale(operating) + atPackScale(addBack) === atPackScale(ebitda)) return undefined;
-  const exact = (n: number) => formatMoney(n, { cents: true, pack: true });
+  const exact = (n: number) => formatStatementFigure(n, { cents: true, pack: true });
   // IN RANDS, AND IT SAYS SO. Every other figure on this page is in R'000,
   // and three unrounded amounts printed beside them with no unit named is a
   // fourth way of reading the same column.

@@ -3,14 +3,14 @@
  */
 
 import type { ConsolidatedTrialBalance } from '@/modules/accounting/services/reports/consolidationTypes';
+import { formatAmount } from '@/lib/money/formatMoney';
 
 const ACCOUNT_TYPE_COLOUR: Record<string, string> = {
   asset: 'text-blue-400', liability: 'text-orange-400', equity: 'text-purple-400',
   income: 'text-teal-400', expense: 'text-red-400',
 };
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+const fmt = (n: number) => formatAmount(n);
 
 interface Props { report: ConsolidatedTrialBalance }
 
@@ -32,7 +32,7 @@ export function ConsolidatedTBTable({ report }: Props) {
               {entities.map((e) => (
                 <th key={e.companyId} className="px-3 py-3 text-right" colSpan={2}>
                   <span className="block truncate max-w-[140px]" title={e.companyName}>{e.companyName}</span>
-                  <span className="flex justify-end gap-4 text-[10px] font-normal text-gray-600 mt-0.5">
+                  <span className="flex justify-end gap-4 text-xs font-normal text-gray-600 mt-0.5">
                     <span>DR</span><span>CR</span>
                   </span>
                 </th>
@@ -58,22 +58,22 @@ export function ConsolidatedTBTable({ report }: Props) {
                   const bal = acc.byEntity[e.companyId] ?? { debit: 0, credit: 0 };
                   return (
                     <td key={e.companyId} className="px-3 py-2.5 text-right" colSpan={2}>
-                      <span className="flex justify-end gap-4 font-mono text-xs text-gray-700 dark:text-gray-300">
+                      <span className="flex justify-end gap-4 tabular-nums text-xs text-gray-700 dark:text-gray-300">
                         <span>{bal.debit  ? fmt(bal.debit)  : '—'}</span>
                         <span>{bal.credit ? fmt(bal.credit) : '—'}</span>
                       </span>
                     </td>
                   );
                 })}
-                <td className="px-3 py-2.5 text-right font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">
+                <td className="px-3 py-2.5 text-right tabular-nums text-xs font-semibold text-gray-800 dark:text-gray-200">
                   {fmt(acc.totalDebit)}
                 </td>
-                <td className="px-3 py-2.5 text-right font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">
+                <td className="px-3 py-2.5 text-right tabular-nums text-xs font-semibold text-gray-800 dark:text-gray-200">
                   {fmt(acc.totalCredit)}
                 </td>
                 <td className="px-3 py-2.5 text-center">
                   {acc.isEliminated && (
-                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-400">
                       Elim
                     </span>
                   )}
@@ -90,8 +90,8 @@ export function ConsolidatedTBTable({ report }: Props) {
                 Totals
               </td>
               {entities.map((e) => <td key={e.companyId} colSpan={2} />)}
-              <td className="px-3 py-3 text-right font-mono text-sm text-slate-900 dark:text-white">{fmt(totalDebits)}</td>
-              <td className="px-3 py-3 text-right font-mono text-sm text-slate-900 dark:text-white">{fmt(totalCredits)}</td>
+              <td className="px-3 py-3 text-right tabular-nums text-sm text-slate-900 dark:text-white">{fmt(totalDebits)}</td>
+              <td className="px-3 py-3 text-right tabular-nums text-sm text-slate-900 dark:text-white">{fmt(totalCredits)}</td>
               <td />
             </tr>
           </tfoot>

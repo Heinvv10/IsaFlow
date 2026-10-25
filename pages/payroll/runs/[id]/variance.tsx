@@ -75,8 +75,8 @@ function DiffCell({ totals, status }: { totals: VarianceTotals; status?: string 
   const isDown = diff < 0;
   return (
     <div className="text-right">
-      <div className="font-mono text-[var(--ff-text-primary)]">{formatCurrency(totals.current)}</div>
-      <div className={`text-xs font-mono ${isUp ? 'text-amber-400' : isDown ? 'text-emerald-400' : 'text-[var(--ff-text-tertiary)]'}`}>
+      <div className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(totals.current)}</div>
+      <div className={`text-xs tabular-nums ${isUp ? 'text-amber-400' : isDown ? 'text-emerald-400' : 'text-[var(--ff-text-tertiary)]'}`}>
         {diff === 0 && status !== 'new' && status !== 'removed' ? '—' : (
           <>
             {diff > 0 ? '+' : ''}{formatCurrency(diff)}
@@ -107,8 +107,8 @@ function SummaryCard({ label, totals, format = formatCurrency }: {
   return (
     <div className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] p-4">
       <div className="text-xs text-[var(--ff-text-tertiary)] mb-1">{label}</div>
-      <div className="text-xl font-mono text-[var(--ff-text-primary)]">{format(totals.current)}</div>
-      <div className={`text-xs font-mono mt-1 flex items-center gap-1 ${color}`}>
+      <div className="text-xl tabular-nums text-[var(--ff-text-primary)]">{format(totals.current)}</div>
+      <div className={`text-xs tabular-nums mt-1 flex items-center gap-1 ${color}`}>
         {totals.diff !== 0 && <Icon className="h-3 w-3" />}
         {totals.diff > 0 ? '+' : ''}{format(totals.diff)} <span className="opacity-80">({fmtPct(totals.pct)})</span>
       </div>

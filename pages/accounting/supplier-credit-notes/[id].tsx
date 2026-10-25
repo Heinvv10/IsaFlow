@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import type { CreditNote } from '@/modules/accounting/types/ar.types';
 import type { DocumentApprovalState } from '@/modules/accounting/types/approval.types';
 import { DocumentApprovalPanel, isApprovalHeld } from '@/components/accounting/approvals/DocumentApprovalPanel';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 /** R-035: the detail GET adds the derived approval state while the note is a draft. */
 type NoteWithApproval = CreditNote & { approval?: DocumentApprovalState | null };
@@ -37,9 +38,8 @@ function StatusBadge({ status }: { status: string }) {
 
 function toDateStr(val: Date | string | null | undefined): string {
   if (!val) return '—';
-  if (val instanceof Date) return val.toLocaleDateString('en-ZA');
-  const s = String(val);
-  return s.split('T')[0] ?? s;
+  if (val instanceof Date) return formatDisplayDate(val);
+  return formatDisplayDate(String(val));
 }
 
 export default function SupplierCreditNoteDetailPage() {
@@ -243,15 +243,15 @@ export default function SupplierCreditNoteDetailPage() {
             <div className="space-y-2 max-w-xs ml-auto text-sm">
               <div className="flex justify-between">
                 <span className="text-[var(--ff-text-secondary)]">Subtotal (excl. VAT)</span>
-                <span className="font-mono text-[var(--ff-text-primary)]">{formatCurrency(Number(note.subtotal))}</span>
+                <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(note.subtotal))}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-[var(--ff-text-secondary)]">VAT ({note.taxRate}%)</span>
-                <span className="font-mono text-[var(--ff-text-primary)]">{formatCurrency(Number(note.taxAmount))}</span>
+                <span className="tabular-nums text-[var(--ff-text-primary)]">{formatCurrency(Number(note.taxAmount))}</span>
               </div>
               <div className="flex justify-between pt-2 border-t border-[var(--ff-border-light)] text-base font-semibold">
                 <span className="text-[var(--ff-text-primary)]">Total</span>
-                <span className="font-mono text-orange-400">{formatCurrency(Number(note.totalAmount))}</span>
+                <span className="tabular-nums text-orange-400">{formatCurrency(Number(note.totalAmount))}</span>
               </div>
             </div>
           </div>

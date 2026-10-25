@@ -148,7 +148,7 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
                   <option key={v} value={v}>{label}</option>
                 ))}
               </select>
-              <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">Severance only applies for retrenchment (BCEA s41).</p>
+              <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">Severance only applies for retrenchment (BCEA s41).</p>
             </div>
             <div>
               <label className={LABEL}>Contractual notice period (days)</label>
@@ -176,7 +176,7 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
                 onChange={(e) => setDetails({ ...details, severanceWeeksPerYear: e.target.value === '' ? null : Number(e.target.value) })}
                 disabled={!endDate}
               />
-              <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-1">BCEA minimum is 1 week per year of completed service (retrenchment only).</p>
+              <p className="text-xs text-[var(--ff-text-tertiary)] mt-1">BCEA minimum is 1 week per year of completed service (retrenchment only).</p>
             </div>
             <div className="md:col-span-2 flex items-center gap-2">
               <input
@@ -262,7 +262,7 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
             </button>
           </div>
 
-          <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-3">
+          <p className="text-xs text-[var(--ff-text-tertiary)] mt-3">
             Saved values are injected into the payroll run for the month containing the end date.
             Severance is a lump sum &mdash; obtain a SARS tax directive and adjust PAYE via the Tax Directives page if needed.
           </p>
@@ -275,7 +275,7 @@ export function EmployeeTerminationCard({ employeeId, endDate }: Props) {
 function PreviewCard({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
   return (
     <div className={`p-3 rounded-lg ${highlight ? 'bg-teal-500/10 border border-teal-500/30' : 'bg-[var(--ff-bg-tertiary)]'}`}>
-      <p className="text-[10px] text-[var(--ff-text-tertiary)] uppercase tracking-wide">{label}</p>
+      <p className="text-xs text-[var(--ff-text-tertiary)] uppercase tracking-wide">{label}</p>
       <p className={`text-lg font-semibold ${highlight ? 'text-teal-300' : 'text-[var(--ff-text-primary)]'}`}>{formatCurrency(value)}</p>
     </div>
   );

@@ -19,7 +19,7 @@ import {
   SUPPLIER_INVOICE_EXPORT_CAP,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { parseSupplierInvoiceFilters } from '@/modules/accounting/services/ap/supplierInvoiceFilterParams';
-import { formatDate } from '@/utils/formatters';
+import { formatDateISO } from '@/utils/dateFormat';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -43,8 +43,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         csvCell(inv.invoiceNumber),
         csvCell(inv.supplierName ?? ''),
         csvCell(inv.reference ?? ''),
-        csvCell(formatDate(inv.invoiceDate)),
-        csvCell(inv.dueDate ? formatDate(inv.dueDate) : ''),
+        csvCell(formatDateISO(inv.invoiceDate)), // a file keeps ISO dates: a display date (21 Oct 2026) cannot be re-imported
+        csvCell(inv.dueDate ? formatDateISO(inv.dueDate) : ''),
         Number(inv.subtotal).toFixed(2),
         Number(inv.taxAmount).toFixed(2),
         Number(inv.totalAmount).toFixed(2),
