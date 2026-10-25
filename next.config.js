@@ -69,7 +69,9 @@ const nextConfig = {
       { source: '/accounting/audit-trail', destination: '/accounting/reports/audit-trail', permanent: true },
       { source: '/accounting/bank-rules', destination: '/accounting/bank-reconciliation/rules', permanent: true },
       { source: '/accounting/data-import', destination: '/accounting/sage-migration', permanent: true },
-      { source: '/accounting/vat-return', destination: '/accounting/reports/vat-return', permanent: true },
+      { source: '/accounting/vat-return', destination: '/accounting/sars/vat201', permanent: true },
+      // One VAT201 surface: the old report page is retired, its query string carries over.
+      { source: '/accounting/reports/vat-return', destination: '/accounting/sars/vat201', permanent: false },
       { source: '/accounting/reports/customer', destination: '/accounting/reports/customer-reports', permanent: true },
       { source: '/accounting/reports/supplier', destination: '/accounting/reports/supplier-reports', permanent: true },
       { source: '/accounting/reports/trial-balance', destination: '/accounting/trial-balance', permanent: true },
@@ -89,7 +91,7 @@ const nextConfig = {
       { source: '/accounting/sars/vat-adjustments', destination: '/accounting/vat-adjustments', permanent: true },
       // Nav menu roots — ensure clicking a top-level menu label never 404s
       { source: '/accounting/banking', destination: '/accounting/bank-accounts', permanent: false },
-      { source: '/accounting/vat', destination: '/accounting/reports/vat-return', permanent: false },
+      { source: '/accounting/vat', destination: '/accounting/sars/vat201', permanent: false },
       { source: '/payroll', destination: '/payroll/employees', permanent: false },
       { source: '/payroll/dashboard', destination: '/payroll/employees', permanent: false },
       { source: '/payroll/year-end', destination: '/accounting/year-end', permanent: false },

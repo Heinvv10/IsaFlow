@@ -75,7 +75,7 @@ const ALL_NAV_ROUTES = [
   '/accounting/fiscal-periods',
 
   // VAT
-  '/accounting/reports/vat-return',
+  '/accounting/sars/vat201',
   '/accounting/vat-adjustments',
   '/accounting/drc-vat',
 

@@ -15,7 +15,7 @@ import { formatMoney } from '@/lib/money/formatMoney';
 const REPORT_LINKS = [
   { href: '/accounting/reports/income-statement', label: 'Income Statement', sub: 'Profit & Loss', hoverColor: 'hover:border-teal-500/50' },
   { href: '/accounting/reports/balance-sheet', label: 'Balance Sheet', sub: 'Assets = L + E', hoverColor: 'hover:border-blue-500/50' },
-  { href: '/accounting/reports/vat-return', label: 'VAT Return', sub: 'Input / Output VAT', hoverColor: 'hover:border-amber-500/50' },
+  { href: '/accounting/sars/vat201', label: 'VAT Return', sub: 'Input / Output VAT', hoverColor: 'hover:border-amber-500/50' },
   { href: '/accounting/reports/project-profitability', label: 'Project Profitability', sub: 'Revenue vs costs', hoverColor: 'hover:border-purple-500/50' },
 ];
 

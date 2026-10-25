@@ -53,7 +53,9 @@ const BOX_NUMBERS: Record<string, { box: string; label: string }> = {
   'input:capital_goods': { box: '14', label: 'Capital goods/services purchased' },
   'input:standard': { box: '15', label: 'Other goods/services purchased' },
   'input:imported': { box: '14A/15A', label: 'Goods imported' },
-  'input:reverse_charge': { box: '16', label: 'Change in use' },
+  // Domestic reverse charge input tax is an ordinary input claim (field 15), not a
+  // change in use. UNVERIFIED: SARS DRC guide not on file; audit V12 agrees.
+  'input:reverse_charge': { box: '15', label: 'Other goods/services purchased (domestic reverse charge)' },
   'input:bad_debt': { box: '17', label: 'Bad debts' },
   'input:exempt': { box: '18', label: 'Other adjustments' },
   'input:no_vat': { box: '18', label: 'Other adjustments' },

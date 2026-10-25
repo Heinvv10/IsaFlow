@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { compareCounts, parseCounts, pruneCounts, readBaseList, resolveBaseRef, type GitRunner } from '../../../scripts/ci/rawInputAllowlist';
+import { compareCounts, isCI, parseCounts, pruneCounts, readBaseList, resolveBaseRef, type GitRunner } from '../../../scripts/ci/rawInputAllowlist';
 
 const REF = 'origin/master';
 const PATH = 'eslint/raw-input-allowlist.json';
@@ -116,6 +116,26 @@ describe('pruneCounts (--write)', () => {
   });
 });
 
+describe('isCI', () => {
+  it.each([
+    [{ GITHUB_ACTIONS: 'true' }, true],
+    [{ GITHUB_ACTIONS: '1' }, true],
+    [{ GITHUB_ACTIONS: 'True' }, true],
+    [{ GITHUB_ACTIONS: 'TRUE' }, true],
+    [{ GITHUB_ACTIONS: 'yes' }, true],
+    [{ GITHUB_ACTIONS: 'false' }, true],
+    [{ CI: 'true' }, true],
+    [{ CI: '1' }, true],
+    [{ CI: 'false' }, true],
+    [{ GITHUB_ACTIONS: '', CI: '' }, false],
+    [{ GITHUB_ACTIONS: undefined }, false],
+    [{ RAW_INPUT_BASE_REF: 'x' }, false],
+    [{}, false],
+  ])('%j -> %s (any non-empty value is CI)', (env, expected) => {
+    expect(isCI(env)).toBe(expected);
+  });
+});
+
 describe('resolveBaseRef', () => {
   it('defaults to origin/master', () => {
     expect(resolveBaseRef({})).toEqual({ ok: true, ref: 'origin/master' });
@@ -125,14 +145,18 @@ describe('resolveBaseRef', () => {
 
   it('honours the override locally', () => {
     expect(resolveBaseRef({ RAW_INPUT_BASE_REF: 'refs/tmp/base' })).toEqual({ ok: true, ref: 'refs/tmp/base' });
-    expect(resolveBaseRef({ RAW_INPUT_BASE_REF: 'x', GITHUB_ACTIONS: 'false' })).toEqual({ ok: true, ref: 'x' });
+    expect(resolveBaseRef({ RAW_INPUT_BASE_REF: 'x', GITHUB_ACTIONS: '' })).toEqual({ ok: true, ref: 'x' });
   });
 
-  it('refuses the override on GitHub, whatever it points at', () => {
+  it.each(['true', '1', 'True', 'TRUE', 'yes', 'false'])('refuses the override when GITHUB_ACTIONS=%s, whatever it points at', (value) => {
     for (const ref of ['origin/master', 'refs/tmp/base', 'HEAD', 'origin/old']) {
-      const r = resolveBaseRef({ RAW_INPUT_BASE_REF: ref, GITHUB_ACTIONS: 'true' });
+      const r = resolveBaseRef({ RAW_INPUT_BASE_REF: ref, GITHUB_ACTIONS: value });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.reason).toContain(ref);
     }
+  });
+
+  it.each(['true', '1', 'True', 'false'])('refuses the override when only CI=%s is set', (value) => {
+    expect(resolveBaseRef({ RAW_INPUT_BASE_REF: 'HEAD', CI: value }).ok).toBe(false);
   });
 });

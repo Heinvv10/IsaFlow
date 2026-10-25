@@ -79,7 +79,7 @@ describe('buildProposals', () => {
   it('gives every proposal non-empty reasoning and evidence', () => {
     const r = readiness([
       item({ key: 'bank_reconciled', status: 'fail' }),
-      item({ key: 'vat_reviewed', label: 'VAT reviewed', status: 'warn', reason: 'No VAT return drafted.', fixHref: '/accounting/reports/vat-return' }),
+      item({ key: 'vat_reviewed', label: 'VAT reviewed', status: 'warn', reason: 'No VAT return drafted.', fixHref: '/accounting/sars/vat201' }),
     ]);
     const props = buildProposals(r, { draftJournals: [draftJe()], unpostedCount: 1 });
     expect(props.length).toBeGreaterThan(0);
