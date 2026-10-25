@@ -76,7 +76,7 @@ export default function CustomerReportsPage() {
           </Link>
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10"><Users className="h-6 w-6 text-blue-500" /></div>
+              <div className="p-2 rounded-lg bg-blue-500/10"><Users className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Customer Report</h1>
             </div>
             <button onClick={handleExport} disabled={rows.length === 0}
@@ -101,7 +101,7 @@ export default function CustomerReportsPage() {
           {error && <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm"><AlertCircle className="h-4 w-4" /> {error}</div>}
 
           {loading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
+            <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" /></div>
           ) : (
             <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               <table className="w-full text-sm">

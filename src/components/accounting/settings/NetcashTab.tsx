@@ -156,7 +156,7 @@ export function NetcashTab({ company, onChange }: Props) {
             type="button"
             onClick={() => void handleTestConnection()}
             disabled={testState === 'loading'}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
           >
             {testState === 'loading' ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Testing...</>

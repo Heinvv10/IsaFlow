@@ -152,7 +152,7 @@ export function LoanScheduleTab({ loanId, rows, loading }: Props) {
             <button
               onClick={runPreview}
               disabled={previewLoading}
-              className="ml-auto inline-flex items-center gap-1.5 px-4 py-1.5 bg-teal-600 text-white rounded-lg text-xs font-medium disabled:opacity-50"
+              className="ml-auto inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-medium disabled:opacity-50"
             >
               {previewLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Run Preview'}
             </button>

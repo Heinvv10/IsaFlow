@@ -73,14 +73,14 @@ export default function ItemAdjustmentsPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10"><ArrowUpDown className="h-6 w-6 text-blue-500" /></div>
+              <div className="p-2 rounded-lg bg-blue-500/10"><ArrowUpDown className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Item Adjustments</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">Adjust stock quantities with reason tracking</p>
               </div>
             </div>
             <button onClick={() => setShowForm(!showForm)}
-              className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-lg text-sm font-medium">
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium">
               <Plus className="h-4 w-4" /> New Adjustment
             </button>
           </div>

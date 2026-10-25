@@ -32,7 +32,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     `) as Row[];
 
     if (rows.length === 0) {
-      return apiResponse.success(res, { name: '', email: '', phone: '', vat_number: '', address: '', primary_color: '#0d9488' });
+      return apiResponse.success(res, { name: '', email: '', phone: '', vat_number: '', address: '', primary_color: '#0f766e' });
     }
 
     const c = rows[0]!;
@@ -52,7 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       bank_name: c.bank_name ? String(c.bank_name) : '',
       bank_account_number: c.bank_account_number ? String(c.bank_account_number) : '',
       bank_branch_code: c.bank_branch_code ? String(c.bank_branch_code) : '',
-      primary_color: c.primary_color ? String(c.primary_color) : '#0d9488',
+      primary_color: c.primary_color ? String(c.primary_color) : '#0f766e',
       logo_data: c.logo_data ? String(c.logo_data) : null,
     });
   } catch (err) {

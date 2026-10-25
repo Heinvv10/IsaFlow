@@ -194,7 +194,7 @@ export default function JournalEntriesReport() {
               <button
                 onClick={() => data && downloadCsv(data.entries)}
                 disabled={!data || data.entries.length === 0}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg transition-colors"
               >
                 <Download className="h-4 w-4" /> CSV
               </button>

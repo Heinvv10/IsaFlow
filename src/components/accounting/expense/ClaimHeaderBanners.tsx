@@ -34,7 +34,7 @@ function fmtZAR(n: number): string {
 export function ClaimToast({ toast }: { toast: Props['toast'] }) {
   if (!toast) return null;
   return (
-    <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${toast.ok ? 'bg-teal-600 text-white' : 'bg-red-700 text-white'}`}>
+    <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded shadow-lg text-sm ${toast.ok ? 'bg-brand-600 text-white' : 'bg-red-700 text-white'}`}>
       {toast.msg}
     </div>
   );

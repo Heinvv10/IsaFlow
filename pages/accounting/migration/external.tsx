@@ -70,7 +70,7 @@ export default function ExternalMigrationPage() {
             </Link>
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
-                <Database className="h-6 w-6 text-blue-500" />
+                <Database className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Import from External System</h1>
@@ -88,7 +88,7 @@ export default function ExternalMigrationPage() {
               <div className="flex items-center justify-center gap-3">
                 <Link
                   href="/accounting/chart-of-accounts"
-                  className="px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium"
+                  className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
                 >
                   View Chart of Accounts
                 </Link>

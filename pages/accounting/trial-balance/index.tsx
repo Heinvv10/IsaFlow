@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { STICKY_FIRST_HEAD, STICKY_HEAD, STICKY_WRAP } from '@/components/accounting/statement/stickyTable';
+import { STICKY_FIRST_HEAD, STICKY_HEAD } from '@/components/accounting/statement/stickyTable';
 import { Scale, Loader2, AlertCircle, Download, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { TrialBalanceRow } from '@/components/reports/TrialBalanceRow';
 import type { TBRowData } from '@/components/reports/TrialBalanceRow';
@@ -202,7 +202,7 @@ export default function TrialBalancePage() {
               <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Select a fiscal period with posted journal entries</p>
             </div>
           ) : (
-            <div data-sticky-frame className={`bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] ${STICKY_WRAP}`}>
+            <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)]">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[var(--ff-border-light)] text-left text-[var(--ff-text-secondary)]">

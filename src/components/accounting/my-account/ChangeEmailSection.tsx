@@ -84,7 +84,7 @@ export function ChangeEmailSection({ currentEmail }: { currentEmail: string }) {
         <button
           onClick={() => void submit()}
           disabled={saving || !newEmail || !currentPassword}
-          className="px-4 py-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
+          className="px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 disabled:text-teal-300 text-white rounded-lg text-sm font-medium transition-colors"
         >
           {saving ? 'Changing…' : 'Change email'}
         </button>

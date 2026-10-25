@@ -144,7 +144,7 @@ export function BankTxLinkModal({ tx, onClose, onDone }: Props) {
             <label htmlFor="link-asset-search" className="block text-xs text-[var(--ff-text-secondary)] mb-1">Asset</label>
             <input id="link-asset-search" className="ff-input w-full" placeholder="Search by name, number or serial" value={search} onChange={e => setSearch(e.target.value)} />
             <div className="mt-2 max-h-40 overflow-y-auto rounded border border-[var(--ff-border-light)]">
-              {assetsLoading ? <div className="p-3 flex justify-center"><Loader2 className="h-4 w-4 animate-spin text-blue-500" /></div>
+              {assetsLoading ? <div className="p-3 flex justify-center"><Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" /></div>
                 : assets.length === 0 ? <p className="p-3 text-xs text-[var(--ff-text-tertiary)]">No assets found</p>
                   : assets.map(a => (
                     <button key={a.id} type="button" onClick={() => setAssetId(a.id)}

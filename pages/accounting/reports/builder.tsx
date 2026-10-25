@@ -234,7 +234,7 @@ export default function ReportBuilderPage() {
           <button
             onClick={handleRun}
             disabled={isRunning || !dataSource || columns.length === 0}
-            className="flex items-center gap-2 px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium rounded-md disabled:opacity-40 transition-colors"
+            className="flex items-center gap-2 px-4 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-md disabled:opacity-40 transition-colors"
           >
             <Play className="w-4 h-4" />
             {isRunning ? 'Running...' : 'Run'}

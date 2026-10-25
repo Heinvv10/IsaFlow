@@ -94,7 +94,7 @@ export function InvoiceLineItemsTable({
           <button type="button" aria-expanded={showDiscount} onClick={() => setShowDiscount((v) => !v)} className={toggle(showDiscount)}>
             <SlidersHorizontal className="h-3 w-3" />{showDiscount ? 'Hide Disc.' : 'Disc. %'}
           </button>
-          <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
+          <button type="button" onClick={onAdd} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
         </div>
       </div>
       {options.error && (

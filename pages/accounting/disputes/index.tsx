@@ -113,7 +113,7 @@ export default function DisputesPage() {
         )}
 
         {!isLoading && !error && (
-          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div data-surface="light" className="bg-white border border-slate-200 rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
                 <tr>

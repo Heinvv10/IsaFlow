@@ -1,13 +1,16 @@
 /**
  * Sticky-table classes for report grids (statements, trial balance, general ledger).
  *
- * The wrapper is the scroll container, so the header sticks to its top and the first column to
- * its left on horizontal scroll. It is capped to the viewport so a long report scrolls inside it
- * with the header in view; print drops the cap so a printed or PDF report is never clipped.
- * Cells need an opaque surface or the scrolled-under content shows through them.
+ * The PAGE is the one scroll container (AppLayout's <main>): a wide report scrolls sideways with
+ * the page and a long one scrolls down with it, so the header row sticks to the top of <main> and
+ * the first column to its left edge. That only works while nothing between the table and <main>
+ * is itself a scroll container - no overflow-hidden/auto/scroll wrapper, no max-height box (a
+ * nested box traps the wheel and never engages when the page is the thing scrolling). Use
+ * overflow-clip, which does not make a scroll container, where corners must be rounded.
+ * Cells need an opaque surface or the scrolled-under content shows through them. print:static
+ * keeps a printed or PDF report in normal flow.
  * Written out in full: Tailwind's content scan cannot see a class built from parts.
  */
-export const STICKY_WRAP = 'overflow-auto max-h-[calc(100vh-14rem)] print:max-h-none print:overflow-visible';
 export const STICKY_HEAD =
   'sticky top-0 z-20 bg-[var(--ff-bg-secondary)] shadow-[inset_0_-1px_0_var(--ff-border-secondary)] print:static';
 export const STICKY_FIRST_HEAD =

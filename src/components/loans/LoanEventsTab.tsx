@@ -64,7 +64,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
         </h3>
         <button
           onClick={() => setShowForm(s => !s)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-xs font-medium"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-xs font-medium"
         >
           <Plus className="h-3.5 w-3.5" /> Add Event
         </button>
@@ -123,7 +123,7 @@ export function LoanEventsTab({ loanId, events, onRefresh }: Props) {
             <button
               type="submit"
               disabled={busy}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-teal-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-brand-600 text-white rounded-lg text-sm font-medium disabled:opacity-50"
             >
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Save Event'}
             </button>

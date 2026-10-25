@@ -184,7 +184,7 @@ export default function BankFeedsPage() {
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors"
           >
             <Plus className="h-4 w-4" /> Add Connection
           </button>
@@ -199,7 +199,7 @@ export default function BankFeedsPage() {
             <p className="text-sm text-red-400 mb-4">{connectionsError}</p>
             <button
               onClick={() => { setLoading(true); void fetchConnections().finally(() => setLoading(false)); }}
-              className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold transition-colors"
+              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors"
             >
               Retry
             </button>
@@ -213,7 +213,7 @@ export default function BankFeedsPage() {
             </p>
             <button
               onClick={() => setShowAddModal(true)}
-              className="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-semibold transition-colors"
+              className="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-semibold transition-colors"
             >
               Add Your First Connection
             </button>

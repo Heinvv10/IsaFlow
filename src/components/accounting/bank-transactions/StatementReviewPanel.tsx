@@ -118,7 +118,7 @@ export function StatementReviewPanel({ imp, committing, rollingBack, onCommit, o
       {/* Footer actions */}
       <div className="flex flex-wrap items-center gap-3 pb-6">
         <button onClick={onCommit} disabled={imp.status !== 'extracted' || committing}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white transition-colors">
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white transition-colors">
           {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
           Commit {newCount} new row{newCount !== 1 ? 's' : ''}
         </button>

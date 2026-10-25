@@ -214,7 +214,7 @@ export default function NewCustomerPaymentPage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Invoice Allocations
                   </h3>
-                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
+                  <button type="button" onClick={addAllocation} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors"><Plus className="h-3 w-3" />Add Line</button>
                 </div>
                 <div className="p-5 space-y-3">
                   {!form.clientId && <p className="text-sm text-slate-500 dark:text-slate-400 dark:text-slate-500 text-center py-4">Select a client to see outstanding invoices</p>}
@@ -259,7 +259,7 @@ export default function NewCustomerPaymentPage() {
                       <span className="font-mono font-bold text-lg text-amber-500">{fmt(totalAllocated)}</span>
                     </div>
                   </div>
-                  <button type="submit" disabled={isSubmitting || totalAllocated <= 0} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button type="submit" disabled={isSubmitting || totalAllocated <= 0} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><CreditCard className="h-4 w-4" />Create Payment</>}
                   </button>
                   <Link href="/accounting/customer-payments" className="block w-full mt-2 py-2.5 text-center text-sm text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">Cancel</Link>

@@ -90,7 +90,7 @@ export default function NewSupplierPage() {
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <div className="p-2 rounded-lg bg-blue-500/10">
-              <Truck className="h-6 w-6 text-blue-500" />
+              <Truck className="h-6 w-6 text-blue-600 dark:text-blue-400" />
             </div>
             <div>
               <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">New Supplier</h1>
@@ -119,7 +119,7 @@ export default function NewSupplierPage() {
                 type="submit"
                 disabled={isSubmitting}
                 onClick={() => setSaveAndNew(false)}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
               >
                 {isSubmitting && !saveAndNew ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {isSubmitting && !saveAndNew ? 'Saving...' : 'Save Supplier'}

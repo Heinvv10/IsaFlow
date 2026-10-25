@@ -38,7 +38,7 @@ describe('generateStatementsBatch', () => {
 
   it('a refused company-details call falls back to default branding, not blank fields from the error body', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(refused('Forbidden', 403));
-    expect(await fetchCompanyMeta()).toEqual({ accentColor: '#0d9488' });
+    expect(await fetchCompanyMeta()).toEqual({ accentColor: '#0f766e' });
   });
 
   it('a 200 company-details call fills the branding', async () => {

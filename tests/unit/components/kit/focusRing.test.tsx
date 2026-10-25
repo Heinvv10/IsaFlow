@@ -21,7 +21,9 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 function token(scope: string, name: string): string {
-  const block = css.slice(css.indexOf(`${scope} {`));
+  // The block may open with a selector list (`:root, [data-surface="light"] {`), so match the scope, then anything up to the brace.
+  const open = new RegExp(`(^|\\n)\\s*${scope.replace('.', '\\.')}(,[^{]*)?\\s\\{`).exec(css);
+  const block = css.slice(open?.index ?? css.length);
   const m = new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`).exec(block);
   if (!m?.[1]) throw new Error(`token ${name} not found in ${scope}`);
   return m[1];

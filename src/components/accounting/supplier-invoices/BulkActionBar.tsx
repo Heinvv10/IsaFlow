@@ -118,7 +118,7 @@ export function BulkActionBar({
 }
 
 const TONE_CLASSES = {
-  emerald: 'bg-emerald-600 hover:bg-emerald-700',
+  emerald: 'bg-success-700 hover:bg-success-800',
   blue: 'bg-blue-600 hover:bg-blue-700',
   red: 'bg-red-600 hover:bg-red-700',
 } as const;

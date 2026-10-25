@@ -79,7 +79,7 @@ function InvoiceDetailRow({ invoice }: { invoice: OverdueInvoice }) {
       </div>
       <div className="flex items-center gap-3 flex-shrink-0">
         <span className="text-xs font-medium text-[var(--ff-text-primary)]">{fmtZAR(invoice.amount)}</span>
-        <span className="text-xs text-rose-500 font-medium">{invoice.daysOverdue}d overdue</span>
+        <span className="text-xs text-rose-600 dark:text-rose-400 font-medium">{invoice.daysOverdue}d overdue</span>
       </div>
     </div>
   );
@@ -140,7 +140,7 @@ export function TodoWidget() {
       )}
 
       {!loading && error && (
-        <p className="text-sm text-rose-500 px-4 py-3">{error}</p>
+        <p className="text-sm text-rose-600 dark:text-rose-400 px-4 py-3">{error}</p>
       )}
 
       {!loading && !error && isAllClear && (

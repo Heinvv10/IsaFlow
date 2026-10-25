@@ -78,7 +78,7 @@ export default function CreditNotesPage() {
                   <Download className="w-4 h-4" /> CSV
                 </button>
               )}
-              <Link href="/accounting/credit-notes/new" className="flex items-center gap-2 px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25">
+              <Link href="/accounting/credit-notes/new" className="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-lg shadow-teal-500/25">
                 <Plus className="w-4 h-4" /> New Credit Note
               </Link>
             </div>
@@ -113,7 +113,7 @@ export default function CreditNotesPage() {
                 <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><FileText className="w-7 h-7 text-slate-500 dark:text-slate-400" /></div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No credit notes found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create your first credit note to get started</p>
-                <Link href="/accounting/credit-notes/new" className="inline-flex mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors">Create Credit Note</Link>
+                <Link href="/accounting/credit-notes/new" className="inline-flex mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">Create Credit Note</Link>
               </div>
             ) : (
               <table className="w-full text-sm">

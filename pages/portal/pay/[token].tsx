@@ -189,7 +189,7 @@ export default function PortalPayPage() {
         <button
           onClick={handlePaystackPay}
           disabled={submitting}
-          className="w-full py-4 bg-emerald-600 text-white rounded-xl font-semibold text-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
+          className="w-full py-4 bg-success-700 text-white rounded-xl font-semibold text-lg hover:bg-success-800 transition-colors disabled:opacity-50 flex items-center justify-center gap-3"
         >
           {submitting ? (
             <>

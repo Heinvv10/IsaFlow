@@ -233,7 +233,7 @@ export default function NewDeliveryNotePage() {
                   <button onClick={() => void handleSave(false)} disabled={saving} className="w-full py-2.5 mb-2 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold rounded-xl transition-colors border border-slate-200 dark:border-slate-700 disabled:opacity-50 text-sm">
                     {saving ? <Loader2 className="h-4 w-4 animate-spin mx-auto" /> : 'Save as Draft'}
                   </button>
-                  <button onClick={() => void handleSave(true)} disabled={saving} className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                  <button onClick={() => void handleSave(true)} disabled={saving} className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                     {saving ? <><Loader2 className="h-4 w-4 animate-spin" />Saving…</> : <><Truck className="h-4 w-4" />Save &amp; Dispatch</>}
                   </button>
                 </div>

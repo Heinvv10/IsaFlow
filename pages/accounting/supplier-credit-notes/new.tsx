@@ -167,7 +167,7 @@ export default function NewSupplierCreditNotePage() {
                     <span className="w-5 h-5 rounded bg-amber-500/10 flex items-center justify-center text-amber-500 text-xs font-bold">2</span>
                     Line Items
                   </h3>
-                  <button type="button" onClick={() => setLineItems(prev => [...prev, emptyLine()])} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold transition-colors">
+                  <button type="button" onClick={() => setLineItems(prev => [...prev, emptyLine()])} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-semibold transition-colors">
                     <Plus className="h-3 w-3" /> Add Line
                   </button>
                 </div>
@@ -244,7 +244,7 @@ export default function NewSupplierCreditNotePage() {
                   </div>
 
                   <div className="flex flex-col gap-2 mt-6">
-                    <button type="submit" onClick={() => setSubmitAction('post')} disabled={isSubmitting} className="w-full py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    <button type="submit" onClick={() => setSubmitAction('post')} disabled={isSubmitting} className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                       {isSubmitting && submitAction === 'post' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                       Post Credit Note
                     </button>

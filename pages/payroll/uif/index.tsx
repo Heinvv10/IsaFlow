@@ -102,7 +102,7 @@ function GenerateModal({ yearOptions, onClose, onGenerated }: GenerateModalProps
             Cancel
           </button>
           <button onClick={handleGenerate} disabled={isGenerating}
-            className="flex-1 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-sm font-medium transition-colors inline-flex items-center justify-center gap-2">
+            className="flex-1 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-sm font-medium transition-colors inline-flex items-center justify-center gap-2">
             {isGenerating && <Loader2 className="h-4 w-4 animate-spin" />}
             Generate
           </button>
@@ -173,7 +173,7 @@ export default function UifDeclarationPage() {
             </div>
             <WriteOnly>
               <button onClick={() => setShowGenerate(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors">
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors">
                 <Plus className="h-4 w-4" />Generate Declaration
               </button>
             </WriteOnly>
@@ -217,7 +217,7 @@ export default function UifDeclarationPage() {
               <p className="text-sm text-[var(--ff-text-tertiary)] mt-1">Generate your first monthly UIF declaration to get started</p>
               <WriteOnly>
                 <button onClick={() => setShowGenerate(true)}
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors">
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors">
                   <Plus className="h-4 w-4" />Generate Declaration
                 </button>
               </WriteOnly>

@@ -177,7 +177,7 @@ function TwoFactorScreen({
         <button
           type="submit"
           disabled={loading || code.trim().length < 6}
-          className="w-full flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
+          className="w-full flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 disabled:cursor-not-allowed text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors"
         >
           {loading ? (
             <>
@@ -474,7 +474,7 @@ export default function LoginPage() {
             </Link>
             <Link
               href="/register"
-              className="inline-flex items-center justify-center rounded-lg bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-teal-950/30 transition-colors hover:bg-teal-500"
+              className="inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-teal-950/30 transition-colors hover:bg-brand-700"
             >
               Start Free Trial
             </Link>

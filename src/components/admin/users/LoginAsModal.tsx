@@ -86,7 +86,7 @@ export function LoginAsModal({
               <button
                 onClick={onConfirm}
                 disabled={loading}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors disabled:opacity-50"
               >
                 {loading
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating session&hellip;</>
@@ -116,7 +116,7 @@ export function LoginAsModal({
             <div className="flex gap-2">
               <button
                 onClick={onOpenTab}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+                className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-brand-600 hover:bg-brand-700 text-white transition-colors"
               >
                 <LogIn className="w-4 h-4" /> Open impersonated session
               </button>

@@ -167,7 +167,7 @@ export default function TimesheetsPage() {
           <div className="flex items-center gap-2">
             {selected.size > 0 && (
               <button onClick={() => void handleCreateInvoice()} disabled={invoiceBusy}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-60 text-sm">
+                className="flex items-center gap-2 px-4 py-2 bg-success-700 text-white rounded-lg hover:bg-success-800 disabled:opacity-60 text-sm">
                 {invoiceBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
                 Create Invoice ({selected.size})
               </button>

@@ -52,7 +52,7 @@ export default function CustomerPaymentsPage() {
           actions={
             <>
               <ExportCSVButton endpoint="/api/accounting/customer-payments-export" filenamePrefix="customer-payments" params={{ status: tab !== 'all' ? tab : '' }} label="Export" />
-              <button onClick={() => router.push('/accounting/customer-payments/new')} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-sm font-medium transition-colors">
+              <button onClick={() => router.push('/accounting/customer-payments/new')} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-medium transition-colors">
                 <Plus className="w-4 h-4" /> Record Payment
               </button>
             </>
@@ -84,7 +84,7 @@ export default function CustomerPaymentsPage() {
                 <div className="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center mx-auto mb-4"><CreditCard className="w-7 h-7 text-slate-500 dark:text-slate-400" /></div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-white">No payments found</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Record your first customer payment</p>
-                <button onClick={() => router.push('/accounting/customer-payments/new')} className="mt-5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold rounded-lg transition-colors">Record Payment</button>
+                <button onClick={() => router.push('/accounting/customer-payments/new')} className="mt-5 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-lg transition-colors">Record Payment</button>
               </div>
             ) : (
               <table className="w-full text-sm">

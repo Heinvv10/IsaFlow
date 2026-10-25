@@ -91,7 +91,7 @@ export default function SuppliersPage() {
           <div className="px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
-                <Truck className="h-6 w-6 text-blue-500" />
+                <Truck className="h-6 w-6 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <h1 className="text-xl font-semibold text-[var(--ff-text-primary)]">Suppliers</h1>
@@ -100,7 +100,7 @@ export default function SuppliersPage() {
             </div>
             <Link
               href="/accounting/suppliers/new"
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
             >
               <Plus className="h-4 w-4" />
               New Supplier
@@ -143,7 +143,7 @@ export default function SuppliersPage() {
           {/* Content */}
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600 dark:text-blue-400" />
             </div>
           ) : error ? (
             <div className="flex items-center justify-center gap-2 text-red-400 py-12">
@@ -160,7 +160,7 @@ export default function SuppliersPage() {
               {!search && (
                 <Link
                   href="/accounting/suppliers/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium transition-colors"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
                 >
                   <Plus className="h-4 w-4" />
                   New Supplier

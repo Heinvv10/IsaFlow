@@ -160,7 +160,7 @@ export default function SupplierExpectationsPage() {
             <button
               onClick={recomputeAll}
               disabled={recomputingAll}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white transition-colors shrink-0"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white transition-colors shrink-0"
             >
               <RefreshCw className={`h-4 w-4 ${recomputingAll ? 'animate-spin' : ''}`} />
               Recompute all

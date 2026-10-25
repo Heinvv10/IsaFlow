@@ -81,7 +81,7 @@ export default function ExpenseClaimsIndex() {
             <button onClick={() => void load()} className="inline-flex items-center gap-2 px-3 py-2 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-sm">
               <RefreshCw className="h-4 w-4" />
             </button>
-            <Link href="/accounting/expenses/new" className="inline-flex items-center gap-2 px-3 py-2 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium">
+            <Link href="/accounting/expenses/new" className="inline-flex items-center gap-2 px-3 py-2 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
               <Plus className="h-4 w-4" /> New claim
             </Link>
           </div>

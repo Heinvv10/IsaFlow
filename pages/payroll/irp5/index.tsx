@@ -179,7 +179,7 @@ export default function Irp5Page() {
               <button
                 onClick={() => void handleEasyFileExport()}
                 disabled={!summary || summary.employees.length === 0}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-sm text-white font-medium disabled:opacity-50"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-sm text-white font-medium disabled:opacity-50"
                 title="SARS e@syFile IRP5 import file (BRS v25.2)"
               >
                 <Download className="h-4 w-4" /> e@syFile IRP5

@@ -191,7 +191,7 @@ export function SmartSetupChoice({ entityType, onManual, onExtracted, onBack }: 
               <div className="flex flex-wrap gap-3">
                 <button onClick={() => finish({ ...extractState.data, entityType: extractState.inferred,
                   documents: retypeProof(docs, entityType, extractState.inferred) })}
-                  className="bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium px-4 py-2 rounded-lg">
+                  className="bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium px-4 py-2 rounded-lg">
                   It is a {getEntityType(extractState.inferred).label}
                 </button>
                 <button onClick={() => finish(extractState.data)}
@@ -256,7 +256,7 @@ export function SmartSetupChoice({ entityType, onManual, onExtracted, onBack }: 
                     </button>
                   )}
                   <button onClick={() => void handleExtract()} disabled={!readDoc}
-                    className="flex items-center gap-2 bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
+                    className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors">
                     <ScanLine className="w-4 h-4" /> Extract Details
                   </button>
                 </div>

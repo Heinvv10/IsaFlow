@@ -126,7 +126,7 @@ export default function RateCurvesPage() {
             </div>
             <button
               onClick={() => setShowNewForm(v => !v)}
-              className="flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 transition-colors"
+              className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition-colors"
             >
               <Plus className="h-4 w-4" />
               New Curve
@@ -147,7 +147,7 @@ export default function RateCurvesPage() {
               <button
                 onClick={handleCreate}
                 disabled={creating || !newName.trim()}
-                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-50 transition-colors"
+                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
               >
                 {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
               </button>

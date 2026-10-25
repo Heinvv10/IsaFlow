@@ -7,7 +7,7 @@ import { Fragment, type ReactNode } from 'react';
 import type { ComparatorKey, StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { COMPARATORS } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { StatementRowView } from './StatementRowView';
-import { STICKY_FIRST_HEAD, STICKY_HEAD, STICKY_WRAP } from './stickyTable';
+import { STICKY_FIRST_HEAD, STICKY_HEAD } from './stickyTable';
 
 export interface StatementGridProps {
   rows: StatementRow[];
@@ -24,8 +24,8 @@ export interface StatementGridProps {
    * is what the share and PDF surfaces do — annotations are internal. */
   onOpenNote?: (rowId: string) => void;
   cents?: boolean;
-  /** Sticky header row and first column, inside a viewport-capped scroll area. For the on-screen
-   * report pages; the share, slide and pack surfaces render the table at its full height. */
+  /** Sticky header row and first column, pinned to the page scroll (see stickyTable.ts). For the
+   * on-screen report pages; the share, slide and pack surfaces render the table as before. */
   sticky?: boolean;
 }
 
@@ -43,7 +43,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
     ]),
   ) as Record<ComparatorKey, number>;
   return (
-    <div data-sticky-frame={sticky ? '' : undefined} className={`${sticky ? STICKY_WRAP : 'overflow-x-auto'} rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]`}>
+    <div className={`${sticky ? '' : 'overflow-x-auto'} rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]`}>
       <table className="w-full border-collapse">
         <thead>
           <tr className="text-xs uppercase tracking-wide text-[var(--ff-text-tertiary)] border-b border-[var(--ff-border-secondary)]">

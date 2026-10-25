@@ -252,7 +252,7 @@ export default function NewLoanPage() {
               <button type="button" onClick={() => router.back()}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--ff-text-secondary)] hover:bg-[var(--ff-bg-tertiary)]">Cancel</button>
               <button type="submit" disabled={saving}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-success-700 hover:bg-success-800 text-white text-sm font-medium disabled:opacity-50">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Create
               </button>
             </div>

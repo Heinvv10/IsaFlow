@@ -160,7 +160,7 @@ export default function ReceiptMatchQueuePage() {
               const isConfirmingThis = confirming === tx.id;
 
               return (
-                <div key={tx.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                <div key={tx.id} data-surface="light" className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="text-xs text-slate-500 uppercase tracking-wide">

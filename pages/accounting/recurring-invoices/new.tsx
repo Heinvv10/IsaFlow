@@ -246,7 +246,7 @@ export default function NewRecurringInvoicePage() {
                         <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 capitalize">{form.frequency} billing starting {form.nextRunDate || '—'}</p>
                       )}
                     </div>
-                    <button type="submit" disabled={submitting} className="w-full mt-6 py-3 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
+                    <button type="submit" disabled={submitting} className="w-full mt-6 py-3 bg-brand-600 hover:bg-brand-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                       {submitting ? <><Loader2 className="h-4 w-4 animate-spin" />Creating…</> : <><RefreshCw className="h-4 w-4" />Create Recurring Invoice</>}
                     </button>
                   </div>

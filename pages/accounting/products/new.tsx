@@ -52,7 +52,7 @@ export default function NewProductPage() {
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] px-6 py-4">
           <div className="flex items-center gap-3">
             <Link href="/accounting/products" className="p-2 rounded-lg hover:bg-[var(--ff-bg-primary)]"><ArrowLeft className="h-5 w-5 text-[var(--ff-text-secondary)]" /></Link>
-            <div className="p-2 rounded-lg bg-blue-500/10"><Box className="h-6 w-6 text-blue-500" /></div>
+            <div className="p-2 rounded-lg bg-blue-500/10"><Box className="h-6 w-6 text-blue-600 dark:text-blue-400" /></div>
             <div><h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">New Product</h1><p className="text-sm text-[var(--ff-text-secondary)]">Add a new inventory item or service</p></div>
           </div>
         </div>
@@ -90,7 +90,7 @@ export default function NewProductPage() {
           </div>
           <div className="flex justify-end gap-3">
             <Link href="/accounting/products" className="px-4 py-2 rounded-lg border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] text-sm">Cancel</Link>
-            <button type="submit" disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium disabled:opacity-50">
+            <button type="submit" disabled={saving} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium disabled:opacity-50">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Product
             </button>
           </div>

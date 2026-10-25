@@ -140,7 +140,7 @@ export default function ValidatePage() {
                 <h2 className="font-semibold text-[var(--ff-text-primary)]">Validation Checks</h2>
                 <button
                   onClick={() => sessionId && runValidation(sessionId)}
-                  className="text-xs text-blue-500 hover:text-blue-400"
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-400"
                 >
                   Re-run
                 </button>
@@ -192,7 +192,7 @@ export default function ValidatePage() {
               <button
                 onClick={completeMigration}
                 disabled={isCompleting || !validation.allPassed}
-                className="flex items-center gap-2 px-6 py-2.5 bg-teal-600 text-white rounded-lg hover:bg-teal-500 disabled:opacity-50 font-medium"
+                className="flex items-center gap-2 px-6 py-2.5 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 font-medium"
               >
                 {isCompleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                 Complete Migration

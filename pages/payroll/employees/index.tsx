@@ -85,7 +85,7 @@ export default function EmployeesListPage() {
             <WriteOnly>
               <Link
                 href="/payroll/employees/new"
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
               >
                 <Plus className="h-4 w-4" /> New Employee
               </Link>
@@ -128,7 +128,7 @@ export default function EmployeesListPage() {
               <WriteOnly>
                 <Link
                   href="/payroll/employees/new"
-                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium"
+                  className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
                 >
                   <Plus className="h-4 w-4" /> New Employee
                 </Link>

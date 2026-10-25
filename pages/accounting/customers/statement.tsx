@@ -99,7 +99,7 @@ export default function CustomerStatementPage() {
     try {
       // Import the same statementPdf utility used on the detail page
       const { generateStatementPdf } = await import('@/modules/accounting/utils/statementPdf');
-      let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0d9488';
+      let companyName = '', companyVatNumber = '', companyEmail = '', companyPhone = '', companyAddress = '', accentColor = '#0f766e';
       try {
         const cRes = await apiFetch('/api/accounting/company-details', { credentials: 'include' });
         await assertOk(cRes, 'Could not load your company details for the PDF - try again');
@@ -107,7 +107,7 @@ export default function CustomerStatementPage() {
         const c = (cJson.data ?? cJson) as Record<string, string>;
         companyName = c.name || ''; companyVatNumber = c.vat_number || '';
         companyEmail = c.email || ''; companyPhone = c.phone || '';
-        companyAddress = c.address || ''; accentColor = c.primary_color || '#0d9488';
+        companyAddress = c.address || ''; accentColor = c.primary_color || '#0f766e';
       } catch (err) { setError(apiErrorMessage(err, 'Could not load your company details for the PDF - try again')); return; }
 
       const blob = await generateStatementPdf({

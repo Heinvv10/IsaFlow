@@ -100,7 +100,7 @@ export function DuplicatesPanel({ pairs, isLoading, error, onClose, onMerge }: P
 
                 <button
                   onClick={() => onMerge(pair)}
-                  className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium transition-colors"
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium transition-colors"
                 >
                   <GitMerge className="h-3.5 w-3.5" />
                   Merge

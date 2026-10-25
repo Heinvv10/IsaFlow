@@ -1,7 +1,7 @@
 /**
  * PageHeader (master plan §3b.3): one header for every page — title, breadcrumb or subtitle,
- * actions — drawn from theme tokens so it reads in both themes (the navy band that kept a
- * dark title on a white page is gone).
+ * actions. That it reads in both themes is checked in a browser, by the axe and computed-style
+ * contrast runs in tests/e2e/golden-paths/o-theme-contrast.spec.ts, not by class names here.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
@@ -36,14 +36,20 @@ describe('PageHeader', () => {
     expect(screen.getByRole('link', { name: /Sales/ })).toHaveAttribute('href', '/accounting/sales');
   });
 
-  it('is drawn from theme tokens, with no hard-coded dark surface or fixed-colour title', () => {
-    const { container } = render(<PageHeader icon={FileText} title="T" subtitle="S" />);
-    const html = container.innerHTML;
-    expect(html).toContain('bg-header-band');
-    expect(html).toContain('text-ink');
-    expect(html).toContain('text-ink-muted');
-    expect(html).not.toMatch(/(?:^|[\s"])(?:bg-slate-9|from-slate-9|text-white(?:[\s"]|$))/);
-    expect(html).not.toMatch(/(?:^|[\s"])text-slate-9/);
+  it('puts the actions after the title, and renders no breadcrumb unless given one', () => {
+    render(<PageHeader icon={FileText} title="Quotes" actions={<button>New quote</button>} />);
+    const title = screen.getByRole('heading', { level: 1, name: 'Quotes' });
+    const action = screen.getByRole('button', { name: 'New quote' });
+    expect(title.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: 'Breadcrumb' })).toBeNull();
+    expect(screen.getAllByRole('heading')).toHaveLength(1);
+  });
+
+  it('puts the breadcrumb before the title', () => {
+    render(<PageHeader icon={FileText} title="Trial Balance" breadcrumb={[{ label: 'Reports', href: '/r' }, { label: 'Trial Balance' }]} />);
+    const nav = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    const title = screen.getByRole('heading', { level: 1 });
+    expect(nav.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('can drop the bottom margin for pages whose content block brings its own padding', () => {

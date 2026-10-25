@@ -95,7 +95,7 @@ export function ValidationStep({ summary, onBack, onNext }: Step3Props) {
         <button
           disabled={summary.validCount === 0}
           onClick={onNext}
-          className="inline-flex items-center gap-2 px-5 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+          className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
         >
           <ArrowRight className="h-4 w-4" />
           Continue ({summary.validCount} valid rows)
@@ -158,7 +158,7 @@ export function ImportStep({
         <div className="flex items-center justify-center gap-4">
           <button
             onClick={onViewEntries}
-            className="inline-flex items-center gap-2 px-5 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium"
+            className="inline-flex items-center gap-2 px-5 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium"
           >
             View Journal Entries
           </button>
@@ -239,7 +239,7 @@ export function ImportStep({
         <button
           onClick={onImport}
           disabled={importing}
-          className="inline-flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+          className="inline-flex items-center gap-2 px-6 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
         >
           {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           {importing ? 'Importing...' : `Import ${validRows.length} rows`}

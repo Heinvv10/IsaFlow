@@ -28,7 +28,7 @@ interface PortalInvoice {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  sent: 'bg-blue-500/20 text-blue-500',
+  sent: 'bg-blue-500/20 text-blue-600 dark:text-blue-400',
   overdue: 'bg-red-500/20 text-red-500',
   paid: 'bg-teal-500/20 text-teal-500',
   partial: 'bg-amber-500/20 text-amber-500',
@@ -179,7 +179,7 @@ export default function PortalPage() {
               <button
                 onClick={() => void handleLogin()}
                 disabled={loggingIn || !loginEmail || !loginPassword}
-                className="w-full bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors disabled:cursor-not-allowed"
+                className="w-full bg-brand-600 hover:bg-brand-700 disabled:bg-teal-800 text-white font-medium text-sm px-4 py-2.5 rounded-lg transition-colors disabled:cursor-not-allowed"
               >
                 {loggingIn ? 'Signing In...' : 'Sign In'}
               </button>
@@ -197,7 +197,7 @@ export default function PortalPage() {
         {/* Header */}
         <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-teal-600 rounded-lg flex items-center justify-center">
+            <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
               <BookOpen className="w-4 h-4 text-slate-900 dark:text-white" />
             </div>
             <span className="font-semibold text-teal-600 dark:text-teal-400 text-sm">ISAFlow Portal</span>

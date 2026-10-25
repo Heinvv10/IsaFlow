@@ -41,7 +41,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
       type="button"
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 focus:ring-offset-gray-900 ${ disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer' } ${checked ? 'bg-teal-600' : 'bg-gray-700'}`}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-1 focus:ring-offset-gray-900 ${ disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer' } ${checked ? 'bg-brand-600' : 'bg-gray-700'}`}
     >
       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${checked ? 'translate-x-4' : 'translate-x-1'}`} />
     </button>

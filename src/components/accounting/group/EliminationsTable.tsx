@@ -85,7 +85,7 @@ export function EliminationsTable({ items, loading, actionLoading, onPost, onRev
                       onClick={() => onPost(adj.id)}
                       disabled={actionLoading === adj.id}
                       title="Post elimination"
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-teal-600 text-white rounded-md hover:bg-teal-700 text-xs font-medium disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-brand-600 text-white rounded-md hover:bg-brand-700 text-xs font-medium disabled:opacity-50"
                     >
                       {actionLoading === adj.id
                         ? <Loader2 className="h-3 w-3 animate-spin" />

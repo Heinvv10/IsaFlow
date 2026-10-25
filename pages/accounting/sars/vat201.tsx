@@ -227,7 +227,7 @@ export default function VAT201Page() {
                 <div className="flex items-center gap-1 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-1">
                   {(['summary', 'detail'] as const).map(mode => (
                     <button key={mode} onClick={() => setViewMode(mode)}
-                      className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === mode ? 'bg-teal-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
+                      className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === mode ? 'bg-brand-600 text-white' : 'text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
                       {mode.charAt(0).toUpperCase() + mode.slice(1)}
                     </button>
                   ))}
@@ -258,7 +258,7 @@ export default function VAT201Page() {
 
               <div className="flex items-center gap-3">
                 <button onClick={saveDraft} disabled={saving}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 disabled:opacity-50">
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-50">
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save Draft
                 </button>
                 {savedId && (

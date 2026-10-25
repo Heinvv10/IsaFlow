@@ -115,7 +115,7 @@ export function AfsExportTab({ documentId, fiscalYear }: Props) {
       id: 'docx',
       title: 'Download as Word (.docx)',
       description: 'Editable Microsoft Word document — useful for final formatting before client delivery.',
-      icon: <FileText className="w-5 h-5 text-blue-500" />,
+      icon: <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400" />,
       action() {
         return triggerDownload(`/api/accounting/afs/${documentId}/export?format=docx`, `afs-${fiscalYear}.docx`);
       },

@@ -130,7 +130,7 @@ export function AssetLocationSelect({ value, onChange, required, className }: Pr
             type="button"
             onClick={() => void handleAdd()}
             disabled={saving || newName.trim().length === 0}
-            className="px-3 py-1.5 bg-teal-600 text-white rounded-lg text-xs font-medium hover:bg-teal-700 disabled:opacity-50 inline-flex items-center gap-1"
+            className="px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-medium hover:bg-brand-700 disabled:opacity-50 inline-flex items-center gap-1"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
             Add

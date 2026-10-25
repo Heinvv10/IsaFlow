@@ -72,7 +72,7 @@ export default function AuditPortalPage() {
                 cites the snapshot&rsquo;s SHA-256 and HMAC seal and the hash of every file in it.
               </p>
               <a href={downloadHref}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-teal-600 hover:bg-teal-500 text-white text-sm font-medium">
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
                 <Download className="h-4 w-4" /> Download audit pack
               </a>
               <p className="text-xs text-slate-600 mt-4">

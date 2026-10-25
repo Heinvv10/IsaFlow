@@ -129,7 +129,7 @@ export default function FlowBundlesPage() {
           </div>
           <button
             onClick={createBundle}
-            className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 text-white rounded"
+            className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded"
           >
             <Plus className="w-4 h-4" /> Create
           </button>

@@ -222,7 +222,7 @@ export function ChartOfAccountsTab() {
             </select>
             <div className="flex rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
               {(['flat', 'tree'] as const).map(mode => (
-                <button key={mode} onClick={() => setViewMode(mode)} className={`px-3 py-2 text-sm font-medium transition-colors ${viewMode === mode ? 'bg-teal-600 text-white' : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
+                <button key={mode} onClick={() => setViewMode(mode)} className={`px-3 py-2 text-sm font-medium transition-colors ${viewMode === mode ? 'bg-brand-600 text-white' : 'bg-[var(--ff-bg-secondary)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)]'}`}>
                   {mode.charAt(0).toUpperCase() + mode.slice(1)}
                 </button>
               ))}
@@ -234,7 +234,7 @@ export function ChartOfAccountsTab() {
           </div>
           <div className="flex items-center gap-3">
             <p className="text-sm text-[var(--ff-text-secondary)]">{filteredAccounts.length} account{filteredAccounts.length !== 1 ? 's' : ''}</p>
-            <button onClick={() => setShowAddForm(!showAddForm)} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium">
+            <button onClick={() => setShowAddForm(!showAddForm)} className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors text-sm font-medium">
               <Plus className="h-4 w-4" /> Add Account
             </button>
           </div>

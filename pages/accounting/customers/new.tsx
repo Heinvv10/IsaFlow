@@ -115,7 +115,7 @@ export default function NewCustomerPage() {
                 type="submit"
                 disabled={isSubmitting}
                 onClick={() => setSaveAndNew(false)}
-                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
               >
                 {isSubmitting && !saveAndNew ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {isSubmitting && !saveAndNew ? 'Saving...' : 'Save Customer'}
