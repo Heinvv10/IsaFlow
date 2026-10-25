@@ -28,7 +28,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     balance: 0,
     autoTopupEnabled: false,
     autoTopupBundleId: null,
-    paymentMethodToken: null,
     nudgeLevel: 'none',
     monthFlowsUsed: 0,
     monthResetAt: new Date(),

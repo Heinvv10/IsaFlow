@@ -15,7 +15,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { randomUUID } from 'crypto';
 import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, SECRET, checkout, cleanup, deliver, invoice, pool, seed, settlement, verify, verifyAs } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { cancelCustomerPayment, confirmCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
@@ -118,7 +118,7 @@ describe('R-189: a draft receipt holding the reference is flagged, never taken a
     const id = await invoice(A);
     const ref = await checkout(A, id);
     await draftReceipt(ref, id, 'eft');
-    h.verifyTransaction.mockResolvedValue(success(11500));
+    h.verifyTransaction.mockImplementation(verifyAs(success(11500)));
     const before = await books();
 
     expect((await verify(ref)).body.data).toMatchObject({ status: 'completed', amountCents: 11500, appliedToInvoice: false });

@@ -12,6 +12,9 @@
 import { sql } from '@/lib/neon';
 import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 import { linkExpiredSql } from './portalLinkCharge';
+import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { arOverdueFragment } from './arOutstandingService';
+import { asAtTodayStr } from '@/modules/accounting/services/shared/softDeleteLedgerPresence';
 
 type Row = Record<string, unknown>;
 
@@ -46,16 +49,27 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
   const { status = null, clientId = null, search = null, agingFilters = [], dateFrom = null, dateTo = null } = filters;
 
   const statusValues: string[] | null = status && status.length > 0 ? status : null;
+  // 'overdue' is a date fact, not a stored status: nothing flips 'sent' or
+  // 'approved' to 'overdue', so that option runs the AR service's predicate.
+  const wantsOverdue = statusValues?.includes('overdue') ?? false;
+  // Built only when asked for: it is several fragment builds a plain list never needs.
+  const overdueArm = wantsOverdue ? arOverdueFragment(asAtTodayStr(), companyId) : sql.unsafe('FALSE');
+  const storedStatuses: string[] | null = statusValues ? statusValues.filter((s) => s !== 'overdue') : null;
   const clientIdFilter: string | null = clientId && clientId.trim() ? clientId.trim() : null;
   const searchTermFilter: string | null = search && search.trim() ? search.trim() : null;
   const filterDueSoon = agingFilters.includes('due-soon');
   const filterOverdue90 = agingFilters.includes('overdue-90');
   const filterViewedUnpaid = agingFilters.includes('viewed-unpaid');
+  const asAt = asAtTodayStr();
 
   return sql`
     ci.company_id = ${companyId}::UUID
     AND ci.deleted_at IS NULL
-    AND (${statusValues}::text[] IS NULL OR ci.status = ANY(${statusValues}::text[]))
+    AND (
+      ${statusValues}::text[] IS NULL
+      OR ci.status = ANY(${storedStatuses}::text[])
+      OR (${wantsOverdue} AND ${overdueArm})
+    )
     AND (${clientIdFilter}::uuid IS NULL OR COALESCE(ci.client_id, ci.customer_id) = ${clientIdFilter}::uuid)
     AND (
       ${searchTermFilter}::text IS NULL
@@ -65,15 +79,16 @@ function customerInvoiceListWhere(companyId: string, filters: CustomerInvoiceLis
     AND (${dateFrom}::date IS NULL OR ci.invoice_date >= ${dateFrom}::date)
     AND (${dateTo}::date IS NULL OR ci.invoice_date <= ${dateTo}::date)
     AND (NOT ${filterDueSoon} OR (
-      ci.status != 'paid'
+      ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+      AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0
       AND ci.due_date IS NOT NULL
-      AND ci.due_date::date >= CURRENT_DATE
-      AND ci.due_date::date <= CURRENT_DATE + INTERVAL '7 days'
+      AND ci.due_date::date >= ${asAt}::date
+      AND ci.due_date::date <= ${asAt}::date + 7
     ))
     AND (NOT ${filterOverdue90} OR (
-      ci.status != 'paid'
-      AND ci.due_date IS NOT NULL
-      AND (CURRENT_DATE - ci.due_date::date) > 90
+      ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
+      AND COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0) > 0
+      AND (${asAt}::date - COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)::date) > 90
     ))
     AND (NOT ${filterViewedUnpaid} OR (
       ci.status = 'sent'
@@ -98,6 +113,12 @@ export async function listCustomerInvoices(
     : (safePage - 1) * safeLimit;
 
   const where = customerInvoiceListWhere(companyId, filters);
+  // The same app date and the same effective due date the AR tiles use, so the
+  // Aging column cannot disagree with them (the DB's CURRENT_DATE is not SA's).
+  const asAt = asAtTodayStr();
+  const effDue = sql.unsafe('COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)::date');
+  const openStatuses = Array.from(AR_OPEN_STATUSES);
+  const balance = sql.unsafe('(COALESCE(ci.total_amount, 0) - COALESCE(ci.amount_paid, 0))');
 
   const [invoices, countResult] = await Promise.all([
     sql`
@@ -120,17 +141,15 @@ export async function listCustomerInvoices(
         vs.last_viewed_at,
         COALESCE(vs.view_count, 0) AS view_count,
         CASE
-          WHEN ci.due_date IS NOT NULL AND ci.status != 'paid'
-            THEN GREATEST(0, (CURRENT_DATE - ci.due_date::date))
-          ELSE NULL
+          WHEN NOT (ci.status = ANY(${openStatuses}::text[])) OR ${balance} <= 0 THEN NULL
+          ELSE GREATEST(0, (${asAt}::date - ${effDue}))
         END AS days_overdue,
         CASE
-          WHEN ci.status = 'paid' THEN NULL
-          WHEN ci.due_date IS NULL THEN 'Current'
-          WHEN (CURRENT_DATE - ci.due_date::date) <= 0 THEN 'Current'
-          WHEN (CURRENT_DATE - ci.due_date::date) <= 30 THEN '1-30'
-          WHEN (CURRENT_DATE - ci.due_date::date) <= 60 THEN '31-60'
-          WHEN (CURRENT_DATE - ci.due_date::date) <= 90 THEN '61-90'
+          WHEN NOT (ci.status = ANY(${openStatuses}::text[])) OR ${balance} <= 0 THEN NULL
+          WHEN (${asAt}::date - ${effDue}) <= 0 THEN 'Current'
+          WHEN (${asAt}::date - ${effDue}) <= 30 THEN '1-30'
+          WHEN (${asAt}::date - ${effDue}) <= 60 THEN '31-60'
+          WHEN (${asAt}::date - ${effDue}) <= 90 THEN '61-90'
           ELSE '90+'
         END AS aging_bucket
       FROM customer_invoices ci

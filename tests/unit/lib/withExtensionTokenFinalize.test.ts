@@ -13,7 +13,7 @@ const h = vi.hoisted(() => ({ events: [] as string[], failCommit: false, failRol
 const client = {
   query: vi.fn(async (text: string) => {
     const verb = String(text).trim().split(/\s+/)[0]!.toUpperCase();
-    if (/FROM company_users/i.test(String(text))) {
+    if (/FROM (public\.)?company_users/i.test(String(text))) {
       // The pairer is a manager in good standing (S-06b standing recheck).
       return { rows: [{ role: h.role, account_user_id: 'user-1', is_active: true, status: 'active', suspended_at: null }] };
     }
