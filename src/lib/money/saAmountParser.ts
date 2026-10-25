@@ -8,11 +8,17 @@
  * guessing: SimplePay read "25,000.00" as R25 because a thousands comma looked like a
  * decimal separator. A refusal carries a `reason` the field shows to the user.
  *
- * Pure: no Decimal, no float arithmetic. Cents are built from the digit string.
+ * Pure: no Decimal, no float arithmetic. Cents are built from the digit string, capped at MAX_MONEY.
+ *
+ * Which parser: THIS one is for what a person types into a MoneyField, so it refuses what it cannot read
+ * with a reason. `@/lib/parseAmount` is for imported ledger exports (Cr/Dr markers, "1,234" read as 1234,
+ * NaN for the caller's row report). They disagree on purpose; do not "reconcile" them. Display text comes
+ * from `formatCents` in `@/lib/money/formatMoney`.
  */
-import { formatAmount, formatMoney } from '@/lib/money/formatMoney';
+import { formatCents } from '@/lib/money/formatMoney';
+import { MAX_MONEY } from '@/lib/money/wholeCents';
 
-export type AmountParseCode = 'empty' | 'ambiguous' | 'malformed' | 'decimals' | 'chars' | 'too_large';
+export type AmountParseCode = 'empty' | 'ambiguous' | 'malformed' | 'decimals' | 'chars' | 'too_large' | 'currency';
 
 export type AmountParseResult =
   | { ok: true; cents: number }
@@ -22,6 +28,7 @@ const fail = (code: AmountParseCode, reason: string): AmountParseResult => ({ ok
 
 const CURRENCY = /^(?:ZAR|R)\s*/i;
 const LEADING_MINUS = /^[-\u2212]\s*/;
+const MAX_CENTS = Math.round(MAX_MONEY * 100);
 const DECIMALS_MSG = 'Amounts have at most two decimal places.';
 
 /** Sign, brackets and the R / ZAR marker stripped off; what is left is the number. */
@@ -48,12 +55,21 @@ function isGrouped(text: string, sep: string): boolean {
   return groups.every((g, i) => (i === 0 ? /^\d{1,3}$/.test(g) : /^\d{3}$/.test(g)));
 }
 
-export function parseSaAmount(input: string): AmountParseResult {
+export interface ParseSaAmountOptions {
+  /** ISO code of the field. An R / ZAR marker is only read for ZAR; in any other currency it is refused. */
+  currency?: string;
+}
+
+export function parseSaAmount(input: string, options: ParseSaAmountOptions = {}): AmountParseResult {
+  const currency = options.currency ?? 'ZAR';
   const shown = input.trim();
   const malformed = (): AmountParseResult =>
     fail('malformed', `"${shown}" is not a valid amount. Try 25 000.00 or 25,000.00.`);
 
   const text = input.replace(/\s+/g, ' ').trim();
+  if (currency !== 'ZAR' && /^[-\u2212(]?\s*(?:ZAR|R)(?![A-Za-z])/i.test(text)) {
+    return fail('currency', `This amount is in ${currency}, not rand. Remove the R.`);
+  }
   const { negative, body } = splitSign(text);
   if (body === '') return fail('empty', 'Enter an amount.');
   if (!/^[\d .,]+$/.test(body)) {
@@ -113,18 +129,8 @@ export function parseSaAmount(input: string): AmountParseResult {
 
   const digits = `${intDigits}${frac.padEnd(2, '0')}`.replace(/^0+(?=\d)/, '');
   const cents = Number(digits);
-  if (digits.length > 16 || !Number.isSafeInteger(cents)) {
-    return fail('too_large', 'That amount is too large to be a valid figure.');
+  if (digits.length > 15 || cents > MAX_CENTS) {
+    return fail('too_large', `The amount cannot be more than ${formatCents(MAX_CENTS)}.`);
   }
   return { ok: true, cents: negative && cents !== 0 ? -cents : cents };
-}
-
-/** "25 000.00" / "-123.45": space-grouped, dot decimal. Parses back to the same cents. */
-export function formatCentsPlain(cents: number): string {
-  return formatAmount(cents / 100);
-}
-
-/** "R 25 000.00": space-grouped (no comma that could be read as a decimal), dot decimal. */
-export function formatCentsEcho(cents: number): string {
-  return formatMoney(cents / 100);
 }

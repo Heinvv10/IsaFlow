@@ -8,6 +8,14 @@
  *      {...spread} props are given the benefit of the doubt (the label may arrive through them).
  *      type="hidden" is exempt.
  *
+ * Scope: <input> only. Unlabelled <select> and <textarea> are not checked here: adding them would put many more
+ * files on the allowlist, and the allowlist may only shrink. A follow-up PR can widen the rule together with a
+ * deliberate, reviewed regeneration of the list.
+ *
+ * `type` is read case-insensitively, and a conditional or logical `type={a ? 'date' : 'text'}` counts as a date
+ * input if ANY branch is 'date'. A `type` the rule cannot see through (an identifier, a call) is given the
+ * benefit of the doubt, as are {...spread} props.
+ *
  * Files that already violate are listed in eslint/raw-input-allowlist.json and skipped. The list
  * only shrinks: scripts/ci/check-raw-input-allowlist.ts fails on an entry that no longer violates.
  * Pass `{ allowlist: [] }` to see every violation (that script does).
@@ -17,7 +25,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const ALLOWLIST_FILE = path.join(here, '..', 'raw-input-allowlist.json');
+/** Paths in the allowlist and the kit prefix are relative to the repo root, wherever eslint was started from. */
+const REPO_ROOT = path.resolve(here, '..', '..');
+export const ALLOWLIST_FILE = path.join(REPO_ROOT, 'eslint', 'raw-input-allowlist.json');
 
 const UI_DIR = 'src/components/ui/';
 
@@ -42,6 +52,22 @@ function literal(a) {
   return undefined;
 }
 
+/** Every string literal a `type` value could take: "x", {"x"}, {a ? 'x' : 'y'}, {a && 'x'}, {`x`}. */
+function typeCandidates(a) {
+  const out = [];
+  const visit = (e) => {
+    if (!e) return;
+    if (e.type === 'Literal' && typeof e.value === 'string') out.push(e.value.trim().toLowerCase());
+    else if (e.type === 'TemplateLiteral' && e.expressions.length === 0) out.push((e.quasis[0]?.value.cooked ?? '').trim().toLowerCase());
+    else if (e.type === 'ConditionalExpression') { visit(e.consequent); visit(e.alternate); }
+    else if (e.type === 'LogicalExpression') { visit(e.left); visit(e.right); }
+  };
+  const v = a?.value;
+  if (v?.type === 'Literal') visit(v);
+  else if (v?.type === 'JSXExpressionContainer') visit(v.expression);
+  return out;
+}
+
 /** True when the attribute is present and not an empty literal. */
 function hasValue(a) {
   if (!a) return false;
@@ -64,7 +90,7 @@ export const noRawFormInput = {
     },
   },
   create(context) {
-    const rel = path.relative(context.cwd, context.filename).split(path.sep).join('/');
+    const rel = path.relative(REPO_ROOT, context.filename).split(path.sep).join('/');
     const allowlist = new Set(context.options[0]?.allowlist ?? defaultAllowlist());
     if (rel.startsWith(UI_DIR) || allowlist.has(rel)) return {};
 
@@ -80,9 +106,9 @@ export const noRawFormInput = {
         if (htmlFor) labelTargets.add(htmlFor);
         if (tag !== 'input') return;
 
-        const type = literal(attr(node, 'type'));
-        if (type === 'hidden') return;
-        if (type === 'date') context.report({ node, messageId: 'rawDate' });
+        const types = typeCandidates(attr(node, 'type'));
+        if (types.length > 0 && types.every((t) => t === 'hidden')) return;
+        if (types.includes('date')) context.report({ node, messageId: 'rawDate' });
 
         if (node.attributes.some((a) => a.type === 'JSXSpreadAttribute')) return;
         if (hasValue(attr(node, 'aria-label')) || hasValue(attr(node, 'aria-labelledby'))) return;

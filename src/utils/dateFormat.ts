@@ -9,6 +9,7 @@
  *   formatDisplayDate()       → "25 Feb 2026" (zero-padded day: "05 Feb 2026")
  *   formatDisplayDateTime()   → "25 Feb 2026, 14:30"
  *   formatDisplayDateLong()   → "25 February 2026"
+ *   formatDisplayDateWeekday() → "Wednesday, 25 February 2026"
  *   formatDisplayDateShort()  → "25 Feb"
  *   formatDisplayMonthYear()  → "Feb 2026"
  *
@@ -53,6 +54,7 @@ function toDate(date: DateInput): Date | null {
 const NO_DATE = '—';
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const LONG_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const LONG_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -175,13 +177,21 @@ export function formatDisplayMonthYearLong(date: DateInput, fallback = NO_DATE):
 }
 
 /**
- * "Wed, 21 Oct 2026" — Day with its weekday (timesheets, diaries)
+ * "Wed, 21 Oct 2026" — Day with its short weekday (timesheets, diaries)
+ */
+export function formatDisplayDateWeekdayShort(date: DateInput, fallback = NO_DATE): string {
+  const p = partsOf(date);
+  if (!p) return fallback;
+  return `${WEEKDAYS[weekdayOf(p.y, p.m, p.d)]}, ${pad(p.d)} ${SHORT_MONTHS[p.m - 1]} ${p.y}`;
+}
+
+/**
+ * "Wednesday, 25 February 2026" — Echo of a typed date (the weekday catches a wrong month or year)
  */
 export function formatDisplayDateWeekday(date: DateInput, fallback = NO_DATE): string {
   const p = partsOf(date);
   if (!p) return fallback;
-  const weekday = WEEKDAYS[weekdayOf(p.y, p.m, p.d)];
-  return `${weekday}, ${pad(p.d)} ${SHORT_MONTHS[p.m - 1]} ${p.y}`;
+  return `${LONG_WEEKDAYS[weekdayOf(p.y, p.m, p.d)]}, ${p.d} ${LONG_MONTHS[p.m - 1]} ${p.y}`;
 }
 
 /**

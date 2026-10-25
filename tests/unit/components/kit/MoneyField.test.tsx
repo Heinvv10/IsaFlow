@@ -3,9 +3,7 @@ import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MoneyField, type MoneyFieldProps } from '@/components/ui/MoneyField';
 
-const plain = (s: string | null | undefined): string => (s ?? '').replace(/\u00A0/g, ' ');
-
-function Harness(props: Partial<MoneyFieldProps> & { initial?: number | null; spy?: (v: number | null) => void }) {
+function Harness(props: Partial<MoneyFieldProps> & { initial?: number | null; spy?: MoneyFieldProps['onChange'] }) {
   const { initial = null, spy, ...rest } = props;
   const [value, setValue] = useState<number | null>(initial);
   return (
@@ -13,8 +11,8 @@ function Harness(props: Partial<MoneyFieldProps> & { initial?: number | null; sp
       <MoneyField
         label="Amount"
         value={value}
-        onChange={(v) => {
-          spy?.(v);
+        onChange={(v, validity) => {
+          spy?.(v, validity);
           setValue(v);
         }}
         {...rest}
@@ -40,7 +38,7 @@ describe('MoneyField', () => {
   it.each([
     ['25 000,00', 2_500_000],
     ['25,000.00', 2_500_000],
-    ['R\xa01 234.56', 123_456],
+    ['R 1 234.56', 123_456],
     ['(123.45)', null],
   ])('parses %j on blur', (text, cents) => {
     const spy = vi.fn();
@@ -56,7 +54,7 @@ describe('MoneyField', () => {
     type('25 000,00');
     expect(spy).not.toHaveBeenCalled();
     fireEvent.blur(input());
-    expect(spy).toHaveBeenCalledExactlyOnceWith(2_500_000);
+    expect(spy).toHaveBeenCalledExactlyOnceWith(2_500_000, { valid: true, reason: null });
   });
 
   it('commits on Enter', () => {
@@ -69,16 +67,16 @@ describe('MoneyField', () => {
   it('echoes what it understood, live while typing and after blur', () => {
     render(<Harness />);
     type('25 000,00');
-    expect(plain(screen.getByText(/^R\s25\s000\.00$/u).textContent)).toBe('R 25 000.00');
+    expect(screen.getByText('R 25 000.00')).toBeTruthy();
     fireEvent.blur(input());
-    expect(plain(screen.getByText(/^R\s25\s000\.00$/u).textContent)).toBe('R 25 000.00');
-    expect(plain(input().value)).toBe('25 000.00');
+    expect(screen.getByText('R 25 000.00')).toBeTruthy();
+    expect(input().value).toBe('25\xa0000.00');
   });
 
   it('points aria-describedby at the echo', () => {
     render(<Harness />);
     type('1234.5');
-    const echo = screen.getByText(/R 1.234\.50/u);
+    const echo = screen.getByText('R 1 234.50');
     expect(input().getAttribute('aria-describedby')).toBe(echo.id);
     expect(echo.getAttribute('aria-live')).toBe('polite');
   });
@@ -158,14 +156,14 @@ describe('MoneyField', () => {
     render(<Harness currency="USD" />);
     expect(screen.getByText('USD')).toBeTruthy();
     type('25,000.00');
-    expect(plain(screen.getByText(/^USD 25 000\.00$/u).textContent)).toBe('USD 25 000.00');
+    expect(screen.getByText('USD 25 000.00')).toBeTruthy();
   });
 
   it('follows an outside change to value', () => {
     const { rerender } = render(<MoneyField label="Amount" value={100} onChange={() => undefined} />);
     expect(input().value).toBe('1.00');
     rerender(<MoneyField label="Amount" value={250_000} onChange={() => undefined} />);
-    expect(plain(input().value)).toBe('2 500.00');
+    expect(input().value).toBe('2\xa0500.00');
   });
 
   it('keeps unreadable text on screen after it reports null', () => {
@@ -174,5 +172,96 @@ describe('MoneyField', () => {
     fireEvent.blur(input());
     expect(out()).toBe('null');
     expect(input().value).toBe('abc');
+  });
+
+  it('reports a refusal even when the value stays null (empty field, then junk): the form must not submit', () => {
+    const spy = vi.fn();
+    render(<Harness spy={spy} />);
+    type('abc');
+    fireEvent.blur(input());
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0]?.[0]).toBeNull();
+    expect(spy.mock.calls[0]?.[1]).toMatchObject({ valid: false });
+    expect(spy.mock.calls[0]?.[1].reason).toMatch(/digits/);
+    type('5');
+    fireEvent.blur(input());
+    expect(spy).toHaveBeenLastCalledWith(500, { valid: true, reason: null });
+    type('');
+    fireEvent.blur(input());
+    expect(spy).toHaveBeenLastCalledWith(null, { valid: true, reason: null });
+    expect(spy).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not repeat an unchanged refusal on every blur', () => {
+    const spy = vi.fn();
+    render(<Harness spy={spy} />);
+    type('abc');
+    fireEvent.blur(input());
+    fireEvent.blur(input());
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('min and max are inclusive', () => {
+    render(<Harness min={1_000} max={5_000} />);
+    type('10');
+    fireEvent.blur(input());
+    expect(out()).toBe('1000');
+    expect(screen.queryByRole('alert')).toBeNull();
+    type('50');
+    fireEvent.blur(input());
+    expect(out()).toBe('5000');
+    expect(screen.queryByRole('alert')).toBeNull();
+    type('50.01');
+    fireEvent.blur(input());
+    expect(out()).toBe('null');
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
+
+  it('passes onBlur through after committing', () => {
+    const onBlur = vi.fn();
+    render(<Harness onBlur={onBlur} />);
+    type('12');
+    fireEvent.blur(input());
+    expect(onBlur).toHaveBeenCalledTimes(1);
+    expect(out()).toBe('1200');
+  });
+
+  it('a USD field refuses an R / ZAR prefix rather than reading it as dollars', () => {
+    render(<Harness currency="USD" />);
+    type('R 5');
+    fireEvent.blur(input());
+    expect(out()).toBe('null');
+    expect(screen.getByRole('alert').textContent).toMatch(/USD/);
+    type('ZAR 5');
+    fireEvent.blur(input());
+    expect(screen.getByRole('alert').textContent).toMatch(/USD/);
+    type('5');
+    fireEvent.blur(input());
+    expect(out()).toBe('500');
+  });
+
+  it('refuses more than the money ceiling', () => {
+    render(<Harness />);
+    type('10 000 000 000 000.00');
+    fireEvent.blur(input());
+    expect(screen.getByRole('alert').textContent).toMatch(/R\xa09\xa0999\xa0999\xa0999\xa0999\.99/);
+  });
+
+  it('posts the canonical cents through a hidden input, never the display text', () => {
+    const { container } = render(<Harness name="amount" initial={2_500_000} />);
+    const hidden = container.querySelector('input[type="hidden"][name="amount"]') as HTMLInputElement;
+    expect(hidden.value).toBe('2500000');
+    expect(input().getAttribute('name')).toBeNull();
+    type('1,5');
+    fireEvent.blur(input());
+    expect(hidden.value).toBe('150');
+    type('abc');
+    fireEvent.blur(input());
+    expect(hidden.value).toBe('');
+  });
+
+  it('has no hidden input without a name', () => {
+    const { container } = render(<Harness />);
+    expect(container.querySelector('input[type="hidden"]')).toBeNull();
   });
 });

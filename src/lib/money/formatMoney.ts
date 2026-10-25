@@ -76,3 +76,20 @@ export function formatRate(rate: number): string {
   const [int = '', frac = ''] = trimmed.split('.');
   return `${int.replace(/\B(?=(\d{3})+(?!\d))/g, GROUP)}.${frac}`;
 }
+
+interface FormatCentsOptions {
+  /** false drops the "R" prefix: "25 000.00" (field text that parses back to the same cents). */
+  symbol?: boolean;
+}
+
+/**
+ * The same text as `formatMoney(cents / 100)`, built from the INTEGER digits instead of dividing in floating
+ * point, so the shown figure is exactly the stored cents (typed amounts, MoneyField echo, <Money cents>).
+ * A non-integer or unsafe input has no exact digits: it falls back to `formatMoney` (garbage in, same as there).
+ */
+export function formatCents(cents: number, options: FormatCentsOptions = {}): string {
+  if (!Number.isSafeInteger(cents)) return formatMoney(cents / 100);
+  const digits = String(Math.abs(cents)).padStart(3, '0');
+  const grouped = digits.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, GROUP);
+  return `${cents < 0 ? '-' : ''}${options.symbol === false ? '' : `R${GROUP}`}${grouped}.${digits.slice(-2)}`;
+}

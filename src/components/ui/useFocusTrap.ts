@@ -1,6 +1,10 @@
 /**
  * useFocusTrap — while `active`, keep Tab inside `containerRef`, close on Escape, move focus in
  * on open and put it back where it was on close.
+ *
+ * Why this exists beside Modal's inline trap: that one is a React onKeyDown on the dialog, so it never sees
+ * focus that has already left it, and it is welded to Modal's markup. Rewriting Modal in this foundation PR
+ * would change the behaviour of every modal in the app, so Modal keeps its own and new overlays use this.
  */
 import { useEffect, useRef, type RefObject } from 'react';
 
