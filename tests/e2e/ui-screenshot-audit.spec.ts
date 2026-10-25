@@ -76,7 +76,7 @@ test('capture workflow screenshots', async ({ page }) => {
   await page.screenshot({ path: 'tests/e2e/screenshots/audit-w6-trial-balance.png' });
 
   // W7: VAT return
-  await page.goto(`${BASE}/accounting/reports/vat-return`);
+  await page.goto(`${BASE}/accounting/sars/vat201`);
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(2000);
   await page.screenshot({ path: 'tests/e2e/screenshots/audit-w7-vat-return.png' });

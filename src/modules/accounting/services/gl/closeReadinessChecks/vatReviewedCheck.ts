@@ -32,7 +32,7 @@ export async function vatReviewedCheck(
       label: 'VAT reviewed',
       status: 'pass',
       reason: 'At least one VAT return has been submitted covering this period.',
-      fixHref: '/accounting/reports/vat-return',
+      fixHref: '/accounting/sars/vat201',
     };
   }
 
@@ -41,6 +41,6 @@ export async function vatReviewedCheck(
     label: 'VAT reviewed',
     status: 'warn',
     reason: 'No VAT return has been submitted for this period yet.',
-    fixHref: '/accounting/reports/vat-return',
+    fixHref: '/accounting/sars/vat201',
   };
 }
