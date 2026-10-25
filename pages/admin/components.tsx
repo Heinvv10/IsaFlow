@@ -5,9 +5,7 @@
 
 import { useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import {
-  Button, Input, Badge, Card, Tooltip, LoadingSpinner, ToastProvider,
-} from '@/components/ui';
+import { Button, Input, Badge, Card, Tooltip, LoadingSpinner, ToastProvider } from '@/components/ui';
 import {
   Download, Plus, Trash2, Search, Mail, Eye,
   CheckCircle, Palette, Moon, Sun,
@@ -24,6 +22,7 @@ import { SkeletonDemo } from '@/components/showcase/SkeletonDemo';
 import { AvatarDemo } from '@/components/showcase/AvatarDemo';
 import { ProgressBarDemo } from '@/components/showcase/ProgressBarDemo';
 import { SelectDemo } from '@/components/showcase/SelectDemo';
+import { FormKitShowcase } from '@/components/admin/FormKitShowcase';
 
 // ---------------------------------------------------------------------------
 // Data
@@ -36,7 +35,7 @@ const NAV_SECTIONS = [
   { label: 'Primitives', items: ['Button', 'Input', 'Badge', 'Card', 'Tooltip', 'Loading'] },
   { label: 'Feedback', items: ['Modal', 'Toast', 'EmptyState', 'Skeleton', 'ProgressBar'] },
   { label: 'Navigation', items: ['Breadcrumb', 'Tabs', 'Drawer'] },
-  { label: 'Data', items: ['Avatar', 'Select'] },
+  { label: 'Data', items: ['Avatar', 'Select', 'FormKit'] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -314,6 +313,7 @@ export default function ComponentShowcasePage() {
                   <AvatarDemo />
                 </Section>
 
+                <FormKitShowcase />
                 {/* ── Select ── */}
                 <Section id="Select" title="Select" description="Searchable dropdown with keyboard navigation, portal rendering, multi-select, and clearable support.">
                   <SelectDemo />
