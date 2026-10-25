@@ -26,10 +26,11 @@ import { seedFiscalYears } from './helpers/fiscalYearSeed';
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
-const STOCKED = randomUUID(), SOLDOUT = randomUUID(), BARE = randomUUID(), USER = randomUUID();
-const ALL = [STOCKED, SOLDOUT, BARE];
+const STOCKED = randomUUID(), SOLDOUT = randomUUID(), RETIRED = randomUUID(), BARE = randomUUID(), USER = randomUUID();
+const ALL = [STOCKED, SOLDOUT, RETIRED, BARE];
 const TAG = STOCKED.slice(0, 8);
 const inventory = randomUUID(), bank = randomUUID(), soldInventory = randomUUID(), soldBank = randomUUID();
+const retiredInventory = randomUUID(), retiredBank = randomUUID();
 
 async function inTx<T>(companyId: string, fn: () => Promise<T>): Promise<T> {
   const client: PoolClient = await getPoolForTests().connect();
@@ -89,7 +90,7 @@ describeIfDb('AFS note 1 accounting policies from the company records', () => {
     await sql`INSERT INTO users (id, email, role, is_active) VALUES (${USER}, ${USER + '@test.local'}, 'admin', true)`;
     await sql`INSERT INTO companies (id, name, financial_year_start, default_currency)
               VALUES (${STOCKED}::UUID, ${'N1 stocked ' + TAG}, 3, 'ZAR'), (${SOLDOUT}::UUID, ${'N1 soldout ' + TAG}, 3, 'ZAR'),
-                     (${BARE}::UUID, ${'N1 bare ' + TAG}, 3, 'ZAR')`;
+                     (${RETIRED}::UUID, ${'N1 retired ' + TAG}, 3, 'ZAR'), (${BARE}::UUID, ${'N1 bare ' + TAG}, 3, 'ZAR')`;
     for (const c of ALL) {
       await sql`INSERT INTO company_users (company_id, user_id, role) VALUES (${c}::UUID, ${USER}, 'admin')`;
       await seedFiscalYears(c, '2024-03-01', '2027-02-28');
@@ -99,7 +100,9 @@ describeIfDb('AFS note 1 accounting policies from the company records', () => {
       VALUES (${inventory}::UUID, ${STOCKED}::UUID, '1400', 'Inventory', 'asset', 'debit', 3, true, 'inventory'),
              (${bank}::UUID, ${STOCKED}::UUID, '1000', 'Bank', 'asset', 'debit', 3, true, 'bank'),
              (${soldInventory}::UUID, ${SOLDOUT}::UUID, '1400', 'Inventory', 'asset', 'debit', 3, true, 'inventory'),
-             (${soldBank}::UUID, ${SOLDOUT}::UUID, '1000', 'Bank', 'asset', 'debit', 3, true, 'bank')`;
+             (${soldBank}::UUID, ${SOLDOUT}::UUID, '1000', 'Bank', 'asset', 'debit', 3, true, 'bank'),
+             (${retiredInventory}::UUID, ${RETIRED}::UUID, '1400', 'Inventory', 'asset', 'debit', 3, true, 'inventory'),
+             (${retiredBank}::UUID, ${RETIRED}::UUID, '1000', 'Bank', 'asset', 'debit', 3, true, 'bank')`;
     await asset(STOCKED, 1, 'straight_line', '2024-06-01', null); // held all year
     await asset(STOCKED, 2, 'reducing_balance', '2025-09-01', null); // bought in the year
     await asset(STOCKED, 3, 'sum_of_years', '2023-01-01', '2025-01-31'); // gone before the year began
@@ -112,13 +115,16 @@ describeIfDb('AFS note 1 accounting policies from the company records', () => {
     await product(SOLDOUT, 3, 'fifo', 'inventory', true);
     await product(SOLDOUT, 4, 'weighted_average', 'inventory', false); // inactive: not a method in use
     await product(BARE, 5, 'fifo', 'service', true); // a service is not inventory
+    await stockJournal(RETIRED, retiredInventory, retiredBank, '2025-04-01', 80);
+    await stockJournal(RETIRED, retiredInventory, retiredBank, '2025-06-01', -80);
+    await product(RETIRED, 6, 'fifo', 'inventory', false); // sold out and retired: still the method used that year
   }, 120000);
 
   afterAll(async () => {
     try {
       await sql`DELETE FROM gl_journal_lines WHERE company_id = ANY(${ALL}::UUID[])`;
       await sql`DELETE FROM gl_journal_entries WHERE company_id = ANY(${ALL}::UUID[])`;
-      await sql`DELETE FROM gl_account_balances WHERE gl_account_id = ANY(${[inventory, bank, soldInventory, soldBank]}::UUID[])`;
+      await sql`DELETE FROM gl_account_balances WHERE gl_account_id = ANY(${[inventory, bank, soldInventory, soldBank, retiredInventory, retiredBank]}::UUID[])`;
       await sql`DELETE FROM gl_accounts WHERE company_id = ANY(${ALL}::UUID[])`;
       await sql`DELETE FROM assets WHERE company_id = ANY(${ALL}::UUID[])`;
       await sql`DELETE FROM products WHERE company_id = ANY(${ALL}::UUID[])`;
@@ -161,6 +167,12 @@ describeIfDb('AFS note 1 accounting policies from the company records', () => {
     expect(sold.policy('Inventories')).toContain('Cost is determined using the first-in, first-out (FIFO) method.');
     expect(sold.policy('Inventories')).not.toMatch(/weighted average/);
     expect((await note1(SOLDOUT, 2027)).headings).not.toContain('Inventories');
+  });
+
+  it('every inventory product retired: their cost method still names the policy', async () => {
+    const { policy, snapshot } = await note1(RETIRED);
+    expect(policy('Inventories')).toContain('Cost is determined using the first-in, first-out (FIFO) method.');
+    expect(snapshot.inventory_cost_methods).toEqual(['fifo']);
   });
 
   it('a company with no assets and no stock: default depreciation text, no inventories policy, no other company\'s methods', async () => {
