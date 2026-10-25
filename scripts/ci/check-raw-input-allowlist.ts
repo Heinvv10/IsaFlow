@@ -7,7 +7,8 @@
  *   - a file is not on the list but violates (NEW), or has more than its count (GROWN);
  *   - a file has fewer than its count (SHRUNK) or none or is gone (STALE): lower or remove the entry, so
  *     fixing a form forces the list down in the same PR;
- *   - against the list on origin/master (RAW_INPUT_BASE_REF overrides the ref) an entry was ADDED or a
+ *   - against the list on origin/master (RAW_INPUT_BASE_REF overrides the ref locally; on GitHub the gate
+ *     refuses the override) an entry was ADDED or a
  *     count RAISED. When master has no list at that path (the PR that introduces it) the comparison is
  *     skipped and says so; any other git failure, or a base list that does not parse, fails the gate.
  *     With the ref itself missing the gate fails on GitHub (fetch-depth 0 provides it) and warns locally.
@@ -30,7 +31,7 @@ import { ESLint } from 'eslint';
 import tsParser from '@typescript-eslint/parser';
 import isaflow from '../../eslint/isaflow-plugin.mjs';
 import { ALLOWLIST_FILE } from '../../eslint/rules/no-raw-form-input.mjs';
-import { compareCounts, parseCounts, pruneCounts, readBaseList, type Counts } from './rawInputAllowlist';
+import { compareCounts, parseCounts, pruneCounts, readBaseList, resolveBaseRef, type Counts } from './rawInputAllowlist';
 
 const RULE = 'isaflow/no-raw-form-input';
 const LIST_PATH = 'eslint/raw-input-allowlist.json';
@@ -89,7 +90,12 @@ async function main(): Promise<number> {
     return stillBad.length > 0 ? 1 : 0;
   }
 
-  const ref = process.env.RAW_INPUT_BASE_REF ?? 'origin/master';
+  const resolved = resolveBaseRef(process.env);
+  if (!resolved.ok) {
+    console.error(`[raw-input-allowlist] FAIL: ${resolved.reason}`);
+    return 1;
+  }
+  const ref = resolved.ref;
   const base = readBaseList(ref, LIST_PATH, git);
   if (base.kind === 'no-ref') {
     const where = process.env.GITHUB_ACTIONS === 'true' ? 'FAIL' : 'warn';

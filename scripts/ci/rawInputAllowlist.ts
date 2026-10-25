@@ -17,6 +17,22 @@ export type BaseList =
   | { kind: 'no-list' }
   | { kind: 'no-ref' };
 
+export type BaseRef = { ok: true; ref: string } | { ok: false; reason: string };
+
+/**
+ * The ref the list is compared with: origin/master, or RAW_INPUT_BASE_REF for local experiments. On GitHub the
+ * override is refused: a workflow (or a PR that edits one) must not be able to point the gate at a base that
+ * allows more.
+ */
+export function resolveBaseRef(env: Record<string, string | undefined>): BaseRef {
+  const override = env.RAW_INPUT_BASE_REF;
+  if (override === undefined || override === '') return { ok: true, ref: 'origin/master' };
+  if (env.GITHUB_ACTIONS === 'true') {
+    return { ok: false, reason: `RAW_INPUT_BASE_REF is set (${override}) on GitHub. The base is always origin/master there; remove the override.` };
+  }
+  return { ok: true, ref: override };
+}
+
 /** Parse the JSON list; throws an Error naming `where` when it is not an object of non-negative integers. */
 export function parseCounts(text: string, where: string): Counts {
   let raw: unknown;
