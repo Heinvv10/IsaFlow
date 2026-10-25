@@ -122,18 +122,20 @@ export async function planSupplierPaymentApplication(
     );
   }
 
-  // POSTED cash lowers the supplier's on-account credit: take the credit key (tried, never waited on —
-  // `supplierCreditLock`), then check the ceiling. A payment this request created lands with its allocation and
-  // lowers nothing, so it does neither: a supplier already below zero must still be payable.
-  if (opts.paymentCreatedInThisRequest !== true) {
-    await lockSupplierCredit(companyId, supplierId);
-    await assertWithinOnAccountCredit(companyId, supplierId, requested);
-  }
-
   const { lines } = await planSupplierAllocationLines(companyId, allocations, {
     paymentId,
     supplierId,
   });
+
+  // POSTED cash lowers the supplier's on-account credit: take the credit key (tried, never waited on —
+  // `supplierCreditLock`), then check the ceiling. AFTER the bill locks, so the key is held only while this request
+  // writes, never while it waits on a row: a rule sweep that holds the bill and then plans a refund would otherwise
+  // find the key taken by an application queued behind it. A payment this request created lands with its
+  // allocation and lowers nothing, so it does neither: a supplier already below zero must still be payable.
+  if (opts.paymentCreatedInThisRequest !== true) {
+    await lockSupplierCredit(companyId, supplierId);
+    await assertWithinOnAccountCredit(companyId, supplierId, requested);
+  }
 
   const allocatedAfter = round2(allocatedBefore + requested);
   const unappliedAfter = round2(paymentTotal - allocatedAfter);

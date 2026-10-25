@@ -68,9 +68,21 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/core/paymentLock', () => ({
   lockSupplierPaymentForUpdate: vi.fn(),
 }));
+// The credit key and the on-account read are proved over real connections in
+// `tests/integration/ap-supplier-refund-vs-apply-window.int.test.ts`; here they
+// stand aside so the positional `sql` queue stays the bill read's.
+const { credit } = vi.hoisted(() => ({ credit: { value: 1_000_000 } }));
+vi.mock('@/modules/accounting/services/ap/supplierCreditLock', () => ({
+  lockSupplierCredit: vi.fn(async () => {}),
+}));
+vi.mock('@/modules/accounting/services/ap/supplierRefundDocument', () => ({
+  // A plain function, not vi.fn(): the file's beforeEach resets every mock's implementation.
+  getSupplierOnAccountCredit: async () => ({ credit: credit.value, supplierName: 'ACME' }),
+}));
 
 import { sql } from '@/lib/neon';
 import { lockSupplierPaymentForUpdate } from '@/modules/accounting/services/core/paymentLock';
+import { lockSupplierCredit } from '@/modules/accounting/services/ap/supplierCreditLock';
 import {
   planSupplierPaymentApplication,
   applySupplierPaymentPlan,
@@ -378,6 +390,41 @@ describe('planSupplierPaymentApplication', () => {
   });
 });
 
+beforeEach(() => { credit.value = 1_000_000; });
+
+describe('planSupplierPaymentApplication — the on-account credit ceiling', () => {
+
+  it('takes the credit key and refuses an amount above the credit, writing nothing', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    billRows([billRow(BILL_A)]);
+    credit.value = 200;
+    await expect(planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 300 }]))
+      .rejects.toThrow(/R300\.00[\s\S]*ACME owing the company[\s\S]*R200\.00/);
+    expect(lockSupplierCredit).toHaveBeenCalledWith(COMPANY, SUPPLIER);
+    const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
+    expect(texts.some((t) => /INSERT INTO|UPDATE\s+\w+\s+SET|DELETE FROM/.test(t))).toBe(false);
+  });
+
+  it('allows an amount exactly at the credit', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    billRows([billRow(BILL_A)]);
+    credit.value = 300;
+    const plan = await planSupplierPaymentApplication(COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 300 }]);
+    expect(plan.lines).toHaveLength(1);
+  });
+
+  it('a payment created in this request takes neither the key nor the ceiling', async () => {
+    lockMock.mockResolvedValue(paymentRow());
+    billRows([billRow(BILL_A)]);
+    credit.value = -2000; // a supplier already below zero stays payable
+    const plan = await planSupplierPaymentApplication(
+      COMPANY, PAYMENT, [{ invoiceId: BILL_A, amount: 300 }], { paymentCreatedInThisRequest: true },
+    );
+    expect(plan.lines).toHaveLength(1);
+    expect(lockSupplierCredit).not.toHaveBeenCalled();
+  });
+});
+
 describe('applySupplierPaymentPlan', () => {
   async function plannedFor(amount: number) {
     lockMock.mockResolvedValue(paymentRow());
@@ -389,26 +436,20 @@ describe('applySupplierPaymentPlan', () => {
     return plan;
   }
 
-  it('moves amount_paid by a RELATIVE update, never an absolute one', async () => {
+  it('moves amount_paid by a RELATIVE update, never an absolute one, in ONE write of the bill', async () => {
     const plan = await plannedFor(600);
     await applySupplierPaymentPlan(COMPANY, plan, USER);
 
     const updates = sqlMock.mock.calls
       .map((c) => (c[0] as string[]).join('?'))
       .filter((t) => t.includes('UPDATE supplier_invoices'));
-    // TWO now: the money write, then recomputeInvoiceStatus deriving status,
-    // paid_at and payment_matched from the balance it left. Asserted as exactly
-    // two — a third would mean a writer crept back in.
-    expect(updates).toHaveLength(2);
-
-    const moneyWrites = updates.filter((t) => /amount_paid\s*=/.test(t));
-    expect(moneyWrites).toHaveLength(1);
-    expect(moneyWrites[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
-    // NO statement may write it absolutely, not merely the one we picked.
-    for (const t of updates) expect(t).not.toMatch(/SET\s+amount_paid\s*=\s*\?/);
-    // The money write no longer carries the settlement rule with it.
-    expect(moneyWrites[0]).not.toMatch(/payment_matched/);
-    expect(moneyWrites[0]).not.toMatch(/status\s*=/);
+    // ONE: the money and the status it implies (2026-10-25). A second write of
+    // the bill re-ran its supplier FK check after the payment lock and crossed
+    // a supplier merge (40P01).
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
+    expect(updates[0]).not.toMatch(/SET\s+amount_paid\s*=\s*\?/);
+    expect(updates[0]).toMatch(/status = CASE/);
   });
 
   it('DERIVES payment_matched from the settlement, so a wrongly-set flag is CORRECTED', async () => {
@@ -416,18 +457,17 @@ describe('applySupplierPaymentPlan', () => {
     // amount against the FIRST named invoice, so a R1000 line allocating R300
     // to a R600 bill flags that bill matched before this ever runs. Preserving
     // the existing flag would keep that lie; deriving it from the settlement
-    // state overwrites it. The flag must be an assignment, not a CASE that only
-    // ever sets TRUE.
+    // state overwrites it. A balance-derived bill's flag is the comparison, not
+    // a CASE that only ever sets TRUE; only a status outside BALANCE_DERIVED
+    // keeps the stored value, as recomputeInvoiceStatus's WHERE kept it.
     const plan = await plannedFor(300);
     await applySupplierPaymentPlan(COMPANY, plan, USER);
-    // Now written by recomputeInvoiceStatus, so look for the statement that
-    // carries the flag rather than assuming it is the first one.
     const update = sqlMock.mock.calls
       .map((c) => (c[0] as string[]).join('?'))
       .find((t) => t.includes('UPDATE supplier_invoices') && t.includes('payment_matched'))!;
     expect(update).toBeDefined();
-    expect(update).toMatch(/payment_matched\s*=\s*\(/);
-    expect(update).not.toMatch(/payment_matched\s*=\s*CASE[\s\S]*ELSE payment_matched/);
+    expect(update).toMatch(/payment_matched = CASE[\s\S]*?IS NOT TRUE THEN payment_matched\s+ELSE \(COALESCE\(amount_paid, 0\) \+ \?/);
+    expect(update).not.toMatch(/ELSE payment_matched\b/);
     // And it clears the timestamp when the flag goes false, so a stale stamp
     // cannot outlive its claim.
     expect(update).toMatch(/payment_matched_at = CASE[\s\S]*ELSE NULL/);
@@ -442,8 +482,6 @@ describe('applySupplierPaymentPlan', () => {
     const updates = sqlMock.mock.calls
       .map((c) => (c[0] as string[]).join('?'))
       .filter((t) => t.includes('UPDATE supplier_invoices'));
-    // Exactly one of the two statements owns the flag — not zero (the bug this
-    // guards) and not both (two writers again).
     expect(updates.filter((t) => t.includes('payment_matched'))).toHaveLength(1);
   });
 

@@ -78,7 +78,12 @@
  * So `planSupplierRefund` takes `lockContactForRefund` BEFORE it reads, and
  * holds it for the rest of the request transaction. The supplier row is the
  * only object the two requests share — the row being guarded is the one about
- * to be inserted, so there is nothing else to lock. See `core/paymentLock`.
+ * to be inserted. See `core/paymentLock`. An APPLICATION of the supplier's posted
+ * cash lowers the same credit and takes no supplier lock, so the planner then
+ * tries the supplier's credit key (`ap/supplierCreditLock`): held by an
+ * application in flight, the refund is refused (retryable) instead of counting
+ * cash already being spent. The application checks the same ceiling from its
+ * side (`planSupplierPaymentApplication`).
  */
 
 import { sql } from '@/lib/neon';
