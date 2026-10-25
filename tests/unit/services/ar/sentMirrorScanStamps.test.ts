@@ -17,6 +17,7 @@ vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.21
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     mailbox = { uidNext: h.uidNext };
+    on() { /* the mirror registers an 'error' listener */ }
     async connect() { /* fake mailbox */ }
     async logout() { /* fake mailbox */ }
     async getMailboxLock() { return { release: () => undefined }; }

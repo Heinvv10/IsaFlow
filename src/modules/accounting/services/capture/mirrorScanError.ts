@@ -38,6 +38,9 @@ const FLIP_STATUS = {
           WHERE id = $1::uuid AND company_id = $2::uuid`,
 } as const;
 
+/** What a tenant sees when its mail server held a scan past the deadline; the log has the details. */
+export const SCAN_TIMED_OUT = 'Scan timed out';
+
 const SCOPE = { imap: 'imap-mirror', sent: 'sent-mirror' } as const;
 
 /** The stamp statement, run through `run` (the request's `sql`, or a bounded-wait transaction's tag). */
@@ -76,6 +79,15 @@ async function stampError(kind: MirrorKind, conn: MirrorRef, error: string): Pro
       log.error('mirror scan error stamp failed', { connectionId: conn.id, kind, err }, SCOPE[kind]);
     }
   }
+}
+
+/**
+ * A scan that passed its deadline (mirrorScanGuard.ts): the generic stamp, status untouched. The
+ * connection's last_scan_at moves to now, so it goes to the back of the due queue and the next tick
+ * scans the others first. Never throws.
+ */
+export async function stampScanTimeout(kind: MirrorKind, conn: MirrorRef): Promise<void> {
+  await stampError(kind, conn, SCAN_TIMED_OUT);
 }
 
 async function flipStatus(kind: MirrorKind, conn: MirrorRef, error: string): Promise<void> {

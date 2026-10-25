@@ -10,14 +10,18 @@
  * Round 3: an IMAP number is at most 2^32 - 1 (a larger one is a BAD from a strict
  * server, or, on the sent mirror, a folder skipped for good), and a cursor at or
  * past the mailbox's UIDNEXT can never be reached, so it is judged invalid too.
+ *
+ * Round 4: such a cursor is clamped to UIDNEXT - 1 (nothing old is scanned, new mail is
+ * picked up) and the clamped value is written back; it was a rescan from UID 1.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ ranges: [] as string[], markError: vi.fn(), uidNext: 0 }));
+const h = vi.hoisted(() => ({ ranges: [] as string[], markError: vi.fn(), uidNext: 0, statements: [] as { q: string; v: unknown[] }[] }));
 
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     mailbox = { uidNext: h.uidNext };
+    on() { /* the mirror registers an 'error' listener */ }
     async connect() { /* fake mailbox */ }
     async logout() { /* fake mailbox */ }
     async getMailboxLock() { return { release: () => undefined }; }
@@ -28,7 +32,7 @@ vi.mock('imapflow', () => ({
 vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('@/lib/neon', () => {
-  const sql = vi.fn(async () => []);
+  const sql = vi.fn(async (strings: TemplateStringsArray, ...v: unknown[]) => { h.statements.push({ q: strings.join('?').replace(/\s+/g, ' ').trim(), v }); return []; });
   return { sql, withTransaction: async (fn: (tx: typeof sql) => Promise<unknown>) => fn(sql) };
 });
 vi.mock('@/lib/encryption', () => ({ decrypt: () => 'password' }));
@@ -39,7 +43,7 @@ vi.mock('@/modules/accounting/services/capture/mirrorScanError', () => ({ markMi
 vi.mock('@/lib/afterCommit', () => ({ runAfterCommit: vi.fn() }));
 
 import { log } from '@/lib/logger';
-import { readCursorUid } from '@/modules/accounting/services/capture/mirrorCursor';
+import { readCursor } from '@/modules/accounting/services/capture/mirrorCursor';
 import { scanConnection, type MirrorConnection } from '@/modules/accounting/services/capture/imapMirrorService';
 import { scanSentConnection, type SentMirrorConnection } from '@/modules/accounting/services/ar/sentMirrorService';
 
@@ -56,6 +60,7 @@ const sentConn = (scanCursor: unknown): SentMirrorConnection => ({
 
 beforeEach(() => {
   h.ranges.length = 0;
+  h.statements.length = 0;
   h.uidNext = 0;
   h.markError.mockClear();
   vi.mocked(log.warn).mockClear();
@@ -63,7 +68,9 @@ beforeEach(() => {
 
 const BAD = [['2^32, one past an IMAP number', 2 ** 32], ['the largest safe integer', Number.MAX_SAFE_INTEGER], ['a fraction', 1.5], ['negative', -1], ['a string', 'x'], ['past the safe integers', 1e20], ['a numeric string', '5'], ['zero', 0], ['NaN', NaN], ['an object', { n: 1 }], ['an array', [3]], ['true', true]] as const;
 
-describe('readCursorUid', () => {
+const readCursorUid = (...a: Parameters<typeof readCursor>) => readCursor(...a).uid;
+
+describe('readCursor', () => {
   const ref = { id: 'c1', kind: 'imap-mirror' } as const;
 
   it('uses a positive safe integer as it is', () => {
@@ -79,12 +86,20 @@ describe('readCursorUid', () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
-  it.each([['equal to UIDNEXT', 100], ['past UIDNEXT', 101], ['far past UIDNEXT', 0xfffffffe]])('a cursor %s is ignored, with a warning that names the connection but not the value', (_what, cursor) => {
-    expect(readCursorUid({ INBOX: cursor }, 'INBOX', ref, 100)).toBe(0);
+  it.each([['equal to UIDNEXT', 100], ['past UIDNEXT', 101], ['far past UIDNEXT', 0xfffffffe]])('a cursor %s is clamped to UIDNEXT - 1 and flagged to be stored, with a warning', (_what, cursor) => {
+    expect(readCursor({ INBOX: cursor }, 'INBOX', ref, 100)).toEqual({ uid: 99, clamped: true });
     expect(log.warn).toHaveBeenCalledTimes(1);
-    const [, fields] = vi.mocked(log.warn).mock.calls[0]!;
-    expect(fields).toMatchObject({ connectionId: 'c1', folder: 'INBOX', uidNext: 100 });
-    expect(fields).not.toHaveProperty('cursor');
+    expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ connectionId: 'c1', folder: 'INBOX', uidNext: 100 });
+  });
+
+  it('a mailbox with UIDNEXT 1 (nothing ever delivered) clamps to 0', () => {
+    expect(readCursor({ INBOX: 7 }, 'INBOX', ref, 1)).toEqual({ uid: 0, clamped: true });
+  });
+
+  it('a cursor that is used as it is, or is invalid, is not flagged to be stored', () => {
+    expect(readCursor({ INBOX: 41 }, 'INBOX', ref, 100).clamped).toBe(false);
+    expect(readCursor({ INBOX: 1.5 }, 'INBOX', ref, 100).clamped).toBe(false);
+    expect(readCursor({}, 'INBOX', ref, 100).clamped).toBe(false);
   });
 
   it('UIDNEXT unknown (0) leaves a cursor to the 2^32 bound alone', () => {
@@ -114,7 +129,9 @@ describe('readCursorUid', () => {
 describe.each([
   ['capture mirror', (c: unknown) => scanConnection(imapConn(c)), 'INBOX', 'imap-mirror'],
   ['sent mirror', (c: unknown) => scanSentConnection(sentConn(c)), 'Sent', 'sent-mirror'],
-] as const)('%s scans', (_name, scan, folder, scope) => {
+] as const)('%s scans', (name, scan, folder, scope) => {
+  const afterClamp = name === 'sent mirror' ? [] : ['100:*'];
+
   it('on from a good cursor', async () => {
     await scan({ [folder]: 41 });
     expect(h.ranges).toEqual(['42:*']);
@@ -134,13 +151,21 @@ describe.each([
   });
 
   it.each([['2^32 - 2, a valid number but not one this mailbox has', 0xfffffffe], ['UIDNEXT itself', 100], ['past UIDNEXT', 5000]])(
-    'with UIDNEXT 100 from the mailbox, a cursor of %s is ignored: scanned from the start, not marked failed', async (_what, cursor) => {
+    'with UIDNEXT 100 from the mailbox, a cursor of %s is clamped to 99: nothing old is rescanned, not marked failed', async (_what, cursor) => {
       h.uidNext = 100;
       await scan({ [folder]: cursor });
-      expect(h.ranges).toEqual(['1:*']);
+      expect(h.ranges).toEqual(afterClamp); // nothing past 99 exists: the sent mirror does not even ask
       expect(h.markError).not.toHaveBeenCalled();
       expect(vi.mocked(log.warn).mock.calls.some((c) => c[2] === scope && /UIDNEXT/.test(String(c[0])))).toBe(true);
     });
+
+  it('the clamped cursor is written back (else the forged one holds the folder silent until UIDNEXT overtakes it)', async () => {
+    h.uidNext = 100;
+    await scan({ [folder]: 5000 });
+    const write = h.statements.find((s) => /scan_cursor =/.test(s.q));
+    expect(write).toBeDefined();
+    expect(JSON.parse(String(write!.v[0]))).toEqual({ [folder]: 99 });
+  });
 
   it('with UIDNEXT 100, a cursor of 99 (the newest message already seen) is a good cursor', async () => {
     h.uidNext = 100;

@@ -16,7 +16,7 @@ import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminPool';
 import { createImapConnection } from '@/modules/accounting/services/capture/mirrorConnectionService';
 import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
-import { scanAllDueConnections } from '@/modules/accounting/services/capture/imapMirrorService';
+import { listActiveConnections, scanAllDueConnections, scanConnection } from '@/modules/accounting/services/capture/imapMirrorService';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -24,6 +24,7 @@ const imap = vi.hoisted(() => ({ releaseError: 'mailbox lock release failed afte
 vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.216.34', family: 4 }] }));
 vi.mock('imapflow', () => ({
   ImapFlow: class {
+    on() { /* the mirror registers an 'error' listener */ }
     async connect() { return undefined; }
     async getMailboxLock() { return { release: () => { if (imap.releaseFails) throw new Error(imap.releaseError); } }; }
     async *fetch() { yield { uid: 9, envelope: { subject: 'newsletter', from: [{ address: 'a@x.test' }] } }; }
@@ -102,7 +103,9 @@ describe('S-07e part B (946): a connection row locked by someone else, outside a
 
 // The cron's other writes (the scan log, the cursor, the success stamp, the counters) wait for a locked row for
 // 2 s at most, outside a request. A connection whose row is held is skipped for this tick, not marked failed, and
-// the connections behind it are still scanned.
+// the connections behind it are still scanned. The due selection takes FOR UPDATE SKIP LOCKED, so a row locked
+// BEFORE the tick is not even selected; the bounded wait is for a lock taken after the selection, which the test
+// sets up by selecting first and scanning the selected connections one by one, as the tick does.
 describe('S-07e part B (946): the cron meets a connection row locked by someone else', () => {
   it('skips that connection after the bounded wait, leaves it active with its cursor, and scans the next one', async () => {
     imap.releaseFails = false;
@@ -114,11 +117,16 @@ describe('S-07e part B (946): the cron meets a connection row locked by someone 
       const free = await mk('free-cron');
       const holder = await fixture.connect();
       try {
+        // Selected before the lock is taken (the selector would skip a locked row), scanned after.
+        const selected = (await listActiveConnections()).filter((c) => c.id === held || c.id === free);
         await holder.query('BEGIN');
         await holder.query('SELECT 1 FROM imap_mirror_connections WHERE id = $1 FOR UPDATE', [held]);
+        expect(selected.map((c) => c.id).sort()).toEqual([held, free].sort());
+        expect((await listActiveConnections()).map((c) => c.id)).toEqual(expect.not.arrayContaining([held]));
 
         const started = Date.now();
-        const results = await scanAllDueConnections();
+        const results = [];
+        for (const c of selected) results.push(await scanConnection(c));
         const elapsed = Date.now() - started;
 
         // One 2 s wait (the scan log's key-share lock), not the lock's holding time and not a per-write 2 s.

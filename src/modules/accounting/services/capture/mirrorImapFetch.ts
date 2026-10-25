@@ -14,6 +14,9 @@ const BY_UID = { uid: true } as const;
 /** Messages past the cursor that a scan looks at in one pass. */
 const SCAN_BATCH = 50;
 
+/** The largest number IMAP has (RFC 3501 nz-number): a UID outside 1..this is the server's mistake, not a message. */
+const MAX_IMAP_NUMBER = 0xffffffff;
+
 /** The mailbox's UIDNEXT, or 0 when the server did not report one. */
 export function mailboxUidNext(client: ImapFlow): number {
   const mbox = client.mailbox;
@@ -25,13 +28,16 @@ export function mailboxUidNext(client: ImapFlow): number {
 /**
  * Envelope + size of up to SCAN_BATCH messages with a UID above `cursorUid`. `N:*` on a
  * mailbox whose highest UID is below N answers with the last message (RFC 3501 6.4.8),
- * so a message at or below the cursor is dropped here rather than scanned again.
+ * so a message at or below the cursor is dropped here rather than scanned again. A UID that is
+ * not an integer in 1..2^32-1 is dropped too: it would never be ingested, and written as a
+ * cursor it would be one the next scan rejects.
  */
 export async function fetchNewMessages(client: ImapFlow, cursorUid: number): Promise<FetchMessageObject[]> {
   const range = cursorUid > 0 ? `${cursorUid + 1}:*` : '1:*';
   const messages: FetchMessageObject[] = [];
   for await (const msg of client.fetch(range, { uid: true, envelope: true, size: true }, BY_UID)) {
-    if (Number(msg.uid) <= cursorUid) continue;
+    const uid = Number(msg.uid);
+    if (!Number.isInteger(uid) || uid <= cursorUid || uid > MAX_IMAP_NUMBER) continue;
     messages.push(msg);
     if (messages.length >= SCAN_BATCH) break;
   }

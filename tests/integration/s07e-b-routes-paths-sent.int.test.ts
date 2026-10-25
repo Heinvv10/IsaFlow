@@ -14,7 +14,7 @@ import { getDbPool } from '@/lib/neon';
 import { migrationAdminPool, billingAdminPool } from '@/lib/auth/migrationAdminPool';
 import { decrypt } from '@/lib/encryption';
 import { createSentImapConnection, disconnectSentConnection } from '@/modules/accounting/services/ar/sentMirrorAdmin';
-import { listActiveSentConnections, scanAllDueSentConnections } from '@/modules/accounting/services/ar/sentMirrorService';
+import { listActiveSentConnections, scanAllDueSentConnections, scanSentConnection } from '@/modules/accounting/services/ar/sentMirrorService';
 import { callRoute } from './s07-users-privilege-columns.helpers';
 import { fixture, newIds, setup, teardown } from './s07b-app-pool-login-role.helpers';
 
@@ -25,6 +25,7 @@ vi.mock('node:dns/promises', () => ({ lookup: async () => [{ address: '93.184.21
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     mailbox = { uidNext: 100 };
+    on() { /* the mirror registers an 'error' listener */ }
     async connect() { if (imap.connectError) throw new Error(imap.connectError); }
     async getMailboxLock() { return { release: () => undefined }; }
     async *fetch() { for (const m of imap.metas) yield m; }
@@ -153,8 +154,9 @@ describe('S-07e part B (946): the cron treats a last_scan_at in the future as du
     const due = (await listActiveSentConnections()).map((c) => c.id);
     expect(due).toEqual(expect.arrayContaining([never, stale, future, soon, forever]));
     expect(due).not.toContain(fresh);
-    // Never-scanned and future-stamped rows come first, ahead of the row that has merely waited longest.
-    expect(due.indexOf(stale)).toBeGreaterThan(Math.max(due.indexOf(never), due.indexOf(future), due.indexOf(forever)));
+    // Round 4: a never-scanned row first, then the row that has waited longest; the future-stamped rows (forged or not) last.
+    expect(due.indexOf(never)).toBeLessThan(due.indexOf(stale));
+    expect(due.indexOf(stale)).toBeLessThan(Math.min(due.indexOf(future), due.indexOf(soon), due.indexOf(forever)));
   });
 
   it('a scan of the cron then stamps it back to now', async () => {
@@ -181,11 +183,17 @@ describe('S-07e part B (946): the cron meets a sent-mirror row locked by someone
     const free = await mk('free-cron');
     const holder = await fixture.connect();
     try {
+      // The due selection takes FOR UPDATE SKIP LOCKED: a row locked before the tick is not selected at all.
+      // The bounded wait is for a lock taken after the selection, so select first, lock, then scan one by one.
+      const selected = (await listActiveSentConnections()).filter((c) => c.id === held || c.id === free);
+      expect(selected.map((c) => c.id).sort()).toEqual([held, free].sort());
       await holder.query('BEGIN');
       await holder.query('SELECT 1 FROM sent_mirror_connections WHERE id = $1 FOR UPDATE', [held]);
+      expect((await listActiveSentConnections()).map((c) => c.id)).toEqual(expect.not.arrayContaining([held]));
 
       const started = Date.now();
-      const results = await scanAllDueSentConnections();
+      const results = [];
+      for (const c of selected) results.push(await scanSentConnection(c));
       const elapsed = Date.now() - started;
 
       // One 2 s wait (the scan log's key-share lock), not the lock's holding time and not a per-write 2 s.

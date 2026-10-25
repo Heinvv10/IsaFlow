@@ -20,6 +20,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock('imapflow', () => ({
   ImapFlow: class {
+    on() { /* the mirror registers an 'error' listener */ }
     async connect() { h.connects += 1; throw new Error('connect ECONNREFUSED'); }
     async logout() { /* fake mailbox */ }
   },

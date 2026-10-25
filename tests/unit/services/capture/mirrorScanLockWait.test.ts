@@ -28,6 +28,7 @@ const h = vi.hoisted(() => ({
 vi.mock('imapflow', () => ({
   ImapFlow: class {
     mailbox = { uidNext: h.uidNext };
+    on() { /* the mirror registers an 'error' listener */ }
     async connect() { /* fake mailbox */ }
     async logout() { /* fake mailbox */ }
     async getMailboxLock() { return { release: () => undefined }; }

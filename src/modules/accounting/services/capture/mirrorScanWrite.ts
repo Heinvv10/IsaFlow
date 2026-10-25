@@ -12,8 +12,9 @@
  * transaction-local, so the pooled connection is not left with it). A write
  * that gives up (55P03) makes the scan skip its connection for this tick:
  * isScanLockSkip tells the caller, which warns and moves on without marking the
- * connection failed and without advancing its cursor (the next tick re-scans,
- * and ingestion de-duplicates by content hash).
+ * connection failed and without advancing its cursor (the next tick re-scans
+ * the messages the skipped scan had already ingested: both mirrors skip a file
+ * the company already holds, by company_id and content hash).
  *
  * Inside a request (scan-now) the writes run on the request's own transaction,
  * whose lock_timeout must not change for the rest of the request.
