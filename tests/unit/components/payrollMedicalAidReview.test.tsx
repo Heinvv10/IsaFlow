@@ -133,6 +133,61 @@ describe('employees list — medical-aid review banner', () => {
     expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull();
   });
 
+  it("B resolves first and A's late response does not overwrite B's list", async () => {
+    const pending: Record<string, (r: Response) => void> = {};
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
+      (String(url).includes(REVIEW_URL) ? new Promise<Response>((res) => { pending[company.id] = res; }) : ok([])));
+    const view = render(<EmployeesListPage />);
+    await waitFor(() => expect(reviewCalls()).toBe(1));
+    company.id = 'co-2';
+    view.rerender(<EmployeesListPage />);
+    await waitFor(() => expect(reviewCalls()).toBe(2));
+    pending['co-2']!(ok({ count: 1, employees: [E2] }));
+    expect(await screen.findByText('Bob Ng (E2)')).toBeTruthy();
+    pending['co-1']!(ok({ count: 1, employees: [E1] }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByText('Bob Ng (E2)')).toBeTruthy();
+    expect(screen.queryByText('Ann Lee (E1)')).toBeNull();
+  });
+
+  it('dismissal is per company: dismiss under co-1, co-2 shows, back to co-1 stays hidden', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
+      (String(url).includes(REVIEW_URL)
+        ? ok({ count: 1, employees: [company.id === 'co-1' ? E1 : E2] })
+        : ok([])));
+    const view = render(<EmployeesListPage />);
+    await screen.findByText('Ann Lee (E1)');
+    fireEvent.click(screen.getByLabelText('Dismiss medical-aid review'));
+    expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull();
+    company.id = 'co-2';
+    view.rerender(<EmployeesListPage />);
+    expect(await screen.findByText('Bob Ng (E2)')).toBeTruthy();
+    company.id = 'co-1';
+    view.rerender(<EmployeesListPage />);
+    await waitFor(() => expect(reviewCalls()).toBe(3));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByTestId('medical-aid-review-banner')).toBeNull();
+  });
+
+  it("going A -> B -> A before B answers never renders A's dismissed banner", async () => {
+    window.localStorage.setItem(KEY, JSON.stringify(['e1']));
+    vi.mocked(apiFetch).mockImplementation(async (url: unknown) =>
+      (String(url).includes(REVIEW_URL)
+        ? (company.id === 'co-1' ? ok({ count: 1, employees: [E1] }) : new Promise<Response>(() => undefined))
+        : ok([])));
+    const view = render(<EmployeesListPage />);
+    await waitFor(() => expect(reviewCalls()).toBe(1));
+    await new Promise((r) => setTimeout(r, 50));
+    linkRenders.length = 0;
+    company.id = 'co-2';
+    view.rerender(<EmployeesListPage />);
+    company.id = 'co-1';
+    view.rerender(<EmployeesListPage />);
+    await waitFor(() => expect(reviewCalls()).toBe(3));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(linkRenders.filter(h => h === '/payroll/employees/e1')).toEqual([]);
+  });
+
   it('the banner is a status region, not an alert', async () => {
     serveReview([E1]);
     render(<EmployeesListPage />);
