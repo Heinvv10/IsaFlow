@@ -455,7 +455,7 @@ test('W7: VAT Return', async ({ page }) => {
   await login(page);
 
   for (const vatUrl of [
-    `${BASE}/accounting/vat-return`,
+    `${BASE}/accounting/sars/vat201`,
     `${BASE}/accounting/reports/vat`,
     `${BASE}/accounting/tax`,
   ]) {
