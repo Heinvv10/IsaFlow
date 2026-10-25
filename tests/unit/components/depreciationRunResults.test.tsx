@@ -150,8 +150,8 @@ describe('depreciation page — last run results', () => {
     // policyDep, formatted as ZAR. 1 200,00 appears twice — once in the run
     // results and once in the register's Monthly Dep. column, which is the
     // point: both read the same schedule.
-    expect(screen.getAllByText(/1\s?200,00/)).toHaveLength(2);
-    expect(screen.getByText(/833,33/)).toBeInTheDocument();
+    expect(screen.getAllByText(/1\s?200\.00/)).toHaveLength(2);
+    expect(screen.getByText(/833\.33/)).toBeInTheDocument();
   });
 });
 
@@ -177,7 +177,7 @@ describe('depreciation page — the register', () => {
   it('quotes each asset method charge in Monthly Dep., not straight line', async () => {
     await renderPage();
     // 1 200,00 is the reducing-balance charge; 1 666,67 would be straight line.
-    expect(screen.getAllByText(/1\s?200,00/).length).toBeGreaterThan(0);
-    expect(document.body.textContent).not.toContain('1 666,67');
+    expect(screen.getAllByText(/1\s?200\.00/).length).toBeGreaterThan(0);
+    expect(document.body.textContent).not.toContain('1 666.67');
   });
 });

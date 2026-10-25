@@ -11,7 +11,7 @@
  * every label passed in is ledger-sourced text (an account or step name), so
  * both formatters escape before interpolating — see `escapeHtml.ts`.
  */
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, type MoneyScale } from '@/lib/format/money';
 import { FALLBACK } from '@/lib/charts/theme';
 import { escapeHtml } from './escapeHtml';
 
@@ -256,7 +256,7 @@ export function moneyValueAxis(
     name: scale,
     nameLocation: 'end' as const,
     nameTextStyle: { color: palette.axis },
-    axisLabel: { color: palette.axis, formatter: (value: number) => formatMoney(value, { scale }) },
+    axisLabel: { color: palette.axis, formatter: (value: number) => formatStatementFigure(value, { scale }) },
     axisLine: { lineStyle: { color: palette.axis } },
     splitLine: { lineStyle: { color: palette.prior } },
   };
@@ -269,7 +269,7 @@ function firstParam(params: TopLevelFormatterParams): TooltipDataParam | undefin
 /** The tooltip printed the raw number — `1234567.89` where the bar's own
  *  label, the statement three centimetres away and the deck all said
  *  "1 234 568". Same figure, three renderings, and the one a reader hovers to
- *  CHECK a number was the odd one out. `formatMoney` is the app's single
+ *  CHECK a number was the odd one out. `formatStatementFigure` is the app's single
  *  money formatting rule; a negative comes back in parentheses like every
  *  other statement figure, and at the document's scale like every other one. */
 export function labelTooltipFormatter(labels: string[], values: number[], scale: MoneyScale) {
@@ -277,7 +277,7 @@ export function labelTooltipFormatter(labels: string[], values: number[], scale:
     const idx = firstParam(params)?.dataIndex ?? 0;
     const label = labels[idx] ?? '';
     const value = values[idx] ?? 0;
-    return `${escapeHtml(label)}: ${formatMoney(value, { scale })}`;
+    return `${escapeHtml(label)}: ${formatStatementFigure(value, { scale })}`;
   };
 }
 
@@ -287,7 +287,7 @@ export function compositionTooltip(scale: MoneyScale) {
   return (params: TopLevelFormatterParams): string => {
     const list = Array.isArray(params) ? params : [params];
     return list
-      .map((p) => `${escapeHtml(p.seriesName ?? '')}: ${formatMoney(Number(p.value ?? 0), { scale })}`)
+      .map((p) => `${escapeHtml(p.seriesName ?? '')}: ${formatStatementFigure(Number(p.value ?? 0), { scale })}`)
       .join('<br/>');
   };
 }

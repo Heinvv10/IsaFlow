@@ -15,6 +15,8 @@ export interface ItemFilters {
   type?: 'physical' | 'service';
   active?: 'true' | 'false';
   category_id?: string;
+  /** Rows to return, 1-500 (default 500). The pickers ask for a short page. */
+  limit?: number;
 }
 
 export interface CreateItemInput {
@@ -76,8 +78,16 @@ export async function getItem(companyId: string, itemId: string): Promise<Row | 
   return rows[0] ?? null;
 }
 
+const MAX_ITEM_LIST = 500;
+
+/** A user's search text as an ILIKE contains-pattern in which %, _ and \ match literally (backslash is ILIKE's default escape). */
+function containsPattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, '\\$&')}%`;
+}
+
 export async function listItems(companyId: string, filters: ItemFilters = {}): Promise<Row[]> {
   const { q, type, active, category_id } = filters;
+  const limit = Number.isFinite(filters.limit) && (filters.limit as number) >= 1 ? Math.min(Math.floor(filters.limit as number), MAX_ITEM_LIST) : MAX_ITEM_LIST;
 
   // Validate and build safe extra conditions (all values are validated before use)
   const extraParts: string[] = [];
@@ -98,7 +108,7 @@ export async function listItems(companyId: string, filters: ItemFilters = {}): P
   // Branch on the two parameterised filter dimensions (search term + category_id)
   // using sql.unsafe only for pre-validated, non-user-interpolated fragments.
   if (q && category_id) {
-    const term = `%${q}%`;
+    const term = containsPattern(q);
     return sql`
       SELECT i.*, ic.name AS category_name
       FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
@@ -107,12 +117,12 @@ export async function listItems(companyId: string, filters: ItemFilters = {}): P
         AND (i.code ILIKE ${term} OR i.description ILIKE ${term})
         AND i.category_id = ${category_id}::UUID
         ${sql.unsafe(extraSql)}
-      ORDER BY i.code ASC LIMIT 500
+      ORDER BY i.code ASC LIMIT ${limit}
     ` as Promise<Row[]>;
   }
 
   if (q) {
-    const term = `%${q}%`;
+    const term = containsPattern(q);
     return sql`
       SELECT i.*, ic.name AS category_name
       FROM items i LEFT JOIN item_categories ic ON i.category_id = ic.id
@@ -120,7 +130,7 @@ export async function listItems(companyId: string, filters: ItemFilters = {}): P
         AND i.deleted_at IS NULL
         AND (i.code ILIKE ${term} OR i.description ILIKE ${term})
         ${sql.unsafe(extraSql)}
-      ORDER BY i.code ASC LIMIT 500
+      ORDER BY i.code ASC LIMIT ${limit}
     ` as Promise<Row[]>;
   }
 
@@ -132,7 +142,7 @@ export async function listItems(companyId: string, filters: ItemFilters = {}): P
         AND i.deleted_at IS NULL
         AND i.category_id = ${category_id}::UUID
         ${sql.unsafe(extraSql)}
-      ORDER BY i.code ASC LIMIT 500
+      ORDER BY i.code ASC LIMIT ${limit}
     ` as Promise<Row[]>;
   }
 
@@ -142,7 +152,7 @@ export async function listItems(companyId: string, filters: ItemFilters = {}): P
     WHERE i.company_id = ${companyId}
       AND i.deleted_at IS NULL
       ${sql.unsafe(extraSql)}
-    ORDER BY i.code ASC LIMIT 500
+    ORDER BY i.code ASC LIMIT ${limit}
   ` as Promise<Row[]>;
 }
 

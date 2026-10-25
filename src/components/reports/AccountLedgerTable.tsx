@@ -6,16 +6,17 @@
 import type { AccountLedgerRow } from '@/modules/accounting/services/reports/accountLedgerService';
 import { ledgerPageBoundaries } from '@/lib/csv/ledgerPageBoundaries';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 function fmtDate(d: string): string {
   if (!d) return '—';
   const iso = d.length === 10 ? `${d}T00:00:00` : d;
   const date = new Date(iso);
   if (isNaN(date.getTime())) return d;
-  return date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDisplayDate(date);
 }
 
 interface Props {
@@ -59,7 +60,7 @@ export function AccountLedgerTable({
             <td colSpan={7} className="px-4 py-2 text-xs text-[var(--ff-text-tertiary)] font-medium">
               {b.openingLabel}
             </td>
-            <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-secondary)]">
+            <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">
               {fmt(b.opening)}
             </td>
           </tr>
@@ -81,13 +82,13 @@ export function AccountLedgerTable({
                 <td className="px-4 py-2 text-[var(--ff-text-secondary)] max-w-xs truncate">{r.description}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-tertiary)] text-xs">{r.reference || '—'}</td>
                 <td className="px-4 py-2 text-[var(--ff-text-tertiary)] text-xs">{r.source}</td>
-                <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">
+                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">
                   {r.debit > 0 ? fmt(r.debit) : ''}
                 </td>
-                <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">
+                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">
                   {r.credit > 0 ? fmt(r.credit) : ''}
                 </td>
-                <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-secondary)]">
+                <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-secondary)]">
                   {fmt(r.runningBalance)}
                 </td>
               </tr>
@@ -98,7 +99,7 @@ export function AccountLedgerTable({
             <td colSpan={7} className="px-4 py-2 text-xs text-[var(--ff-text-tertiary)]">
               {b.closingLabel}
             </td>
-            <td className="px-4 py-2 text-right font-mono text-[var(--ff-text-primary)]">
+            <td className="px-4 py-2 text-right tabular-nums text-[var(--ff-text-primary)]">
               {fmt(b.closing)}
             </td>
           </tr>

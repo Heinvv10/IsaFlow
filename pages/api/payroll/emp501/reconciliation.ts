@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 
 type Row = DbRow;
 
@@ -37,10 +38,10 @@ export interface Emp501Summary {
 }
 
 function taxYearMonths(taxYear: number): Array<{ month: number; year: number }> {
-  // Mar (taxYear-1) to Feb (taxYear)
+  // The tax year's first month (taxYear-1) to its last (taxYear)
   const result: Array<{ month: number; year: number }> = [];
-  for (let m = 3; m <= 12; m++) result.push({ month: m, year: taxYear - 1 });
-  for (let m = 1; m <= 2; m++) result.push({ month: m, year: taxYear });
+  for (let m = PAYE_TAX_YEAR_START_MONTH; m <= 12; m++) result.push({ month: m, year: taxYear - 1 });
+  for (let m = 1; m <= PAYE_TAX_YEAR_END_MONTH; m++) result.push({ month: m, year: taxYear });
   return result;
 }
 
@@ -70,9 +71,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     WHERE company_id = ${companyId}::uuid
       AND status = ANY(${declarableStatuses}::text[])
       AND (
-        (period_year = ${taxYear - 1} AND period_month >= 3)
+        (period_year = ${taxYear - 1} AND period_month >= ${PAYE_TAX_YEAR_START_MONTH})
         OR
-        (period_year = ${taxYear} AND period_month <= 2)
+        (period_year = ${taxYear} AND period_month <= ${PAYE_TAX_YEAR_END_MONTH})
       )
     ORDER BY period_year, period_month
   `) as Row[];
@@ -88,9 +89,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     WHERE prh.company_id = ${companyId}::uuid
       AND prh.status = ANY(${declarableStatuses}::text[])
       AND (
-        (prh.period_year = ${taxYear - 1} AND prh.period_month >= 3)
+        (prh.period_year = ${taxYear - 1} AND prh.period_month >= ${PAYE_TAX_YEAR_START_MONTH})
         OR
-        (prh.period_year = ${taxYear} AND prh.period_month <= 2)
+        (prh.period_year = ${taxYear} AND prh.period_month <= ${PAYE_TAX_YEAR_END_MONTH})
       )
     GROUP BY prh.period_month, prh.period_year
   `) as Row[];

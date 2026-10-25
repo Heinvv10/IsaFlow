@@ -22,6 +22,7 @@ import {
   resolveCompanyPeriodAlignment,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getCloseReadiness } from '@/modules/accounting/services/gl/periodCloseReadinessService';
+import { listFiscalYears } from '@/modules/accounting/services/gl/fiscalYearRegistry';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
 import { buildEnvelope, encodeCursor, decodeCursor, figureBasis } from '../contracts';
 import { NOT_FOUND, clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -65,7 +66,11 @@ export const listFiscalPeriodsTool: McpTool = {
     + 'into them, and one production company has 56. alignment compares the period layout against '
     + 'companies.financial_year_start: when aligned is false the periods run January–December while '
     + 'the financial year does not, so a "fiscal year" here is not the year the financial statements '
-    + 'cover. It does NOT tell you whether a period SHOULD be closed — call period_close_checklist '
+    + 'cover. financial_years lists the stored financial years with their real dates: after a change of '
+    + 'financial year end one of them is a transition year (kind "transition", 1-15 months) and later years '
+    + 'run twelve months from its end, so alignment legitimately reflects the NEW start month. '
+    + 'The change itself is made in the app (Settings > Change financial year end), not through MCP. '
+    + 'It does NOT tell you whether a period SHOULD be closed — call period_close_checklist '
     + 'for that. Read-only. Filter by fiscal_year or status; page with cursor.',
   scope: 'read:reports',
   write: false,
@@ -93,9 +98,10 @@ export const listFiscalPeriodsTool: McpTool = {
     const detail = strArg(args, 'detail') === 'summary' ? 'summary' : 'standard';
     const limit = clampLimit(args, 100, 500);
 
-    const [all, alignment] = await Promise.all([
+    const [all, alignment, years] = await Promise.all([
       getFiscalPeriods(ctx.companyId, yearArg as number | undefined),
       resolveCompanyPeriodAlignment(ctx.companyId),
+      listFiscalYears(ctx.companyId),
     ]);
 
     // The caller's own status filter is a REQUEST parameter, not a
@@ -137,6 +143,10 @@ export const listFiscalPeriodsTool: McpTool = {
         observed_start_month: alignment.observedStartMonth,
         aligned: alignment.aligned,
       },
+      financial_years: years.map((y) => ({
+        fiscal_year: y.fiscalYear, start_date: y.startDate, end_date: y.endDate,
+        months: y.months, kind: y.kind, status: y.status,
+      })),
     });
   },
 };

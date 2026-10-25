@@ -53,9 +53,12 @@ vi.mock('@/modules/accounting/services/gl/yearEndJournalBuilder', async (importO
     id: 'eeeeeeee-0000-0000-0000-000000000009', accountCode: '3200', accountName: 'Retained Earnings',
   })),
 }));
-vi.mock('@/modules/accounting/services/gl/fiscalYearBasis', () => ({
-  getFiscalYearStartMonth: vi.fn(async () => 1),
-}));
+// This fixture's periods are the calendar year 2026, which is the registry's FY2026 here.
+vi.mock('@/modules/accounting/services/gl/fiscalYearRegistry', async () => {
+  const { fakeRegistry, registryMock } = await import('../../helpers/fiscalYearSqlFake');
+  fakeRegistry.years = [{ fiscalYear: 2026, startDate: '2026-01-01', endDate: '2026-12-31' }];
+  return registryMock();
+});
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriodIdForDate: vi.fn(async () => 'ffffffff-0000-0000-0000-000000000008'),
 }));

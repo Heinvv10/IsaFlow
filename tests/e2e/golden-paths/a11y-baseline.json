@@ -1,0 +1,402 @@
+{
+ "_doc": "Serious/critical axe violations that existed when the golden-path a11y gate was introduced (2026-10-24), recorded on dev. May only SHRINK: fix a violation and delete its entry (an entry that no longer occurs FAILS the run), or lower its max. Never add an entry or raise a max to make a red run green. Keyed by page path (ids -> :id); '<page>#rows' is the page's data table scanned apart; 'shell:*' is a piece of the app shell scanned on its own. selector = nearest anchor + the tags/names down to the node (tests/e2e/golden-paths/helpers/a11yDescribe.ts); max = most nodes allowed to match. dataDriven = how many nodes match (even none) is decided by the data behind `source` (an API route), so the entry is never stale; its selector is anchored on a data-testid or aria-label, and maxHint is a hard cap where the UI has one. A dev/CI gate: scripts/verify-deploy.sh excludes it.",
+ "pages": {
+  "/accounting/assets": [
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > div > a[href=\"/accounting/assets/new\"]",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "main > div > div > div > div > select",
+    "max": 2
+   }
+  ],
+  "/accounting/bank-transactions": [
+   {
+    "rule": "color-contrast",
+    "selector": "button[data-testid=\"bank-account-card\"] > div > div > span",
+    "max": 1,
+    "dataDriven": {
+     "source": "/api/accounting/bank-accounts",
+     "why": "amount and gap chips on a card per bank account: which accounts have them follows their balances. maxHint 100 is a sanity bound (2 chips x 50 accounts): neither the page nor /api/accounting/bank-accounts limits the count"
+    },
+    "maxHint": 100
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "span[data-testid=\"statement-format-chip\"]",
+    "max": 1,
+    "dataDriven": {
+     "source": "/api/accounting/bank-import-batches",
+     "why": "format chip renders only when a statement batch is loaded"
+    },
+    "maxHint": 1
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "ul[aria-label=\"Auto-post runs\"] > li > button[type=\"button\"]",
+    "max": 7,
+    "dataDriven": {
+     "source": "/api/accounting/bank-auto-post",
+     "why": "one Undo button per active auto-post run"
+    },
+    "maxHint": 20
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "main > div > div > div > div > input[type=\"date\"]",
+    "max": 2
+   },
+   {
+    "rule": "select-name",
+    "selector": "main > div > div > div > select",
+    "max": 5
+   }
+  ],
+  "/accounting/bank-transactions#rows": [
+   {
+    "rule": "label",
+    "selector": "table[data-testid=\"bank-tx-table\"] > tbody > tr > td > input[type=\"checkbox\"]",
+    "max": 25,
+    "dataDriven": {
+     "source": "/api/accounting/bank-transactions",
+     "why": "one select box per transaction row; the page shows 25 rows"
+    },
+    "maxHint": 25
+   },
+   {
+    "rule": "label",
+    "selector": "table[data-testid=\"bank-tx-table\"] > thead > tr > th > input[type=\"checkbox\"]",
+    "max": 1,
+    "dataDriven": {
+     "source": "/api/accounting/bank-transactions",
+     "why": "the table, and so its header, renders only when the account has transactions"
+    },
+    "maxHint": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "table[data-testid=\"bank-tx-table\"] > tbody > tr > td > select",
+    "max": 46,
+    "dataDriven": {
+     "source": "/api/accounting/bank-transactions",
+     "why": "a few selects per transaction row (type, selection, VAT, and CC1/CC2/BU when enabled); 25 rows x 6"
+    },
+    "maxHint": 150
+   }
+  ],
+  "/accounting/credit-notes": [
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > div > a[href=\"/accounting/credit-notes/new\"]",
+    "max": 1
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > div > button{all}",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   }
+  ],
+  "/accounting/customer-invoices": [
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > div > a[href=\"/accounting/customer-invoices/new\"]",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   }
+  ],
+  "/accounting/customer-invoices/new": [
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > div > button",
+    "max": 1
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > div > p",
+    "max": 1
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > label > span",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[name=\"billingPeriodEnd\"][type=\"date\"]",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[name=\"billingPeriodStart\"][type=\"date\"]",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[name=\"dueDate\"][type=\"date\"]",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[name=\"invoiceDate\"][type=\"date\"]",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[name=\"taxRate\"][type=\"number\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"clientId\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"currencyCode\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "table > tbody > tr > td > select[name=\"incomeType\"]",
+    "max": 1
+   }
+  ],
+  "/accounting/customer-payments/new": [
+   {
+    "rule": "color-contrast",
+    "selector": "form > div > div > div > div > button[type=\"button\"]",
+    "max": 1
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "form > div > div > div > p",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"clientId\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"invoiceId\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
+    "max": 1
+   }
+  ],
+  "/accounting/customer-quotes": [
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > div > button",
+    "max": 1
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "div > div > div > div > div > button{all}",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   }
+  ],
+  "/accounting/journal-entries/new": [
+   {
+    "rule": "button-name",
+    "selector": "table > tbody > tr > td > button[type=\"button\"]",
+    "max": 2
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "form > div > div > div > div > button[type=\"button\"]",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[name=\"entryDate\"][type=\"date\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "table > tbody > tr > td > select[name=\"accountId\"]",
+    "max": 2
+   }
+  ],
+  "/accounting/migration": [
+   {
+    "rule": "color-contrast",
+    "selector": "a#sage[href=\"/accounting/migration/chart-of-accounts\"] > span",
+    "max": 1
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "span[data-testid=\"migration-status-badge\"]",
+    "max": 1,
+    "dataDriven": {
+     "source": "/api/accounting/migration/session",
+     "why": "status badge renders only while a migration session exists"
+    },
+    "maxHint": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   }
+  ],
+  "/accounting/migration/opening-balances": [
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "main > div > div > div > div > input[type=\"date\"]",
+    "max": 1
+   }
+  ],
+  "/accounting/month-end-workbench": [
+   {
+    "rule": "color-contrast",
+    "selector": "button[data-testid=\"start-close-run\"]",
+    "max": 1,
+    "dataDriven": {
+     "source": "/api/accounting/close-run",
+     "why": "rendered only while the month has no close run yet"
+    },
+    "maxHint": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   }
+  ],
+  "/accounting/reports/account-transactions": [
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[type=\"date\"]",
+    "max": 2
+   },
+   {
+    "rule": "select-name",
+    "selector": "select[data-testid=\"cost-centre-filter\"]",
+    "max": 1,
+    "dataDriven": {
+     "source": "/api/accounting/cost-centres",
+     "why": "rendered only when the company has cost centres"
+    },
+    "maxHint": 1
+   }
+  ],
+  "/accounting/sars/vat201": [
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   }
+  ],
+  "/accounting/supplier-payments/new": [
+   {
+    "rule": "color-contrast",
+    "selector": "form > div > div > div > div > button[type=\"button\"]",
+    "max": 1
+   },
+   {
+    "rule": "color-contrast",
+    "selector": "form > div > div > div > p",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[name=\"paymentDate\"][type=\"date\"]",
+    "max": 1
+   },
+   {
+    "rule": "label",
+    "selector": "div > div > div > div > div > input[type=\"number\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"invoiceId\"]",
+    "max": 1
+   },
+   {
+    "rule": "select-name",
+    "selector": "div > div > div > div > div > select[name=\"paymentMethod\"]",
+    "max": 1
+   }
+  ],
+  "/payroll/runs": [
+   {
+    "rule": "color-contrast",
+    "selector": "main > div > div > div > div > a[href=\"/payroll/runs/new\"]",
+    "max": 1
+   },
+   {
+    "rule": "document-title",
+    "selector": "html",
+    "max": 1
+   }
+  ]
+ }
+}

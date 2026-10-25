@@ -87,8 +87,8 @@ describe('practice/staff-cost-rates (routes: practice/users -> CompanyUserSummar
   it('shows the staff name (resolved from the user list), rate, dates and note of each rate', async () => {
     serve(on('GET', 'practice/users', () => ok([user])), on('GET', 'practice/staff-cost-rates', () => ok([rate])));
     render(<StaffCostRatesPage />);
-    expect(await screen.findByText('R123.45')).toBeDefined();
-    const row = screen.getByText('R123.45').closest('tr') as HTMLElement;
+    expect(await screen.findByText('R 123.45')).toBeDefined();
+    const row = screen.getByText('R 123.45').closest('tr') as HTMLElement;
     expect(within(row).getByText('D2 Staffer')).toBeDefined();
     expect(within(row).getByText('2026-01-01')).toBeDefined();
     expect(within(row).getByText('2026-12-31')).toBeDefined();
@@ -98,7 +98,7 @@ describe('practice/staff-cost-rates (routes: practice/users -> CompanyUserSummar
     serve(on('GET', 'practice/users', empty500), on('GET', 'practice/staff-cost-rates', empty500));
     render(<StaffCostRatesPage />);
     expect(await screen.findByText(/Could not load the (staff list|cost rates) - try again/)).toBeDefined();
-    expect(screen.queryByText('R123.45')).toBeNull(); expectNoJargon();
+    expect(screen.queryByText('R 123.45')).toBeNull(); expectNoJargon();
   });
 });
 

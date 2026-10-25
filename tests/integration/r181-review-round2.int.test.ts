@@ -15,7 +15,7 @@
 import { randomUUID } from 'crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
-import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify } from './r181-settlement.helpers';
+import { A, SECRET, checkout, cleanup, deliver, invoice, ledger, pool, seed, settlement, verify, verifyAs } from './r181-settlement.helpers';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 assertDisposable();
@@ -44,8 +44,7 @@ vi.mock('@/lib/neon', async (importOriginal) => {
   return { ...original, sql };
 });
 
-const paystackSays = (amountCents: number, extra: Record<string, unknown> = {}) => h.verifyTransaction.mockResolvedValue(
-  { status: 'success', id: 1813, amountCents, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', ...extra });
+const paystackSays = (amountCents: number, extra: Record<string, unknown> = {}) => h.verifyTransaction.mockImplementation(verifyAs({ status: 'success', id: 1813, amountCents, currency: 'ZAR', paidAt: new Date().toISOString(), channel: 'card', ...extra }));
 
 beforeAll(async () => {
   vi.stubEnv('PAYSTACK_SECRET_KEY', SECRET);

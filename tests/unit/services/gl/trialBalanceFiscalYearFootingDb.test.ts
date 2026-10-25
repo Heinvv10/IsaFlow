@@ -14,13 +14,14 @@
  *   - balance-sheet rows are their inception-to-date balance, independently summed;
  *   - income-statement rows are the movement since the fiscal year containing the period end.
  *
- * Temp tables in a rolled-back transaction (ledgerAgreementFixture) — no persistent writes.
+ * Real rows in a rolled-back transaction (ledgerAgreementFixture) — no persistent writes.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getGeneralLedgerReport } from '@/modules/accounting/services/gl/generalLedgerReportService';
 import { getAccountTransactions } from '@/modules/accounting/services/gl/transactionLedgerService';
 import { sql } from '@/lib/neon';
+import { insertBusinessUnit } from '../../helpers/realLedgerRows';
 import { fiscalYearStart } from '@/modules/accounting/services/gl/fiscalYearBasis';
 import type { TrialBalanceRow } from '@/modules/accounting/types/gl.types';
 import { isDbReachable } from '../../helpers/dbReachable';
@@ -72,6 +73,8 @@ const CC = '60000000-0000-4000-8000-0000000000c1';
 const BU = '60000000-0000-4000-8000-0000000000d1';
 const journalId = (n: number) => `40000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 async function tagDimensions(): Promise<void> {
+  // bu_id is a real foreign key; cost_center_id (legacy) has none.
+  await insertBusinessUnit(BU, company, 'FTB');
   await sql`UPDATE gl_journal_lines SET cost_center_id = ${CC}::uuid
     WHERE journal_entry_id = ANY(${[2, 3, 5, 6].map(journalId)}::uuid[])`;
   await sql`UPDATE gl_journal_lines SET bu_id = ${BU}::uuid

@@ -101,7 +101,7 @@ it('new batch offers a bill at what is still available after reservations, not i
   const { container } = render(<NewBatch />);
   await pickSupplier(container, 'Supplier One');
   const option = await screen.findByText(/INV-5/);
-  expect(option.textContent).toMatch(/300,00 available \(R\s?200,00 reserved\)/);
+  expect(option.textContent).toMatch(/300\.00 available \(R\s?200\.00 reserved\)/);
   fireEvent.change(container.querySelector('select[name="invoiceId"]')!, { target: { value: 'i1' } });
   expect((container.querySelector('input[name="amount"]') as HTMLInputElement).value).toBe('300');
 });
@@ -120,6 +120,6 @@ it('new batch still lists bills, at their outstanding, when reservations cannot 
   expect(screen.getByRole('status').textContent).toContain('could not be loaded');
   await pickSupplier(container, 'Supplier One');
   const option = await screen.findByText(/INV-8/);
-  expect(option.textContent).toMatch(/500,00/);
+  expect(option.textContent).toMatch(/500\.00/);
   expect(option.textContent).not.toContain('reserved');
 });

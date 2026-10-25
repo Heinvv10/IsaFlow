@@ -154,7 +154,7 @@ export default function IntegrationsMcpPage() {
                 {CLIENT_MCP_TOOL_NAMES.map((name) => (
                   <span
                     key={name}
-                    className="font-mono text-[11px] text-slate-300 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5"
+                    className="font-mono text-xs text-slate-300 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5"
                   >
                     {name}
                   </span>

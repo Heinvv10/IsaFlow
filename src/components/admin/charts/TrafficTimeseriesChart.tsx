@@ -1,4 +1,5 @@
 import dynamic from 'next/dynamic';
+import { formatDisplayDateShort, formatDisplayTime } from '@/utils/dateFormat';
 
 const ResponsiveContainer = dynamic(() => import('recharts').then((m) => m.ResponsiveContainer), { ssr: false });
 const AreaChart          = dynamic(() => import('recharts').then((m) => m.AreaChart),          { ssr: false });
@@ -23,9 +24,9 @@ interface Props {
 
 function fmtLabel(iso: string, range: Props['range']) {
   const d = new Date(iso);
-  if (range === '24h') return d.toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
-  if (range === '90d') return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
-  return d.toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' });
+  if (range === '24h') return formatDisplayTime(d);
+  if (range === '90d') return formatDisplayDateShort(d);
+  return formatDisplayDateShort(d);
 }
 
 export function TrafficTimeseriesChart({ data, range, metric = 'pageviews' }: Props) {
@@ -56,13 +57,13 @@ export function TrafficTimeseriesChart({ data, range, metric = 'pageviews' }: Pr
         <XAxis
           dataKey="bucket"
           tickFormatter={(v: unknown) => fmtLabel(String(v ?? ''), range)}
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           minTickGap={30}
         />
         <YAxis
-          tick={{ fill: '#9ca3af', fontSize: 11 }}
+          tick={{ fill: '#9ca3af', fontSize: 12 }}
           axisLine={false}
           tickLine={false}
           width={40}

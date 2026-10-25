@@ -50,25 +50,25 @@ export function CustomerStatementTable({
                 )}
               </button>
             </th>
-            <th className="text-left px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
+            <th className="text-left px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
               Customer
             </th>
-            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
+            <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
               Invoiced
             </th>
-            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
+            <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
               Paid
             </th>
-            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
+            <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
               Credits
             </th>
-            <th className="text-right px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
+            <th className="text-right px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
               Balance
             </th>
-            <th className="text-center px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
+            <th className="text-center px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
               # Inv
             </th>
-            <th className="text-center px-4 py-3 text-[10px] tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
+            <th className="text-center px-4 py-3 text-xs tracking-[0.12em] font-semibold text-[var(--ff-text-secondary)] uppercase">
               Email
             </th>
           </tr>

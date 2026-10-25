@@ -6,13 +6,14 @@ import { useRef, useState } from 'react';
 import { Loader2, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import type { AdminWebhookDetail, DeliveryAttempt } from '@/modules/admin/services/adminWebhookService';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Props {
   webhookId: string;
 }
 
 const fmtDate = (d: string) =>
-  new Date(d).toLocaleString('en-ZA', { dateStyle: 'short', timeStyle: 'short' });
+  formatDisplayDateTime(d);
 
 function DeliveryRow({ d }: { d: DeliveryAttempt }) {
   return (

@@ -149,19 +149,19 @@ export default function FinancialAnalysisPage() {
               {summary && (
                 <div className="grid grid-cols-4 gap-4">
                   <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4 text-center">
-                    <p className="text-3xl font-bold text-[var(--ff-text-primary)]">{summary.total}</p>
+                    <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{summary.total}</p>
                     <p className="text-xs text-[var(--ff-text-tertiary)]">Total KPIs</p>
                   </div>
                   <div className="bg-teal-500/5 rounded-lg border border-teal-500/20 p-4 text-center">
-                    <p className="text-3xl font-bold text-teal-400">{summary.green}</p>
+                    <p className="text-2xl font-bold text-teal-400">{summary.green}</p>
                     <p className="text-xs text-teal-400/70">On Target</p>
                   </div>
                   <div className="bg-amber-500/5 rounded-lg border border-amber-500/20 p-4 text-center">
-                    <p className="text-3xl font-bold text-amber-400">{summary.amber}</p>
+                    <p className="text-2xl font-bold text-amber-400">{summary.amber}</p>
                     <p className="text-xs text-amber-400/70">Warning</p>
                   </div>
                   <div className="bg-red-500/5 rounded-lg border border-red-500/20 p-4 text-center">
-                    <p className="text-3xl font-bold text-red-400">{summary.red}</p>
+                    <p className="text-2xl font-bold text-red-400">{summary.red}</p>
                     <p className="text-xs text-red-400/70">Critical</p>
                   </div>
                 </div>

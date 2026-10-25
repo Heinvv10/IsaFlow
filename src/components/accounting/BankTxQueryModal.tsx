@@ -12,6 +12,7 @@ import { X, MessageCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { composeBankTxQueryMessage } from '@/modules/accounting/services/capture/bankTxQueryMessage';
 import type { BankTx } from '@/components/accounting/BankTxTable';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -37,11 +38,7 @@ interface Props {
 
 function formatShortDate(raw: string | null): string {
   if (!raw) return '';
-  return new Date(raw).toLocaleDateString('en-ZA', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatDisplayDate(raw);
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -230,7 +227,7 @@ export function BankTxQueryModal({ tx, onClose, onSent }: Props) {
               disabled={loadingSettings || sending}
               className="w-full px-3 py-2 rounded-lg bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)] placeholder:text-[var(--ff-text-tertiary)] focus:outline-none focus:border-green-500/60 resize-none disabled:opacity-50"
             />
-            <p className="text-[10px] text-[var(--ff-text-tertiary)] mt-0.5 text-right">
+            <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5 text-right">
               {message.length}/1000
             </p>
           </div>

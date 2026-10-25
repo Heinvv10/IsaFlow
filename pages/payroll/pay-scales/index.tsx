@@ -7,6 +7,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { Scale, Loader2, AlertCircle, Plus } from 'lucide-react';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface PayScale {
   id: string;
@@ -21,8 +22,7 @@ interface PayScale {
   notes: string | null;
 }
 
-const zar = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 0 }).format(n);
+const zar = (n: number) => formatMoney(n, { decimals: 0 });
 
 export default function PayScalesPage() {
   const [scales, setScales] = useState<PayScale[]>([]);

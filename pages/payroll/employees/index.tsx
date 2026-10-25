@@ -8,8 +8,10 @@ import { Users, Loader2, AlertCircle, Plus, Search } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, apiErrorMessage, assertOk } from '@/lib/apiFetch';
 import { WriteOnly } from '@/components/payroll/WriteOnly';
+import { MedicalAidReviewBanner } from '@/components/payroll/MedicalAidReviewBanner';
 import { useCompany } from '@/contexts/CompanyContext';
 import { canWrite } from '@/lib/auth/writeRoles';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface EmployeeListItem {
   id: string;
@@ -98,6 +100,7 @@ export default function EmployeesListPage() {
         </div>
 
         <div className="p-6">
+          <MedicalAidReviewBanner />
           <div className="flex items-center gap-3 mb-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--ff-text-tertiary)]" />
@@ -167,7 +170,7 @@ export default function EmployeesListPage() {
                         </Link>
                       </td>
                       <td className="py-3 px-4 text-[var(--ff-text-secondary)] capitalize">{e.employmentType}</td>
-                      {mayWrite && <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate?.slice(0, 10) ?? '—'}</td>}
+                      {mayWrite && <td className="py-3 px-4 text-[var(--ff-text-secondary)]">{e.startDate ? formatDisplayDate(e.startDate) : '—'}</td>}
                       <td className="py-3 px-4"><StatusBadge active={!e.endDate || new Date(e.endDate) > new Date()} /></td>
                       <td className="py-3 px-4">
                         <Link href={`/payroll/employees/${e.id}`} className="text-teal-400 hover:text-teal-300 text-xs font-medium">

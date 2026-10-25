@@ -11,6 +11,7 @@ import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { DescriptionAutocomplete } from '@/components/accounting/DescriptionAutocomplete';
 import { localISODate } from '@/lib/dateUtils';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface LineInput {
   key: string;
@@ -21,7 +22,7 @@ interface LineInput {
 }
 
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
-const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+const lbl = 'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
 
 const emptyLine = (): LineInput => ({
@@ -33,7 +34,7 @@ const emptyLine = (): LineInput => ({
 });
 
 const fmtR = (n: number) =>
-  n === 0 ? 'R 0.00' : `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  n === 0 ? 'R 0.00' : formatMoney(n);
 
 export default function NewJournalEntryPage() {
   const router = useRouter();
@@ -241,16 +242,16 @@ export default function NewJournalEntryPage() {
                     <div className="space-y-3">
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500 dark:text-slate-400">Total Debits</span>
-                        <span className="font-mono text-slate-900 dark:text-slate-100">{fmtR(totalDebit)}</span>
+                        <span className="tabular-nums text-slate-900 dark:text-slate-100">{fmtR(totalDebit)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-slate-500 dark:text-slate-400">Total Credits</span>
-                        <span className="font-mono text-slate-900 dark:text-slate-100">{fmtR(totalCredit)}</span>
+                        <span className="tabular-nums text-slate-900 dark:text-slate-100">{fmtR(totalCredit)}</span>
                       </div>
                       <div className="h-px bg-slate-100 dark:bg-slate-800" />
                       <div className="flex justify-between items-center">
                         <span className="text-sm font-semibold text-slate-900 dark:text-white">Difference</span>
-                        <span className={`font-mono font-bold text-lg ${isBalanced ? 'text-emerald-500' : diff > 0 ? 'text-red-500' : 'text-slate-400'}`}>
+                        <span className={`tabular-nums font-bold text-lg ${isBalanced ? 'text-emerald-500' : diff > 0 ? 'text-red-500' : 'text-slate-400'}`}>
                           {fmtR(diff)}
                         </span>
                       </div>

@@ -241,6 +241,8 @@ describe('migration 908', () => {
       await c.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@t.local`]);
       const a = await company(c, user, BRITECH);
       await a.journal('SAGE-1001', 'm908 Cost of sales - March 23');
+      // 945 takes TEMPORARY from the app roles; 908's own temp objects need it to reach its RLS check.
+      await c.query(`DO $g$ BEGIN EXECUTE format('GRANT TEMPORARY ON DATABASE %I TO app_user', current_database()); END $g$`);
       await c.query('SET LOCAL ROLE app_user');
       await expect(c.query(MIGRATION)).rejects.toThrow(/row-level security/);
     } finally {

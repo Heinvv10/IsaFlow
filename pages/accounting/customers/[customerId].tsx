@@ -15,6 +15,8 @@ import { DeliveryAddressesTab } from '@/components/accounting/customers/Delivery
 import { ContactsTab } from '@/components/accounting/customers/ContactsTab';
 import { RecordNavigation } from '@/components/accounting/RecordNavigation';
 import { EntityHistoryTimeline } from '@/components/accounting/entity-history/EntityHistoryTimeline';
+import { formatMoney } from '@/lib/money/formatMoney';
+import { formatDisplayDate } from '@/utils/dateFormat';
 
 interface Customer {
   id: string;
@@ -70,9 +72,8 @@ const TYPE_PATHS: Record<ActivityRow['type'], string> = {
 
 function toDateStr(val: Date | string | null | undefined): string {
   if (!val) return '—';
-  if (val instanceof Date) return val.toLocaleDateString('en-ZA');
-  const s = String(val);
-  return s.split('T')[0] ?? s;
+  if (val instanceof Date) return formatDisplayDate(val);
+  return formatDisplayDate(String(val));
 }
 
 export default function CustomerDetailPage() {
@@ -195,7 +196,7 @@ export default function CustomerDetailPage() {
     {
       label: 'Credit Limit',
       value: customer.credit_limit != null
-        ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(Number(customer.credit_limit))
+        ? formatMoney(Number(customer.credit_limit))
         : null,
     },
   ];
@@ -279,7 +280,7 @@ export default function CustomerDetailPage() {
                 </div>
                 {customer.created_at && (
                   <p className="text-xs text-[var(--ff-text-tertiary)] mt-2">
-                    Created: {customer.created_at.split('T')[0]}
+                    Created: {formatDisplayDate(customer.created_at)}
                   </p>
                 )}
               </div>
@@ -341,7 +342,7 @@ export default function CustomerDetailPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 font-mono text-[var(--ff-text-primary)]">{row.reference}</td>
-                          <td className="px-4 py-3 text-right font-mono text-[var(--ff-text-primary)]">
+                          <td className="px-4 py-3 text-right tabular-nums text-[var(--ff-text-primary)]">
                             {formatCurrency(Number(row.total_amount))}
                           </td>
                           <td className="px-4 py-3">

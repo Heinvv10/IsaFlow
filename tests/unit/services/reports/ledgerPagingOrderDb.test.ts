@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { als } from '@/lib/als';
-import { getPoolForTests, sql } from '@/lib/neon';
+import { getPoolForTests } from '@/lib/neon';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
 import { getBankTransactions } from '@/modules/accounting/services/gl/transactionLedgerService';
 import { getAccountTransactions } from '@/modules/accounting/services/gl/accountTransactionsService';
@@ -14,6 +14,7 @@ import { getGeneralLedgerReport } from '@/modules/accounting/services/gl/general
 import { getGeneralLedgerLines } from '@/modules/accounting/services/gl/generalLedgerStreamService';
 import { isDbReachable } from '../../helpers/dbReachable';
 import { assertNotProductionDb } from '../../../helpers/assertNotProductionDb';
+import { insertAccount, insertCompany, insertJournal } from '../../helpers/realLedgerRows';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
@@ -33,25 +34,12 @@ async function withData(journals: J[], run: () => Promise<void>) {
   try {
     await client.query('BEGIN');
     await als.run({ client, companyId: A, userId: '', claims: {} }, async () => {
-      await sql`CREATE TEMP TABLE companies (id uuid, financial_year_start int) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE fiscal_periods (id uuid, company_id uuid, start_date date, end_date date) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_accounts (id uuid, company_id uuid, account_code text, account_name text,
-        account_type text, normal_balance text, account_subtype text) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_journal_entries (id uuid, company_id uuid, status text, entry_date date,
-        entry_number text, description text, reference text, source text, created_at timestamptz) ON COMMIT DROP`;
-      await sql`CREATE TEMP TABLE gl_journal_lines (id uuid DEFAULT gen_random_uuid(), company_id uuid,
-        journal_entry_id uuid, gl_account_id uuid, debit numeric(15,2), credit numeric(15,2), cost_center_id uuid,
-        cc1_id uuid, cc2_id uuid, bu_id uuid, project_id uuid) ON COMMIT DROP`;
-      await sql`INSERT INTO companies VALUES (${A}::uuid, 3)`;
-      await sql`INSERT INTO gl_accounts VALUES (${BANK}::uuid, ${A}::uuid, '1100', 'Bank', 'asset', 'debit', NULL),
-        (${EXP}::uuid, ${A}::uuid, '5000', 'Exp', 'expense', 'debit', NULL)`;
-      for (const e of journals) {
-        await sql`INSERT INTO gl_journal_entries VALUES (${e.id}::uuid, ${A}::uuid, 'posted', ${e.date}::date,
-          ${e.id.slice(-4)}, 'Fixture', '', 'manual', ${e.created}::timestamptz)`;
-        for (const [acct, d, c] of e.lines) {
-          await sql`INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
-            VALUES (${A}::uuid, ${e.id}::uuid, ${acct}::uuid, ${d}, ${c})`;
-        }
+      await insertCompany(A, 3);
+      await insertAccount(BANK, A, '1100', 'Bank', 'asset', 'debit');
+      await insertAccount(EXP, A, '5000', 'Exp', 'expense', 'debit');
+      for (const [n, e] of journals.entries()) {
+        await insertJournal({ id: e.id, companyId: A, date: e.date, lines: e.lines, entryNumber: String(n + 1),
+          createdAt: e.created });
       }
       await run();
     });

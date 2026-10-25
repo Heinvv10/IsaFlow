@@ -20,7 +20,7 @@ import { PAGE_WIDTH_MM } from './packTextMetrics';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatter } from './packMatters';
-import { formatMoney, inScale, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inScale, type MoneyScale } from '@/lib/format/money';
 import type { PackNarrative, PackPageBlock } from './packPageModel';
 
 /** The page's short name in the Contents, and the 16pt heading it prints
@@ -84,7 +84,7 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
   // `R'000` trailed a number instead of heading a column.
   const exposure = quantified.length === 0
     ? 'none of them carrying a single rand amount'
-    : `${n(quantified.length)} of them carrying ${inScale(`${formatMoney(total, { scale })}${EXPOSURE_CLAUSE}`, scale)}`;
+    : `${n(quantified.length)} of them carrying ${inScale(`${formatStatementFigure(total, { scale })}${EXPOSURE_CLAUSE}`, scale)}`;
   return `${n(findings.length)} ${noun} a board decision, ${exposure}.${failedClause}`;
 }
 

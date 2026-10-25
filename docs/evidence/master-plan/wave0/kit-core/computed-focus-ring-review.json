@@ -1,0 +1,212 @@
+[
+  {
+    "theme": "light",
+    "el": "Error variant date",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px"
+    },
+    "invalid": "true"
+  },
+  {
+    "theme": "light",
+    "el": "Error variant money",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px"
+    },
+    "invalid": "true"
+  },
+  {
+    "theme": "light",
+    "el": "clip-flush",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px"
+    },
+    "geometry": {
+      "clippedBy": "light-clip-flush",
+      "ringRoom": {
+        "left": 1,
+        "right": 1,
+        "top": 25,
+        "bottom": 9
+      },
+      "ringNeeds": 5
+    }
+  },
+  {
+    "theme": "light",
+    "el": "clip-pad",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px"
+    },
+    "geometry": {
+      "clippedBy": "light-clip-pad",
+      "ringRoom": {
+        "left": 5,
+        "right": 5,
+        "top": 29,
+        "bottom": 5
+      },
+      "ringNeeds": 5
+    }
+  },
+  {
+    "theme": "light",
+    "el": "clip-inset",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "-3px"
+    },
+    "geometry": {
+      "clippedBy": "light-clip-inset",
+      "ringRoom": {
+        "left": 1,
+        "right": 1,
+        "top": 25,
+        "bottom": 1
+      },
+      "ringNeeds": 0
+    }
+  },
+  {
+    "theme": "light",
+    "el": "Select trigger",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(13, 148, 136)",
+      "offset": "2px"
+    }
+  },
+  {
+    "theme": "light",
+    "el": "Tab",
+    "ring": {
+      "text": "Tab A",
+      "width": "3px",
+      "color": "rgb(13, 148, 136)"
+    }
+  },
+  {
+    "theme": "dark",
+    "el": "Error variant date",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px"
+    },
+    "invalid": "true"
+  },
+  {
+    "theme": "dark",
+    "el": "Error variant money",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px"
+    },
+    "invalid": "true"
+  },
+  {
+    "theme": "dark",
+    "el": "clip-flush",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px"
+    },
+    "geometry": {
+      "clippedBy": "dark-clip-flush",
+      "ringRoom": {
+        "left": 1,
+        "right": 1,
+        "top": 25,
+        "bottom": 9
+      },
+      "ringNeeds": 5
+    }
+  },
+  {
+    "theme": "dark",
+    "el": "clip-pad",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px"
+    },
+    "geometry": {
+      "clippedBy": "dark-clip-pad",
+      "ringRoom": {
+        "left": 5,
+        "right": 5,
+        "top": 29,
+        "bottom": 5
+      },
+      "ringNeeds": 5
+    }
+  },
+  {
+    "theme": "dark",
+    "el": "clip-inset",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "-3px"
+    },
+    "geometry": {
+      "clippedBy": "dark-clip-inset",
+      "ringRoom": {
+        "left": 1,
+        "right": 1,
+        "top": 25,
+        "bottom": 1
+      },
+      "ringNeeds": 0
+    }
+  },
+  {
+    "theme": "dark",
+    "el": "Select trigger",
+    "ring": {
+      "width": "3px",
+      "style": "solid",
+      "color": "rgb(45, 212, 191)",
+      "offset": "2px"
+    }
+  },
+  {
+    "theme": "dark",
+    "el": "Tab",
+    "ring": {
+      "text": "Tab A",
+      "width": "3px",
+      "color": "rgb(45, 212, 191)"
+    }
+  },
+  {
+    "el": "Drawer close",
+    "ring": {
+      "label": "Close drawer",
+      "width": "3px",
+      "color": "rgb(13, 148, 136)"
+    }
+  }
+]

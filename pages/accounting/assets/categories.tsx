@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tags, Loader2 } from 'lucide-react';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface Category {
   id: string;
@@ -27,7 +28,7 @@ interface Category {
 const fmtPct = (n: number | null) => n != null ? `${(Number(n) * 100).toFixed(0)}%` : '—';
 const fmtYrs = (n: number | null) => n != null ? `${n}y` : '—';
 const fmtThresh = (n: number | null) => n != null
-  ? new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', maximumFractionDigits: 0 }).format(n)
+  ? formatMoney(n, { decimals: 0 })
   : '—';
 
 const ias16Colors: Record<string, string> = {
@@ -135,11 +136,11 @@ export default function AssetCategoriesPage() {
                           </span>
                         ) : <span className="text-[var(--ff-text-tertiary)]">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] font-mono text-xs">{fmtYrs(c.useful_life_years)}</td>
-                      <td className="px-4 py-3 text-right text-teal-400 font-mono text-xs">{fmtPct(c.residual_pct)}</td>
-                      <td className="px-4 py-3 text-right text-amber-400 font-mono text-xs font-semibold">{fmtYrs(c.tax_life_years)}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-primary)] tabular-nums text-xs">{fmtYrs(c.useful_life_years)}</td>
+                      <td className="px-4 py-3 text-right text-teal-400 tabular-nums text-xs">{fmtPct(c.residual_pct)}</td>
+                      <td className="px-4 py-3 text-right text-amber-400 tabular-nums text-xs font-semibold">{fmtYrs(c.tax_life_years)}</td>
                       <td className="px-4 py-3 text-right text-purple-400 font-medium">{c.sars_rate}%</td>
-                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] font-mono text-xs">{fmtThresh(c.capitalization_threshold)}</td>
+                      <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] tabular-nums text-xs">{fmtThresh(c.capitalization_threshold)}</td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)] text-xs capitalize">{(c.depreciation_method ?? 'straight_line').replace(/_/g, ' ')}</td>
                     </tr>
                   ))}

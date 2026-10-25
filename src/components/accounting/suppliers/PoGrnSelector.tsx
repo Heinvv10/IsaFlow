@@ -13,7 +13,7 @@ const inp =
   'rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 ' +
   'focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl =
-  'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
+  'block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 
 export interface PoLineItem {
   description: string;
@@ -161,7 +161,7 @@ export function PoGrnSelector({
     <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
       <div className="flex items-center gap-2 mb-3">
         <Link2 className="h-3.5 w-3.5 text-amber-500" />
-        <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+        <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
           3-Way Match (optional)
         </span>
         {loading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
@@ -189,7 +189,7 @@ export function PoGrnSelector({
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           </div>
           {pos.length === 0 && !loading && !error && (
-            <p className="text-[10px] text-slate-400 mt-1">No open POs for this supplier.</p>
+            <p className="text-xs text-slate-400 mt-1">No open POs for this supplier.</p>
           )}
         </div>
 
@@ -212,7 +212,7 @@ export function PoGrnSelector({
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           </div>
           {filteredGrns.length === 0 && !loading && !error && (
-            <p className="text-[10px] text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 mt-1">
               {selectedPoId ? 'No GRNs for selected PO.' : 'No GRNs for this supplier.'}
             </p>
           )}

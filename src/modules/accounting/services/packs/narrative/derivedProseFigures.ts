@@ -6,12 +6,12 @@
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { formatMoney, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
+import { formatStatementFigure, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
 
 /**
  * A MONEY FIGURE ON ITS WAY INTO A SENTENCE — always through `inProse`.
  *
- * `formatMoney` prints a measured zero as an en dash, which is right in a
+ * `formatStatementFigure` prints a measured zero as an en dash, which is right in a
  * money COLUMN and is not a word. Five titles here interpolated it raw, and
  * the consequence was not a dash on paper: `packProseIntegrity`'s zero-glyph
  * rule reads `page.title`, and `assertPackIntegrity` THROWS on a hit — so a
@@ -21,11 +21,11 @@ import { formatMoney, inProse, pctWithWord, type MoneyScale } from '@/lib/format
  * liabilities, or — because the dash covers anything under half a unit of the
  * scale — any of those under five rand at `R'000`.
  *
- * One helper for the whole file rather than eleven `inProse(formatMoney(...))`
+ * One helper for the whole file rather than eleven `inProse(formatStatementFigure(...))`
  * call sites, because the one that gets forgotten is the eleventh.
  */
 export function money(n: number, scale: MoneyScale): string {
-  return inProse(formatMoney(n, { scale }));
+  return inProse(formatStatementFigure(n, { scale }));
 }
 
 /** A change that rounds to 0.0%: it has no direction to name. A sentence

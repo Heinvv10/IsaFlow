@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import {
   FileCheck, Plus, RefreshCw, Loader2, AlertCircle, Download, Link as LinkIcon,
   ShieldCheck,
@@ -13,6 +14,7 @@ import {
 import { localISODate } from '@/lib/dateUtils';
 import { AuditSnapshotsPanel } from '@/components/accounting/audit/AuditSnapshotsPanel';
 import { AuditInviteDrawer } from '@/components/accounting/audit/AuditInviteDrawer';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface AuditExport {
   id: string;
@@ -31,7 +33,6 @@ interface AuditExport {
   builtAt: string | null;
 }
 
-
 const STATUS_STYLES: Record<AuditExport['status'], string> = {
   queued:   'bg-slate-700 text-slate-300',
   building: 'bg-amber-900/50 text-amber-300',
@@ -40,7 +41,7 @@ const STATUS_STYLES: Record<AuditExport['status'], string> = {
 };
 
 function fmtZAR(n: number): string {
-  return `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return formatMoney(n);
 }
 
 export default function AuditTrailPage() {
@@ -56,10 +57,11 @@ export default function AuditTrailPage() {
 
   const [inviteId, setInviteId] = useState<string | null>(null);
 
+  const afterToast = useTimeoutOnce();
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+    afterToast(() => setToast(null), 3500);
+  }, [afterToast]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');

@@ -20,10 +20,10 @@ interface Props {
   onClose: () => void;
 }
 
-const fmt = (n: number) =>
-  new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
+const fmt = (n: number) => formatMoney(n);
 
 import type { ReactElement } from 'react';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 function agentBadge(agent: string | null): ReactElement {
   if (!agent) return <span className="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-300">—</span>;
@@ -176,8 +176,8 @@ export function EvidenceDrillModal({ accountId, accountName, periodStart, period
                       </td>
                       <td className="py-2 pr-3 font-mono text-xs text-[var(--ff-text-tertiary)]">{row.entryNumber ?? '—'}</td>
                       <td className="py-2 pr-3 text-[var(--ff-text-primary)] max-w-xs truncate">{row.description ?? '—'}</td>
-                      <td className="py-2 pr-3 text-right font-mono text-xs text-[var(--ff-text-primary)]">{row.debit > 0 ? fmt(row.debit) : '—'}</td>
-                      <td className="py-2 pr-3 text-right font-mono text-xs text-[var(--ff-text-primary)]">{row.credit > 0 ? fmt(row.credit) : '—'}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums text-xs text-[var(--ff-text-primary)]">{row.debit > 0 ? fmt(row.debit) : '—'}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums text-xs text-[var(--ff-text-primary)]">{row.credit > 0 ? fmt(row.credit) : '—'}</td>
                       <td className="py-2 pr-3">{agentBadge(row.postingAgent)}</td>
                       <td className="py-2 pr-3 text-right">{confidenceBadge(row.extractionConfidence)}</td>
                       <td className="py-2">

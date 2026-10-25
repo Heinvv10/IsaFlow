@@ -55,8 +55,8 @@ const periodDate = (year: number, month: number) => new Date(year, month - 1, 28
 
 async function addEmployee(id: string, companyId: string, number: string) {
   await pool.query(
-    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status)
-     VALUES($1,$2,$3,'Once','Off','2020-01-01','active')`,
+    `INSERT INTO payroll_employees(id,company_id,employee_number,first_name,last_name,start_date,status, medical_aid_main_member)
+     VALUES($1,$2,$3,'Once','Off','2020-01-01','active', true)`,
     [id, companyId, number],
   );
 }

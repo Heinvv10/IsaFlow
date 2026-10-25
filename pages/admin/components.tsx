@@ -5,9 +5,7 @@
 
 import { useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import {
-  Button, Input, Badge, Card, Tooltip, LoadingSpinner, ToastProvider,
-} from '@/components/ui';
+import { Button, Input, Badge, Card, Tooltip, LoadingSpinner, ToastProvider } from '@/components/ui';
 import {
   Download, Plus, Trash2, Search, Mail, Eye,
   CheckCircle, Palette, Moon, Sun,
@@ -24,6 +22,7 @@ import { SkeletonDemo } from '@/components/showcase/SkeletonDemo';
 import { AvatarDemo } from '@/components/showcase/AvatarDemo';
 import { ProgressBarDemo } from '@/components/showcase/ProgressBarDemo';
 import { SelectDemo } from '@/components/showcase/SelectDemo';
+import { FormKitShowcase } from '@/components/admin/FormKitShowcase';
 
 // ---------------------------------------------------------------------------
 // Data
@@ -36,7 +35,7 @@ const NAV_SECTIONS = [
   { label: 'Primitives', items: ['Button', 'Input', 'Badge', 'Card', 'Tooltip', 'Loading'] },
   { label: 'Feedback', items: ['Modal', 'Toast', 'EmptyState', 'Skeleton', 'ProgressBar'] },
   { label: 'Navigation', items: ['Breadcrumb', 'Tabs', 'Drawer'] },
-  { label: 'Data', items: ['Avatar', 'Select'] },
+  { label: 'Data', items: ['Avatar', 'Select', 'FormKit'] },
 ];
 
 // ---------------------------------------------------------------------------
@@ -98,7 +97,7 @@ export default function ComponentShowcasePage() {
               <nav className="space-y-4">
                 {NAV_SECTIONS.map((section) => (
                   <div key={section.label}>
-                    <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-gray-600 dark:text-gray-400 dark:text-gray-500">
+                    <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-widest text-gray-600 dark:text-gray-400 dark:text-gray-500">
                       {section.label}
                     </p>
                     <div className="space-y-0.5">
@@ -314,6 +313,7 @@ export default function ComponentShowcasePage() {
                   <AvatarDemo />
                 </Section>
 
+                <FormKitShowcase />
                 {/* ── Select ── */}
                 <Section id="Select" title="Select" description="Searchable dropdown with keyboard navigation, portal rendering, multi-select, and clearable support.">
                   <SelectDemo />

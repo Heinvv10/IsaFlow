@@ -310,7 +310,7 @@ export default function SubscriptionsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300 capitalize">{s.billing_cycle}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{s.discount_percent > 0 ? `${s.discount_percent}%` : '\u2014'}</td>
-                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300 font-mono text-xs">{formatCurrency(s.monthly_amount_cents / 100)}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-300 tabular-nums text-xs">{formatCurrency(s.monthly_amount_cents / 100)}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(s.current_period_end)}</td>
                     <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDate(s.created_at)}</td>
                     <td className="px-4 py-3 whitespace-nowrap">

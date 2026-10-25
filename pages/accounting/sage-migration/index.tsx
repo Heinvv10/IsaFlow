@@ -274,9 +274,9 @@ export default function SageMigrationPage() {
                                 <td className="px-3 py-2 text-[var(--ff-text-primary)]">
                                   <span className="font-mono text-xs mr-2">{d.accountCode}</span>{d.accountName}
                                 </td>
-                                <td className="px-3 py-2 text-right font-mono">{formatCurrency(d.sageBalance)}</td>
-                                <td className="px-3 py-2 text-right font-mono">{formatCurrency(d.glBalance)}</td>
-                                <td className="px-3 py-2 text-right font-mono text-red-400">{formatCurrency(d.difference)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(d.sageBalance)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(d.glBalance)}</td>
+                                <td className="px-3 py-2 text-right tabular-nums text-red-400">{formatCurrency(d.difference)}</td>
                               </tr>
                             ))}
                           </tbody>

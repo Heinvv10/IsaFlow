@@ -10,10 +10,12 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
+import { useTimeoutOnce } from '@/hooks/useTimeoutOnce';
 import {
   Server, Plus, RefreshCw, AlertCircle, Loader2, Trash2,
   ChevronLeft, ListChecks, CheckCircle2, XCircle, Link2,
 } from 'lucide-react';
+import { formatDisplayDateTime } from '@/utils/dateFormat';
 
 interface Connection {
   id: string;
@@ -45,7 +47,7 @@ type ToastState = { msg: string; ok: boolean } | null;
 
 function fmtDate(val: string | null | undefined): string {
   if (!val) return 'never';
-  try { return new Date(val).toLocaleString('en-ZA'); } catch { return String(val); }
+  return formatDisplayDateTime(val);
 }
 
 function StatusPill({ status }: { status: Connection['status'] }) {
@@ -90,10 +92,11 @@ export default function SentMirrorSettingsPage() {
   const [sentFolder, setSentFolder] = useState('Sent');
   const [saving, setSaving] = useState(false);
 
+  const afterToast = useTimeoutOnce();
   const showToast = useCallback((msg: string, ok = true) => {
     setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
-  }, []);
+    afterToast(() => setToast(null), 3500);
+  }, [afterToast]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');

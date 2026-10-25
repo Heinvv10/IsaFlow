@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ApiEnvelopeError, apiErrorMessage, apiFetch, assertOk } from '@/lib/apiFetch';
 import { HandOffsetNotice, type HandOffset } from './HandOffsetNotice';
+import { formatMoney } from '@/lib/money/formatMoney';
 
 interface AutoPostRun {
   id: string;
@@ -133,14 +134,14 @@ export function AutoPostRunsPanel({ onUndone }: { onUndone?: () => void }) {
           ))}
         </ul>
       )}
-      <ul className="space-y-1">
+      <ul aria-label="Auto-post runs" className="space-y-1">
         {active.map((r) => (
           <li
             key={r.id}
             className="flex items-center justify-between text-sm text-[var(--ff-text-primary)]"
           >
             <span>
-              Auto-posted {r.postedCount} (R{r.totalAmount.toLocaleString()}) · {r.source}
+              Auto-posted {r.postedCount} ({formatMoney(r.totalAmount)}) · {r.source}
             </span>
             <button
               type="button"

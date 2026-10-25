@@ -176,7 +176,7 @@ export function DescriptionAutocomplete({
                 }`}
               >
                 <span className="truncate flex-1">{s.text}</span>
-                <span className={`ml-2 flex-shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                <span className={`ml-2 flex-shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full ${
                   s.source === 'template'
                     ? 'bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
