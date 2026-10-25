@@ -15,6 +15,7 @@ import {
   updateSentConnection,
   deleteSentConnection,
 } from '@/modules/accounting/services/ar/sentMirrorAdmin';
+import { SCAN_ACTIVE_MESSAGE, isScanActive } from '@/modules/accounting/services/capture/mirrorScanActive';
 
 const UpdateSchema = z.object({
   sentFolder: z.string().max(200).optional(),
@@ -26,6 +27,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const idParse = UUID.safeParse(req.query.id);
   if (!idParse.success) return apiResponse.notFound(res, 'Sent mirror connection', String(req.query.id ?? ''));
   const id = idParse.data;
+
+  if ((req.method === 'PATCH' || req.method === 'DELETE') && isScanActive(id)) {
+    return apiResponse.conflict(res, SCAN_ACTIVE_MESSAGE, { reason: 'scan' });
+  }
 
   if (req.method === 'PATCH') {
     const parsed = UpdateSchema.safeParse(req.body);

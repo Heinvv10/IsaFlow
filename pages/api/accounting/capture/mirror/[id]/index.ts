@@ -13,6 +13,7 @@ import {
   updateConnectionSenders,
   deleteConnection,
 } from '@/modules/accounting/services/capture/mirrorConnectionService';
+import { SCAN_ACTIVE_MESSAGE, isScanActive } from '@/modules/accounting/services/capture/mirrorScanActive';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,6 +28,10 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const { companyId } = req;
   const id = req.query.id as string;
   if (!id || !UUID_RE.test(id)) return apiResponse.notFound(res, 'Mirror connection', id);
+
+  if ((req.method === 'PATCH' || req.method === 'DELETE') && isScanActive(id)) {
+    return apiResponse.conflict(res, SCAN_ACTIVE_MESSAGE, { reason: 'scan' });
+  }
 
   if (req.method === 'PATCH') {
     const body = (req.body ?? {}) as UpdateBody;

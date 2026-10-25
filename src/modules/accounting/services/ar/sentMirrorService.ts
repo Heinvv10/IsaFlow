@@ -37,7 +37,7 @@ import { createMirrorClient } from '@/modules/accounting/services/capture/mirror
 import { clipMirrorText, isOversizedMessage, runGuardedScan, type ScanGuard, type ScanOptions } from '@/modules/accounting/services/capture/mirrorScanGuard';
 import { findExistingByHash } from '@/modules/accounting/services/capture/capturedDocumentHash';
 import { fetchNewMessages, fetchSourceByUid, mailboxUidNext } from '@/modules/accounting/services/capture/mirrorImapFetch';
-import { isScanLockSkip } from '@/modules/accounting/services/capture/mirrorScanWrite';
+import { dueOrSkipTick, isScanLockSkip } from '@/modules/accounting/services/capture/mirrorScanWrite';
 import { addCounters, advanceCursor, logScanEntry, selectDueSentConnections, stampSuccess, type ScanLogEntry } from './sentMirrorWrites';
 import { checkImapTarget } from '@/lib/imapTargetGuard';
 
@@ -315,7 +315,7 @@ async function scanBody(conn: SentMirrorConnection, result: SentMirrorScanResult
 }
 
 export async function scanAllDueSentConnections(opts: ScanOptions = {}): Promise<SentMirrorScanResult[]> {
-  const connections = await listActiveSentConnections();
+  const connections = await dueOrSkipTick(listActiveSentConnections, 'sent-mirror');
   const results: SentMirrorScanResult[] = [];
   for (const conn of connections) {
     results.push(await scanSentConnection(conn, opts));

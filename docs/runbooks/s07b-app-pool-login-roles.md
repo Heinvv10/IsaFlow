@@ -354,7 +354,30 @@ Migration 946 (S-07e part B: a company's outbound routes, 2026-10-25) also takes
   - An app role's scan-log or delivery-log INSERT takes a key-share lock on the parent
     connection or endpoint row (through the foreign key). That blocks only a DELETE of
     that row, which now gives up after 2 s (55P03, answered 503) instead of holding a
-    connection; the tenant retries.
+    connection; the tenant retries. While a scan of a mirror connection holds its claim
+    the connection's DELETE, update and disconnect routes answer 409 before any
+    database call (`isScanActive`), so a burst of them from one tenant cannot queue on
+    the pool below holding auth-pool connections (it did: 30 DELETEs stalled every
+    tenant's requests for up to 14 s).
+  - The route pool is shared by ALL tenants' route writes (settings writes, delivery
+    and scan stamps, the cron's due selection): max 3 connections
+    (`ROUTE_ADMIN_POOL_MAX`) for the whole process. A write that cannot get one within
+    2 s (`ROUTE_CONNECT_TIMEOUT_MS`) fails like a lock timeout: a request answers 503,
+    a scan skips its connection (or the cron its whole tick, for the due selection)
+    for this tick, a delivery loses that stamp; it never marks a connection 'error' and
+    never counts a webhook failure. A burst of writes on one row (deliveries to one
+    endpoint, each holding a connection for up to the 2 s lock wait) can therefore make
+    other tenants' settings writes answer 503 for that time. Raise
+    `ROUTE_ADMIN_POOL_MAX` (each is one migration_admin connection) if that shows in
+    the logs ('the route write pool is busy').
+  - In a scan-now the scan's claim is held until the request's stamps have run (freed
+    after the last one; at once if the request does not commit; at the latest 60 s
+    after the scan), so a cron tick cannot start a scan of the connection before the
+    scan-now's documents are committed.
+  - `s07e-b-routes.migration.int.test.ts` really GRANTs write privileges to `app_user` on
+    the fixture (to prove 946 revokes them) and revokes them in a `finally`; a process
+    killed between the two leaves the grant for the later files of that shard. It is a
+    throwaway cluster; re-run `refresh-baseline.sh`'s fixture, or the test, to clear it.
   - Two scans of one connection can still overlap across processes (or after a restart
     mid-scan): the de-dupe is a check-then-insert and `captured_documents` has no unique
     index on the hash, so a file in both can be captured twice.

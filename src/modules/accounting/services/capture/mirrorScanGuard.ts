@@ -20,6 +20,7 @@
 import type { ImapFlow } from 'imapflow';
 import { log } from '@/lib/logger';
 import { claimScan } from './mirrorScanActive';
+import { releaseAfterRequestStamps } from './mirrorScanWrite';
 import { ByteMeter } from './mirrorScanLimits';
 import { MESSAGE_TOO_LARGE, SCAN_TIMED_OUT, stampScanStopped, type MirrorKind, type MirrorRef } from './mirrorScanError';
 
@@ -114,7 +115,8 @@ export async function runGuardedScan<R extends { errors: number }>(
     if (guard.stopReason === null && typeof won !== 'string') return won;
   } finally {
     clearTimeout(timer);
-    release();
+    // Inside a request (scan-now) the claim is held until the request's stamps have run (mirrorScanWrite.ts).
+    releaseAfterRequestStamps(release);
   }
   work.catch((err: unknown) => {
     log.debug('abandoned mirror scan ended', { connectionId: conn.id, err: String((err as Error)?.message ?? err) }, 'imap-mirror');

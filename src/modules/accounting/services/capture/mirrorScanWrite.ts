@@ -34,7 +34,7 @@
  * mirrors skip a file the company already holds, by company_id and content hash).
  */
 import { als } from '@/lib/als';
-import { runAfterCommit } from '@/lib/afterCommit';
+import { runAfterCommit, runAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { sql, withTransaction } from '@/lib/neon';
 import { routeAdminQuery } from '@/lib/auth/routeAdminPool';
@@ -87,7 +87,30 @@ export function isScanLockSkip(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === LOCK_NOT_AVAILABLE && !als.getStore()?.client;
 }
 
-const requestStamps = new WeakMap<object, Array<() => Promise<void>>>();
+interface RequestQueue {
+  stamps: Array<() => Promise<void>>;
+  /** Run once, after the last stamp has run (a stamp never throws): scan claims, see releaseAfterRequestStamps. */
+  finalizers: Array<() => void>;
+}
+const requestQueues = new WeakMap<object, RequestQueue>();
+
+/** The request's one queue, created (and registered to run after COMMIT) by whoever needs it first. */
+function requestQueue(store: object): RequestQueue {
+  let queue = requestQueues.get(store);
+  if (!queue) {
+    const q: RequestQueue = { stamps: [], finalizers: [] };
+    runAfterCommit('mirror scan stamps', async () => {
+      try {
+        for (const stamp of q.stamps) await stamp();
+      } finally {
+        for (const done of q.finalizers) done();
+      }
+    });
+    requestQueues.set(store, q); // after runAfterCommit: it throws when the request cannot run after-commit work
+    queue = q;
+  }
+  return queue;
+}
 
 /**
  * Runs `run` now, or, in a request, after the request COMMITs, after the stamps queued before it
@@ -104,14 +127,7 @@ export async function afterRequestCommit(scope: MirrorScope, label: string, run:
     log.warn('mirror scan stamp dropped: the request has finished', { label }, scope);
     return;
   }
-  let queue = requestStamps.get(store);
-  if (!queue) {
-    const stamps: Array<() => Promise<void>> = [];
-    queue = stamps;
-    requestStamps.set(store, stamps);
-    runAfterCommit('mirror scan stamps', async () => { for (const stamp of stamps) await stamp(); });
-  }
-  queue.push(async () => {
+  requestQueue(store).stamps.push(async () => {
     try {
       await run();
     } catch (err) {
@@ -121,6 +137,46 @@ export async function afterRequestCommit(scope: MirrorScope, label: string, run:
       else log.error('mirror scan stamp failed', { label, code, err: message }, scope);
     }
   });
+}
+
+/** The longest a scan's claim outlives its scan inside a request, if the request's COMMIT or ROLLBACK never reports. */
+export const CLAIM_BACKSTOP_MS = 60_000;
+
+/**
+ * Releases a scan's claim (mirrorScanActive.ts) once the request's queued stamps have run: after the last of them
+ * when the request COMMITs, at once when it does not (runAfterRollback). Released earlier, a cron tick could start a
+ * scan of the connection in the window between the scan's return and the COMMIT: it would read the old cursor and
+ * not see the documents this request has not committed, and capture a file twice. Outside a request, or one that
+ * has finished, the claim is released now. `release` is idempotent; a backstop timer frees it if neither report
+ * ever comes, so a claim can never be permanent.
+ */
+export function releaseAfterRequestStamps(release: () => void): void {
+  const store = als.getStore();
+  if (!store?.client || store.finished) {
+    release();
+    return;
+  }
+  const backstop = setTimeout(release, CLAIM_BACKSTOP_MS);
+  backstop.unref();
+  const done = () => { clearTimeout(backstop); release(); };
+  try {
+    requestQueue(store).finalizers.push(done);
+    runAfterRollback('mirror scan claim (request rolled back)', async () => done());
+  } catch (err) {
+    log.warn('mirror scan claim released early: no after-commit queue on this request', { err: String((err as Error)?.message ?? err) }, 'imap-mirror');
+    done();
+  }
+}
+
+/** The cron's due selection: a pool timeout or lock wait (isScanLockSkip) skips this tick with no connection scanned. */
+export async function dueOrSkipTick<T>(select: () => Promise<T[]>, scope: MirrorScope): Promise<T[]> {
+  try {
+    return await select();
+  } catch (err) {
+    if (!isScanLockSkip(err)) throw err;
+    log.warn('mirror scan tick skipped: the route write pool is busy or the due rows are locked', {}, scope);
+    return [];
+  }
 }
 
 /** stampConnection for what a scan records about itself: after the request's COMMIT inside one (see the header). */

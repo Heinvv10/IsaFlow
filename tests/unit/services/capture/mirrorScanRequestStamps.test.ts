@@ -45,7 +45,7 @@ vi.mock('@/lib/auth/routeAdminPool', () => ({
 }));
 
 import { als } from '@/lib/als';
-import { drainAfterCommit } from '@/lib/afterCommit';
+import { drainAfterCommit, settleAfterRollback } from '@/lib/afterCommit';
 import { log } from '@/lib/logger';
 import { markMirrorScanError } from '@/modules/accounting/services/capture/mirrorScanError';
 import { addIngested, stampSuccess as imapSuccess, updateCursor } from '@/modules/accounting/services/capture/imapMirrorWrites';
@@ -55,7 +55,7 @@ import { scanSentConnection, type SentMirrorConnection } from '@/modules/account
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const ref = { id: 'c1', companyId: COMPANY };
-const requestCtx = (): RequestContext => ({ client: {} as RequestContext['client'], userId: 'u1', claims: {}, afterCommit: [] });
+const requestCtx = (): RequestContext => ({ client: {} as RequestContext['client'], userId: 'u1', claims: {}, afterCommit: [], afterRollback: [] });
 const imapConn = (): MirrorConnection => ({
   id: 'c1', companyId: COMPANY, provider: 'imap', accountEmail: 'ap@co.test', folder: 'INBOX', scanCursor: { INBOX: 10 },
   allowedSenders: [], deniedSenders: [], imapHost: 'imap.test', imapPort: 993, imapUseTls: true, imapUsername: 'u',
@@ -145,6 +145,7 @@ describe.each(STAMPS)('%s: stamps made by a scan', (_name, table, stamp, scan) =
     const rolledBack = requestCtx();
     await als.run(rolledBack, scan);
     rolledBack.afterCommit = undefined;
+    settleAfterRollback(rolledBack, false); // the owner's finally: frees the scan's claim, which the next scan needs
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(h.route.filter((t) => /SET scan_cursor/.test(t))).toEqual([]);
 
