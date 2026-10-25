@@ -13,7 +13,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 import { log } from '@/lib/logger';
 import { ALLOWED_IMAP_PORTS, IMAP_HOST_REFUSED, IMAP_PORT_REFUSED, checkImapTarget } from '@/lib/imapTargetGuard';
 
-const HOST_REFUSED = { ok: false, message: 'This mail server address is not allowed' };
+const HOST_REFUSED = { ok: false, message: 'This mail server address is not allowed or could not be resolved' };
 
 const PUBLIC = '93.184.216.34';
 const resolvesTo = (...addresses: string[]) =>
@@ -64,7 +64,7 @@ describe('checkImapTarget: host', () => {
 
   it('a name that does not resolve is told so, not that its address is "not allowed"', async () => {
     m.lookup.mockRejectedValue(new Error('ENOTFOUND'));
-    expect(await checkImapTarget('nope.invalid', 993)).toEqual({ ok: false, message: "Could not resolve the mail server's address" });
+    expect(await checkImapTarget('nope.invalid', 993)).toEqual({ ok: false, message: 'This mail server address is not allowed or could not be resolved' });
     expect(vi.mocked(log.warn).mock.calls[0]![1]).toMatchObject({ detail: 'DNS resolution failed for nope.invalid' });
   });
 
@@ -77,7 +77,7 @@ describe('checkImapTarget: host', () => {
     const r = await checkImapTarget('internal.corp.test', 993);
     expect(r).toEqual(HOST_REFUSED);
     expect(JSON.stringify(r)).not.toMatch(/10\.1\.2\.3|internal|corp|993/);
-    expect(IMAP_HOST_REFUSED).toBe('This mail server address is not allowed');
+    expect(IMAP_HOST_REFUSED).toBe('This mail server address is not allowed or could not be resolved');
   });
 
   it('allows a public IP literal: it is the address to connect to, with no servername', async () => {

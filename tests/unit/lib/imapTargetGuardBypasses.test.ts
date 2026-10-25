@@ -15,7 +15,7 @@ import { checkImapTarget } from '@/lib/imapTargetGuard';
 import { ipReason } from '@/lib/safeFetch';
 
 const PUBLIC = '93.184.216.34';
-const REFUSED = { ok: false, message: 'This mail server address is not allowed' };
+const REFUSED = { ok: false, message: 'This mail server address is not allowed or could not be resolved' };
 const resolvesTo = (...addresses: string[]) =>
   m.lookup.mockResolvedValue(addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })));
 
@@ -94,7 +94,7 @@ describe('the reserved ranges that stay public-looking are refused as DNS answer
 });
 
 describe('a name DNS cannot answer for is not a policy refusal', () => {
-  const UNRESOLVED = { ok: false, message: "Could not resolve the mail server's address" };
+  const UNRESOLVED = { ok: false, message: 'This mail server address is not allowed or could not be resolved' };
 
   it('a resolver failure (ENOTFOUND, EAI_AGAIN)', async () => {
     for (const code of ['ENOTFOUND', 'EAI_AGAIN']) {

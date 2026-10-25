@@ -53,9 +53,9 @@ describe.each([
   ['sent mirror', sentRoute, () => m.createSent],
 ] as const)('POST %s', (_name, route, created) => {
   it.each([
-    ['a loopback host', { imapHost: '127.0.0.1' }, 'This mail server address is not allowed'],
-    ['a private host', { imapHost: '192.168.1.5' }, 'This mail server address is not allowed'],
-    ['the metadata address', { imapHost: '169.254.169.254' }, 'This mail server address is not allowed'],
+    ['a loopback host', { imapHost: '127.0.0.1' }, 'This mail server address is not allowed or could not be resolved'],
+    ['a private host', { imapHost: '192.168.1.5' }, 'This mail server address is not allowed or could not be resolved'],
+    ['the metadata address', { imapHost: '169.254.169.254' }, 'This mail server address is not allowed or could not be resolved'],
     ['a port that is not IMAP', { imapPort: 25 }, 'Only ports 143 and 993 are supported'],
   ])('answers 400 for %s and writes nothing', async (_what, over, message) => {
     const r = await post(route, body(over));
@@ -68,7 +68,7 @@ describe.each([
     m.lookup.mockResolvedValue([{ address: '10.0.0.8', family: 4 }]);
     const r = await post(route, body({ imapHost: 'imap.attacker.test' }));
     expect(r.status).toBe(400);
-    expect(r.json?.error?.message).toBe('This mail server address is not allowed');
+    expect(r.json?.error?.message).toBe('This mail server address is not allowed or could not be resolved');
     expect(JSON.stringify(r.json)).not.toContain('10.0.0.8'); // which address it resolved to is not the tenant's to learn
     expect(created()).not.toHaveBeenCalled();
   });

@@ -112,9 +112,9 @@ describe.each([
   ['sent_mirror_connections', 's1', (over: object) => scanSentConnection({ ...sentConn, ...over })],
 ] as const)('%s scan target', (table, id, scan) => {
   it.each([
-    ['a loopback literal', { imapHost: '127.0.0.1' }, 'This mail server address is not allowed'],
-    ['a private literal', { imapHost: '10.0.0.5' }, 'This mail server address is not allowed'],
-    ['the metadata address', { imapHost: '169.254.169.254' }, 'This mail server address is not allowed'],
+    ['a loopback literal', { imapHost: '127.0.0.1' }, 'This mail server address is not allowed or could not be resolved'],
+    ['a private literal', { imapHost: '10.0.0.5' }, 'This mail server address is not allowed or could not be resolved'],
+    ['the metadata address', { imapHost: '169.254.169.254' }, 'This mail server address is not allowed or could not be resolved'],
     ['a port that is not IMAP', { imapPort: 6379 }, 'Only ports 143 and 993 are supported'],
   ])('%s: never connects, and the connection is marked errored with a generic reason', async (_what, over, reason) => {
     const r = await scan(over);
@@ -130,7 +130,7 @@ describe.each([
     const r = await scan({});
     expect(r.errors).toBe(1);
     expect(h.connects).toBe(0);
-    expect(h.admin[0]!.values[2]).toBe('This mail server address is not allowed'); // the address it resolved to stays in the log
+    expect(h.admin[0]!.values[2]).toBe('This mail server address is not allowed or could not be resolved'); // the address it resolved to stays in the log
   });
 
   it('a public host on an IMAP port connects (143 and 993)', async () => {
