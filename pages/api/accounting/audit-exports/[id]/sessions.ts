@@ -14,6 +14,7 @@ import {
   listPortalSessions,
   createPortalSession,
   getExport,
+  AuditExportNotIssuableError,
 } from '@/modules/accounting/services/capture/auditTrailExportService';
 import { mayReadAudit, mayTakeAudit } from '@/modules/accounting/services/audit/auditAccess';
 
@@ -46,10 +47,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, `Cannot invite auditor — export is ${ex.status}`);
     }
 
-    const { session, accessToken } = await createPortalSession(
-      id, companyId, body.auditorEmail,
-      { issuedBy: req.user?.id ?? null, ttlHours: body.ttlHours },
-    );
+    let issued: Awaited<ReturnType<typeof createPortalSession>>;
+    try {
+      issued = await createPortalSession(id, companyId, body.auditorEmail,
+        { issuedBy: req.user?.id ?? null, ttlHours: body.ttlHours });
+    } catch (err) {
+      if (err instanceof AuditExportNotIssuableError) return apiResponse.badRequest(res, err.message);
+      throw err;
+    }
+    const { session, accessToken } = issued;
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
     const portalUrl = `${appUrl}/audit-portal/${session.id}?token=${accessToken}`;
