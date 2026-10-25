@@ -140,6 +140,14 @@ describe('a payload that does not net to the report is refused', () => {
     expect(buildVAT201Payload(data, { expectedNetVat: 150 }).netVAT).toBe(150);
   });
 
+  it.each([
+    ['a NaN expected net', data, Number.NaN],
+    ['a NaN payload net', { ...data, outputVATStandard: Number.NaN }, 150],
+    ['an infinite payload net', { ...data, outputVATStandard: Number.POSITIVE_INFINITY }, 150],
+  ])('fails closed on %s: a NaN comparison is never "close enough"', (_name, payloadData, expected) => {
+    expect(() => buildVAT201Payload(payloadData, { expectedNetVat: expected })).toThrow(Vat201NetMismatchError);
+  });
+
   it('exportVat201 refuses a report whose totals disagree with its own boxes', async () => {
     const report = reportFrom([{ box: '1', direction: 'output', vatType: 'standard', tax: 150 }]);
     m.getVat201Report.mockResolvedValue({ ...report, totals: { ...report.totals, netVat: 100 } });
