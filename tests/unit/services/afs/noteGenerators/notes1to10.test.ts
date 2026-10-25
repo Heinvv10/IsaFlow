@@ -57,47 +57,48 @@ describe('notes1to10 generators', () => {
   // ── Note 1 ────────────────────────────────────────────────────────────────
 
   describe('generateNote1AccountingPolicies', () => {
+    // Note 1 reads the company row, then the asset methods held in the year, then the
+    // inventory balances at the year end (note1PolicyFacts). Only columns the schema has:
+    // the real-PG suite afs-note1-accounting-policies proves the queries run.
+    const company = { default_currency: 'ZAR', vat_system_type: 'invoice', vat_period: 'monthly' };
+    function queue(companyRows: unknown[], assetMethods: string[], inventoryRows: unknown[]) {
+      mockSql
+        .mockResolvedValueOnce(companyRows)
+        .mockResolvedValueOnce(assetMethods.map((m) => ({ depreciation_method: m })))
+        .mockResolvedValueOnce(inventoryRows);
+    }
+
     it('returns dataSnapshot and content', async () => {
-      mockSql.mockResolvedValueOnce([
-        {
-          depreciation_method: 'straight-line',
-          inventory_valuation_method: 'weighted average cost',
-          default_currency: 'ZAR',
-          vat_system_type: 'invoice',
-        },
-      ]);
-
+      queue([company], ['straight_line'], []);
       const result = await generateNote1AccountingPolicies(COMPANY_ID, FISCAL_YEAR);
-      expect(result).toHaveProperty('dataSnapshot');
-      expect(result).toHaveProperty('content');
+      expect(result.dataSnapshot).toMatchObject({ depreciation_methods: ['straight_line'], holds_inventory: false, default_currency: 'ZAR' });
+      expect(result.content.title).toBe('Accounting Policies');
     });
 
-    it('content title is Accounting Policies', async () => {
-      mockSql.mockResolvedValueOnce([{}]);
-      const { content } = await generateNote1AccountingPolicies(COMPANY_ID, FISCAL_YEAR);
-      expect(content.title).toBe('Accounting Policies');
+    it('never selects the policy columns companies does not have', async () => {
+      queue([company], [], []);
+      await generateNote1AccountingPolicies(COMPANY_ID, FISCAL_YEAR);
+      const companyQuery = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
+      expect(companyQuery).not.toMatch(/depreciation_method|inventory_valuation_method/);
     });
 
-    it('content has a paragraph block containing policy text', async () => {
-      mockSql.mockResolvedValueOnce([
-        {
-          depreciation_method: 'straight-line',
-          inventory_valuation_method: 'weighted average cost',
-          default_currency: 'ZAR',
-          vat_system_type: 'invoice',
-        },
-      ]);
+    it('keeps the straight-line text and drops the inventories policy when the company has neither assets nor stock', async () => {
+      queue([company], [], []);
       const { content } = await generateNote1AccountingPolicies(COMPANY_ID, FISCAL_YEAR);
-      // Accounting policies renders a sequence of paragraphs — basis of
-      // preparation first, then individual policies. Verify at least one
-      // carries the characteristic "straight-line" depreciation text.
       const paragraphs = content.blocks.filter((b) => b.type === 'paragraph') as Array<{ type: 'paragraph'; text: string }>;
-      expect(paragraphs.length).toBeGreaterThan(0);
-      expect(paragraphs.some(p => /straight-line/i.test(p.text))).toBe(true);
+      expect(paragraphs.some(p => /straight-line method/i.test(p.text))).toBe(true);
+      expect(content.blocks.some((b) => b.type === 'heading' && b.text === 'Inventories')).toBe(false);
+    });
+
+    it('states the inventories policy when an inventory account has a balance', async () => {
+      queue([company], [], [{ account_name: 'Stock', balance: 10 }]);
+      const { content, dataSnapshot } = await generateNote1AccountingPolicies(COMPANY_ID, FISCAL_YEAR);
+      expect(content.blocks.some((b) => b.type === 'heading' && b.text === 'Inventories')).toBe(true);
+      expect(dataSnapshot.holds_inventory).toBe(true);
     });
 
     it('uses defaults when company row is missing', async () => {
-      mockSql.mockResolvedValueOnce([]);
+      queue([], [], []);
       const { content } = await generateNote1AccountingPolicies(COMPANY_ID, FISCAL_YEAR);
       expect(content.blocks.length).toBeGreaterThan(0);
     });
