@@ -26,6 +26,7 @@ export const accountsTab: Tab = {
       items: [
         { label: 'Fiscal Periods', href: '/accounting/fiscal-periods' },
         { label: 'Financial Years', href: '/accounting/financial-years' },
+        { label: 'Change Year End', href: '/accounting/financial-year-end-change' },
       ],
     },
     {

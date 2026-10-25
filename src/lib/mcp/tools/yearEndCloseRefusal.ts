@@ -25,9 +25,9 @@ export function yearEndCloseRefusal(year: number, result: CloseYearError): McpTo
     case 'period_range_mismatch':
       return toolError(
         `Fiscal year ${year}'s periods run ${result.actual.startDate} to ${result.actual.endDate}, `
-        + `but this company's financial year starts in month ${result.startMonth}, so `
-        + `FY${year} is really ${result.expected.startDate} to ${result.expected.endDate}. `
-        + 'Closing the periods as they stand would roll the wrong twelve months into retained '
+        + `but this company's stored financial year FY${year} runs `
+        + `${result.expected.startDate} to ${result.expected.endDate} (a transition year after a change of year end may be 1-15 months). `
+        + 'Closing the periods as they stand would roll the wrong months into retained '
         + 'earnings and then LOCK them, and nothing would look wrong afterwards because the '
         + 'journal balances either way. Nothing was posted. '
         + 'THE FIX IS NOT THIS TOOL. The periods themselves are misaligned with the financial '
