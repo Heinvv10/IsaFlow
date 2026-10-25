@@ -18,6 +18,9 @@
 //   subscription_mandates       which plan a company is on (PAYG is metered,
 //                               anything else is not), its charges, and the
 //                               Paystack authorisation a charge is made with;
+//   paystack_payment_requests   the link from a Paystack payment to the purchase,
+//                               charge or mandate it pays for (a victim's paid
+//                               request re-pointed at the attacker's purchase);
 //   TEMPORARY                   shadowing companies, company_users or any
 //                               unqualified table for the next request.
 // Production also refuses app-login DDL with an event trigger (runbook step 2);
@@ -40,6 +43,8 @@ const pro = crypto.randomUUID();
 const bundle = crypto.randomUUID();
 const mandate = crypto.randomUUID();
 const flag = crypto.randomUUID();
+const victimRef = `s07e_${crypto.randomUUID().slice(0, 12)}`;
+const attackerPurchase = crypto.randomUUID();
 
 beforeAll(async () => {
   await setup(ids);
@@ -59,14 +64,17 @@ beforeAll(async () => {
   await q(`INSERT INTO subscription_charges (company_id, mandate_id, subscription_id, period_start, period_end, amount_cents,
     external_reference, status, gateway, paystack_authorization_code) SELECT $1, $2, s.id, '2026-10-01', '2026-10-31', 49900, $3,
     'submitted', 'paystack', 'AUTH_victim' FROM subscriptions s WHERE s.company_id = $1`, [other, mandate, `s07e-${mandate}`]);
-  await q(`INSERT INTO flow_purchases (company_id, bundle_id, flows, price_cents, status) VALUES ($1, $2, 100, 10000, 'pending')`,
-    [company, bundle]);
+  await q(`INSERT INTO flow_purchases (id, company_id, bundle_id, flows, price_cents, status) VALUES ($3, $1, $2, 100, 10000, 'pending')`,
+    [company, bundle, attackerPurchase]);
+  await q(`INSERT INTO paystack_payment_requests (company_id, purpose, mandate_id, paystack_reference, amount_cents, currency, status,
+    paystack_authorization_code, paystack_customer_code) VALUES ($1, 'authorization', $2, $3, 100, 'ZAR', 'pending', 'AUTH_victim',
+    'CUS_victim')`, [other, mandate, victimRef]);
 }, 60000);
 
 afterAll(async () => {
   const q = (text: string, params: unknown[] = []) => fixture.query(text, params);
   const companies = [company, other];
-  for (const t of ['flow_ledger', 'flow_purchases', 'subscription_charges', 'subscription_mandates', 'subscriptions']) {
+  for (const t of ['paystack_payment_requests', 'flow_purchases', 'subscription_charges', 'subscription_mandates', 'subscriptions']) {
     await q(`DELETE FROM ${t} WHERE company_id = ANY($1)`, [companies]);
   }
   await q('DELETE FROM company_users WHERE user_id = $1', [victimOwner]);
@@ -124,6 +132,18 @@ const ATTACKS: Attack[] = [
   ['an active mandate on a stolen card created', 'subscription_mandates', hit(`INSERT INTO subscription_mandates
     (company_id, max_amount_cents, status, gateway, paystack_authorization_code) VALUES ($1, 100000, 'active', 'paystack',
     'AUTH_victim')`), () => [company], 'own'],
+  ['a victim\'s paid request re-pointed at the attacker\'s company', 'paystack_payment_requests',
+    hit('UPDATE paystack_payment_requests SET company_id = $2 WHERE paystack_reference = $1'), () => [victimRef, company], 'victim'],
+  ['a victim\'s request re-pointed at another mandate', 'paystack_payment_requests',
+    hit('UPDATE paystack_payment_requests SET mandate_id = NULL WHERE paystack_reference = $1'), () => [victimRef], 'victim'],
+  ['a victim\'s request re-pointed at a purchase', 'paystack_payment_requests',
+    hit(`UPDATE paystack_payment_requests SET purpose = 'flow_bundle', mandate_id = NULL, flow_purchase_id = $2
+      WHERE paystack_reference = $1`), () => [victimRef, attackerPurchase], 'victim'],
+  ['a payment request deleted (and re-inserted under its reference)', 'paystack_payment_requests',
+    hit('DELETE FROM paystack_payment_requests WHERE paystack_reference = $1'), () => [victimRef], 'victim'],
+  ['a card code read off a payment request', 'paystack_payment_requests',
+    'SELECT 1 / count(*) FROM paystack_payment_requests WHERE paystack_reference = $1 AND paystack_authorization_code IS NOT NULL',
+    () => [victimRef], 'victim'],
 ];
 
 type Opts = Parameters<typeof attempt>[2];
@@ -179,7 +199,15 @@ describe('S-07e (945): what an app role may still read', () => {
     ['the bundles', 'SELECT * FROM flow_bundles WHERE $1::uuid IS NOT NULL'],
     ['its features', `SELECT ff.code, cfo.enabled FROM feature_flags ff LEFT JOIN company_feature_overrides cfo
       ON cfo.feature_id = ff.id AND cfo.company_id = $1 LEFT JOIN plan_features pf ON pf.feature_id = ff.id`],
+    ['a checkout recorded', `INSERT INTO paystack_payment_requests (company_id, purpose, paystack_reference, amount_cents, currency,
+      status) VALUES ($1, 'authorization', 's07e-own-' || gen_random_uuid(), 100, 'ZAR', 'pending')`],
   ])('%s, in a request', async (_, text) => {
     expect(await attempt(getAuthPool(), [[text, [company]]], { asRequest: { sub: owner, companyId: company } })).toBeNull();
+  });
+
+  it('the webhook still moves a payment request\'s status and checkout columns, on the service pool', async () => {
+    expect(await attempt(getDbPool(), [[hit(`UPDATE paystack_payment_requests SET status = 'completed', completed_at = NOW(),
+      paystack_transaction_id = 1, channel = 'card', failure_reason = NULL, paystack_access_code = 'ac', authorization_url = 'u',
+      updated_at = NOW() WHERE paystack_reference = $1`), [victimRef]]])).toBeNull();
   });
 });

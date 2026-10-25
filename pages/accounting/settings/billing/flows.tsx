@@ -182,10 +182,13 @@ export default function FlowsSettingsPage() {
                 When enabled, we automatically purchase a bundle when your balance hits zero.
                 <br />
                 <span className="text-xs text-amber-600">
-                  Unavailable — no payment method on file. Manual top-ups work above.
+                  {wallet.autoTopupEnabled
+                    ? 'Switched on, but it cannot buy anything: no payment method can be stored yet. Manual top-ups work above.'
+                    : 'Unavailable — no payment method on file. Manual top-ups work above.'}
                 </span>
               </div>
               <label className="flex items-center gap-3 mb-3">
+                {/* v1 has no payment gateway, so auto top-up can only be switched off, never on. */}
                 <input
                   type="checkbox"
                   checked={wallet.autoTopupEnabled}

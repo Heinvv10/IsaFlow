@@ -8,22 +8,26 @@
  *
  * The writes to the billing tables (flow purchases, subscription charges and
  * mandates) are the exception: no app role may make them (S-07e, migration
- * 945), so they run on the migration_admin pool and COMMIT before the event
- * does. Each is placed after the payment request's own status change and is
- * idempotent, so a redelivery of an event that rolled back repeats it safely.
+ * 945), so they run on migration_admin, in a transaction the webhook opens
+ * beside its own (publicRouteTx.ts): a throw rolls both back, and on success
+ * migration_admin commits just before the event's stamp. Each is idempotent,
+ * so a redelivery after a lost second COMMIT changes nothing. Before any of
+ * them, the payment request's link is checked against the checkout's Paystack
+ * metadata (paystackLinkBinding.ts); failure events: paystackFailureHandlers.ts.
  */
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { migrationAdminSqlTx } from '@/lib/auth/migrationAdminPool';
 import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
-import { completePaidBundlePurchase, failBundlePurchase } from './flowWalletService';
+import { completePaidBundlePurchase } from './flowWalletService';
 import {
   activateAuthorisedMandate,
   noteAuthorisationNotAttached,
   resolveAuthorisedMandate,
 } from './paystackMandateActivation';
 import { settleSubscriptionCharge } from './subscriptionPeriod';
+import { linkMismatch, logRefusedLink, requestedCents } from './paystackLinkBinding';
+import { handleChargeFailed, handleSubscriptionDisabled } from './paystackFailureHandlers';
 
 export interface PaystackWebhookEvent {
   event: string;
@@ -80,7 +84,7 @@ export async function processEvent(
     eventType === 'charge.failed' ||
     eventType === 'invoice.payment_failed'
   ) {
-    if (reference) await handleChargeFailed(reference, eventType);
+    if (reference) await handleChargeFailed(reference, eventType, data.metadata);
     return;
   }
 
@@ -108,9 +112,9 @@ async function handleChargeSuccess(
     feeCents: event.data.fees,
   };
 
-  // What the checkout asked for (Paystack adds any fee the payer bears on top):
-  // the amount a purchase or a charge must equal before it is credited or settled.
-  const paidCents = Number(event.data.requested_amount ?? event.data.amount);
+  // What the checkout asked for: a purchase or a charge is credited or settled
+  // only for at least its own amount (paystackLinkBinding.ts).
+  const paidCents = requestedCents(event.data);
 
   const prRows = await sql<{
     id: string;
@@ -127,8 +131,6 @@ async function handleChargeSuccess(
     SET status = 'completed',
         completed_at = COALESCE(completed_at, now()),
         paystack_transaction_id = ${event.data.id ?? null},
-        paystack_authorization_code = COALESCE(${auth.authorization_code ?? null}, paystack_authorization_code),
-        paystack_customer_code = COALESCE(${customer.customer_code ?? null}, paystack_customer_code),
         channel = COALESCE(${event.data.channel ?? null}, channel)
     WHERE paystack_reference = ${reference}
       AND status <> 'completed'
@@ -191,10 +193,23 @@ async function handleChargeSuccess(
     return;
   }
 
+  // Its link is checked against the checkout Paystack signed before any billing
+  // row is touched on migration_admin (S-07e). The money stays with the request,
+  // marked for review; nothing is credited, settled or activated.
+  const mismatch = linkMismatch(pr, event.data.metadata);
+  if (mismatch) {
+    logRefusedLink(reference, pr, mismatch);
+    await noteAuthorisationNotAttached(pr.id, pr.company_id, `review:${mismatch}`);
+    return;
+  }
+
   if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
     const credited = await completePaidBundlePurchase(pr.flow_purchase_id,
       { companyId: pr.company_id, amountCents: paidCents, currency: reported.currency });
-    if (!credited) return;
+    if (!credited) {
+      await noteAuthorisationNotAttached(pr.id, pr.company_id, 'review:flow_purchase_not_credited');
+      return;
+    }
     log.info(
       'flow bundle credited via Paystack webhook',
       { purchaseId: pr.flow_purchase_id, companyId: pr.company_id },
@@ -247,53 +262,6 @@ async function handleChargeSuccess(
 
   if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
     // The paid-up period only moves once the money has actually arrived.
-    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id, paidCents);
+    await settleSubscriptionCharge(pr.subscription_charge_id, pr.company_id, { cents: paidCents, currency: reported.currency });
   }
-}
-
-async function handleChargeFailed(reference: string, reason: string): Promise<void> {
-  const prRows = await sql<{
-    id: string;
-    company_id: string;
-    purpose: string;
-    flow_purchase_id: string | null;
-    subscription_charge_id: string | null;
-  }>`
-    UPDATE paystack_payment_requests
-    SET status = 'failed',
-        failure_reason = ${reason}
-    WHERE paystack_reference = ${reference}
-      AND status NOT IN ('completed','failed')
-    RETURNING id, company_id, purpose, flow_purchase_id, subscription_charge_id
-  `;
-  const pr = prRows[0];
-  if (!pr) return;
-
-  if (pr.purpose === 'flow_bundle' && pr.flow_purchase_id) {
-    await failBundlePurchase(pr.flow_purchase_id, reason, pr.company_id);
-  }
-  if (pr.purpose === 'subscription_charge' && pr.subscription_charge_id) {
-    await migrationAdminSqlTx('paystack_charge_failed', (tx) => tx`
-      UPDATE subscription_charges
-      SET status = 'failed',
-          failure_reason = ${reason},
-          attempt_count = attempt_count + 1,
-          last_attempt_at = now(),
-          updated_at = now()
-      WHERE id = ${pr.subscription_charge_id}
-        AND company_id = ${pr.company_id}
-    `);
-  }
-}
-
-async function handleSubscriptionDisabled(subscriptionCode: string): Promise<void> {
-  await migrationAdminSqlTx('paystack_subscription_disabled', (tx) => tx`
-    UPDATE subscription_mandates
-    SET status = 'revoked',
-        revoked_at = COALESCE(revoked_at, now()),
-        revoked_reason = 'paystack_subscription_disabled',
-        updated_at = now()
-    WHERE paystack_subscription_code = ${subscriptionCode}
-      AND status NOT IN ('revoked','expired')
-  `);
 }

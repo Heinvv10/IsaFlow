@@ -27,7 +27,10 @@ const BILLING = ['plans', 'plan_features', 'feature_flags', 'company_feature_ove
 const HIDDEN: Array<[string, string]> = [['flow_wallet', 'payment_method_token'],
   ['subscription_mandates', 'paystack_authorization_code'], ['subscription_mandates', 'paystack_customer_code'],
   ['subscription_mandates', 'paystack_subscription_code'], ['subscription_mandates', 'paystack_email_token'],
-  ['subscription_charges', 'paystack_authorization_code']];
+  ['subscription_charges', 'paystack_authorization_code'], ['paystack_payment_requests', 'paystack_authorization_code'],
+  ['paystack_payment_requests', 'paystack_customer_code']];
+const PPR_UPDATE = ['authorization_url', 'channel', 'completed_at', 'failure_reason', 'paystack_access_code', 'paystack_transaction_id',
+  'status', 'updated_at'];
 
 beforeAll(() => setup(ids), 60000);
 afterAll(async () => { await closeSql(); await teardown(ids, [getAuthPool()]); });
@@ -36,7 +39,8 @@ type Q = (text: string) => Promise<unknown>;
 const rows = async (q: Q, text: string) => ((await q(text)) as { rows: Array<Record<string, unknown>> }).rows;
 const R = (who: string, what: string) => new RegExp(`945: ${who} \\(reachable from an app pool login\\) can ${what}`);
 const APP = '(app_(service|user)|isaflow_(app|service))';
-const MASTER_GRANTS = `GRANT SELECT, INSERT, UPDATE, DELETE ON ${BILLING.map((t) => `public.${t}`).join(', ')} TO app_user;
+const MASTER_GRANTS = `GRANT SELECT, INSERT, UPDATE, DELETE ON ${[...BILLING, 'paystack_payment_requests'].map((t) => `public.${t}`)
+  .join(', ')} TO app_user;
   GRANT TEMPORARY ON DATABASE isaflow_schema_fixture TO PUBLIC`;
 
 /** What app_user may do to the billing tables, and whether isaflow_app may create temporary objects. */
@@ -52,9 +56,18 @@ async function shape(q: Q) {
     has_database_privilege('isaflow_service', current_database(), 'TEMPORARY') AS service,
     has_database_privilege('platform_admin', current_database(), 'TEMPORARY') AS platform_admin,
     has_database_privilege('migration_admin', current_database(), 'TEMPORARY') AS migration_admin`);
-  return { writes, unreadable, hidden, temp: temp[0] };
+  // paystack_payment_requests: insert any column but the card codes, update only these, never delete.
+  const ppr = await rows(q, `SELECT
+      (SELECT array_agg(attname::text ORDER BY attname) FROM pg_attribute WHERE attrelid = 'public.paystack_payment_requests'::regclass
+        AND attnum > 0 AND NOT attisdropped AND has_column_privilege('app_user', attrelid, attnum, 'UPDATE')) AS update,
+      (SELECT count(*)::int FROM pg_attribute WHERE attrelid = 'public.paystack_payment_requests'::regclass AND attnum > 0
+        AND NOT attisdropped AND attname NOT IN ('paystack_authorization_code', 'paystack_customer_code')
+        AND NOT has_column_privilege('app_user', attrelid, attnum, 'INSERT')) AS insert_missing,
+      has_table_privilege('app_user', 'public.paystack_payment_requests', 'DELETE') AS delete`);
+  return { writes, unreadable, hidden, temp: temp[0], ppr: ppr[0] };
 }
-const CLOSED = { writes: [], unreadable: [], hidden: [], temp: { app: false, service: false, platform_admin: true, migration_admin: true } };
+const CLOSED = { writes: [], unreadable: [], hidden: [], temp: { app: false, service: false, platform_admin: true, migration_admin: true },
+  ppr: { update: PPR_UPDATE, insert_missing: 0, delete: false } };
 
 describe('945: migration', () => {
   it('applies twice as a NON-superuser postgres from master\'s grants; 936, 937 and 945 re-apply; no violation after', async () => {
@@ -96,6 +109,9 @@ describe('945: migration', () => {
 
   it.each([
     ['without the TEMPORARY block', () => M945.replace(TEMP_BLOCK, ''), /945: .* can create temporary objects in database/],
+    ['without the payment requests\' revoke', () => M945.replace(
+      'REVOKE ALL ON public.paystack_payment_requests FROM app_user, app_service, PUBLIC;', ''),
+    /945: .* can (UPDATE|DELETE) paystack_payment_requests/],
     ['without hiding the charge columns', () => M945.replace(HIDE_BLOCK, ''), /945: .* can (DELETE|INSERT|UPDATE|SELECT|TRUNCATE) (public\.)?(flow_wallet|subscription_mandates|subscription_charges)/],
   ])('refuses to apply %s, from master\'s grants', async (_, text, msg) => {
     await rolledBack(async (q) => {
@@ -128,6 +144,12 @@ describe('945: migration', () => {
       R('app_service', 'SELECT public\\.subscription_charges\\.paystack_authorization_code')],
     ['a new wallet column granted before anyone decided', `ALTER TABLE public.flow_wallet ADD COLUMN x945_new text;
       GRANT UPDATE (x945_new) ON public.flow_wallet TO app_user`, R(APP, 'UPDATE flow_wallet\\.x945_new')],
+    ['a payment request re-pointable', 'GRANT UPDATE (company_id) ON public.paystack_payment_requests TO app_user',
+      R(APP, 'UPDATE paystack_payment_requests\\.company_id')],
+    ['a payment request deletable', 'GRANT DELETE ON public.paystack_payment_requests TO app_service',
+      R('app_service', 'DELETE paystack_payment_requests$')],
+    ['a card code insertable on a payment request', 'GRANT INSERT (paystack_authorization_code) ON public.paystack_payment_requests TO app_user',
+      R(APP, 'INSERT paystack_payment_requests\\.paystack_authorization_code')],
     ['TEMPORARY back on PUBLIC', 'GRANT TEMPORARY ON DATABASE isaflow_schema_fixture TO PUBLIC',
       R(APP, 'create temporary objects in database isaflow_schema_fixture')],
     ['TEMPORARY for the service login', 'GRANT TEMPORARY ON DATABASE isaflow_schema_fixture TO isaflow_service',
@@ -149,9 +171,18 @@ describe('945: migration', () => {
     });
   });
 
+  it.each(HIDDEN)('refuses the mutant: %s.%s readable again', async (tbl, col) => {
+    await rolledBack(async (q) => {
+      await q(GUARD);
+      await q(`GRANT SELECT (${col}) ON public.${tbl} TO app_user`);
+      await expect(q(GUARD)).rejects.toThrow(R(APP, `SELECT public\\.${tbl}\\.${col}`));
+    });
+  });
+
   it.each([
     ['a new wallet column nobody granted', 'ALTER TABLE public.flow_wallet ADD COLUMN x945_quiet text'],
     ['a non-app role holding TEMPORARY', 'GRANT TEMPORARY ON DATABASE isaflow_schema_fixture TO platform_admin'],
+    ['a payment request\'s status writable (the webhook)', 'GRANT UPDATE (status) ON public.paystack_payment_requests TO app_user'],
     ['reading every plan column', 'GRANT SELECT ON public.plans TO app_user'],
   ])('allows what 945 leaves: %s', async (_, change) => {
     await rolledBack(async (q) => {

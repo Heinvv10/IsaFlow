@@ -53,6 +53,17 @@ describe('settleSubscriptionCharge', () => {
     expect(calls[1]!.slice(1)).toEqual(expect.arrayContaining(['ch-1', 'co-1']));
   });
 
+  it.each([
+    ['not in ZAR', { cents: 49900, currency: 'USD' }],
+    ['with no currency', { cents: 49900 }],
+    ['with no usable amount', { cents: null, currency: 'ZAR' }],
+  ])('settles nothing for a webhook payment %s', async (_, paid) => {
+    await settleSubscriptionCharge('ch-1', 'co-1', paid);
+    expect(h.txs).toHaveLength(0);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringMatching(/^Settlement refused/), expect.objectContaining({ chargeId: 'ch-1' }),
+      'BillingCron');
+  });
+
   it('grants no period for a charge that is no longer settleable, and says so', async () => {
     h.script.push([]); // cancelled charge: the guarded UPDATE matched nothing
     await settleSubscriptionCharge('ch-1', 'co-1');
@@ -60,7 +71,7 @@ describe('settleSubscriptionCharge', () => {
     expect(h.txs[0]!.calls).toHaveLength(1);
     expect(log.warn).toHaveBeenCalledWith(
       'Settlement arrived for a charge that is no longer settleable',
-      { chargeId: 'ch-1', companyId: 'co-1' },
+      { chargeId: 'ch-1', companyId: 'co-1', paidCents: null },
       'BillingCron',
     );
   });

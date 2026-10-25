@@ -63,10 +63,17 @@ export async function advancePeriodForSettledCharge(
 export async function settleSubscriptionCharge(
   chargeId: string,
   companyId: string,
-  // The webhook's: what Paystack received. The payment request that links it is
-  // app-writable (S-07e), so a charge settles only for its own amount.
-  paidCents?: number,
+  // The webhook's: what the checkout asked for, and its currency. A charge
+  // settles only for at least its own amount, in rand (S-07e); the verify cron
+  // passes none, having asked Paystack about the charge's own reference.
+  paid?: { cents: number | null; currency?: string },
 ): Promise<void> {
+  if (paid && (paid.cents === null || paid.currency !== 'ZAR')) {
+    log.warn('Settlement refused: the payment reported no usable amount, or not in ZAR',
+      { chargeId, companyId, paid }, 'BillingCron');
+    return;
+  }
+  const paidCents = paid?.cents ?? null;
   // The charge and its period move together: one transaction.
   const done = await migrationAdminSqlTx('subscription_settle_charge', async (tx) => {
     const settled = (await tx`
@@ -77,7 +84,7 @@ export async function settleSubscriptionCharge(
       WHERE id = ${chargeId}
         AND company_id = ${companyId}
         AND status <> 'cancelled'
-        AND (${paidCents ?? null}::bigint IS NULL OR amount_cents = ${paidCents ?? null}::bigint)
+        AND (${paidCents}::bigint IS NULL OR amount_cents <= ${paidCents}::bigint)
       RETURNING id
     `) as Array<{ id: string }>;
     if (!settled[0]) return false;
@@ -101,6 +108,7 @@ export async function settleSubscriptionCharge(
  */
 export async function claimChargeAttempt(
   chargeId: string,
+  companyId: string,
   status: string,
   attemptCount: number,
 ): Promise<number | null> {
@@ -110,6 +118,7 @@ export async function claimChargeAttempt(
         last_attempt_at = now(),
         updated_at = now()
     WHERE id = ${chargeId}
+      AND company_id = ${companyId}
       AND status = ${status}
       AND attempt_count = ${attemptCount}
     RETURNING attempt_count

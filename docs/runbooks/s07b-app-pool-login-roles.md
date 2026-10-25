@@ -243,6 +243,14 @@ Migration 945 (S-07e: billing tables and TEMPORARY, 2026-10-25) also takes effec
 - No app role may read `flow_wallet.payment_method_token`, or the Paystack
   authorisation, customer, subscription and email-token columns of
   `subscription_mandates` (and `subscription_charges.paystack_authorization_code`).
+- `paystack_payment_requests` stays app-insertable, but its link (company,
+  purpose, purchase/charge/mandate/invoice, reference, amount) cannot change
+  after insert, no app role may delete a request, and its two card-code columns
+  are unreadable and no longer written (one prod row held one on 2026-10-25; it
+  is left in place). The webhook and mandate verify also refuse a payment whose
+  Paystack metadata names another company or row: the request gets
+  `failure_reason = 'review:…'` and an error log, and nothing is credited.
+- The migration_admin pool's size is `MIGRATION_ADMIN_POOL_MAX` (default 8, was 4).
 - PUBLIC loses TEMPORARY on the database. Every role that had it through
   PUBLIC, except the roles the app logins reach, is granted it back by name,
   so GoTrue, storage, pgbouncer and the deploy keep it. **A role created
@@ -260,7 +268,8 @@ Migration 945 (S-07e: billing tables and TEMPORARY, 2026-10-25) also takes effec
   -- BREAK-GLASS: undoes 945's protection (a tenant can set its own Flows and plan). Revert before deploying.
   GRANT SELECT, INSERT, UPDATE, DELETE ON public.flow_wallet, public.flow_ledger, public.flow_purchases,
     public.flow_bundles, public.plans, public.plan_features, public.feature_flags, public.company_feature_overrides,
-    public.subscriptions, public.subscription_charges, public.subscription_mandates TO app_user;
+    public.subscriptions, public.subscription_charges, public.subscription_mandates,
+    public.paystack_payment_requests TO app_user;
   -- and, only if something on an app pool needs temp tables:
   GRANT TEMPORARY ON DATABASE isaflow TO app_user;
   ```
@@ -500,7 +509,8 @@ SELECT w.who, w.tbl, p.priv FROM (VALUES
 SELECT c.oid::regclass, a.grantee::regrole, a.privilege_type FROM pg_class c, aclexplode(c.relacl) a
  WHERE c.oid = ANY (ARRAY['public.flow_wallet', 'public.flow_ledger', 'public.flow_purchases', 'public.flow_bundles',
          'public.plans', 'public.plan_features', 'public.feature_flags', 'public.company_feature_overrides',
-         'public.subscriptions', 'public.subscription_charges', 'public.subscription_mandates']::regclass[])
+         'public.subscriptions', 'public.subscription_charges', 'public.subscription_mandates',
+         'public.paystack_payment_requests']::regclass[])
    AND a.grantee <> 0 AND a.grantee NOT IN ('app_user'::regrole, 'app_service'::regrole)
    AND (pg_has_role('isaflow_app', a.grantee, 'MEMBER') OR pg_has_role('isaflow_service', a.grantee, 'MEMBER'));
 -- 945: TEMPORARY or CREATE held by a role either login reaches other than through

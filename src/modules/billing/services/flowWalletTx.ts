@@ -4,7 +4,8 @@
  * write these tables. Shared by flowWalletService.ts and flowPurchaseService.ts.
  */
 import type { TxSql } from '@/lib/neon';
-import type { LedgerType, NudgeLevel } from './flowWalletService';
+export type LedgerType = 'purchase' | 'debit' | 'refund' | 'admin_adjustment';
+export type NudgeLevel = 'none' | 'yellow' | 'orange' | 'red';
 
 
 export async function ensureWalletRow(tx: TxSql, companyId: string): Promise<void> {

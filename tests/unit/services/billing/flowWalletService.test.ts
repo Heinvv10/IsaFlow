@@ -38,7 +38,6 @@ import * as neonMod from '@/lib/neon';
 import * as adminPoolMod from '@/lib/auth/migrationAdminPool';
 import {
   getWallet,
-  purchaseBundle,
   startBundlePurchase,
   completeBundlePurchase,
   failBundlePurchase,
@@ -131,7 +130,11 @@ describe('getWallet', () => {
   });
 });
 
-describe('purchaseBundle (start + complete synchronous wrapper)', () => {
+// Start then complete: what the dev-only unpaid fallback (purchase.ts) does.
+const purchaseBundle = async (companyId: string, bundleId: string) =>
+  completeBundlePurchase((await startBundlePurchase(companyId, bundleId)).purchaseId);
+
+describe('start + complete (two migration_admin transactions)', () => {
   it('inserts pending purchase then credits wallet + writes ledger', async () => {
     // ── startBundlePurchase transaction ───────────────────────────────
     // Bundle lookup

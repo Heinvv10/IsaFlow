@@ -173,7 +173,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     SELECT c.id, c.company_id, c.mandate_id, c.amount_cents,
            c.paystack_reference, c.external_reference, c.attempt_count, c.status,
            c.period_start, c.period_end,
-           m.paystack_authorization_code, m.paystack_customer_code,
+           m.paystack_authorization_code,
            m.status AS mandate_status,
            u.email AS user_email
     FROM subscription_charges c
@@ -198,7 +198,6 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
     attempt_count: number;
     status: 'queued' | 'failed';
     paystack_authorization_code: string | null;
-    paystack_customer_code: string | null;
     mandate_status: string;
     user_email: string | null;
     period_start: Date | string;
@@ -214,7 +213,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
   for (const c of charges) {
     // Claim the attempt before spending it, so a concurrent run that read the
     // same snapshot cannot also charge this card.
-    const attemptCount = await claimChargeAttempt(c.id, c.status, c.attempt_count);
+    const attemptCount = await claimChargeAttempt(c.id, c.company_id, c.status, c.attempt_count);
     if (attemptCount === null) {
       skipped++;
       continue;
@@ -231,6 +230,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
             failure_reason = 'mandate_not_active_or_missing_authorization',
             updated_at = now()
         WHERE id = ${c.id}
+          AND company_id = ${c.company_id}
       `);
       await markPastDueIfExhausted(c.id, c.company_id, attemptCount);
       skipped++;
@@ -253,18 +253,17 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
         },
       });
 
-      // Record a paystack_payment_requests row so the webhook can finalise.
+      // Record a paystack_payment_requests row so the webhook can finalise. Not
+      // the card's codes: that table is app-readable (S-07e, migration 945).
       await sql`
         INSERT INTO paystack_payment_requests (
           company_id, purpose, subscription_charge_id,
-          paystack_reference, paystack_authorization_code,
-          paystack_customer_code,
+          paystack_reference,
           amount_cents, currency,
           status
         ) VALUES (
           ${c.company_id}, 'subscription_charge', ${c.id},
-          ${result.reference}, ${c.paystack_authorization_code},
-          ${c.paystack_customer_code},
+          ${result.reference},
           ${Number(c.amount_cents)}, 'ZAR',
           ${result.status === 'success' ? 'completed' : 'pending'}
         )
@@ -280,6 +279,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
             settled_at = CASE WHEN ${localStatus} = 'settled' THEN now() ELSE settled_at END,
             updated_at = now()
         WHERE id = ${c.id}
+          AND company_id = ${c.company_id}
       `);
 
       if (localStatus === 'settled') {
@@ -295,6 +295,7 @@ export async function runQueuedCharges(now = new Date()): Promise<RunChargesResu
             failure_reason = ${msg.slice(0, 500)},
             updated_at = now()
         WHERE id = ${c.id}
+          AND company_id = ${c.company_id}
       `);
       await markPastDueIfExhausted(c.id, c.company_id, attemptCount);
       failed++;
