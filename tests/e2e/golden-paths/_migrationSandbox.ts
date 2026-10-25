@@ -22,7 +22,7 @@
  * so the shared golden session file other specs load still points at Demo.
  */
 import { expect, type BrowserContext } from '@playwright/test';
-import type { Api } from './_api';
+import { ApiError, type Api } from './_api';
 
 export const MIGRATION_SANDBOX_NAME = '0GP Golden Migration Sandbox';
 /** Fixed onboarding key: a repeat create returns the same company (migration 895). */
@@ -97,4 +97,47 @@ export async function findLedgerRow(api: Api, accountCode: string, from: string,
     const hit = page.rows.find(match);
     if (hit || page.rows.length < limit || offset + limit >= page.total) return hit;
   }
+}
+
+/** Stale take-ons that cannot be cancelled (paid or posted) tolerated before the run fails. */
+export const MAX_UNCANCELLABLE_STALE = 5;
+
+// The sandbox accumulates cancelled GP-MIG-AR invoices (148 vs a 100 page cap), so a single page of the
+// prefix search can miss a row. The list API takes a repeated `status` filter but no negation, so name
+// every live status to keep cancelled rows out of the walk.
+const LIVE_STATUSES = ['draft', 'pending_approval', 'approved', 'sent', 'partially_paid', 'paid', 'overdue']
+  .map((s) => `&status=${s}`).join('');
+
+/** One page (100) of live take-on invoices whose number or customer matches `q`. */
+export async function listTakeOnPage(api: Api, q: string, page: number): Promise<any[]> {
+  return (await api.get<{ invoices: any[] }>(
+    `/api/accounting/customer-invoices-list?q=${encodeURIComponent(q)}&limit=100&page=${page}${LIVE_STATUSES}`,
+  )).invoices;
+}
+
+async function staleTakeOns(api: Api): Promise<any[]> {
+  const found: any[] = [];
+  for (let page = 1; page <= 50; page++) {
+    const invoices = await listTakeOnPage(api, 'GP-MIG-AR', page);
+    if (invoices.length && page > 1 && invoices[0].id === found[found.length - 100]?.id) {
+      throw new Error('customer-invoices-list ignored ?page: a page repeated the previous one');
+    }
+    found.push(...invoices);
+    if (invoices.length < 100) return found;
+  }
+  throw new Error('more than 50 pages of live GP-MIG-AR invoices');
+}
+
+/** Cancels take-ons left by a run that died before its cancel; returns a note per row it could not. */
+export async function cancelStaleTakeOns(api: Api): Promise<string[]> {
+  const skipped: string[] = [];
+  for (const stale of await staleTakeOns(api)) {
+    try {
+      await api.post('/api/accounting/customer-invoices-detail', { id: stale.id, action: 'cancel' });
+    } catch (err) {
+      if (!(err instanceof ApiError) || err.status !== 400) throw err;
+      skipped.push(`${stale.invoice_number}: ${err.message}`);
+    }
+  }
+  return skipped;
 }
