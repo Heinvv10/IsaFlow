@@ -11,7 +11,7 @@ import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { formatOverdueDaysCompact } from '@/lib/format/aging';
 import { localISODate } from '@/lib/dateUtils';
 import { formatMoney } from '@/lib/money/formatMoney';
-import { formatDisplayDate } from '@/utils/dateFormat';
+import { formatDateISO, formatDisplayDate } from '@/utils/dateFormat';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';
 
@@ -110,8 +110,8 @@ export default function ARAgingPage() {
       [
         `"${r.customer_name.replace(/"/g, '""')}"`,
         `"${r.invoice_number}"`,
-        fmtDate(r.invoice_date),
-        fmtDate(r.due_date),
+        formatDateISO(r.invoice_date),
+        formatDateISO(r.due_date),
         r.total_amount.toFixed(2),
         r.amount_paid.toFixed(2),
         r.balance_due.toFixed(2),

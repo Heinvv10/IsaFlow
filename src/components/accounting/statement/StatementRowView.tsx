@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Fragment } from 'react';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { formatMoney, formatPct } from '@/lib/format/money';
+import { formatStatementFigure, formatPct } from '@/lib/format/money';
 import type { ComparatorKey, Comparison, StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { COMPARATORS, NON_FIGURE_KINDS } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { NoteMarker } from '@/components/accounting/annotations/NoteMarker';
@@ -35,10 +35,10 @@ const favColour = (favourable?: boolean) =>
   favourable === undefined ? undefined : favourable ? 'var(--ff-fav)' : 'var(--ff-unfav)';
 
 /** The rand movement, signed. Negatives already read as parentheses through
- * formatMoney, so only a positive needs its sign written on. Master showed
+ * formatStatementFigure, so only a positive needs its sign written on. Master showed
  * this on every balance-sheet line and the first migration dropped it. */
 function varianceAmount(v: number, cents: boolean): string {
-  const body = formatMoney(v, { cents });
+  const body = formatStatementFigure(v, { cents });
   return v > 0 ? `+${body}` : body;
 }
 
@@ -50,7 +50,7 @@ function ComparatorCells({ c, blank, columns, maxVariance, cents, comparatorKey 
   return (
     <>
       <td className={`${FIG} py-1.5 pr-3 text-[var(--ff-text-tertiary)]`} style={FIG_STYLE}>
-        {show ? formatMoney(c.value, { cents }) : ''}
+        {show ? formatStatementFigure(c.value, { cents }) : ''}
       </td>
       {columns.variance && (
         <>
@@ -133,7 +133,7 @@ export function StatementRowView({ row, columns, maxVariance, cents, expanded, o
             )}
           </span>
         </td>
-        <td className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{blank ? '' : formatMoney(row.actual, { cents })}</td>
+        <td className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{blank ? '' : formatStatementFigure(row.actual, { cents })}</td>
         {active.map(c => (
           <Fragment key={c.key}>
             <ComparatorCells c={row[c.key]} blank={blank} columns={columns}

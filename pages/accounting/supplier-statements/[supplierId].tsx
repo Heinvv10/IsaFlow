@@ -6,6 +6,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { ArrowLeft, ClipboardList, Loader2, AlertCircle, Download, FileText, Search, ExternalLink } from 'lucide-react';
 // generateStatementPdf is loaded dynamically inside handleDownloadPDF
 import { formatCurrency, formatDate } from '@/utils/formatters';
+import { formatDateISO } from '@/utils/dateFormat';
 import { apiFetch, assertOk, apiErrorMessage } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
 import { TypeBadge, getTransactionUrl, type SupplierInfo, type Summary } from '@/components/accounting/supplierStatementParts';
@@ -80,7 +81,7 @@ export default function SupplierStatementDetailPage() {
     if (isLoading || error || !supplier || transactions.length === 0) return;
     const header = 'Date,Type,Reference,Description,Debit,Credit,Balance';
     const rows = transactions.map(t =>
-      [formatDate(t.date), t.type, `"${t.reference}"`, `"${(t.description || '').replace(/"/g, '""')}"`,
+      [formatDateISO(t.date), t.type, `"${t.reference}"`, `"${(t.description || '').replace(/"/g, '""')}"`,
        t.debit.toFixed(2), t.credit.toFixed(2), t.balance.toFixed(2)].join(',')
     );
     const csv = [header, ...rows].join('\n');

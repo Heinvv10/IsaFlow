@@ -12,7 +12,7 @@
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
-import { formatMoney } from '@/lib/format/money';
+import { formatStatementFigure } from '@/lib/format/money';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import type { StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
@@ -80,7 +80,7 @@ export function IncomeStatementSections({
           <DataQualityNotice notices={report.subtypeDisclosure.notices} />
           <p className="mt-2 tabular-nums text-xs text-[var(--ff-text-tertiary)]">
             {report.subtypeDisclosure.accounts
-              .map(a => `${a.accountCode} ${a.accountName} ${formatMoney(a.amount, { cents: true, symbol: true })}`)
+              .map(a => `${a.accountCode} ${a.accountName} ${formatStatementFigure(a.amount, { cents: true, symbol: true })}`)
               .join(' · ')}
             {report.subtypeDisclosure.unnamedAccounts > 0
               ? ` · and ${report.subtypeDisclosure.unnamedAccounts} more`
