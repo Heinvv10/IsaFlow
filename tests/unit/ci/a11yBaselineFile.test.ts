@@ -73,8 +73,8 @@ describe('a11y-baseline.json', () => {
       }
     });
 
-    it('carry a hard cap where the UI has one: every table-row entry has a maxHint', () => {
-      for (const e of driven.filter((x) => /(tbody|thead) >/.test(x.selector))) {
+    it('every one carries a hard cap taken from what the page can render (page size, list limit, box count)', () => {
+      for (const e of driven) {
         expect(Number.isInteger(e.maxHint) && e.maxHint! >= 1, `${e.page}: ${e.selector} needs a maxHint`).toBe(true);
       }
     });

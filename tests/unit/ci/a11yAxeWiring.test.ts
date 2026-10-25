@@ -161,7 +161,8 @@ describe('openScreen throws on anything but the screen, with its data', () => {
     await openScreen(screenPage({ landsOn: 'http://x/accounting/assets', log }), { ...SCREEN, responses: [/bank-accounts/] });
     expect(log.indexOf('listen')).toBeGreaterThanOrEqual(0);
     expect(log.indexOf('listen')).toBeLessThan(log.indexOf('goto'));
-    await expect(openScreen(screenPage({ landsOn: 'http://x/accounting/assets', responseFails: true }), { ...SCREEN, responses: [/bank-accounts/] })).rejects.toThrow(/waiting for response/);
+    await expect(openScreen(screenPage({ landsOn: 'http://x/accounting/assets', responseFails: true }), { ...SCREEN, responses: [/bank-accounts/] }))
+      .rejects.toThrow(/a11y screen "assets": no response matching \/bank-accounts\/ within 30s \(Timeout 30000ms exceeded waiting for response\)/);
   });
 
   it('a screen\'s own settled-wait replaces the generic spinner wait', async () => {
