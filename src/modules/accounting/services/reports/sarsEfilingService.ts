@@ -24,10 +24,10 @@ export interface VAT201Data {
   adjustments: number;
   /**
    * Output tax with no field of its own here: other and imported services, domestic reverse
-   * charge (SARS field 12) and any output VAT type the box map does not name. Optional only
-   * for callers that never had any; the export always supplies it.
+   * charge (SARS field 12) and any output VAT type the box map does not name. Required: a caller
+   * that leaves it out would drop that tax from the net, so it must say 0 when there is none.
    */
-  outputVATOther?: number;
+  outputVATOther: number;
 }
 
 /** The payload's net VAT is not the return's net VAT: a figure is missing from, or wrongly signed in, the payload. */
@@ -106,17 +106,17 @@ export function formatSARSCurrency(amount: number): string {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * `expectedNetVat`, when given (the report's own net), is an invariant: a payload whose net differs
- * is refused with `Vat201NetMismatchError` rather than handed to a filer.
+ * `expectedNetVat` (the report's own net) is required: a payload whose net differs is refused with
+ * `Vat201NetMismatchError` rather than handed to a filer.
  */
-export function buildVAT201Payload(data: VAT201Data, opts: { expectedNetVat?: number } = {}): SARSPayload & {
+export function buildVAT201Payload(data: VAT201Data, opts: { expectedNetVat: number }): SARSPayload & {
   totalOutputVAT: number; totalInputVAT: number; netVAT: number;
 } {
-  const outputOther = data.outputVATOther ?? 0;
+  const outputOther = data.outputVATOther;
   const totalOutputVAT = Math.round((data.outputVATStandard + data.outputVATZeroRated + data.outputVATExempt + outputOther) * 100) / 100;
   const totalInputVAT = Math.round((data.inputVATCapitalGoods + data.inputVATOther + data.adjustments) * 100) / 100;
   const netVAT = Math.round((totalOutputVAT - totalInputVAT) * 100) / 100;
-  if (opts.expectedNetVat !== undefined && Math.abs(netVAT - opts.expectedNetVat) >= 0.005) {
+  if (Math.abs(netVAT - opts.expectedNetVat) >= 0.005) {
     throw new Vat201NetMismatchError(netVAT, opts.expectedNetVat);
   }
 
@@ -132,10 +132,10 @@ export function buildVAT201Payload(data: VAT201Data, opts: { expectedNetVat?: nu
       { code: 'F01', label: 'Output VAT - Standard Rate (15%)', value: data.outputVATStandard },
       { code: 'F02', label: 'Output VAT - Zero Rated', value: data.outputVATZeroRated },
       { code: 'F03', label: 'Output VAT - Exempt', value: data.outputVATExempt },
-      { code: 'F12', label: 'Output VAT - Other and imported services', value: outputOther },
+      { code: 'F12', label: 'Output VAT - Other and imported services, domestic reverse charge, unclassified output', value: outputOther },
       { code: 'F10', label: 'Input VAT - Capital Goods', value: data.inputVATCapitalGoods },
       { code: 'F11', label: 'Input VAT - Other', value: data.inputVATOther },
-      { code: 'F13', label: 'Input VAT - Adjustments (bad debts, change in use, other)', value: data.adjustments },
+      { code: 'F13', label: 'Input VAT - Adjustments (bad debts, change in use, other, unclassified input)', value: data.adjustments },
       { code: 'F14', label: 'Total Output VAT', value: totalOutputVAT },
       { code: 'F15', label: 'Total Input VAT', value: totalInputVAT },
       { code: 'F16', label: 'Net VAT', value: netVAT },

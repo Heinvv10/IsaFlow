@@ -9,7 +9,7 @@ const VAT201_FIELDS = [
   'field8_services', 'field9_imports', 'field10_totalInputVAT', 'field11_vatPayableOrRefundable',
 ] as const;
 
-export const DRAFT_NO_FIGURES_REASON = 'this draft holds no saved VAT201 figures to compare against';
+export const DRAFT_NO_FIGURES_REASON = 'draft holds no saved VAT201 figures to compare against';
 export const DRAFT_PREDATES_REASON = 'draft predates SARS field mapping';
 
 /**
@@ -61,12 +61,14 @@ export function draftDrift(
 
 /**
  * The refusal text for a non-empty drift. "The ledger has moved" is only true of a figure that moved; a draft
- * that cannot be compared says so in its own words.
+ * that cannot be compared says so in its own words. When a draft is both uncomparable and has moved figures,
+ * the message names both.
  */
 export function draftBlockReason(drift: string[]): string {
-  const uncomparable = drift.filter((d) => d === DRAFT_NO_FIGURES_REASON || d === DRAFT_PREDATES_REASON);
-  if (uncomparable.length > 0) {
-    return `This ${uncomparable[0] === DRAFT_PREDATES_REASON ? 'draft predates SARS field mapping' : 'draft holds no saved VAT201 figures to compare against'} — re-save the draft and review it before filing`;
-  }
-  return `The ledger has moved since this draft was saved (${drift.join('; ')}) — re-save the draft and review it before filing`;
+  const uncomparable = [DRAFT_NO_FIGURES_REASON, DRAFT_PREDATES_REASON].filter((r) => drift.includes(r));
+  const moved = drift.filter((d) => d !== DRAFT_NO_FIGURES_REASON && d !== DRAFT_PREDATES_REASON);
+  const parts: string[] = [];
+  if (uncomparable.length > 0) parts.push(`This ${uncomparable.join(' and ')}`);
+  if (moved.length > 0) parts.push(`${uncomparable.length > 0 ? 'the' : 'The'} ledger has moved since this draft was saved (${moved.join('; ')})`);
+  return `${parts.join('; ')} — re-save the draft and review it before filing`;
 }

@@ -126,7 +126,7 @@ describe('the export payload nets to the report, box by box', () => {
 describe('a payload that does not net to the report is refused', () => {
   const data = {
     taxPeriod: '202607', vatNumber: '4123456789', companyName: 'Acme',
-    outputVATStandard: 150, outputVATZeroRated: 0, outputVATExempt: 0, inputVATCapitalGoods: 0, inputVATOther: 0, adjustments: 0,
+    outputVATStandard: 150, outputVATZeroRated: 0, outputVATExempt: 0, inputVATCapitalGoods: 0, inputVATOther: 0, adjustments: 0, outputVATOther: 0,
   };
 
   it('buildVAT201Payload throws a typed error when its net differs from the expected net', () => {
