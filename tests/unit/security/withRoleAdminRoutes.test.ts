@@ -43,6 +43,7 @@ const ROUTES: Array<[string, string[], Record<string, unknown>]> = [
   ['accounting/bank-rules-seed', ALL, {}],
   ['accounting/year-end', ALL, { yearLabel: 'FY2026' }],
   ['accounting/fiscal-periods-action', ALL, { action: 'reopen', id: ID }],
+  ['accounting/financial-year-end-change', ALL, { newYearEndMonth: 2, reason: 'align with the group year end', cipcFiledConfirmed: true, sarsNotifiedConfirmed: true }],
   ['accounting/opening-balances', ALL, {}],
   ['accounting/sage-migration-action', ALL, { action: 'noop' }],
   ['accounting/run-depreciation', ALL, {}],

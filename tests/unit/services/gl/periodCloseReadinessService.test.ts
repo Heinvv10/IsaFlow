@@ -446,7 +446,7 @@ describe('getCloseReadiness — orchestrator', () => {
     expect(byKey['unposted_journals']!.fixHref).toContain('/accounting/journal-entries');
     expect(byKey['ar_ties']!.fixHref).toContain('/accounting/customer-invoices');
     expect(byKey['ap_ties']!.fixHref).toContain('/accounting/supplier-invoices');
-    expect(byKey['vat_reviewed']!.fixHref).toContain('/accounting/reports/vat-return');
+    expect(byKey['vat_reviewed']!.fixHref).toContain('/accounting/sars/vat201');
     expect(byKey['tb_balanced']!.fixHref).toContain('/accounting/trial-balance');
   });
 

@@ -1,3 +1,5 @@
+import { payeTaxYearOf } from '@/modules/accounting/utils/payeTaxYear';
+
 export interface TaxBracket {
   from: number;
   to: number;
@@ -102,9 +104,9 @@ const TAX_TABLE_REGISTRY: Record<number, TaxYearConfig> = {
 };
 
 export function getTaxYear(periodMonth: number, periodYear: number): number {
-  // SA tax year ends in February; March starts the new year.
+  // SA tax year ends in February; March starts the new year (utils/payeTaxYear).
   // periodMonth 3 (March) of periodYear 2024 → taxYear 2025 (ends Feb 2025)
-  return periodMonth >= 3 ? periodYear + 1 : periodYear;
+  return payeTaxYearOf(periodMonth, periodYear);
 }
 
 export function getTaxYearConfig(taxYear: number): TaxYearConfig {

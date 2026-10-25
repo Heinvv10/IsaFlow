@@ -9,6 +9,7 @@ import {
   SectionType,
 } from 'docx';
 import { log } from '@/lib/logger';
+import { findReportingPeriod } from './afsReportingPeriod';
 import type { AfsDocument, AfsSection, NoteContentBlock, NoteContent } from './afsTypes';
 import { renderNoteTable } from './docxTableRenderer';
 
@@ -72,10 +73,20 @@ function renderBlock(block: NoteContentBlock): DocxChild[] {
 
 // ── cover page ────────────────────────────────────────────────────────────────
 
-function buildCoverChildren(doc: AfsDocument, companyName: string): DocxChild[] {
-  const year = doc.fiscalYear ?? new Date().getFullYear();
-  const period = doc.period ?? `Year ended 28 February ${year}`;
+/**
+ * What the cover says the statements cover, as the PDF cover does: the financial
+ * year's real period ("For the 14 months ended 2027-02-28"), a management pack's
+ * own period label, and nothing for a document with neither.
+ */
+async function coverPeriodText(doc: AfsDocument): Promise<string | null> {
+  if (doc.fiscalYear) {
+    const period = await findReportingPeriod(doc.companyId, Number(doc.fiscalYear), 'docxExportService');
+    return period ? `For the ${period.current.phrase}` : null;
+  }
+  return doc.period;
+}
 
+function buildCoverChildren(periodText: string | null, companyName: string): DocxChild[] {
   return [
     spacer(),
     spacer(),
@@ -84,7 +95,7 @@ function buildCoverChildren(doc: AfsDocument, companyName: string): DocxChild[] 
     spacer(),
     centeredParagraph('Annual Financial Statements', true, 36),
     spacer(),
-    centeredParagraph(period, false, 28),
+    periodText ? centeredParagraph(periodText, false, 28) : spacer(),
     spacer(),
     centeredParagraph(`Registration number: —`, false, 22),
   ];
@@ -197,7 +208,7 @@ export async function renderToDocx(
 
   const sorted = [...sections].sort((a, b) => a.sortOrder - b.sortOrder);
 
-  const coverChildren = buildCoverChildren(document, companyName);
+  const coverChildren = buildCoverChildren(await coverPeriodText(document), companyName);
   const tocChildren = buildTocChildren();
 
   const sectionParts = sorted

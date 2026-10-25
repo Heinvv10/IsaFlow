@@ -211,16 +211,17 @@ export async function generateNote24AuditorRemuneration(
 // ── Note 25 — Contingencies and Commitments ──────────────────────────────────
 
 export async function generateNote25ContingenciesAndCommitments(
-  _companyId: string,
+  companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
+  const { end } = await getFiscalRange(companyId, fiscalYear);
   const dataSnapshot = {};
   const content: NoteContent = {
     title: 'Contingencies and Commitments',
     blocks: [
       {
         type: 'paragraph',
-        text: `No contingent liabilities or capital commitments existed at 31 December ${fiscalYear}. [Accountant: update this note if any contingencies or commitments exist]`,
+        text: `No contingent liabilities or capital commitments existed at ${end}. [Accountant: update this note if any contingencies or commitments exist]`,
       },
     ],
   };

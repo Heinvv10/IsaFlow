@@ -15,6 +15,7 @@ import { log } from '@/lib/logger';
 import { escapeCsv } from '@/lib/csv';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { withPayrollDetailAccess } from '@/lib/auth/withPayrollDetailAccess';
+import { PAYE_TAX_YEAR_END_MONTH, PAYE_TAX_YEAR_START_MONTH } from '@/modules/accounting/utils/payeTaxYear';
 
 type Row = DbRow;
 
@@ -70,9 +71,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     WHERE prh.company_id = ${companyId}::uuid
       AND prh.status = ANY(${declarableStatuses}::text[])
       AND (
-        (prh.period_year = ${taxYear - 1} AND prh.period_month >= 3)
+        (prh.period_year = ${taxYear - 1} AND prh.period_month >= ${PAYE_TAX_YEAR_START_MONTH})
         OR
-        (prh.period_year = ${taxYear}     AND prh.period_month <= 2)
+        (prh.period_year = ${taxYear}     AND prh.period_month <= ${PAYE_TAX_YEAR_END_MONTH})
       )
     GROUP BY pe.id, pe.first_name, pe.last_name, pe.tax_number, pe.id_number
     ORDER BY pe.last_name, pe.first_name

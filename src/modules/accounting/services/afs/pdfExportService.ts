@@ -1,5 +1,6 @@
 // src/modules/accounting/services/afs/pdfExportService.ts
 import { sql } from '@/lib/neon';
+import { findReportingPeriod } from './afsReportingPeriod';
 import { log } from '@/lib/logger';
 import type { AfsDocument, AfsSection, SectionType, SectionStatus, DocumentType, DocumentStatus, ReportingFramework, NoteContent, AfsSectionVersionEntry } from './afsTypes';
 import { getBrandProfile } from './brandProfileService';
@@ -148,9 +149,16 @@ export async function exportToPdf(
   // Charts for the statement pages. Additive: a section with no builder
   // registered renders exactly as it does today.
   const charts = buildAfsCharts(sections);
+  // The cover's "for the 14 months ended ..." wording; a label no year carries
+  // keeps the renderer's year-end wording (findReportingPeriod logs it), any
+  // other failure stops the export rather than print a wrong period.
+  const period = document.fiscalYear
+    ? await findReportingPeriod(companyId, Number(document.fiscalYear), 'pdfExportService')
+    : null;
+  const periodPhrase = period?.current.phrase;
 
   const html = renderAfsToHtml(
-    { document, sections, brandProfile: safeBrandProfile, companyName, registrationNumber, charts },
+    { document, sections, brandProfile: safeBrandProfile, companyName, registrationNumber, charts, periodPhrase },
     { watermark: options?.watermark },
   );
 

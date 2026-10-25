@@ -7,6 +7,7 @@
 import { useEffect, useId } from 'react';
 import { X, CheckCircle2, Clock, XCircle, AlertTriangle } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
+import type { Vat201SarsField } from '@/modules/accounting/services/reports/vat201SarsFields';
 
 export interface SubmissionDetail {
   id: string;
@@ -145,26 +146,32 @@ export function SubmissionDetailModal({ detail, onClose }: SubmissionDetailModal
   );
 }
 
+/** Drafts saved before the SARS-numbered form carry only the legacy storage keys, which are not SARS field numbers. */
+const LEGACY_VAT201_ROWS = [
+  { key: 'field1_standardRatedSupplies',     label: 'Standard-rated supplies' },
+  { key: 'field2_zeroRatedSupplies',         label: 'Zero-rated supplies' },
+  { key: 'field3_exemptSupplies',            label: 'Exempt supplies' },
+  { key: 'field4_totalImports',              label: 'Total imports' },
+  { key: 'field5_outputVAT',                 label: 'Output VAT' },
+  { key: 'field6_capitalGoods',              label: 'Input VAT — Capital goods' },
+  { key: 'field7_otherGoods',                label: 'Input VAT — Other goods' },
+  { key: 'field8_services',                  label: 'Input VAT — Services' },
+  { key: 'field9_imports',                   label: 'Input VAT — Imports' },
+  { key: 'field10_totalInputVAT',            label: 'Total input VAT' },
+  { key: 'field11_vatPayableOrRefundable',   label: 'VAT payable/(refundable)' },
+];
+
 function VAT201Detail({ data }: { data: Record<string, unknown> }) {
-  const fields = [
-    { key: 'field1_standardRatedSupplies',     label: '1. Standard-rated supplies' },
-    { key: 'field2_zeroRatedSupplies',         label: '2. Zero-rated supplies' },
-    { key: 'field3_exemptSupplies',            label: '3. Exempt supplies' },
-    { key: 'field4_totalImports',              label: '4. Total imports' },
-    { key: 'field5_outputVAT',                 label: '5. Output VAT' },
-    { key: 'field6_capitalGoods',              label: '6. Input VAT — Capital goods' },
-    { key: 'field7_otherGoods',                label: '7. Input VAT — Other goods' },
-    { key: 'field8_services',                  label: '8. Input VAT — Services' },
-    { key: 'field9_imports',                   label: '9. Input VAT — Imports' },
-    { key: 'field10_totalInputVAT',            label: '10. Total input VAT' },
-    { key: 'field11_vatPayableOrRefundable',   label: '11. VAT payable/(refundable)' },
-  ];
+  const sars = Array.isArray(data.sarsFields) ? (data.sarsFields as Vat201SarsField[]) : null;
+  const rows = sars
+    ? sars.map((f) => ({ key: f.field, label: `${f.field}. ${f.label}`, amount: f.amount }))
+    : LEGACY_VAT201_ROWS.map((f) => ({ key: f.key, label: f.label, amount: Number(data[f.key]) || 0 }));
   return (
     <div className="space-y-1 text-sm">
-      {fields.map((f) => (
-        <div key={f.key} className="flex justify-between py-1">
-          <span className="text-[var(--ff-text-secondary)]">{f.label}</span>
-          <span className="text-[var(--ff-text-primary)] font-medium">{fmt(Number(data[f.key]) || 0)}</span>
+      {rows.map((r) => (
+        <div key={r.key} className="flex justify-between py-1">
+          <span className="text-[var(--ff-text-secondary)]">{r.label}</span>
+          <span className="text-[var(--ff-text-primary)] font-medium">{r.amount === null ? '—' : fmt(r.amount)}</span>
         </div>
       ))}
     </div>

@@ -26,6 +26,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
+import { payeTaxYearBounds } from '@/modules/accounting/utils/payeTaxYear';
 import type { LumpSumFiling } from './payrollLumpSumFiling';
 import { listCertificateLumpSums } from './directivePaymentFiling';
 
@@ -84,12 +85,7 @@ const EXCLUDED_SAMPLE_CAP = 200;
 
 /** 1 March of the prior calendar year to the last day of February in taxYear. */
 export function saTaxYearBounds(taxYear: number): { start: string; end: string } {
-  const isLeap =
-    (taxYear % 4 === 0 && taxYear % 100 !== 0) || taxYear % 400 === 0;
-  return {
-    start: `${taxYear - 1}-03-01`,
-    end: `${taxYear}-02-${isLeap ? '29' : '28'}`,
-  };
+  return payeTaxYearBounds(taxYear);
 }
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
