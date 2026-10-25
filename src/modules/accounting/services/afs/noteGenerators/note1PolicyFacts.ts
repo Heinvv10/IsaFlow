@@ -12,7 +12,7 @@ import { INVENTORY_SUBTYPES, inventoryBalancesAt } from './inventoryBalances';
 export interface PolicyFacts {
   /** Methods of the assets held at some point in the year, in a fixed order; empty when the register holds none. */
   depMethods: DepreciationMethod[];
-  /** Cost methods of the active inventory products, in a fixed order; empty when there are none. */
+  /** Cost methods of the active inventory products (all of them when none is active), in a fixed order; empty when there are none. */
   invMethods: CostMethod[];
   /** Inventory at some point in the year: a balance at the prior year end, or a posted movement in the year. */
   holdsInventory: boolean;
@@ -45,9 +45,12 @@ export async function readPolicyFacts(companyId: string, start: string, end: str
       AND purchase_date <= ${end}::DATE
       AND (disposal_date IS NULL OR disposal_date >= ${start}::DATE)
   `) as DbRow[];
+  // The active inventory products; when none is active (stock sold out and the items retired), all of them.
   const products = (await sql`
-    SELECT DISTINCT cost_method FROM products
-    WHERE company_id = ${companyId} AND is_active = true AND product_type = 'inventory'
+    SELECT DISTINCT cost_method FROM products p
+    WHERE p.company_id = ${companyId} AND p.product_type = 'inventory'
+      AND (p.is_active = true OR NOT EXISTS (
+        SELECT 1 FROM products a WHERE a.company_id = ${companyId} AND a.product_type = 'inventory' AND a.is_active = true))
   `) as DbRow[];
   const moved = (await sql`
     SELECT EXISTS (
